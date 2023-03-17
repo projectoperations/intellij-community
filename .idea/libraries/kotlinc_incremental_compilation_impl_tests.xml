@@ -1,12 +1,12 @@
 <component name="libraryTable">
   <library name="kotlinc.incremental-compilation-impl-tests" type="repository">
-    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:incremental-compilation-impl-tests-for-ide:1.8.20-RC-release-288" />
+    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:incremental-compilation-impl-tests-for-ide:1.9.0-dev-3811" />
     <CLASSES>
-      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/incremental-compilation-impl-tests-for-ide/1.8.20-RC-release-288/incremental-compilation-impl-tests-for-ide-1.8.20-RC-release-288.jar!/" />
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/incremental-compilation-impl-tests-for-ide/1.9.0-dev-3811/incremental-compilation-impl-tests-for-ide-1.9.0-dev-3811.jar!/" />
     </CLASSES>
     <JAVADOC />
     <SOURCES>
-      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/incremental-compilation-impl-tests-for-ide/1.8.20-RC-release-288/incremental-compilation-impl-tests-for-ide-1.8.20-RC-release-288-sources.jar!/" />
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/incremental-compilation-impl-tests-for-ide/1.9.0-dev-3811/incremental-compilation-impl-tests-for-ide-1.9.0-dev-3811-sources.jar!/" />
     </SOURCES>
   </library>
 </component>
