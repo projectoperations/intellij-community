@@ -372,10 +372,10 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
 
   @NotNull
   @Override
-  public IntentionAction createReplaceInaccessibleFieldWithGetterSetterFix(@NotNull PsiElement element,
+  public IntentionAction createReplaceInaccessibleFieldWithGetterSetterFix(@NotNull PsiReferenceExpression element,
                                                                            @NotNull PsiMethod getter,
                                                                            boolean isSetter) {
-    return new ReplaceInaccessibleFieldWithGetterSetterFix(element, getter, isSetter);
+    return new ReplaceInaccessibleFieldWithGetterSetterFix(element, getter, isSetter).asIntention();
   }
 
   @NotNull
@@ -464,13 +464,13 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
   @NotNull
   @Override
   public IntentionAction createAddMethodBodyFix(@NotNull PsiMethod method) {
-    return new AddMethodBodyFix(method);
+    return new AddMethodBodyFix(method).asIntention();
   }
 
   @NotNull
   @Override
   public IntentionAction createAddMethodBodyFix(@NotNull PsiMethod method, @NotNull @Nls String text) {
-    return new AddMethodBodyFix(method, text);
+    return new AddMethodBodyFix(method, text).asIntention();
   }
 
   @NotNull
@@ -620,7 +620,7 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
   public IntentionAction createReplacePrimitiveWithBoxedTypeAction(@NotNull PsiTypeElement element,
                                                                    @NotNull String typeName,
                                                                    @NotNull String boxedTypeName) {
-    return new ReplacePrimitiveWithBoxedTypeAction(element, typeName, boxedTypeName);
+    return new ReplacePrimitiveWithBoxedTypeAction(element, typeName, boxedTypeName).asIntention();
   }
 
   @Nullable
@@ -1023,7 +1023,7 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
 
   @Override
   public @NotNull IntentionAction createAssignFieldFromParameterFix() {
-    return new AssignFieldFromParameterAction(true);
+    return new AssignFieldFromParameterAction(true).asIntention();
   }
 
   @Override
@@ -1051,7 +1051,7 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
 
   @Override
   public @NotNull IntentionAction createSealClassFromPermitsListFix(@NotNull PsiClass classFromPermitsList) {
-    return new SealClassFromPermitsListAction(classFromPermitsList);
+    return new SealClassFromPermitsListAction(classFromPermitsList).asIntention();
   }
 
   @Override
@@ -1066,7 +1066,7 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
 
   @Override
   public @NotNull IntentionAction createReceiverParameterTypeFix(@NotNull PsiReceiverParameter parameter, @NotNull PsiType newType) {
-    return new ReceiverParameterTypeFix(parameter, newType);
+    return new ReceiverParameterTypeFix(parameter, newType).asIntention();
   }
 
   private final static class ReceiverParameterTypeFix extends SetVariableTypeFix {
@@ -1075,7 +1075,7 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
     }
 
     @Override
-    public @NotNull String getText() {
+    protected @NotNull String getText() {
       return QuickFixBundle.message("fix.receiver.parameter.type.text");
     }
 
@@ -1093,7 +1093,8 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
   @Override
   @Nullable
   public IntentionAction createUnwrapArrayInitializerMemberValueAction(@NotNull PsiArrayInitializerMemberValue arrayValue) {
-    return UnwrapArrayInitializerMemberValueAction.createFix(arrayValue);
+    UnwrapArrayInitializerMemberValueAction fix = UnwrapArrayInitializerMemberValueAction.createFix(arrayValue);
+    return fix == null ? null : fix.asIntention();
   }
 
   @Override
@@ -1156,12 +1157,12 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
 
   @Override
   public @NotNull IntentionAction createSetVariableTypeFix(@NotNull PsiVariable variable, @NotNull PsiType type) {
-    return new SetVariableTypeFix(variable, type);
+    return new SetVariableTypeFix(variable, type).asIntention();
   }
 
   @Override
   public @NotNull IntentionAction createReceiverParameterNameFix(@NotNull PsiReceiverParameter parameter, @NotNull String newName) {
-    return new ReceiverParameterNameFix(parameter, newName);
+    return new ReceiverParameterNameFix(parameter, newName).asIntention();
   }
 
   @Override

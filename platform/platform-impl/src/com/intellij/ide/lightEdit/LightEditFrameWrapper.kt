@@ -124,7 +124,7 @@ internal class LightEditFrameWrapper(
         frame.toggleFullScreen(true)
       }
       uiFrame.addComponentListener(FrameStateListener(windowManager.defaultFrameInfoHelper))
-      IdeMenuBar.installAppMenuIfNeeded(uiFrame)
+      installAppMenuIfNeeded(uiFrame)
 
       @Suppress("DEPRECATION")
       project.coroutineScope.launch {
@@ -168,6 +168,7 @@ internal class LightEditFrameWrapper(
 
     statusBar.init(
       project,
+      frame,
       extraItems = listOf(
         LightEditAutosaveWidget(editorManager) to LoadingOrder.before(IdeMessagePanel.FATAL_ERROR),
         LightEditEncodingWidgetWrapper(project, coroutineScope) to LoadingOrder.after(StatusBar.StandardWidgets.POSITION_PANEL),
@@ -194,7 +195,7 @@ internal class LightEditFrameWrapper(
     super.dispose()
   }
 
-  private inner class LightEditRootPane(frame: JFrame,
+  private inner class LightEditRootPane(frame: IdeFrameImpl,
                                         parentDisposable: Disposable) : IdeRootPane(frame = frame,
                                                                                     parentDisposable = parentDisposable,
                                                                                     loadingState = null), LightEditCompatible {

@@ -3,6 +3,7 @@ package com.intellij.ui.tree
 
 import com.intellij.testFramework.assertions.Assertions.assertThat
 import com.intellij.ui.tree.ui.DefaultTreeLayoutCache
+import org.assertj.core.api.AbstractBooleanAssert
 import org.easymock.EasyMock.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -19,14 +20,15 @@ class DefaultTreeLayoutCacheTest {
 
   private lateinit var model: DefaultTreeModel
   private lateinit var selectionModel: TreeSelectionModel
-  private lateinit var sut: DefaultTreeLayoutCache
+  private lateinit var sut: AbstractLayoutCache
+  private lateinit var heights: MutableMap<String, Int>
 
   @BeforeEach
   fun setUp() {
-    selectionModel = strictMock(TreeSelectionModel::class.java)
     model = DefaultTreeModel(null)
     sut = DefaultTreeLayoutCache(defaultRowHeight) { }
-    sut.nodeDimensions = NodeDimensionsImpl(emptyMap())
+    heights = hashMapOf()
+    sut.nodeDimensions = NodeDimensionsImpl(heights)
   }
 
   @Test
@@ -68,6 +70,7 @@ class DefaultTreeLayoutCacheTest {
           | a1
         """.trimMargin())
         sut.isRootVisible = true
+        selectionModel.expect { resetRowSelection() }
       },
       assertions = {
         assertStructure("""
@@ -87,6 +90,7 @@ class DefaultTreeLayoutCacheTest {
           | a1
         """.trimMargin())
         sut.isRootVisible = false
+        selectionModel.expect { resetRowSelection() }
       },
       assertions = { assertStructure("""
         | a1
@@ -102,7 +106,7 @@ class DefaultTreeLayoutCacheTest {
           |r
           | a1
         """.trimMargin())
-        selectionModel.expect { resetRowSelection() }
+        selectionModel.expect { repeat(2) { resetRowSelection() } }
       },
       modOps = {
         sut.isRootVisible = true
@@ -126,6 +130,7 @@ class DefaultTreeLayoutCacheTest {
         """.trimMargin())
         sut.isRootVisible = true
         selectionModel.expect {
+          resetRowSelection()
           removeSelectionPath(path("r"))
           resetRowSelection()
         }
@@ -148,12 +153,15 @@ class DefaultTreeLayoutCacheTest {
           | a1
         """.trimMargin())
         sut.isRootVisible = true
-        selectionModel.expect { resetRowSelection() }
+        selectionModel.expect { repeat(2) { resetRowSelection() } }
       },
       modOps = {
         sut.setExpandedState("r", false)
       },
-      assertions = { assertStructure("r".trimMargin()) },
+      assertions = {
+        assertStructure("r".trimMargin())
+        assertThatExpanded("r").isFalse()
+      },
     )
   }
 
@@ -171,7 +179,10 @@ class DefaultTreeLayoutCacheTest {
       modOps = {
         sut.setExpandedState("r", false)
       },
-      assertions = { assertStructure("".trimMargin()) },
+      assertions = {
+        assertStructure("".trimMargin())
+        assertThatExpanded("r").isFalse()
+      },
     )
   }
 
@@ -188,6 +199,7 @@ class DefaultTreeLayoutCacheTest {
           """.trimMargin()
         )
         sut.isRootVisible = true
+        selectionModel.expect { resetRowSelection() }
       },
       modOps = {
         sut.setExpandedState("r", true)
@@ -199,6 +211,80 @@ class DefaultTreeLayoutCacheTest {
           | a2
           """.trimMargin()
         )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isFalse()
+        assertThatExpanded("r/a2").isFalse()
+     },
+    )
+  }
+
+  @Test
+  fun `re-expand invisible root`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r
+          | a1
+          |  b11
+          | a2
+          |  b21
+          """.trimMargin()
+        )
+        sut.isRootVisible = false
+        selectionModel.expect { repeat(2) { resetRowSelection() } }
+      },
+      modOps = {
+        sut.setExpandedState("r", false)
+        sut.setExpandedState("r", true)
+      },
+      assertions = {
+        assertStructure("""
+          | a1
+          | a2
+          """.trimMargin()
+        )
+        // The only difference between our implementations of these two is that for the invisible root,
+        // getExpandedState() always returns false, but isExpanded() returns the actual state.
+        // This is different from VariableHeightLayoutCache, but makes more sense, according to
+        // the way it's actually used.
+        assertThatExpandedState("r").isFalse()
+        assertThatIsExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isFalse()
+        assertThatExpanded("r/a2").isFalse()
+     },
+    )
+  }
+
+  @Test
+  fun `re-expand visible root`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r
+          | a1
+          |  b11
+          | a2
+          |  b21
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        selectionModel.expect { repeat(3) { resetRowSelection() } }
+      },
+      modOps = {
+        sut.setExpandedState("r", false)
+        sut.setExpandedState("r", true)
+      },
+      assertions = {
+        assertStructure("""
+          |r
+          | a1
+          | a2
+          """.trimMargin()
+        )
+        assertThatExpandedState("r").isTrue()
+        assertThatIsExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isFalse()
+        assertThatExpanded("r/a2").isFalse()
      },
     )
   }
@@ -216,7 +302,7 @@ class DefaultTreeLayoutCacheTest {
           """.trimMargin()
         )
         sut.isRootVisible = true
-        selectionModel.expect { repeat(2) { resetRowSelection() } }
+        selectionModel.expect { repeat(3) { resetRowSelection() } }
       },
       modOps = {
         sut.setExpandedState("r", true)
@@ -232,6 +318,9 @@ class DefaultTreeLayoutCacheTest {
           |  b21
           """.trimMargin()
         )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isTrue()
+        assertThatExpanded("r/a2").isTrue()
      },
     )
   }
@@ -250,7 +339,7 @@ class DefaultTreeLayoutCacheTest {
         )
         sut.isRootVisible = true
         selectionModel.expect {
-          repeat(4) { resetRowSelection() } // 4 times because the root is initially expanded, so the 1st expand is a no-op
+          repeat(5) { resetRowSelection() }
         }
       },
       modOps = {
@@ -269,6 +358,204 @@ class DefaultTreeLayoutCacheTest {
           |  b21
           """.trimMargin()
         )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isTrue()
+        assertThatExpanded("r/a2").isTrue()
+      },
+    )
+  }
+
+  @Test
+  fun `collapse visible root with previously expanded children`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r
+          | a1
+          |  b11
+          | a2
+          |  b21
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        selectionModel.expect {
+          repeat(4) { resetRowSelection() }
+        }
+      },
+      modOps = {
+        sut.setExpandedState("r", true)
+        sut.setExpandedState("r/a1", true)
+        sut.setExpandedState("r/a2", true)
+        sut.setExpandedState("r", false)
+      },
+      assertions = {
+        assertStructure("r")
+        assertThatExpanded("r").isFalse()
+        assertThatExpanded("r/a1").isFalse()
+        assertThatExpanded("r/a2").isFalse()
+      },
+    )
+  }
+
+  @Test
+  fun `expand a node deep down a not yet loaded branch`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r
+          | a1
+          |  b1
+          |   c1
+          |    d1
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        selectionModel.expect { repeat(2) { resetRowSelection() } }
+      },
+      modOps = {
+        sut.setExpandedState("r/a1/b1/c1", true)
+      },
+      assertions = {
+        assertStructure("""
+          |r
+          | a1
+          |  b1
+          |   c1
+          |    d1
+          """.trimMargin()
+        )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isTrue()
+        assertThatExpanded("r/a1/b1").isTrue()
+        assertThatExpanded("r/a1/b1/c1").isTrue()
+      },
+    )
+  }
+
+  @Test
+  fun `expand a non-existing child of a node with loaded children`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r
+          | a1
+          |  b1
+          |   c1
+          |    d1
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        selectionModel.expect { resetRowSelection() }
+      },
+      modOps = {
+        sut.setExpandedState(fakePath("r/a2"), true)
+      },
+      assertions = {
+        assertStructure("""
+          |r
+          | a1
+          """.trimMargin()
+        )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isFalse()
+        assertThatExpanded("r/a1/b1").isFalse()
+        assertThatExpanded("r/a1/b1/c1").isFalse()
+      },
+    )
+  }
+
+  @Test
+  fun `expand a non-existing node deep down a not yet loaded branch`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r
+          | a1
+          |  b1
+          |   c1
+          |    d1
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        selectionModel.expect { resetRowSelection() }
+      },
+      modOps = {
+        sut.setExpandedState(fakePath("r/a1/b1/c1111"), true)
+      },
+      assertions = {
+        assertStructure("""
+          |r
+          | a1
+          """.trimMargin()
+        )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isFalse()
+        assertThatExpanded("r/a1/b1").isFalse()
+        assertThatExpanded("r/a1/b1/c1").isFalse()
+      },
+    )
+  }
+
+  @Test
+  fun `expand a node from an alien root`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r
+          | a1
+          |  b1
+          |   c1
+          |    d1
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        selectionModel.expect { resetRowSelection() }
+      },
+      modOps = {
+        sut.setExpandedState(fakePath("r2/a1/b1"), true)
+      },
+      assertions = {
+        assertStructure("""
+          |r
+          | a1
+          """.trimMargin()
+        )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isFalse()
+        assertThatExpanded("r/a1/b1").isFalse()
+        assertThatExpanded("r/a1/b1/c1").isFalse()
+      },
+    )
+  }
+
+  @Test
+  fun `expand an alien root`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r
+          | a1
+          |  b1
+          |   c1
+          |    d1
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        selectionModel.expect { resetRowSelection() }
+      },
+      modOps = {
+        sut.setExpandedState(fakePath("r2"), true)
+      },
+      assertions = {
+        assertStructure("""
+          |r
+          | a1
+          """.trimMargin()
+        )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isFalse()
+        assertThatExpanded("r/a1/b1").isFalse()
+        assertThatExpanded("r/a1/b1/c1").isFalse()
       },
     )
   }
@@ -283,7 +570,7 @@ class DefaultTreeLayoutCacheTest {
           """.trimMargin()
         )
         sut.isRootVisible = true
-        selectionModel.expect { resetRowSelection() }
+        selectionModel.expect { repeat(2) { resetRowSelection() } }
       },
       modOps = {
         node("r/a1").insert("b11", 0)
@@ -296,6 +583,8 @@ class DefaultTreeLayoutCacheTest {
           |  b11
           """.trimMargin()
         )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isTrue()
       },
     )
   }
@@ -311,7 +600,7 @@ class DefaultTreeLayoutCacheTest {
           """.trimMargin()
         )
         sut.isRootVisible = true
-        selectionModel.expect { repeat(3) { resetRowSelection() } }
+        selectionModel.expect { repeat(4) { resetRowSelection() } }
       },
       modOps = {
         sut.setExpandedState("r/a1", true)
@@ -328,6 +617,8 @@ class DefaultTreeLayoutCacheTest {
           |  b13
           """.trimMargin()
         )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isTrue()
       },
     )
   }
@@ -345,7 +636,7 @@ class DefaultTreeLayoutCacheTest {
           """.trimMargin()
         )
         sut.isRootVisible = true
-        selectionModel.expect { repeat(3) { resetRowSelection() } }
+        selectionModel.expect { repeat(4) { resetRowSelection() } }
       },
       modOps = {
         sut.setExpandedState("r/a1", true)
@@ -365,6 +656,179 @@ class DefaultTreeLayoutCacheTest {
           |  b13
           """.trimMargin()
         )
+        assertThatExpanded("r").isTrue()
+        assertThatExpanded("r/a1").isTrue()
+        assertThatExpanded("r/a1/b10").isFalse()
+        assertThatExpanded("r/a1/b11").isTrue()
+        assertThatExpanded("r/a1/b115").isFalse()
+        assertThatExpanded("r/a1/b12").isFalse()
+        assertThatExpanded("r/a1/b13").isFalse()
+      },
+    )
+  }
+
+  @Test
+  fun `change root`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r1
+          | a1
+          |  b11
+          |   c111
+          |  b12
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        selectionModel.expect {
+          repeat(2) { resetRowSelection() }
+          clearSelection()
+        }
+      },
+      modOps = {
+        setModelStructure("""
+          |r2
+          | a2
+        """.trimMargin())
+      },
+      assertions = {
+        assertStructure("""
+          |r2
+          | a2
+          """.trimMargin()
+        )
+        assertThatExpanded("r2").isTrue()
+      },
+    )
+  }
+
+  @Test
+  fun `change invisible root`() {
+    testStructure(
+      initOps = {
+        setModelStructure("""
+          |r1
+          | a1
+          |  b11
+          |   c111
+          |  b12
+          """.trimMargin()
+        )
+        sut.isRootVisible = false
+        selectionModel.expect {
+          repeat(2) { resetRowSelection() }
+          clearSelection()
+        }
+      },
+      modOps = {
+        setModelStructure("""
+          |r2
+          | a2
+        """.trimMargin())
+      },
+      assertions = {
+        assertStructure("""
+          | a2
+          """.trimMargin()
+        )
+        assertThatExpandedState("r2").isFalse()
+        assertThatIsExpanded("r2").isTrue()
+      },
+    )
+  }
+
+  @Test
+  fun `row height - empty tree`() {
+    testSizes(
+      initOps = {
+        sut.isRootVisible = false
+      },
+      modOps = { },
+      assertions = {
+        assertSize(0, 0)
+      },
+    )
+  }
+
+  @Test
+  fun `row height - variable height, all default`() {
+    testSizes(
+      initOps = {
+        setModelStructure("""
+          |r1
+          | a1
+          |  b11
+          |   c111
+          |  b12
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+      },
+      modOps = {
+        sut.setExpandedState("r1/a1/b11", true)
+      },
+      assertions = {
+        assertSize(3 * indent + "c111".length, defaultRowHeight * 5)
+      },
+    )
+  }
+
+  @Test
+  fun `row height - fixed height`() {
+    testSizes(
+      initOps = {
+        setModelStructure("""
+          |r1
+          | a1
+          |  b11
+          |   c111
+          |  b12
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        sut.rowHeight = 10
+      },
+      modOps = {
+        sut.setExpandedState("r1/a1/b11", true)
+      },
+      assertions = {
+        assertSize(3 * indent + "c111".length, 10 * 5)
+      },
+    )
+  }
+
+  @Test
+  fun `row height - variable height, some different`() {
+    testSizes(
+      initOps = {
+        setModelStructure("""
+          |r1
+          | a1
+          |  b11
+          |   c111
+          |  b12
+          """.trimMargin()
+        )
+        sut.isRootVisible = true
+        heights["b11"] = 10
+        heights["b12"] = 15
+      },
+      modOps = {
+        sut.setExpandedState("r1/a1/b11", true)
+      },
+      assertions = {
+        assertHeight(defaultRowHeight * 5) // default height
+        // The first line:
+        assertWidth(0, defaultRowHeight - 1, "r1".length)
+        assertHeight(defaultRowHeight * 5) // still default, as b11 is not visible
+        // Now query three lines:
+        assertWidth(0, defaultRowHeight * 2 + 1, indent * 2 + "b11".length)
+        // Updated height since the b11 row became "visible" after the last query:
+        assertHeight(defaultRowHeight * 5 - (defaultRowHeight - 10))
+        // Now query the last line:
+        assertWidth(defaultRowHeight * 4 - (defaultRowHeight - 10), defaultRowHeight * 5 - (defaultRowHeight - 10), indent * 2 + "b12".length)
+        // Updated height of all rows now:
+        assertHeight(defaultRowHeight * 5 - (defaultRowHeight - 10) - (defaultRowHeight - 15))
       },
     )
   }
@@ -374,11 +838,31 @@ class DefaultTreeLayoutCacheTest {
     modOps: () -> Unit = { },
     assertions: () -> Unit = { },
   ) {
+    selectionModel = strictMock(TreeSelectionModel::class.java)
     selectionModel.expect {
-      rowMapper = sut
+      rowMapper = sut // called from setSelectionModel()
     }
     initOps()
     replay(selectionModel) // start verification
+    setModels()
+    modOps()
+    assertions()
+    verify(selectionModel) // complete verification
+  }
+
+  private fun testSizes(
+    initOps: () -> Unit = { },
+    modOps: () -> Unit = { },
+    assertions: () -> Unit = { },
+  ) {
+    selectionModel = niceMock(TreeSelectionModel::class.java) // Verification not needed in these tests.
+    initOps()
+    setModels()
+    modOps()
+    assertions()
+  }
+
+  private fun setModels() {
     sut.selectionModel = selectionModel
     sut.model = model
     // This is usually handled by the tree UI, but we're unit testing here:
@@ -399,9 +883,6 @@ class DefaultTreeLayoutCacheTest {
         sut.treeStructureChanged(e)
       }
     })
-    modOps()
-    assertions()
-    verify(selectionModel) // complete verification
   }
 
   private fun setModelStructure(s: String) {
@@ -447,26 +928,78 @@ class DefaultTreeLayoutCacheTest {
     function()
   }
 
+  private fun assertThatExpanded(path: String): AbstractBooleanAssert<*> {
+    val expandedState = sut.getExpandedState(path)
+    val isExpanded = sut.isExpanded(path)
+    val both = when {
+      expandedState && isExpanded -> true
+      !expandedState && !isExpanded -> false
+      else -> null
+    }
+    return assertThat(both).`as`("getExpandedState($path), isExpanded($path)")
+  }
+
+  private fun assertThatExpandedState(path: String): AbstractBooleanAssert<*> =
+    assertThat(sut.getExpandedState(path)).`as`("getExpandedState($path)")
+
+  private fun assertThatIsExpanded(path: String): AbstractBooleanAssert<*> =
+    assertThat(sut.isExpanded(path)).`as`("isExpanded($path)")
+
+  private fun assertSize(width: Int, height: Int) {
+    val actualWidth = sut.getPreferredWidth(null)
+    val actualHeight = sut.preferredHeight
+    assertThat(actualWidth).`as`("width").isEqualTo(width)
+    assertThat(actualHeight).`as`("height").isEqualTo(height)
+  }
+
+  private fun assertHeight(height: Int) {
+    val actualHeight = sut.preferredHeight
+    assertThat(actualHeight).`as`("height").isEqualTo(height)
+  }
+
+  private fun assertWidth(from: Int, to: Int, width: Int) {
+    val actualWidth = sut.getPreferredWidth(Rectangle(0, from, 0, to - from))
+    assertThat(actualWidth).`as`("width for [%d,%d]", from, to).isEqualTo(width)
+  }
+
   private fun AbstractLayoutCache.setExpandedState(path: String, isExpanded: Boolean) {
     setExpandedState(path(path), isExpanded)
   }
 
+  private fun AbstractLayoutCache.getExpandedState(path: String) = getExpandedState(path(path))
+
+  private fun AbstractLayoutCache.isExpanded(path: String) = isExpanded(path(path))
+
   private fun node(path: String) = path(path).lastPathComponent as Node
 
-  private fun path(s: String): TreePath {
+  private fun path(s: String): TreePath = pathImpl(s, true)
+
+  private fun fakePath(s: String): TreePath = pathImpl(s, false)
+
+  private fun pathImpl(s: String, onlyExisting: Boolean): TreePath {
     val names = s.split('/')
     var path: TreePath? = null
     for (name in names) {
       if (path == null) {
-        assertThat((model.root as Node).userObject).isEqualTo(name)
-        path = TreePath(model.root)
+        if (onlyExisting) {
+          assertThat((model.root as Node).userObject).isEqualTo(name)
+          path = TreePath(model.root)
+        }
+        else {
+          path = TreePath(Node(name))
+        }
       }
       else {
         val parent = path.lastPathComponent
-        val child = (0 until model.getChildCount(parent))
+        var child = (0 until model.getChildCount(parent))
           .map { model.getChild(parent, it) }
           .firstOrNull { (it as Node).userObject == name }
-        requireNotNull(child) { "Node $name not found in path $s" }
+        if (onlyExisting) {
+          requireNotNull(child) { "Node $name not found in path $s" }
+        }
+        else {
+          child = Node(name)
+        }
         path = path.pathByAddingChild(child)
       }
     }
@@ -495,15 +1028,55 @@ class DefaultTreeLayoutCacheTest {
         }
       }.joinToString("\n")
     assertThat(actualStructure).isEqualTo(structureString)
+    val visiblePaths = mutableListOf<TreePath>()
+    for (row in 0 until sut.rowCount) {
+      val path = sut.getPathForRow(row)
+      visiblePaths += path
+      assertThat(sut.getRowForPath(path)).`as`("row %d", row).isEqualTo(row)
+    }
+    for ((i, path) in visiblePaths.withIndex()) {
+      assertThat(sut.getVisiblePathsFrom(path).toList()).isEqualTo(visiblePaths.subList(i, visiblePaths.size))
+    }
+    assertPathVisibilityInvariants(model.root?.let { CachingTreePath(it) }, visiblePaths.toSet())
+  }
+
+  private fun assertPathVisibilityInvariants(path: TreePath?, visiblePaths: Set<TreePath>) {
+    if (path == null) {
+      return
+    }
+    assertThat(sut.getVisibleChildCount(path)).`as`("getVisibleChildCount(%s)", path).isEqualTo(countVisibleChildren(path, visiblePaths))
+    if (path !in visiblePaths) {
+      assertThat(sut.getRowForPath(path)).isEqualTo(-1)
+    }
+    val value = path.lastPathComponent
+    for (i in 0 until model.getChildCount(value)) {
+      val child = model.getChild(value, i)
+      assertPathVisibilityInvariants(path.pathByAddingChild(child), visiblePaths)
+    }
+  }
+
+  private fun countVisibleChildren(path: TreePath, visiblePaths: Set<TreePath>): Int {
+    var result = 0
+    val value = path.lastPathComponent
+    for (i in 0 until model.getChildCount(value)) {
+      val child = model.getChild(value, i)
+      val childPath = path.pathByAddingChild(child)
+      if (childPath in visiblePaths) {
+        ++result // the child itself
+        result += countVisibleChildren(childPath, visiblePaths)
+      }
+    }
+    return result
   }
 
   private class NodeDimensionsImpl(private val heights: Map<String, Int>) : NodeDimensions() {
     override fun getNodeDimensions(value: Any?, row: Int, depth: Int, expanded: Boolean, bounds: Rectangle?): Rectangle =
       (bounds ?: Rectangle()).apply {
         x = depth * indent
-        value as String
-        width = value.length
-        height = heights[value] ?: defaultRowHeight
+        value as Node
+        val userObject = value.userObject as String
+        width = userObject.length
+        height = heights[userObject] ?: defaultRowHeight
       }
   }
 

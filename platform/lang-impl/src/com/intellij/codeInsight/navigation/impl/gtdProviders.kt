@@ -34,8 +34,8 @@ private fun fromGTDProvidersInner(project: Project, editor: Editor, offset: Int)
     catch (pce: ProcessCanceledException) {
       throw pce
     }
-    catch (_: IndexNotReadyException) {
-      null
+    catch (inre: IndexNotReadyException) {
+      throw inre // clients should catch and either show dumb mode notification or ignore
     }
     catch (t: Throwable) {
       LOG.error(t)
@@ -74,7 +74,7 @@ private class GTDProviderData(
       0 -> null
       1 -> {
         targetElements.single().gtdTargetNavigatable()?.navigationRequest()?.let { request ->
-          SingleTarget(request, navigationProvider)
+          SingleTarget({ request }, navigationProvider)
         }
       }
       else -> {

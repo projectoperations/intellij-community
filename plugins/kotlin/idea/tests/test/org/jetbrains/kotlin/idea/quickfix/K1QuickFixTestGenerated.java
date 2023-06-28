@@ -3780,6 +3780,19 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("testData/quickfix/convertToBlockBody")
+    public static class ConvertToBlockBody extends AbstractK1QuickFixTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("simple.kt")
+        public void testSimple() throws Exception {
+            runTest("testData/quickfix/convertToBlockBody/simple.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/convertToIsArrayOfCall")
     public static class ConvertToIsArrayOfCall extends AbstractK1QuickFixTest {
         private void runTest(String testDataFilePath) throws Exception {
@@ -11704,6 +11717,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 runTest("testData/quickfix/override/overridingFinalMethodInLocal.kt");
             }
 
+            @TestMetadata("overridingFinalOverrideMethod.kt")
+            public void testOverridingFinalOverrideMethod() throws Exception {
+                runTest("testData/quickfix/override/overridingFinalOverrideMethod.kt");
+            }
+
             @TestMetadata("overridingFinalProperty.kt")
             public void testOverridingFinalProperty() throws Exception {
                 runTest("testData/quickfix/override/overridingFinalProperty.kt");
@@ -11862,6 +11880,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     public static class ProtectedInFinal extends AbstractK1QuickFixTest {
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("finalizeNotReal.kt")
+        public void testFinalizeNotReal() throws Exception {
+            runTest("testData/quickfix/protectedInFinal/finalizeNotReal.kt");
+        }
+
+        @TestMetadata("finalizeNotRealImplicitReturnInt.kt")
+        public void testFinalizeNotRealImplicitReturnInt() throws Exception {
+            runTest("testData/quickfix/protectedInFinal/finalizeNotRealImplicitReturnInt.kt");
         }
 
         @TestMetadata("protected.kt")

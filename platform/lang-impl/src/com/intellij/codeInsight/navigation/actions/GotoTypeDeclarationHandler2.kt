@@ -6,7 +6,8 @@ import com.intellij.codeInsight.CodeInsightBundle
 import com.intellij.codeInsight.TargetElementUtil
 import com.intellij.codeInsight.navigation.CtrlMouseData
 import com.intellij.codeInsight.navigation.impl.*
-import com.intellij.codeInsight.navigation.impl.NavigationActionResult.*
+import com.intellij.codeInsight.navigation.impl.NavigationActionResult.MultipleTargets
+import com.intellij.codeInsight.navigation.impl.NavigationActionResult.SingleTarget
 import com.intellij.openapi.actionSystem.ex.ActionUtil.underModalProgress
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.DumbService
@@ -43,9 +44,6 @@ internal object GotoTypeDeclarationHandler2 : CodeInsightActionHandler {
   private fun gotoTypeDeclaration(project: Project, editor: Editor, actionResult: NavigationActionResult) {
     when (actionResult) {
       is SingleTarget -> {
-        navigateRequest(project, actionResult.request)
-      }
-      is LazySingleTarget -> {
         navigateRequestLazy(project, actionResult.requestor)
       }
       is MultipleTargets -> {

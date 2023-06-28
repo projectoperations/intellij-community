@@ -20,7 +20,6 @@ import com.intellij.ui.paint.PaintUtil.RoundingMode;
 import com.intellij.ui.render.RenderingUtil;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.*;
-import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.concurrency.SynchronizedClearableLazy;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
@@ -627,10 +626,9 @@ public final class UIUtil {
 
     for (int i = 0; i < text.length(); i++) {
       char ch = text.charAt(i);
+      currentAtom.append(ch);
 
       boolean lineBreak = ch == '\n';
-      if (!lineBreak) currentAtom.append(ch);
-
       if (lineBreak || ch == separator) {
         currentLine.append(currentAtom);
         currentAtom.setLength(0);
@@ -928,8 +926,13 @@ public final class UIUtil {
     return UIManager.getFont("OptionPane.messageFont");
   }
 
+  /**
+   * @deprecated Use {@link FontUtil#getMenuFont()}
+   */
+  @Deprecated
+  @SuppressWarnings("unused")
   public static Font getMenuFont() {
-    return UIManager.getFont("Menu.font");
+    return FontUtil.getMenuFont();
   }
 
   /**
@@ -3285,18 +3288,9 @@ public final class UIUtil {
     StartupUiUtilKt.drawImage(g, image, dstBounds, srcBounds, null, observer);
   }
 
-  /**
-   * Waits for the EDT to dispatch all its invocation events.
-   * Must be called outside EDT.
-   * Use {@link com.intellij.testFramework.PlatformTestUtil#dispatchAllInvocationEventsInIdeEventQueue()} if you want to pump from inside EDT
-   **/
   @TestOnly
   public static void pump() {
-    assert !SwingUtilities.isEventDispatchThread();
-    Semaphore lock = new Semaphore(1);
-    //noinspection SSBasedInspection
-    SwingUtilities.invokeLater(() -> lock.up());
-    lock.waitFor();
+    StartupUiUtil.INSTANCE.pump();
   }
 
   public static boolean isJreHiDPI() {
@@ -3372,11 +3366,5 @@ public final class UIUtil {
 
   public static boolean isMetalRendering() {
     return SystemInfo.isMac && Boolean.getBoolean("sun.java2d.metal");
-  }
-
-  @ApiStatus.Internal
-  public static @NotNull Insets unscaleIfJBInsets(@NotNull Insets insets) {
-    if (insets instanceof JBInsets) return ((JBInsets)insets).getUnscaled();
-    return insets;
   }
 }

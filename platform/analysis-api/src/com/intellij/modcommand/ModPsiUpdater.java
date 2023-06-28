@@ -7,7 +7,6 @@ import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiNameIdentifierOwner;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
@@ -17,12 +16,12 @@ import java.util.List;
 import java.util.function.BiConsumer;
 
 /**
- * A helper to perform editor command when building the {@link com.intellij.modcommand.ModCommand}
+ * A helper to perform editor command when building the {@link ModCommand}
  * 
- * @see ModCommands#psiUpdate(PsiElement, BiConsumer) 
+ * @see com.intellij.codeInspection.ModCommands#psiUpdate(PsiElement, BiConsumer)
  */
 @ApiStatus.Experimental
-public interface ModPsiUpdater {
+public interface ModPsiUpdater extends ModPsiNavigator {
   /**
    * @param e element to update
    * @return a copy of this element inside a writable non-physical file, whose changes are tracked and will be added to the final command.
@@ -30,29 +29,8 @@ public interface ModPsiUpdater {
    * Other write operations on the directory may not work.
    * @param <E> type of the element
    */
-  @Contract(value = "null -> null; !null -> !null")
+  @Contract("null -> null; !null -> !null")
   <E extends PsiElement> E getWritable(E e);
-
-  /**
-   * Records a command to delete the particular file. Note that calling {@link PsiFile#delete()} may not
-   * work, even if the file was obtained from {@link #getWritable(PsiElement)}.
-   * @param file file to delete (can be physical or returned earlier by {@link #getWritable(PsiElement)}
-   */
-  void deleteFile(@NotNull PsiFile file);
-  
-  /**
-   * Selects given element
-   * 
-   * @param element element to select
-   */
-  void select(@NotNull PsiElement element);
-
-  /**
-   * Selects given range
-   * 
-   * @param range range to select
-   */
-  void select(@NotNull TextRange range);
   
   /**
    * Highlight given element as a search result
@@ -78,26 +56,6 @@ public interface ModPsiUpdater {
    * @param attributesKey attributes to use for highlighting
    */
   void highlight(@NotNull TextRange range, @NotNull TextAttributesKey attributesKey);
-
-  /**
-   * Navigates to a given offset
-   *
-   * @param offset offset to move to
-   */
-  void moveTo(int offset);
-
-  /**
-   * Navigates to a given element
-   * 
-   * @param element element to navigate to
-   */
-  void moveTo(@NotNull PsiElement element);
-
-  /**
-   * Moves caret to a previous occurrence of character ch. Do nothing if no such occurrence is found 
-   * @param ch character to find
-   */
-  void moveToPrevious(char ch);
 
   /**
    * Suggest to rename a given element

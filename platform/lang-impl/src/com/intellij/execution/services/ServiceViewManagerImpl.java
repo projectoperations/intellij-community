@@ -31,6 +31,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -1020,7 +1021,7 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
     if (descriptor instanceof ServiceViewToolWindowDescriptor) {
       return (ServiceViewToolWindowDescriptor)descriptor;
     }
-    String toolWindowId = descriptor.getId();
+    @NlsSafe String toolWindowId = descriptor.getId();
     return new ServiceViewToolWindowDescriptor() {
       @Override
       public @NotNull String getToolWindowId() {
@@ -1065,6 +1066,11 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
         myModel.notifyListeners(e);
       }
     });
+
+    if (toExclude.isEmpty() && !toInclude.isEmpty()) {
+      toolWindowIds.add(ToolWindowId.SERVICES);
+    }
+    activateToolWindows(toolWindowIds);
   }
 
   private Set<String> excludeServices(@NotNull List<ServiceViewContributor<?>> toExclude,
@@ -1120,6 +1126,20 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
       registerActivateByContributorActions(myProject, toInclude);
     }
     return toolWindowIds;
+  }
+
+  private void activateToolWindows(Set<String> toolWindowIds) {
+    ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(myProject);
+    toolWindowManager.invokeLater(() -> {
+      for (String toolWindowId : toolWindowIds) {
+        if (myActiveToolWindowIds.contains(toolWindowId)) {
+          ToolWindow toolWindow = toolWindowManager.getToolWindow(toolWindowId);
+          if (toolWindow != null) {
+            toolWindow.activate(null);
+          }
+        }
+      }
+    });
   }
 
   void includeToolWindow(@NotNull String toolWindowId) {

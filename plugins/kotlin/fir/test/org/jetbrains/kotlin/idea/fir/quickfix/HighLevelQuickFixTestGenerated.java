@@ -1545,6 +1545,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../idea/tests/testData/quickfix/override/overridingFinalMethodInLocal.kt");
         }
 
+        @TestMetadata("overridingFinalOverrideMethod.kt")
+        public void testOverridingFinalOverrideMethod() throws Exception {
+            runTest("../idea/tests/testData/quickfix/override/overridingFinalOverrideMethod.kt");
+        }
+
         @TestMetadata("overridingFinalProperty.kt")
         public void testOverridingFinalProperty() throws Exception {
             runTest("../idea/tests/testData/quickfix/override/overridingFinalProperty.kt");
@@ -3157,6 +3162,19 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("typeMismatch.kt")
         public void testTypeMismatch() throws Exception {
             runTest("../idea/tests/testData/quickfix/specifySuperType/typeMismatch.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../idea/tests/testData/quickfix/convertToBlockBody")
+    public static class ConvertToBlockBody extends AbstractHighLevelQuickFixTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("simple.kt")
+        public void testSimple() throws Exception {
+            runTest("../idea/tests/testData/quickfix/convertToBlockBody/simple.kt");
         }
     }
 }

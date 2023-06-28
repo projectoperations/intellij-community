@@ -8,16 +8,14 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.util.IconLoader;
-import com.intellij.openapi.util.IconPathPatcher;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.EarlyAccessRegistryManager;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.registry.RegistryValue;
 import com.intellij.openapi.util.registry.RegistryValueListener;
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.PlatformUtils;
+import com.intellij.util.SystemProperties;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -42,7 +40,7 @@ import static java.time.temporal.ChronoUnit.DAYS;
  */
 @ApiStatus.Internal
 public abstract class ExperimentalUI {
-  public static final String KEY = "ide.experimental.ui";
+  public static final String KEY = NewUi.KEY;
 
   public static final String NEW_UI_USED_PROPERTY = "experimental.ui.used.once";
   public static final String NEW_UI_FIRST_SWITCH = "experimental.ui.first.switch";
@@ -51,9 +49,11 @@ public abstract class ExperimentalUI {
   private static final String FIRST_PROMOTION_DATE_PROPERTY = "experimental.ui.first.promotion.localdate";
 
   private final AtomicBoolean isIconPatcherSet = new AtomicBoolean();
-  @Nullable
-  private static volatile Boolean newUiOneSessionOverrideForThinClient = null;
   private IconPathPatcher iconPathPatcher;
+
+  static {
+    NewUi.initialize(() -> EarlyAccessRegistryManager.INSTANCE.getBoolean(KEY));
+  }
 
   public static ExperimentalUI getInstance() {
     return ApplicationManager.getApplication().getService(ExperimentalUI.class);
@@ -61,18 +61,11 @@ public abstract class ExperimentalUI {
 
   @Contract(pure = true)
   public static boolean isNewUI() {
-    Boolean override = newUiOneSessionOverrideForThinClient;
-    return override == null
-           ? EarlyAccessRegistryManager.INSTANCE.getBoolean(KEY)
-           : override;
+    return NewUi.isEnabled();
   }
 
-  protected static boolean isNewUiOverriden() {
-    return newUiOneSessionOverrideForThinClient != null;
-  }
-
-  public static void overrideNewUiForOneSessionForThinClient(boolean newUi) {
-    newUiOneSessionOverrideForThinClient = newUi;
+  public static void overrideNewUiForOneRemDevSession(boolean newUi) {
+    NewUi.overrideNewUiForOneRemDevSession(newUi);
     getInstance().lookAndFeelChanged();
   }
 
@@ -126,9 +119,11 @@ public abstract class ExperimentalUI {
 
     public static @NotNull List<IconModel> getData() {
       List<IconModel> result = new ArrayList<>(paths.size());
-
       for (Pair<String, ClassLoader> p : paths) {
-        result.add(new IconModel(IconLoader.getIcon(p.first, p.second != null ? p.second : NotPatchedIconRegistry.class.getClassLoader()), p.first));
+        String path = p.first;
+        ClassLoader classLoader = p.second != null ? p.second : NotPatchedIconRegistry.class.getClassLoader();
+        Icon icon = IconLoaderKt.findIconUsingNewImplementation(path, classLoader, null);
+        result.add(new IconModel(icon, path));
       }
       return result;
     }
@@ -187,7 +182,7 @@ public abstract class ExperimentalUI {
 
   private @NotNull IconPathPatcher createPathPatcher() {
     Map<ClassLoader, Map<String, String>> paths = getIconMappings();
-    boolean dumpNotPatchedIcons = Registry.is("ide.experimental.ui.dump.not.patched.icons");
+    boolean dumpNotPatchedIcons = SystemProperties.getBooleanProperty("ide.experimental.ui.dump.not.patched.icons", false);
     return new IconPathPatcher() {
       @Override
       public @Nullable String patchPath(@NotNull String path, @Nullable ClassLoader classLoader) {

@@ -86,8 +86,6 @@
   </extensions>
 
   <actions>
-    <action id="GitLab.Open.Settings.Page" class="org.jetbrains.plugins.gitlab.GitLabOpenSettingsPageAction"/>
-
     <action id="GitLab.Merge.Request.Show.List"
             class="org.jetbrains.plugins.gitlab.mergerequest.action.GitLabShowMergeRequestsAction"
             icon="org.jetbrains.plugins.gitlab.GitlabIcons.GitLabLogo"/>
@@ -111,7 +109,7 @@
             class="org.jetbrains.plugins.gitlab.mergerequest.action.GitLabMergeRequestCopyURLAction"
             icon="org.jetbrains.plugins.gitlab.GitlabIcons.GitLabLogo"/>
 
-    <group id="GitLab.Main.Group" popup="true">
+    <group id="GitLab.Main.Group" popup="true" class="com.intellij.ide.actions.NonTrivialActionGroup">
       <reference id="GitLab.Merge.Request.Show.List"/>
       <add-to-group group-id="Git.MainMenu" relative-to-action="Git.Configure.Remotes" anchor="before"/>
     </group>

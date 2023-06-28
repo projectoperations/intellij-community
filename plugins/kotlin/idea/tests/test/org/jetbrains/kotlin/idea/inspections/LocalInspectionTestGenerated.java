@@ -3700,6 +3700,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
                 runTest("testData/inspectionsLocal/conventionNameCalls/replaceCallWithBinaryOperator/rangeToSanityTest.kt");
             }
 
+            @TestMetadata("rangeUntilSanityTest.kt")
+            public void testRangeUntilSanityTest() throws Exception {
+                runTest("testData/inspectionsLocal/conventionNameCalls/replaceCallWithBinaryOperator/rangeUntilSanityTest.kt");
+            }
+
             @TestMetadata("remSanityTest.kt")
             public void testRemSanityTest() throws Exception {
                 runTest("testData/inspectionsLocal/conventionNameCalls/replaceCallWithBinaryOperator/remSanityTest.kt");
@@ -16246,6 +16251,21 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
         @TestMetadata("hasAnnotation.kt")
         public void testHasAnnotation() throws Exception {
             runTest("testData/inspectionsLocal/unnecessaryVariable/hasAnnotation.kt");
+        }
+
+        @TestMetadata("hasComment.kt")
+        public void testHasComment() throws Exception {
+            runTest("testData/inspectionsLocal/unnecessaryVariable/hasComment.kt");
+        }
+
+        @TestMetadata("hasComment2.kt")
+        public void testHasComment2() throws Exception {
+            runTest("testData/inspectionsLocal/unnecessaryVariable/hasComment2.kt");
+        }
+
+        @TestMetadata("hasComment3.kt")
+        public void testHasComment3() throws Exception {
+            runTest("testData/inspectionsLocal/unnecessaryVariable/hasComment3.kt");
         }
 
         @TestMetadata("ifElse.kt")

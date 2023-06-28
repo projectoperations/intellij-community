@@ -16,7 +16,6 @@ import com.intellij.openapi.actionSystem.ex.CustomComponentAction
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.serviceAsync
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.keymap.impl.ui.ActionsTreeUtil
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
@@ -37,6 +36,8 @@ import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.CurrentTheme.Toolbar.mainToolbarButtonInsets
 import com.jetbrains.WindowDecorations
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import java.awt.*
 import java.awt.event.MouseEvent
 import java.beans.PropertyChangeListener
@@ -44,12 +45,12 @@ import javax.accessibility.AccessibleContext
 import javax.accessibility.AccessibleRole
 import javax.swing.Icon
 import javax.swing.JComponent
+import javax.swing.JFrame
 import javax.swing.JPanel
 
 private const val MAIN_TOOLBAR_ID = IdeActions.GROUP_MAIN_TOOLBAR_NEW_UI
-private val LOG = logger<MainToolbar>()
 
-internal class MainToolbar: JPanel(HorizontalLayout(10)) {
+internal class MainToolbar(private val coroutineScope: CoroutineScope, frame: JFrame) : JPanel(HorizontalLayout(10)) {
   private val disposable = Disposer.newDisposable()
   private val mainMenuButton: MainMenuButton?
   private val expandableMenu: ExpandableMenu?
@@ -61,7 +62,7 @@ internal class MainToolbar: JPanel(HorizontalLayout(10)) {
     isOpaque = true
     if (IdeRootPane.isMenuButtonInToolbar) {
       mainMenuButton = MainMenuButton()
-      expandableMenu = ExpandableMenu(this, disposable)
+      expandableMenu = ExpandableMenu(headerContent = this, coroutineScope = coroutineScope, frame)
       mainMenuButton.expandableMenu = expandableMenu
     }
     else {
@@ -204,6 +205,7 @@ internal class MainToolbar: JPanel(HorizontalLayout(10)) {
   override fun removeNotify() {
     super.removeNotify()
     Disposer.dispose(disposable)
+    coroutineScope.cancel()
   }
 
   private fun addWidget(widget: JComponent, position: String) {

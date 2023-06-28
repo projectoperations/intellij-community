@@ -4,21 +4,17 @@ plugins {
   id("org.jetbrains.kotlin.jvm") version "1.8.0"
 }
 
-val codegenImplMinorVersion =  project.findProperty("codegenImplMinorVersion")?.toString()
-val codegenImplMajorVersion =  project.findProperty("codegenImplMajorVersion")?.toString()
-val codegenApiVersion =  project.findProperty("codegenApiVersion")?.toString()
+fun properties(key: String) = project.findProperty(key).toString()
+
+val codegenImplMinorVersion = properties("codegenImplMinorVersion")
+val codegenImplMajorVersion = properties("codegenImplMajorVersion")
+val codegenApiVersion = properties("codegenApiVersion")
 
 group = "com.jetbrains.intellij.platform"
 version = "$codegenApiVersion.$codegenImplMajorVersion.$codegenImplMinorVersion"
 
 repositories {
   mavenCentral()
-  maven {
-    url = uri("https://www.jetbrains.com/intellij-repository/releases")
-  }
-  maven {
-    url = uri("https://www.jetbrains.com/intellij-repository/nightly")
-  }
   maven {
     url = uri("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
   }
@@ -30,8 +26,8 @@ kotlin {
 
 tasks.withType(Jar::class) {
   manifest {
-    attributes["Specification-Version"] = "$codegenApiVersion"
-    attributes["Implementation-Version"] = "$codegenImplMajorVersion"
+    attributes["Specification-Version"] = codegenApiVersion
+    attributes["Implementation-Version"] = codegenImplMajorVersion
   }
 }
 
@@ -54,7 +50,5 @@ publishing {
 
 dependencies {
   implementation("org.jetbrains.kotlin:kotlin-reflect")
-  implementation("com.jetbrains.intellij.platform:workspace-model-codegen:0.0.2")
-  implementation("com.jetbrains.intellij.platform:workspace-storage:LATEST-TRUNK-SNAPSHOT")
-  implementation("com.jetbrains.intellij.platform:workspace-jps:LATEST-TRUNK-SNAPSHOT")
+  implementation("com.jetbrains.intellij.platform:workspace-model-codegen:0.0.3")
 }
