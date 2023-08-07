@@ -1,9 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.projectView.impl
 
-import com.intellij.ide.FileEditorProvider
-import com.intellij.ide.FileSelectInContext
-import com.intellij.ide.SmartSelectInContext
+import com.intellij.ide.*
 import com.intellij.ide.projectView.ProjectView
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ReadConstraint
@@ -23,7 +21,9 @@ import com.intellij.openapi.util.ActionCallback
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiUtilCore
+import com.intellij.util.OverflowSemaphore
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import java.util.function.Supplier
 
 @Service
@@ -32,11 +32,39 @@ internal class SelectInProjectViewImpl(
   private val coroutineScope: CoroutineScope,
 ) {
 
+  private val semaphore = OverflowSemaphore(permits = 1, overflow = BufferOverflow.DROP_OLDEST)
+
+  // Overload instead of a default value to allow for the last-lambda-outside syntax.
+  private fun invokeWithSemaphore(taskName: String, task: suspend () -> Unit) {
+    invokeWithSemaphore(taskName, task, null)
+  }
+
+  private fun invokeWithSemaphore(taskName: String, task: suspend () -> Unit, onDone: (() -> Unit)?) {
+    coroutineScope.launch(
+      CoroutineName(taskName),
+      start = CoroutineStart.UNDISPATCHED
+    ) {
+      try {
+        semaphore.withPermit {
+          yield() // Ensure the coroutine is redispatched, even if withPermit() didn't suspend, to free the EDT.
+          task()
+        }
+      }
+      finally {
+        onDone?.invoke()
+      }
+    }
+  }
+
   fun selectInCurrentTarget(fileEditor: FileEditor?, invokedManually: Boolean) {
-    coroutineScope.launch(CoroutineName("ProjectView.selectInCurrentTarget(invokedManually=$invokedManually,fileEditor=$fileEditor")) {
+    invokeWithSemaphore("SelectInProjectViewImpl.selectInCurrentTarget") {
+      doSelectInCurrentTarget(fileEditor, invokedManually)
+    }
+  }
+
+  private suspend fun doSelectInCurrentTarget(fileEditor: FileEditor?, invokedManually: Boolean) {
       val editorsToCheck = if (fileEditor == null) allEditors() else listOf(fileEditor)
       selectInCurrentTarget(invokedManually, editorsToCheck)
-    }
   }
 
   private suspend fun selectInCurrentTarget(invokedManually: Boolean, editorsToCheck: List<FileEditor>) {
@@ -44,7 +72,7 @@ internal class SelectInProjectViewImpl(
       if (
         !invokedManually &&
         AdvancedSettings.getBoolean("project.view.do.not.autoscroll.to.libraries") &&
-        readAction { fileEditor.file?.let { file ->ProjectFileIndex.getInstance(project).isInLibrary(file) } == true }
+        readAction { fileEditor.file?.let { file -> ProjectFileIndex.getInstance(project).isInLibrary(file) } == true }
       ) {
         continue
       }
@@ -106,11 +134,31 @@ internal class SelectInProjectViewImpl(
     allowSubIdChange: Boolean,
     result: ActionCallback?,
   ) {
-    coroutineScope.launch(CoroutineName("ProjectView.ensureSelected(pane=$paneId,virtualFile=$virtualFile,focus=$requestFocus))")) {
+    invokeWithSemaphore(
+      "SelectInProjectViewImpl.ensureSelected",
+      task = {
+        doEnsureSelected(paneId, virtualFile, elementSupplier, requestFocus, allowSubIdChange, result)
+      },
+      onDone = {
+        if (result?.isProcessed == false) { // exception, or coroutine cancelled
+          result.setRejected()
+        }
+      },
+    )
+  }
+
+  private suspend fun doEnsureSelected(
+    paneId: String,
+    virtualFile: VirtualFile?,
+    elementSupplier: Supplier<Any?>,
+    requestFocus: Boolean,
+    allowSubIdChange: Boolean,
+    result: ActionCallback?,
+  ) {
       val projectView = project.serviceOrNull<ProjectView>() as ProjectViewImpl?
       if (projectView == null) {
         result?.setRejected()
-        return@launch
+        return
       }
       val pane = if (requestFocus) null else projectView.getProjectViewPaneById(paneId)
       val target = if (pane == null) null else projectView.getProjectViewSelectInTarget(pane)
@@ -123,29 +171,47 @@ internal class SelectInProjectViewImpl(
             target.isSubIdSelectable(pane.subId, FileSelectInContext(project, virtualFile, null))
           }
         if (!isSelectableInCurrentSubId) {
-          return@launch
+          return
         }
       }
       val visibleAndSelectedUserObject = withContext(Dispatchers.EDT) {
         pane?.visibleAndSelectedUserObject
       }
+
       data class SelectionContext(
         val isAlreadyVisibleAndSelected: Boolean,
         val virtualFile: VirtualFile?,
       )
+
       val context = readAction {
         val elementToSelect = elementSupplier.get() ?: virtualFile ?: return@readAction null
         SelectionContext(
-visibleAndSelectedUserObject != null && visibleAndSelectedUserObject.canRepresent(elementToSelect),
-virtualFile ?: (elementToSelect as? PsiElement)?.virtualFile
+          visibleAndSelectedUserObject != null && visibleAndSelectedUserObject.canRepresent(elementToSelect),
+          virtualFile ?: (elementToSelect as? PsiElement)?.virtualFile
         )
       }
       if (context == null || context.isAlreadyVisibleAndSelected || context.virtualFile == null) {
         result?.setDone()
-        return@launch
+        return
       }
       withContext(Dispatchers.EDT) {
         projectView.select(elementSupplier, context.virtualFile, requestFocus, result)
+      }
+  }
+
+  fun selectInAnyTarget(context: SelectInContext, targets: Collection<SelectInTarget>, requestFocus: Boolean) {
+    invokeWithSemaphore("SelectInProjectViewImpl.selectInAnyTarget") {
+      doSelectInAnyTarget(context, targets, requestFocus)
+    }
+  }
+
+  private suspend fun doSelectInAnyTarget(context: SelectInContext, targets: Collection<SelectInTarget>, requestFocus: Boolean) {
+    for (target in targets) {
+      if (readAction { target.canSelect(context) }) {
+        withContext(Dispatchers.EDT) {
+          target.selectIn(context, requestFocus)
+        }
+        return
       }
     }
   }

@@ -1,5 +1,7 @@
 package com.jetbrains.performancePlugin.commands;
 
+import com.intellij.openapi.editor.impl.EditorComponentImpl;
+import com.intellij.openapi.ui.TypingTarget;
 import com.intellij.platform.diagnostic.telemetry.helpers.TraceUtil;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeEventQueue;
@@ -36,6 +38,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
+
+import static com.intellij.openapi.ui.playback.commands.AlphaNumericTypeCommand.findTarget;
 
 /**
  * Command simulate calling search everywhere action with a given text and specified tab.
@@ -77,16 +81,31 @@ public class SearchEverywhereCommand extends AbstractCommand {
       default -> throw new RuntimeException("Tab is not set");
     }
 
-    Semaphore typingSemaphore = new Semaphore(0);
+    int numberOfPermits;
+    if(insertText.isEmpty() && myOptions.typingText.isEmpty()){
+      numberOfPermits = 1; //we don't wait for any text insertion
+    } else if(!insertText.isEmpty() && !myOptions.typingText.isEmpty()){
+      numberOfPermits = -1; //we wait till both operations are finished
+    } else {
+      numberOfPermits = 0; //we wait till one operation is finished
+    }
+    Semaphore typingSemaphore = new Semaphore(numberOfPermits);
     TraceUtil.runWithSpanThrows(PerformanceTestSpan.TRACER, "searchEverywhere", globalSpan -> {
       ApplicationManager.getApplication().invokeAndWait(Context.current().wrap(() -> {
         try {
-          Component focusedComponent = IdeFocusManager.findInstance().getFocusOwner();
-          DataContext dataContext = DataManager.getInstance().getDataContext(focusedComponent);
+          TypingTarget target = findTarget(context);
+          Component component;
+          if(!(target instanceof EditorComponentImpl)){
+            LOG.info("Editor is not opened, focus owner will be used.");
+            component = IdeFocusManager.getInstance(project).getFocusOwner();
+          } else{
+            component =  (EditorComponentImpl) target;
+          }
+          DataContext dataContext = DataManager.getInstance().getDataContext(component);
           IdeEventQueue.getInstance().getPopupManager().closeAllPopups(false);
           AnActionEvent actionEvent = AnActionEvent.createFromDataContext(ActionPlaces.EDITOR_POPUP, null, dataContext);
-          if(actionEvent.getProject() == null) {
-            actionCallback.reject("Project is null");
+          if(actionEvent.getProject() == null && !(tab.equals("action") || tab.equals("all"))) {
+            actionCallback.reject("Project is null, SE requires project to show any tab except actions.");
           }
           TraceUtil.runWithSpanThrows(PerformanceTestSpan.TRACER, "searchEverywhere_dialog_shown", dialogSpan -> {
             SearchEverywhereManager.getInstance(project).show(tabId.get(), "", actionEvent);
@@ -126,8 +145,7 @@ public class SearchEverywhereCommand extends AbstractCommand {
   }
 
   @SuppressWarnings("BlockingMethodInNonBlockingContext")
-  private static void insertText(Project project, String insertText, Semaphore typingSemaphore)
-    throws InterruptedException {
+  private static void insertText(Project project, String insertText, Semaphore typingSemaphore) {
     SearchEverywhereUI ui = SearchEverywhereManager.getInstance(project).getCurrentlyShownUI();
     Span insertSpan = PerformanceTestSpan.TRACER.spanBuilder("searchEverywhere_items_loaded").startSpan();
     //noinspection TestOnlyProblems

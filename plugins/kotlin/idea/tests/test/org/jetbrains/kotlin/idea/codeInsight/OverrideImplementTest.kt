@@ -405,7 +405,11 @@ abstract class OverrideImplementTest<T : ClassMember> : AbstractOverrideImplemen
         doMultiImplementFileTest()
     }
 
-    fun testGenericClass() {
+    open fun testGenericClass() {
         doMultiImplementFileTest()
+    }
+
+    open fun testDoNotRenderRedundantModifiers() {
+        doMultiOverrideFileTest()
     }
 }

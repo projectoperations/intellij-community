@@ -15,7 +15,6 @@ import com.intellij.ui.icons.RowIcon
 import com.intellij.util.ArrayUtil
 import org.jetbrains.kotlin.idea.base.util.module
 import org.jetbrains.kotlin.idea.completion.KOTLIN_CAST_REQUIRED_COLOR
-import org.jetbrains.kotlin.idea.core.completion.DeclarationLookupObject
 import org.jetbrains.kotlin.idea.test.AstAccessControl
 import org.jetbrains.kotlin.idea.test.InTextDirectivesUtils
 import org.jetbrains.kotlin.platform.TargetPlatform
@@ -158,6 +157,7 @@ object ExpectedCompletionUtils {
         IgnoreTests.DIRECTIVES.FIR_COMPARISON,
         IgnoreTests.DIRECTIVES.FIR_IDENTICAL,
         IgnoreTests.DIRECTIVES.FIR_COMPARISON_MULTILINE_COMMENT,
+        IgnoreTests.DIRECTIVES.IGNORE_FE10,
     )
 
     fun itemsShouldExist(fileText: String, platform: TargetPlatform?): Array<CompletionProposal> = when {
@@ -178,9 +178,8 @@ object ExpectedCompletionUtils {
         val proposals = ArrayList<CompletionProposal>()
         for (proposalStr in InTextDirectivesUtils.findLinesWithPrefixesRemoved(fileText, *prefixes)) {
             if (proposalStr.startsWith("{")) {
-                val parser = JsonParser()
                 val json: JsonElement? = try {
-                    parser.parse(proposalStr)
+                    JsonParser.parseString(proposalStr)
                 } catch (t: Throwable) {
                     throw RuntimeException("Error parsing '$proposalStr'", t)
                 }

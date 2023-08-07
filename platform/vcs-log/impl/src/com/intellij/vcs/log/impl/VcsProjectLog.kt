@@ -51,7 +51,7 @@ private val LOG: Logger
 private val CLOSE_LOG_TIMEOUT = 10.seconds
 
 @Service(Service.Level.PROJECT)
-class VcsProjectLog(private val project: Project, internal val coroutineScope: CoroutineScope) {
+class VcsProjectLog(private val project: Project, private val coroutineScope: CoroutineScope) {
   private val uiProperties = project.service<VcsLogProjectTabsProperties>()
   private val errorHandler = VcsProjectLogErrorHandler(this, coroutineScope)
 
@@ -264,7 +264,7 @@ class VcsProjectLog(private val project: Project, internal val coroutineScope: C
     }
 
     private fun hasLogExtensions(descriptor: IdeaPluginDescriptor): Boolean {
-      for (logProvider in VcsLogProvider.LOG_PROVIDER_EP.getExtensions(project)) {
+      for (logProvider in VcsLogProvider.LOG_PROVIDER_EP.getExtensionList(project)) {
         if (logProvider.javaClass.classLoader === descriptor.pluginClassLoader) {
           return true
         }

@@ -609,7 +609,6 @@ public abstract class AbstractCommonUpdateAction extends AbstractVcsAction {
       }
     }
 
-
     private void showContextInterruptedError() {
       gatherContextInterruptedMessages();
       AbstractVcsHelper.getInstance(myProject).showErrors(myGroupedExceptions,

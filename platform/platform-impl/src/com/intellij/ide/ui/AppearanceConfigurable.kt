@@ -11,9 +11,9 @@ import com.intellij.ide.actions.IdeScaleTransformer
 import com.intellij.ide.actions.QuickChangeLookAndFeel
 import com.intellij.ide.ui.laf.LafManagerImpl
 import com.intellij.ide.ui.search.OptionDescription
-import com.intellij.internal.statistic.service.fus.collectors.IdeZoomChanged
 import com.intellij.internal.statistic.service.fus.collectors.IdeZoomEventFields
-import com.intellij.internal.statistic.service.fus.collectors.ThemeAutodetectSelector
+import com.intellij.internal.statistic.service.fus.collectors.UIEventLogger.IdeZoomChanged
+import com.intellij.internal.statistic.service.fus.collectors.UIEventLogger.ThemeAutodetectSelector
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.invokeLater
@@ -39,19 +39,21 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.IdeFrameDecorator
 import com.intellij.openapi.wm.impl.IdeRootPane
-import com.intellij.ui.ExperimentalUI
-import com.intellij.ui.FontComboBox
-import com.intellij.ui.SimpleListCellRenderer
-import com.intellij.ui.UIBundle
+import com.intellij.openapi.wm.impl.MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY
+import com.intellij.openapi.wm.impl.isMergeMainMenuWithWindowTitleOverridden
+import com.intellij.ui.*
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.*
+import com.intellij.ui.dsl.builder.Cell
+import com.intellij.ui.layout.ComponentPredicate
+import com.intellij.ui.layout.and
 import com.intellij.ui.layout.not
+import com.intellij.ui.layout.or
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.UIUtil
-import com.jetbrains.JBR
 import org.jetbrains.annotations.Nls
 import java.awt.Font
 import java.awt.RenderingHints
@@ -138,8 +140,6 @@ internal fun getAppearanceOptionDescriptors(): Sequence<OptionDescription> {
 }
 
 internal class AppearanceConfigurable : BoundSearchableConfigurable(message("title.appearance"), "preferences.lookFeel") {
-  private var shouldUpdateLaF = false
-
   private val propertyGraph = PropertyGraph()
   private val lafProperty = propertyGraph.lazyProperty { lafManager.lookAndFeelReference }
   private val syncThemeProperty = propertyGraph.lazyProperty { lafManager.autodetect }
@@ -166,9 +166,10 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
             .bindSelected(syncThemeProperty)
             .visible(lafManager.autodetectSupported)
 
-          theme.enabledIf(syncCheckBox.selected.not())
+          val autodetectSupportedPredicate = ComponentPredicate.fromValue(lafManager.autodetectSupported)
+          theme.enabledIf(autodetectSupportedPredicate.not().or(syncCheckBox.selected.not()))
           cell(lafManager.settingsToolbar)
-            .visibleIf(syncCheckBox.selected)
+            .visibleIf(syncCheckBox.selected.and(autodetectSupportedPredicate))
 
           link(message("link.get.more.themes")) {
             val settings = Settings.KEY.getData(DataManager.getInstance().getDataContext(it.source as ActionLink))
@@ -226,13 +227,11 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
           .onChanged { checkbox ->
             if (!checkbox.isSelected) resetCustomFont?.invoke()
           }
-          .shouldUpdateLaF()
 
         val fontFace = cell(FontComboBox())
           .bind({ it.fontName }, { it, value -> it.fontName = value },
                 MutableProperty({ if (settings.overrideLafFonts) getFontFamily(settings.fontFace) else getDefaultFont().family },
                                 { settings.fontFace = it }))
-          .shouldUpdateLaF()
           .enabledIf(useCustomCheckbox.selected)
           .accessibleName(message("label.font.name"))
           .component
@@ -241,7 +240,6 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
                                         { settings.fontSize = it },
                          settings.fontSize)
           .label(message("label.font.size"))
-          .shouldUpdateLaF()
           .enabledIf(useCustomCheckbox.selected)
           .accessibleName(message("label.font.size"))
           .component
@@ -316,46 +314,52 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
 
       group(message("group.ui.options")) {
         val leftColumnControls = sequence<Row.() -> Unit> {
-          yield({ checkBox(cdShowTreeIndents) })
-          yield({ checkBox(cdUseCompactTreeIndents) })
-          yield({ checkBox(cdEnableMenuMnemonics) })
-          yield({ checkBox(cdEnableControlsMnemonics) })
+          yield { checkBox(cdShowTreeIndents) }
+          yield { checkBox(cdUseCompactTreeIndents) }
+          yield { checkBox(cdEnableMenuMnemonics) }
+          yield { checkBox(cdEnableControlsMnemonics) }
           if ((SystemInfo.isWindows || SystemInfo.isXWindow) && ExperimentalUI.isNewUI()) {
-            yield({
-                    checkBox(cdSeparateMainMenu).apply {
-                      if (SystemInfo.isXWindow) {
-                        comment(message("ide.restart.required.comment"))
-                      }
-                    }
-                  })
+            yield {
+              checkBox(cdSeparateMainMenu).apply {
+                if (SystemInfo.isXWindow) {
+                  comment(message("ide.restart.required.comment"))
+                }
+              }
+            }
+          }
+          if (SystemInfo.isMac && MacCustomAppIcon.available()) {
+            yield {
+              checkBox(message("checkbox.ide.mac.app.icon")).comment(message("ide.restart.required.comment"))
+                .bindSelected({ MacCustomAppIcon.isCustom() }, { MacCustomAppIcon.setCustom(it) })
+            }
           }
         }
         val rightColumnControls = sequence<Row.() -> Unit> {
-          yield({
-                  checkBox(cdSmoothScrolling)
-                    .gap(RightGap.SMALL)
-                  contextHelp(message("checkbox.smooth.scrolling.description"))
-                })
-          yield({ checkBox(cdDnDWithAlt) })
-          if (SystemInfoRt.isWindows && IdeFrameDecorator.isCustomDecorationAvailable()
-              || IdeRootPane.hideNativeLinuxTitleAvailable) {
-            yield({
-                    val checkBox = checkBox(cdMergeMainMenuWithWindowTitle)
-                      .gap(RightGap.SMALL)
-                    if (SystemInfoRt.isWindows && UISettings.isMergeMainMenuWithWindowTitleOverridden) {
-                      checkBox.enabled(false)
-                      contextHelp(message("option.is.overridden.by.jvm.property", UISettings.MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY))
-                    }
-                    if (SystemInfoRt.isXWindow && !(IdeRootPane.jbr5777Workaround() && JBR.isWindowMoveSupported())) {
-                      checkBox.enabled(false)
-                      checkBox.comment(message("checkbox.merge.main.menu.with.window.not.supported.comment"), 30)
-                    } else {
-                      comment(message("ide.restart.required.comment"))
-                    }
-                  })
+          yield {
+            checkBox(cdSmoothScrolling)
+              .gap(RightGap.SMALL)
+            contextHelp(message("checkbox.smooth.scrolling.description"))
           }
-          yield({ checkBox(cdFullPathsInTitleBar) })
-          yield({ checkBox(cdShowMenuIcons) })
+          yield { checkBox(cdDnDWithAlt) }
+          if (SystemInfoRt.isWindows && IdeFrameDecorator.isCustomDecorationAvailable || IdeRootPane.hideNativeLinuxTitleAvailable) {
+            yield {
+              val checkBox = checkBox(cdMergeMainMenuWithWindowTitle)
+                .gap(RightGap.SMALL)
+              if (SystemInfoRt.isWindows && isMergeMainMenuWithWindowTitleOverridden) {
+                checkBox.enabled(false)
+                contextHelp(message("option.is.overridden.by.jvm.property", MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY))
+              }
+              if (SystemInfoRt.isXWindow && !IdeRootPane.hideNativeLinuxTitleSupported) {
+                checkBox.enabled(false)
+                checkBox.comment(message("checkbox.merge.main.menu.with.window.not.supported.comment"), 30)
+              }
+              else {
+                comment(message("ide.restart.required.comment"))
+              }
+            }
+          }
+          yield { checkBox(cdFullPathsInTitleBar) }
+          yield { checkBox(cdShowMenuIcons) }
           if (ProjectWindowCustomizerService.getInstance().isAvailable()) {
             yield {
               checkBox(cdDifferentiateProjects)
@@ -423,7 +427,6 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
             comboBox(DefaultComboBoxModel(ideAAOptions), renderer = AAListCellRenderer(false))
               .label(message("label.text.antialiasing.scope.ide"))
               .bindItem(settings::ideAAType.toNullableProperty())
-              .shouldUpdateLaF()
               .accessibleName(message("label.text.antialiasing.scope.ide"))
               .onApply {
                 for (w in Window.getWindows()) {
@@ -442,7 +445,6 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
             comboBox(DefaultComboBoxModel(editorAAOptions), renderer = AAListCellRenderer(true))
               .label(message("label.text.antialiasing.scope.editor"))
               .bindItem(settings::editorAAType.toNullableProperty())
-              .shouldUpdateLaF()
               .accessibleName(message("label.text.antialiasing.scope.editor"))
           }
         )
@@ -501,7 +503,6 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
                 }
               }
             }
-            .shouldUpdateLaF()
         }
       }
     }
@@ -509,20 +510,12 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
 
   override fun apply() {
     val uiSettingsChanged = isModified
-    shouldUpdateLaF = false
-
     super.apply()
-
-    if (shouldUpdateLaF) {
-      LafManager.getInstance().updateUI()
-    }
     if (uiSettingsChanged) {
       UISettings.getInstance().fireUISettingsChanged()
       EditorFactory.getInstance().refreshAllEditors()
     }
   }
-
-  private fun <T : JComponent> Cell<T>.shouldUpdateLaF(): Cell<T> = onApply { shouldUpdateLaF = true }
 }
 
 private fun getFontFamily(fontFace: String?): String {

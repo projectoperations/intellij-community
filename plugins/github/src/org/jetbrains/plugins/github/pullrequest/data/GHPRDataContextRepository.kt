@@ -1,17 +1,14 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.github.pullrequest.data
 
-import com.intellij.collaboration.async.disposingScope
 import com.intellij.collaboration.ui.html.AsyncHtmlImageLoader
 import com.intellij.collaboration.ui.icon.AsyncImageIconsProvider
 import com.intellij.collaboration.ui.icon.CachingIconsProvider
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.*
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.util.IconUtil
 import com.intellij.util.childScope
 import com.intellij.util.ui.ImageUtil
@@ -40,10 +37,10 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.Icon
 
-@Service
-internal class GHPRDataContextRepository(private val project: Project) : Disposable {
+@Service(Service.Level.PROJECT)
+internal class GHPRDataContextRepository(private val project: Project, parentCs: CoroutineScope) {
 
-  private val cs = disposingScope()
+  private val cs = parentCs.childScope()
 
   private val cache = ConcurrentHashMap<GHRepositoryCoordinates, GHPRDataContext>()
   private val cacheGuard = Mutex()
@@ -126,7 +123,7 @@ internal class GHPRDataContextRepository(private val project: Project) : Disposa
                                                   account, currentUser, currentUserTeams,
                                                   repositoryInfo)
     val detailsService = GHPRDetailsServiceImpl(ProgressManager.getInstance(), requestExecutor, apiRepositoryCoordinates)
-    val stateService = GHPRStateServiceImpl(ProgressManager.getInstance(), securityService,
+    val stateService = GHPRStateServiceImpl(ProgressManager.getInstance(), project, securityService,
                                             requestExecutor, account.server, apiRepositoryPath)
     val commentService = GHPRCommentServiceImpl(ProgressManager.getInstance(), requestExecutor, apiRepositoryCoordinates)
     val changesService = GHPRChangesServiceImpl(ProgressManager.getInstance(), project, requestExecutor,
@@ -137,7 +134,12 @@ internal class GHPRDataContextRepository(private val project: Project) : Disposa
     val listLoader = GHPRListLoader(ProgressManager.getInstance(), requestExecutor, apiRepositoryCoordinates)
     val listUpdatesChecker = GHPRListETagUpdateChecker(ProgressManager.getInstance(), requestExecutor, account.server, apiRepositoryPath)
 
-    val dataProviderRepository = GHPRDataProviderRepositoryImpl(detailsService, stateService, reviewService, filesService, commentService,
+    val dataProviderRepository = GHPRDataProviderRepositoryImpl(project,
+                                                                detailsService,
+                                                                stateService,
+                                                                reviewService,
+                                                                filesService,
+                                                                commentService,
                                                                 changesService) { id ->
       GHGQLPagedListLoader(ProgressManager.getInstance(),
                            SimpleGHGQLPagesLoader(requestExecutor, { p ->
@@ -168,9 +170,7 @@ internal class GHPRDataContextRepository(private val project: Project) : Disposa
     return GHPRDataContext(contextScope, listLoader, listUpdatesChecker, dataProviderRepository,
                            securityService, repoDataService, creationService, detailsService, imageLoader, avatarIconsProvider,
                            filesManager,
-                           GHPRDiffRequestModelImpl()).also {
-      Disposer.register(this, changesService)
-    }
+                           GHPRDiffRequestModelImpl())
   }
 
   private class AvatarLoader(private val requestExecutor: GithubApiRequestExecutor)
@@ -190,8 +190,6 @@ internal class GHPRDataContextRepository(private val project: Project) : Disposa
 
   // dangerous to do this without lock, but making it suspendable is too much work
   fun findContext(repositoryCoordinates: GHRepositoryCoordinates): GHPRDataContext? = cache[repositoryCoordinates]
-
-  override fun dispose() = Unit
 
   companion object {
     private val LOG = logger<GHPRDataContextRepository>()

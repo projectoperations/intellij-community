@@ -118,7 +118,15 @@
     <actionConfigurationCustomizer implementation="com.intellij.ide.actionMacro.ActionMacroManager$MyActionTuner"/>
 
     <projectService serviceImplementation="com.intellij.codeInsight.daemon.impl.DaemonListeners" preload="await"/>
-    <projectService serviceImplementation="com.intellij.codeInsight.daemon.impl.HighlightingMarkupGrave" preload="await"/>
+
+    <textEditorInitializer implementation="com.intellij.codeInsight.daemon.impl.HighlightingMarkupCacheTextEditorInitializer"/>
+    <textEditorInitializer implementation="com.intellij.openapi.fileEditor.impl.text.HighlighterTextEditorInitializer"/>
+    <textEditorInitializer implementation="com.intellij.openapi.fileEditor.impl.text.FoldingTextEditorInitializer"/>
+    <textEditorInitializer implementation="com.intellij.codeInsight.hints.codeVision.CodeVisionTextEditorInitializer"/>
+    <textEditorInitializer implementation="com.intellij.codeInsight.daemon.impl.InlayHintsEditorInitializer"/>
+    <textEditorInitializer implementation="com.intellij.openapi.fileEditor.impl.text.DocRenderTextEditorInitializer"/>
+    <textEditorInitializer implementation="com.intellij.openapi.fileEditor.impl.text.FocusZoneTextEditorInitializer"/>
+
     <postStartupActivity implementation="com.intellij.codeInsight.navigation.InitCtrlMouseHandlerActivity"/>
 
     <projectService serviceImplementation="com.intellij.facet.impl.pointers.FacetPointersManagerImpl"
@@ -174,7 +182,7 @@
 
     <listener class="com.intellij.notification.impl.NotificationsToolWindowNotificationListener"
               topic="com.intellij.notification.Notifications"/>
-    <listener class="com.intellij.notification.impl.NotificationsManagerImpl$MyNotificationListener"
+    <listener class="com.intellij.notification.impl.NotificationsListener"
               topic="com.intellij.notification.Notifications"/>
     <listener class="com.intellij.notification.impl.NotificationsConfigurationImpl$MyNotificationListener"
               topic="com.intellij.notification.Notifications"/>
@@ -201,7 +209,7 @@
               activeInHeadlessMode="false"/>
     <listener class="com.intellij.notification.impl.NotificationsBeeper" topic="com.intellij.notification.Notifications"
               activeInHeadlessMode="false"/>
-    <listener class="com.intellij.notification.impl.NotificationsAnnouncer$MyListener" topic="com.intellij.notification.Notifications"
+    <listener class="com.intellij.notification.impl.NotificationsAnnouncerListener" topic="com.intellij.notification.Notifications"
               activeInHeadlessMode="false"/>
 
     <listener class="com.intellij.internal.performance.LatenciometerListener"
@@ -244,7 +252,7 @@
               activeInHeadlessMode="false"/>
     <listener class="com.intellij.notification.impl.NotificationsBeeper" topic="com.intellij.notification.Notifications"
               activeInHeadlessMode="false"/>
-    <listener class="com.intellij.notification.impl.NotificationsAnnouncer$MyListener" topic="com.intellij.notification.Notifications"
+    <listener class="com.intellij.notification.impl.NotificationsAnnouncerListener" topic="com.intellij.notification.Notifications"
               activeInHeadlessMode="false"/>
     <listener class="com.intellij.codeInsight.actions.ReaderModeSettingsListener"
               topic="com.intellij.codeInsight.actions.ReaderModeListener" activeInHeadlessMode="false"/>

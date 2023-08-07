@@ -8,6 +8,7 @@ import com.intellij.psi.search.FileTypeIndex
 import com.intellij.util.ThreeState
 import com.intellij.util.indexing.hints.*
 import com.jetbrains.rd.util.concurrentMapOf
+import org.jetbrains.annotations.TestOnly
 import java.util.function.Predicate
 
 internal class RequiredIndexesEvaluator(private val registeredIndexes: RegisteredIndexes) {
@@ -80,6 +81,12 @@ internal class RequiredIndexesEvaluator(private val registeredIndexes: Registere
       }
       return acceptedCandidates
     }
+
+    @TestOnly
+    fun getSureIndexes(hintAwareIndexList: HintAwareIndexList): List<ID<*, *>> = hintAwareIndexList.sureIndexIds
+
+    @TestOnly
+    fun getUnsureIndexes(hintAwareIndexList: HintAwareIndexList): List<ID<*, *>> = hintAwareIndexList.unsureIndexIds.map { it.first }
   }
 
   private val indexesForFileType: MutableMap<FileType, HintAwareIndexList> = concurrentMapOf()
@@ -171,9 +178,9 @@ internal class RequiredIndexesEvaluator(private val registeredIndexes: Registere
   private fun getGlobalIndexedFilePredicateForRegularFile(indexId: IndexId<*, *>, fileType: FileType): IndexedFilePredicate {
     var allGlobalHints: IndexedFilePredicate = truePredicate
     for (filter in GlobalIndexFilter.EP_NAME.extensionList) {
-      val hint = (filter as? GlobalFileTypeIndexingHint)?.globalFileTypeHintForIndex(indexId)
-      val hintPredicate = if (hint != null) {
-        applyFileTypeHints(hint, fileType)
+      val inputFilter = (filter as? GlobalIndexSpecificIndexingHint)?.globalInputFilterForIndex(indexId)
+      val hintPredicate = if (inputFilter != null) {
+        inputFilerToIndexedFilePredicateForRegularFile(inputFilter, fileType)
       }
       else {
         globalFilterToIndexedFilePredicate(filter, indexId)
@@ -217,12 +224,14 @@ internal class RequiredIndexesEvaluator(private val registeredIndexes: Registere
       return listOf(FileTypeIndex.NAME) // probably, we don't even need the filetype index
     }
     else {
-      var filteredResults = indexesForFileType[fileType]
-      if (filteredResults != null) return filteredResults.getRequiredIndexes(indexedFile)
+      return getIndexesForFileType(fileType).getRequiredIndexes(indexedFile)
+    }
+  }
 
-      filteredResults = indexesForRegularFiles(getState().getFileTypesForIndex(substitutedFileType), fileType)
-      indexesForFileType[fileType] = filteredResults
-      return filteredResults.getRequiredIndexes(indexedFile)
+  private fun getIndexesForFileType(fileType: FileType): HintAwareIndexList {
+    return indexesForFileType.getOrPut(fileType) {
+      val substitutedFileType = (fileType as? SubstitutedFileType)?.fileType ?: fileType
+      indexesForRegularFiles(getState().getFileTypesForIndex(substitutedFileType), fileType)
     }
   }
 
@@ -237,5 +246,11 @@ internal class RequiredIndexesEvaluator(private val registeredIndexes: Registere
 
   companion object {
     private val LOG = logger<RequiredIndexesEvaluator>()
+  }
+
+  @TestOnly
+  fun getRequiredIndexesForFileType(fileType: FileType): Pair<List<ID<*, *>>, List<ID<*, *>>> {
+    val indexes = getIndexesForFileType(fileType)
+    return Pair(indexes.getSureIndexes(indexes), indexes.getUnsureIndexes(indexes))
   }
 }

@@ -3,6 +3,8 @@ package org.jetbrains.plugins.github.pullrequest.data
 
 import com.intellij.diff.editor.DiffEditorTabFilesManager
 import com.intellij.diff.editor.DiffVirtualFileBase
+import com.intellij.openapi.application.TransactionGuard
+import com.intellij.openapi.application.TransactionGuardImpl
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
@@ -10,7 +12,6 @@ import com.intellij.util.containers.ContainerUtil
 import org.jetbrains.plugins.github.api.GHRepositoryCoordinates
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestShort
 import org.jetbrains.plugins.github.pullrequest.*
-import java.util.*
 
 internal class GHPRFilesManagerImpl(private val project: Project,
                                     private val repository: GHRepositoryCoordinates) : GHPRFilesManager {
@@ -34,7 +35,7 @@ internal class GHPRFilesManagerImpl(private val project: Project,
   }
 
   override fun createOrGetDiffFile(pullRequest: GHPRIdentifier, sourceId: String, combinedDiff: Boolean): DiffVirtualFileBase {
-    return diffFiles.getOrPut(SimpleGHPRIdentifier(pullRequest)) {
+    return diffFiles.getOrPut(pullRequest) {
       if (combinedDiff) {
         GHPRCombinedDiffPreviewVirtualFile(sourceId, id, project, repository, pullRequest)
       }
@@ -45,7 +46,7 @@ internal class GHPRFilesManagerImpl(private val project: Project,
   }
 
   override fun createAndOpenTimelineFile(pullRequest: GHPRIdentifier, requestFocus: Boolean) {
-    files.getOrPut(SimpleGHPRIdentifier(pullRequest)) {
+    files.getOrPut(pullRequest) {
       GHPRTimelineVirtualFile(id, project, repository, pullRequest)
     }.let {
       FileEditorManager.getInstance(project).openFile(it, requestFocus)
@@ -54,7 +55,7 @@ internal class GHPRFilesManagerImpl(private val project: Project,
   }
 
   override fun createAndOpenDiffFile(pullRequest: GHPRIdentifier, requestFocus: Boolean) {
-    diffFiles.getOrPut(SimpleGHPRIdentifier(pullRequest)) {
+    diffFiles.getOrPut(pullRequest) {
       GHPRDiffVirtualFile(id, project, repository, pullRequest)
     }.let {
       DiffEditorTabFilesManager.getInstance(project).showDiffFile(it, requestFocus)
@@ -63,7 +64,7 @@ internal class GHPRFilesManagerImpl(private val project: Project,
   }
 
   override fun createAndOpenDiffPreviewFile(pullRequest: GHPRIdentifier, sourceId: String, requestFocus: Boolean): DiffVirtualFileBase {
-    return diffFiles.getOrPut(SimpleGHPRIdentifier(pullRequest)) {
+    return diffFiles.getOrPut(pullRequest) {
       GHPRCombinedDiffPreviewVirtualFile(sourceId, id, project, repository, pullRequest)
     }.also {
       DiffEditorTabFilesManager.getInstance(project).showDiffFile(it, requestFocus)
@@ -85,20 +86,23 @@ internal class GHPRFilesManagerImpl(private val project: Project,
     }
   }
 
-  override fun findTimelineFile(pullRequest: GHPRIdentifier): GHPRTimelineVirtualFile? = files[SimpleGHPRIdentifier(pullRequest)]
+  override fun findTimelineFile(pullRequest: GHPRIdentifier): GHPRTimelineVirtualFile? = files[pullRequest]
 
-  override fun findDiffFile(pullRequest: GHPRIdentifier): DiffVirtualFileBase? = diffFiles[SimpleGHPRIdentifier(pullRequest)]
+  override fun findDiffFile(pullRequest: GHPRIdentifier): DiffVirtualFileBase? = diffFiles[pullRequest]
 
   override fun updateTimelineFilePresentation(details: GHPullRequestShort) {
-    findTimelineFile(details)?.let {
+    findTimelineFile(details.prId)?.let {
       FileEditorManagerEx.getInstanceEx(project).updateFilePresentation(it)
     }
   }
 
   override fun dispose() {
-    for (file in (files.values + diffFiles.values + newPRDiffFiles.values)) {
-      FileEditorManager.getInstance(project).closeFile(file)
-      file.isValid = false
+    // otherwise the exception is thrown when removing an editor tab
+    (TransactionGuard.getInstance() as TransactionGuardImpl).performUserActivity {
+      for (file in (files.values + diffFiles.values + newPRDiffFiles.values)) {
+        FileEditorManager.getInstance(project).closeFile(file)
+        file.isValid = false
+      }
     }
   }
 }

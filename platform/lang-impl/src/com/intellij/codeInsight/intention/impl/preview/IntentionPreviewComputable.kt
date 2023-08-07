@@ -17,8 +17,7 @@ import com.intellij.diff.comparison.ComparisonPolicy
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.cl.PluginAwareClassLoader
 import com.intellij.lang.injection.InjectedLanguageManager
-import com.intellij.modcommand.ModCommandAction
-import com.intellij.modcommand.ModCommandAction.ActionContext
+import com.intellij.modcommand.ActionContext
 import com.intellij.model.SideEffectGuard
 import com.intellij.model.SideEffectGuard.SideEffectNotAllowedException
 import com.intellij.openapi.diagnostic.logger
@@ -31,14 +30,16 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.impl.source.PostprocessReformattingAspect
 import com.intellij.util.LocalTimeCounter
+import com.intellij.util.applyIf
 import java.io.IOException
 import java.lang.ref.Reference
 import java.util.concurrent.Callable
 
 class IntentionPreviewComputable(private val project: Project,
-                                          private val action: IntentionAction,
-                                          private val originalFile: PsiFile,
-                                          private val originalEditor: Editor) : Callable<IntentionPreviewInfo> {
+                                 private val action: IntentionAction,
+                                 private val originalFile: PsiFile,
+                                 private val originalEditor: Editor,
+                                 private val problemOffset: Int) : Callable<IntentionPreviewInfo> {
   override fun call(): IntentionPreviewInfo {
     val diffContent = tryCreateDiffContent()
     if (diffContent != null) {
@@ -109,18 +110,21 @@ class IntentionPreviewComputable(private val project: Project,
       psiFileCopy = IntentionPreviewUtils.obtainCopyForPreview(fileToCopy)
       editorCopy = IntentionPreviewEditor(psiFileCopy, originalEditor.settings)
     }
+    if (problemOffset >= 0) {
+      editorCopy.caretModel.moveToOffset(problemOffset)
+    }
     ProgressManager.checkCanceled()
     // force settings initialization, as it may spawn EDT action which is not allowed inside generatePreview()
     val settings = CodeStyle.getSettings(editorCopy)
     IntentionPreviewUtils.previewSession(editorCopy) {
       PostprocessReformattingAspect.getInstance(project).postponeFormattingInside {
-        info = SideEffectGuard.computeWithoutSideEffects<IntentionPreviewInfo?, Exception> {
+        info = SideEffectGuard.computeWithoutSideEffects {
           action.generatePreview(project, editorCopy, psiFileCopy)
         }
       }
     }
     if (info == IntentionPreviewInfo.FALLBACK_DIFF && fileToCopy == origFile) {
-      info = SideEffectGuard.computeWithoutSideEffects<IntentionPreviewInfo?, Exception> { generateFallbackDiff(editorCopy, psiFileCopy) }
+      info = SideEffectGuard.computeWithoutSideEffects { generateFallbackDiff(editorCopy, psiFileCopy) }
     }
     Reference.reachabilityFence(settings)
     val manager = PsiDocumentManager.getInstance(project)
@@ -155,9 +159,11 @@ class IntentionPreviewComputable(private val project: Project,
   }
 
   private fun getModActionPreview(origFile: PsiFile, origEditor: Editor): IntentionPreviewInfo {
-    val unwrapped = ModCommandAction.unwrap(action) ?: return IntentionPreviewInfo.EMPTY
-    val info = SideEffectGuard.computeWithoutSideEffects<IntentionPreviewInfo, Exception> 
-      { unwrapped.generatePreview(ActionContext.from(origEditor, origFile)) }
+    val unwrapped = action.asModCommandAction() ?: return IntentionPreviewInfo.EMPTY
+    val info = SideEffectGuard.computeWithoutSideEffects {
+      val context = ActionContext.from(origEditor, origFile).applyIf(problemOffset >= 0) { withOffset(problemOffset) }
+      unwrapped.generatePreview(context)
+    }
     return convertResult(info, origFile, origFile, false) ?: IntentionPreviewInfo.EMPTY
   }
 

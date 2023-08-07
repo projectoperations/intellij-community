@@ -1,10 +1,9 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.core.CoreBundle;
 import com.intellij.notification.NotificationGroup;
 import com.intellij.notification.NotificationGroupManager;
-import com.intellij.notification.NotificationType;
 import com.intellij.openapi.Forceable;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -12,15 +11,19 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.IntRef;
+import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.io.GentleFlusherBase;
 import com.intellij.openapi.vfs.newvfs.AttributeInputStream;
 import com.intellij.openapi.vfs.newvfs.AttributeOutputStream;
 import com.intellij.openapi.vfs.newvfs.persistent.intercept.*;
+import com.intellij.openapi.vfs.newvfs.persistent.log.VfsLogEx;
+import com.intellij.openapi.vfs.newvfs.persistent.recovery.VFSRecoveryInfo;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.FlushingDaemon;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.hash.ContentHashEnumerator;
+import com.intellij.util.io.DataEnumeratorEx;
 import com.intellij.util.io.ScannableDataEnumeratorEx;
 import com.intellij.util.io.SimpleStringPersistentEnumerator;
 import com.intellij.util.io.StorageLockContext;
@@ -42,6 +45,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -60,7 +64,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public final class PersistentFSConnection {
   private static final Logger LOG = Logger.getInstance(PersistentFSConnection.class);
 
-  static final int RESERVED_ATTR_ID = 0;
+  static final int RESERVED_ATTR_ID = DataEnumeratorEx.NULL_ID;
   static final AttrPageAwareCapacityAllocationPolicy REASONABLY_SMALL = new AttrPageAwareCapacityAllocationPolicy();
 
   private static final boolean USE_GENTLE_FLUSHER = getBooleanProperty("vfs.flushing.use-gentle-flusher", true);
@@ -74,20 +78,18 @@ public final class PersistentFSConnection {
   private static final int INSIST_TO_RESTART_AFTER_ERRORS_COUNT = getIntProperty("vfs.insist-to-restart-after-n-errors", 1000);
 
 
-  private final IntList myFreeRecords;
+  private final NotNullLazyValue<IntList> freeRecords;
 
   @NotNull
   private final PersistentFSPaths myPersistentFSPaths;
 
-  @NotNull
-  private final AbstractAttributesStorage myAttributesStorage;
-  @NotNull
-  private final RefCountingContentStorage myContents;
-  @NotNull
-  private final PersistentFSRecordsStorage myRecords;
-  @Nullable
-  private final ContentHashEnumerator myContentHashesEnumerator;
-  private final ScannableDataEnumeratorEx<String> myNames;
+  private final @NotNull AbstractAttributesStorage myAttributesStorage;
+  private final @NotNull RefCountingContentStorage myContents;
+
+  private final @NotNull PersistentFSRecordsStorage myRecords;
+
+  private final @Nullable ContentHashEnumerator myContentHashesEnumerator;
+  private final @NotNull ScannableDataEnumeratorEx<String> myNames;
   /**
    * Enumerator for repeating strings used in attributes. Used to support
    * {@link AttributeInputStream#readEnumeratedString()}
@@ -95,12 +97,16 @@ public final class PersistentFSConnection {
    */
   private final @NotNull SimpleStringPersistentEnumerator myEnumeratedAttributes;
 
+  private final @Nullable VfsLogEx myVfsLog;
+
   private volatile boolean myDirty;
 
-  private final Closeable flushingTask;
+  private final @Nullable Closeable flushingTask;
 
-  /** accessed under {@link #r}/{@link #w} */
+  /** How many errors were detected (during the use) that are likely caused by VFS corruptions -- i.e. broken internal invariants */
   private final AtomicInteger corruptionsDetected = new AtomicInteger();
+
+  private final @NotNull VFSRecoveryInfo recoveryInfo;
 
   PersistentFSConnection(@NotNull PersistentFSPaths paths,
                          @NotNull PersistentFSRecordsStorage records,
@@ -109,7 +115,9 @@ public final class PersistentFSConnection {
                          @NotNull RefCountingContentStorage contents,
                          @Nullable ContentHashEnumerator contentHashesEnumerator,
                          @NotNull SimpleStringPersistentEnumerator enumeratedAttributes,
-                         @NotNull IntList freeRecords,
+                         @Nullable VfsLogEx vfsLog,
+                         @NotNull NotNullLazyValue<IntList> freeRecords,
+                         @NotNull VFSRecoveryInfo info,
                          @NotNull List<ConnectionInterceptor> interceptors) throws IOException {
     if (!(names instanceof Forceable) || !(names instanceof Closeable)) {
       //RC: there is no simple way to specify type like DataEnumerator & Forceable & Closeable in java,
@@ -123,9 +131,11 @@ public final class PersistentFSConnection {
     myAttributesStorage = wrapAttributes(attributes, interceptors);
     myContents = wrapContents(contents, interceptors);
     myContentHashesEnumerator = contentHashesEnumerator;
+    myVfsLog = vfsLog;
     myPersistentFSPaths = paths;
-    myFreeRecords = freeRecords;
+    this.freeRecords = freeRecords;
     myEnumeratedAttributes = enumeratedAttributes;
+    recoveryInfo = info;
 
     if (FSRecords.BACKGROUND_VFS_FLUSH) {
       //MAYBE RC: move the flushing up, to FSRecordsImpl?
@@ -163,40 +173,39 @@ public final class PersistentFSConnection {
     return InterceptorInjection.INSTANCE.injectInRecords(records, recordsInterceptors);
   }
 
+  @Nullable VfsLogEx getVfsLog() { return myVfsLog; }
+
   @NotNull("Vfs must be initialized")
   SimpleStringPersistentEnumerator getEnumeratedAttributes() {
     return myEnumeratedAttributes;
   }
 
-  @NotNull("Content hash enumerator must be initialized")
+  @NotNull
   ContentHashEnumerator getContentHashesEnumerator() {
-    return myContentHashesEnumerator;
+    return Objects.requireNonNull(myContentHashesEnumerator, "Content hash enumerator must be initialized");
   }
 
-  @NotNull("Vfs must be initialized")
-  RefCountingContentStorage getContents() {
+
+  @NotNull RefCountingContentStorage getContents() {
     return myContents;
   }
 
-  @NotNull("Vfs must be initialized")
-  AbstractAttributesStorage getAttributes() {
+  @NotNull AbstractAttributesStorage getAttributes() {
     return myAttributesStorage;
   }
 
-  @NotNull("Vfs must be initialized")
-  ScannableDataEnumeratorEx<String> getNames() {
+  public @NotNull ScannableDataEnumeratorEx<String> getNames() {
     return myNames;
   }
 
-  @NotNull("Vfs must be initialized")
-  PersistentFSRecordsStorage getRecords() {
+  public @NotNull PersistentFSRecordsStorage getRecords() {
     return myRecords;
   }
 
   @NotNull
   IntList getFreeRecords() {
-    synchronized (myFreeRecords) {
-      return new IntArrayList(myFreeRecords);
+    synchronized (freeRecords) {
+      return new IntArrayList(freeRecords.getValue());
     }
   }
 
@@ -208,8 +217,14 @@ public final class PersistentFSConnection {
    * @return id of record to re-use, or -1 if no records for reuse remain
    */
   int reserveFreeRecord() {
-    synchronized (myFreeRecords) {
-      return myFreeRecords.isEmpty() ? -1 : myFreeRecords.removeInt(myFreeRecords.size() - 1);
+    if (!freeRecords.isComputed()) {
+      //do not wait until all deleted records are collected -- just allocate new record at the
+      // end of the file
+      return -1;
+    }
+    synchronized (freeRecords) {
+      IntList records = freeRecords.getValue();
+      return records.isEmpty() ? -1 : records.removeInt(records.size() - 1);
     }
   }
 
@@ -230,19 +245,16 @@ public final class PersistentFSConnection {
   }
 
   void doForce() throws IOException {
-    // avoid NPE when close has already taken place
-    if (myNames != null && flushingTask != null) {
-      if (myNames instanceof Forceable) {
-        ((Forceable)myNames).force();
-      }
-      myAttributesStorage.force();
-      myContents.force();
-      if (myContentHashesEnumerator != null) {
-        myContentHashesEnumerator.force();
-      }
-      writeConnectionState();
-      myRecords.force();
+    if (myNames instanceof Forceable) {
+      ((Forceable)myNames).force();
     }
+    myAttributesStorage.force();
+    myContents.force();
+    if (myContentHashesEnumerator != null) {
+      myContentHashesEnumerator.force();
+    }
+    writeConnectionState();
+    myRecords.force();
   }
 
   public boolean isDirty() {
@@ -254,26 +266,37 @@ public final class PersistentFSConnection {
     return corruptionsDetected.get();
   }
 
-  void closeFiles() throws IOException {
+  void close() throws IOException {
     if (flushingTask != null) {
       flushingTask.close();
     }
 
-    writeConnectionState();
+    doForce();
+
+    //ensure async loading is finished
+    Exception freeRecordsLoadingError = ExceptionUtil.runAndCatch(() -> freeRecords.getValue());
+    if (freeRecordsLoadingError != null) {
+      //not an issue on close, but could provide some insights
+      LOG.info("Free records loading is failed", freeRecordsLoadingError);
+    }
     closeStorages(myRecords,
                   myNames,
                   myAttributesStorage,
                   myContentHashesEnumerator,
-                  myContents);
+                  myContents,
+                  myVfsLog);
   }
 
-  @NotNull
-  PersistentFSPaths getPersistentFSPaths() {
+
+  public @NotNull PersistentFSPaths getPersistentFSPaths() {
     return myPersistentFSPaths;
   }
 
-  //TODO RC: we use it to mark file record modified there something derived is modified -- i.e. children attribute
-  //         or content. This looks suspicious to me: why we need to update _file_ record version in those cases?
+  /**
+   * Method used to mark file record modified if something _derived_ is modified -- i.e. children attribute
+   * or content. If file record _fields_ are mutated directly -- record marked as modified automatically, no
+   * need to call this method.
+   */
   public void markRecordAsModified(int fileId) throws IOException {
     getRecords().markRecordAsModified(fileId);
     markDirty();
@@ -283,14 +306,14 @@ public final class PersistentFSConnection {
                             @Nullable ScannableDataEnumeratorEx<String> names,
                             @Nullable AbstractAttributesStorage attributes,
                             @Nullable ContentHashEnumerator contentHashesEnumerator,
-                            @Nullable RefCountingContentStorage contents) throws IOException {
+                            @Nullable RefCountingContentStorage contents,
+                            @Nullable VfsLogEx vfsLog) throws IOException {
     if (names instanceof Closeable) {//implies != null
       ((Closeable)names).close();
     }
 
     if (attributes != null) {
       attributes.close();
-      //Disposer.dispose(attributes);
     }
 
     if (contents != null) {
@@ -303,6 +326,10 @@ public final class PersistentFSConnection {
 
     if (records != null) {
       records.close();
+    }
+
+    if (vfsLog != null) {
+      vfsLog.dispose();
     }
   }
 
@@ -331,14 +358,14 @@ public final class PersistentFSConnection {
   void markAsCorruptedAndScheduleRebuild(@NotNull Throwable cause) throws RuntimeException, Error {
     try {
       int corruptions = corruptionsDetected.incrementAndGet();
+      myRecords.setErrorsAccumulated(corruptions);
       if (corruptions == 1) {
-        scheduleVFSRebuild(cause.getMessage(), cause);
         if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
           showCorruptionNotification(/*insist: */ false);
         }
         doForce();//forces connectionStatus=CORRUPTED to be written on disk
       }
-      else if (corruptions == INSIST_TO_RESTART_AFTER_ERRORS_COUNT) {
+      else if (corruptions % INSIST_TO_RESTART_AFTER_ERRORS_COUNT == INSIST_TO_RESTART_AFTER_ERRORS_COUNT - 1) {
         if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
           showCorruptionNotification(/*insist: */ true);
         }
@@ -358,10 +385,10 @@ public final class PersistentFSConnection {
     if (errorCause == null) {
       //Without 'errorCause' it is not an error, but, likely, an explicit 'invalidateCache' call:
       // no need to print stacktrace then, also no need for a WARN
-      LOG.info("VFS is corrupted; Creating VFS corruption marker: " + message);
+      LOG.info("VFS rebuild is requested: creating VFS rebuild marker. Message: " + message);
     }
     else {
-      LOG.warn("VFS is corrupted; Creating VFS corruption marker", corruptedException);
+      LOG.warn("VFS is corrupted: creating VFS rebuild marker.", corruptedException);
     }
 
     try {
@@ -380,6 +407,10 @@ public final class PersistentFSConnection {
     catch (IOException ex) {// No luck:
       LOG.info("Can't create VFS corruption marker", ex);
     }
+  }
+
+  public @NotNull VFSRecoveryInfo recoveryInfo() {
+    return recoveryInfo;
   }
 
 
@@ -447,6 +478,7 @@ public final class PersistentFSConnection {
             doForce();
           }
           catch (IOException e) {
+
             markAsCorruptedAndScheduleRebuild(e);
             ExceptionUtil.rethrow(e);
           }
@@ -484,7 +516,7 @@ public final class PersistentFSConnection {
       super("VFSFlusher",
             scheduler, FLUSHING_PERIOD_MS,
             MIN_CONTENTION_QUOTA, MAX_CONTENTION_QUOTA, INITIAL_CONTENTION_QUOTA,
-            TelemetryManager.getMeter(Indexes)
+            TelemetryManager.getInstance().getMeter(Indexes)
       );
     }
 

@@ -2,7 +2,10 @@
 package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.daemon.impl.*;
-import com.intellij.codeInsight.intention.*;
+import com.intellij.codeInsight.intention.AdvertisementAction;
+import com.intellij.codeInsight.intention.EmptyIntentionAction;
+import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.IntentionActionDelegate;
 import com.intellij.codeInsight.intention.impl.config.IntentionManagerSettings;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ex.QuickFixWrapper;
@@ -18,6 +21,7 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Iconable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -37,7 +41,7 @@ import java.util.*;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Predicate;
 
-public final class CachedIntentions {
+public final class CachedIntentions implements IntentionContainer {
   private static final Logger LOG = Logger.getInstance(CachedIntentions.class);
 
   private final Set<IntentionActionWithTextCaching> myIntentions = new CopyOnWriteArraySet<>();
@@ -51,24 +55,37 @@ public final class CachedIntentions {
   private final @Nullable Editor myEditor;
   private final @NotNull PsiFile myFile;
   private final @NotNull Project myProject;
+  private final @Nullable @NlsContexts.PopupTitle String myTitle;
 
   private final List<AnAction> myGuttersRaw = ContainerUtil.createLockFreeCopyOnWriteList();
   private final Set<AnAction> myTopLevelActions = new CopyOnWriteArraySet<>();
 
   public CachedIntentions(@NotNull Project project, @NotNull PsiFile file, @Nullable Editor editor) {
+    this(project, file, editor, null);
+  }
+
+  private CachedIntentions(@NotNull Project project, @NotNull PsiFile file, @Nullable Editor editor, @Nullable @NlsContexts.PopupTitle String title) {
     myProject = project;
     myFile = file;
     myEditor = editor;
+    myTitle = title;
+  }
+
+  @Override
+  public @Nullable @NlsContexts.PopupTitle String getTitle() {
+    return myTitle;
   }
 
   public @NotNull Set<IntentionActionWithTextCaching> getIntentions() {
     return myIntentions;
   }
 
+  @Override
   public @NotNull Set<IntentionActionWithTextCaching> getErrorFixes() {
     return myErrorFixes;
   }
 
+  @Override
   public @NotNull Set<IntentionActionWithTextCaching> getInspectionFixes() {
     return myInspectionFixes;
   }
@@ -77,6 +94,7 @@ public final class CachedIntentions {
     return myGutters;
   }
 
+  @Override
   @ApiStatus.Experimental
   public @NotNull Set<AnAction> getTopLevelActions() {
     return myTopLevelActions;
@@ -110,7 +128,7 @@ public final class CachedIntentions {
                                                  @NotNull PsiFile file,
                                                  @Nullable Editor editor,
                                                  @NotNull ShowIntentionsPass.IntentionsInfo intentions) {
-    CachedIntentions res = new CachedIntentions(project, file, editor);
+    CachedIntentions res = new CachedIntentions(project, file, editor, intentions.getTitle());
     res.wrapAndUpdateActions(intentions, false);
     return res;
   }
@@ -119,7 +137,7 @@ public final class CachedIntentions {
                                                                  @NotNull PsiFile file,
                                                                  @Nullable Editor editor,
                                                                  @NotNull ShowIntentionsPass.IntentionsInfo intentions) {
-    CachedIntentions res = new CachedIntentions(project, file, editor);
+    CachedIntentions res = new CachedIntentions(project, file, editor, intentions.getTitle());
     res.wrapAndUpdateActions(intentions, true);
     return res;
   }
@@ -259,7 +277,7 @@ public final class CachedIntentions {
     IntentionActionWithTextCaching cachedAction =
       new IntentionActionWithTextCaching(
         descriptor.getAction(), descriptor.getDisplayName(), descriptor.getIcon(), descriptor.getToolId(),
-        (cached, action) -> {
+        descriptor.getProblemOffset(), (cached, action) -> {
           if (QuickFixWrapper.unwrap(action) != null) {
             // remove only inspection fixes after invocation,
             // since intention actions might be still available
@@ -273,8 +291,7 @@ public final class CachedIntentions {
       Pair<PsiFile, Editor> availableIn = ShowIntentionActionsHandler
         .chooseBetweenHostAndInjected(myFile, editor, containingFile, (f, e) -> ShowIntentionActionsHandler.availableFor(f, e, option));
       if (availableIn == null) continue;
-      IntentionActionWithTextCaching textCaching = new IntentionActionWithTextCaching(option, option.getText(), null, null, (__1, __2) -> {
-      });
+      IntentionActionWithTextCaching textCaching = new IntentionActionWithTextCaching(option);
       boolean isErrorFix = myErrorFixes.contains(textCaching);
       if (isErrorFix) {
         cachedAction.addErrorFix(option);
@@ -306,6 +323,7 @@ public final class CachedIntentions {
     myNotifications.remove(action);
   }
 
+  @Override
   public @NotNull List<IntentionActionWithTextCaching> getAllActions() {
     List<IntentionActionWithTextCaching> result = new ArrayList<>(myErrorFixes);
     result.addAll(myInspectionFixes);
@@ -323,6 +341,7 @@ public final class CachedIntentions {
     return intentionsOrder.getSortedIntentions(this, result);
   }
 
+  @Override
   public @NotNull IntentionGroup getGroup(@NotNull IntentionActionWithTextCaching action) {
     if (myErrorFixes.contains(action)) {
       return IntentionGroup.ERROR;
@@ -347,6 +366,7 @@ public final class CachedIntentions {
   }
 
   /** Determine the icon that is shown in the action menu. */
+  @Override
   public @Nullable Icon getIcon(@NotNull IntentionActionWithTextCaching value) {
     if (value.getIcon() != null) {
       return value.getIcon();

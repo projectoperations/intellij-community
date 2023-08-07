@@ -7,7 +7,7 @@ import com.intellij.ide.IdeBundle;
 import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.ide.plugins.*;
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests;
-import com.intellij.notification.impl.NotificationsAnnouncer;
+import com.intellij.notification.impl.NotificationsAnnouncerKt;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
@@ -24,6 +24,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.FUSEventSource;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
@@ -37,6 +38,7 @@ import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.accessibility.AccessibleAnnouncerUtil;
 import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -97,6 +99,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   private final Set<IdeaPluginDescriptor> myUninstalled = new HashSet<>();
 
   private final Set<PluginId> myErrorPluginsToDisable = new HashSet<>();
+  private @Nullable FUSEventSource myInstallSource;
 
   public MyPluginModel(@Nullable Project project) {
     super(project);
@@ -108,6 +111,11 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
                   getStatusBar(window.getOwner());
 
     updatePluginDependencies(null);
+  }
+
+  @ApiStatus.Internal
+  public void setInstallSource(@Nullable FUSEventSource source) {
+    this.myInstallSource = source;
   }
 
   private static @Nullable StatusBarEx getStatusBar(@Nullable Window frame) {
@@ -125,10 +133,10 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   }
 
   /**
-   * @return true if changes were applied without restart
+   * @return true if changes were applied without a restart
    */
   public boolean apply(@Nullable JComponent parent) throws ConfigurationException {
-    Map<PluginId, IdeaPluginDescriptorImpl> pluginIdMap = PluginManagerCore.buildPluginIdMap();
+    Map<PluginId, IdeaPluginDescriptorImpl> pluginIdMap = PluginManagerCore.INSTANCE.buildPluginIdMap();
     updatePluginDependencies(pluginIdMap);
     assertCanApply(pluginIdMap);
 
@@ -145,7 +153,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
       if (needRestart) {
         uninstallsRequiringRestart.add(pluginId);
         try {
-          PluginInstaller.uninstallAfterRestart(pluginDescriptor.getPluginPath());
+          PluginInstaller.uninstallAfterRestart(pluginDescriptor);
         }
         catch (IOException e) {
           LOG.error(e);
@@ -349,6 +357,11 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
                              @NotNull IdeaPluginDescriptor descriptor,
                              @Nullable IdeaPluginDescriptor updateDescriptor,
                              @NotNull ModalityState modalityState) {
+    if (myInstallSource != null) {
+      String pluginId = descriptor.getPluginId().getIdString();
+      myInstallSource.logInstallPlugins(Collections.singletonList(pluginId));
+    }
+
     boolean isUpdate = updateDescriptor != null;
     IdeaPluginDescriptor actionDescriptor = isUpdate ? updateDescriptor : descriptor;
     if (!PluginManagerMain.checkThirdPartyPluginsAllowed(List.of(actionDescriptor))) {
@@ -358,7 +371,13 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     Ref<Boolean> allowInstallWithoutRestart = Ref.create(true);
     if (isUpdate) {
       IdeaPluginDescriptorImpl installedPluginDescriptor = (IdeaPluginDescriptorImpl)descriptor;
-      if (!DynamicPlugins.allowLoadUnloadWithoutRestart(installedPluginDescriptor)) {
+      if (installedPluginDescriptor.isBundled()) {
+        allowInstallWithoutRestart.set(
+          DynamicPlugins.allowLoadUnloadWithoutRestart(installedPluginDescriptor) &&
+          DynamicPlugins.allowLoadUnloadSynchronously(installedPluginDescriptor) &&
+          PluginInstaller.unloadDynamicPlugin(parentComponent, installedPluginDescriptor, true));
+      }
+      else if (!DynamicPlugins.allowLoadUnloadWithoutRestart(installedPluginDescriptor)) {
         allowInstallWithoutRestart.set(false);
       }
       else if (!installedPluginDescriptor.isEnabled()) {
@@ -631,7 +650,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
 
     info.indicator.cancel();
 
-    if (NotificationsAnnouncer.isEnabled()) {
+    if (NotificationsAnnouncerKt.isNotificationAnnouncerEnabled()) {
       JFrame frame = WindowManager.getInstance().findVisibleFrame();
       String key = success ? "plugins.configurable.plugin.installing.success" : "plugins.configurable.plugin.installing.failed";
       String message = IdeBundle.message(key, descriptor.getName());
@@ -1086,7 +1105,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
       return List.of();
     }
 
-    PluginLoadingError loadingError = PluginManagerCore.getLoadingError(pluginId);
+    PluginLoadingError loadingError = PluginManagerCore.INSTANCE.getLoadingError(pluginId);
     PluginId disabledDependency = loadingError != null ? loadingError.disabledDependency : null;
     if (disabledDependency == null) {
       return loadingError != null ?
@@ -1139,12 +1158,12 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
       }
 
       if (pluginIdMap == null) {
-        pluginIdMap = PluginManagerCore.buildPluginIdMap();
+        pluginIdMap = PluginManagerCore.INSTANCE.buildPluginIdMap();
       }
 
       boolean loaded = isLoaded(pluginId);
       if (rootDescriptor instanceof IdeaPluginDescriptorImpl) {
-        PluginManagerCore.processAllNonOptionalDependencyIds((IdeaPluginDescriptorImpl)rootDescriptor, pluginIdMap, depId -> {
+        PluginManagerCore.INSTANCE.processAllNonOptionalDependencyIds((IdeaPluginDescriptorImpl)rootDescriptor, pluginIdMap, depId -> {
           if (depId.equals(pluginId)) {
             return FileVisitResult.CONTINUE;
           }
@@ -1211,13 +1230,13 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
       return Stream.of();
     }
 
-    Map<PluginId, IdeaPluginDescriptorImpl> pluginIdMap = PluginManagerCore.buildPluginIdMap();
+    Map<PluginId, IdeaPluginDescriptorImpl> pluginIdMap = PluginManagerCore.INSTANCE.buildPluginIdMap();
     return pluginIds
       .stream()
       .map(requiredPluginId -> {
         IdeaPluginDescriptorImpl requiredDescriptor = pluginIdMap.get(requiredPluginId);
         return Pair.create(requiredPluginId, requiredDescriptor == null && PluginManagerCore.isModuleDependency(requiredPluginId) ?
-                                             PluginManagerCore.findPluginByModuleDependency(requiredPluginId) :
+                                             PluginManagerCore.INSTANCE.findPluginByModuleDependency(requiredPluginId) :
                                              requiredDescriptor);
       });
   }
@@ -1255,7 +1274,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
         continue;
       }
 
-      PluginManagerCore.processAllNonOptionalDependencies(descriptor, pluginIdMap, dependency -> {
+      PluginManagerCore.INSTANCE.processAllNonOptionalDependencies(descriptor, pluginIdMap, dependency -> {
         if (dependency.getPluginId().equals(rootId)) {
           result.add(descriptor);
           return FileVisitResult.TERMINATE;

@@ -27,16 +27,22 @@ class RdCoroutineHost(lifetime: Lifetime) : RdCoroutineScope(lifetime) {
     val nonUrgentDispatcher = NonUrgentExecutor.getInstance().asCoroutineDispatcher()
   }
 
-  override val defaultDispatcher: CoroutineContext get() = applicationThreadPool
+  override val defaultDispatcher: CoroutineContext
+    get() = applicationThreadPool
 
-  val uiDispatcher get() = Dispatchers.EDT
+  val uiDispatcher: CoroutineContext
+    get() = Dispatchers.EDT
 
+  @Deprecated("This is a deprecated dispatcher used before Dispatchers.EDT. Please switch to the Dispatchers.EDT")
   val uiDispatcherWithInlining = object : CoroutineDispatcher() {
-    override fun dispatch(context: CoroutineContext, block: Runnable) = invokeLater { block.run() }
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+      ApplicationManager.getApplication().invokeLater(block, ModalityState.defaultModalityState())
+    }
 
     override fun isDispatchNeeded(context: CoroutineContext): Boolean {
-      if (!ApplicationManager.getApplication().isDispatchThread)
+      if (!ApplicationManager.getApplication().isDispatchThread) {
         return true
+      }
 
       val modality = ModalityState.current()
       val transactionGuard = TransactionGuard.getInstance()
@@ -44,10 +50,10 @@ class RdCoroutineHost(lifetime: Lifetime) : RdCoroutineScope(lifetime) {
     }
   }
 
-  val uiDispatcherAnyModality = object : CoroutineDispatcher() {
-    override fun dispatch(context: CoroutineContext, block: Runnable) = invokeLater(ModalityState.any()) { block.run() }
-    override fun isDispatchNeeded(context: CoroutineContext) = !ApplicationManager.getApplication().isDispatchThread
-  }
+  @Deprecated("Dispatchers.EDT + ModalityState.any().asContextElement()", ReplaceWith("Dispatchers.EDT + ModalityState.any().asContextElement()", "kotlinx.coroutines.Dispatchers",
+                                   "com.intellij.openapi.application.EDT", "com.intellij.openapi.application.ModalityState",
+                                   "com.intellij.openapi.application.asContextElement"))
+  val uiDispatcherAnyModality get() = Dispatchers.EDT + ModalityState.any().asContextElement()
 
   init {
     override(lifetime, this)

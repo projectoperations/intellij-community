@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.pom.java;
 
 import com.intellij.ide.IdeBundle;
@@ -8,6 +8,8 @@ import com.intellij.notification.*;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.SettingsCategory;
@@ -16,7 +18,6 @@ import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.module.LanguageLevelUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.JavaProjectModelModificationService;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
@@ -24,6 +25,7 @@ import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.components.LegalNoticeDialog;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.xmlb.XmlSerializerUtil;
 import com.intellij.util.xmlb.annotations.XCollection;
@@ -55,16 +57,29 @@ public final class AcceptedLanguageLevelsSettings implements PersistentStateComp
   @XCollection(propertyElementName = "explicitly-accepted", elementName = "name", valueAttributeName = "")
   public List<String> acceptedNames = new ArrayList<>();
 
-  private static final class AcceptedLanguageLevelsSettingsStartupActivity implements StartupActivity.DumbAware {
+  static final class AcceptedLanguageLevelsSettingsStartupActivity implements StartupActivity.DumbAware {
     @Override
     public void runActivity(@NotNull Project project) {
-      DumbService.getInstance(project).smartInvokeLater(() -> projectOpened(project));
+      ReadAction.nonBlocking(() -> {
+          TreeSet<LanguageLevel> previewLevels = new TreeSet<>();
+          MultiMap<LanguageLevel, Module> unacceptedLevels = getUnacceptedLevels(project, previewLevels);
+          return new LanguageLevels(unacceptedLevels, previewLevels);
+        })
+        .inSmartMode(project)
+        .finishOnUiThread(ModalityState.nonModal(), languageLevels -> {
+          applyUnnacceptedLevels(project, languageLevels.unacceptedLevels(), languageLevels.previewLevels());
+        })
+        .submit(AppExecutorUtil.getAppExecutorService());
     }
 
-    private static void projectOpened(@NotNull Project project) {
-      TreeSet<LanguageLevel> previewLevels = new TreeSet<>();
-      MultiMap<LanguageLevel, Module> unacceptedLevels =
-        getUnacceptedLevels(project, previewLevels);
+    private record LanguageLevels(
+      MultiMap<LanguageLevel, Module> unacceptedLevels,
+      TreeSet<LanguageLevel> previewLevels
+    ) {}
+
+    private static void applyUnnacceptedLevels(@NotNull Project project,
+                                               MultiMap<LanguageLevel, Module> unacceptedLevels,
+                                               TreeSet<LanguageLevel> previewLevels) {
       if (!unacceptedLevels.isEmpty()) {
         decreaseLanguageLevel(project);
 
@@ -74,6 +89,7 @@ public final class AcceptedLanguageLevelsSettings implements PersistentStateComp
       }
       if (!previewLevels.isEmpty() && !PropertiesComponent.getInstance(project).getBoolean(IGNORE_USED_PREVIEW_FEATURES, false)) {
         LanguageLevel languageLevel = previewLevels.first();
+        if (languageLevel == LanguageLevel.JDK_X) return;
         int previewFeature = languageLevel.toJavaVersion().feature;
         PREVIEW_NOTIFICATION_GROUP.createNotification(
             JavaBundle.message("java.preview.features.notification.title"),

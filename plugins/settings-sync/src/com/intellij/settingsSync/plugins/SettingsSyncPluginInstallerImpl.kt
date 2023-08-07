@@ -13,11 +13,8 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.updateSettings.impl.PluginDownloader
+import com.intellij.settingsSync.*
 import com.intellij.settingsSync.NOTIFICATION_GROUP
-import com.intellij.settingsSync.SettingsSyncBundle
-import com.intellij.settingsSync.SettingsSyncEvents
-import com.intellij.settingsSync.SettingsSyncSettings
-import com.intellij.util.Consumer
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 
 internal open class SettingsSyncPluginInstallerImpl(private val notifyErrors: Boolean) : SettingsSyncPluginInstaller {
@@ -45,10 +42,11 @@ internal open class SettingsSyncPluginInstallerImpl(private val notifyErrors: Bo
     for (installer in installers) {
       try {
         if (!install(installer)) {
-          pluginsRequiredRestart.add("'${installer.pluginName}'")
+          pluginsRequiredRestart.add(installer.pluginName)
         }
         LOG.info("Setting sync installed plugin ID: ${installer.id.idString}")
       } catch (ex: Exception) {
+
         // currently, we don't install plugins that have missing dependencies.
         // TODO: toposort plugin with dependencies.
         // TODO: Skip installation dependent plugins, if any dependency fails to install.
@@ -61,8 +59,7 @@ internal open class SettingsSyncPluginInstallerImpl(private val notifyErrors: Bo
       SettingsSyncEvents.getInstance().fireCategoriesChanged()
     }
     if (pluginsRequiredRestart.size > 0) {
-      SettingsSyncEvents.getInstance().fireRestartRequired("install", SettingsSyncBundle.message("plugins.sync.install.message",
-                                                                                                 pluginsRequiredRestart.size))
+      SettingsSyncEvents.getInstance().fireRestartRequired(RestartForPluginInstall(pluginsRequiredRestart))
     }
   }
 

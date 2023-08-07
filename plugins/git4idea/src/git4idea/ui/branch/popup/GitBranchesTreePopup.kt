@@ -21,6 +21,7 @@ import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.TreePopup
 import com.intellij.openapi.util.*
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.ui.*
 import com.intellij.ui.popup.NextStepHandler
 import com.intellij.ui.popup.PopupFactoryImpl
@@ -47,7 +48,6 @@ import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryChangeListener
 import git4idea.repo.GitRepositoryManager
 import git4idea.ui.branch.GitBranchManager
-import git4idea.ui.branch.GitBranchPopup
 import git4idea.ui.branch.GitBranchPopupFetchAction
 import git4idea.ui.branch.popup.GitBranchesTreePopupStep.Companion.SINGLE_REPOSITORY_ACTION_PLACE
 import git4idea.ui.branch.popup.GitBranchesTreePopupStep.Companion.SPEED_SEARCH_DEFAULT_ACTIONS_GROUP
@@ -63,6 +63,7 @@ import git4idea.ui.branch.tree.GitBranchesTreeUtil.selectFirstLeaf
 import git4idea.ui.branch.tree.GitBranchesTreeUtil.selectLastLeaf
 import git4idea.ui.branch.tree.GitBranchesTreeUtil.selectNextLeaf
 import git4idea.ui.branch.tree.GitBranchesTreeUtil.selectPrevLeaf
+import git4idea.ui.branch.tree.recentCheckoutBranches
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -106,7 +107,7 @@ class GitBranchesTreePopup(project: Project, step: GitBranchesTreePopupStep, par
   init {
     setParentValue(parentValue)
     minimumSize = if (isNewUI) JBDimension(350, 300) else JBDimension(300, 200)
-    dimensionServiceKey = if (isChild()) null else GitBranchPopup.DIMENSION_SERVICE_KEY
+    dimensionServiceKey = if (isChild()) null else DIMENSION_SERVICE_KEY
     userResized = !isChild() && WindowStateService.getInstance(project).getSizeFor(project, dimensionServiceKey) != null
     installGeneralShortcutActions()
     installShortcutActions(step.treeModel)
@@ -222,6 +223,7 @@ class GitBranchesTreePopup(project: Project, step: GitBranchesTreePopupStep, par
         val nodeToExpand = when {
           node is GitBranch && isChild() && treeStep.affectedRepositories.any { it.currentBranch == node } -> node
           node is GitBranch && !isChild() && treeStep.affectedRepositories.all { it.currentBranch == node } -> node
+          node is GitBranch && treeStep.affectedRepositories.any { node in it.recentCheckoutBranches } -> node
           node is BranchUnderRepository && node.repository.currentBranch == node.branch -> node
           node is BranchTypeUnderRepository -> node
           else -> null
@@ -412,6 +414,7 @@ class GitBranchesTreePopup(project: Project, step: GitBranchesTreePopupStep, par
     rowHeight = treeRowHeight
     isLargeModel = true
     expandsSelectedPaths = true
+    toggleClickCount = if (Registry.`is`("git.branches.tree.popup.expand.node.on.single.click")) 1 else 2
     SmartExpander.installOn(this)
   }
 
@@ -708,6 +711,8 @@ class GitBranchesTreePopup(project: Project, step: GitBranchesTreePopupStep, par
 
   companion object {
 
+    private const val DIMENSION_SERVICE_KEY = "Git.Branch.Popup"
+
     private inline val isNewUI
       get() = ExperimentalUI.isNewUI()
 
@@ -715,9 +720,6 @@ class GitBranchesTreePopup(project: Project, step: GitBranchesTreePopupStep, par
 
     internal val treeRowHeight: Int
       get() = if (isNewUI) JBUI.CurrentTheme.List.rowHeight() else JBUIScale.scale(22)
-
-    @JvmStatic
-    fun isEnabled() = true
 
     /**
      * @param selectedRepository - Selected repository:

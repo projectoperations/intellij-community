@@ -1,37 +1,43 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.mergerequest.ui.timeline
 
-import com.intellij.collaboration.async.launchNow
-import com.intellij.collaboration.async.mapCaching
-import com.intellij.collaboration.async.mapFiltered
-import com.intellij.collaboration.async.modelFlow
+import com.intellij.collaboration.async.*
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.childScope
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
+import org.jetbrains.plugins.gitlab.mergerequest.GitLabMergeRequestsPreferences
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
-import org.jetbrains.plugins.gitlab.mergerequest.diff.ChangesSelection
+import com.intellij.collaboration.util.ChangesSelection
 import org.jetbrains.plugins.gitlab.mergerequest.ui.details.GitLabMergeRequestViewModel
+import org.jetbrains.plugins.gitlab.ui.GitLabUIUtil
 import org.jetbrains.plugins.gitlab.ui.comment.DelegatingGitLabNoteEditingViewModel
 import org.jetbrains.plugins.gitlab.ui.comment.NewGitLabNoteViewModel
 import org.jetbrains.plugins.gitlab.ui.comment.forNewNote
 import org.jetbrains.plugins.gitlab.ui.comment.onDoneIn
+import java.net.URL
 
 interface GitLabMergeRequestTimelineViewModel : GitLabMergeRequestViewModel {
   val currentUser: GitLabUserDTO
-  val timelineItems: Flow<List<GitLabMergeRequestTimelineItemViewModel>>
+  val showEvents: StateFlow<Boolean>
+  val timelineItems: SharedFlow<Result<List<GitLabMergeRequestTimelineItemViewModel>>>
 
   val newNoteVm: NewGitLabNoteViewModel?
 
+  val serverUrl: URL
+
   fun requestLoad()
+
+  fun setShowEvents(show: Boolean)
 }
 
 private val LOG = logger<GitLabMergeRequestTimelineViewModel>()
 
 class LoadAllGitLabMergeRequestTimelineViewModel(
   parentCs: CoroutineScope,
+  private val preferences: GitLabMergeRequestsPreferences,
   override val currentUser: GitLabUserDTO,
   private val mergeRequest: GitLabMergeRequest
 ) : GitLabMergeRequestTimelineViewModel {
@@ -41,12 +47,18 @@ class LoadAllGitLabMergeRequestTimelineViewModel(
 
   override val number: String = "!${mergeRequest.number}"
   override val author: GitLabUserDTO = mergeRequest.author
-  override val title: Flow<String> = mergeRequest.title
-  override val descriptionHtml: Flow<String> = mergeRequest.descriptionHtml
+  override val title: SharedFlow<String> = mergeRequest.details.map { it.title }
+    .modelFlow(cs, LOG)
+  override val descriptionHtml: SharedFlow<String> = mergeRequest.details.map { it.description }.map {
+    if (it.isNotBlank()) GitLabUIUtil.convertToHtml(it) else it
+  }.modelFlow(cs, LOG)
   override val url: String = mergeRequest.url
 
-  override val timelineItems: Flow<List<GitLabMergeRequestTimelineItemViewModel>> =
-    mergeRequest.createTimelineItemsFlow().mapToVms(mergeRequest).modelFlow(cs, LOG)
+  private val _showEvents = MutableStateFlow(preferences.showEventsInTimeline)
+  override val showEvents: StateFlow<Boolean> = _showEvents.asStateFlow()
+
+  override val timelineItems: SharedFlow<Result<List<GitLabMergeRequestTimelineItemViewModel>>> =
+    mergeRequest.createTimelineItemsFlow(showEvents).mapToVms(mergeRequest).modelFlow(cs, LOG)
 
   @RequiresEdt
   override fun requestLoad() {
@@ -67,8 +79,15 @@ class LoadAllGitLabMergeRequestTimelineViewModel(
       null
     }
 
+  override val serverUrl: URL = mergeRequest.glProject.serverPath.toURL()
+
   private val _diffRequests = MutableSharedFlow<ChangesSelection.Precise>()
   val diffRequests: Flow<ChangesSelection.Precise> = _diffRequests.asSharedFlow()
+
+  override fun setShowEvents(show: Boolean) {
+    _showEvents.value = show
+    preferences.showEventsInTimeline = show
+  }
 
   override fun refreshData() {
     cs.launchNow {
@@ -78,32 +97,49 @@ class LoadAllGitLabMergeRequestTimelineViewModel(
 
   /**
    * Load all simple events and discussions and subscribe to user discussions changes
-   * TODO: handle event loading errors
    */
-  private fun GitLabMergeRequest.createTimelineItemsFlow(): Flow<List<GitLabMergeRequestTimelineItem>> {
-    val simpleEvents: Flow<List<GitLabMergeRequestTimelineItem.Immutable>> =
-      combine(stateEvents, labelEvents, milestoneEvents) { state, labels, miles ->
-        state.map(GitLabMergeRequestTimelineItem::StateEvent) +
-        labels.map(GitLabMergeRequestTimelineItem::LabelEvent) +
-        miles.map(GitLabMergeRequestTimelineItem::MilestoneEvent)
+  @OptIn(ExperimentalCoroutinesApi::class)
+  private fun GitLabMergeRequest.createTimelineItemsFlow(showEventsFlow: Flow<Boolean>): Flow<Result<List<GitLabMergeRequestTimelineItem>>> =
+    showEventsFlow.flatMapLatest { showEvents ->
+      val simpleEvents: Flow<Result<List<GitLabMergeRequestTimelineItem.Immutable>>> =
+        if (!showEvents) {
+          flowOf(Result.success(emptyList()))
+        }
+        else {
+          combine(stateEvents, labelEvents, milestoneEvents, systemNotes) { stateResult, labelsResult, milesResult, systemNotesResult ->
+            val state = stateResult.getOrElse { return@combine Result.failure(it) }
+            val labels = labelsResult.getOrElse { return@combine Result.failure(it) }
+            val miles = milesResult.getOrElse { return@combine Result.failure(it) }
+            val systemNotes = systemNotesResult.getOrElse { return@combine Result.failure(it) }
+
+            Result.success(state.map(GitLabMergeRequestTimelineItem::StateEvent) +
+                           labels.map(GitLabMergeRequestTimelineItem::LabelEvent) +
+                           miles.map(GitLabMergeRequestTimelineItem::MilestoneEvent) +
+                           systemNotes.map(GitLabMergeRequestTimelineItem::SystemNote))
+          }
+        }
+
+      combine(simpleEvents, discussions, draftNotes) { eventsResult, discussionsResult, draftNotesResult ->
+        val events = eventsResult.getOrElse { return@combine Result.failure(it) }
+        val discussions = discussionsResult.getOrElse { return@combine Result.failure(it) }
+        val draftNotes = draftNotesResult.getOrElse { return@combine Result.failure(it) }.filter { it.discussionId == null }
+
+        val timeline = (events +
+                        discussions.map(GitLabMergeRequestTimelineItem::UserDiscussion)
+                       ).sortedBy { it.date } + draftNotes.map(GitLabMergeRequestTimelineItem::DraftNote)
+
+        Result.success(timeline)
       }
-
-    val standaloneDraftNotes = draftNotes.mapFiltered { it.discussionId == null }
-    return combine(simpleEvents, systemNotes, discussions, standaloneDraftNotes) { events, systemNotes, discussions, draftNotes ->
-      (events +
-       systemNotes.map { GitLabMergeRequestTimelineItem.SystemNote(it) } +
-       discussions.map(GitLabMergeRequestTimelineItem::UserDiscussion)
-      ).sortedBy { it.date } +
-      draftNotes.map(GitLabMergeRequestTimelineItem::DraftNote)
     }
-  }
 
-  private fun Flow<List<GitLabMergeRequestTimelineItem>>.mapToVms(mr: GitLabMergeRequest) =
-    mapCaching(
-      GitLabMergeRequestTimelineItem::id,
-      { cs, item -> cs.createItemVm(mr, item) },
-      { if (this is GitLabMergeRequestTimelineItemViewModel.Discussion) destroy() }
-    )
+  private fun Flow<Result<List<GitLabMergeRequestTimelineItem>>>.mapToVms(mr: GitLabMergeRequest)
+    : Flow<Result<List<GitLabMergeRequestTimelineItemViewModel>>> =
+    throwFailure()
+      .mapCaching(
+        GitLabMergeRequestTimelineItem::id,
+        { item -> createItemVm(mr, item) },
+        { if (this is GitLabMergeRequestTimelineItemViewModel.Discussion) destroy() }
+      ).asResultFlow()
 
   private fun CoroutineScope.createItemVm(mr: GitLabMergeRequest, item: GitLabMergeRequestTimelineItem)
     : GitLabMergeRequestTimelineItemViewModel =

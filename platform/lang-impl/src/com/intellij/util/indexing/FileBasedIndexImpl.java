@@ -6,7 +6,6 @@ import com.intellij.AppTopics;
 import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.ide.AppLifecycleListener;
 import com.intellij.ide.startup.ServiceNotReadyException;
-import com.intellij.model.ModelBranch;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.AppUIExecutor;
 import com.intellij.openapi.application.Application;
@@ -91,6 +90,7 @@ import com.intellij.util.messages.MessageBus;
 import com.intellij.util.messages.SimpleMessageBusConnection;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import kotlinx.coroutines.CoroutineScope;
 import org.jetbrains.annotations.*;
 
 import java.io.IOException;
@@ -127,7 +127,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
   private static final boolean USE_GENTLE_FLUSHER = SystemProperties.getBooleanProperty("indexes.flushing.use-gentle-flusher", true);
   /** How often, on average, flush each index to the disk */
   private static final long FLUSHING_PERIOD_MS = SECONDS.toMillis(FlushingDaemon.FLUSHING_PERIOD_IN_SECONDS);
-
+  final CoroutineScope coroutineScope;
 
   private volatile RegisteredIndexes myRegisteredIndexes;
   private volatile @Nullable String myShutdownReason;
@@ -172,7 +172,8 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     myRegisteredIndexes = null;
   }
 
-  public FileBasedIndexImpl() {
+  public FileBasedIndexImpl(@NotNull CoroutineScope coroutineScope) {
+    this.coroutineScope = coroutineScope;
     ReadWriteLock lock = new ReentrantReadWriteLock();
     myReadLock = lock.readLock();
     myWriteLock = lock.writeLock();
@@ -339,7 +340,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
   }
 
   void setUpShutDownTask() {
-    myShutDownTask = new MyShutDownTask();
+    myShutDownTask = new MyShutDownTask(true);
     ShutDownTracker.getInstance().registerCacheShutdownTask(myShutDownTask);
   }
 
@@ -380,20 +381,22 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     }
   }
 
-  static class MyShutDownTask implements Runnable {
-    @Override
-    public void run() {
-      try {
-        FileBasedIndex fileBasedIndex = FileBasedIndex.getInstance();
-        if (fileBasedIndex instanceof FileBasedIndexImpl) {
-          ((FileBasedIndexImpl)fileBasedIndex).performShutdown(false, "IDE shutdown");
-        }
-      }
-      finally {
-        if (!ApplicationManager.getApplication().isUnitTestMode()) {
-          StorageDiagnosticData.dumpOnShutdown();
-        }
-      }
+  @Override
+  public void requestRebuild(@NotNull final ID<?, ?> indexId, final @NotNull Throwable throwable) {
+    LOG.info("Requesting index rebuild for: " + indexId.getName(), throwable);
+    if (FileBasedIndexScanUtil.isManuallyManaged(indexId)) {
+      advanceIndexVersion(indexId);
+    }
+    else if (!myRegisteredIndexes.isExtensionsDataLoaded()) {
+      IndexDataInitializer.submitGenesisTask(coroutineScope, () -> {
+        // should be always true here since the genesis pool is sequential
+        waitUntilIndicesAreInitialized();
+        doRequestRebuild(indexId, throwable);
+        return null;
+      });
+    }
+    else {
+      doRequestRebuild(indexId, throwable);
     }
   }
 
@@ -486,22 +489,10 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
                                               @NotNull IntSet dirtyFiles)
     throws Exception {
     ID<K, V> name = extension.getName();
-    Set<FileType> addedTypes;
-    InputFilter inputFilter;
+    InputFilter inputFilter = extension.getInputFilter();
     boolean contentHashesEnumeratorOk = true;
 
     try {
-      inputFilter = extension.getInputFilter();
-      if (inputFilter instanceof FileBasedIndex.FileTypeSpecificInputFilter) {
-        addedTypes = new HashSet<>();
-        ((FileBasedIndex.FileTypeSpecificInputFilter)inputFilter).registerFileTypesUsedForIndexing(type -> {
-          if (type != null) addedTypes.add(type);
-        });
-      }
-      else {
-        addedTypes = null;
-      }
-
       if (FileBasedIndex.hasSnapshotMapping(extension)) {
         contentHashesEnumeratorOk = SnapshotHashEnumeratorService.getInstance().initialize();
       }
@@ -529,8 +520,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
         state.registerIndex(name,
                             index,
                             inputFilter,
-                            version + GlobalIndexFilter.getFiltersVersion(name),
-                            addedTypes);
+                            version + GlobalIndexFilter.getFiltersVersion(name));
         break;
       }
       catch (Exception e) {
@@ -963,12 +953,12 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
   }
 
   private void indexUnsavedDocuments(@NotNull final ID<?, ?> indexId,
-                                     @Nullable Project project,
+                                     @Nullable("All projects") Project project,
                                      @Nullable GlobalSearchScope filter,
                                      @Nullable VirtualFile restrictedFile) {
-    //if (myUpToDateIndicesForUnsavedOrTransactedDocuments.contains(indexId)) {
-    //  return; // no need to index unsaved docs        // todo: check scope ?
-    //}
+    if (myUpToDateIndicesForUnsavedOrTransactedDocuments.contains(indexId)) {
+      return; // no need to index unsaved docs        // todo: we only index files for a project, but this service is app-wide
+    }
 
     Document[] unsavedDocuments = myFileDocumentManager.getUnsavedDocuments();
     Set<Document> transactedDocuments = getTransactedDocuments();
@@ -982,10 +972,13 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     documents.addAll(transactedDocuments);
     Collections.addAll(documents, uncommittedDocuments);
 
-    Collection<Document> documentsToProcessForProject = ContainerUtil.filter(documents,
+    LOG.assertTrue(project == null || filter == null || filter.getProject() == null || project.equals(filter.getProject()),
+                   "filter should filter files in provided project. ref: 50cf572587cf");
+    Collection<Document> documentsToProcessForProject = project == null ? documents :
+                                                        ContainerUtil.filter(documents,
                                                                              document -> belongsToScope(
                                                                                myFileDocumentManager.getFile(document), restrictedFile,
-                                                                               filter));
+                                                                               GlobalSearchScope.everythingScope(project)));
 
     if (!documentsToProcessForProject.isEmpty()) {
       UpdateTask<Document> task = myRegisteredIndexes.getUnsavedDataUpdateTask(indexId);
@@ -995,7 +988,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
           documentsToProcessForProject.size() == documents.size() &&
           !hasActiveTransactions()
       ) {
-        //myUpToDateIndicesForUnsavedOrTransactedDocuments.add(indexId);
+        myUpToDateIndicesForUnsavedOrTransactedDocuments.add(indexId);
       }
     }
   }
@@ -1096,16 +1089,6 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     FileContentImpl newFc = (FileContentImpl)FileContentImpl.createByText(vFile, contentText, project);
     document.putUserData(ourFileContentKey, new WeakReference<>(Pair.create(newFc, currentDocStamp)));
     return newFc;
-  }
-
-  @NotNull
-  @Override
-  public <K, V> Map<K, V> getFileData(@NotNull ID<K, V> id, @NotNull VirtualFile virtualFile, @NotNull Project project) {
-    if (ModelBranch.getFileBranch(virtualFile) != null) {
-      return getInMemoryData(id, virtualFile, project);
-    }
-
-    return super.getFileData(id, virtualFile, project);
   }
 
   @Override
@@ -1250,21 +1233,29 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     }
   }
 
-  @Override
-  public void requestRebuild(@NotNull final ID<?, ?> indexId, final @NotNull Throwable throwable) {
-    LOG.info("Requesting index rebuild for: " + indexId.getName(), throwable);
-    if (FileBasedIndexScanUtil.isManuallyManaged(indexId)) {
-      advanceIndexVersion(indexId);
-    }
-    else if (!myRegisteredIndexes.isExtensionsDataLoaded()) {
-      IndexDataInitializer.submitGenesisTask(() -> {
-        waitUntilIndicesAreInitialized(); // should be always true here since the genesis pool is sequential
-        doRequestRebuild(indexId, throwable);
-        return null;
-      });
-    }
-    else {
-      doRequestRebuild(indexId, throwable);
+  static final class MyShutDownTask implements Runnable {
+    private final boolean myTermination;
+
+    MyShutDownTask(boolean termination) { myTermination = termination; }
+
+    @Override
+    public void run() {
+      Application app = ApplicationManager.getApplication();
+      if (app == null) {
+        return;
+      }
+
+      try {
+        FileBasedIndex fileBasedIndex = app.getServiceIfCreated(FileBasedIndex.class);
+        if (fileBasedIndex instanceof FileBasedIndexImpl fileBasedIndexImpl) {
+          fileBasedIndexImpl.performShutdown(false, "IDE shutdown");
+        }
+      }
+      finally {
+        if (!myTermination && !app.isUnitTestMode()) {
+          StorageDiagnosticData.dumpOnShutdown();
+        }
+      }
     }
   }
 
@@ -2238,7 +2229,6 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     }
   }
 
-
   /**
    * Try to reduce contention by looking on the signs of interference/contention -- like Lock.getQueueLength(),
    * and fail of .tryLock(). Introduce a limit on how many such signs are OK during a single attempt to flush
@@ -2264,7 +2254,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
       super("IndexesFlusher",
             scheduler, FLUSHING_PERIOD_MS,
             MIN_CONTENTION_QUOTA, MAX_CONTENTION_QUOTA, INITIAL_CONTENTION_QUOTA,
-            TelemetryManager.getMeter(Indexes)
+            TelemetryManager.getInstance().getMeter(Indexes)
       );
     }
 
@@ -2296,7 +2286,11 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
       }
 
       if (!overallResult.needsMoreToFlush()) {
-        SnapshotHashEnumeratorService.getInstance().flush();
+        SnapshotHashEnumeratorService snapshotHashEnumeratorService =
+          ApplicationManager.getApplication().getServiceIfCreated(SnapshotHashEnumeratorService.class);
+        if (snapshotHashEnumeratorService != null) {
+          snapshotHashEnumeratorService.flush();
+        }
       }
       return overallResult;
     }

@@ -66,6 +66,7 @@ public class UnindexedFilesScanner implements FilesScanningTask {
 
   private static final @NotNull Key<Boolean> CONTENT_SCANNED = Key.create("CONTENT_SCANNED");
   private static final @NotNull Key<Boolean> INDEX_UPDATE_IN_PROGRESS = Key.create("INDEX_UPDATE_IN_PROGRESS");
+  private static final @NotNull Key<Boolean> FIRST_SCANNING_REQUESTED = Key.create("FIRST_SCANNING_REQUESTED");
   private final FileBasedIndexImpl myIndex = (FileBasedIndexImpl)FileBasedIndex.getInstance();
   protected final Project myProject;
   private final boolean myStartSuspended;
@@ -331,6 +332,10 @@ public class UnindexedFilesScanner implements FilesScanningTask {
     return Boolean.TRUE.equals(project.getUserData(CONTENT_SCANNED));
   }
 
+  public static boolean isFirstProjectScanningRequested(@NotNull Project project) {
+    return Boolean.TRUE.equals(project.getUserData(FIRST_SCANNING_REQUESTED));
+  }
+
   @NotNull
   private static Pair<@NotNull List<IndexableFilesIterator>, @Nullable StatusMark> collectProviders(@NotNull Project project,
                                                                                                     FileBasedIndexImpl index) {
@@ -408,13 +413,30 @@ public class UnindexedFilesScanner implements FilesScanningTask {
         subTaskIndicator.setText(provider.getRootsScanningProgressText());
         try (PerProviderSink perProviderSink = project.getService(PerProjectIndexingQueue.class)
           .getSink(provider, projectScanningHistory.getScanningSessionId())) {
+          List<Pair<VirtualFile, List<VirtualFile>>> rootsAndFiles = new ArrayList<>();
           Function<@Nullable VirtualFile, ContentIterator> singleProviderIteratorFactory = root -> {
-            UnindexedFilesFinder finder = new UnindexedFilesFinder(project, sharedExplanationLogger, myIndex, getForceReindexingTrigger(),
-                                                                   root);
-            return new SingleProviderIterator(project, subTaskIndicator, provider, fileScannerVisitors,
-                                              finder, scanningStatistics, perProviderSink);
+            List<VirtualFile> files = new ArrayList<>(1024);
+            rootsAndFiles.add(new Pair<>(root, files));
+            return fileOrDir -> {
+              // we apply scanners here, because scanners may mark directory as excluded, and we should skip excluded subtrees
+              // (e.g. JSDetectingProjectFileScanner.startSession will exclude "node_modules" directories during scanning)
+              PushedFilePropertiesUpdaterImpl.applyScannersToFile(fileOrDir, fileScannerVisitors);
+              return files.add(fileOrDir);
+            };
           };
+
+          // TODO: add VFS+fileScannerVisitors time to statistics
           provider.iterateFilesInRoots(project, singleProviderIteratorFactory, thisProviderDeduplicateFilter);
+
+          // TODO: add scanning self-time to statistics
+          for (Pair<VirtualFile, List<VirtualFile>> rootAndFiles : rootsAndFiles) {
+            UnindexedFilesFinder finder = new UnindexedFilesFinder(project, sharedExplanationLogger, myIndex, getForceReindexingTrigger(),
+                                                                   rootAndFiles.getFirst());
+            var rootIterator = new SingleProviderIterator(project, subTaskIndicator, provider, finder,
+                                                          scanningStatistics, perProviderSink);
+            rootAndFiles.getSecond().forEach(it -> rootIterator.processFile(it));
+          }
+
           perProviderSink.commit();
         }
         catch (ProcessCanceledException pce) {
@@ -513,6 +535,7 @@ public class UnindexedFilesScanner implements FilesScanningTask {
                                                   boolean startSuspended,
                                                   @Nullable @NonNls String indexingReason) {
     ((FileBasedIndexImpl)FileBasedIndex.getInstance()).loadIndexes();
+    project.putUserData(FIRST_SCANNING_REQUESTED, true);
     if (TestModeFlags.is(INDEX_PROJECT_WITH_MANY_UPDATERS_TEST_KEY)) {
       LOG.assertTrue(ApplicationManager.getApplication().isUnitTestMode());
       List<IndexableFilesIterator> iterators = collectProviders(project, (FileBasedIndexImpl)FileBasedIndex.getInstance()).getFirst();

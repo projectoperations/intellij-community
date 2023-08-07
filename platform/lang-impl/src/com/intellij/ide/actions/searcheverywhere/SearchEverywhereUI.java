@@ -82,6 +82,7 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.StatusText;
 import com.intellij.util.ui.UIUtil;
 import kotlin.Unit;
+import kotlin.jvm.functions.Function1;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.*;
 
@@ -268,7 +269,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
   @NotNull
   @Override
   public JBList<Object> createList() {
-    myListModel = myListFactory.createModel();
+    myListModel = myListFactory.createModel(this::getSelectedTabID);
     addListDataListener(myListModel);
     return myListFactory.createList(myListModel);
   }
@@ -341,7 +342,16 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
         continue;
       }
 
-      return ((SearchFieldActionsContributor)contributor).createRightActions(() -> {
+      Function1<AnAction, Unit> registerShortcut = action -> {
+        ShortcutSet shortcut = ActionUtil.getMnemonicAsShortcut(action);
+        if (shortcut != null) {
+          action.setShortcutSet(shortcut);
+          action.registerCustomShortcutSet(shortcut, this);
+        }
+        return Unit.INSTANCE;
+      };
+
+      return ((SearchFieldActionsContributor)contributor).createRightActions(registerShortcut, () -> {
         scheduleRebuildList(SearchRestartReason.TEXT_SEARCH_OPTION_CHANGED);
       });
     }
@@ -539,7 +549,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     ExtendableTextComponent.Extension leftExt = new ExtendableTextComponent.Extension() {
       @Override
       public Icon getIcon(boolean hovered) {
-        return Registry.is("search.everywhere.footer.extended.info") ? AllIcons.Actions.SearchWithHistory : AllIcons.Actions.Search;
+        return isExtendedInfoEnabled() ? AllIcons.Actions.SearchWithHistory : AllIcons.Actions.Search;
       }
 
       @Override
@@ -553,8 +563,8 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
       }
 
       @Override
-      public Runnable getActionOnClick(@NotNull InputEvent inputEvent) {
-        if (!Registry.is("search.everywhere.footer.extended.info")) return null;
+      public Runnable getActionOnClick() {
+        if (!isExtendedInfoEnabled()) return null;
 
         Rectangle bounds = ((TextFieldWithPopupHandlerUI)mySearchField.getUI()).getExtensionIconBounds(this);
         Point point = bounds.getLocation();
@@ -586,7 +596,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
 
   @Override
   protected @NotNull JPanel createFooterPanel(@NotNull JPanel panel) {
-    if (!Registry.is("search.everywhere.footer.extended.info")) return super.createFooterPanel(panel);
+    if (!isExtendedInfoEnabled()) return super.createFooterPanel(panel);
 
     ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(
       SETabSwitcherListener.Companion.getSE_TAB_TOPIC(), new SETabSwitcherListener() {
@@ -812,7 +822,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
       }
 
       showDescriptionForIndex(myResultsList.getSelectedIndex());
-      if (Registry.is("search.everywhere.footer.extended.info")) {
+      if (isExtendedInfoEnabled()) {
         if (selectedValue != null && myExtendedInfoComponent != null) {
           myExtendedInfoComponent.updateElement(selectedValue);
         }
@@ -844,6 +854,10 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
         }
       }
     });
+  }
+  
+  static boolean isExtendedInfoEnabled() {
+    return Registry.is("search.everywhere.footer.extended.info") || ApplicationManager.getApplication().isInternal();
   }
 
   /**
@@ -1118,8 +1132,9 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     }
   }
 
-  private void sendStatisticsAndClose() {
-    if (isShowing()) {
+  @VisibleForTesting
+  public void sendStatisticsAndClose() {
+    if (isShowing() || ApplicationManager.getApplication().isUnitTestMode()) {
       if (myMlService != null) {
         myMlService.onSearchFinished(
           myProject, () -> myListModel.getFoundElementsInfo()
@@ -1744,18 +1759,30 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
         @Override
         public String getTooltip() {
           return action instanceof TextSearchRightActionAction
-                 ? ((TextSearchRightActionAction)action).getTooltipText()
+                 ? ((TextSearchRightActionAction)action).getTooltip()
                  : action.getTemplatePresentation().getDescription();
         }
 
         @Override
-        public Runnable getActionOnClick(@NotNull InputEvent inputEvent) {
+        public boolean isSelected() {
+          return action instanceof ToggleAction toggleAction && toggleAction.isSelected(createActionEvent());
+        }
+
+        @Override
+        public Dimension getButtonSize() {
+          return ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE;
+        }
+
+        @Override
+        public Runnable getActionOnClick() {
           return () -> {
-            AnActionEvent event =
-              AnActionEvent.createFromInputEvent(inputEvent, ActionPlaces.POPUP, action.getTemplatePresentation().clone(),
-                                                 DataContext.EMPTY_CONTEXT);
-            ActionUtil.performDumbAwareWithCallbacks(action, event, () -> action.actionPerformed(event));
+            action.actionPerformed(createActionEvent());
           };
+        }
+
+        private AnActionEvent createActionEvent() {
+          return AnActionEvent.createFromDataContext(ActionPlaces.POPUP, action.getTemplatePresentation().clone(),
+                                                     DataContext.EMPTY_CONTEXT);
         }
       };
     }

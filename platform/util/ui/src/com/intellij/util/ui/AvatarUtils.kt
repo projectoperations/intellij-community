@@ -1,7 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui
 
-import com.intellij.ui.NewUi
+import com.intellij.ui.NewUiValue
 import com.intellij.ui.paint.withTxAndClipAligned
 import com.intellij.util.ui.AvatarUtils.generateColoredAvatar
 import com.intellij.util.ui.ImageUtil.applyQualityRenderingHints
@@ -20,12 +20,14 @@ class AvatarIcon(private val targetSize: Int,
                  private val palette: ColorPalette = AvatarPalette) : JBCachingScalableIcon<AvatarIcon>() {
   private var cachedImage: BufferedImage? = null
   private var cachedImageScale: Double? = null
+  private var cachedImageColor: Color? = null
 
   override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
     g as Graphics2D
     val iconSize = getIconSize()
     val scale = g.transform.scaleX
-    if (scale != cachedImageScale) {
+    val imageColor = palette.gradient(gradientSeed).first
+    if (scale != cachedImageScale || imageColor != cachedImageColor) {
       cachedImage = null
     }
 
@@ -39,6 +41,7 @@ class AvatarIcon(private val targetSize: Int,
                                           palette = palette)
       this.cachedImage = cachedImage
       cachedImageScale = scale
+      cachedImageColor = palette.gradient(gradientSeed).first
     }
 
     withTxAndClipAligned(g, x, y, cachedImage.width, cachedImage.height) { gg ->
@@ -98,7 +101,7 @@ object AvatarUtils {
   }
 
   private fun getFont(size: Int): Font {
-    return if (NewUi.isEnabled()) {
+    return if (NewUiValue.isEnabled()) {
       val fontSize = 13 * size / 20
       getNewUiFont(fontSize)
     }
@@ -119,21 +122,35 @@ object AvatarUtils {
 
 internal object Avatars {
   // "John Smith" -> "JS"
+  // "John Smith-Harris" -> "JS"
+  // "John-Smith-Harris" -> "JH"
+  // "John-Smith Harris" -> "JH"
+  // "MyProject" -> "MP"
+  // "My-Project" -> "MP"
+  // "My-Project_Strong" -> "MP"
+  // "My_Project_Strong" -> "MS"
+  // "One,Two-Four" -> "OT"
+  // "Project_" -> "P"
   fun initials(text: String): String {
-    val words = text
+    val filtered = text
       .filter { !it.isHighSurrogate() && !it.isLowSurrogate() }
       .trim()
-      .split(' ', ',', '`', '\'', '\"').filter { it.isNotBlank() }
-      .let {
-        if (it.size > 2) listOf(it.first(), it.last()) else it
-      }
-      .take(2)
-    if (words.size == 1) {
-      return generateFromCamelCase(words.first())
+
+    val words = (filtered.splitAtLeast2NonEmpty(' ')
+                 ?: filtered.splitAtLeast2NonEmpty(',')
+                 ?: filtered.splitAtLeast2NonEmpty('-')
+                 ?: filtered.splitAtLeast2NonEmpty('_')
+                 ?: filtered.splitAtLeast2NonEmpty('`', '\'', '\"'))
+        ?.let { listOf(it.first(), it.last()) }
+
+    if (words == null) {
+      return generateFromCamelCase(filtered)
     }
     return words.map { it.first() }
         .joinToString("").uppercase()
   }
+
+  private fun String.splitAtLeast2NonEmpty(vararg delimiters: Char) = split(*delimiters).filter { it.isNotEmpty() }.takeIf { it.size >= 2 }
 
   private fun generateFromCamelCase(text: String): String {
     return text.filterIndexed { index, c -> index == 0 || c.isUpperCase() }

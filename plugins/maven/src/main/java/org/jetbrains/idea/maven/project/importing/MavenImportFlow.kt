@@ -7,7 +7,10 @@ import com.intellij.openapi.externalSystem.model.ExternalSystemDataKeys
 import com.intellij.openapi.externalSystem.service.project.ProjectDataManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.progress.rawProgressReporter
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
+import com.intellij.openapi.progress.withBackgroundProgress
+import com.intellij.openapi.progress.withRawProgressReporter
 import com.intellij.openapi.project.ExternalStorageConfigurationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
@@ -198,13 +201,19 @@ class MavenImportFlow {
 
     val resolver = MavenProjectResolver.getInstance(context.project)
     val mavenProgressIndicator = context.initialContext.indicator
-    val resolutionResult = resolver.resolve(context.toResolve,
-                                            context.projectsTree,
-                                            context.initialContext.generalSettings,
-                                            embeddersManager,
-                                            consoleToBeRemoved,
-                                            mavenProgressIndicator.indicator,
-                                            mavenProgressIndicator.syncConsole)
+    val resolutionResult = runBlockingMaybeCancellable {
+      withBackgroundProgress(context.project, MavenProjectBundle.message("maven.downloading.plugins"), true) {
+        withRawProgressReporter {
+          resolver.resolve(context.toResolve,
+                           context.projectsTree,
+                           context.initialContext.generalSettings,
+                           embeddersManager,
+                           consoleToBeRemoved,
+                           rawProgressReporter!!,
+                           mavenProgressIndicator.syncConsole)
+        }
+      }
+    }
     Disposer.dispose(d)
     val projectsWithUnresolvedPlugins = resolutionResult.mavenProjectMap.values.flatten()
     return MavenResolvedContext(context.project, projectsToImport.toList(), projectsWithUnresolvedPlugins, context)
@@ -218,12 +227,19 @@ class MavenImportFlow {
     val consoleToBeRemoved = BTWMavenConsole(context.project, context.initialContext.generalSettings.outputLevel,
                                              context.initialContext.generalSettings.isPrintErrorStackTraces)
 
-    resolver.resolvePlugins(
-      context.projectsWithUnresolvedPlugins,
-      embeddersManager,
-      consoleToBeRemoved,
-      context.initialContext.indicator,
-      false)
+    runBlockingMaybeCancellable {
+      withBackgroundProgress(context.project, MavenProjectBundle.message("maven.downloading.plugins"), true) {
+        withRawProgressReporter {
+          resolver.resolvePlugins(
+            context.projectsWithUnresolvedPlugins,
+            embeddersManager,
+            consoleToBeRemoved,
+            rawProgressReporter!!,
+            context.initialContext.indicator.syncConsole,
+            false)
+        }
+      }
+    }
 
     return MavenPluginResolvedContext(context.project, context)
   }

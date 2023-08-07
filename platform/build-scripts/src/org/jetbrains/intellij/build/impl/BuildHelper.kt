@@ -8,7 +8,10 @@ import com.intellij.util.system.OS
 import com.intellij.util.xml.dom.readXmlAsModel
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanBuilder
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.launch
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.CompilationContext
 import org.jetbrains.intellij.build.OsFamily
@@ -23,8 +26,6 @@ import java.nio.file.Path
 import java.util.function.Predicate
 import kotlin.io.path.copyTo
 import kotlin.time.Duration
-import kotlin.time.DurationUnit
-import kotlin.time.toDuration
 
 internal fun span(spanBuilder: SpanBuilder, task: Runnable) {
   spanBuilder.useWithScope {
@@ -64,28 +65,6 @@ fun zip(context: CompilationContext, targetFile: Path, dir: Path) {
     }
 }
 
-/**
- * Executes a Java class in a forked JVM
- */
-@JvmOverloads
-fun runIdeaBlocking(context: CompilationContext,
-                    mainClass: String,
-                    args: List<String>,
-                    jvmArgs: List<String>,
-                    classPath: List<String>,
-                    timeoutMillis: Long = DEFAULT_TIMEOUT.inWholeMilliseconds,
-                    workingDir: Path? = null) {
-  runBlocking {
-    runJava(mainClass = mainClass,
-            args = args,
-            jvmArgs = getCommandLineArgumentsForOpenPackages(context) + jvmArgs,
-            classPath = classPath,
-            javaExe = context.stableJavaExecutable,
-            timeout = timeoutMillis.toDuration(DurationUnit.MILLISECONDS),
-            workingDir = workingDir)
-  }
-}
-
 suspend fun runIdea(context: CompilationContext,
                     mainClass: String,
                     args: List<String>,
@@ -96,7 +75,7 @@ suspend fun runIdea(context: CompilationContext,
                     onError: (() -> Unit)? = null) {
   runJava(mainClass = mainClass,
           args = args,
-          jvmArgs = getCommandLineArgumentsForOpenPackages(context) + jvmArgs,
+          jvmArgs = getCommandLineArgumentsForOpenPackages(context) + jvmArgs + listOf("-Dij.dir.lock.debug=true"),
           classPath = classPath,
           javaExe = context.stableJavaExecutable,
           timeout = timeout,
@@ -119,6 +98,7 @@ suspend fun runApplicationStarter(context: BuildContext,
   BuildUtils.addVmProperty(jvmArgs, "idea.config.path", "$tempDir/config")
   // reproducible build - avoid touching module outputs, do no write classpath.index
   BuildUtils.addVmProperty(jvmArgs, "idea.classpath.index.enabled", "false")
+  BuildUtils.addVmProperty(jvmArgs, "idea.builtin.server.disabled", "true")
   BuildUtils.addVmProperty(jvmArgs, "java.system.class.loader", "com.intellij.util.lang.PathClassLoader")
   BuildUtils.addVmProperty(jvmArgs, "idea.platform.prefix", context.productProperties.platformPrefix)
   jvmArgs.addAll(BuildUtils.propertiesToJvmArgs(systemProperties.entries.map { it.key to it.value.toString() }))

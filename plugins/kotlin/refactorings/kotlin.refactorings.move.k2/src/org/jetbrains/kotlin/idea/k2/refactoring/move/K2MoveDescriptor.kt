@@ -3,10 +3,7 @@ package org.jetbrains.kotlin.idea.k2.refactoring.move
 
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.refactoring.BaseRefactoringProcessor
-import com.intellij.ui.dsl.builder.AlignX
-import com.intellij.ui.dsl.builder.AlignY
-import com.intellij.ui.dsl.builder.Panel
-import com.intellij.ui.dsl.builder.bindSelected
+import com.intellij.ui.dsl.builder.*
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.refactoring.KotlinCommonRefactoringSettings
 import javax.swing.JComponent
@@ -35,18 +32,13 @@ sealed class K2MoveDescriptor {
         SEARCH_REFERENCES(
             KotlinBundle.message("checkbox.text.search.references"),
             KotlinCommonRefactoringSettings.getInstance()::MOVE_SEARCH_REFERENCES
-        ),
-
-        MOVE_DELETE_EMPTY_SOURCE_FILES(
-            KotlinBundle.message("checkbox.text.delete.empty.source.files"),
-            KotlinCommonRefactoringSettings.getInstance()::MOVE_DELETE_EMPTY_SOURCE_FILES
         );
 
         context(Panel)
         fun createComboBox() {
             row {
                 checkBox(text).bindSelected(setting)
-            }
+            }.layout(RowLayout.PARENT_GRID)
         }
     }
 
@@ -57,10 +49,10 @@ sealed class K2MoveDescriptor {
         row {
             panel {
                 settings.firstOrNull()?.forEach { settings -> settings.createComboBox() }
-            }.align(AlignX.LEFT).align(AlignY.TOP)
+            }.align(AlignY.TOP + AlignX.LEFT)
             panel {
                 settings.lastOrNull()?.forEach { settings -> settings.createComboBox() }
-            }.align(AlignX.RIGHT).align(AlignY.TOP)
+            }.align(AlignY.TOP + AlignX.RIGHT)
         }
     }
 
@@ -69,7 +61,7 @@ sealed class K2MoveDescriptor {
      * be moved into a different location.
      */
     class Files(override val source: K2MoveSource.FileSource, override val target: K2MoveTarget.SourceDirectory) : K2MoveDescriptor() {
-        override val refactoringProcessor: BaseRefactoringProcessor get() = K2MoveFilesRefactoringProcessor(this)
+        override val refactoringProcessor: BaseRefactoringProcessor get() = K2MoveFilesOrDirectoriesRefactoringProcessor(this)
 
         val searchForText: Boolean get() = KotlinCommonRefactoringSettings.getInstance().MOVE_SEARCH_FOR_TEXT
 
@@ -95,11 +87,9 @@ sealed class K2MoveDescriptor {
 
         val searchReferences: Boolean get() = KotlinCommonRefactoringSettings.getInstance().MOVE_SEARCH_REFERENCES
 
-        val deleteEmptySourceFiles: Boolean get() = KotlinCommonRefactoringSettings.getInstance().MOVE_SEARCH_REFERENCES
-
         override val settings: Array<Array<Setting>> = arrayOf(
             arrayOf(Setting.SEARCH_FOR_TEXT, Setting.SEARCH_IN_COMMENTS),
-            arrayOf(Setting.SEARCH_REFERENCES, Setting.MOVE_DELETE_EMPTY_SOURCE_FILES)
+            arrayOf(Setting.SEARCH_REFERENCES)
         )
     }
 }

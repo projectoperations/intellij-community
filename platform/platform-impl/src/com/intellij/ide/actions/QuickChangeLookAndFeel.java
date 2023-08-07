@@ -9,6 +9,7 @@ import com.intellij.ide.ui.ThemesListProvider;
 import com.intellij.ide.ui.laf.darcula.DarculaInstaller;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
@@ -21,13 +22,14 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.util.Alarm;
 import com.intellij.util.ui.StartupUiUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.List;
 
-public class QuickChangeLookAndFeel extends QuickSwitchSchemeAction {
+public class QuickChangeLookAndFeel extends QuickSwitchSchemeAction implements ActionRemoteBehaviorSpecification.Frontend {
   private final Alarm switchAlarm = new Alarm();
 
   @Override
@@ -91,16 +93,26 @@ public class QuickChangeLookAndFeel extends QuickSwitchSchemeAction {
   }
 
   public static void switchLafAndUpdateUI(@NotNull final LafManager lafMan, @NotNull UIManager.LookAndFeelInfo lf, boolean async) {
-    switchLafAndUpdateUI(lafMan, lf, async, false);
+    switchLafAndUpdateUI(lafMan, lf, async, false, false);
   }
 
+  /**
+   * @deprecated use {@link #switchLafAndUpdateUI(LafManager, UIManager.LookAndFeelInfo, boolean)} instead
+   */
+  @Deprecated
   public static void switchLafAndUpdateUI(@NotNull final LafManager lafMan, @NotNull UIManager.LookAndFeelInfo lf, boolean async, boolean force) {
+    switchLafAndUpdateUI(lafMan, lf, async, force, false);
+  }
+
+  @ApiStatus.Internal
+  public static void switchLafAndUpdateUI(@NotNull final LafManager lafMan, @NotNull UIManager.LookAndFeelInfo lf, boolean async, 
+                                          boolean force, boolean lockEditorScheme) {
     UIManager.LookAndFeelInfo cur = lafMan.getCurrentLookAndFeel();
     if (!force && cur == lf) return;
     ChangeLAFAnimator animator = Registry.is("ide.intellij.laf.enable.animation") ? ChangeLAFAnimator.showSnapshot() : null;
 
     final boolean wasDarcula = StartupUiUtil.isUnderDarcula();
-    lafMan.setCurrentLookAndFeel(lf);
+    lafMan.setCurrentLookAndFeel(lf, lockEditorScheme);
 
     Runnable updater = () -> {
       // a twist not to updateUI twice: here and in DarculaInstaller

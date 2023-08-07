@@ -8,7 +8,10 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.IconLoaderKt;
+import com.intellij.openapi.util.IconPathPatcher;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.EarlyAccessRegistryManager;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.registry.RegistryValue;
@@ -16,6 +19,7 @@ import com.intellij.openapi.util.registry.RegistryValueListener;
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.SystemProperties;
+import kotlin.Pair;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -40,10 +44,17 @@ import static java.time.temporal.ChronoUnit.DAYS;
  */
 @ApiStatus.Internal
 public abstract class ExperimentalUI {
-  public static final String KEY = NewUi.KEY;
+  @SuppressWarnings("deprecation") public static final String KEY = NewUiValue.KEY;
 
+  /** @deprecated please use {@link #isNewUiUsedOnce()} instead */
+  @SuppressWarnings("DeprecatedIsStillUsed") @Deprecated
   public static final String NEW_UI_USED_PROPERTY = "experimental.ui.used.once";
+  // Last IDE version when New UI was enabled
+  public static final String NEW_UI_USED_VERSION = "experimental.ui.used.version";
   public static final String NEW_UI_FIRST_SWITCH = "experimental.ui.first.switch";
+  // Means that IDE is started after enabling the New UI (not necessary the first time).
+  // Should be unset by the client, or it will be unset on the IDE close.
+  public static final String NEW_UI_SWITCH = "experimental.ui.switch";
   public static final String NEW_UI_PROMO_BANNER_DISABLED_PROPERTY = "experimental.ui.promo.banner.disabled";
 
   private static final String FIRST_PROMOTION_DATE_PROPERTY = "experimental.ui.first.promotion.localdate";
@@ -52,7 +63,7 @@ public abstract class ExperimentalUI {
   private IconPathPatcher iconPathPatcher;
 
   static {
-    NewUi.initialize(() -> EarlyAccessRegistryManager.INSTANCE.getBoolean(KEY));
+    NewUiValue.initialize(() -> EarlyAccessRegistryManager.INSTANCE.getBoolean(KEY));
   }
 
   public static ExperimentalUI getInstance() {
@@ -61,11 +72,11 @@ public abstract class ExperimentalUI {
 
   @Contract(pure = true)
   public static boolean isNewUI() {
-    return NewUi.isEnabled();
+    return NewUiValue.isEnabled();
   }
 
   public static void overrideNewUiForOneRemDevSession(boolean newUi) {
-    NewUi.overrideNewUiForOneRemDevSession(newUi);
+    NewUiValue.overrideNewUiForOneRemDevSession(newUi);
     getInstance().lookAndFeelChanged();
   }
 
@@ -98,12 +109,21 @@ public abstract class ExperimentalUI {
     }
   }
 
+  // used by the JBClient for cases where a link overrides new UI mode
+  public abstract void saveCurrentValueAndReapplyDefaultLaf();
+
   public static boolean isNewNavbar() {
     return isNewUI() && Registry.is("ide.experimental.ui.navbar.scroll");
   }
 
   public static boolean isEditorTabsWithScrollBar() {
     return isNewUI() && Registry.is("ide.experimental.ui.editor.tabs.scrollbar");
+  }
+
+  /** Whether New UI was enabled at least once. Note: tracked since 2023.1 */
+  public static boolean isNewUiUsedOnce() {
+    var propertiesComponent = PropertiesComponent.getInstance();
+    return propertiesComponent.getValue(NEW_UI_USED_VERSION) != null || propertiesComponent.getBoolean(NEW_UI_USED_PROPERTY);
   }
 
   public static final class NotPatchedIconRegistry {
@@ -120,8 +140,8 @@ public abstract class ExperimentalUI {
     public static @NotNull List<IconModel> getData() {
       List<IconModel> result = new ArrayList<>(paths.size());
       for (Pair<String, ClassLoader> p : paths) {
-        String path = p.first;
-        ClassLoader classLoader = p.second != null ? p.second : NotPatchedIconRegistry.class.getClassLoader();
+        String path = p.getFirst();
+        ClassLoader classLoader = p.getSecond() != null ? p.getSecond() : NotPatchedIconRegistry.class.getClassLoader();
         Icon icon = IconLoaderKt.findIconUsingNewImplementation(path, classLoader, null);
         result.add(new IconModel(icon, path));
       }
@@ -134,9 +154,10 @@ public abstract class ExperimentalUI {
   }
 
   @SuppressWarnings("unused")
-  public static class NewUiRegistryListener implements RegistryValueListener {
-    protected boolean isApplicable() {
-      return !PlatformUtils.isJetBrainsClient(); // JetBrains Client has custom listener
+  public static final class NewUiRegistryListener implements RegistryValueListener {
+    private static boolean isApplicable() {
+      // JetBrains Client has custom listener
+      return !PlatformUtils.isJetBrainsClient();
     }
 
     @Override
@@ -181,9 +202,10 @@ public abstract class ExperimentalUI {
   }
 
   private @NotNull IconPathPatcher createPathPatcher() {
-    Map<ClassLoader, Map<String, String>> paths = getIconMappings();
-    boolean dumpNotPatchedIcons = SystemProperties.getBooleanProperty("ide.experimental.ui.dump.not.patched.icons", false);
     return new IconPathPatcher() {
+      private final Map<ClassLoader, Map<String, String>> paths = getIconMappings();
+      private final boolean dumpNotPatchedIcons = SystemProperties.getBooleanProperty("ide.experimental.ui.dump.not.patched.icons", false);
+
       @Override
       public @Nullable String patchPath(@NotNull String path, @Nullable ClassLoader classLoader) {
         Map<String, String> mappings = paths.get(classLoader);

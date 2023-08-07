@@ -17,7 +17,7 @@ import org.jetbrains.kotlin.analysis.api.symbols.markers.KtNamedSymbol
 import org.jetbrains.kotlin.analysis.api.types.KtType
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.KtSymbolFromIndexProvider
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferencesInRange
-import org.jetbrains.kotlin.idea.base.fir.codeInsight.HLIndexHelper
+import org.jetbrains.kotlin.idea.completion.FirCompletionSessionParameters
 import org.jetbrains.kotlin.idea.completion.ItemPriority
 import org.jetbrains.kotlin.idea.completion.KOTLIN_CAST_REQUIRED_COLOR
 import org.jetbrains.kotlin.idea.completion.LookupElementSink
@@ -64,7 +64,6 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
     protected val fakeKtFile: KtFile get() = basicContext.fakeKtFile
     protected val project: Project get() = basicContext.project
     protected val targetPlatform: TargetPlatform get() = basicContext.targetPlatform
-    protected val indexHelper: HLIndexHelper get() = basicContext.indexHelper
     protected val symbolFromIndexProvider: KtSymbolFromIndexProvider get() = basicContext.symbolFromIndexProvider
     protected val lookupElementFactory: KotlinFirLookupElementFactory get() = basicContext.lookupElementFactory
     protected val importStrategyDetector: ImportStrategyDetector get() = basicContext.importStrategyDetector
@@ -74,19 +73,25 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
     protected val scopeNameFilter: KtScopeNameFilter =
         { name -> !name.isSpecial && prefixMatcher.prefixMatches(name.identifier) }
 
-    abstract fun KtAnalysisSession.complete(positionContext: C, weighingContext: WeighingContext)
+    context(KtAnalysisSession)
+    abstract fun complete(
+        positionContext: C,
+        weighingContext: WeighingContext,
+        sessionParameters: FirCompletionSessionParameters,
+    )
 
-    protected fun KtAnalysisSession.addSymbolToCompletion(expectedType: KtType?, symbol: KtSymbol) {
+    context(KtAnalysisSession)
+    protected fun addSymbolToCompletion(expectedType: KtType?, symbol: KtSymbol) {
         if (symbol !is KtNamedSymbol) return
         // Don't offer any hidden deprecated items.
         if (symbol.deprecationStatus?.deprecationLevel == DeprecationLevelValue.HIDDEN) return
-        with(lookupElementFactory) {
-            createLookupElement(symbol, importStrategyDetector, expectedType = expectedType)
-                .let(sink::addElement)
-        }
+        lookupElementFactory
+            .createLookupElement(symbol, importStrategyDetector, expectedType = expectedType)
+            .let(sink::addElement)
     }
 
-    protected fun KtAnalysisSession.addClassifierSymbolToCompletion(
+    context(KtAnalysisSession)
+    protected fun addClassifierSymbolToCompletion(
         symbol: KtClassifierSymbol,
         context: WeighingContext,
         symbolOrigin: CompletionSymbolOrigin,
@@ -106,7 +111,8 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
         sink.addElement(lookup)
     }
 
-    protected fun KtAnalysisSession.addCallableSymbolToCompletion(
+    context(KtAnalysisSession)
+    protected fun addCallableSymbolToCompletion(
         context: WeighingContext,
         signature: KtCallableSignature<*>,
         options: CallableInsertionOptions,
@@ -123,9 +129,8 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
 
         // Don't offer any deprecated items that could leads to compile errors.
         if (symbol.deprecationStatus?.deprecationLevel == DeprecationLevelValue.HIDDEN) return
-        val lookup = with(lookupElementFactory) {
-            createCallableLookupElement(name, signature, options, context.expectedType)
-        }
+        val lookup = lookupElementFactory.createCallableLookupElement(name, signature, options, context.expectedType)
+
         priority?.let { lookup.priority = it }
 
         Weighers.applyWeighsToLookupElementForCallable(context, lookup, signature, symbolOrigin)
@@ -176,7 +181,7 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
         }
     }
 
-    protected fun KtExpression.reference() = when (this) {
+    protected fun KtElement.reference() = when (this) {
         is KtDotQualifiedExpression -> selectorExpression?.mainReference
         else -> mainReference
     }
@@ -185,9 +190,8 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
 internal fun <C : FirRawPositionCompletionContext> KtAnalysisSession.complete(
     contextContributor: FirCompletionContributorBase<C>,
     positionContext: C,
-    weighingContext: WeighingContext
+    weighingContext: WeighingContext,
+    sessionParameters: FirCompletionSessionParameters,
 ) {
-    with(contextContributor) {
-        complete(positionContext, weighingContext)
-    }
+    contextContributor.complete(positionContext, weighingContext, sessionParameters)
 }

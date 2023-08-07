@@ -1,7 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
-import com.intellij.ide.actions.ToggleDistractionFreeModeAction;
+import com.intellij.ide.actions.DistractionFreeModeController;
 import com.intellij.openapi.editor.event.EditorMouseEventArea;
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.ui.ExperimentalUI;
@@ -91,7 +91,7 @@ public class EditorGutterLayout {
 
   List<GutterArea> getLayout() {
     if (ExperimentalUI.isNewUI()) {
-      if (ToggleDistractionFreeModeAction.isDistractionFreeModeEnabled()) {
+      if (DistractionFreeModeController.isDistractionFreeModeEnabled()) {
         return getNewUIDFMLayout();
       }
       return getExperimentalGutterLayout();
@@ -181,11 +181,6 @@ public class EditorGutterLayout {
 
   private List<GutterArea> createNewUIDFMLayout() {
     return List.of(
-      area(LINE_NUMBERS_AREA, () -> myEditorGutter.myLineNumberAreaWidth).showIf(this::isLineNumbersShown),
-      areaGap(12).showIf(() -> myEditorGutter.isLineNumbersShown() && !myEditorGutter.isLineMarkersShown()),
-      area(ADDITIONAL_LINE_NUMBERS_AREA, () -> myEditorGutter.myAdditionalLineNumberAreaWidth),
-      area(ADDITIONAL_LINE_NUMBERS_AREA, () -> 4).showIf(() -> myEditorGutter.isLineNumbersShown() && myEditorGutter.isLineMarkersShown()),
-
       area(ANNOTATIONS_AREA, () -> 4)
         .as(EditorMouseEventArea.ANNOTATIONS_AREA)
         .showIf(() -> myEditorGutter.myTextAnnotationGuttersSize == 0 && myEditorGutter.isLineMarkersShown()),
@@ -199,6 +194,10 @@ public class EditorGutterLayout {
         .as(EditorMouseEventArea.LINE_MARKERS_AREA)
         .showIf(() -> myEditorGutter.myTextAnnotationExtraSize != 0),
 
+      area(LINE_NUMBERS_AREA, () -> myEditorGutter.myLineNumberAreaWidth).showIf(this::isLineNumbersShown),
+      areaGap(12).showIf(() -> myEditorGutter.isLineNumbersShown() && !myEditorGutter.isLineMarkersShown()),
+      area(ADDITIONAL_LINE_NUMBERS_AREA, () -> myEditorGutter.myAdditionalLineNumberAreaWidth),
+      area(ADDITIONAL_LINE_NUMBERS_AREA, () -> 4).showIf(() -> myEditorGutter.isLineNumbersShown() && myEditorGutter.isLineMarkersShown()),
       area(EXTRA_LEFT_FREE_PAINTERS_AREA, myEditorGutter::getExtraLeftFreePaintersAreaWidth)
         .showIf(() -> myEditorGutter.isLineMarkersShown()),
       areaGap(4)

@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.function.IntConsumer;
+import java.util.function.IntFunction;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -67,6 +68,10 @@ public final class IndexDataGetter {
       .containsAll(myProviders.keySet());
   }
 
+  void iterateIndexedCommits(int limit, @NotNull IntFunction<Boolean> processor) {
+    executeAndCatch(() -> myIndexStorageBackend.iterateIndexedCommits(limit, processor));
+  }
+
   //
   // Getters from forward index
   //
@@ -81,7 +86,7 @@ public final class IndexDataGetter {
 
   public @Nullable VcsUser getCommitter(int commit) {
     return executeAndCatch(() -> {
-      return myIndexStorageBackend.getCommitterOrAuthorForCommit(commit);
+      return myIndexStorageBackend.getCommitterForCommit(commit);
     });
   }
 
@@ -398,6 +403,10 @@ public final class IndexDataGetter {
 
   public @NotNull VcsLogStorage getLogStorage() {
     return myLogStorage;
+  }
+
+  @NotNull VcsLogStorageBackend getIndexStorageBackend() {
+    return myIndexStorageBackend;
   }
 
   private @Nullable VirtualFile getRoot(@NotNull FilePath path) {

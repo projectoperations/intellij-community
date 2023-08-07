@@ -317,6 +317,9 @@ public final class PsiUtil extends PsiUtilCore {
       } else if (declarationScope instanceof PsiLambdaExpression) {
         codeBlock = ((PsiLambdaExpression)declarationScope).getBody();
       }
+      else if (declarationScope instanceof PsiCodeBlock) {
+        codeBlock = declarationScope;
+      }
     }
     else if (variable instanceof PsiResourceVariable) {
       PsiElement resourceList = variable.getParent();
@@ -1011,6 +1014,7 @@ public final class PsiUtil extends PsiUtilCore {
   }
 
   public static boolean checkName(@NotNull PsiElement element, @NotNull String name, @NotNull PsiElement context) {
+    if (element instanceof PsiVariable && ((PsiVariable)element).isUnnamed()) return false;
     if (element instanceof PsiMetaOwner) {
       PsiMetaData data = ((PsiMetaOwner) element).getMetaData();
       if (data != null) {

@@ -4,7 +4,6 @@ package com.intellij.openapi.actionSystem.impl
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.codeInsight.hint.HintManagerImpl
 import com.intellij.ide.IdeEventQueue
-import com.intellij.ide.ui.customization.CustomActionsSchema
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionPlaces
@@ -16,7 +15,6 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.editor.event.*
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiEditorUtil
@@ -31,6 +29,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import org.jetbrains.annotations.ApiStatus
+import java.awt.AWTEvent
 import java.awt.Point
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
@@ -42,18 +41,16 @@ import kotlin.properties.Delegates
 import kotlin.time.Duration.Companion.milliseconds
 
 @ApiStatus.Internal
-open class FloatingToolbar(
+abstract class FloatingToolbar(
   val editor: Editor,
   /**
    * This scope will be canceled on dispose.
    */
-  private val coroutineScope: CoroutineScope,
-  protected val defaultActionGroupId: String
+  private val coroutineScope: CoroutineScope
 ): Disposable {
-  private var hint: LightweightHint? = null
+  protected var hint: LightweightHint? = null
   private var buttonSize: Int by Delegates.notNull()
   private var lastSelection: String? = null
-  private var showToolbar = true
   private var hintWasShownForSelection = false
 
   private enum class HintRequest {
@@ -84,21 +81,25 @@ open class FloatingToolbar(
     }
   }
 
+  protected abstract fun createActionGroup(): ActionGroup?
+
   open fun hideByOtherHints(): Boolean = false
 
   @RequiresEdt
   fun isShown(): Boolean {
-    return hint != null
+    return hint?.isVisible == true
   }
 
   @RequiresEdt
   private fun hide() {
     hint?.hide()
+    hint = null
   }
 
   @RequiresEdt
   private suspend fun showIfHidden() {
-    if (hint != null || !shouldReviveAfterClose() && !showToolbar) {
+    hintWasShownForSelection = true
+    if (isShown() || !isEnabled()) {
       return
     }
     val canBeShownAtCurrentSelection = readAction { canBeShownAtCurrentSelection() }
@@ -106,12 +107,20 @@ open class FloatingToolbar(
       return
     }
     val hint = createHint()
+    showHint(hint)
     hint.addHintListener {
       this.hint = null
-      showToolbar = false
     }
     this.hint = hint
-    showHint(hint)
+  }
+
+  fun show(callback: Runnable){
+    coroutineScope.launch {
+      withContext(Dispatchers.EDT) {
+        showIfHidden()
+        callback.run()
+      }
+    }
   }
 
   private suspend fun createHint(): LightweightHint {
@@ -126,7 +135,7 @@ open class FloatingToolbar(
   }
 
   fun scheduleShow() {
-    if (isEnabled()) {
+    if (isEnabled() && !hintWasShownForSelection) {
       check(hintRequests.tryEmit(HintRequest.Show))
     }
   }
@@ -143,11 +152,6 @@ open class FloatingToolbar(
   override fun dispose() {
     coroutineScope.cancel()
     hide()
-    hint = null
-  }
-
-  protected open fun createActionGroup(): ActionGroup? {
-    return CustomActionsSchema.getInstance().getCorrectedAction(defaultActionGroupId) as? ActionGroup
   }
 
   private suspend fun createUpdatedActionToolbar(targetComponent: JComponent): ActionToolbar {
@@ -210,9 +214,6 @@ open class FloatingToolbar(
     return false
   }
 
-
-  protected open fun shouldReviveAfterClose(): Boolean = true
-
   protected open fun shouldSurviveDocumentChange(): Boolean = true
 
   protected open fun isEnabled(): Boolean {
@@ -242,7 +243,6 @@ open class FloatingToolbar(
 
   private inner class MouseListener : EditorMouseListener {
     override fun mouseReleased(event: EditorMouseEvent) {
-      hintWasShownForSelection = false
       updateOnProbablyChangedSelection {
         if (isShown()) {
           updateLocationIfShown()
@@ -259,7 +259,6 @@ open class FloatingToolbar(
       if (event.source != editor.contentComponent) {
         return
       }
-      hintWasShownForSelection = false
       updateOnProbablyChangedSelection {
         scheduleHide()
       }
@@ -270,13 +269,10 @@ open class FloatingToolbar(
     override fun mouseMoved(event: EditorMouseEvent) {
       val visualPosition = event.visualPosition
       val hoverSelected = editor.caretModel.allCarets.any { visualPosition.isInsideSelection(it) }
-      if (hoverSelected && (hintWasShownForSelection || hint?.isVisible == true)) {
-        hintWasShownForSelection = true
+      if (hoverSelected) {
         scheduleShow()
-      } else {
-        if (!Registry.get("floating.codeToolbar.revive.selectionChangeOnly").asBoolean()) {
-          showToolbar = true
-        }
+      } else if (!isShown()){
+        hintWasShownForSelection = false
       }
     }
 
@@ -289,10 +285,14 @@ open class FloatingToolbar(
 
   private inner class EditorSelectionListener : SelectionListener {
     override fun selectionChanged(event: SelectionEvent) {
-      val event = IdeEventQueue.getInstance().trueCurrentEvent
-      val isDoubleClick = (event as? MouseEvent)?.clickCount == 2
-      showToolbar = !(disableForDoubleClickSelection() && isDoubleClick)
       hintWasShownForSelection = false
+      if (isIgnoredEvent(IdeEventQueue.getInstance().trueCurrentEvent)) {
+        hintWasShownForSelection = true
+      }
+    }
+
+    private fun isIgnoredEvent(event: AWTEvent): Boolean {
+      return disableForDoubleClickSelection() && (event as? MouseEvent)?.clickCount == 2
     }
   }
 

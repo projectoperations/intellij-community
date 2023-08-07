@@ -6,9 +6,12 @@ import com.intellij.openapi.vfs.newvfs.persistent.AttributesStorageOverBlobStora
 import com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.SpaceAllocationStrategy.DataLengthPlusFixedPercentStrategy;
 import com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.StreamlinedBlobStorageOverLockFreePagesStorage;
 import com.intellij.util.io.PageCacheUtils;
-import com.intellij.util.io.PagedFileStorageLockFree;
+import com.intellij.util.io.PagedFileStorageWithRWLockedPageContent;
+import com.intellij.util.io.pagecache.impl.PageContentLockingStrategy;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.runners.Enclosed;
+import org.junit.runner.RunWith;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -23,6 +26,7 @@ import static org.junit.Assume.assumeTrue;
 /**
  *
  */
+@RunWith(Enclosed.class)
 public class AttributesStorageOnTheTopOfStreamlinedBlobStorageLockFreeTest
   extends AttributesStorageOnTheTopOfBlobStorageTestBase {
 
@@ -36,12 +40,13 @@ public class AttributesStorageOnTheTopOfStreamlinedBlobStorageLockFreeTest
 
   @Override
   protected AttributesStorageOverBlobStorage openAttributesStorage(final Path storagePath) throws IOException {
-    final PagedFileStorageLockFree pagedStorage = new PagedFileStorageLockFree(
-      this.storagePath,
-      LOCK_CONTEXT,
-      PAGE_SIZE,
-      true
-    );
+    final PagedFileStorageWithRWLockedPageContent pagedStorage =
+      new PagedFileStorageWithRWLockedPageContent(
+        this.storagePath,
+        LOCK_CONTEXT,
+        PAGE_SIZE,
+        PageContentLockingStrategy.LOCK_PER_PAGE
+      );
     storage = new StreamlinedBlobStorageOverLockFreePagesStorage(
       pagedStorage,
       new DataLengthPlusFixedPercentStrategy(256, 64, 30)

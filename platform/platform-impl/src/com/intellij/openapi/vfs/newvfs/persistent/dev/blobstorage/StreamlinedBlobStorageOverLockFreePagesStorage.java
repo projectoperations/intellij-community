@@ -5,8 +5,9 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.IntRef;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
 import com.intellij.util.io.ClosedStorageException;
-import com.intellij.util.io.PagedFileStorageLockFree;
+import com.intellij.util.io.PagedFileStorageWithRWLockedPageContent;
 import com.intellij.util.io.pagecache.Page;
+import com.intellij.util.io.pagecache.PageUnsafe;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.BatchCallback;
 import io.opentelemetry.api.metrics.Meter;
@@ -26,12 +27,12 @@ import static com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.LargeBl
 import static com.intellij.platform.diagnostic.telemetry.PlatformScopesKt.Storage;
 
 /**
- * Implements {@link StreamlinedBlobStorage} blobs over {@link PagedFileStorageLockFree} storage.
+ * Implements {@link StreamlinedBlobStorage} blobs over {@link PagedFileStorageWithRWLockedPageContent} storage.
  * Implementation is thread-safe, and mostly relies on page-level locks to protect data access.
  * <br/>
  * Storage is optimized to store small records (~tens bytes) -- it tries to compress record headers
  * so smaller records have just 2 bytes of overhead because of header. At the same time storage allows
- * record size up to 1Mb large -- in contrast to {@link SmallStreamlinedBlobStorage}.
+ * record size up to 1Mb large.
  * <p>
  */
 public class StreamlinedBlobStorageOverLockFreePagesStorage implements StreamlinedBlobStorage {
@@ -142,7 +143,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
 
 
   @NotNull
-  private final PagedFileStorageLockFree pagedStorage;
+  private final PagedFileStorageWithRWLockedPageContent pagedStorage;
 
   /** To avoid write file header to already closed storage */
   private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -176,7 +177,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
   private final BatchCallback openTelemetryCallback;
 
 
-  public StreamlinedBlobStorageOverLockFreePagesStorage(final @NotNull PagedFileStorageLockFree pagedStorage,
+  public StreamlinedBlobStorageOverLockFreePagesStorage(final @NotNull PagedFileStorageWithRWLockedPageContent pagedStorage,
                                                         final @NotNull SpaceAllocationStrategy allocationStrategy)
     throws IOException {
     this.pagedStorage = pagedStorage;
@@ -288,7 +289,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
     int currentRecordId = recordId;
     for (int i = 0; i < MAX_REDIRECTS; i++) {
       final long recordOffset = idToOffset(currentRecordId);
-      try (final Page page = pagedStorage.pageByOffset(recordOffset, /*forWrite: */ false)) {
+      try (final PageUnsafe page = (PageUnsafe)pagedStorage.pageByOffset(recordOffset, /*forWrite: */ false)) {
         final int offsetOnPage = pagedStorage.toOffsetInPage(recordOffset);
         page.lockPageForRead();
         try {
@@ -346,7 +347,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
     int currentRecordId = recordId;
     for (int i = 0; i < MAX_REDIRECTS; i++) {
       final long recordOffset = idToOffset(currentRecordId);
-      try (final Page page = pagedStorage.pageByOffset(recordOffset, /*forWrite: */ false)) {
+      try (final PageUnsafe page = (PageUnsafe)pagedStorage.pageByOffset(recordOffset, /*forWrite: */ false)) {
         final int offsetOnPage = pagedStorage.toOffsetInPage(recordOffset);
         page.lockPageForRead();
         try {
@@ -369,7 +370,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
           if (recordType == LargeBlobStorageRecordLayout.RECORD_TYPE_MOVED) {
             final int redirectToId = recordLayout.redirectToId(buffer, offsetOnPage);
             if (redirectToId == NULL_ID) { //!actual && redirectTo = NULL
-              throw new IOException("Record[" + currentRecordId + "] is deleted");
+              throw new RecordAlreadyDeletedException("Can't read record[" + currentRecordId + "]: it was deleted");
             }
             currentRecordId = redirectToId;
           }
@@ -464,7 +465,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
     for (int i = 0; i < MAX_REDIRECTS; i++) {
       final long recordOffset = idToOffset(currentRecordId);
       final int offsetOnPage = pagedStorage.toOffsetInPage(recordOffset);
-      try (final Page page = pagedStorage.pageByOffset(recordOffset, /*forWrite: */ true)) {
+      try (final PageUnsafe page = (PageUnsafe)pagedStorage.pageByOffset(recordOffset, /*forWrite: */ true)) {
         page.lockPageForWrite();
         try {
           final ByteBuffer buffer = page.rawPageBuffer();
@@ -473,7 +474,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
           if (recordType == LargeBlobStorageRecordLayout.RECORD_TYPE_MOVED) {
             final int redirectToId = recordLayout.redirectToId(buffer, offsetOnPage);
             if (!isValidRecordId(redirectToId)) {
-              throw new IOException("Can't write to record[" + currentRecordId + "]: it was deleted");
+              throw new RecordAlreadyDeletedException("Can't write to record[" + currentRecordId + "]: it was deleted");
             }
             currentRecordId = redirectToId;
             continue;//hope redirect chains are not too long...
@@ -577,7 +578,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
     checkRecordIdExists(recordId);
 
     final long recordOffset = idToOffset(recordId);
-    try (final Page page = pagedStorage.pageByOffset(recordOffset, /*forWrite: */ true)) {
+    try (final PageUnsafe page = (PageUnsafe)pagedStorage.pageByOffset(recordOffset, /*forWrite: */ true)) {
       final int offsetOnPage = pagedStorage.toOffsetInPage(recordOffset);
       page.lockPageForWrite();
       try {
@@ -590,7 +591,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
           case LargeBlobStorageRecordLayout.RECORD_TYPE_MOVED -> {
             final int redirectToId = recordLayout.redirectToId(buffer, offsetOnPage);
             if (!isValidRecordId(redirectToId)) {
-              throw new IllegalStateException("Can't delete record[" + recordId + "]: it was already deleted");
+              throw new RecordAlreadyDeletedException("Can't delete record[" + recordId + "]: it was already deleted");
             }
 
             // (redirectToId=NULL) <=> 'record deleted' ('moved nowhere')
@@ -636,7 +637,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
     int currentId = offsetToId(recordsStartOffset());
     for (int recordNo = 0; ; recordNo++) {
       final long recordOffset = idToOffset(currentId);
-      try (final Page page = pagedStorage.pageByOffset(recordOffset, /*forWrite: */ false)) {
+      try (final PageUnsafe page = (PageUnsafe)pagedStorage.pageByOffset(recordOffset, /*forWrite: */ false)) {
         final int offsetOnPage = pagedStorage.toOffsetInPage(recordOffset);
         page.lockPageForRead();
         try {
@@ -1069,7 +1070,7 @@ public class StreamlinedBlobStorageOverLockFreePagesStorage implements Streamlin
 
   @NotNull
   private BatchCallback setupReportingToOpenTelemetry(final Path fileName) {
-    final Meter meter = TelemetryManager.getMeter(Storage);
+    final Meter meter = TelemetryManager.getInstance().getMeter(Storage);
 
     final var recordsAllocated = meter.counterBuilder("StreamlinedBlobStorage.recordsAllocated").buildObserver();
     final var recordsRelocated = meter.counterBuilder("StreamlinedBlobStorage.recordsRelocated").buildObserver();

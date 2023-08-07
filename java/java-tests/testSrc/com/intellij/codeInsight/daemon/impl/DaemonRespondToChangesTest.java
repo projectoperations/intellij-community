@@ -14,13 +14,14 @@ import com.intellij.codeInsight.hint.EditorHintListener;
 import com.intellij.codeInsight.intention.AbstractIntentionAction;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.IntentionManager;
-import com.intellij.codeInsight.intention.impl.CachedIntentions;
+import com.intellij.codeInsight.intention.impl.IntentionContainer;
 import com.intellij.codeInsight.intention.impl.IntentionHintComponent;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.accessStaticViaInstance.AccessStaticViaInstance;
 import com.intellij.codeInspection.deadCode.UnusedDeclarationInspection;
 import com.intellij.codeInspection.deadCode.UnusedDeclarationInspectionBase;
-import com.intellij.codeInspection.ex.*;
+import com.intellij.codeInspection.ex.InspectionProfileImpl;
+import com.intellij.codeInspection.ex.Tools;
 import com.intellij.codeInspection.htmlInspections.RequiredAttributesInspectionBase;
 import com.intellij.codeInspection.varScopeCanBeNarrowed.FieldCanBeLocalInspection;
 import com.intellij.concurrency.ConcurrentCollectionFactory;
@@ -499,7 +500,7 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
     }
 
   }
-  private static abstract class MyFegnaInspection extends LocalInspectionTool {
+  static abstract class MyFegnaInspection extends LocalInspectionTool {
     @Nls
     @NotNull
     @Override
@@ -1272,14 +1273,18 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
   @Override
   protected void configureByExistingFile(@NotNull VirtualFile virtualFile) {
     super.configureByExistingFile(virtualFile);
-    EditorTracker.getInstance(myProject).setActiveEditors(Collections.singletonList(getEditor()));
+    setActiveEditors(getEditor());
   }
 
   @Override
   protected VirtualFile configureByFiles(@Nullable File rawProjectRoot, VirtualFile @NotNull ... vFiles) throws IOException {
     VirtualFile file = super.configureByFiles(rawProjectRoot, vFiles);
-    EditorTracker.getInstance(myProject).setActiveEditors(Collections.singletonList(getEditor()));
+    setActiveEditors(getEditor());
     return file;
+  }
+
+  private void setActiveEditors(Editor @NotNull ... editors) {
+    ((EditorTrackerImpl)EditorTracker.getInstance(myProject)).setActiveEditors(Arrays.asList(editors));
   }
 
   // todo - StoreUtil.saveDocumentsAndProjectsAndApp cannot save in EDT. If it is called in EDT,
@@ -1747,7 +1752,7 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
       Disposer.register(getProject(), () -> EditorFactory.getInstance().releaseEditor(editor2));
       TextEditor textEditor1 = new PsiAwareTextEditorProvider().getTextEditor(editor1);
       TextEditor textEditor2 = new PsiAwareTextEditorProvider().getTextEditor(editor2);
-      EditorTracker.getInstance(myProject).setActiveEditors(Arrays.asList(editor1, editor2));
+      setActiveEditors(editor1, editor2);
 
       myDaemonCodeAnalyzer.runPasses(myFile, editor1.getDocument(), textEditor1, new int[0], false, null);
       myDaemonCodeAnalyzer.runPasses(myFile, editor1.getDocument(), textEditor2, new int[0], false, null);
@@ -1757,7 +1762,7 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
 
       applied.clear();
       collected.clear();
-      EditorTracker.getInstance(myProject).setActiveEditors(Arrays.asList(editor1, editor2));
+      setActiveEditors(editor1, editor2);
       type("/* xxx */");
       waitForDaemon();
 
@@ -1802,7 +1807,7 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
         configureByText(PlainTextFileType.INSTANCE, "");
         Editor editor = getEditor();
         EditorTracker editorTracker = EditorTracker.getInstance(myProject);
-        editorTracker.setActiveEditors(Collections.singletonList(editor));
+        setActiveEditors(editor);
         while (HeavyProcessLatch.INSTANCE.isRunning()) {
           UIUtil.dispatchAllInvocationEvents();
         }
@@ -1859,7 +1864,7 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
         configureByText(PlainTextFileType.INSTANCE, "");
         Editor editor = getEditor();
         EditorTracker editorTracker = EditorTracker.getInstance(myProject);
-        editorTracker.setActiveEditors(Collections.singletonList(editor));
+        setActiveEditors(editor);
         while (HeavyProcessLatch.INSTANCE.isRunning()) {
           UIUtil.dispatchAllInvocationEvents();
         }
@@ -1919,7 +1924,7 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
         registerFakePass(applied, collected);
 
         EditorTracker editorTracker = EditorTracker.getInstance(myProject);
-        editorTracker.setActiveEditors(Collections.singletonList(editor));
+        setActiveEditors(editor);
         assertTrue(editorTracker.getActiveEditors().contains(editor));
         assertSame(editor, FileEditorManager.getInstance(myProject).getSelectedTextEditor());
 
@@ -2141,7 +2146,7 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
       assertEmpty(visibleHints);
     }
     else {
-      CachedIntentions after = lastHintAfterDeletion.getCachedIntentions();
+      IntentionContainer after = lastHintAfterDeletion.getCachedIntentions();
       assertFalse(after.toString(), ContainerUtil.exists(after.getErrorFixes(), e -> e.getText().equals("Initialize variable 'var'")));
     }
   }

@@ -2,6 +2,7 @@
   "name": "Windows 10 Light",
   "dark": false,
   "author": "JetBrains",
+  "nameKey": "windows.10.light.theme.name",
 
   "ui": {
     "*": {
@@ -424,11 +425,6 @@
         "hoverBackground": "#dfdfdf",
         "borderInsets": "12,6,12,6"
       }
-    },
-
-    "WindowControls": {
-      "foreground": "#050708",
-      "inactiveForeground": "#9B9C9C"
     },
 
     "control": "#f2f2f2",

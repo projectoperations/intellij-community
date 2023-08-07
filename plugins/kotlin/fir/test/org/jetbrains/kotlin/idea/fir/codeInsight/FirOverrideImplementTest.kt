@@ -397,5 +397,13 @@ internal class FirOverrideImplementTest : OverrideImplementTest<KtClassMember>()
     override fun testImplementWithComment4() {
         super.testImplementWithComment4()
     }
+
+    override fun testGenericClass() {
+        super.testGenericClass()
+    }
+
+    override fun testDoNotRenderRedundantModifiers() {
+        super.testDoNotRenderRedundantModifiers()
+    }
 }
 

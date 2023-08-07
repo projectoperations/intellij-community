@@ -13,6 +13,7 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.objectTree.ThrowableInterner;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vcs.telemetry.VcsTelemetrySpan.LogData;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
 import com.intellij.util.concurrency.AppExecutorUtil;
@@ -289,12 +290,11 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
     LinkedHashSet<VirtualFile> roots = new LinkedHashSet<>(indexers.keySet());
 
     VcsLogStorageBackend backend;
-    String logId = calcLogId(project, providers);
     if (storage instanceof VcsLogStorageBackend) {
       backend = (VcsLogStorageBackend)storage;
     }
     else {
-      backend = PhmVcsLogStorageBackend.create(project, storage, roots, logId, errorHandler, disposableParent);
+      backend = PhmVcsLogStorageBackend.create(project, storage, roots, calcLogId(project, providers), errorHandler, disposableParent);
     }
     if (backend == null) return null;
 
@@ -316,7 +316,18 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
 
     @Override
     public void heavyActivityStarted() {
-      mySingleTaskController.cancelCurrentTask();
+      if (isPostponeOnHeavyActivity()) {
+        mySingleTaskController.cancelCurrentTask();
+      }
+    }
+
+    @Override
+    protected boolean isHeavy() {
+      return super.isHeavy() && isPostponeOnHeavyActivity();
+    }
+
+    private static boolean isPostponeOnHeavyActivity() {
+      return Registry.is("vcs.log.index.postpone.on.heavy.activity.or.power.save");
     }
   }
 
@@ -325,13 +336,6 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
 
     MySingleTaskController(@NotNull Disposable parent) {
       super("index", parent, unused -> {});
-    }
-
-    @Override
-    protected int disposeLongTimeout() {
-      if (SqliteVcsLogStorageBackendKt.isSqliteBackend(myBackend)) return 5000;
-
-      return super.disposeLongTimeout();
     }
 
     @Override
@@ -425,7 +429,7 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
       indicator.setIndeterminate(false);
       indicator.setFraction(0);
 
-      mySpan = TelemetryManager.getInstance().getTracer(VcsScope).spanBuilder("git-log-indexing").startSpan();
+      mySpan = TelemetryManager.getInstance().getTracer(VcsScope).spanBuilder(LogData.Indexing.getName()).startSpan();
       myScope = mySpan.makeCurrent();
       myStartTime = getCurrentTimeMillis();
 
@@ -470,7 +474,12 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
       }
       finally {
         try {
-          mutator.close(performCommit);
+          if (myDisposableFlag.isDisposed()) {
+            mutator.interrupt();
+          }
+          else {
+            mutator.close(performCommit);
+          }
         }
         catch (AlreadyClosedException | ProcessCanceledException ignored) {
         }
@@ -511,7 +520,7 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
 
     private void report() {
       String formattedTime = StopWatch.formatTime(getCurrentTimeMillis() - myStartTime);
-      mySpan.setAttribute("numberOfCommits-" + myRoot.getName(), myNewIndexedCommits.get());
+      mySpan.setAttribute("numberOfCommits", myNewIndexedCommits.get());
       mySpan.setAttribute("rootName", myRoot.getName());
       if (myFull) {
         LOG.info(formattedTime +
@@ -577,6 +586,11 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
 
           checkShouldCancel(indicator);
         });
+
+        if (LOG.isDebugEnabled()) {
+          int unindexedCommits = myCommits.size() - myNewIndexedCommits.get() - myOldCommits.get();
+          LOG.debug("Processed index batch, " + unindexedCommits + " unindexed commits left");
+        }
       });
     }
 
@@ -601,7 +615,8 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
                            && (limit > 0 && time >= (Math.max(limit, 1L) * 60 * 1000) && !isBigRoot);
       if (isOvertime || (isBigRoot && !indicator.isCanceled())) {
         mySpan.setAttribute("cancelled", true);
-        LOG.warn("Indexing " + myRoot.getName() + " was cancelled after " + StopWatch.formatTime(time));
+        String cause = isOvertime ? "by timeout (" + limit + " min)" : "externally";
+        LOG.warn("Indexing " + myRoot.getName() + " was cancelled " + cause + " after " + StopWatch.formatTime(time));
         if (!isBigRoot) {
           myBigRepositoriesList.addRepository(myRoot);
         }

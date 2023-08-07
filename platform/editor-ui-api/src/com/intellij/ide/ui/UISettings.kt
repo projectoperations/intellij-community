@@ -5,9 +5,9 @@ import com.intellij.diagnostic.LoadingState
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
+import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.advanced.AdvancedSettings
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.SystemInfo
@@ -15,7 +15,7 @@ import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.serviceContainer.NonInjectable
 import com.intellij.ui.JreHiDpiUtil
-import com.intellij.ui.NewUi
+import com.intellij.ui.NewUiValue
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ComponentTreeEventDispatcher
 import com.intellij.util.ui.GraphicsUtil
@@ -69,9 +69,10 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
     }
 
   var hideToolStripes: Boolean
-    get() = state.hideToolStripes
+    get() = state.hideToolStripes || notRoamableOptions.experimentalSingleStripe
     set(value) {
       state.hideToolStripes = value
+      if (!value) notRoamableOptions.experimentalSingleStripe = false
     }
 
   val hideNavigationOnFocusLoss: Boolean
@@ -228,7 +229,7 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
     }
 
   var showMainToolbar: Boolean
-    get() = if (NewUi.isEnabled()) separateMainMenu else state.showMainToolbar
+    get() = if (NewUiValue.isEnabled()) separateMainMenu else state.showMainToolbar
     set(value) {
       state.showMainToolbar = value
 
@@ -650,12 +651,6 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       }
       return size
     }
-
-    const val MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY: String = "ide.win.frame.decoration"
-
-    @JvmStatic
-    val mergeMainMenuWithWindowTitleOverrideValue: Boolean? = System.getProperty(MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY)?.toBoolean()
-    val isMergeMainMenuWithWindowTitleOverridden: Boolean = mergeMainMenuWithWindowTitleOverrideValue != null
   }
 
   @Suppress("DeprecatedCallableAddReplaceWith")
@@ -676,17 +671,11 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
 
     IconLoader.setFilter(ColorBlindnessSupport.get(state.colorBlindness)?.filter)
 
-    // if this is the main UISettings instance (and not on first call to getInstance) push event to bus and to all current components
+    // if this is the main UISettings instance (and not on first call to getInstance), push event to bus and to all current components
     if (this === cachedInstance) {
-      try {
+      runCatching {
         treeDispatcher.multicaster.uiSettingsChanged(this)
-      }
-      catch (e: ProcessCanceledException) {
-        throw e
-      }
-      catch (e: Exception) {
-        LOG.error(e)
-      }
+      }.getOrLogException(LOG)
 
       ApplicationManager.getApplication().messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(this)
     }
@@ -699,11 +688,6 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
 
   override fun getState(): UISettingsState = state
 
-  override fun noStateLoaded() {
-    super.noStateLoaded()
-    migrateFontParameters()
-  }
-
   override fun loadState(state: UISettingsState) {
     this.state = state
     updateDeprecatedProperties()
@@ -712,7 +696,6 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
     if (migrateOldFontSettings()) {
       notRoamableOptions.fixFontSettings()
     }
-    migrateFontParameters()
 
     // Check tab placement in editor
     val editorTabPlacement = state.editorTabPlacement
@@ -774,11 +757,6 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       migrated = true
     }
     return migrated
-  }
-
-  private fun migrateFontParameters() {
-    notRoamableOptions.migratePresentationModeFontSize(state.presentationModeFontSize)
-    notRoamableOptions.migrateOverrideLafFonts(state.overrideLafFonts)
   }
 
   //<editor-fold desc="Deprecated stuff.">

@@ -14,6 +14,7 @@ import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.util.concurrency.BlockingJob
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
+import com.intellij.util.ui.EDT
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -123,7 +124,7 @@ fun <T> runBlockingCancellable(action: suspend CoroutineScope.() -> T): T {
 private fun <T> runBlockingCancellable(allowOrphan: Boolean, action: suspend CoroutineScope.() -> T): T {
   assertBackgroundThreadOrWriteAction()
   return prepareThreadContext { ctx ->
-    if (!allowOrphan && ctx[Job] == null) {
+    if (!allowOrphan && ctx[Job] == null && !Cancellation.isInNonCancelableSection()) {
       LOG.error(IllegalStateException("There is no ProgressIndicator or Job in this thread, the current job is not cancellable."))
     }
     try {
@@ -195,8 +196,14 @@ fun <T> indicatorRunBlockingCancellable(indicator: ProgressIndicator, action: su
  * @see com.intellij.concurrency.currentThreadContext
  */
 suspend fun <T> blockingContext(action: () -> T): T {
-  val coroutineContext = coroutineContext
-  return blockingContext(coroutineContext, action)
+  return try {
+    coroutineScope {
+      blockingContextInner(coroutineContext, action)
+    }
+  }
+  catch (pce: ProcessCanceledException) {
+    throw PceCancellationException(pce)
+  }
 }
 
 /**
@@ -236,28 +243,85 @@ suspend fun <T> blockingContext(action: () -> T): T {
  * @see [blockingContext]
  * @see [coroutineScope]
  */
-suspend fun <T> blockingContextScope(action: () -> T): T = coroutineScope {
-  blockingContext(coroutineContext + BlockingJob(coroutineContext.job), action)
+suspend fun <T> blockingContextScope(action: () -> T): T {
+  return try {
+    coroutineScope {
+      val coroutineContext = coroutineContext
+      blockingContextInner(coroutineContext + BlockingJob(coroutineContext.job), action)
+    }
+  }
+  catch (pce: ProcessCanceledException) {
+    throw PceCancellationException(pce)
+  }
 }
+
+/**
+ * Returns [CoroutineScope] that corresponds to the caller's context.
+ *
+ * This method should be the default choice for initiating coroutines in blocking code.
+ * Its advantage is ensuring the alignment of coroutines' context with the blocking code's cancellation strategy from the spawning point.
+ *
+ * Example:
+ *
+ * ```
+ * suspend fun deepPlatformCode() {
+ *   for (extension in SomeExtensionPoint.EP_NAME.extensionList) {
+ *     // the platform has not yet designed suspending API for `SomeExtensionPoint`
+ *     blockingContextScope {
+ *       extension.legacyApiImplementation()
+ *     }
+ *   }
+ * }
+ *
+ * class MyPluginExtension : SomeExtensionPoint {
+ *   override fun legacyApiImplementation() {
+ *     // We aim to incorporate coroutines here,
+ *     // without waiting for the platform to provide the suspending API
+ *     currentThreadScope().launch {
+ *       // modern coroutine implementation of old API
+ *     }
+ *   }
+ * }
+ *
+ * fun myTestFunction = runBlocking {
+ *   blockingContextScope {
+ *     MyPluginExtension().legacyApiImplementation() // the 'launch' is tracked now
+ *   }
+ * }
+ * ```
+ *
+ * An alternative approach would be to create a service that exposes the injected coroutine scope;
+ * the difference between these two approaches is similar to the difference between [coroutineScope] and [GlobalScope]:
+ * the coroutines spawned on the service scope are not controlled by the code that spawned them.
+ */
+@RequiresBlockingContext
+fun currentThreadScope() : CoroutineScope {
+  val threadContext = prepareCurrentThreadContext()
+  if (threadContext[Job] == null) {
+    LOG.error(IllegalStateException(
+      """There is no `Job` in this thread, spawned coroutines are not cancellable. 
+        | If the transition from coroutines to blocking code happens in the same stack frame as the call to this function, the transition should use `blockingContext`.
+        | If the transition occurs in the different stack frame, then the transition should use `blockingContextScope` to set up a `Job` on this frame.""".trimMargin()))
+  }
+  return CoroutineScope(threadContext)
+}
+
 
 @Internal
 fun <T> blockingContext(currentContext: CoroutineContext, action: () -> T): T {
+  try {
+    return blockingContextInner(currentContext, action)
+  }
+  catch (pce: ProcessCanceledException) {
+    throw PceCancellationException(pce)
+  }
+}
+
+@Throws(ProcessCanceledException::class)
+private fun <T> blockingContextInner(currentContext: CoroutineContext, action: () -> T): T {
   val context = currentContext.minusKey(ContinuationInterceptor)
   return installThreadContext(context).use {
-    try {
-      action()
-    }
-    catch (e: JobCanceledException) {
-      // This exception is thrown only from `Cancellation.checkCancelled`.
-      // If it's caught, then the job must've been cancelled.
-      if (!context.job.isCancelled) {
-        throw IllegalStateException("JobCanceledException must be thrown by ProgressManager.checkCanceled()", e)
-      }
-      throw CurrentJobCancellationException(e)
-    }
-    catch (pce: ProcessCanceledException) {
-      throw PceCancellationException(pce)
-    }
+    action()
   }
 }
 
@@ -406,10 +470,15 @@ fun <T> jobToIndicator(job: Job, indicator: ProgressIndicator, action: () -> T):
 }
 
 private fun assertBackgroundThreadOrWriteAction() {
-  val application = ApplicationManager.getApplication()
-  if (!application.isDispatchThread || application.isWriteAccessAllowed || application.isUnitTestMode) {
+  if (!EDT.isCurrentThreadEdt()) {
+    return
+  }
+
+  val app = ApplicationManager.getApplication()
+  if (!app.isDispatchThread || app.isWriteAccessAllowed || app.isUnitTestMode) {
     return // OK
   }
+
   LOG.error(IllegalStateException(
     "This method is forbidden on EDT because it does not pump the event queue. " +
     "Switch to a BGT, or use com.intellij.openapi.progress.TasksKt.runWithModalProgressBlocking. "

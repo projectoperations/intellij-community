@@ -8,6 +8,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.getProjectDataPath
 import com.intellij.openapi.project.projectsDataDir
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.WorkspaceModelCache
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
@@ -29,6 +30,8 @@ import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.exists
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.ExperimentalTime
+import kotlin.time.measureTimedValue
 
 @OptIn(FlowPreview::class)
 @ApiStatus.Internal
@@ -39,7 +42,15 @@ class WorkspaceModelCacheImpl(private val project: Project, coroutineScope: Coro
   private val cacheFile by lazy { initCacheFile() }
   private val unloadedEntitiesCacheFile by lazy { project.getProjectDataPath(DATA_DIR_NAME).resolve("unloaded-entities-cache.data") }
   private val invalidateProjectCacheMarkerFile by lazy { project.getProjectDataPath(DATA_DIR_NAME).resolve(".invalidate") }
-  private val cacheSerializer = WorkspaceModelCacheSerializer(VirtualFileUrlManager.getInstance(project))
+
+  private val urlRelativizer =
+    if (Registry.`is`("ide.workspace.model.store.relative.paths.in.cache", false)) {
+      JpsProjectUrlRelativizer(project)
+    } else {
+      null
+    }
+
+  private val cacheSerializer = WorkspaceModelCacheSerializer(VirtualFileUrlManager.getInstance(project), urlRelativizer)
 
   init {
     if (enabled) {
@@ -91,7 +102,8 @@ class WorkspaceModelCacheImpl(private val project: Project, coroutineScope: Coro
 
     if (!cachesInvalidated.get()) {
       LOG.debug("Saving project model cache to $cacheFile")
-      cacheSerializer.saveCacheToFile(storage, cacheFile, userPreProcessor = true)
+      val (time, size) = cacheSerializer.saveCacheToFile(storage, cacheFile, userPreProcessor = true)
+      WorkspaceModelFusLogger.logCacheSave(time, size ?: -1)
       //todo check that where are no entities in the storage instead
       if (unloadedStorage != EntityStorageSnapshot.empty()) {
         LOG.debug("Saving project model cache to $unloadedEntitiesCacheFile")
@@ -110,8 +122,13 @@ class WorkspaceModelCacheImpl(private val project: Project, coroutineScope: Coro
   @TestOnly
   fun getUnloadedEntitiesCacheFilePath(): Path = unloadedEntitiesCacheFile
 
+  @OptIn(ExperimentalTime::class)
   override fun loadCache(): EntityStorage? {
-    return cacheSerializer.loadCacheFromFile(cacheFile, invalidateCachesMarkerFile, invalidateProjectCacheMarkerFile)
+    val (cache, time) = measureTimedValue {
+      cacheSerializer.loadCacheFromFile(cacheFile, invalidateCachesMarkerFile, invalidateProjectCacheMarkerFile)
+    }
+    WorkspaceModelFusLogger.logCacheLoading(if (cache != null) time.inWholeMilliseconds else -1)
+    return cache
   }
   override fun loadUnloadedEntitiesCache(): EntityStorage? {
     return cacheSerializer.loadCacheFromFile(unloadedEntitiesCacheFile, invalidateCachesMarkerFile,

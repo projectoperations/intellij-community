@@ -50,8 +50,10 @@ import javax.swing.text.html.StyleSheet;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
-import java.util.*;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import static java.util.Collections.emptyList;
@@ -874,19 +876,23 @@ public final class PluginDetailsPageComponent extends MultiPanel {
   }
 
   public static void loadAllPluginDetails(@NotNull MarketplaceRequests marketplace,
-                                           @NotNull PluginNode node,
-                                           @NotNull PluginNode pluginNode) {
+                                          @NotNull PluginNode node,
+                                          @NotNull PluginNode resultNode) {
+    if (node.getSuggestedFeatures() != null) {
+      resultNode.setSuggestedFeatures(node.getSuggestedFeatures());
+    }
+
     IntellijPluginMetadata metadata = marketplace.loadPluginMetadata(node);
     if (metadata != null) {
       if (metadata.getScreenshots() != null) {
-        pluginNode.setScreenShots(metadata.getScreenshots());
-        pluginNode.setExternalPluginIdForScreenShots(node.getExternalPluginId());
+        resultNode.setScreenShots(metadata.getScreenshots());
+        resultNode.setExternalPluginIdForScreenShots(node.getExternalPluginId());
       }
-      metadata.toPluginNode(pluginNode);
+      metadata.toPluginNode(resultNode);
     }
 
-    loadReviews(marketplace, node, pluginNode);
-    loadDependencyNames(marketplace, pluginNode);
+    loadReviews(marketplace, node, resultNode);
+    loadDependencyNames(marketplace, resultNode);
   }
 
   private static void loadReviews(@NotNull MarketplaceRequests marketplace, @NotNull PluginNode node, @NotNull PluginNode resultNode) {
@@ -934,7 +940,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     myPlugin = pluginDescriptor;
     PluginManagerFilters org = PluginManagerFilters.getInstance();
     myUpdateDescriptor = updateDescriptor != null && org.isPluginAllowed(!myMarketplace, updateDescriptor) ? updateDescriptor : null;
-    myIsPluginCompatible = PluginManagerCore.getIncompatiblePlatform(pluginDescriptor).isEmpty();
+    myIsPluginCompatible = PluginManagerCore.INSTANCE.getIncompatiblePlatform(pluginDescriptor) == null;
     myIsPluginAvailable = myIsPluginCompatible && org.isPluginAllowed(!myMarketplace, pluginDescriptor);
     if (myMarketplace && myMultiTabs) {
       myInstalledDescriptorForMarketplace = PluginManagerCore.findPlugin(myPlugin.getPluginId());
@@ -1590,17 +1596,17 @@ public final class PluginDetailsPageComponent extends MultiPanel {
   @Nullable
   @NlsSafe
   private String getChangeNotes() {
+    if (myUpdateDescriptor != null) {
+      String notes = myUpdateDescriptor.getChangeNotes();
+      if (!Strings.isEmptyOrSpaces(notes)) {
+        return notes;
+      }
+    }
     PluginNode node = getInstalledPluginMarketplaceNode();
     if (node != null) {
       String changeNotes = node.getChangeNotes();
       if (!Strings.isEmptyOrSpaces(changeNotes)) {
         return changeNotes;
-      }
-    }
-    if (myUpdateDescriptor != null) {
-      String notes = myUpdateDescriptor.getChangeNotes();
-      if (!Strings.isEmptyOrSpaces(notes)) {
-        return notes;
       }
     }
     String notes = myPlugin.getChangeNotes();

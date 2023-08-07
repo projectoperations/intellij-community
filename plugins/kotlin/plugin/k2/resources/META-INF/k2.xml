@@ -31,6 +31,7 @@
   <xi:include href="dep-spellchecker.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="scripting-base.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="native.xml" xpointer="xpointer(/idea-plugin/*)"/>
+  <xi:include href="native-k2.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="facets-base.xml" xpointer="xpointer(/idea-plugin/*)"/>
 
   <xi:include href="extensions.xml" xpointer="xpointer(/idea-plugin/*)"/>
@@ -50,6 +51,7 @@
 
   <extensions defaultExtensionNs="org.jetbrains.uast">
     <uastLanguagePlugin implementation="org.jetbrains.uast.kotlin.FirKotlinUastLanguagePlugin"/>
+    <generate.uastCodeGenerationPlugin implementation="org.jetbrains.uast.kotlin.FirKotlinUastCodeGenerationPlugin"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -208,12 +210,12 @@
     <module name="kotlin.base.fir.analysis-api-providers"/>
     <module name="kotlin.copyright"/>
     <module name="kotlin.coverage"/>
+    <module name="kotlin.i18n"/>
     <module name="kotlin.git"/>
     <module name="kotlin.grazie"/>
     <module name="kotlin.gradle.gradle-tooling"/>
     <module name="kotlin.maven"/>
     <module name="kotlin.ml-completion"/>
-    <module name="kotlin.properties"/>
     <module name="kotlin.run-configurations.junit"/>
     <module name="kotlin.run-configurations.testng"/>
     <module name="kotlin.run-configurations.jvm"/>
@@ -242,6 +244,7 @@
     <module name="kotlin.refactorings.k2"/>
     <module name="kotlin.refactorings.move.k2"/>
     <module name="kotlin.refactorings.rename.k2"/>
+    <module name="kotlin.refactorings.introduce.k2"/>
 
     <module name="kotlin.navigation"/>
     <module name="kotlin.code-insight.line-markers-k2"/>
@@ -249,5 +252,6 @@
 
     <module name="kotlin.compiler-reference-index"/>
     <module name="kotlin.compiler-plugins.assignment.common-k2"/>
+    <module name="kotlin.compiler-plugins.scripting"/>
   </content>
 </idea-plugin>

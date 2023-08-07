@@ -300,6 +300,11 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
             runTest("../idea/tests/testData/quickfix/autoImports/functionImport.before.Main.kt");
         }
 
+        @TestMetadata("functionPreferNotDeprecated.test")
+        public void testFunctionPreferNotDeprecated() throws Exception {
+            runTest("../idea/tests/testData/quickfix/autoImports/functionPreferNotDeprecated.test");
+        }
+
         @TestMetadata("importAliasClassAlreadyExists.before.Main.kt")
         public void testImportAliasClassAlreadyExists() throws Exception {
             runTest("../idea/tests/testData/quickfix/autoImports/importAliasClassAlreadyExists.before.Main.kt");
@@ -653,6 +658,16 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
         @TestMetadata("noImportInterfaceRefAsConstructor.before.Main.kt")
         public void testNoImportInterfaceRefAsConstructor() throws Exception {
             runTest("../idea/tests/testData/quickfix/autoImports/noImportInterfaceRefAsConstructor.before.Main.kt");
+        }
+
+        @TestMetadata("noImportOfExtensionForReferenceWithPackageQualifier.test")
+        public void testNoImportOfExtensionForReferenceWithPackageQualifier() throws Exception {
+            runTest("../idea/tests/testData/quickfix/autoImports/noImportOfExtensionForReferenceWithPackageQualifier.test");
+        }
+
+        @TestMetadata("noImportOfExtensionWhenMatchingReceiverIsMissing.test")
+        public void testNoImportOfExtensionWhenMatchingReceiverIsMissing() throws Exception {
+            runTest("../idea/tests/testData/quickfix/autoImports/noImportOfExtensionWhenMatchingReceiverIsMissing.test");
         }
 
         @TestMetadata("noImportsForClassInExcludedPackage.before.Main.kt")

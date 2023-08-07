@@ -10,13 +10,14 @@ import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.openapi.application.runWriteAction
-import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager
 import com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 import com.intellij.util.io.write
+import com.intellij.util.lang.JavaVersion
 import junit.framework.ComparisonFailure
 import junit.framework.TestCase
 import org.jdom.Element
@@ -25,6 +26,7 @@ import org.jetbrains.kotlin.idea.highlighter.AbstractHighlightingPassBase
 import org.jetbrains.kotlin.idea.test.*
 import org.jetbrains.kotlin.idea.util.application.executeCommand
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.test.utils.IgnoreTests
 import org.junit.Assert
 import java.io.File
 import java.nio.file.Files
@@ -87,7 +89,7 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
 
         withCustomCompilerOptions(fileText, project, module) {
             val minJavaVersion = InTextDirectivesUtils.findStringWithPrefixes(fileText, "// MIN_JAVA_VERSION: ")?.toInt()
-            if (minJavaVersion != null && !SystemInfo.isJavaVersionAtLeast(minJavaVersion, 0, 0)) {
+            if (minJavaVersion != null && !JavaVersion.current().isAtLeast(minJavaVersion)) {
                 return@withCustomCompilerOptions
             }
 
@@ -259,6 +261,12 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
     }
 
     protected open fun doTestFor(mainFile: File, inspection: LocalInspectionTool, fileText: String) {
+        IgnoreTests.runTestIfNotDisabledByFileDirective(mainFile.toPath(), IgnoreTests.DIRECTIVES.IGNORE_FE10, "after") {
+            doTestForInternal(mainFile, inspection, fileText)
+        }
+    }
+
+    protected fun doTestForInternal(mainFile: File, inspection: LocalInspectionTool, fileText: String) {
         val mainFilePath = mainFile.name
         val expectedProblemString = InTextDirectivesUtils.findStringWithPrefixes(
             fileText, "// $expectedProblemDirectiveName: "
@@ -270,10 +278,12 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
             fileText, "// $fixTextDirectiveName: "
         )
 
+        val inspectionSettings = loadInspectionSettings(mainFile)
         val canonicalPathToExpectedFile = mainFilePath + afterFileNameSuffix
         val canonicalPathToExpectedPath = testDataDirectory.toPath() / canonicalPathToExpectedFile
-        if (!runInspectionWithFixesAndCheck(inspection, expectedProblemString, expectedHighlightString, localFixTextString)) {
-            assertFalse("$canonicalPathToExpectedFile should not exists as no action could be applied", Files.exists(canonicalPathToExpectedPath))
+
+        if (!runInspectionWithFixesAndCheck(inspection, expectedProblemString, expectedHighlightString, localFixTextString, inspectionSettings)) {
+            assertFalse("$canonicalPathToExpectedFile should not exist as no action could be applied", Files.exists(canonicalPathToExpectedPath))
             return
         }
 
@@ -295,6 +305,11 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
             error("File $path was not found and thus was generated")
         }
     }
+
+    protected fun loadInspectionSettings(testFile: File): Element? =
+        File(testFile.parentFile, "settings.xml")
+            .takeIf { it.exists() }
+            ?.let { JDOMUtil.load(it) }
 
     companion object {
         private val EXTENSIONS = arrayOf(".kt", ".kts", ".java", ".groovy")

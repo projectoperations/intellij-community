@@ -9,13 +9,10 @@ import org.junit.Test
 class MavenSurefirePluginTest extends MavenDomWithIndicesTestCase {
 
   @Override
-  protected void setUp() throws Exception {
-    super.setUp()
-    setRepositoryPath(new MavenCustomRepositoryHelper(myDir, "plugins").getTestDataPath("plugins"))
-    //need to recreate fixture
-    myIndicesFixture = new MavenIndicesTestFixture(myDir.toPath(), myProject, "plugins", ['local1'] as String[])
-    myIndicesFixture.setUp();
+  protected MavenIndicesTestFixture createIndicesFixture() {
+    return new MavenIndicesTestFixture(myDir.toPath(), myProject, "plugins", ['local1'] as String[])
   }
+  
 
   @Test
   void testCompletion() {
@@ -137,6 +134,8 @@ class MavenSurefirePluginTest extends MavenDomWithIndicesTestCase {
     </plugins>
   </build>
 """)
+
+    resolvePlugins()
 
     createProjectPom("""
   <groupId>simpleMaven</groupId>

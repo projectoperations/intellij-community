@@ -2,6 +2,7 @@
 package com.intellij.openapi.externalSystem.util
 
 import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
@@ -42,7 +43,6 @@ suspend fun performAction(
   project: Project? = null,
   systemId: ProjectSystemId? = null,
   selectedFile: VirtualFile? = null,
-  blocking: Boolean = false
 ) {
   withSelectedFileIfNeeded(selectedFile) {
     val event = TestActionEvent.createTestEvent {
@@ -50,12 +50,32 @@ suspend fun performAction(
         ExternalSystemDataKeys.EXTERNAL_SYSTEM_ID.`is`(it) -> systemId
         CommonDataKeys.PROJECT.`is`(it) -> project
         CommonDataKeys.VIRTUAL_FILE.`is`(it) -> selectedFile
-        ExternalSystemDataKeys.BLOCKING_ACTIVITY.`is`(it) -> blocking
         else -> null
       }
     }
     withContext(Dispatchers.EDT) {
       action.actionPerformed(event)
+    }
+  }
+}
+
+suspend fun performActionAsync(
+  action: suspend (AnActionEvent) -> Unit,
+  project: Project? = null,
+  systemId: ProjectSystemId? = null,
+  selectedFile: VirtualFile? = null,
+) {
+  withSelectedFileIfNeeded(selectedFile) {
+    val event = TestActionEvent.createTestEvent {
+      when {
+        ExternalSystemDataKeys.EXTERNAL_SYSTEM_ID.`is`(it) -> systemId
+        CommonDataKeys.PROJECT.`is`(it) -> project
+        CommonDataKeys.VIRTUAL_FILE.`is`(it) -> selectedFile
+        else -> null
+      }
+    }
+    withContext(Dispatchers.EDT) {
+      action(event)
     }
   }
 }

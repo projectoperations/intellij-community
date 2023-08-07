@@ -15,12 +15,18 @@ object DistributedTestModel : Ext(TestRoot) {
     field("id", string)
     field("launchNumber", int)
     field("agentType", RdAgentType)
+    field("productTypeType", RdProductType)
   }
 
   private val RdAgentType = enum {
     +"HOST"
     +"CLIENT"
     +"GATEWAY"
+  }
+
+  private val RdProductType = enum {
+    +"REMOTE_DEVELOPMENT"
+    +"CODE_WITH_ME"
   }
 
   private val RdTestSessionStackTraceElement = structdef {
@@ -38,6 +44,7 @@ object DistributedTestModel : Ext(TestRoot) {
 
   private val RdTestSessionException = structdef {
     field("type", string)
+    field("originalType", string.nullable)
     field("message", string.nullable)
     field("stacktrace", immutableList(RdTestSessionStackTraceElement))
     field("cause", RdTestSessionExceptionCause.nullable)
@@ -48,13 +55,16 @@ object DistributedTestModel : Ext(TestRoot) {
     field("testClassName", string.nullable)
     field("testMethodName", string.nullable)
     field("traceCategories", immutableList(string))
+    field("debugCategories", immutableList(string))
     property("ready", bool.nullable)
     signal("sendException", RdTestSessionException).async
     signal("shutdown", void)
     call("closeProject", void, bool)
     call("closeProjectIfOpened", void, bool)
-    call("runNextAction", void, bool)
+    call("runNextAction", void, string.nullable)
+    call("runNextActionBackground", void, string.nullable)
     call("makeScreenshot", string, bool)
+    call("isResponding", void, bool)
   }
 
   init {

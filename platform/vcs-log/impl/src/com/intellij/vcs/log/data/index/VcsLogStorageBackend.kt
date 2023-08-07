@@ -8,6 +8,7 @@ import com.intellij.vcs.log.util.StorageId
 import it.unimi.dsi.fastutil.ints.IntSet
 import java.io.IOException
 import java.util.function.IntConsumer
+import java.util.function.IntFunction
 
 internal interface VcsLogStorageBackend : VcsLogUsersStorage, VcsLogPathsStorage {
   val storageId: StorageId
@@ -40,9 +41,10 @@ internal interface VcsLogStorageBackend : VcsLogUsersStorage, VcsLogPathsStorage
   fun collectMissingCommits(commitIds: IntSet): IntSet
 
   @Throws(IOException::class)
-  fun processMessages(processor: (Int, String) -> Boolean)
+  fun iterateIndexedCommits(limit: Int, processor: IntFunction<Boolean>)
 
-  fun getRename(parent: Int, child: Int): IntArray?
+  @Throws(IOException::class)
+  fun processMessages(processor: (Int, String) -> Boolean)
 
   fun createWriter(): VcsLogWriter
 
@@ -60,4 +62,5 @@ interface VcsLogWriter {
   fun putCommit(commitId: Int, details: VcsLogIndexer.CompressedDetails)
   fun flush()
   fun close(performCommit: Boolean)
+  fun interrupt()
 }

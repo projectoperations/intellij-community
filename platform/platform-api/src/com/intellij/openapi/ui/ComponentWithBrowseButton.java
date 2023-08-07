@@ -97,11 +97,11 @@ public class ComponentWithBrowseButton<Comp extends JComponent> extends JPanel i
     }
     LazyDisposable.installOn(this);
 
-    Insets unscaledInsets = UnscaledGapsKt.unscale(myComponent.getInsets());
+    Insets insets = myComponent.getInsets();
     if (!inlineBrowseButton) {
-      unscaledInsets.right = UnscaledGapsKt.unscale(myBrowseButton.getInsets().right);
+      insets.right = myBrowseButton.getInsets().right;
     }
-    UnscaledGaps visualPaddings = UnscaledGapsKt.toUnscaledGaps(unscaledInsets);
+    UnscaledGaps visualPaddings = UnscaledGapsKt.toUnscaledGaps(insets);
     putClientProperty(DslComponentProperty.INTERACTIVE_COMPONENT, component);
     putClientProperty(DslComponentProperty.VERTICAL_COMPONENT_GAP, new VerticalComponentGap(true, true));
     putClientProperty(DslComponentProperty.VISUAL_PADDINGS, visualPaddings);

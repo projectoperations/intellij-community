@@ -683,7 +683,7 @@
         <separator/>
         <reference ref="EditorIncreaseFontSizeGlobal"/>
         <reference ref="EditorDecreaseFontSizeGlobal"/>
-        <reference ref="EditorResetFontSize"/>
+        <action id="EditorResetFontSizeGlobal" class="com.intellij.openapi.editor.actions.ResetFontSizeGlobalAction"/>
 
         <action id="ToggleFocusMode" class="com.intellij.ide.actions.ToggleFocusViewModeAction" internal="true"/>
 
@@ -744,6 +744,8 @@
         <action id="MinimizeCurrentWindow" class="com.intellij.ide.actions.MinimizeCurrentWindowAction"/>
         <action id="ZoomCurrentWindow" class="com.intellij.ide.actions.ZoomCurrentWindowAction"/>
         <group id="LayoutsGroup" popup="true">
+          <action id="RestoreFactoryDefaultLayout" class="com.intellij.ide.actions.RestoreFactoryDefaultLayoutAction" />
+          <separator/>
           <group id="CustomLayoutsGroup" class="com.intellij.ide.actions.CustomLayoutsActionGroup" />
           <separator/>
           <action id="RestoreDefaultLayout" class="com.intellij.ide.actions.RestoreDefaultLayoutAction"/>
@@ -1209,7 +1211,7 @@
         <action id="TrustProject" internal="true" class="com.intellij.internal.YesTrustAction"/>
         <action id="UntrustProject" internal="true" class="com.intellij.internal.NoTrustAction"/>
       </group>
-      <group id="Internal.WorkspaceModel" popup="true" text="Workspace Model">
+      <group id="Internal.WorkspaceModel" popup="true">
         <action id="PrintModulesAndEntitySources" internal="true" class="com.intellij.internal.PrintModulesAndEntitySources"/>
       </group>
       <action internal="true" id="ShowMainMenu" class="com.intellij.internal.ui.ShowMainMenuAction"/>
@@ -1277,7 +1279,6 @@
         <action id="GrayFilterConfig" internal="true" class="com.intellij.internal.GrayFilterConfig"/>
         <action id="TextGrayFilterConfig" internal="true" class="com.intellij.internal.TextGrayFilterConfig"/>
         <action id="ShowSplash" internal="true" class="com.intellij.ui.ShowSplashAction"/>
-        <action id="ShowAboutPopupInDebugModeAction" class="com.intellij.internal.ui.ShowAboutPopupInDebugModeAction"/>
         <action id="ValidationTest" internal="true" class="com.intellij.internal.validation.TestDialogWithValidationAction"/>
         <action id="MacMessagesTest" internal="true" class="com.intellij.internal.validation.TestMacMessagesAction"/>
         <action id="ColorBlindnessTest" internal="true" class="com.intellij.ide.ui.ColorBlindnessInternalAction"/>
@@ -1309,6 +1310,7 @@
                 class="com.intellij.notification.impl.ShowNotificationIconsDialogAction"/>
         <separator/>
         <action id="UiDslShowcaseAction" internal="true" class="com.intellij.internal.ui.uiDslShowcase.UiDslShowcaseAction"/>
+        <action id="X11UiTestAction" internal="true" class="com.intellij.internal.ui.X11UiTestAction"/>
         <action id="ProgressIconShowcaseAction" internal="true" class="com.intellij.internal.ui.ProgressIconShowcaseAction"/>
         <action id="IconScaleTestAction" internal="true" class="com.intellij.internal.ui.ShowIconScaleTestAction"/>
         <action id="GridLayoutTestAction" internal="true" class="com.intellij.internal.ui.gridLayoutTestAction.GridLayoutTestAction"/>
@@ -1611,24 +1613,23 @@
     <group id="TopStripeActionGroup" class="com.intellij.toolWindow.StripeActionGroup"/>
     <action id="TopStripeEnableAction" class="com.intellij.toolWindow.EnableStripeGroup"/>
 
-    <group id="MainToolbarQuickActions" class="com.intellij.openapi.wm.impl.headertoolbar.MainToolbarQuickActionsGroup" searchable="false" popup="true">
+    <group id="MainToolbarQuickActions" searchable="false" popup="true">
       <separator key="MainToolbarQuickActions.run.separator"/>
-      <action id="addQuickAction.Build" class="com.intellij.openapi.wm.impl.headertoolbar.BuildQuickAction" icon="AllIcons.Actions.Compile"/>
-      <action id="addQuickAction.Coverage" class="com.intellij.openapi.wm.impl.headertoolbar.CoverageQuickAction" icon="AllIcons.General.RunWithCoverage"/>
-      <action id="addQuickAction.Profile" class="com.intellij.openapi.wm.impl.headertoolbar.ProfilerQuickAction" icon="AllIcons.Actions.Profile"/>
+      <group id="MainToolbarQuickActions.Run" class="com.intellij.ide.ui.customization.ToolbarQuickActionsGroup" searchable="false" popup="false"/>
       <separator key="MainToolbarQuickActions.General.separator"/>
-      <action id="addQuickAction.OpenFile" class="com.intellij.openapi.wm.impl.headertoolbar.OpenFileQuickAction" icon="AllIcons.Actions.MenuOpen"/>
-      <action id="addQuickAction.SaveAll" class="com.intellij.openapi.wm.impl.headertoolbar.SaveAllQuickAction" icon="AllIcons.Actions.MenuSaveall"/>
-      <action id="addQuickAction.Synchronize" class="com.intellij.openapi.wm.impl.headertoolbar.SynchronizeQuickAction" icon="AllIcons.Actions.Refresh"/>
-      <action id="addQuickAction.BackForward" class="com.intellij.openapi.wm.impl.headertoolbar.BackForwardQuickAction" icon="AllIcons.Actions.Back"/>
-      <action id="addQuickAction.UndoRedo" class="com.intellij.openapi.wm.impl.headertoolbar.UndoRedoQuickAction" icon="AllIcons.Actions.Undo"/>
+      <group id="MainToolbarQuickActions.General" class="com.intellij.ide.ui.customization.ToolbarQuickActionsGroup" searchable="false" popup="false"/>
     </group>
 
-    <group id="ToolbarPopupActions">
+    <group id="ChangeProjectColorActionGroup" class="com.intellij.openapi.wm.impl.welcomeScreen.projectActions.ChangeProjectColorActionGroup" searchable="false" popup="true"/>
+
+    <group id="ToolbarPopupActions"/>
+
+    <group id="ToolbarPopupActions.MainToolbarNewUI">
       <reference id="MainToolbarQuickActions"/>
-      <action id="ColoredHeaderAction" class="com.intellij.ide.ui.customization.UseProjectColorsCheckboxAction"/>
+      <separator/>
+      <reference id="ChangeProjectColorActionGroup"/>
       <reference id="WelcomeScreen.ChangeProjectIcon"/>
-      <action id="ChangeMainToolbarColor" class="com.intellij.ide.ui.customization.ChangeMainToolbarColorAction"/>
+      <action id="ColoredHeaderAction" class="com.intellij.ide.ui.customization.UseProjectColorsCheckboxAction"/>
     </group>
   </actions>
 </idea-plugin>

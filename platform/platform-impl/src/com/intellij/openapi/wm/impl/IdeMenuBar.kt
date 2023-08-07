@@ -2,24 +2,18 @@
 package com.intellij.openapi.wm.impl
 
 import com.intellij.DynamicBundle
-import com.intellij.diagnostic.runActivity
 import com.intellij.ide.ui.UISettings
-import com.intellij.ide.ui.customization.CustomActionsSchema
 import com.intellij.openapi.actionSystem.ActionGroup
-import com.intellij.openapi.actionSystem.IdeActions
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.wm.IdeFrame
-import com.intellij.openapi.wm.impl.FrameInfoHelper.Companion.isFloatingMenuBarSupported
+import com.intellij.platform.ide.menu.*
 import com.intellij.ui.Gray
 import com.intellij.ui.ScreenUtil
 import com.intellij.ui.mac.foundation.NSDefaults
 import com.intellij.ui.mac.screenmenu.Menu
-import com.intellij.ui.mac.screenmenu.MenuBar
 import com.intellij.ui.plaf.beg.IdeaMenuUI
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StartupUiUtil
@@ -44,12 +38,9 @@ internal enum class IdeMenuBarState {
 
 @Suppress("LeakingThis")
 open class IdeMenuBar internal constructor(@JvmField internal val coroutineScope: CoroutineScope,
-                                           private val frame: JFrame) : JMenuBar(), ActionAwareIdeMenuBar {
+                                           @JvmField internal val frame: JFrame,
+                                           private val explicitMainMenuActionGroup: ActionGroup? = null) : JMenuBar(), ActionAwareIdeMenuBar {
   private val menuBarHelper: IdeMenuBarHelper
-
-  @JvmField
-  internal var activated = false
-  private val screenMenuPeer: MenuBar?
 
   init {
     val flavor = if (isFloatingMenuBarSupported) {
@@ -57,8 +48,6 @@ open class IdeMenuBar internal constructor(@JvmField internal val coroutineScope
     }
     else {
       object : IdeMenuFlavor {
-        override var state = IdeMenuBarState.EXPANDED
-
         override fun updateAppMenu() {
           doUpdateAppMenu()
         }
@@ -79,17 +68,10 @@ open class IdeMenuBar internal constructor(@JvmField internal val coroutineScope
         this@IdeMenuBar.updateGlobalMenuRoots()
       }
 
-      override suspend fun getMainMenuActionGroup(): ActionGroup? = getMainMenuActionGroupAsync()
+      override suspend fun getMainMenuActionGroup(): ActionGroup? = explicitMainMenuActionGroup ?: this@IdeMenuBar.getMainMenuActionGroup()
     }
 
-    screenMenuPeer = runActivity("ide menu bar init") { createScreeMenuPeer(frame) }
-    if (screenMenuPeer == null) {
-      menuBarHelper = IdeMenuBarHelper(flavor = flavor, menuBar = facade)
-    }
-    else {
-      menuBarHelper = PeerBasedIdeMenuBarHelper(screenMenuPeer = screenMenuPeer, flavor = flavor, menuBar = facade)
-    }
-
+    menuBarHelper = JMenuBasedIdeMenuBarHelper(flavor = flavor, menuBar = facade)
     if (IdeFrameDecorator.isCustomDecorationActive()) {
       isOpaque = false
     }
@@ -140,26 +122,7 @@ open class IdeMenuBar internal constructor(@JvmField internal val coroutineScope
   }
 
   override fun menuSelectionChanged(isIncluded: Boolean) {
-    if (!isIncluded && menuBarHelper.flavor.state == IdeMenuBarState.TEMPORARY_EXPANDED) {
-      activated = false
-      menuBarHelper.flavor.state = IdeMenuBarState.COLLAPSING
-      menuBarHelper.flavor.restartAnimator()
-      return
-    }
-
-    if (isIncluded && menuBarHelper.flavor.state == IdeMenuBarState.COLLAPSED) {
-      activated = true
-      menuBarHelper.flavor.state = IdeMenuBarState.TEMPORARY_EXPANDED
-      revalidate()
-      repaint()
-      SwingUtilities.invokeLater {
-        val menu = getMenu(selectionModel.selectedIndex)
-        if (menu.isPopupMenuVisible) {
-          menu.isPopupMenuVisible = false
-          menu.isPopupMenuVisible = true
-        }
-      }
-    }
+    menuBarHelper.flavor.jMenuSelectionChanged(isIncluded)
     super.menuSelectionChanged(isIncluded)
   }
 
@@ -170,31 +133,17 @@ open class IdeMenuBar internal constructor(@JvmField internal val coroutineScope
     }
 
   override fun getPreferredSize(): Dimension {
-    val dimension = super.getPreferredSize()
-    val state = menuBarHelper.flavor.state
-    if (state.isInProgress) {
-      val progress = menuBarHelper.flavor.getProgress()
-      dimension.height = COLLAPSED_HEIGHT +
-                         ((if (state == IdeMenuBarState.COLLAPSING) 1 - progress else progress) * (dimension.height - COLLAPSED_HEIGHT)).toInt()
-    }
-    else if (state == IdeMenuBarState.COLLAPSED) {
-      dimension.height = COLLAPSED_HEIGHT
-    }
-    return dimension
+    return menuBarHelper.flavor.getPreferredSize(super.getPreferredSize())
   }
 
   override fun removeNotify() {
-    screenMenuPeer?.let {
-      @Suppress("SSBasedInspection")
-      it.dispose()
-    }
     if (ScreenUtil.isStandardAddRemoveNotify(this)) {
       menuBarHelper.flavor.suspendAnimator()
     }
     super.removeNotify()
   }
 
-  override suspend fun updateMenuActions(forceRebuild: Boolean) {
+  override fun updateMenuActions(forceRebuild: Boolean) {
     menuBarHelper.updateMenuActions(forceRebuild)
   }
 
@@ -236,18 +185,7 @@ open class IdeMenuBar internal constructor(@JvmField internal val coroutineScope
     }
   }
 
-  open suspend fun getMainMenuActionGroupAsync(): ActionGroup? {
-    val rootPane = frame.rootPane
-    val group = if (rootPane is IdeRootPane) rootPane.mainMenuActionGroup else null
-    return group ?:
-    ApplicationManager.getApplication().serviceAsync<CustomActionsSchema>().getCorrectedAction(IdeActions.GROUP_MAIN_MENU) as ActionGroup?
-  }
-
-  protected open fun getMainMenuActionGroup(): ActionGroup? {
-    val rootPane = frame.rootPane
-    val group = if (rootPane is IdeRootPane) rootPane.mainMenuActionGroup else null
-    return group ?: CustomActionsSchema.getInstance().getCorrectedAction(IdeActions.GROUP_MAIN_MENU) as ActionGroup?
-  }
+  open suspend fun getMainMenuActionGroup(): ActionGroup? = explicitMainMenuActionGroup ?: getAndWrapMainMenuActionGroup()
 
   override fun getMenuCount(): Int {
     @Suppress("IfThenToElvis", "SENSELESS_COMPARISON")
@@ -263,8 +201,6 @@ open class IdeMenuBar internal constructor(@JvmField internal val coroutineScope
 
 private val LOG: Logger
   get() = logger<IdeMenuBar>()
-
-private const val COLLAPSED_HEIGHT = 2
 
 // NOTE: for OSX only
 internal fun doUpdateAppMenu() {
@@ -288,21 +224,6 @@ internal fun doUpdateAppMenu() {
   //  mi.setActionDelegate(() -> System.err.println("NewCustomItem executes"));
   //  appMenu.add(mi, pos, true);
   //}
-}
-
-internal fun createScreeMenuPeer(frame: JFrame): MenuBar? {
-  if (Menu.isJbScreenMenuEnabled()) {
-    val screenMenuPeer = MenuBar("MainMenu")
-    screenMenuPeer.setFrame(frame)
-    return screenMenuPeer
-  }
-  else {
-    return null
-  }
-}
-
-internal fun createMenuBar(coroutineScope: CoroutineScope, frame: JFrame): IdeMenuBar {
-  return if (SystemInfoRt.isLinux) LinuxIdeMenuBar(coroutineScope, frame) else IdeMenuBar(coroutineScope, frame)
 }
 
 internal fun installAppMenuIfNeeded(frame: JFrame) {

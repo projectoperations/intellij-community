@@ -169,7 +169,7 @@ class NonBlockingSuspendingReadActionTest : SuspendingReadActionTest() {
       assertFalse(attempt)
       attempt = true
       waitForPendingWrite().up()
-      assertThrows<JobCanceledException> { // assert but not throw
+      assertThrows<CeProcessCanceledException> { // assert but not throw
         ProgressManager.checkCanceled()
       }
     }
@@ -182,7 +182,7 @@ class NonBlockingSuspendingReadActionTest : SuspendingReadActionTest() {
       when (attempts++) {
         0 -> {
           waitForPendingWrite().up()
-          throw assertThrows<JobCanceledException> {
+          throw assertThrows<CeProcessCanceledException> {
             ProgressManager.checkCanceled()
           }
         }
@@ -196,6 +196,49 @@ class NonBlockingSuspendingReadActionTest : SuspendingReadActionTest() {
         }
       }
     }
+  }
+
+  @RepeatedTest(REPETITIONS)
+  fun `read action is cancelled by write and restarted with nested runBlockingCancellable`(): Unit = timeoutRunBlocking {
+    var attempts = 0
+    val result = readAction {
+      when (attempts++) {
+        0 -> {
+          throw assertThrows<CeProcessCanceledException> {
+            runBlockingCancellable {
+              throw assertThrows<PceCancellationException> {
+                blockingContext {
+                  throw assertThrows<CeProcessCanceledException> {
+                    runBlockingCancellable {
+                      throw assertThrows<PceCancellationException> {
+                        blockingContext {
+                          throw assertThrows<CeProcessCanceledException> {
+                            runBlockingCancellable {
+                              waitForPendingWrite().up()
+                              awaitCancellation()
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        1 -> {
+          assertDoesNotThrow {
+            ProgressManager.checkCanceled()
+          }
+          42
+        }
+        else -> {
+          fail()
+        }
+      }
+    }
+    assertEquals(42, result)
   }
 
   @RepeatedTest(REPETITIONS)
@@ -226,7 +269,7 @@ class NonBlockingSuspendingReadActionTest : SuspendingReadActionTest() {
               }
             }
             pendingWrite.timeoutWaitUp()
-            throw assertThrows<JobCanceledException> {
+            throw assertThrows<CeProcessCanceledException> {
               ProgressManager.checkCanceled()
             }
           }
@@ -312,12 +355,12 @@ class BlockingSuspendingReadActionTest : SuspendingReadActionTest() {
     return constrainedReadActionBlocking(*constraints, action = action)
   }
 
+  @OptIn(ExperimentalCoroutinesApi::class)
   @RepeatedTest(REPETITIONS)
   fun `current job`(): Unit = timeoutRunBlocking {
     val coroutineJob = coroutineContext.job
     readActionBlocking {
-      val readLoopJob = coroutineJob.children.single()
-      assertSame(readLoopJob, Cancellation.currentJob())
+      assertSame(coroutineJob, Cancellation.currentJob()?.parent?.parent)
     }
   }
 

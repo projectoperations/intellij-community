@@ -57,6 +57,10 @@ class FirUastApiFixtureTest : KotlinLightCodeInsightFixtureTestCase(), UastApiFi
         checkCallKindOfSamConstructor(myFixture)
     }
 
+    fun testExpressionTypeOfForEach() {
+        checkExpressionTypeOfForEach(myFixture)
+    }
+
     fun testExpressionTypeFromIncorrectObject() {
         checkExpressionTypeFromIncorrectObject(myFixture)
     }
@@ -83,5 +87,9 @@ class FirUastApiFixtureTest : KotlinLightCodeInsightFixtureTestCase(), UastApiFi
 
     fun testIdentifierOfNullableExtensionReceiver() {
         checkIdentifierOfNullableExtensionReceiver(myFixture)
+    }
+
+    fun testReceiverTypeOfExtensionFunction() {
+        checkReceiverTypeOfExtensionFunction(myFixture)
     }
 }

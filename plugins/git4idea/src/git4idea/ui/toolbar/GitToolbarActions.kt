@@ -6,26 +6,30 @@ import com.intellij.icons.ExpUiIcons
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.ex.TooltipDescriptionProvider
-import com.intellij.openapi.application.Experiments
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vcs.update.CommonUpdateProjectAction
 import git4idea.branch.GitBranchIncomingOutgoingManager
 import git4idea.branch.GitBranchUtil
 import git4idea.i18n.GitBundle
 
-class GitToolbarPushAction: VcsPushAction(), TooltipDescriptionProvider {
+@Suppress("ComponentNotRegistered")
+class GitToolbarPushAction : VcsPushAction(), TooltipDescriptionProvider {
   init {
     ActionManager.getInstance().getAction("Vcs.Push")?.let(::copyFrom)
   }
 
   override fun update(e: AnActionEvent) {
+    if (!GitToolbarActions.isEnabledAndVisible()) {
+      e.presentation.isEnabledAndVisible = false
+      return
+    }
+
     super.update(e)
 
     updatePresentation(e)
   }
 
   private fun updatePresentation(e: AnActionEvent) {
-    e.presentation.isEnabledAndVisible = GitToolbarActions.isEnabledAndVisible()
     val project = e.project ?: return
     val repository = GitBranchUtil.guessWidgetRepository(project, e.dataContext) ?: return
     val currentBranch = repository.currentBranch ?: return
@@ -45,19 +49,24 @@ class GitToolbarPushAction: VcsPushAction(), TooltipDescriptionProvider {
   }
 }
 
+@Suppress("ComponentNotRegistered")
 class GitToolbarUpdateProjectAction : CommonUpdateProjectAction(), TooltipDescriptionProvider {
   init {
     ActionManager.getInstance().getAction("Vcs.UpdateProject")?.let(::copyFrom)
   }
 
   override fun update(e: AnActionEvent) {
+    if (!GitToolbarActions.isEnabledAndVisible()) {
+      e.presentation.isEnabledAndVisible = false
+      return
+    }
+
     super.update(e)
 
     updatePresentation(e)
   }
 
   private fun updatePresentation(e: AnActionEvent) {
-    e.presentation.isEnabledAndVisible = GitToolbarActions.isEnabledAndVisible()
     val project = e.project ?: return
     val repository = GitBranchUtil.guessWidgetRepository(project, e.dataContext) ?: return
     val currentBranch = repository.currentBranch ?: return
@@ -80,6 +89,5 @@ class GitToolbarUpdateProjectAction : CommonUpdateProjectAction(), TooltipDescri
 object GitToolbarActions {
   internal fun isEnabledAndVisible(): Boolean {
     return Registry.`is`("vcs.new.ui.main.toolbar.actions")
-           && Experiments.getInstance().isFeatureEnabled("git4idea.new.ui.main.toolbar.actions")
   }
 }

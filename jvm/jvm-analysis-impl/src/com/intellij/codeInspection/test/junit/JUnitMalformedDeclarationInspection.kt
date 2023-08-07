@@ -123,7 +123,10 @@ private class JUnitMalformedSignatureVisitor(
   private val registeredExtensionProblem = AnnotatedSignatureProblem(
     annotations = listOf(ORG_JUNIT_JUPITER_API_EXTENSION_REGISTER_EXTENSION),
     shouldBeSubTypeOf = listOf(ORG_JUNIT_JUPITER_API_EXTENSION_EXTENSION),
-    validVisibility = ::notPrivate
+    validVisibility = { decl ->
+      val junitVersion = getUJUnitVersion(decl) ?: return@AnnotatedSignatureProblem null
+      if (junitVersion < JUnitVersion.V_5_8_0) notPrivate(decl) else null
+    }
   )
 
   private val classRuleSignatureProblem = AnnotatedSignatureProblem(
@@ -224,18 +227,22 @@ private class JUnitMalformedSignatureVisitor(
   }
 
   private fun PsiModifierListOwner.inParameterResolverContext(): Boolean {
-    val annotation = MetaAnnotationUtil.findMetaAnnotationsInHierarchy(this, listOf(ORG_JUNIT_JUPITER_API_EXTENSION_EXTEND_WITH))
+    val hasAnnotation = MetaAnnotationUtil.findMetaAnnotationsInHierarchy(this, listOf(ORG_JUNIT_JUPITER_API_EXTENSION_EXTEND_WITH))
       .asSequence()
-      .firstOrNull()
-    val attrValue = annotation?.findAttributeValue("value")?.toUElement()
-    if (attrValue is UClassLiteralExpression) {
-      return InheritanceUtil.isInheritor(attrValue.type, ORG_JUNIT_JUPITER_API_EXTENSION_PARAMETER_RESOLVER)
-    }
-    if (attrValue is UCallExpression && attrValue.kind == UastCallKind.NESTED_ARRAY_INITIALIZER) {
-      return attrValue.valueArguments.any {
-        it is UClassLiteralExpression && InheritanceUtil.isInheritor(it.type, ORG_JUNIT_JUPITER_API_EXTENSION_PARAMETER_RESOLVER)
+      .any { annotation ->
+        annotation?.nestedAttributeValues("value")?.any {
+          val uClassLiteral = it.toUElementOfType<UClassLiteralExpression>()
+          uClassLiteral != null && InheritanceUtil.isInheritor(uClassLiteral.type, ORG_JUNIT_JUPITER_API_EXTENSION_PARAMETER_RESOLVER)
+        } == true
       }
-    }
+    if (hasAnnotation) return true
+    val hasRegisteredExtension = if (this is PsiClass) {
+      fields.any {  field ->
+        field.hasAnnotation(ORG_JUNIT_JUPITER_API_EXTENSION_REGISTER_EXTENSION)
+        && InheritanceUtil.isInheritor(field.type, ORG_JUNIT_JUPITER_API_EXTENSION_PARAMETER_RESOLVER)
+      }
+    } else false
+    if (hasRegisteredExtension) return true
     if (parentOfType<PsiModifierListOwner>(withSelf = false)?.inParameterResolverContext() == true) return true
     return hasPotentialAutomaticParameterResolver(this)
   }
@@ -314,13 +321,11 @@ private class JUnitMalformedSignatureVisitor(
   }
 
   private fun checkMalformedJUnit4NestedClass(aClass: UClass, outerClass: UClass) {
-    if (aClass.methods.any { it.javaPsi.hasAnnotation(ORG_JUNIT_TEST) }) {
-      val runWith = outerClass.uAnnotations.firstOrNull { it.qualifiedName == ORG_JUNIT_RUNNER_RUN_WITH }
-      if (runWith == null) {
-        val message = JvmAnalysisBundle.message("jvm.inspections.junit.malformed.missing.nested.annotation.descriptor")
-        holder.registerUProblem(aClass, message, MakeJUnit4InnerClassRunnableFix(aClass))
-      }
-    }
+    if (aClass.isInterface || aClass.javaPsi.hasModifier(JvmModifier.ABSTRACT)) return
+    if (aClass.methods.none { it.javaPsi.hasAnnotation(ORG_JUNIT_TEST) }) return
+    if (outerClass.uAnnotations.firstOrNull { it.qualifiedName == ORG_JUNIT_RUNNER_RUN_WITH } != null) return
+    val message = JvmAnalysisBundle.message("jvm.inspections.junit.malformed.missing.nested.annotation.descriptor")
+    holder.registerUProblem(aClass, message, MakeJUnit4InnerClassRunnableFix(aClass))
   }
 
   private inner class MakeJUnit4InnerClassRunnableFix(aClass: UClass) : ClassSignatureQuickFix(
@@ -348,6 +353,7 @@ private class JUnitMalformedSignatureVisitor(
 
   private fun checkMalformedJUnit5NestedClass(aClass: UClass) {
     val javaClass = aClass.javaPsi
+    if (aClass.isInterface || aClass.javaPsi.hasModifier(JvmModifier.ABSTRACT)) return
     if (!javaClass.hasAnnotation(ORG_JUNIT_JUPITER_API_NESTED) && !aClass.methods.any { it.javaPsi.hasAnnotation(ORG_JUNIT_JUPITER_API_TEST) }) return
     if (javaClass.hasAnnotation(ORG_JUNIT_JUPITER_API_NESTED) && !aClass.isStatic && aClass.visibility != UastVisibility.PRIVATE) return
     val message = JvmAnalysisBundle.message("jvm.inspections.junit.malformed.missing.nested.annotation.descriptor")
@@ -700,11 +706,16 @@ private class JUnitMalformedSignatureVisitor(
       val type = passedParameter.type
       if (type is PsiClassType) {
         val psiClass = type.resolve() ?: return
-        if (validEmptySource.any { it == psiClass.qualifiedName }) return
-        val constructors = psiClass.constructors.mapNotNull { it.toUElementOfType<UMethod>() }
-        val isCollectionOrMap = InheritanceUtil.isInheritor(psiClass, JAVA_UTIL_COLLECTION)
-                                || InheritanceUtil.isInheritor(psiClass, JAVA_UTIL_MAP)
-        if (isCollectionOrMap && constructors.any { it.visibility == UastVisibility.PUBLIC && it.isNoArg() }) return
+        val version = getUJUnitVersion(method) ?: return
+        if (version < JUnitVersion.V_5_10_0) {
+          if (validEmptySourceTypeBefore510.any { it == psiClass.qualifiedName }) return
+        } else {
+          if (validEmptySourceTypeAfter510.any { it == psiClass.qualifiedName }) return
+          val constructors = psiClass.constructors.mapNotNull { it.toUElementOfType<UMethod>() }
+          val isCollectionOrMap = InheritanceUtil.isInheritor(psiClass, JAVA_UTIL_COLLECTION)
+                                  || InheritanceUtil.isInheritor(psiClass, JAVA_UTIL_MAP)
+          if (isCollectionOrMap && constructors.any { it.visibility == UastVisibility.PUBLIC && it.isNoArg() }) return
+        }
       }
       if (type is PsiArrayType) return
       val message = JvmAnalysisBundle.message(
@@ -1235,7 +1246,14 @@ private class JUnitMalformedSignatureVisitor(
       "org.junit.experimental.categories.Enclosed"
     )
 
-    private val validEmptySource = listOf(
+    private val validEmptySourceTypeBefore510 = listOf(
+      JAVA_LANG_STRING,
+      JAVA_UTIL_LIST,
+      JAVA_UTIL_SET,
+      JAVA_UTIL_MAP
+    )
+
+    private val validEmptySourceTypeAfter510 = listOf(
       JAVA_LANG_STRING,
       JAVA_UTIL_LIST,
       JAVA_UTIL_SET,

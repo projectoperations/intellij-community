@@ -4,7 +4,6 @@ package com.intellij.util.ui;
 import com.intellij.ui.scale.JBUIScale;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.plaf.UIResource;
 import java.awt.*;
@@ -56,14 +55,7 @@ public class JBInsets extends Insets {
     return new JBInsets(topBottom, leftRight, topBottom, leftRight);
   }
 
-  public static @Nullable JBInsets createOrNull(@Nullable Insets insets) {
-    return insets == null ? null : create(insets);
-  }
-
   public static @NotNull JBInsets create(@NotNull Insets insets) {
-    if (insets instanceof JBInsetsUIResource) {
-      return new JBInsetsUIResource((JBInsets)insets);
-    }
     if (insets instanceof JBInsets) {
       JBInsets copy = new JBInsets(0, 0, 0, 0);
       copyInsets(copy, insets);
@@ -155,5 +147,38 @@ public class JBInsets extends Insets {
     dest.left = src.left;
     dest.bottom = src.bottom;
     dest.right = src.right;
+  }
+
+  /**
+   * Get safely unscaled Insets if the parameter is an instance of JBInsets.
+   *
+   * @param insets the insets to unwrap
+   * @return the unwrapped Insets
+   */
+  @ApiStatus.Internal
+  public static Insets unwrap(@NotNull Insets insets) {
+    if (insets instanceof JBInsets jbInsets) {
+      // Check that scaled values consistent with unscaled ones
+      JBInsets cleanInsets = create(jbInsets.getUnscaled());
+
+      if (insets.equals(cleanInsets)) return jbInsets.getUnscaled();
+      else return unscale(insets);
+    }
+    return insets;
+  }
+
+  /**
+   * Unscale the given Insets by applying JBUI.unscale to each value.
+   *
+   * @param insets the Insets to unscale
+   * @return the unscaled Insets
+   */
+  @ApiStatus.Internal
+  public static Insets unscale(@NotNull Insets insets) {
+    //noinspection UseDPIAwareInsets
+    return new Insets(JBUI.unscale(insets.top),
+                      JBUI.unscale(insets.left),
+                      JBUI.unscale(insets.bottom),
+                      JBUI.unscale(insets.right));
   }
 }

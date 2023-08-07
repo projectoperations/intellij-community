@@ -1,7 +1,6 @@
 package com.intellij.smartUpdate
 
 import com.intellij.ide.actions.SettingsEntryPointAction.UpdateAction
-import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -10,7 +9,6 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.ui.dsl.builder.MutableProperty
@@ -20,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import org.jetbrains.ide.ToolboxUpdateAction
 import org.jetbrains.ide.UpdateActionsListener
 import java.time.Duration
 import java.time.LocalTime
@@ -31,7 +30,7 @@ class SmartUpdate(val project: Project, private val coroutineScope: CoroutineSco
 
   class Options: BaseState() {
     var scheduled by property(false)
-    var scheduledTime by property(LocalTime.of(6, 0).toSecondOfDay())
+    var scheduledTime by property(LocalTime.of(8, 0).toSecondOfDay())
 
     @get:MapAnnotation(surroundWithTag = false)
     var map: MutableMap<String, Boolean> by linkedMap()
@@ -46,7 +45,7 @@ class SmartUpdate(val project: Project, private val coroutineScope: CoroutineSco
   init {
     ApplicationManager.getApplication().messageBus.connect(this).subscribe(UpdateActionsListener.TOPIC, object : UpdateActionsListener {
       override fun actionReceived(action: UpdateAction) {
-        if (restartRequested && action.isRestartRequired) {
+        if (restartRequested && action.isRestartRequired && action is ToolboxUpdateAction) {
           restartRequested = false
           restartIde(project, action)
         }
@@ -86,7 +85,7 @@ class SmartUpdate(val project: Project, private val coroutineScope: CoroutineSco
   }
 }
 
-class SmartUpdateAction: DumbAwareAction(SmartUpdateBundle.message("action.smart.update.text")) {
+internal class SmartUpdateAction: DumbAwareAction() {
   override fun actionPerformed(e: AnActionEvent) {
     val project = getEventProject(e)!!
     if (SmartUpdateDialog(project).showAndGet()) {
@@ -110,18 +109,5 @@ class SmartUpdateAction: DumbAwareAction(SmartUpdateBundle.message("action.smart
 
   override fun getActionUpdateThread(): ActionUpdateThread {
     return ActionUpdateThread.BGT
-  }
-}
-
-const val IDE_RESTARTED_KEY = "smart.update.ide.restarted"
-
-class IdeRestartedActivity: ProjectActivity {
-  override suspend fun execute(project: Project) {
-    val service = project.service<SmartUpdate>()
-    if (PropertiesComponent.getInstance().isTrueValue(IDE_RESTARTED_KEY)) {
-      PropertiesComponent.getInstance().setValue(IDE_RESTARTED_KEY, false)
-      service.execute(project)
-    }
-    else service.scheduleUpdate()
   }
 }

@@ -26,6 +26,7 @@ import com.intellij.util.ui.update.MergingUpdateQueue
 import com.intellij.util.ui.update.Update
 import kotlinx.coroutines.*
 import kotlinx.coroutines.CancellationException
+import org.jetbrains.concurrency.AsyncPromise
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
@@ -318,7 +319,7 @@ class CancellationPropagationTest {
         result = runCatching<Unit> {
           started.up()
           cancelled.timeoutWaitUp()
-          assertThrows<JobCanceledException> {
+          assertThrows<CeProcessCanceledException> {
             Cancellation.checkCancelled()
           }
         }
@@ -346,7 +347,7 @@ class CancellationPropagationTest {
     }
     val c2: Callable<Int> = childCallable(cs) {
       started.up()
-      throw assertThrows<JobCanceledException> {
+      throw assertThrows<CeProcessCanceledException> {
         while (cs.isActive) {
           Cancellation.checkCancelled()
         }
@@ -442,7 +443,7 @@ class CancellationPropagationTest {
     }
     lock.timeoutWaitUp()
     rootJob.cancel()
-    waitAssertCompletedWith(childFuture, JobCanceledException::class)
+    waitAssertCompletedWith(childFuture, CeProcessCanceledException::class)
     rootJob.timeoutJoinBlocking()
   }
 
@@ -504,7 +505,7 @@ class CancellationPropagationTest {
     childFuture1CanThrow.up()
     waitAssertCompletedWith(childFuture1, E::class)
     childFuture2CanFinish.up()
-    waitAssertCompletedWith(childFuture2, JobCanceledException::class)
+    waitAssertCompletedWith(childFuture2, CeProcessCanceledException::class)
     waitAssertCancelled(rootJob)
   }
 
@@ -574,7 +575,7 @@ class CancellationPropagationTest {
         try {
           Cancellation.checkCancelled()
         }
-        catch (e: JobCanceledException) {
+        catch (e: CeProcessCanceledException) {
           cancelled = true
           throw e
         }
@@ -870,5 +871,12 @@ class CancellationPropagationTest {
     job.join()
     Disposer.dispose(dummyDisposable)
     assertFalse(job.isCancelled)
+  }
+
+  @Test
+  fun `failing promise`() = timeoutRunBlocking {
+    withRootJob {
+      AsyncPromise<Unit>().apply { setError("bad") }.then {}
+    }.join()
   }
 }

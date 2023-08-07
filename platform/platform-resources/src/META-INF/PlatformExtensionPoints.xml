@@ -49,6 +49,7 @@
 
     <extensionPoint name="fileEditorProvider"
                     interface="com.intellij.openapi.fileEditor.FileEditorProvider"
+                    hasAttributes="true"
                     dynamic="true"/>
 
     <extensionPoint name="fileEditorProviderSuppressor"
@@ -241,9 +242,13 @@
     <extensionPoint name="editorNavigation" interface="com.intellij.openapi.editor.EditorNavigationDelegate" dynamic="true"/>
 
     <extensionPoint name="statistics.applicationUsagesCollector"
-                    interface="com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector" dynamic="true"/>
+                    beanClass="com.intellij.internal.statistic.service.fus.collectors.UsageCollectorBean" dynamic="true">
+      <with attribute="implementation" implements="com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector"/>
+    </extensionPoint>
     <extensionPoint name="statistics.projectUsagesCollector"
-                    interface="com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector" dynamic="true"/>
+                    beanClass="com.intellij.internal.statistic.service.fus.collectors.UsageCollectorBean" dynamic="true">
+      <with attribute="implementation" implements="com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector"/>
+    </extensionPoint>
     <extensionPoint name="statistics.counterUsagesCollector"
                     beanClass="com.intellij.internal.statistic.service.fus.collectors.CounterUsageCollectorEP" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.internal.statistic.service.fus.collectors.FeatureUsagesCollector"/>
@@ -280,6 +285,7 @@
     <extensionPoint name="search.projectOptionsTopHitProvider" interface="com.intellij.ide.ui.OptionsSearchTopHitProvider$ProjectLevelProvider" dynamic="true"/>
 
     <extensionPoint name="search.optionContributor" interface="com.intellij.ide.ui.search.SearchableOptionContributor" dynamic="true"/>
+    <extensionPoint name="search.additionalOptionsLocation" interface="com.intellij.ide.ui.search.SearchableOptionsRegistrar$AdditionalLocationProvider" dynamic="true"/>
 
     <extensionPoint name="pluginReplacement" interface="com.intellij.ide.plugins.PluginReplacement" dynamic="true"/>
     <extensionPoint name="pluginSuggestionProvider" dynamic="true"
@@ -332,7 +338,6 @@
     <extensionPoint name="diff.impl.DiffToolSubstitutor" interface="com.intellij.diff.impl.DiffToolSubstitutor" dynamic="true"/>
     <extensionPoint name="diff.editor.diffRequestProcessorEditorCustomizer" interface="com.intellij.diff.editor.DiffRequestProcessorEditorCustomizer" dynamic="true"/>
     <extensionPoint name="diff.merge.external.AutomaticExternalMergeTool" interface="com.intellij.diff.merge.external.AutomaticExternalMergeTool" dynamic="true"/>
-    <extensionPoint name="diff.tools.combined.diffBlockFactory" interface="com.intellij.diff.tools.combined.CombinedDiffBlockFactory" dynamic="true"/>
     <extensionPoint name="testStatusListener" interface="com.intellij.execution.testframework.TestStatusListener"/>
 
     <extensionPoint name="execution.syntheticConfigurationTypeProvider"
@@ -482,7 +487,8 @@
     <extensionPoint name="actionOnSaveInfoProvider" interface="com.intellij.ide.actionsOnSave.ActionOnSaveInfoProvider" dynamic="true"/>
     <extensionPoint name="actionOnSave" interface="com.intellij.ide.actionsOnSave.impl.ActionsOnSaveFileDocumentManagerListener$ActionOnSave" dynamic="true"/>
 
-    <extensionPoint name="contentTabActionProvider" interface="com.intellij.openapi.wm.impl.content.tabActions.ContentTabActionProvider"/>
+    <extensionPoint name="contentTabActionProvider" interface="com.intellij.openapi.wm.impl.content.tabActions.ContentTabActionProvider"
+                    dynamic="true"/>
 
     <extensionPoint name="inspectionPopupLevelChangePolicy" interface="com.intellij.openapi.editor.impl.InspectionPopupLevelChangePolicy" dynamic="true"/>
 
@@ -513,5 +519,15 @@
     <extensionPoint name="emptyIntentionProvider" interface="com.intellij.codeInsight.daemon.impl.EmptyIntentionProvider" dynamic="true"/>
 
     <extensionPoint name="idePerformanceListener" interface="com.intellij.diagnostic.PerformanceListener" dynamic="true"/>
+
+    <extensionPoint name="textEditorInitializer" interface="com.intellij.openapi.fileEditor.impl.text.TextEditorInitializer"/>
+
+    <extensionPoint name="toolbarQuickAction" beanClass="com.intellij.ide.ui.customization.ToolbarAddQuickActionInfoBean">
+      <with attribute="implementationClass" implements="com.intellij.ide.ui.customization.ToolbarAddQuickActionInfo"/>
+    </extensionPoint>
+
+    <extensionPoint name="meetNewUiCustomization" interface="com.intellij.ide.ui.experimental.meetNewUi.MeetNewUiCustomization" dynamic="true"/>
+
+    <extensionPoint name="notificationRouter" interface="com.intellij.notification.NotificationRouter" dynamic="true"/>
   </extensionPoints>
 </idea-plugin>

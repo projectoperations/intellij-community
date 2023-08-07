@@ -5,6 +5,7 @@ package com.intellij.openapi.progress
 
 import com.intellij.concurrency.currentThreadContext
 import com.intellij.concurrency.resetThreadContext
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.util.ConcurrencyUtil
 import com.intellij.util.concurrency.BlockingJob
@@ -28,7 +29,8 @@ fun <X> withCurrentJob(job: Job, action: () -> X): X = blockingContext(job, acti
   replaceWith = ReplaceWith(
     "withCurrentJob(job, action)",
     "com.intellij.openapi.progress.withCurrentJob"
-  )
+  ),
+  level = DeprecationLevel.ERROR,
 )
 fun <X> withJob(job: Job, action: () -> X): X = blockingContext(job, action)
 
@@ -51,7 +53,7 @@ fun <X> withJob(job: Job, action: () -> X): X = blockingContext(job, action)
  * }
  * ```
  */
-private fun prepareCurrentThreadContext(): CoroutineContext {
+internal fun prepareCurrentThreadContext(): CoroutineContext {
   return currentThreadContext().minusKey(BlockingJob)
 }
 
@@ -87,7 +89,12 @@ fun <T> prepareThreadContext(action: (CoroutineContext) -> T): T {
   }
   val currentContext = prepareCurrentThreadContext()
   return resetThreadContext().use {
-    action(currentContext)
+    if (Cancellation.isInNonCancelableSection()) {
+      action(currentContext.minusKey(Job))
+    }
+    else {
+      action(currentContext)
+    }
   }
 }
 
@@ -96,12 +103,17 @@ fun <T> prepareThreadContext(action: (CoroutineContext) -> T): T {
  * or a child coroutine is started and failed
  */
 internal fun <T> prepareIndicatorThreadContext(indicator: ProgressIndicator, action: (CoroutineContext) -> T): T {
+  if (Cancellation.isInNonCancelableSection()) {
+    val context = prepareCurrentThreadContext() + indicatorContext(indicator)
+    return ProgressManager.getInstance().silenceGlobalIndicator {
+      resetThreadContext().use {
+        action(context)
+      }
+    }
+  }
   val currentJob = Job(parent = null) // no job parent, the "parent" is the indicator
   val indicatorWatcher = cancelWithIndicator(currentJob, indicator)
-  val progressModality = ProgressManager.getInstance().currentProgressModality?.asContextElement()
-                         ?: EmptyCoroutineContext
-  val reporter = IndicatorRawProgressReporter(indicator).asContextElement()
-  val context = prepareCurrentThreadContext() + currentJob + progressModality + reporter
+  val context = prepareCurrentThreadContext() + currentJob + indicatorContext(indicator)
   return try {
     ProgressManager.getInstance().silenceGlobalIndicator {
       resetThreadContext().use {
@@ -118,6 +130,16 @@ internal fun <T> prepareIndicatorThreadContext(indicator: ProgressIndicator, act
   finally {
     indicatorWatcher.cancel()
   }
+}
+
+/**
+ * @return [ModalityState] and [ProgressReporter] from [indicator] as [CoroutineContext]
+ */
+private fun indicatorContext(indicator: ProgressIndicator): CoroutineContext {
+  val progressModality = ProgressManager.getInstance().currentProgressModality?.asContextElement()
+                         ?: EmptyCoroutineContext
+  val reporter = IndicatorRawProgressReporter(indicator).asContextElement()
+  return progressModality + reporter
 }
 
 private fun cancelWithIndicator(job: Job, indicator: ProgressIndicator): Job {

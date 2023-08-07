@@ -3,8 +3,8 @@
 
 package com.intellij.ui.scale
 
+import com.intellij.diagnostic.CoroutineTracerShim
 import com.intellij.diagnostic.LoadingState
-import com.intellij.diagnostic.runActivity
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.SystemInfoRt
@@ -25,9 +25,6 @@ import javax.swing.UIManager
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/**
- * @author tav
- */
 object JBUIScale {
   @JvmField
   @Internal
@@ -46,16 +43,17 @@ object JBUIScale {
     get() = userScaleFactor.value
 
   @Internal
-  fun preload(uiDefaults: Supplier<UIDefaults?>) {
+  suspend fun preload(uiDefaults: Supplier<UIDefaults?>) {
     if (systemScaleFactor.isInitialized()) {
       thisLogger().error("Must be not computed before that call")
     }
 
-    runActivity("system scale factor computation") {
+    val coroutineTracerShim = CoroutineTracerShim.coroutineTracer
+    coroutineTracerShim.span("system scale factor computation") {
       systemScaleFactor.value = computeSystemScaleFactor(uiDefaults)
     }
 
-    runActivity("user scale factor computation") {
+    coroutineTracerShim.span("user scale factor computation") {
       userScaleFactor.drop()
       userScaleFactor.value
     }
@@ -92,7 +90,7 @@ object JBUIScale {
       return Pair("Dialog", 12)
     }
 
-    if (uiDefaults == null) {
+    if (uiDefaults == null && !LoadingState.APP_STARTED.isOccurred) {
       thisLogger().error("Must be precomputed")
     }
 
@@ -327,6 +325,15 @@ object JBUIScale {
     else {
       return systemScaleFactor.value
     }
+  }
+
+  /**
+   * Returns the pixel scale factor, corresponding to the provided configuration.
+   * In the IDE-managed HiDPI mode defaults to [.pixScale]
+   */
+  @JvmStatic
+  fun pixScale(gc: GraphicsConfiguration?): Float {
+    return if (JreHiDpiUtil.isJreHiDPIEnabled()) sysScale(gc) * scale(1f) else scale(1f)
   }
 
   /**

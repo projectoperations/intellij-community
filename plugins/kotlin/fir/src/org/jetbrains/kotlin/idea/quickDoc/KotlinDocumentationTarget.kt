@@ -14,6 +14,7 @@ import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiWhiteSpace
 import com.intellij.refactoring.suggested.createSmartPointer
 import org.jetbrains.annotations.Nls
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
@@ -29,6 +30,7 @@ import org.jetbrains.kotlin.analysis.api.symbols.markers.KtNamedSymbol
 import org.jetbrains.kotlin.analysis.utils.printer.prettyPrint
 import org.jetbrains.kotlin.asJava.LightClassUtil
 import org.jetbrains.kotlin.asJava.elements.KtLightDeclaration
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.KotlinIcons
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.kdoc.*
@@ -82,13 +84,13 @@ internal class KotlinDocumentationTarget(val element: PsiElement, private val or
 
 private fun computeLocalDocumentation(element: PsiElement, originalElement: PsiElement?, quickNavigation: Boolean): String? {
     when {
-      element is KtFunctionLiteral -> {
-          val itElement = findElementWithText(originalElement, "it")
+      element is PsiWhiteSpace -> {
+          val itElement = findElementWithText(originalElement, StandardNames.IMPLICIT_LAMBDA_PARAMETER_NAME.identifier)
           val itReference = itElement?.getParentOfType<KtNameReferenceExpression>(false)
           if (itReference != null) {
               return buildString {
                   renderKotlinDeclaration(
-                      element,
+                      itReference.mainReference.resolve() as KtFunctionLiteral,
                       quickNavigation,
                       symbolFinder = { (it as? KtFunctionLikeSymbol)?.valueParameters?.firstOrNull() })
               }
@@ -215,8 +217,13 @@ private fun @receiver:Nls StringBuilder.renderEnumSpecialFunction(
                 val containingClass = symbol.getContainingSymbol() as? KtClassOrObjectSymbol
                 val superClasses = containingClass?.superTypes?.mapNotNull { t -> t.expandedClassSymbol }
                 val kdoc = superClasses?.firstNotNullOfOrNull { superClass ->
-                    superClass.psi?.navigationElement?.findDescendantOfType<KDoc> { doc ->
-                        doc.getChildrenOfType<KDocSection>().any { it.findTagByName(name) != null }
+                    val navigationElement = superClass.psi?.navigationElement
+                    if (navigationElement is KtElement && navigationElement.containingKtFile.isCompiled) {
+                        null //no need to search documentation in decompiled code
+                    } else {
+                        navigationElement?.findDescendantOfType<KDoc> { doc ->
+                            doc.getChildrenOfType<KDocSection>().any { it.findTagByName(name) != null }
+                        }
                     }
                 }
 
@@ -254,7 +261,7 @@ private fun @receiver:Nls StringBuilder.renderKotlinDeclaration(
 ) {
     analyze(declaration) {
         // it's not possible to create symbol for function type parameter, so we need to process this case separately
-        // see KTIJ-22404
+        // see KTIJ-22404 and KTIJ-25653
         if (declaration is KtParameter && declaration.isFunctionTypeParameter) {
             val definition = renderFunctionTypeParameter(declaration) ?: return
 
@@ -297,7 +304,8 @@ private fun renderFunctionTypeParameter(parameter: KtParameter): String? = with(
     }
 }
 
-private fun KtAnalysisSession.renderKDoc(
+context(KtAnalysisSession)
+private fun renderKDoc(
     symbol: KtSymbol,
     stringBuilder: StringBuilder,
 ) {
@@ -322,7 +330,8 @@ private fun KtAnalysisSession.renderKDoc(
     }
 }
 
-private fun KtAnalysisSession.findKDoc(symbol: KtSymbol): KDocContent? {
+context(KtAnalysisSession)
+private fun findKDoc(symbol: KtSymbol): KDocContent? {
     val ktElement = symbol.psi as? KtElement
     ktElement?.findKDoc()?.let {
         return it

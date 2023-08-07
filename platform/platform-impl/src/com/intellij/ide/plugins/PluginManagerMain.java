@@ -168,7 +168,7 @@ public final class PluginManagerMain {
     }
   }
 
-  public static class MyHyperlinkListener extends HyperlinkAdapter {
+  public static final class MyHyperlinkListener extends HyperlinkAdapter {
     @Override
     protected void hyperlinkActivated(@NotNull HyperlinkEvent e) {
       JEditorPane pane = (JEditorPane)e.getSource();
@@ -200,9 +200,9 @@ public final class PluginManagerMain {
         }
 
         PluginId dependantId = dependency.getPluginId();
-        // If there is no installed plugin implementing the module, then it can only be a platform module which cannot be disabled
+        // If there is no installed plugin implementing the module, then it can only be a platform module that cannot be disabled
         if (PluginManagerCore.isModuleDependency(dependantId) &&
-            PluginManagerCore.findPluginByModuleDependency(dependantId) == null) {
+            PluginManagerCore.INSTANCE.findPluginByModuleDependency(dependantId) == null) {
           continue;
         }
 
@@ -238,7 +238,8 @@ public final class PluginManagerMain {
 
       boolean result;
       if (!disabled.isEmpty() && !disabledDependants.isEmpty()) {
-        int code =
+        Integer codeHeadless = PluginUtilsKt.getEnableDisabledPluginsDependentConfirmationData();
+        int code = codeHeadless != null ? codeHeadless :
           MessageDialogBuilder.yesNoCancel(IdeBundle.message("dialog.title.dependent.plugins.found"), XmlStringUtil.wrapInHtml(message))
             .yesText(IdeBundle.message("button.enable.all"))
             .noText(IdeBundle.message("button.enable.updated.plugins", disabled.size()))
@@ -257,7 +258,10 @@ public final class PluginManagerMain {
           message += IdeBundle.message("plugin.manager.main.suggest.to.enable.message.part9", disabledDependants.size());
         }
         message += "?";
-        result = MessageDialogBuilder.yesNo(IdeBundle.message("dialog.title.dependent.plugins.found"), XmlStringUtil.wrapInHtml(message)).guessWindowAndAsk();
+        Integer codeHeadless = PluginUtilsKt.getEnableDisabledPluginsDependentConfirmationData();
+        result = codeHeadless != null
+                 ? codeHeadless.equals(Messages.YES)
+                 : MessageDialogBuilder.yesNo(IdeBundle.message("dialog.title.dependent.plugins.found"), XmlStringUtil.wrapInHtml(message)).guessWindowAndAsk();
         if (!result) {
           return false;
         }
@@ -350,13 +354,13 @@ public final class PluginManagerMain {
 
     var updateSettings = UpdateSettings.getInstance();
     if (updateSettings.isThirdPartyPluginsAllowed()) {
-      PluginManagerUsageCollector.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.AUTO_ACCEPTED);
+      PluginManagerUsageCollector.Companion.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.AUTO_ACCEPTED);
       return true;
     }
 
     if (AppMode.isHeadless()) {
       // postponing the dialog till the next start
-      PluginManagerCore.write3rdPartyPlugins(aliens);
+      PluginManagerCore.INSTANCE.write3rdPartyPlugins(aliens);
       return true;
     }
 
@@ -369,24 +373,12 @@ public final class PluginManagerMain {
     var noText = CommonBundle.getCancelButtonText();
     if (Messages.showYesNoDialog(message, title, yesText, noText, Messages.getWarningIcon()) == Messages.YES) {
       updateSettings.setThirdPartyPluginsAllowed(true);
-      PluginManagerUsageCollector.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.ACCEPTED);
+      PluginManagerUsageCollector.Companion.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.ACCEPTED);
       return true;
     }
     else {
-      PluginManagerUsageCollector.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.DECLINED);
+      PluginManagerUsageCollector.Companion.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.DECLINED);
       return false;
-    }
-  }
-
-  @ApiStatus.Internal
-  public static void checkThirdPartyPluginsAllowed() {
-    Boolean noteAccepted = PluginManagerCore.isThirdPartyPluginsNoteAccepted();
-    if (noteAccepted == Boolean.TRUE) {
-      UpdateSettings.getInstance().setThirdPartyPluginsAllowed(true);
-      PluginManagerUsageCollector.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.ACCEPTED);
-    }
-    else if (noteAccepted == Boolean.FALSE) {
-      PluginManagerUsageCollector.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.DECLINED);
     }
   }
 }

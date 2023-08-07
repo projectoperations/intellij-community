@@ -697,6 +697,11 @@ public abstract class FindUsagesTestGenerated extends AbstractFindUsagesTest {
                 runTest("testData/findUsages/kotlin/findFunctionUsages/kotlinAliasedMethodUsages.0.kt");
             }
 
+            @TestMetadata("kotlinExtensionFunction.0.kt")
+            public void testKotlinExtensionFunction() throws Exception {
+                runTest("testData/findUsages/kotlin/findFunctionUsages/kotlinExtensionFunction.0.kt");
+            }
+
             @TestMetadata("kotlinInterfaceImplThroughDelegate.0.kt")
             public void testKotlinInterfaceImplThroughDelegate() throws Exception {
                 runTest("testData/findUsages/kotlin/findFunctionUsages/kotlinInterfaceImplThroughDelegate.0.kt");
@@ -757,9 +762,24 @@ public abstract class FindUsagesTestGenerated extends AbstractFindUsagesTest {
                 runTest("testData/findUsages/kotlin/findFunctionUsages/kotlinOverloadAndExtensionUsages2.0.kt");
             }
 
+            @TestMetadata("kotlinOverloadAndExtensionUsages3.0.kt")
+            public void testKotlinOverloadAndExtensionUsages3() throws Exception {
+                runTest("testData/findUsages/kotlin/findFunctionUsages/kotlinOverloadAndExtensionUsages3.0.kt");
+            }
+
+            @TestMetadata("kotlinOverloadAndExtensionUsages4.0.kt")
+            public void testKotlinOverloadAndExtensionUsages4() throws Exception {
+                runTest("testData/findUsages/kotlin/findFunctionUsages/kotlinOverloadAndExtensionUsages4.0.kt");
+            }
+
             @TestMetadata("kotlinPrivateMethodUsages.0.kt")
             public void testKotlinPrivateMethodUsages() throws Exception {
                 runTest("testData/findUsages/kotlin/findFunctionUsages/kotlinPrivateMethodUsages.0.kt");
+            }
+
+            @TestMetadata("kotlinTopLevelExternalFunction.0.kt")
+            public void testKotlinTopLevelExternalFunction() throws Exception {
+                runTest("testData/findUsages/kotlin/findFunctionUsages/kotlinTopLevelExternalFunction.0.kt");
             }
 
             @TestMetadata("kotlinTopLevelMethodUsages.0.kt")
@@ -949,6 +969,11 @@ public abstract class FindUsagesTestGenerated extends AbstractFindUsagesTest {
                 runTest("testData/findUsages/kotlin/findParameterUsages/kotlinConstructorParameterUsages.0.kt");
             }
 
+            @TestMetadata("kotlinConstructorParameterUsagesOverrides.0.kt")
+            public void testKotlinConstructorParameterUsagesOverrides() throws Exception {
+                runTest("testData/findUsages/kotlin/findParameterUsages/kotlinConstructorParameterUsagesOverrides.0.kt");
+            }
+
             @TestMetadata("kotlinDefaultAnnotationParameterUsages.0.kt")
             public void testKotlinDefaultAnnotationParameterUsages() throws Exception {
                 runTest("testData/findUsages/kotlin/findParameterUsages/kotlinDefaultAnnotationParameterUsages.0.kt");
@@ -1053,6 +1078,16 @@ public abstract class FindUsagesTestGenerated extends AbstractFindUsagesTest {
         public static class FindPropertyUsages extends AbstractFindUsagesTest {
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("baseAndOverridingPropertyInBodyUsages.0.kt")
+            public void testBaseAndOverridingPropertyInBodyUsages() throws Exception {
+                runTest("testData/findUsages/kotlin/findPropertyUsages/baseAndOverridingPropertyInBodyUsages.0.kt");
+            }
+
+            @TestMetadata("baseAndOverridingPropertyInCtrUsages.0.kt")
+            public void testBaseAndOverridingPropertyInCtrUsages() throws Exception {
+                runTest("testData/findUsages/kotlin/findPropertyUsages/baseAndOverridingPropertyInCtrUsages.0.kt");
             }
 
             @TestMetadata("extensionPropertyUsages.0.kt")
@@ -1266,6 +1301,11 @@ public abstract class FindUsagesTestGenerated extends AbstractFindUsagesTest {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("classAlias.0.kt")
+            public void testClassAlias() throws Exception {
+                runTest("testData/findUsages/kotlin/findTypeAliasUsages/classAlias.0.kt");
+            }
+
             @TestMetadata("objectAlias.0.kt")
             public void testObjectAlias() throws Exception {
                 runTest("testData/findUsages/kotlin/findTypeAliasUsages/objectAlias.0.kt");
@@ -1287,6 +1327,11 @@ public abstract class FindUsagesTestGenerated extends AbstractFindUsagesTest {
             @TestMetadata("kotlinFunctionTypeParameterUsages.0.kt")
             public void testKotlinFunctionTypeParameterUsages() throws Exception {
                 runTest("testData/findUsages/kotlin/findTypeParameterUsages/kotlinFunctionTypeParameterUsages.0.kt");
+            }
+
+            @TestMetadata("kotlinReifiedTypeParameterUsages.0.kt")
+            public void testKotlinReifiedTypeParameterUsages() throws Exception {
+                runTest("testData/findUsages/kotlin/findTypeParameterUsages/kotlinReifiedTypeParameterUsages.0.kt");
             }
 
             @TestMetadata("propertyWithTypeParameter.0.kt")

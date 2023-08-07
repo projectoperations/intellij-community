@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.ui.laf.darcula.ui;
 
 import com.intellij.icons.AllIcons;
@@ -21,8 +21,7 @@ import javax.swing.plaf.basic.BasicHTML;
 import javax.swing.text.View;
 import java.awt.*;
 
-public class MainToolbarComboBoxButtonUI extends DarculaButtonUI {
-
+public final class MainToolbarComboBoxButtonUI extends DarculaButtonUI {
   public static ComponentUI createUI(JComponent c) {
     return new MainToolbarComboBoxButtonUI();
   }
@@ -148,11 +147,12 @@ public class MainToolbarComboBoxButtonUI extends DarculaButtonUI {
       size.width += ((AbstractButton)c).getIconTextGap() + EXPAND_ICON.getIconWidth();
 
     JBInsets.addTo(size, button.getMargin());
+    size.height = Integer.min(size.height, JBUI.CurrentTheme.Toolbar.experimentalToolbarButtonSize().height);
     return size;
   }
 
   private static void paintHover(Graphics g, JComponent c) {
-    Color color = ProjectWindowCustomizerService.getInstance().isActive() ? TRANSPARENT_HOVER_COLOR : HOVER_COLOR;
+    Color color = ProjectWindowCustomizerService.Companion.getInstance().isActive() ? TRANSPARENT_HOVER_COLOR : HOVER_COLOR;
     doFill(g, c, color, true);
   }
 
@@ -168,7 +168,7 @@ public class MainToolbarComboBoxButtonUI extends DarculaButtonUI {
       if (rounded) {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_NORMALIZE);
-        int arc = DarculaUIUtil.COMPONENT_ARC.get();
+        int arc = JBUI.CurrentTheme.MainToolbar.Dropdown.hoverArc().get();
         g2.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, arc, arc);
       }
       else {

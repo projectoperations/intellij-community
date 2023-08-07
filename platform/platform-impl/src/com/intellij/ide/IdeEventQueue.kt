@@ -16,12 +16,14 @@ import com.intellij.ide.dnd.DnDManager
 import com.intellij.ide.dnd.DnDManagerImpl
 import com.intellij.ide.plugins.StartupAbortedException
 import com.intellij.ide.ui.UISettings
+import com.intellij.idea.isImplicitReadOnEDTDisabled
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.TransactionGuard
 import com.intellij.openapi.application.TransactionGuardImpl
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.impl.InvocationUtil
+import com.intellij.openapi.application.impl.RwLockHolder
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.Logger
@@ -72,6 +74,8 @@ class IdeEventQueue private constructor() : EventQueue() {
   private val lock = Any()
   private val activityListeners = ContainerUtil.createLockFreeCopyOnWriteList<Runnable>()
 
+  @JvmField
+  internal val rwLockHolder: RwLockHolder = RwLockHolder(Thread.currentThread())
   val keyEventDispatcher: IdeKeyEventDispatcher = IdeKeyEventDispatcher(this)
   val mouseEventDispatcher: IdeMouseEventDispatcher = IdeMouseEventDispatcher()
   val popupManager: IdePopupManager = IdePopupManager()
@@ -140,7 +144,7 @@ class IdeEventQueue private constructor() : EventQueue() {
     }
     addDispatcher(EditingCanceller(), null)
     //addDispatcher(new UIMouseTracker(), null);
-    abracadabraDaberBoreh()
+    abracadabraDaberBoreh(this)
     if (java.lang.Boolean.parseBoolean(System.getProperty("skip.move.resize.events", "true"))) {
       postEventListeners.add { skipMoveResizeEvents(it) } // hot path, do not use method reference
     }
@@ -211,33 +215,15 @@ class IdeEventQueue private constructor() : EventQueue() {
     }
   }
 
-  @Suppress("SpellCheckingInspection")
-  private fun abracadabraDaberBoreh() {
-    // We need to track if there are KeyBoardEvents in IdeEventQueue
-    // So we want to intercept all events posted to IdeEventQueue and increment counters
-    // However, the regular control flow goes like this:
-    //    PostEventQueue.flush() -> EventQueue.postEvent() -> IdeEventQueue.postEventPrivate() -> AAAA we missed event, because postEventPrivate() can't be overridden.
-    // Instead, we do following:
-    //  - create new PostEventQueue holding our IdeEventQueue instead of old EventQueue
-    //  - replace "PostEventQueue" value in AppContext with this new PostEventQueue
-    // After that the control flow goes like this:
-    //    PostEventQueue.flush() -> IdeEventQueue.postEvent() -> We intercepted event, incremented counters.
-    val aClass = Class.forName("sun.awt.PostEventQueue")
-    val constructor = aClass.getDeclaredConstructor(EventQueue::class.java)
-    constructor.isAccessible = true
-    val postEventQueue = constructor.newInstance(this)
-    AppContext.getAppContext().put("PostEventQueue", postEventQueue)
-  }
-
   @Suppress("DeprecatedCallableAddReplaceWith")
-  @Deprecated("Use IdleFlow and coroutines")
+  @Deprecated("Use IdleTracker and coroutines")
   fun addIdleListener(runnable: Runnable, timeoutMillis: Int) {
     @Suppress("DEPRECATION")
     IdleTracker.getInstance().addIdleListener(runnable = runnable, timeoutMillis = timeoutMillis)
   }
 
   @Suppress("DeprecatedCallableAddReplaceWith")
-  @Deprecated("Use IdleFlow and coroutines")
+  @Deprecated("Use IdleTracker and coroutines")
   fun removeIdleListener(runnable: Runnable) {
     @Suppress("DEPRECATION")
     IdleTracker.getInstance().removeIdleListener(runnable)
@@ -278,6 +264,13 @@ class IdeEventQueue private constructor() : EventQueue() {
     _addProcessor(dispatcher, parent, postProcessors)
   }
 
+  fun addPostprocessor(dispatcher: EventDispatcher, coroutineScope: CoroutineScope) {
+    postProcessors.add(dispatcher)
+    coroutineScope.coroutineContext.job.invokeOnCompletion {
+      postProcessors.remove(dispatcher)
+    }
+  }
+
   fun removePostprocessor(dispatcher: EventDispatcher) {
     postProcessors.remove(dispatcher)
   }
@@ -292,7 +285,7 @@ class IdeEventQueue private constructor() : EventQueue() {
     // DO NOT ADD ANYTHING BEFORE fixNestedSequenceEvent is called
     val startedAt = System.currentTimeMillis()
     val performanceWatcher = PerformanceWatcher.getInstanceIfCreated()
-    val eventWatcher = EventWatcher.getInstanceOrNull()
+    val eventWatcher = if (LoadingState.COMPONENTS_LOADED.isOccurred) EventWatcher.getInstanceOrNull() else null
     try {
       performanceWatcher?.edtEventStarted()
       eventWatcher?.edtEventStarted(event, startedAt)
@@ -476,12 +469,17 @@ class IdeEventQueue private constructor() : EventQueue() {
   }
 
   override fun getNextEvent(): AWTEvent {
-    val applicationEx = ApplicationManagerEx.getApplicationEx()
-    val event = if (applicationEx != null && appIsLoaded()) {
-      applicationEx.runUnlockingIntendedWrite<AWTEvent, InterruptedException> { super.getNextEvent() }
+    val event = if (isImplicitReadOnEDTDisabled) {
+      super.getNextEvent()
     }
     else {
-      super.getNextEvent()
+      val applicationEx = ApplicationManagerEx.getApplicationEx()
+      if (applicationEx != null && appIsLoaded()) {
+        applicationEx.runUnlockingIntendedWrite<AWTEvent, InterruptedException> { super.getNextEvent() }
+      }
+      else {
+        super.getNextEvent()
+      }
     }
     if (isKeyboardEvent(event) && keyboardEventDispatched.incrementAndGet() > keyboardEventPosted.get()) {
       throw RuntimeException("$event; posted: $keyboardEventPosted; dispatched: $keyboardEventDispatched")
@@ -899,7 +897,6 @@ typealias PostEventHook = (event: AWTEvent) -> Boolean
 
 private val DISPATCHER_EP = ExtensionPointName<IdeEventQueue.EventDispatcher>("com.intellij.ideEventQueueDispatcher")
 
-@Suppress("ConstPropertyName")
 private const val defaultEventWithWrite = true
 
 private val isSkipMetaPressOnLinux = java.lang.Boolean.getBoolean("keymap.skip.meta.press.on.linux")
@@ -999,7 +996,7 @@ private fun mapEvent(e: AWTEvent): AWTEvent {
 
 private fun mapXWindowMouseEvent(src: MouseEvent): AWTEvent {
   if (src.button < 6) {
-    // Convert these events(buttons 4&5 in are produced by touchpad, they must be converted to horizontal scrolling events
+    // Convert these events (buttons 4&5 in are produced by touchpad, they must be converted to horizontal scrolling events
     @Suppress("DEPRECATION")
     return MouseWheelEvent(src.component, MouseEvent.MOUSE_WHEEL, src.getWhen(),
                            src.modifiers or InputEvent.SHIFT_DOWN_MASK, src.x, src.y,
@@ -1197,4 +1194,22 @@ private class WindowsAltSuppressor : IdeEventQueue.EventDispatcher {
     }
     return !dispatch
   }
+}
+
+@Suppress("SpellCheckingInspection")
+private fun abracadabraDaberBoreh(eventQueue: IdeEventQueue) {
+  // We need to track if there are KeyBoardEvents in IdeEventQueue
+  // So we want to intercept all events posted to IdeEventQueue and increment counters
+  // However, the regular control flow goes like this:
+  //    PostEventQueue.flush() -> EventQueue.postEvent() -> IdeEventQueue.postEventPrivate() -> AAAA we missed event, because postEventPrivate() can't be overridden.
+  // Instead, we do following:
+  //  - create new PostEventQueue holding our IdeEventQueue instead of old EventQueue
+  //  - replace "PostEventQueue" value in AppContext with this new PostEventQueue
+  // After that the control flow goes like this:
+  //    PostEventQueue.flush() -> IdeEventQueue.postEvent() -> We intercepted event, incremented counters.
+  val aClass = Class.forName("sun.awt.PostEventQueue")
+  val constructor = MethodHandles.privateLookupIn(aClass, MethodHandles.lookup())
+    .findConstructor(aClass, MethodType.methodType(Void.TYPE, EventQueue::class.java))
+  val postEventQueue = constructor.invoke(eventQueue)
+  AppContext.getAppContext().put("PostEventQueue", postEventQueue)
 }

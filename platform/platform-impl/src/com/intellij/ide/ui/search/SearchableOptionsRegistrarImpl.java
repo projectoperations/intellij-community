@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.ui.search;
 
 import com.intellij.CommonBundle;
@@ -39,6 +39,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
@@ -50,6 +52,9 @@ import java.util.regex.Pattern;
 public final class SearchableOptionsRegistrarImpl extends SearchableOptionsRegistrar {
   private static final ExtensionPointName<SearchableOptionContributor> EP_NAME =
     new ExtensionPointName<>("com.intellij.search.optionContributor");
+
+  private static final ExtensionPointName<AdditionalLocationProvider> LOCATION_EP_NAME =
+    new ExtensionPointName<>("com.intellij.search.additionalOptionsLocation");
 
   // option => array of packed OptionDescriptor
   private volatile Map<CharSequence, long[]> storage = Collections.emptyMap();
@@ -64,7 +69,7 @@ public final class SearchableOptionsRegistrarImpl extends SearchableOptionsRegis
 
   private static final Logger LOG = Logger.getInstance(SearchableOptionsRegistrarImpl.class);
   @NonNls
-  private static final Pattern WORD_SEPARATOR_CHARS = Pattern.compile("[^-\\pL\\d]+");
+  private static final Pattern WORD_SEPARATOR_CHARS = Pattern.compile("[^-\\pL\\d#+]+");
 
   public SearchableOptionsRegistrarImpl() {
     Application app = ApplicationManager.getApplication();
@@ -148,7 +153,7 @@ public final class SearchableOptionsRegistrarImpl extends SearchableOptionsRegis
   static void processSearchableOptions(@NotNull Predicate<? super String> fileNameFilter,
                                        @NotNull BiConsumer<? super String, ? super Element> consumer) {
     Set<ClassLoader> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-    for (IdeaPluginDescriptor plugin : PluginManagerCore.getPluginSet().getEnabledModules()) {
+    for (IdeaPluginDescriptor plugin : PluginManagerCore.INSTANCE.getPluginSet().getEnabledModules()) {
       ClassLoader classLoader = plugin.getPluginClassLoader();
       if (!(classLoader instanceof UrlClassLoader) || !visited.add(classLoader)) {
         continue;
@@ -169,6 +174,32 @@ public final class SearchableOptionsRegistrarImpl extends SearchableOptionsRegis
         throw new RuntimeException(e);
       }
     }
+
+    // process additional locations
+    LOCATION_EP_NAME.forEachExtensionSafe(provider -> {
+      Path additionalLocation = provider.getAdditionalLocation();
+      if (additionalLocation == null) {
+        return;
+      }
+      if (Files.isDirectory(additionalLocation)) {
+        try (var stream = Files.list(additionalLocation)) {
+          stream
+            .filter(path -> fileNameFilter.test(path.getFileName().toString()))
+            .forEach(path -> {
+              String fileName = path.getFileName().toString();
+              try {
+                consumer.accept(fileName, JDOMUtil.load(path));
+              }
+              catch (IOException | JDOMException e) {
+                throw new RuntimeException(String.format("Can't parse searchable options '%s'", fileName), e);
+              }
+            });
+        }
+        catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    });
   }
 
   /**

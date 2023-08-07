@@ -44,7 +44,7 @@ import static com.intellij.vcs.log.impl.CustomVcsLogUiFactoryProvider.LOG_CUSTOM
 public class VcsLogManager implements Disposable {
   private static final Logger LOG = Logger.getInstance(VcsLogManager.class);
 
-  private final @NotNull Project myProject;
+  protected final @NotNull Project myProject;
   private final @NotNull VcsLogTabsProperties myUiProperties;
   private final @Nullable PairConsumer<? super VcsLogErrorHandler.Source, ? super Throwable> myRecreateMainLogHandler;
 
@@ -81,8 +81,9 @@ public class VcsLogManager implements Disposable {
     }
   }
 
+  @ApiStatus.Internal
   @CalledInAny
-  void scheduleInitialization() {
+  public void scheduleInitialization() {
     myLogData.initialize();
   }
 
@@ -209,7 +210,7 @@ public class VcsLogManager implements Disposable {
     if (roots.isEmpty()) return Collections.emptyMap();
 
     Map<VirtualFile, VcsLogProvider> logProviders = new HashMap<>();
-    VcsLogProvider[] allLogProviders = VcsLogProvider.LOG_PROVIDER_EP.getExtensions(project);
+    List<VcsLogProvider> allLogProviders = VcsLogProvider.LOG_PROVIDER_EP.getExtensionList(project);
     for (VcsRoot root : roots) {
       AbstractVcs vcs = root.getVcs();
       VirtualFile path = root.getPath();

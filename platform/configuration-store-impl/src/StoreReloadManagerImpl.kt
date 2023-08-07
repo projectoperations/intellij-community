@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.milliseconds
 
 @ApiStatus.Internal
-internal class StoreReloadManagerImpl(coroutineScope: CoroutineScope, private val project: Project) : StoreReloadManager {
+internal class StoreReloadManagerImpl(private val project: Project, coroutineScope: CoroutineScope) : StoreReloadManager {
   private val reloadBlockCount = AtomicInteger()
   private val blockStackTrace = AtomicReference<Throwable?>()
   private val changedStorages = LinkedHashMap<ComponentStoreImpl, MutableSet<StateStorage>>()
@@ -92,11 +92,28 @@ internal class StoreReloadManagerImpl(coroutineScope: CoroutineScope, private va
       return
     }
 
+    val changedSchemesCopy: LinkedHashMap<SchemeChangeApplicator<*, *>, MutableSet<SchemeChangeEvent<*, *>>>
+    synchronized(changedSchemes) {
+      changedSchemesCopy = LinkedHashMap(changedSchemes)
+      changedSchemes.clear()
+    }
+
+    val changedStoragesCopy: LinkedHashMap<ComponentStoreImpl, MutableSet<StateStorage>>
+    synchronized(changedStorages) {
+      changedStoragesCopy = LinkedHashMap(changedStorages)
+      changedStorages.clear()
+    }
+
+    if (changedSchemesCopy.isEmpty() && changedStoragesCopy.isEmpty()
+        && !JpsProjectModelSynchronizer.getInstance(project).needToReloadProjectEntities()) {
+      return
+    }
+
     val publisher = project.messageBus.syncPublisher(BatchUpdateListener.TOPIC)
     publisher.onBatchUpdateStarted()
     try {
       // reload schemes first because project file can refer to scheme (e.g. inspection profile)
-      for ((tracker, files) in changedSchemes) {
+      for ((tracker, files) in changedSchemesCopy) {
         runCatching {
           SlowOperations.knownIssue("IDEA-307617, EA-680581").use {
             @Suppress("UNCHECKED_CAST")
@@ -105,7 +122,7 @@ internal class StoreReloadManagerImpl(coroutineScope: CoroutineScope, private va
         }.getOrLogException(LOG)
       }
 
-      for ((store, storages) in changedStorages) {
+      for ((store, storages) in changedStoragesCopy) {
         if ((store.storageManager as? StateStorageManagerImpl)?.componentManager?.isDisposed == true) {
           continue
         }
@@ -167,7 +184,9 @@ internal class StoreReloadManagerImpl(coroutineScope: CoroutineScope, private va
   }
 
   override fun reloadProject() {
-    changedStorages.clear()
+    synchronized(changedStorages) {
+      changedStorages.clear()
+    }
     doReloadProject(project)
   }
 

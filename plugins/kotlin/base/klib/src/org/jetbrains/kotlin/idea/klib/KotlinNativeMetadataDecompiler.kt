@@ -3,9 +3,6 @@ package org.jetbrains.kotlin.idea.klib
 
 import com.intellij.openapi.vfs.VirtualFile
 import org.jetbrains.kotlin.idea.base.psi.fileTypes.KlibMetaFileType
-import org.jetbrains.kotlin.idea.klib.Fe10KlibMetadataDecompiler
-import org.jetbrains.kotlin.idea.klib.FileWithMetadata
-import org.jetbrains.kotlin.idea.klib.KlibLoadingMetadataCache
 import org.jetbrains.kotlin.library.metadata.KlibMetadataSerializerProtocol
 import org.jetbrains.kotlin.library.metadata.KlibMetadataVersion
 import org.jetbrains.kotlin.psi.stubs.KotlinStubVersions
@@ -20,7 +17,6 @@ class KotlinNativeMetadataDecompiler : Fe10KlibMetadataDecompiler<KlibMetadataVe
     KlibMetaFileType.STUB_VERSION + KotlinStubVersions.BUILTIN_STUB_VERSION
 ) {
     override fun doReadFile(file: VirtualFile): FileWithMetadata? {
-        val fragment = KlibLoadingMetadataCache.getInstance().getCachedPackageFragment(file) ?: return null
-        return FileWithMetadata.Compatible(fragment) //todo: check version compatibility
+        return FileWithMetadata.forPackageFragment(file)
     }
 }

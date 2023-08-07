@@ -84,6 +84,30 @@ public abstract class PersistentFSRecordsStorageTestBase<T extends PersistentFSR
   }
 
   @Test
+  public void maxAllocatedId_IsStored_AndRestoredAfterStorageReopened() throws Exception {
+    final int allocatedRecordId = storage.allocateRecord();
+
+    assertTrue("First inserted record should get id (=" + allocatedRecordId + ") > FSRecords.NULL_FILE_ID",
+               allocatedRecordId > FSRecords.NULL_FILE_ID //TODO replace with universal NULL_ID
+    );
+
+    assertEquals("Should be 1 (just inserted) record in the storage",
+                 1,
+                 storage.recordsCount()
+    );
+
+    storage.close();
+    final T storageReopened = openStorage(storagePath);
+    storage = storageReopened;//for tearDown to successfully close it
+
+    assertEquals(
+      "Max allocated id must be kept after reopening",
+      storageReopened.maxAllocatedID(),
+      allocatedRecordId
+    );
+  }
+
+  @Test
   public void cleanRecord_throwsException_IfRecordIdIsOutsideOfAllocatedRange() throws IOException {
     final int cleanedRecordId = 10;
     try {
@@ -476,10 +500,10 @@ public abstract class PersistentFSRecordsStorageTestBase<T extends PersistentFSR
     assertTrue("Storage must be 'dirty' after few header fields were written",
                storage.isDirty());
 
-    final long lengthBeforeClose = storage.length();
-    assertEquals("No records were allocated => (storage size == HEADER_SIZE)",
-                 PersistentFSHeaders.HEADER_SIZE,
-                 lengthBeforeClose
+    final long recordsCountBeforeClose = storage.recordsCount();
+    assertEquals("No records were allocated yet",
+                 0,
+                 recordsCountBeforeClose
     );
 
     //close storage, and reopen from same file again:
@@ -492,7 +516,7 @@ public abstract class PersistentFSRecordsStorageTestBase<T extends PersistentFSR
     assertEquals("globalModCount", globalModCount, storageReopened.getGlobalModCount());
     assertEquals("version", version, storageReopened.getVersion());
     assertEquals("connectionStatus", connectionStatus, storageReopened.getConnectionStatus());
-    assertEquals("length", lengthBeforeClose, storageReopened.length());
+    assertEquals("recordsCountBeforeClose", recordsCountBeforeClose, storageReopened.recordsCount());
   }
 
   @Test
@@ -513,6 +537,37 @@ public abstract class PersistentFSRecordsStorageTestBase<T extends PersistentFSR
     assertEqualExceptModCount("Record written should be read back as-is", recordWritten, recordReadBack);
   }
 
+
+  @Test
+  public void globalStorageModCount_ShouldNotChange_OnForceAndClose() throws IOException {
+    int modCountBefore = storage.getGlobalModCount();
+    storage.force();
+    assertEquals("globalModCount should not change with .force()",
+                 modCountBefore,
+                 storage.getGlobalModCount());
+    storage.close();
+    final T storageReopened = openStorage(storagePath);
+    storage = storageReopened;//for tearDown to successfully close it
+    assertEquals("globalModCount should not change with .close()",
+                 modCountBefore,
+                 storage.getGlobalModCount());
+  }
+
+  @Test
+  public void errorsAccumulated_RestoredAfterReopen() throws IOException {
+    int errorsWritten = 42;
+
+    storage.setErrorsAccumulated(errorsWritten);
+    storage.close();
+
+    final T storageReopened = openStorage(storagePath);
+    storage = storageReopened;//for tearDown to successfully close it
+    assertEquals("errorsAccumulated be restored",
+                 errorsWritten,
+                 storage.getErrorsAccumulated());
+  }
+
+
   @After
   public void tearDown() throws Exception {
     if (storage != null) {
@@ -521,7 +576,7 @@ public abstract class PersistentFSRecordsStorageTestBase<T extends PersistentFSR
   }
 
 
-  /* ========================== INFRASTRUCTURE =============================================================== */
+  // ========================== INFRASTRUCTURE ===============================================================
 
   /**
    * Plain data holder

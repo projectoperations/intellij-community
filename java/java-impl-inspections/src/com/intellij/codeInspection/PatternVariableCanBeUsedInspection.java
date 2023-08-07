@@ -5,6 +5,7 @@ import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.modcommand.ModPsiUpdater;
+import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
@@ -133,6 +134,10 @@ public class PatternVariableCanBeUsedInspection extends AbstractBaseJavaLocalIns
         if (instanceOf != null) {
           PsiPattern pattern = instanceOf.getPattern();
           PsiPatternVariable existingPatternVariable = JavaPsiPatternUtil.getPatternVariable(pattern);
+          //it is a deconstruction pattern and we can't add new variable here
+          if (pattern != null && existingPatternVariable == null) {
+            return;
+          }
           String name = identifier.getText();
           if (existingPatternVariable != null) {
             if (!canReplaceLocalVariableWithPatternVariable(variable, existingPatternVariable) ||

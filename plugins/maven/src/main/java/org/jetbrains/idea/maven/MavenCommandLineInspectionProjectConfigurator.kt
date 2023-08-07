@@ -63,8 +63,9 @@ class MavenCommandLineInspectionProjectConfigurator : CommandLineInspectionProje
   override fun getDescription(): String = MavenProjectBundle.message("maven.commandline.description")
 
   override fun configureEnvironment(context: ConfiguratorContext) = context.run {
-    Registry.get(DISABLE_EXTERNAL_SYSTEM_AUTO_IMPORT).setValue(true)
-    Registry.get(MAVEN_CREATE_DUMMY_MODULE_ON_FIRST_IMPORT_REGISTRY_KEY).setValue(false)
+    System.setProperty(DISABLE_EXTERNAL_SYSTEM_AUTO_IMPORT, true.toString())
+    System.setProperty(MAVEN_CREATE_DUMMY_MODULE_ON_FIRST_IMPORT_REGISTRY_KEY, false.toString())
+    Unit
   }
 
   override suspend fun configureProjectAsync(project: Project, context: ConfiguratorContext) {
@@ -73,7 +74,7 @@ class MavenCommandLineInspectionProjectConfigurator : CommandLineInspectionProje
     if (FileUtil.findFirstThatExist(pomXmlFile) == null) return
 
     val service = service<EnvironmentService>()
-    val projectSelectionKey = service.getEnvironmentValue(ProjectOpenKeyProvider.PROJECT_OPEN_PROCESSOR, "Maven")
+    val projectSelectionKey = service.getEnvironmentValue(ProjectOpenKeyProvider.Keys.PROJECT_OPEN_PROCESSOR, "Maven")
 
     if (projectSelectionKey != "Maven") {
       // something else was selected to open the project

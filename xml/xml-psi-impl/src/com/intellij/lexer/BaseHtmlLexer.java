@@ -96,14 +96,20 @@ public abstract class BaseHtmlLexer extends DelegateLexer implements Restartable
   @Override
   public void advance() {
     if (myHtmlEmbedmentInfo != null) {
-      myDelegate.start(myDelegate.getBufferSequence(), myHtmlEmbedmentInfo.getRange().getEndOffset(),
-                       myDelegate.getBufferEnd(), myHtmlEmbedmentInfo.getBaseLexerState());
+      restartAfterEmbedment(
+        myHtmlEmbedmentInfo.getRange().getEndOffset(),
+        myHtmlEmbedmentInfo.getBaseLexerState()
+      );
     }
     else {
       super.advance();
     }
     broadcastToken();
     myHtmlEmbedmentInfo = null;
+  }
+
+  protected void restartAfterEmbedment(int offset, int baseLexerState) {
+    myDelegate.start(myDelegate.getBufferSequence(), offset, myDelegate.getBufferEnd(), baseLexerState);
   }
 
   protected @NotNull TokenSet createTagEmbedmentStartTokenSet() {
@@ -212,6 +218,10 @@ public abstract class BaseHtmlLexer extends DelegateLexer implements Restartable
 
   protected boolean acceptEmbeddedContentProvider(@NotNull HtmlEmbeddedContentProvider provider) {
     return true;
+  }
+
+  public boolean isPossiblyCustomTagName(@NotNull CharSequence tagName) {
+    return false;
   }
 
   private static class HtmlLexerPosition implements LexerPosition {

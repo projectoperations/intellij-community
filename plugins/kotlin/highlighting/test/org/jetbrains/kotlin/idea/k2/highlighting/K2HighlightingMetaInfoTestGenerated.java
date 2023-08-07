@@ -20,6 +20,29 @@ import org.junit.runner.RunWith;
 @TestMetadata("../idea/tests/testData/highlighterMetaInfo")
 public abstract class K2HighlightingMetaInfoTestGenerated extends AbstractK2HighlightingMetaInfoTest {
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../idea/tests/testData/highlighterMetaInfo/diagnostics")
+    public static class Diagnostics extends AbstractK2HighlightingMetaInfoTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("classRedeclaration.kt")
+        public void testClassRedeclaration() throws Exception {
+            runTest("../idea/tests/testData/highlighterMetaInfo/diagnostics/classRedeclaration.kt");
+        }
+
+        @TestMetadata("javaCodeInKotlinFile1.kt")
+        public void testJavaCodeInKotlinFile1() throws Exception {
+            runTest("../idea/tests/testData/highlighterMetaInfo/diagnostics/javaCodeInKotlinFile1.kt");
+        }
+
+        @TestMetadata("mppIsNotEnabled.kt")
+        public void testMppIsNotEnabled() throws Exception {
+            runTest("../idea/tests/testData/highlighterMetaInfo/diagnostics/mppIsNotEnabled.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../idea/tests/testData/highlighterMetaInfo/dsl")
     public static class Dsl extends AbstractK2HighlightingMetaInfoTest {
         private void runTest(String testDataFilePath) throws Exception {
@@ -155,6 +178,21 @@ public abstract class K2HighlightingMetaInfoTestGenerated extends AbstractK2High
         @TestMetadata("InvokeCall.kt")
         public void testInvokeCall() throws Exception {
             runTest("../idea/tests/testData/highlighterMetaInfo/InvokeCall.kt");
+        }
+
+        @TestMetadata("javaFields.kt")
+        public void testJavaFields() throws Exception {
+            runTest("../idea/tests/testData/highlighterMetaInfo/javaFields.kt");
+        }
+
+        @TestMetadata("JavaRecord.kt")
+        public void testJavaRecord() throws Exception {
+            runTest("../idea/tests/testData/highlighterMetaInfo/JavaRecord.kt");
+        }
+
+        @TestMetadata("javaStaticFields.kt")
+        public void testJavaStaticFields() throws Exception {
+            runTest("../idea/tests/testData/highlighterMetaInfo/javaStaticFields.kt");
         }
 
         @TestMetadata("JavaTypes.kt")

@@ -83,6 +83,21 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/ExpectedNestedClassInObject.kt"));
         }
 
+        @TestMetadata("FieldWithoutName.kt")
+        public void testFieldWithoutName() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/FieldWithoutName.kt"));
+        }
+
+        @TestMetadata("FieldWithoutName2.kt")
+        public void testFieldWithoutName2() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/FieldWithoutName2.kt"));
+        }
+
+        @TestMetadata("FieldWithoutName3.kt")
+        public void testFieldWithoutName3() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/FieldWithoutName3.kt"));
+        }
+
         @TestMetadata("FunctionWithoutName.kt")
         public void testFunctionWithoutName() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/FunctionWithoutName.kt"));
@@ -480,6 +495,11 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
         @TestMetadata("DataClassWithCustomImplementedMembers.kt")
         public void testDataClassWithCustomImplementedMembers() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/DataClassWithCustomImplementedMembers.kt"));
+        }
+
+        @TestMetadata("DefaultImplsWithTypeParameters.kt")
+        public void testDefaultImplsWithTypeParameters() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/DefaultImplsWithTypeParameters.kt"));
         }
 
         @TestMetadata("DelegatedNested.kt")

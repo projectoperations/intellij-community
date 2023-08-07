@@ -1,9 +1,11 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.mergerequest.data
 
+import com.intellij.collaboration.async.cancelAndJoinSilently
 import com.intellij.collaboration.async.mapState
 import com.intellij.collaboration.async.modelFlow
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
 import com.intellij.util.childScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -54,8 +56,9 @@ private val LOG = logger<GitLabDiscussion>()
 
 class MutableGitLabMergeRequestNote(
   parentCs: CoroutineScope,
+  private val project: Project,
   private val api: GitLabApi,
-  private val project: GitLabProjectCoordinates,
+  private val glProject: GitLabProjectCoordinates,
   mr: GitLabMergeRequest,
   private val eventSink: suspend (GitLabNoteEvent<GitLabNoteDTO>) -> Unit,
   private val noteData: GitLabNoteDTO
@@ -82,38 +85,31 @@ class MutableGitLabMergeRequestNote(
     withContext(cs.coroutineContext) {
       operationsGuard.withLock {
         withContext(Dispatchers.IO) {
-          api.graphQL.updateNote(project, noteData.id, newText).getResultOrThrow()
+          api.graphQL.updateNote(glProject, noteData.id, newText).getResultOrThrow()
         }
       }
       data.update { it.copy(body = newText) }
     }
-    GitLabStatistics.logMrActionExecuted(GitLabStatistics.MergeRequestAction.UPDATE_NOTE)
+    GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.UPDATE_NOTE)
   }
 
   override suspend fun delete() {
     withContext(cs.coroutineContext) {
       operationsGuard.withLock {
         withContext(Dispatchers.IO) {
-          api.graphQL.deleteNote(project, noteData.id).getResultOrThrow()
+          api.graphQL.deleteNote(glProject, noteData.id).getResultOrThrow()
         }
       }
       eventSink(GitLabNoteEvent.Deleted(noteData.id))
     }
-    GitLabStatistics.logMrActionExecuted(GitLabStatistics.MergeRequestAction.DELETE_NOTE)
+    GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.DELETE_NOTE)
   }
 
   fun update(item: GitLabNoteDTO) {
     data.value = item
   }
 
-  suspend fun destroy() {
-    try {
-      cs.coroutineContext[Job]!!.cancelAndJoin()
-    }
-    catch (ce: CancellationException) {
-      // ignore, cuz we don't want to cancel the invoker
-    }
-  }
+  suspend fun destroy() = cs.cancelAndJoinSilently()
 
   override fun toString(): String =
     "MutableGitLabNote(id='$id', author=$author, createdAt=$createdAt, canAdmin=$canAdmin, body=${body.value}, resolved=${resolved.value}, position=${position.value})"
@@ -168,14 +164,7 @@ class GitLabMergeRequestDraftNoteImpl(
     data.value = item
   }
 
-  suspend fun destroy() {
-    try {
-      cs.coroutineContext[Job]!!.cancelAndJoin()
-    }
-    catch (ce: CancellationException) {
-      // ignore, cuz we don't want to cancel the invoker
-    }
-  }
+  suspend fun destroy() = cs.cancelAndJoinSilently()
 
   override fun toString(): String =
     "GitLabMergeRequestDraftNoteImpl(id='$id', author=$author, createdAt=$createdAt, body=${body.value})"

@@ -94,21 +94,15 @@ public interface PersistentFSRecordsStorage {
 
   int getConnectionStatus() throws IOException;
 
+  int getErrorsAccumulated() throws IOException;
+
+  void setErrorsAccumulated(int errors) throws IOException;
+
   void setVersion(int version) throws IOException;
 
   int getVersion() throws IOException;
 
   int getGlobalModCount();
-
-  /**
-   * @return length of underlying file storage, in bytes
-   * @deprecated TODO RC: this method has very little utility: different implementation use different
-   * pagination and pre-allocation strategies -- file length is very implementation-specific. The only
-   * current usage (in checkSanity() method) is really incorrect, since it relies on specific
-   * implementation allocation strategy. Method .recordsCount() has clearer semantics and doesn't
-   * expose implementation details.
-   */
-  long length();
 
   int recordsCount();
 

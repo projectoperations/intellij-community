@@ -6,9 +6,9 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.settingsSync.auth.SettingsSyncAuthService
+import com.intellij.settingsSync.notification.NotificationService
 import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.delete
-import com.intellij.util.io.inputStream
 import com.jetbrains.cloudconfig.*
 import com.jetbrains.cloudconfig.auth.JbaTokenAuthProvider
 import com.jetbrains.cloudconfig.exception.InvalidVersionIdException
@@ -19,6 +19,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.*
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.io.path.inputStream
 
 internal const val CROSS_IDE_SYNC_MARKER_FILE = "cross-ide-sync-enabled"
 internal const val SETTINGS_SYNC_SNAPSHOT = "settings.sync.snapshot"
@@ -27,10 +28,10 @@ internal const val SETTINGS_SYNC_SNAPSHOT_ZIP = "$SETTINGS_SYNC_SNAPSHOT.zip"
 private const val CONNECTION_TIMEOUT_MS = 10000
 private const val READ_TIMEOUT_MS = 50000
 
-internal open class CloudConfigServerCommunicator : SettingsSyncRemoteCommunicator {
+internal open class CloudConfigServerCommunicator(serverUrl: String? = null) : SettingsSyncRemoteCommunicator {
 
   internal open val client get() = _client.value
-  private val _client = lazy { createCloudConfigClient(clientVersionContext) }
+  private val _client = lazy { createCloudConfigClient(serverUrl ?: defaultUrl, clientVersionContext) }
   protected val clientVersionContext = CloudConfigVersionContext()
 
   private val lastRemoteErrorRef = AtomicReference<Throwable>()
@@ -188,6 +189,11 @@ internal open class CloudConfigServerCommunicator : SettingsSyncRemoteCommunicat
     val zip = try {
       SettingsSnapshotZipSerializer.serializeToZip(snapshot)
     }
+    catch (e: SettingsSnapshotZipSerializer.ZipSizeExceedException) {
+      LOG.warn(e)
+      NotificationService.getInstance().notifyZipSizeExceed()
+      return SettingsSyncPushResult.Error(e.message ?: "Couldn't prepare zip file")
+    }
     catch (e: Throwable) {
       LOG.warn(e)
       return SettingsSyncPushResult.Error(e.message ?: "Couldn't prepare zip file")
@@ -280,7 +286,7 @@ internal open class CloudConfigServerCommunicator : SettingsSyncRemoteCommunicat
     private const val DEFAULT_DEBUG_URL = "https://stgn.cloudconfig.jetbrains.com/cloudconfig"
     internal const val URL_PROPERTY = "idea.settings.sync.cloud.url"
 
-    internal val url get() = _url.value
+    internal val defaultUrl get() = _url.value
 
     private val _url = lazy {
       val explicitUrl = System.getProperty(URL_PROPERTY)
@@ -313,7 +319,7 @@ internal open class CloudConfigServerCommunicator : SettingsSyncRemoteCommunicat
       return configUrl
     }
 
-    internal fun createCloudConfigClient(versionContext: CloudConfigVersionContext): CloudConfigFileClientV2 {
+    internal fun createCloudConfigClient(url: String, versionContext: CloudConfigVersionContext): CloudConfigFileClientV2 {
       val conf = createConfiguration()
       return CloudConfigFileClientV2(url, conf, DUMMY_ETAG_STORAGE, versionContext)
     }

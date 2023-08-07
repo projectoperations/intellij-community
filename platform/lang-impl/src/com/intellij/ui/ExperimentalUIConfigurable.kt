@@ -8,9 +8,9 @@ import com.intellij.ide.IdeBundle
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.experimental.ExperimentalUiCollector
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.options.BoundSearchableConfigurable
-import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.SystemInfo
@@ -30,12 +30,12 @@ private const val PROMO_URL = "https://youtu.be/WGwECgPmQ-8"
 /**
  * @author Konstantin Bulenkov
  */
-open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.message("configurable.new.ui.name"),
-                                                                    "reference.settings.ide.settings.new.ui"), Configurable.Beta {
+open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.message("configurable.new.ui.name"), "reference.settings.ide.settings.new.ui") {
 
   companion object {
     @JvmStatic
     val EP_NAME: ExtensionPointName<ExperimentalUIConfigurable> = ExtensionPointName.create("com.intellij.newUIConfigurable")
+    const val EXPLORE_NEW_UI_URL_TEMPLATE = "https://www.jetbrains.com/%s/new-ui/?utm_source=product&utm_medium=link&utm_campaign=new_ui_release"
   }
 
   open fun isEnabled(): Boolean = true
@@ -60,8 +60,10 @@ open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.me
             { ExperimentalUI.isNewUI() },
             {
               if (it != ExperimentalUI.isNewUI()) {
-                ExperimentalUiCollector.logSwitchUi(ExperimentalUiCollector.SwitchSource.PREFERENCES, it)
-                ExperimentalUI.setNewUI(it)
+                ApplicationManager.getApplication().invokeLater {
+                  ExperimentalUiCollector.logSwitchUi(ExperimentalUiCollector.SwitchSource.PREFERENCES, it)
+                  ExperimentalUI.setNewUI(it)
+                }
               }
             })
           .enabled(PlatformUtils.isAqua().not()) // the new UI is always enabled for Aqua and cannot be disabled
@@ -105,18 +107,20 @@ open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.me
         browserLink(getExploreNewUiLabel(), getExploreNewUiUrl())
         link(IdeBundle.message("new.ui.submit.feedback")) { onSubmitFeedback() }
       }.bottomGap(BottomGap.SMALL)
-      row {
-        val img = IconLoader.getIcon("images/newUiPreview.png", this@panel::class.java.classLoader)
-        val promo = VideoPromoComponent(JLabel(img), IdeBundle.message("new.ui.watch.new.ui.overview"), alwaysDisplayLabel = true,
-                                        darkLabel = true) {
-          BrowserUtil.browse(PROMO_URL)
+      if (PlatformUtils.isIntelliJ()) {
+        row {
+          val img = IconLoader.getIcon("images/newUiPreview.png", this@panel::class.java.classLoader)
+          val promo = VideoPromoComponent(JLabel(img), IdeBundle.message("new.ui.watch.new.ui.overview"), alwaysDisplayLabel = true,
+                                          darkLabel = true) {
+            BrowserUtil.browse(PROMO_URL)
+          }
+          cell(promo)
         }
-        cell(promo)
       }
     }
   }
 
-  open fun getExploreNewUiUrl(): String = "https://www.jetbrains.com/help/idea/new-ui.html"
+  open fun getExploreNewUiUrl(): String = EXPLORE_NEW_UI_URL_TEMPLATE.format("idea")
   open fun getExploreNewUiLabel(): @Nls String = IdeBundle.message("new.ui.explore.new.ui")
   open fun onSubmitFeedback(): Unit = NewUIFeedbackDialog(null, false).show()
   open fun getRedefinedHelpTopic(): String? = null
@@ -127,11 +131,19 @@ open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.me
   }
 
   final override fun apply() {
-    getFirstEnabledConfigurable()?.onApply()
-    val uiSettingsChanged = isModified
-    super.apply()
-    if (uiSettingsChanged) {
-      LafManager.getInstance().applyDensity()
+    if (PlatformUtils.isJetBrainsClient()) {
+      ExperimentalUI.getInstance().setNewUIInternal(
+        /* newUI = */ !ExperimentalUI.isNewUI(),
+        /* suggestRestart = */ false
+      )
+    }
+    else {
+      getFirstEnabledConfigurable()?.onApply()
+      val uiSettingsChanged = isModified
+      super.apply()
+      if (uiSettingsChanged) {
+        LafManager.getInstance().applyDensity()
+      }
     }
   }
 }

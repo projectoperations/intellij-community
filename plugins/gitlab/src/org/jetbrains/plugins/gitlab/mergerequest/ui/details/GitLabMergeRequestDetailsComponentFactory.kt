@@ -14,7 +14,6 @@ import com.intellij.ide.DataManager
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
-import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.project.Project
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.panels.Wrapper
@@ -31,24 +30,22 @@ import net.miginfocom.swing.MigLayout
 import org.jetbrains.plugins.gitlab.api.dto.GitLabCommitDTO
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccountViewModel
-import org.jetbrains.plugins.gitlab.mergerequest.action.GitLabMergeRequestsActionKeys
 import org.jetbrains.plugins.gitlab.mergerequest.ui.details.model.GitLabMergeRequestChangeListViewModel
 import org.jetbrains.plugins.gitlab.mergerequest.ui.details.model.GitLabMergeRequestDetailsLoadingViewModel
 import org.jetbrains.plugins.gitlab.mergerequest.ui.details.model.GitLabMergeRequestDetailsViewModel
-import org.jetbrains.plugins.gitlab.mergerequest.ui.list.GitLabMergeRequestErrorStatusPresenter
+import org.jetbrains.plugins.gitlab.mergerequest.ui.error.GitLabMergeRequestErrorStatusPresenter
 import org.jetbrains.plugins.gitlab.util.GitLabBundle
 import javax.swing.JComponent
 import javax.swing.JPanel
 
 internal object GitLabMergeRequestDetailsComponentFactory {
   fun createDetailsComponent(
-    project: Project,
     scope: CoroutineScope,
     detailsLoadingVm: GitLabMergeRequestDetailsLoadingViewModel,
     accountVm: GitLabAccountViewModel,
     avatarIconsProvider: IconsProvider<GitLabUserDTO>,
   ): JComponent {
-    return Wrapper().apply {
+    return Wrapper(LoadingLabel()).apply {
       isOpaque = false
       background = UIUtil.getListBackground()
 
@@ -62,7 +59,7 @@ internal object GitLabMergeRequestDetailsComponentFactory {
           }
           is GitLabMergeRequestDetailsLoadingViewModel.LoadingState.Result -> {
             val detailsVm = loadingState.detailsVm
-            val detailsPanel = createDetailsComponent(project, detailsVm, avatarIconsProvider).apply {
+            val detailsPanel = createDetailsComponent(detailsVm, avatarIconsProvider).apply {
               val actionGroup = ActionManager.getInstance().getAction("GitLab.Merge.Request.Details.Popup") as ActionGroup
               PopupHandler.installPopupMenu(this, actionGroup, ActionPlaces.POPUP)
 
@@ -85,7 +82,6 @@ internal object GitLabMergeRequestDetailsComponentFactory {
   }
 
   private fun CoroutineScope.createDetailsComponent(
-    project: Project,
     detailsVm: GitLabMergeRequestDetailsViewModel,
     avatarIconsProvider: IconsProvider<GitLabUserDTO>
   ): JComponent {
@@ -98,12 +94,7 @@ internal object GitLabMergeRequestDetailsComponentFactory {
     val commitsAndBranches = JPanel(MigLayout(LC().emptyBorders().fill(), AC().gap("push"))).apply {
       isOpaque = false
       add(CodeReviewDetailsCommitsComponentFactory.create(cs, changesVm, ::createCommitInfoPresenter))
-      add(CodeReviewDetailsBranchComponentFactory.create(
-        cs, branchesVm,
-        checkoutAction = ActionManager.getInstance().getAction("GitLab.Merge.Request.Branch.Checkout.Remote"),
-        dataContext = SimpleDataContext.builder()
-          .add(GitLabMergeRequestsActionKeys.REVIEW_BRANCH_VM, branchesVm)
-          .build()))
+      add(CodeReviewDetailsBranchComponentFactory.create(cs, branchesVm))
     }
     val actionGroup = ActionManager.getInstance().getAction("GitLab.Merge.Request.Details.Popup") as ActionGroup
 
@@ -133,7 +124,7 @@ internal object GitLabMergeRequestDetailsComponentFactory {
                                                              commitPresentation = { commit -> createCommitInfoPresenter(commit) },
                                                              htmlPaneFactory = { SimpleHtmlPane() }),
           CC().growX().gap(ReviewDetailsUIUtil.COMMIT_INFO_GAPS))
-      add(GitLabMergeRequestDetailsChangesComponentFactory(project).create(cs, changesVm),
+      add(GitLabMergeRequestDetailsChangesComponentFactory.create(cs, changesVm),
           CC().grow().shrinkPrioY(200))
       add(GitLabMergeRequestDetailsStatusChecksComponentFactory.create(cs, statusVm, detailsReviewFlowVm, avatarIconsProvider),
           CC().growX().gap(ReviewDetailsUIUtil.STATUSES_GAPS).maxHeight("${ReviewDetailsUIUtil.STATUSES_MAX_HEIGHT}"))

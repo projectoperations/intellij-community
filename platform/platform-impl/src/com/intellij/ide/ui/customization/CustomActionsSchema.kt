@@ -25,6 +25,7 @@ import com.intellij.serviceContainer.NonInjectable
 import com.intellij.ui.ExperimentalUI
 import com.intellij.util.IconUtil
 import com.intellij.util.SmartList
+import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.ui.EmptyIcon
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentHashMapOf
@@ -40,7 +41,6 @@ import java.io.FileNotFoundException
 import java.net.URL
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
-import java.util.function.Consumer
 import javax.swing.Icon
 import javax.swing.tree.DefaultMutableTreeNode
 
@@ -127,7 +127,10 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
     }
 
     @JvmStatic
+    @RequiresBlockingContext
     fun getInstance(): CustomActionsSchema = service<CustomActionsSchema>()
+
+    suspend fun getInstanceAsync(): CustomActionsSchema = serviceAsync<CustomActionsSchema>()
 
     @JvmStatic
     fun setCustomizationSchemaForCurrentProjects() {
@@ -197,8 +200,10 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
   }
 
   fun addAction(url: ActionUrl) {
-    if (!actions.contains(url) && !actions.remove(url.inverted)) {
-      actions.add(url)
+    synchronized(lock) {
+      if (!actions.contains(url) && !actions.remove(url.inverted)) {
+        actions.add(url)
+      }
     }
   }
 
@@ -208,24 +213,28 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
   fun getActions(): List<ActionUrl> = actions
 
   fun setActions(newActions: List<ActionUrl>) {
-    assert(actions !== newActions)
-    actions.clear()
-    actions.addAll(newActions)
-    actions.sortWith(ActionUrlComparator)
+    synchronized(lock) {
+      assert(actions !== newActions)
+      actions.clear()
+      actions.addAll(newActions)
+      actions.sortWith(ActionUrlComparator)
+    }
   }
 
   fun copyFrom(result: CustomActionsSchema) {
     synchronized(lock) {
       idToActionGroup = idToActionGroup.clear()
       actions.clear()
-      val ids = HashSet(iconCustomizations.keys)
+      val ids = java.util.List.copyOf(iconCustomizations.keys)
       iconCustomizations.clear()
       for (actionUrl in result.actions) {
         addAction(actionUrl.copy())
       }
       actions.sortWith(ActionUrlComparator)
       iconCustomizations.putAll(result.iconCustomizations)
-      ids.forEach(Consumer { id -> iconCustomizations.putIfAbsent(id, null) })
+      for (id in ids) {
+        iconCustomizations.putIfAbsent(id, null)
+      }
     }
   }
 
@@ -286,7 +295,7 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
       }
     }
     coroutineScope?.launch {
-      ApplicationManager.getApplication().serviceAsync<ActionManager>()
+      serviceAsync<ActionManager>()
       withContext(Dispatchers.EDT) {
         initActionIcons(updateView = reload)
       }
@@ -317,9 +326,20 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
     return element
   }
 
+  @RequiresBlockingContext
   fun getCorrectedAction(id: String): AnAction? {
     val name = idToName.get(id) ?: return ActionManager.getInstance().getAction(id)
     return getCorrectedAction(id, name)
+  }
+
+  suspend fun getCorrectedActionAsync(id: String): ActionGroup? {
+    val name = idToName.get(id) ?: return serviceAsync<ActionManager>().getAction(id) as? ActionGroup
+    idToActionGroup.get(id)?.let {
+      return it
+    }
+
+    val actionGroup = serviceAsync<ActionManager>().getAction(id) as? ActionGroup ?: return null
+    return getOrPut(id, actionGroup, name)
   }
 
   fun getCorrectedAction(id: String, name: String): ActionGroup? {
@@ -328,9 +348,20 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
     }
 
     val actionGroup = ActionManager.getInstance().getAction(id) as? ActionGroup ?: return null
+    return getOrPut(id, actionGroup, name)
+  }
+
+  private fun getOrPut(id: String, actionGroup: ActionGroup, name: String): ActionGroup {
     // if a plugin is disabled
-    val corrected = CustomizationUtil.correctActionGroup(actionGroup, this, name, name, true)
+    val corrected = CustomizationUtil.correctActionGroup(/* group = */ actionGroup,
+                                                         /* schema = */ this,
+                                                         /* defaultGroupName = */ name,
+                                                         /* rootGroupName = */ name,
+                                                         /* force = */ true)
     synchronized(lock) {
+      idToActionGroup.get(id)?.let {
+        return it
+      }
       idToActionGroup = idToActionGroup.put(id, corrected)
     }
     return corrected
@@ -392,9 +423,10 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
     return true
   }
 
-  fun getChildActions(url: ActionUrl): List<ActionUrl> {
+  fun getChildActions(url: ActionUrl): List<ActionUrl> = getChildActions(url.groupPath)
+
+  internal fun getChildActions(groupPath: List<String>): List<ActionUrl> {
     val result = ArrayList<ActionUrl>()
-    val groupPath = url.groupPath
     for (actionUrl in actions) {
       var index = 0
       if (groupPath.size <= actionUrl.groupPath.size) {
@@ -494,7 +526,7 @@ private fun fillExtGroups(idToName: MutableMap<String, String>, extGroupIds: Mut
 }
 
 private object ActionUrlComparator : Comparator<ActionUrl> {
-  var DELETED: Int = 1
+  const val DELETED: Int = 1
 
   private fun getEquivalenceClass(url: ActionUrl): Int {
     return when (url.actionType) {

@@ -40,7 +40,7 @@ interface StartupActivity {
   /**
    * See **obsolescence notice** on [StartupActivity].
    */
-  @Deprecated("Use ProjectPostStartupActivity")
+  @Deprecated("Use ProjectActivity")
   interface Background : StartupActivity, com.intellij.openapi.project.DumbAware
 }
 
@@ -56,9 +56,6 @@ interface StartupActivity {
 interface ProjectActivity {
   suspend fun execute(project: Project)
 }
-
-@Deprecated("Use ProjectActivity", level = DeprecationLevel.ERROR)
-interface ProjectPostStartupActivity : ProjectActivity
 
 /**
  * `initProjectActivity` activity must be defined only by a core and requires approval by core team.

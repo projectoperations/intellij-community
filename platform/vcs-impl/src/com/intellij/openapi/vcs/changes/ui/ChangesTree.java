@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs.changes.ui;
 
 import com.intellij.ide.CommonActionsManager;
@@ -33,9 +33,11 @@ import com.intellij.ui.tree.TreeVisitor;
 import com.intellij.ui.tree.ui.DefaultTreeUI;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.Processor;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.TreeTraversal;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UpdateScaleHelper;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.vcs.commit.CommitSessionCollector;
 import com.intellij.vcsUtil.VcsUtil;
@@ -67,6 +69,8 @@ import static com.intellij.util.ui.ThreeStateCheckBox.State;
  */
 public abstract class ChangesTree extends Tree implements DataProvider {
   @ApiStatus.Internal @NonNls public static final String LOG_COMMIT_SESSION_EVENTS = "LogCommitSessionEvents";
+
+  public static final int EXPAND_NODES_THRESHOLD = 30000;
 
   @NotNull public static final TreeStateStrategy<?> DO_NOTHING = new DoNothingTreeStateStrategy();
   @NotNull public static final TreeStateStrategy<?> ALWAYS_RESET = new AlwaysResetTreeStateStrategy();
@@ -104,6 +108,8 @@ public abstract class ChangesTree extends Tree implements DataProvider {
 
   private boolean myModelUpdateInProgress;
   private AWTEvent myEventProcessingInProgress;
+
+  private final UpdateScaleHelper scaleHelper = new UpdateScaleHelper();
 
   public ChangesTree(@NotNull Project project, boolean showCheckboxes, boolean highlightProblems) {
     this(project, showCheckboxes, highlightProblems, true);
@@ -161,6 +167,9 @@ public abstract class ChangesTree extends Tree implements DataProvider {
 
     ChangesBrowserNode<?> sampleNode = new FixedHeightSampleChangesBrowserNode();
     Component component = renderer.getTreeCellRendererComponent(this, sampleNode, true, true, true, 0, true);
+    scaleHelper.saveScaleAndRunIfChanged(() -> {
+      if (component instanceof JComponent) scaleHelper.updateUIForAll((JComponent)component);
+    });
     int rendererHeight = component.getPreferredSize().height;
     if (rendererHeight <= 0) return;
 
@@ -450,7 +459,7 @@ public abstract class ChangesTree extends Tree implements DataProvider {
 
   public void resetTreeState() {
     // expanding lots of nodes is a slow operation (and result is not very useful)
-    if (TreeUtil.hasManyNodes(this, 30000)) {
+    if (TreeUtil.hasManyNodes(this, EXPAND_NODES_THRESHOLD)) {
       TreeUtil.collapseAll(this, 1);
       return;
     }
@@ -532,6 +541,7 @@ public abstract class ChangesTree extends Tree implements DataProvider {
   }
 
   @NotNull
+  @RequiresEdt
   public InclusionModel getInclusionModel() {
     return myInclusionModel;
   }

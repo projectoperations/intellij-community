@@ -15,8 +15,12 @@ import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.notification.impl.NotificationFullContent
 import com.intellij.openapi.application.*
+import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ModalTaskOwner
+import com.intellij.openapi.progress.TaskCancellation
+import com.intellij.openapi.progress.runWithModalProgressBlocking
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.SystemInfo
@@ -52,6 +56,7 @@ internal suspend fun startSystemHealthMonitor() {
   withContext(Dispatchers.IO) {
     checkSignalBlocking()
     checkTempDirEnvVars()
+    checkAncientOs()
   }
   startDiskSpaceMonitoring()
 }
@@ -140,7 +145,7 @@ private suspend fun checkRuntime() {
   LOG.info("${CpuArch.CURRENT} appears to be emulated")
   if (SystemInfoRt.isMac && CpuArch.isIntel64()) {
     val downloadAction = NotificationAction.createSimpleExpiring(IdeBundle.message("bundled.jre.m1.arch.message.download")) {
-      BrowserUtil.browse("https://www.jetbrains.com/products/#type=ide")
+      BrowserUtil.browse(ApplicationInfoEx.getInstanceEx().downloadUrl)
     }
     showNotification("bundled.jre.m1.arch.message", suppressable = true, downloadAction, ApplicationNamesInfo.getInstance().fullProductName)
   }
@@ -159,14 +164,16 @@ private suspend fun checkRuntime() {
     val configFile = Path.of(directory, configName)
     if (Files.isRegularFile(configFile)) {
       switchAction = NotificationAction.createSimpleExpiring(IdeBundle.message("action.SwitchToJBR.text")) {
-        try {
-          Files.delete(configFile)
-          ApplicationManagerEx.getApplicationEx().restart(true)
-        }
-        catch (e: IOException) {
-          LOG.warn("cannot delete $configFile", e)
-          val content = IdeBundle.message("cannot.delete.jre.config", configFile, IoErrorText.message(e))
-          Notification(NOTIFICATION_GROUP_ID, content, NotificationType.ERROR).notify(null)
+        runWithModalProgressBlocking(ModalTaskOwner.guess(), IdeBundle.message("deleting.jre.config"), TaskCancellation.cancellable()) {
+          try {
+            Files.delete(configFile)
+            ApplicationManagerEx.getApplicationEx().restart(true)
+          }
+          catch (e: IOException) {
+            LOG.warn("cannot delete $configFile", e)
+            val content = IdeBundle.message("cannot.delete.jre.config", configFile, IoErrorText.message(e))
+            Notification(NOTIFICATION_GROUP_ID, content, NotificationType.ERROR).notify(null)
+          }
         }
       }
     }
@@ -277,6 +284,15 @@ private fun checkTempDirEnvVars() {
     catch (e: Exception) {
       LOG.warn(e)
       showNotification("temp.dir.env.invalid", suppressable = false, action = null, name, value)
+    }
+  }
+}
+
+private fun checkAncientOs() {
+  if (SystemInfo.isWindows) {
+    val buildNumber = SystemInfo.getWinBuildNumber()
+    if (buildNumber != null && buildNumber < 10000) {  // 10 1507 = 10240, Server 2016 = 14393
+      showNotification("unsupported.windows", suppressable = true, null)
     }
   }
 }

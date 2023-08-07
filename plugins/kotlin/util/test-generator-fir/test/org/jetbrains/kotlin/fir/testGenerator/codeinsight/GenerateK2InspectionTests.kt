@@ -7,6 +7,8 @@ import org.jetbrains.kotlin.idea.k2.codeInsight.inspections.shared.AbstractShare
 import org.jetbrains.kotlin.idea.k2.codeInsight.inspections.shared.idea.kdoc.AbstractSharedK2KDocHighlightingTest
 import org.jetbrains.kotlin.idea.k2.inspections.tests.AbstractK2InspectionTest
 import org.jetbrains.kotlin.idea.k2.inspections.tests.AbstractK2LocalInspectionTest
+import org.jetbrains.kotlin.idea.k2.inspections.tests.AbstractK2MultiFileLocalInspectionTest
+import org.jetbrains.kotlin.idea.k2.quickfix.tests.AbstractK2MultiFileQuickFixTest
 import org.jetbrains.kotlin.idea.k2.quickfix.tests.AbstractK2QuickFixTest
 import org.jetbrains.kotlin.testGenerator.model.*
 
@@ -39,6 +41,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspectionsLocal/removeRedundantQualifierName")
             model("${idea}/inspectionsLocal/equalsBetweenInconvertibleTypes")
             model("${idea}/inspectionsLocal/redundantIf")
+            model("${idea}/inspectionsLocal/unusedSymbol")
             model("code-insight/inspections-k2/tests/testData/inspectionsLocal", pattern = pattern)
         }
 
@@ -51,6 +54,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspections/equalsAndHashCode", pattern = pattern)
             model("${idea}/inspections/protectedInFinal", pattern = pattern)
             model("${idea}/intentions/convertToStringTemplate", pattern = pattern)
+            model("${idea}/inspections/unusedSymbol", pattern = pattern)
         }
 
         testClass<AbstractK2QuickFixTest> {
@@ -60,8 +64,19 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/quickfix/removeToStringInStringTemplate", pattern = pattern)
             model("${idea}/quickfix/suppress", pattern = pattern)
             model("${idea}/quickfix/removeAnnotation", pattern = pattern)
+            model("${idea}/quickfix/optIn", pattern = pattern)
             model("${idea}/quickfix/removeUseSiteTarget", pattern = pattern)
             model("${idea}/quickfix/protectedInFinal", pattern = pattern)
+        }
+
+        testClass<AbstractK2MultiFileQuickFixTest> {
+            val pattern = Patterns.forRegex("""^(\w+)\.((before\.Main\.\w+)|(test))$""")
+            model("${idea}/quickfix/optIn", pattern = pattern, testMethodName = "doTestWithExtraFile")
+        }
+
+        testClass<AbstractK2MultiFileLocalInspectionTest> {
+            val pattern = Patterns.forRegex("^([\\w\\-_]+)\\.test$")
+            model("${idea}/multiFileLocalInspections/unusedSymbol", pattern = pattern)
         }
     }
 

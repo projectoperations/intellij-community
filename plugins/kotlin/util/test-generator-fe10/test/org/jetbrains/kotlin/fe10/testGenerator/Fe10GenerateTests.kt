@@ -16,7 +16,7 @@ import org.jetbrains.kotlin.idea.AbstractExpressionSelectionTest
 import org.jetbrains.kotlin.idea.AbstractSmartSelectionTest
 import org.jetbrains.kotlin.idea.AbstractWorkSelectionTest
 import org.jetbrains.kotlin.idea.actions.AbstractGotoTestOrCodeActionTest
-import org.jetbrains.kotlin.idea.actions.AbstractKotlinAddImportActionTest
+import org.jetbrains.kotlin.idea.actions.AbstractK1AddImportActionTest
 import org.jetbrains.kotlin.idea.base.plugin.artifacts.TestKotlinArtifacts
 import org.jetbrains.kotlin.idea.caches.resolve.AbstractMultiModuleLineMarkerTest
 import org.jetbrains.kotlin.idea.caches.resolve.AbstractMultiPlatformHighlightingTest
@@ -273,7 +273,7 @@ private fun assembleWorkspace(): TWorkspace = workspace {
         }
 
         testClass<AbstractBreakpointApplicabilityTest> {
-            model("breakpointApplicability")
+            model("breakpointApplicability", pattern = KT_OR_KTS)
         }
 
         listOf(AbstractFileRankingTest::class, AbstractK1IdeK2CodeFileRankingTest::class).forEach {
@@ -397,7 +397,7 @@ private fun assembleWorkspace(): TWorkspace = workspace {
         }
 
         testClass<AbstractK1QuickFixTest> {
-            model("quickfix", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.kt$"))
+            model("quickfix", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.kts?$"))
         }
 
         testClass<AbstractGotoSuperTest> {
@@ -685,7 +685,7 @@ private fun assembleWorkspace(): TWorkspace = workspace {
         }
 
         testClass<AbstractKotlinFindUsagesWithLibraryTest> {
-            model("findUsages/libraryUsages", pattern = Patterns.forRegex("""^(.+)\.0\.kt$"""))
+            model("findUsages/libraryUsages", pattern = Patterns.forRegex("""^(.+)\.0\.(kt|java)$"""))
         }
 
         testClass<AbstractKotlinFindUsagesWithStdlibTest> {
@@ -826,7 +826,7 @@ private fun assembleWorkspace(): TWorkspace = workspace {
             model("addImportAlias", pattern = KT_WITHOUT_DOTS)
         }
 
-        testClass<AbstractKotlinAddImportActionTest> {
+        testClass<AbstractK1AddImportActionTest> {
             model("idea/actions/kotlinAddImportAction", pattern = KT_WITHOUT_DOTS)
         }
 
@@ -1206,7 +1206,7 @@ private fun assembleWorkspace(): TWorkspace = workspace {
         }
 
         testClass<AbstractJvmBasicCompletionTest>("org.jetbrains.kotlin.idea.completion.test.KDocCompletionTestGenerated") {
-            model("kdoc")
+            model("kdoc", pattern = KT_WITHOUT_DOT_AND_FIR_PREFIX)
         }
 
         testClass<AbstractJava8BasicCompletionTest> {

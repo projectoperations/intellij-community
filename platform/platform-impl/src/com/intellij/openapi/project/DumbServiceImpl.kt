@@ -58,7 +58,7 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
       myAlternativeResolveTracker.isAlternativeResolveEnabled = enabled
     }
 
-  override val modificationTracker: ModificationTracker = ModificationTracker { myState.value.modificationCounter }
+  override val modificationTracker: ModificationTracker get() = this
 
   @Volatile
   var dumbModeStartTrace: Throwable? = null
@@ -145,8 +145,7 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
   }
 
   override fun cancelTask(task: DumbModeTask) {
-    if (ApplicationManager.getApplication().isInternal) LOG.info(
-      "cancel $task")
+    LOG.info("cancel $task [${project.name}]")
     myTaskQueue.cancelTask(task)
   }
 
@@ -259,7 +258,7 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
       !myProject.isDisposed
     }
     if (entered) {
-      if (ApplicationManager.getApplication().isInternal) LOG.info("entered dumb mode")
+      LOG.info("entered dumb mode [${project.name}]")
       runCatching(Runnable { myPublisher.enteredDumbMode() })
     }
   }
@@ -277,7 +276,7 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
       !myProject.isDisposed
     }
     if (entered) {
-      if (ApplicationManager.getApplication().isInternal) LOG.info("entered smart mode")
+      LOG.info("entered smart mode [${project.name}]")
       runCatching(Runnable { myPublisher.exitDumbMode() })
     }
   }
@@ -459,7 +458,7 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
   }
 
   override fun getModificationCount(): Long {
-    return modificationTracker.modificationCount
+    return myState.value.modificationCounter
   }
 
   internal val dumbStateAsFlow: StateFlow<DumbState> = myState
@@ -509,6 +508,9 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
                !java.lang.Boolean.parseBoolean(System.getProperty(IDEA_FORCE_DUMB_QUEUE_TASKS, "false"))
       }
 
+    /**
+     * Flag to force dumb tasks to work on background thread in tests or synchronous headless mode.
+     */
     const val IDEA_FORCE_DUMB_QUEUE_TASKS: String = "idea.force.dumb.queue.tasks"
 
     private val isSynchronousHeadlessApplication: Boolean

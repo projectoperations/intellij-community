@@ -74,6 +74,7 @@ final class InjectedGeneralHighlightingPass extends GeneralHighlightingPass {
 
     List<HighlightInfo> resultInside = new ArrayList<>(100);
     List<HighlightInfo> resultOutside = new ArrayList<>(100);
+
     InjectedLanguageManager injectedLanguageManager = InjectedLanguageManager.getInstance(myProject);
     TextAttributesKey fragmentKey = createInjectedLanguageFragmentKey(myFile.getLanguage());
     processInjectedPsiFiles(allInsideElements, allOutsideElements, progress, (injectedPsi, places) ->
@@ -113,6 +114,7 @@ final class InjectedGeneralHighlightingPass extends GeneralHighlightingPass {
             }
           }
         }
+
         myHighlightInfoProcessor.highlightsOutsideVisiblePartAreProduced(myHighlightingSession, getEditor(), resultOutside, myRestrictRange, new ProperTextRange(0, myDocument.getTextLength()), getId());
       }
     }

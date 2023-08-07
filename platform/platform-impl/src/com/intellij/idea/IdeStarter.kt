@@ -3,8 +3,8 @@
 
 package com.intellij.idea
 
-import com.intellij.diagnostic.*
-import com.intellij.diagnostic.StartUpMeasurer.startActivity
+import com.intellij.diagnostic.LoadingState
+import com.intellij.diagnostic.PerformanceWatcher
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
 import com.intellij.ide.*
 import com.intellij.ide.impl.ProjectUtil
@@ -15,7 +15,6 @@ import com.intellij.internal.inspector.UiInspectorAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.*
-import com.intellij.openapi.application.ex.ApplicationEx
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
@@ -27,6 +26,7 @@ import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
+import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.ui.mac.touchbar.TouchbarSupport
 import com.intellij.ui.updateAppWindowIcon
 import com.intellij.util.io.URLUtil.SCHEME_SEPARATOR
@@ -61,7 +61,7 @@ open class IdeStarter : ModernApplicationStarter() {
 
   override suspend fun start(args: List<String>) {
     coroutineScope {
-      val app = ApplicationManagerEx.getApplicationEx()
+      val app = ApplicationManager.getApplication()
       val lifecyclePublisher = app.messageBus.syncPublisher(AppLifecycleListener.TOPIC)
       openProjectIfNeeded(args = args, app = app, asyncCoroutineScope = this, lifecyclePublisher = lifecyclePublisher)
 
@@ -71,7 +71,7 @@ open class IdeStarter : ModernApplicationStarter() {
 
       launch { reportPluginErrors() }
 
-      StartUpMeasurer.compareAndSetCurrentState(LoadingState.COMPONENTS_LOADED, LoadingState.APP_STARTED)
+      LoadingState.compareAndSetCurrentState(LoadingState.COMPONENTS_LOADED, LoadingState.APP_STARTED)
       lifecyclePublisher.appStarted()
 
       if (!app.isHeadlessEnvironment) {
@@ -82,44 +82,44 @@ open class IdeStarter : ModernApplicationStarter() {
 
   @OptIn(IntellijInternalApi::class)
   protected open suspend fun openProjectIfNeeded(args: List<String>,
-                                                 app: ApplicationEx,
+                                                 app: Application,
                                                  asyncCoroutineScope: CoroutineScope,
                                                  lifecyclePublisher: AppLifecycleListener) {
-    val frameInitActivity = startActivity("frame initialization")
-    frameInitActivity.runChild("app frame created callback") {
-      lifecyclePublisher.appFrameCreated(args)
-    }
-
-    // must be after `AppLifecycleListener#appFrameCreated`, because some listeners can mutate the state of `RecentProjectsManager`
-    if (app.isHeadlessEnvironment) {
-      frameInitActivity.end()
-      LifecycleUsageTriggerCollector.onIdeStart()
-      return
-    }
-
-    asyncCoroutineScope.launch {
-      LifecycleUsageTriggerCollector.onIdeStart()
-    }
-
-    if (app.isInternal) {
-      asyncCoroutineScope.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-        UiInspectorAction.initGlobalInspector()
+    var willReopenRecentProjectOnStart = false
+    lateinit var recentProjectManager: RecentProjectsManager
+    val isOpenProjectNeeded = span("isOpenProjectNeeded") {
+      span("app frame created callback") {
+        lifecyclePublisher.appFrameCreated(args)
       }
+
+      // must be after `AppLifecycleListener#appFrameCreated`, because some listeners can mutate the state of `RecentProjectsManager`
+      if (app.isHeadlessEnvironment) {
+        LifecycleUsageTriggerCollector.onIdeStart()
+        return@span false
+      }
+
+      asyncCoroutineScope.launch {
+        LifecycleUsageTriggerCollector.onIdeStart()
+      }
+
+      if (app.isInternal) {
+        asyncCoroutineScope.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+          UiInspectorAction.initGlobalInspector()
+        }
+      }
+
+      if (uriToOpen != null || args.isNotEmpty() && args.first().contains(SCHEME_SEPARATOR)) {
+        processUriParameter(uri = uriToOpen ?: args.first(), lifecyclePublisher = lifecyclePublisher)
+        return@span false
+      }
+
+      recentProjectManager = serviceAsync<RecentProjectsManager>()
+      willReopenRecentProjectOnStart = recentProjectManager.willReopenProjectOnStart()
+      val willOpenProject = willReopenRecentProjectOnStart || !args.isEmpty() || !filesToLoad.isEmpty()
+      willOpenProject || showWelcomeFrame(lifecyclePublisher)
     }
 
-    if (uriToOpen != null || args.isNotEmpty() && args.first().contains(SCHEME_SEPARATOR)) {
-      frameInitActivity.end()
-      processUriParameter(uriToOpen ?: args.first(), lifecyclePublisher)
-      return
-    }
-
-    val recentProjectManager = ApplicationManager.getApplication().serviceAsync<RecentProjectsManager>()
-    val willReopenRecentProjectOnStart = recentProjectManager.willReopenProjectOnStart()
-    val willOpenProject = willReopenRecentProjectOnStart || !args.isEmpty() || !filesToLoad.isEmpty()
-    val needToOpenProject = willOpenProject || showWelcomeFrame(lifecyclePublisher)
-    frameInitActivity.end()
-
-    if (!needToOpenProject) {
+    if (!isOpenProjectNeeded) {
       return
     }
 
@@ -134,7 +134,9 @@ open class IdeStarter : ModernApplicationStarter() {
     }
 
     val isOpened = willReopenRecentProjectOnStart && try {
-      recentProjectManager.reopenLastProjectsOnStart()
+      span("reopenLastProjectsOnStart") {
+        recentProjectManager.reopenLastProjectsOnStart()
+      }
     }
     catch (e: CancellationException) {
       throw e
@@ -151,7 +153,8 @@ open class IdeStarter : ModernApplicationStarter() {
 
   private fun showWelcomeFrame(lifecyclePublisher: AppLifecycleListener): Boolean {
     val showWelcomeFrameTask = WelcomeFrame.prepareToShow() ?: return true
-    ApplicationManager.getApplication().invokeLater {
+    @Suppress("DEPRECATION")
+    ApplicationManager.getApplication().coroutineScope.launch(Dispatchers.EDT) {
       showWelcomeFrameTask.run()
       lifecyclePublisher.welcomeScreenDisplayed()
     }
@@ -172,7 +175,7 @@ open class IdeStarter : ModernApplicationStarter() {
 
   internal class StandaloneLightEditStarter : IdeStarter() {
     override suspend fun openProjectIfNeeded(args: List<String>,
-                                             app: ApplicationEx,
+                                             app: Application,
                                              asyncCoroutineScope: CoroutineScope,
                                              lifecyclePublisher: AppLifecycleListener) {
       val project = when {
@@ -216,17 +219,13 @@ private fun CoroutineScope.postOpenUiTasks() {
   }
 
   if (SystemInfoRt.isMac) {
-    launch {
-      runActivity("mac touchbar on app init") {
-        TouchbarSupport.onApplicationLoaded()
-      }
+    launch(CoroutineName("mac touchbar on app init")) {
+      TouchbarSupport.onApplicationLoaded()
     }
   }
   else if (SystemInfoRt.isXWindow && SystemInfo.isJetBrainsJvm) {
-    launch {
-      runActivity("input method disabling on Linux") {
-        disableInputMethodsIfPossible()
-      }
+    launch(CoroutineName("input method disabling on Linux")) {
+      disableInputMethodsIfPossible()
     }
   }
 

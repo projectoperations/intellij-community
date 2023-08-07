@@ -5,7 +5,7 @@ package com.intellij.openapi.fileEditor.impl
 
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
-import com.intellij.ide.actions.ToggleDistractionFreeModeAction
+import com.intellij.ide.actions.DistractionFreeModeController
 import com.intellij.ide.ui.UISettings
 import com.intellij.notebook.editor.BackedVirtualFile
 import com.intellij.openapi.actionSystem.*
@@ -21,6 +21,8 @@ import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.README_OPENED_ON_START_TS
+import com.intellij.openapi.project.logReadmeClosedIn
 import com.intellij.openapi.ui.AbstractPainter
 import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.util.*
@@ -45,8 +47,10 @@ import org.jetbrains.annotations.ApiStatus
 import java.awt.*
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
+import java.awt.event.MouseEvent
 import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
+import java.time.Instant
 import java.util.function.Function
 import javax.swing.*
 import kotlin.math.roundToInt
@@ -73,8 +77,8 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
     @JvmStatic
     val tabLimit: Int
       get() {
-        if (ToggleDistractionFreeModeAction.isDistractionFreeModeEnabled()
-            && ToggleDistractionFreeModeAction.getStandardTabPlacement() == UISettings.TABS_NONE) {
+        if (DistractionFreeModeController.isDistractionFreeModeEnabled()
+            && DistractionFreeModeController.getStandardTabPlacement() == UISettings.TABS_NONE) {
           return 1
         }
         else {
@@ -166,7 +170,7 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
 
   /**
    * A composite in a context.
-   * For example, if a context menu is shown currently for some tab, composite for which a menu is invoked will be returned
+   * For example, if a context menu is shown currently for some tab, the composite for which a menu is invoked will be returned
    */
   fun getContextComposite(): EditorComposite? {
     return (tabbedPane.tabs.targetInfo?.component as? EditorWindowTopComponent)?.composite
@@ -227,15 +231,18 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
     for (window in windows) {
       panelToWindow.put(window.panel, window)
     }
-    val relativePoint = RelativePoint(panel.locationOnScreen)
+    val relativePoint = if (ApplicationManager.getApplication().isUnitTestMode)
+      RelativePoint(MouseEvent(JLabel(), 0, 0, 0, 0, 0, 0, false))
+    else
+      RelativePoint(panel.locationOnScreen)
     val point = relativePoint.getPoint(owner)
-    val nearestComponent: (Int, Int) -> Component = { x, y ->
+    val nearestComponent: (Int, Int) -> Component? = { x, y ->
       SwingUtilities.getDeepestComponentAt(owner, x, y)
     }
 
-    fun findAdjacentEditor(startComponent: Component): EditorWindow? {
+    fun findAdjacentEditor(startComponent: Component?): EditorWindow? {
       var component = startComponent
-      while (component !== owner) {
+      while (component !== owner && component != null) {
         if (panelToWindow.containsKey(component)) {
           return panelToWindow.get(component)
         }
@@ -250,7 +257,7 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
       }
     }
 
-    // Even if above/below adjacent editor is shifted a bit to the right from the left edge of the current editor,
+    // Even if the above/below adjacent editor is shifted a bit to the right from the left edge of the current editor,
     // still try to choose an editor that is visually above/below - shifted nor more than a quarter of editor width.
     val x = point.x + panel.width / 4
     // Splitter has width of one pixel - we need to step at least 2 pixels to be over an adjacent editor
@@ -280,17 +287,16 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
               ReplaceWith("setComposite(editor, FileEditorOpenOptions().withRequestFocus(focusEditor))",
                           "com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions"))
   fun setEditor(@Suppress("DEPRECATION") editor: EditorWithProviderComposite, focusEditor: Boolean) {
-    setComposite(editor, FileEditorOpenOptions(requestFocus = focusEditor))
+    addComposite(editor, FileEditorOpenOptions(requestFocus = focusEditor))
   }
 
   internal fun setComposite(composite: EditorComposite, focusEditor: Boolean) {
-    setComposite(composite, FileEditorOpenOptions(requestFocus = focusEditor, usePreviewTab = composite.isPreview))
+    addComposite(composite, FileEditorOpenOptions(requestFocus = focusEditor, usePreviewTab = composite.isPreview))
   }
 
-  internal fun setComposite(composite: EditorComposite, options: FileEditorOpenOptions) {
+  internal fun addComposite(composite: EditorComposite, options: FileEditorOpenOptions) {
     val isNewEditor = findCompositeIndex(composite) == -1
     val isPreviewMode = (isNewEditor || composite.isPreview) && shouldReservePreview(composite.file, options, owner.manager.project)
-    val wasPinned = composite.isPinned
     composite.isPreview = isPreviewMode
     if (isNewEditor) {
       var indexToInsert = options.index
@@ -320,21 +326,34 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
         if (initialPinned != null) {
           composite.isPinned = initialPinned
         }
-        else if (wasPinned) {
+        else if (composite.isPinned) {
           composite.isPinned = true
         }
       }
       file.putUserData(DRAG_START_LOCATION_HASH_KEY, null)
       file.putUserData(DRAG_START_INDEX_KEY, null)
       file.putUserData(DRAG_START_PINNED_KEY, null)
-      trimToSize(fileToIgnore = file, transferFocus = false)
+
+      if (!EditorsSplitters.isOpenedInBulk(composite.file)) {
+        trimToSize(fileToIgnore = file, transferFocus = false)
+      }
+
       owner.updateFileIcon(file)
-      owner.updateFileColorAsync(file)
     }
+
     owner.updateFileColorAsync(composite.file)
-    if (options.selectAsCurrent) {
-      setSelectedComposite(composite, options.requestFocus)
+    if (!EditorsSplitters.isOpenedInBulk(composite.file)) {
+      if (options.selectAsCurrent) {
+        setSelectedComposite(composite, options.requestFocus)
+      }
+      updateTabsVisibility()
+      owner.validate()
     }
+  }
+
+  internal fun selectOpenedCompositeOnStartup(composite: EditorComposite) {
+    composite.selectedEditor?.selectNotify()
+    setSelectedComposite(composite = composite, focusEditor = true)
     updateTabsVisibility()
     owner.validate()
   }
@@ -501,8 +520,8 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
     UIUtil.toFront(ComponentUtil.getWindow(tabbedPane.component))
   }
 
-  fun updateTabsVisibility(settings: UISettings = UISettings.getInstance()) {
-    tabbedPane.tabs.presentation.isHideTabs = (owner.isFloating && this.tabCount == 1 && shouldHideTabs(selectedComposite)) ||
+  internal fun updateTabsVisibility(settings: UISettings = UISettings.getInstance()) {
+    tabbedPane.tabs.presentation.isHideTabs = (owner.isFloating && tabCount == 1 && shouldHideTabs(selectedComposite)) ||
                                               settings.editorTabPlacement == UISettings.TABS_NONE ||
                                               (settings.presentationMode && !Registry.`is`("ide.editor.tabs.visible.in.presentation.mode"))
   }
@@ -518,12 +537,8 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
   }
 
   fun dispose() {
-    try {
-      owner.removeWindow(this)
-    }
-    finally {
-      coroutineScope.cancel()
-    }
+    coroutineScope.cancel()
+    owner.removeWindow(this)
   }
 
   fun hasClosedTabs(): Boolean = !removedTabs.empty()
@@ -577,6 +592,13 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
         }
       }
       finally {
+        val openedTs = file.getUserData(README_OPENED_ON_START_TS)
+        if (openedTs != null) {
+          val wasOpenedMillis = Instant.now().toEpochMilli() - openedTs.toEpochMilli()
+          logReadmeClosedIn(wasOpenedMillis)
+          file.removeUserData(README_OPENED_ON_START_TS)
+        }
+
         fileEditorManager.removeSelectionRecord(file, this)
         (TransactionGuard.getInstance() as TransactionGuardImpl).assertWriteActionAllowed()
         fileEditorManager.notifyPublisher {
@@ -621,7 +643,6 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
       }
       else -> throw IllegalStateException("Unknown container: $parent")
     }
-    @Suppress("SSBasedInspection")
     dispose()
   }
 
@@ -654,7 +675,7 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
       return fileIndex + 1
     }
 
-    // by default, select the previous neighbour
+    // by default, select the previous neighbor
     return if (fileIndex > 0) fileIndex - 1 else -1
   }
 
@@ -666,10 +687,12 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
     fun dispose()
   }
 
-  internal fun showSplitChooser(showInfoPanel: Boolean): SplitChooser {
+  internal fun showSplitChooser(project: Project, showInfoPanel: Boolean): SplitChooser {
     val disposable = Disposer.newDisposable("GlassPaneListeners")
-    val painter = MySplitPainter(showInfoPanel = showInfoPanel, tabbedPane = tabbedPane, owner = owner)
-    IdeGlassPaneUtil.find(panel).addPainter(panel, painter, disposable)
+    val painter = MySplitPainter(project, showInfoPanel, tabbedPane, owner)
+    if (!ApplicationManager.getApplication().isUnitTestMode) {
+      IdeGlassPaneUtil.find(panel).addPainter(panel, painter, disposable)
+    }
     panel.repaint()
     panel.isFocusable = true
     panel.grabFocus()
@@ -677,7 +700,7 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
     val focusAdapter = object : FocusAdapter() {
       override fun focusLost(e: FocusEvent) {
         panel.removeFocusListener(this)
-        val splitterService = SplitterService.getInstance()
+        val splitterService = SplitterService.getInstance(project)
         if (splitterService.activeWindow == this@EditorWindow) {
           splitterService.stopSplitChooser(true)
         }
@@ -750,7 +773,7 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
 
   private fun processSiblingComposite(composite: EditorComposite, openOptions: FileEditorOpenOptions) {
     if (tabCount < UISettings.getInstance().state.editorTabLimit && getComposite(composite.file) == null) {
-      setComposite(composite, openOptions)
+      addComposite(composite, openOptions)
     }
     else {
       manager.disposeComposite(composite)
@@ -817,7 +840,7 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
   internal fun findCompositeIndex(composite: EditorComposite): Int {
     for (i in 0 until tabCount) {
       val compositeAt = getCompositeAt(i)
-      if (compositeAt == composite) {
+      if (compositeAt === composite) {
         return i
       }
     }
@@ -867,7 +890,10 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
     val alreadyClosedFile = if (selectedFile != null && shouldCloseSelected(selectedFile, fileToIgnore)) {
       defaultCloseFile(selectedFile, transferFocus)
       selectedFile
-    } else null
+    }
+    else {
+      null
+    }
 
     // close all preview tabs
     for (file in getComposites().filter { it.isPreview }.map { it.file }.filter { it != fileToIgnore }.distinct().toList()) {
@@ -875,8 +901,7 @@ class EditorWindow internal constructor(val owner: EditorsSplitters, private val
     }
 
     val limit = tabLimit
-    fun isUnderLimit(): Boolean =
-      tabbedPane.tabCount <= limit || tabbedPane.tabCount == 0 || !isAnyTabClosable(fileToIgnore)
+    fun isUnderLimit(): Boolean = tabbedPane.tabCount <= limit || tabbedPane.tabCount == 0 || !isAnyTabClosable(fileToIgnore)
 
     if (isUnderLimit()) {
       return
@@ -1072,6 +1097,7 @@ private fun shouldHideTabs(composite: EditorComposite?): Boolean {
 }
 
 private class MySplitPainter(
+  private val project: Project,
   private var showInfoPanel: Boolean,
   private val tabbedPane: EditorTabbedContainer,
   private val owner: EditorsSplitters,
@@ -1104,7 +1130,7 @@ private class MySplitPainter(
     val openShortcuts = IdeBundle.message(
       "split.with.chooser.move.tab",
       getShortcut("SplitChooser.Split"),
-      if (SplitterService.getInstance().initialEditorWindow != null) {
+      if (SplitterService.getInstance(project).initialEditorWindow != null) {
         IdeBundle.message("split.with.chooser.duplicate.tab", getShortcut("SplitChooser.Duplicate"))
       }
       else {
@@ -1112,7 +1138,7 @@ private class MySplitPainter(
       })
     val switchShortcuts = IdeBundle.message("split.with.chooser.switch.tab", getShortcut("SplitChooser.NextWindow"))
 
-    // Adjust default width to an info text
+    // Adjust the default width to an info text
     val font = StartupUiUtil.labelFont
     val fontMetrics = g.getFontMetrics(font)
     val openShortcutsWidth = fontMetrics.stringWidth(openShortcuts)

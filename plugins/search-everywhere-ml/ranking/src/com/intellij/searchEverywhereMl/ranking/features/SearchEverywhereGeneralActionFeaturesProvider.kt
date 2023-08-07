@@ -17,12 +17,13 @@ internal class SearchEverywhereGeneralActionFeaturesProvider
 
     internal val ITEM_TYPE = EventFields.Enum<GotoActionModel.MatchedValueType>("type")
     internal val TYPE_WEIGHT = EventFields.Int("typeWeight")
+    internal val SIMILARITY_SCORE = EventFields.Double("similarityScore")
     internal val IS_HIGH_PRIORITY = EventFields.Boolean("isHighPriority")
   }
 
   override fun getFeaturesDeclarations(): List<EventField<*>> {
     return arrayListOf(
-      IS_ENABLED, ITEM_TYPE, TYPE_WEIGHT, IS_HIGH_PRIORITY
+      IS_ENABLED, ITEM_TYPE, TYPE_WEIGHT, IS_HIGH_PRIORITY, SIMILARITY_SCORE
     )
   }
 
@@ -39,6 +40,10 @@ internal class SearchEverywhereGeneralActionFeaturesProvider
     if (element is GotoActionModel.MatchedValue) {
       data.add(ITEM_TYPE.with(element.type))
       data.add(TYPE_WEIGHT.with(element.valueTypeWeight))
+
+      element.similarityScore?.let {
+        data.add(SIMILARITY_SCORE.with(it))
+      }
     }
 
     val value = if (element is GotoActionModel.MatchedValue) element.value else element

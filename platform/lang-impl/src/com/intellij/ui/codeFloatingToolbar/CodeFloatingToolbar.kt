@@ -3,10 +3,11 @@ package com.intellij.ui.codeFloatingToolbar
 
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.codeInsight.hint.HintManagerImpl
-import com.intellij.codeInsight.template.impl.TemplateManagerImpl
+import com.intellij.codeInsight.template.TemplateManager
 import com.intellij.ide.ui.customization.CustomActionsSchema
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.actionSystem.impl.FloatingToolbar
 import com.intellij.openapi.actionSystem.impl.MoreActionGroup
 import com.intellij.openapi.editor.Editor
@@ -21,6 +22,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.ui.LightweightHint
 import kotlinx.coroutines.CoroutineScope
 import java.awt.Point
+import javax.swing.JComponent
 
 /**
  * Represents floating toolbar which is shown for selected text inside editor.
@@ -29,14 +31,14 @@ import java.awt.Point
 class CodeFloatingToolbar(
   editor: Editor,
   coroutineScope: CoroutineScope
-): FloatingToolbar(editor, coroutineScope, "Floating.CodeToolbar") {
+): FloatingToolbar(editor, coroutineScope) {
 
   companion object {
     private val FLOATING_TOOLBAR = Key<CodeFloatingToolbar>("floating.codeToolbar")
     
     @JvmStatic
-    fun getToolbar(editor: Editor): CodeFloatingToolbar? {
-      return editor.getUserData(FLOATING_TOOLBAR)
+    fun getToolbar(editor: Editor?): CodeFloatingToolbar? {
+      return editor?.getUserData(FLOATING_TOOLBAR)
     }
   }
 
@@ -46,32 +48,35 @@ class CodeFloatingToolbar(
   }
 
   override fun hasIgnoredParent(element: PsiElement): Boolean {
-    return !element.isWritable || TemplateManagerImpl.getInstance(element.project).getActiveTemplate(editor) != null
+    return !element.isWritable || TemplateManager.getInstance(element.project).getActiveTemplate(editor) != null
   }
 
   override fun isEnabled(): Boolean {
-    return !AdvancedSettings.getBoolean("floating.codeToolbar.hide")
+    val selection = editor.selectionModel
+    if (!selection.hasSelection()) return false
+    val range = editor.calculateVisibleRange()
+    if (selection.selectionStart !in range && selection.selectionEnd !in range) return false
+    return editor.document.isWritable && !AdvancedSettings.getBoolean("floating.codeToolbar.hide")
   }
 
   override fun disableForDoubleClickSelection(): Boolean = true
-
-  override fun shouldReviveAfterClose(): Boolean = false
 
   override fun shouldSurviveDocumentChange(): Boolean = false
 
   override fun hideByOtherHints(): Boolean = false
 
+  val hintComponent: JComponent?
+    get() = hint?.component
+
   override fun getHintPosition(hint: LightweightHint): Point {
     val selectionEnd = editor.selectionModel.selectionEnd
     val selectionStart = editor.selectionModel.selectionStart
     val isOneLineSelection = isOneLineSelection(editor)
-    val isBelow = isOneLineSelection
-                  || selectionEnd == editor.caretModel.offset
-                  || Registry.get("floating.codeToolbar.showBelow").asBoolean() && isSelectionEndVisible(editor)
+    val isBelow = shouldBeUnderSelection(selectionEnd)
     val offsetForHint = when {
       isOneLineSelection -> selectionStart
       isBelow -> getOffsetForLine(editor, getLineByVisualStart(editor, selectionEnd, true))
-      else -> getOffsetForLine(editor, getLineByVisualStart(editor, selectionEnd, false))
+      else -> getOffsetForLine(editor, getLineByVisualStart(editor, selectionStart, false))
     }
     val visualPosition = editor.offsetToVisualPosition(offsetForHint)
     val hintPoint = HintManagerImpl.getHintPosition(hint, editor, visualPosition, HintManager.DEFAULT)
@@ -85,8 +90,14 @@ class CodeFloatingToolbar(
     return hintPoint
   }
 
-  private fun isSelectionEndVisible(editor: Editor): Boolean {
-    return editor.offsetToXY(editor.selectionModel.selectionEnd) in editor.scrollingModel.visibleArea
+  private fun shouldBeUnderSelection(selectionEnd: Int): Boolean {
+    val showUnderSelection = selectionEnd == editor.caretModel.offset || Registry.get("floating.codeToolbar.showBelow").asBoolean()
+    val preferredOffset = if (!showUnderSelection) editor.selectionModel.selectionStart else editor.selectionModel.selectionEnd
+    if (editor.offsetToXY(preferredOffset) in editor.scrollingModel.visibleArea) {
+      return showUnderSelection
+    } else {
+      return !showUnderSelection
+    }
   }
 
   private fun isOneLineSelection(editor: Editor): Boolean {
@@ -116,18 +127,20 @@ class CodeFloatingToolbar(
   }
 
   override fun createActionGroup(): ActionGroup? {
-    val contextAwareActionGroupId = getContextAwareGroupId()
-    val mainActionGroup = CustomActionsSchema.getInstance().getCorrectedAction(contextAwareActionGroupId) as? ActionGroup ?: return super.createActionGroup()
+    val contextAwareActionGroupId = getContextAwareGroupId(editor) ?: return null
+    val mainActionGroup = CustomActionsSchema.getInstance().getCorrectedAction(contextAwareActionGroupId) ?: error("Can't find groupId action")
+    val showIntentionsAction = CustomActionsSchema.getInstance().getCorrectedAction("ShowIntentionActions")
+                               ?: error("Can't find ShowIntentionActions action")
     val configurationGroup = createConfigureGroup(contextAwareActionGroupId)
-    return DefaultActionGroup(mainActionGroup, configurationGroup)
+    return DefaultActionGroup(showIntentionsAction, Separator.create(), mainActionGroup, Separator.create(), configurationGroup)
   }
 
-  private fun getContextAwareGroupId(): String {
-    val project = editor.project ?: return defaultActionGroupId
+  private fun getContextAwareGroupId(editor: Editor): String? {
+    val project = editor.project ?: return null
     val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
     val elementAtOffset = psiFile?.findElementAt(editor.caretModel.primaryCaret.offset)
-    val targetLanguage = elementAtOffset?.language ?: return defaultActionGroupId
-    return FloatingToolbarCustomizer.findActionGroupFor(targetLanguage) ?: defaultActionGroupId
+    val targetLanguage = elementAtOffset?.language ?: return null
+    return FloatingToolbarCustomizer.findActionGroupFor(targetLanguage)
   }
 
   private fun createConfigureGroup(customizableGroupId: String): ActionGroup {

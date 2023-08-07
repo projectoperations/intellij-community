@@ -131,7 +131,15 @@
     <structureViewBuilder
             order="first"
             key="CLASS"
-            factoryClass="org.jetbrains.kotlin.idea.structureView.KtClsStructureViewBuilderProvider"/>
+            factoryClass="org.jetbrains.kotlin.idea.structureView.KtDecompiledFileStructureViewBuilderProvider"/>
+    <structureViewBuilder
+            order="first"
+            key="kotlin_builtins"
+            factoryClass="org.jetbrains.kotlin.idea.structureView.KtDecompiledFileStructureViewBuilderProvider"/>
+    <structureViewBuilder
+            order="first"
+            key="KNM"
+            factoryClass="org.jetbrains.kotlin.idea.structureView.KtDecompiledFileStructureViewBuilderProvider"/>
   </extensions>
 
   <!-- Line markers -->
@@ -170,8 +178,7 @@
 
   <!-- Go to declaration -->
   <extensions defaultExtensionNs="com.intellij">
-    
-    <gotoDeclarationHandler implementation="org.jetbrains.kotlin.idea.search.ideaExtensions.KotlinImportAliasGotoDeclarationHandler"/>
+
     <gotoRelatedProvider implementation="org.jetbrains.kotlin.idea.goto.KotlinExpectOrActualGotoRelatedProvider"/>
 
     <codeInsight.gotoSuper language="kotlin" implementationClass="org.jetbrains.kotlin.idea.codeInsight.GotoSuperActionHandler"/>
@@ -229,7 +236,7 @@
 
     <usageTypeProvider implementation="org.jetbrains.kotlin.idea.findUsages.KotlinUsageTypeProviderImpl"/>
 
-    <highlightUsagesHandlerFactory implementation="org.jetbrains.kotlin.idea.highlighter.KotlinHighlightExitPointsHandlerFactory"/>
+    <highlightUsagesHandlerFactory implementation="org.jetbrains.kotlin.idea.highlighter.K1HighlightExitPointsHandlerFactory"/>
     <highlightUsagesHandlerFactory implementation="org.jetbrains.kotlin.idea.highlighter.KotlinHighlightImplicitItHandlerFactory"/>
 
     <overridingMethodsSearch implementation="org.jetbrains.kotlin.idea.search.ideaExtensions.KotlinOverridingMethodsWithGenericsSearcher"/>

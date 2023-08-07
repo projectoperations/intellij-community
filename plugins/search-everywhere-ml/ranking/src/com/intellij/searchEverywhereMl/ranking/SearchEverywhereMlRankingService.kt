@@ -10,6 +10,7 @@ import com.intellij.searchEverywhereMl.RANKING_EP_NAME
 import com.intellij.searchEverywhereMl.SearchEverywhereMlExperiment
 import com.intellij.searchEverywhereMl.SearchEverywhereTabWithMlRanking
 import com.intellij.searchEverywhereMl.settings.SearchEverywhereMlSettings
+import com.intellij.searchEverywhereMl.SemanticSearchEverywhereContributor
 import com.intellij.ui.components.JBList
 import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.atomic.AtomicInteger
@@ -34,8 +35,7 @@ class SearchEverywhereMlRankingService : SearchEverywhereMlService {
     return settings.isSortingByMlEnabledInAnyTab() || experiment.isAllowed
   }
 
-  internal fun shouldUseExperimentalModel(tabId: String): Boolean {
-    val tab = SearchEverywhereTabWithMlRanking.findById(tabId) ?: return false
+  internal fun shouldUseExperimentalModel(tab: SearchEverywhereTabWithMlRanking): Boolean {
     return experiment.getExperimentForTab(tab) == SearchEverywhereMlExperiment.ExperimentType.USE_EXPERIMENTAL_MODEL
   }
 
@@ -73,14 +73,28 @@ class SearchEverywhereMlRankingService : SearchEverywhereMlService {
 
     val elementId = session.itemIdProvider.getId(element)
     val mlElementInfo = state.getElementFeatures(elementId, element, contributor, priority, session.mixedListInfo, session.cachedContextInfo)
-    val mlWeight = if (state.orderByMl) state.getMLWeight(session.cachedContextInfo, mlElementInfo) else null
 
-    return if (isShowDiff()) {
+    val mlWeight = if (shouldCalculateMlWeight(contributor, state)) {
+      state.getMLWeight(session.cachedContextInfo, mlElementInfo)
+    } else {
+      null
+    }
+
+    return if (isShowDiff() || (contributor is SemanticSearchEverywhereContributor && contributor.isElementSemantic(element))) {
       SearchEverywhereFoundElementInfoBeforeDiff(element, priority, contributor, mlWeight, mlElementInfo.features)
     }
     else {
       SearchEverywhereFoundElementInfoWithMl(element, priority, contributor, mlWeight, mlElementInfo.features)
     }
+  }
+
+  private fun shouldCalculateMlWeight(contributor: SearchEverywhereContributor<*>, searchState: SearchEverywhereMlSearchState): Boolean {
+    // Don't calculate ML weight for typo fix, as otherwise it will affect the ranking priority, which is meant to be Int.MAX_VALUE
+    if (contributor is SearchEverywhereSpellingCorrectorContributor) return false
+    // If we're showing recently used actions (empty query) then we don't want to apply ML sorting either
+    if (searchState.tabId == ActionSearchEverywhereContributor::class.simpleName && searchState.searchQuery.isEmpty()) return false
+
+    return searchState.orderByMl
   }
 
   override fun onSearchRestart(project: Project?,

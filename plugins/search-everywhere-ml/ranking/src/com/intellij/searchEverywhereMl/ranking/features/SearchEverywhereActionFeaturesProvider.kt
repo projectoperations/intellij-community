@@ -198,7 +198,7 @@ internal class SearchEverywhereActionFeaturesProvider :
 
     fun getFieldsDeclaration(): List<EventField<*>> = arrayListOf(globalUsage, globalUsageToMax, usersRatio, usagesPerUserRatio)
 
-    fun getGlobalUsageStatistics(actionGlobalStatistics: ActionGlobalUsageInfo?, maxUsageCount: Long) : List<EventPair<*>> {
+    fun getGlobalUsageStatistics(actionGlobalStatistics: ActionGlobalUsageInfo?, maxUsageCount: Long): List<EventPair<*>> {
       val result = arrayListOf<EventPair<*>>()
       actionGlobalStatistics?.let {
         result.add(globalUsage.with(it.usagesCount))

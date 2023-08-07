@@ -4,6 +4,7 @@ package com.intellij.ide.actions;
 import com.intellij.icons.AllIcons;
 import com.intellij.internal.statistic.eventLog.events.EventPair;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification;
 import com.intellij.openapi.actionSystem.impl.FusAwareAction;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbAwareAction;
@@ -14,6 +15,7 @@ import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.openapi.wm.WindowInfo;
 import com.intellij.openapi.wm.impl.SquareStripeButton;
 import com.intellij.openapi.wm.impl.ToolWindowImpl;
+import com.intellij.toolWindow.ToolWindowDragHelper;
 import com.intellij.ui.ExperimentalUI;
 import com.intellij.ui.UIBundle;
 import org.jetbrains.annotations.Nls;
@@ -26,7 +28,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-public final class ToolWindowMoveAction extends DumbAwareAction implements FusAwareAction {
+public final class ToolWindowMoveAction extends DumbAwareAction implements FusAwareAction, ActionRemoteBehaviorSpecification.Frontend {
   public enum Anchor {
     LeftTop, LeftBottom, BottomLeft, BottomRight, RightBottom, RightTop, TopRight, TopLeft;
 
@@ -137,7 +139,9 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
     if (component instanceof SquareStripeButton) {
       return ((SquareStripeButton)component).getToolWindow();
     }
-
+    if (component instanceof ToolWindowDragHelper.ToolWindowProvider twp) {
+      return twp.getToolWindow();
+    }
     String id = manager.getActiveToolWindowId();
     return id == null ? null : manager.getToolWindow(id);
   }

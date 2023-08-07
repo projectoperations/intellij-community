@@ -13,6 +13,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.progress.runBlockingModal
+import com.intellij.openapi.progress.runWithModalProgressBlocking
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.modules
 import com.intellij.openapi.projectRoots.Sdk
@@ -93,14 +94,14 @@ class BlackFormatterConfigurable(val project: Project) : BoundConfigurable(PyBun
   })
 
   var mainPanel: DialogPanel = panel {
-    row {
-      label(PyBundle.message("black.execution.mode.label"))
-        .applyToComponent { toolTipText = PyBundle.message("black.execution.mode.tooltip.text") }
-        .applyToComponent { icon = AllIcons.General.ContextHelp }
+    row(PyBundle.message("black.execution.mode.label")) {
       executionModeComboBox = comboBox(EnumComboBoxModel(
         BlackFormatterConfiguration.ExecutionMode::class.java))
         .applyToComponent { renderer = executionModeComboBoxRenderer }
+        .gap(RightGap.SMALL)
         .component
+      icon(AllIcons.General.ContextHelp)
+        .applyToComponent { toolTipText = PyBundle.message("black.execution.mode.tooltip.text") }
       layout(RowLayout.LABEL_ALIGNED)
     }
     row {
@@ -117,7 +118,7 @@ class BlackFormatterConfigurable(val project: Project) : BoundConfigurable(PyBun
         .align(AlignX.FILL)
       bottomGap(BottomGap.SMALL)
     }
-    sdkSelectionRow = row(PyBundle.message("black.sdk.selection.combobox.label")) {
+    sdkSelectionRow = row(PyBundle.message("black.interpreter.selection.combobox.label")) {
       layout(RowLayout.LABEL_ALIGNED)
       cell(sdkSelectionComboBox)
         .resizableColumn()
@@ -130,14 +131,14 @@ class BlackFormatterConfigurable(val project: Project) : BoundConfigurable(PyBun
           .applyToComponent { icon = AllIcons.General.Warning }
           .component
         installButton = button(PyBundle.message("black.install.button.label")) {
-          runBlockingModal(project, PyBundle.message("black.installing.modal.title")) {
+          runWithModalProgressBlocking(project, PyBundle.message("black.installing.modal.title")) {
             withContext(Dispatchers.EDT) {
               if (selectedSdk != null) {
                 val errorDescription = installBlackFormatter(selectedSdk!!)
                 if (errorDescription == null) {
                   isBlackFormatterPackageInstalled = true
-                  enableOnReformatCheckBox.isSelected = true
                   updateUiState()
+                  enableOnReformatCheckBox.isSelected = true
                 }
                 else {
                   PyPackagesNotificationPanel
@@ -229,11 +230,7 @@ class BlackFormatterConfigurable(val project: Project) : BoundConfigurable(PyBun
     pathToBinaryRow.visible(isBinaryMode)
     sdkSelectionRow.visible(!isBinaryMode)
 
-    if (selectedSdk == null) {
-      packageNotInstalledErrorLabel.text = PyBundle.message("black.no.project.interpreter.error")
-      installButton.isVisible = false
-    }
-    else if (!isLocalSdk) {
+    if (!isLocalSdk && selectedSdk != null) {
       remoteSdkErrorLabel.isVisible = executionModeComboBox.selectedItem == BlackFormatterConfiguration.ExecutionMode.PACKAGE
     }
 

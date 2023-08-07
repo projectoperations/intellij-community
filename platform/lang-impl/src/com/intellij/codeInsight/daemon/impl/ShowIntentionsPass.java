@@ -14,12 +14,14 @@ import com.intellij.lang.Language;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.openapi.util.Segment;
@@ -74,7 +76,7 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
     List<HighlightInfo.IntentionActionDescriptor> result = new ArrayList<>();
     DaemonCodeAnalyzerImpl.processHighlightsNearOffset(editor.getDocument(), project, HighlightSeverity.INFORMATION, offset, true,
                                                        info-> {
-                                                         addAvailableFixesForGroups(info, editor, file, result, passId, offset);
+                                                         addAvailableFixesForGroups(info, editor, file, result, passId, offset, true);
                                                          return true;
                                                        });
     return result;
@@ -98,7 +100,8 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
                                                  @NotNull PsiFile file,
                                                  @NotNull List<? super HighlightInfo.IntentionActionDescriptor> outList,
                                                  int group,
-                                                 int offset) {
+                                                 int offset,
+                                                 boolean checkOffset) {
     if (group != -1 && group != info.getGroup()) return;
     boolean fixRangeIsEmpty = info.getFixTextRange().isEmpty();
     Editor[] injectedEditor = {null};
@@ -117,7 +120,7 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
       }
 
       Project project = file.getProject();
-      if (!range.contains(offset) && offset != range.getEndOffset()) {
+      if (checkOffset && !range.contains(offset) && offset != range.getEndOffset()) {
         return null;
       }
       Editor editorToUse;
@@ -169,6 +172,7 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
     public final List<HighlightInfo.IntentionActionDescriptor> notificationActionsToShow = ContainerUtil.createLockFreeCopyOnWriteList();
     private int myOffset;
     private HighlightInfoType myHighlightInfoType;
+    private @Nullable @NlsContexts.PopupTitle String myTitle;
 
     public void filterActions(@Nullable PsiFile psiFile) {
       IntentionActionFilter[] filters = IntentionActionFilter.EXTENSION_POINT_NAME.getExtensions();
@@ -176,6 +180,14 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
       filter(errorFixesToShow, psiFile, filters);
       filter(inspectionFixesToShow, psiFile, filters);
       filter(notificationActionsToShow, psiFile, filters);
+    }
+
+    public @Nullable @NlsContexts.PopupTitle String getTitle() {
+      return myTitle;
+    }
+
+    public void setTitle(@Nullable @NlsContexts.PopupTitle String title) {
+      myTitle = title;
     }
 
     public void setOffset(int offset) {
@@ -303,11 +315,40 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass {
 
     List<HighlightInfo.IntentionActionDescriptor> fixes = new ArrayList<>();
     DaemonCodeAnalyzerImpl.HighlightByOffsetProcessor highestPriorityInfoFinder = new DaemonCodeAnalyzerImpl.HighlightByOffsetProcessor(true);
-    CommonProcessors.CollectProcessor<HighlightInfo> infos = new CommonProcessors.CollectProcessor<>();
-    DaemonCodeAnalyzerImpl.processHighlightsNearOffset(hostEditor.getDocument(), hostFile.getProject(), HighlightSeverity.INFORMATION, offset, true, infos);
-    for (HighlightInfo info : infos.getResults()) {
-      addAvailableFixesForGroups(info, hostEditor, hostFile, fixes, passIdToShowIntentionsFor, offset);
+    List<HighlightInfo> infos = new ArrayList<>();
+    List<HighlightInfo> additionalInfos = new ArrayList<>();
+    @NotNull Document document = hostEditor.getDocument();
+    int line = document.getLineNumber(offset);
+    DaemonCodeAnalyzerEx.processHighlights(document, hostFile.getProject(), HighlightSeverity.INFORMATION, 0, document.getTextLength(), info -> {
+      if (info.containsOffset(offset, true)) {
+        infos.add(info);
+      }
+      else if (info.getSeverity().equals(HighlightSeverity.ERROR) && info.startOffset <= document.getTextLength() && document.getLineNumber(info.startOffset) == line) {
+        additionalInfos.add(info);
+      }
+      return true;
+    });
+    for (HighlightInfo info : infos) {
+      addAvailableFixesForGroups(info, hostEditor, hostFile, fixes, passIdToShowIntentionsFor, offset, true);
       highestPriorityInfoFinder.process(info);
+    }
+    if (!ContainerUtil.exists(infos, info -> info.getSeverity().equals(HighlightSeverity.ERROR))) {
+      for (HighlightInfo info : additionalInfos) {
+        List<HighlightInfo.IntentionActionDescriptor> additionalFixes = new ArrayList<>();
+        addAvailableFixesForGroups(info, hostEditor, hostFile, additionalFixes, passIdToShowIntentionsFor, offset, false);
+        boolean added = false;
+        for (HighlightInfo.IntentionActionDescriptor fix : additionalFixes) {
+          if (!ContainerUtil.exists(fixes, descriptor -> descriptor.getAction().getText().equals(fix.getAction().getText()))) {
+            fix.setProblemOffset(info.startOffset);
+            fixes.add(fix);
+            added = true;
+          }
+        }
+        if (added) {
+          highestPriorityInfoFinder.process(info);
+          break;
+        }
+      }
     }
 
     HighlightInfo infoAtCursor = highestPriorityInfoFinder.getResult();

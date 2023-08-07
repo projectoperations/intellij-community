@@ -2,6 +2,8 @@
 package org.jetbrains.plugins.gitlab.mergerequest.file
 
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.TransactionGuard
+import com.intellij.openapi.application.TransactionGuardImpl
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
@@ -46,10 +48,13 @@ class GitLabMergeRequestsFilesControllerImpl(
       if (project.isDisposed) return@withContext
       val fileManager = FileEditorManager.getInstance(project)
       writeAction {
-        // cache?
-        fileManager.openFiles.forEach { file ->
-          if (file is GitLabVirtualFile && connection.id == file.connectionId) {
-            fileManager.closeFile(file)
+        // otherwise the exception is thrown when removing an editor tab
+        (TransactionGuard.getInstance() as TransactionGuardImpl).performUserActivity {
+          // cache?
+          fileManager.openFiles.forEach { file ->
+            if (file is GitLabVirtualFile && connection.id == file.connectionId) {
+              fileManager.closeFile(file)
+            }
           }
         }
       }

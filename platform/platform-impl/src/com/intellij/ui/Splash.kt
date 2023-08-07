@@ -1,10 +1,8 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("UndesirableClassUsage")
 
 package com.intellij.ui
 
-import com.intellij.diagnostic.StartUpMeasurer
-import com.intellij.diagnostic.runActivity
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.ex.ApplicationInfoEx
@@ -34,8 +32,8 @@ import java.nio.file.Path
  * To customize your IDE splash go to YourIdeNameApplicationInfo.xml and edit 'logo' tag. For more information, see documentation for
  * the tag attributes in ApplicationInfo.xsd file.
  */
-class Splash(private val image: BufferedImage) : Dialog(null as Frame?,
-                                                        "splash" /* not visible, but available through window properties on Linux */) {
+class Splash(private val image: BufferedImage) :
+  Dialog(null as Frame?, "splash" /* not visible, but available through window properties on Linux */) {
   init {
     isUndecorated = true
     background = Gray.TRANSPARENT
@@ -46,12 +44,6 @@ class Splash(private val image: BufferedImage) : Dialog(null as Frame?,
     val height = image.height
     size = Dimension(width, height)
     setLocationInTheCenterOfScreen(this)
-
-    StartUpMeasurer.addInstantEvent("splash shown")
-    runActivity("splash set visible") {
-      isVisible = true
-    }
-    toFront()
   }
 
   override fun paint(g: Graphics) {

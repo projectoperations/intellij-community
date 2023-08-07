@@ -3,6 +3,7 @@ package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingLevelManager;
 import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
+import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
@@ -55,6 +56,7 @@ public final class HighlightingSessionImpl implements HighlightingSession {
   private volatile boolean myInContent;
   private volatile ThreeState extensionsAllowToChangeFileSilently;
   private final List<RunnableFuture<?>> pendingFileLevelHighlightRequests = ContainerUtil.createLockFreeCopyOnWriteList();
+  private volatile HighlightSeverity myMinimumSeverity;
 
   private HighlightingSessionImpl(@NotNull PsiFile psiFile,
                                   @NotNull DaemonProgressIndicator progressIndicator,
@@ -78,6 +80,14 @@ public final class HighlightingSessionImpl implements HighlightingSession {
 
   boolean canChangeFileSilently() {
     return myCanChangeFileSilently.canIReally(myInContent, extensionsAllowToChangeFileSilently);
+  }
+
+  void setMinimumSeverity(@Nullable HighlightSeverity minimumSeverity) {
+    myMinimumSeverity = minimumSeverity;
+  }
+
+  HighlightSeverity getMinimumSeverity() {
+    return myMinimumSeverity;
   }
 
   @NotNull
@@ -220,7 +230,10 @@ public final class HighlightingSessionImpl implements HighlightingSession {
 
   @Override
   public String toString() {
-    return "HighlightingSessionImpl: myVisibleRange:"+myVisibleRange+"; myPsiFile: "+myPsiFile+ (myIsEssentialHighlightingOnly ? "; essentialHighlightingOnly":"");
+    return "HighlightingSessionImpl: " +
+           "myVisibleRange:"+myVisibleRange+
+           "; myPsiFile: "+myPsiFile+ " (" + myPsiFile.getClass() + ")"+
+           (myIsEssentialHighlightingOnly ? "; essentialHighlightingOnly":"");
   }
 
   // compute additional stuff in background thread

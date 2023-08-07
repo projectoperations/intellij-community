@@ -4,7 +4,7 @@
     <facet type="kotlin-language" name="Kotlin">
       <configuration version="5" platform="JVM 17" allPlatforms="JVM [17]" useProjectSettings="false">
         <compilerSettings>
-          <option name="additionalArguments" value="-Xjvm-default=all -Xopt-in=com.intellij.openapi.util.IntellijInternalApi -Xcontext-receivers" />
+          <option name="additionalArguments" value="-Xjvm-default=all -Xopt-in=com.intellij.openapi.util.IntellijInternalApi -Xcontext-receivers -opt-in=org.jetbrains.kotlin.analysis.api.lifetime.KtAllowProhibitedAnalyzeFromWriteAction" />
         </compilerSettings>
         <compilerArguments>
           <stringArguments>
@@ -41,5 +41,7 @@
     <orderEntry type="module" module-name="intellij.platform.lang.impl" />
     <orderEntry type="module" module-name="intellij.java.psi" />
     <orderEntry type="module" module-name="intellij.java.testFramework" scope="TEST" />
+    <orderEntry type="module" module-name="kotlin.refactorings.introduce.k2" />
+    <orderEntry type="module" module-name="kotlin.fir.frontend-independent.tests" scope="TEST" />
   </component>
 </module>

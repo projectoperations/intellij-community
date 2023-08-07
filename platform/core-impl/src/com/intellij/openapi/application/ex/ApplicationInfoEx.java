@@ -20,13 +20,6 @@ public abstract class ApplicationInfoEx extends ApplicationInfo {
 
   public abstract String getSplashImageUrl();
 
-  public abstract String getAboutImageUrl();
-
-  /** @deprecated please use {@link #getSmallApplicationSvgIconUrl()} instead */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public abstract @NotNull String getSmallIconUrl();
-
   /**
    * Returns a path to an SVG icon of the product.
    * The path is a relative path inside the product's JAR files.
@@ -40,14 +33,10 @@ public abstract class ApplicationInfoEx extends ApplicationInfo {
    */
   public abstract @NotNull String getSmallApplicationSvgIconUrl();
 
-  public abstract String getToolWindowIconUrl();
-
   /** @deprecated please use {@link #getApplicationSvgIconUrl()} instead. */
   @Deprecated
   @ApiStatus.ScheduledForRemoval
   public abstract @Nullable String getWelcomeScreenLogoUrl();
-
-  public abstract boolean showLicenseeInfo();
 
   public abstract String getCopyrightStart();
 
@@ -60,6 +49,11 @@ public abstract class ApplicationInfoEx extends ApplicationInfo {
 
   @ApiStatus.Experimental
   public abstract boolean isPreview();
+
+  public final String getDownloadUrl() {
+    String productUrl = getProductUrl();
+    return productUrl != null ? productUrl + "download/" : null;
+  }
 
   public abstract @Nullable UpdateUrls getUpdateUrls();
 
@@ -96,10 +90,6 @@ public abstract class ApplicationInfoEx extends ApplicationInfo {
 
   public abstract String getMacKeymapUrl();
 
-  public abstract long getAboutForeground();
-
-  public abstract long getAboutLinkColor();
-
   public interface UpdateUrls {
     String getCheckingUrl();
     String getPatchesUrl();
@@ -113,8 +103,6 @@ public abstract class ApplicationInfoEx extends ApplicationInfo {
   public abstract boolean isEssentialPlugin(@NotNull PluginId pluginId);
 
   public abstract @Nullable String getWelcomeWizardDialog();
-
-  public abstract int @Nullable [] getAboutLogoRect();
 
   public abstract String getSubscriptionFormId();
 
@@ -134,8 +122,6 @@ public abstract class ApplicationInfoEx extends ApplicationInfo {
   public final boolean isVendorJetBrains() {
     return "JetBrains".equals(getShortCompanyName());
   }
-
-  public abstract long getCopyrightForeground();
 
   public abstract @NotNull BuildNumber getApiVersionAsNumber();
 

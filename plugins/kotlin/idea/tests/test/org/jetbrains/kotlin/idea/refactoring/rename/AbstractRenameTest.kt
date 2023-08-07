@@ -33,7 +33,7 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.UsefulTestCase
 import com.intellij.testFramework.fixtures.CodeInsightTestUtil
 import org.jetbrains.kotlin.asJava.finder.KtLightPackage
-import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.kotlin.descriptors.findClassAcrossModuleDependencies
 import org.jetbrains.kotlin.idea.base.plugin.artifacts.TestKotlinArtifacts
 import org.jetbrains.kotlin.idea.base.util.allScope
 import org.jetbrains.kotlin.idea.caches.resolve.analyzeWithAllCompilerChecks
@@ -388,7 +388,7 @@ abstract class AbstractRenameTest : KotlinLightCodeInsightFixtureTestCase() {
                 handler = handler.getRenameHandler(dataContext)!!
             }
 
-            if (handler is VariableInplaceRenameHandler) {
+            if (handler is VariableInplaceRenameHandler && renameParamsObject.get("forceInlineRename")?.asBoolean != false) {
                 val elementToRename = psiFile.findElementAt(currentCaret.offset)!!.getNonStrictParentOfType<PsiNamedElement>()!!
                 CodeInsightTestUtil.doInlineRename(handler, newName, editor, elementToRename)
             } else {

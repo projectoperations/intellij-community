@@ -12,6 +12,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.xml.XmlTag;
+import org.jetbrains.idea.maven.buildtool.MavenImportSpec;
 import org.jetbrains.idea.maven.dom.model.MavenDomProfiles;
 import org.jetbrains.idea.maven.dom.model.MavenDomProfilesModel;
 import org.jetbrains.idea.maven.dom.model.MavenDomSettingsModel;
@@ -19,6 +20,7 @@ import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 import org.jetbrains.idea.maven.project.importing.FilesList;
 import org.jetbrains.idea.maven.project.importing.MavenImportFlow;
 import org.jetbrains.idea.maven.project.importing.MavenInitialImportContext;
+import org.jetbrains.idea.maven.utils.MavenUtil;
 import org.jetbrains.idea.maven.vfs.MavenPropertiesVirtualFileSystem;
 import org.junit.Test;
 
@@ -101,6 +103,58 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
                        """);
 
     assertResolved(myProjectPom, baseDir);
+  }
+
+  @Test
+  public void testBuiltInMavenMultimoduleDirProperty() throws Exception {
+    createProjectPom("""
+                       <groupId>test</groupId<artifactId>project</artifactId>
+                       <version>1</version>
+                       <properties>
+                         <myDir>${<caret>maven.multiModuleProjectDirectory}</myDir>
+                       </properties>>
+                       """);
+
+    PsiDirectory multimoduleDir = PsiManager.getInstance(myProject).findDirectory(myProjectPom.getParent());
+    assertResolved(myProjectPom, multimoduleDir);
+  }
+
+    @Test
+    public void testBuiltInMavenMultimoduleDirPropertyParentFile() throws Exception {
+     createModulePom("m1",
+                                     """
+                                       <parent>
+                                          <groupId>test</groupId>
+                                          <artifactId>project</artifactId>
+                                          <version>1</version>
+                                       </parent>
+                                       <artifactId>m1</artifactId>
+                                       """);
+    importProject("""
+                    <groupId>test</groupId>
+                    <artifactId>project</artifactId>
+                    <version>1</version>
+                    <packaging>pom</packaging>
+                    <modules>
+                      <module>m1</module>
+                    </modules>
+                    """);
+
+    VirtualFile m1 = createModulePom("m1",
+                                     """
+                                       <parent>
+                                          <groupId>test</groupId>
+                                          <artifactId>project</artifactId>
+                                          <version>1</version>
+                                       </parent>
+                                       <artifactId>m1</artifactId>
+                                       <properties>
+                                         <myDir>${<caret>maven.multiModuleProjectDirectory}</myDir>
+                                       </properties>
+                                       """);
+      PsiDirectory multimoduleDir = PsiManager.getInstance(myProject).findDirectory(myProjectPom.getParent());
+      assertResolved(m1, multimoduleDir);
+
   }
 
   @Test
@@ -359,7 +413,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
                        <name>${<caret>project.build.finalName}</name>
                        """);
 
-    VirtualFile effectiveSuperPom = getMavenGeneralSettings().getEffectiveSuperPom();
+    VirtualFile effectiveSuperPom = MavenUtil.getEffectiveSuperPom(myProject, myProjectRoot.toNioPath().toString());
     assertNotNull(effectiveSuperPom);
     assertResolved(myProjectPom, findTag(effectiveSuperPom, "project.build.finalName"));
   }
@@ -967,9 +1021,10 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
                   "parentProfilesXmlProp");
     assertContain(variants, "artifactId", "project.artifactId", "pom.artifactId");
     assertContain(variants, "basedir", "project.basedir", "pom.basedir", "project.baseUri", "pom.basedir");
-    assert !variants.contains("baseUri");
+    assertDoNotContain(variants, "baseUri");
     assertContain(variants, "maven.build.timestamp");
-    assert !variants.contains("project.maven.build.timestamp");
+    assertContain(variants, "maven.multiModuleProjectDirectory");
+    assertDoNotContain(variants, "project.maven.build.timestamp");
     assertContain(variants, "settingsXmlProp");
     assertContain(variants, "settings.localRepository");
     assertContain(variants, "user.home", "env." + getEnvVar());
@@ -1058,6 +1113,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     }
     else {
       myProjectsManager.setExplicitProfiles(new MavenExplicitProfiles(Arrays.asList(profiles)));
+      myProjectsManager.scheduleUpdateAll(new MavenImportSpec(false, false, false));
       waitForReadingCompletion();
     }
   }

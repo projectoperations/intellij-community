@@ -4,6 +4,7 @@ package com.intellij.psi.util;
 import com.intellij.codeInsight.daemon.impl.analysis.JavaGenericsUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
@@ -122,9 +123,6 @@ public final class JavaPsiPatternUtil {
   @Contract(value = "null -> null", pure = true)
   @Nullable
   public static PsiPatternVariable getPatternVariable(@Nullable PsiCaseLabelElement pattern) {
-    if (pattern instanceof PsiGuardedPattern) {
-      return getPatternVariable(((PsiGuardedPattern)pattern).getPrimaryPattern());
-    }
     if (pattern instanceof PsiPatternGuard) {
       return getPatternVariable(((PsiPatternGuard)pattern).getPattern());
     }
@@ -143,10 +141,7 @@ public final class JavaPsiPatternUtil {
   @Contract(value = "null -> null", pure = true)
   @Nullable
   public static PsiPrimaryPattern getTypedPattern(@Nullable PsiCaseLabelElement element) {
-    if (element instanceof PsiGuardedPattern) {
-      return getTypedPattern(((PsiGuardedPattern)element).getPrimaryPattern());
-    }
-    else if (element instanceof PsiPatternGuard) {
+    if (element instanceof PsiPatternGuard) {
       return getTypedPattern(((PsiPatternGuard)element).getPattern());
     }
     else if (element instanceof PsiParenthesizedPattern) {
@@ -173,9 +168,6 @@ public final class JavaPsiPatternUtil {
   public static boolean containsPatternVariable(@Nullable PsiCaseLabelElement pattern) {
     if (pattern instanceof PsiPatternGuard) {
       return containsPatternVariable(((PsiPatternGuard)pattern).getPattern());
-    }
-    else if (pattern instanceof PsiGuardedPattern) {
-      return containsPatternVariable(((PsiGuardedPattern)pattern).getPrimaryPattern());
     }
     else if (pattern instanceof PsiTypeTestPattern) {
       return ((PsiTypeTestPattern)pattern).getPatternVariable() != null;
@@ -205,9 +197,6 @@ public final class JavaPsiPatternUtil {
 
   public static @Nullable PsiTypeElement getPatternTypeElement(@Nullable PsiCaseLabelElement pattern) {
     if (pattern == null) return null;
-    if (pattern instanceof PsiGuardedPattern) {
-      return getPatternTypeElement(((PsiGuardedPattern)pattern).getPrimaryPattern());
-    }
     else if (pattern instanceof PsiPatternGuard) {
       return getPatternTypeElement(((PsiPatternGuard)pattern).getPattern());
     }
@@ -219,6 +208,9 @@ public final class JavaPsiPatternUtil {
     }
     else if (pattern instanceof PsiTypeTestPattern) {
       return ((PsiTypeTestPattern)pattern).getCheckType();
+    }
+    else if (pattern instanceof PsiUnnamedPattern) {
+      return ((PsiUnnamedPattern)pattern).getTypeElement();
     }
     return null;
   }
@@ -237,20 +229,11 @@ public final class JavaPsiPatternUtil {
       if (!Boolean.TRUE.equals(constVal)) return null;
       return findUnconditionalPattern(guarded.getPattern());
     }
-    else if (pattern instanceof PsiGuardedPattern) {
-      PsiGuardedPattern guarded = (PsiGuardedPattern)pattern;
-      Object constVal = evaluateConstant(guarded.getGuardingExpression());
-      if (!Boolean.TRUE.equals(constVal)) return null;
-      return findUnconditionalPattern(guarded.getPrimaryPattern());
-    }
     else if (pattern instanceof PsiParenthesizedPattern) {
       return findUnconditionalPattern(((PsiParenthesizedPattern)pattern).getPattern());
     }
-    else if (pattern instanceof PsiDeconstructionPattern) {
-      return (PsiDeconstructionPattern)pattern;
-    }
-    else if (pattern instanceof PsiTypeTestPattern) {
-      return (PsiTypeTestPattern)pattern;
+    else if (pattern instanceof PsiDeconstructionPattern || pattern instanceof PsiTypeTestPattern || pattern instanceof PsiUnnamedPattern) {
+      return (PsiPrimaryPattern)pattern;
     }
     return null;
   }
@@ -260,7 +243,7 @@ public final class JavaPsiPatternUtil {
     if (unconditionalPattern instanceof PsiDeconstructionPattern) {
       return forDomination && dominates(getPatternType(unconditionalPattern), type);
     }
-    else if (unconditionalPattern instanceof PsiTypeTestPattern) {
+    else if (unconditionalPattern instanceof PsiTypeTestPattern || unconditionalPattern instanceof PsiUnnamedPattern) {
       return dominates(getPatternType(unconditionalPattern), type);
     }
     return false;
@@ -292,6 +275,7 @@ public final class JavaPsiPatternUtil {
     if (who.getCanonicalText().equals(overWhom.getCanonicalText())) return true;
     overWhom = TypeConversionUtil.erasure(overWhom);
     PsiType baseType = TypeConversionUtil.erasure(who);
+    if(overWhom.equals(PsiTypes.nullType())) return who instanceof PsiClassType || who instanceof PsiArrayType;
     if (overWhom instanceof PsiArrayType || baseType instanceof PsiArrayType) {
       return baseType != null && TypeConversionUtil.isAssignable(baseType, overWhom);
     }
@@ -349,10 +333,14 @@ public final class JavaPsiPatternUtil {
 
   /**
    * 14.11.1 Switch Blocks
+   * @param overWhom - type of constant
    */
   @Contract(value = "_,null -> false", pure = true)
-  public static boolean dominates(@NotNull PsiCaseLabelElement who, @Nullable PsiType overWhom) {
+  public static boolean dominatesOverConstant(@NotNull PsiCaseLabelElement who, @Nullable PsiType overWhom) {
     if (overWhom == null) return false;
+    if (PsiUtil.getLanguageLevel(who) != LanguageLevel.JDK_20_PREVIEW){
+      who = findUnconditionalPattern(who);
+    }
     PsiType whoType = TypeConversionUtil.erasure(getPatternType(who));
     if (whoType == null) return false;
     PsiType overWhomType = null;
@@ -508,7 +496,7 @@ public final class JavaPsiPatternUtil {
    */
   public static @Nullable PsiType getContextType(@NotNull PsiPattern pattern) {
     PsiElement parent = pattern.getParent();
-    while (parent instanceof PsiParenthesizedPattern || parent instanceof PsiGuardedPattern) {
+    while (parent instanceof PsiParenthesizedPattern) {
       parent = parent.getParent();
     }
     if (parent instanceof PsiInstanceOfExpression) {

@@ -145,6 +145,12 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
     DataFlowInspectionTest.addJavaxDefaultNullabilityAnnotations(myFixture);
     doTest();
   }
+  
+  public void testNullableCalledWithNullUnderNotNullByDefault() {
+    DataFlowInspectionTest.addJavaxNullabilityAnnotations(myFixture);
+    DataFlowInspectionTest.addJavaxDefaultNullabilityAnnotations(myFixture);
+    doTest();
+  }
 
   public void testNullableSiblingOverriding() { doTest(); }
 
@@ -241,6 +247,12 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
     myFixture.configureFromExistingVirtualFile(myFixture.copyFileToProject(getTestName(false) + ".java", "foo/Classes.java"));
     myFixture.enableInspections(myInspection);
     myFixture.checkHighlighting(true, false, true);
+  }
+  
+  public void testDefaultOverridesExplicit() {
+    DataFlowInspectionTest.addJavaxNullabilityAnnotations(myFixture);
+    DataFlowInspectionTest.addJavaxDefaultNullabilityAnnotations(myFixture);
+    doTest();
   }
 
   public void testBeanValidationNotNull() {

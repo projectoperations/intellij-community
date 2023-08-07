@@ -176,9 +176,17 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
         String message = "Document/PSI mismatch: " + file + " of " + file.getClass() +
                          "; viewProvider=" + viewProvider +
                          "; uncommitted=" + Arrays.toString(getUncommittedDocuments());
+        String documentText = document.getText();
+        String fileText;
+        try {
+          fileText = file.getText();
+        }
+        catch (AssertionError e) {
+          fileText = "file.getText() failed with an error: " + e;
+        }
         throw new RuntimeExceptionWithAttachments(message,
-                                                  new Attachment("document.txt", document.getText()),
-                                                  new Attachment("psi.txt", file.getText()));
+                                                  new Attachment("document.txt", documentText),
+                                                  new Attachment("psi.txt", fileText));
       }
 
       if (!viewProvider.isPhysical()) {
@@ -721,7 +729,9 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
 
   @Override
   public boolean hasEventSystemEnabledUncommittedDocuments() {
-    return ContainerUtil.exists(myUncommittedDocuments, this::isEventSystemEnabled);
+    try (AccessToken ignore = SlowOperations.knownIssue("IDEA-319884, EA-831652, IDEA-301732, EA-659436, IDEA-307614, EA-773260")) {
+      return ContainerUtil.exists(myUncommittedDocuments, this::isEventSystemEnabled);
+    }
   }
 
   private void beforeCommitHandler() {

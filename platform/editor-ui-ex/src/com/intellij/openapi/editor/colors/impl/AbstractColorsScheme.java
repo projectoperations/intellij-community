@@ -60,6 +60,8 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
 
   private boolean myCanBeDeleted = true;
 
+  private boolean myIsVisible = true;
+
   // version influences XML format and triggers migration
   private int myVersion = CURR_VERSION;
 
@@ -104,6 +106,8 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
   private static final @NonNls String META_INFO_IDE           = "ide";
   private static final @NonNls String META_INFO_IDE_VERSION   = "ideVersion";
   private static final @NonNls String META_INFO_ORIGINAL      = "originalScheme";
+  private static final @NonNls String META_INFO_PARTIAL       = "partialSave";
+  public static final @NonNls  String META_INFO_PLUGIN_ID     = "pluginId";
 
   //endregion
 
@@ -118,8 +122,12 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
     myMetaInfo.setProperty(META_INFO_CREATION_TIME, META_INFO_DATE_FORMAT.format(new Date()));
     myMetaInfo.setProperty(META_INFO_IDE,           PlatformUtils.getPlatformPrefix());
     myMetaInfo.setProperty(META_INFO_IDE_VERSION,   ApplicationInfoEx.getInstanceEx().getStrictVersion());
-    if (parentScheme != null && parentScheme != EmptyColorScheme.INSTANCE) {
+    if (parentScheme != null && parentScheme != EmptyColorScheme.INSTANCE && !parentScheme.getName().startsWith(Scheme.EDITABLE_COPY_PREFIX)) {
       myMetaInfo.setProperty(META_INFO_ORIGINAL, parentScheme.getName());
+      String pluginId = parentScheme.getMetaProperties().getProperty(META_INFO_PLUGIN_ID);
+      if (pluginId != null) {
+        myMetaInfo.setProperty(META_INFO_PLUGIN_ID, pluginId);
+      }
     }
   }
 
@@ -536,6 +544,10 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
       parentNode.setAttribute(PARENT_SCHEME_ATTR, myParentScheme.getName());
     }
 
+    if (!(this instanceof ReadOnlyColorsScheme) && getBaseScheme() != myParentScheme) {
+      myMetaInfo.setProperty(META_INFO_PARTIAL, String.valueOf(true));
+    }
+
     if (!myMetaInfo.isEmpty()) {
       parentNode.addContent(metaInfoToElement());
     }
@@ -619,11 +631,12 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
   private void writeAttribute(@NotNull Element attrElements,
                               @NotNull TextAttributesKey key,
                               @NotNull TextAttributes attributes) {
+    EditorColorsScheme baseScheme = getBaseScheme();
     if (attributes == INHERITED_ATTRS_MARKER) {
       TextAttributesKey baseKey = key.getFallbackAttributeKey();
       // IDEA-162774 do not store if  inheritance = on in the parent scheme
-      TextAttributes parentAttributes = myParentScheme instanceof AbstractColorsScheme ?
-                                        ((AbstractColorsScheme)myParentScheme).getDirectlyDefinedAttributes(key) : null;
+      TextAttributes parentAttributes = baseScheme instanceof AbstractColorsScheme ?
+                                        ((AbstractColorsScheme)baseScheme).getDirectlyDefinedAttributes(key) : null;
       boolean parentOverwritingInheritance = parentAttributes != null && parentAttributes != INHERITED_ATTRS_MARKER;
       if (parentOverwritingInheritance) {
         attrElements.addContent(new Element(OPTION_ELEMENT)
@@ -633,11 +646,11 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
       return;
     }
 
-    if (myParentScheme != null) {
+    if (baseScheme != null) {
       // fallback attributes must be not used, otherwise derived scheme as copy will not have such key
-      TextAttributes parentAttributes = myParentScheme instanceof AbstractColorsScheme
-                                        ? ((AbstractColorsScheme)myParentScheme).getDirectlyDefinedAttributes(key)
-                                        : myParentScheme.getAttributes(key);
+      TextAttributes parentAttributes = baseScheme instanceof AbstractColorsScheme
+                                        ? ((AbstractColorsScheme)baseScheme).getDirectlyDefinedAttributes(key)
+                                        : baseScheme.getAttributes(key);
       if (attributes.equals(parentAttributes)) {
         return;
       }
@@ -714,11 +727,12 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
   }
 
   private void writeColor(@NotNull Element colorElements, @NotNull ColorKey key) {
+    EditorColorsScheme baseScheme = getBaseScheme();
     Color color = myColorsMap.get(key);
     if (color == INHERITED_COLOR_MARKER) {
       ColorKey fallbackKey = key.getFallbackColorKey();
-      Color parentFallback = myParentScheme instanceof AbstractColorsScheme ?
-                             ((AbstractColorsScheme)myParentScheme).getDirectlyDefinedColor(key) : null;
+      Color parentFallback = baseScheme instanceof AbstractColorsScheme ?
+                             ((AbstractColorsScheme)baseScheme).getDirectlyDefinedColor(key) : null;
       boolean parentOverwritingInheritance = parentFallback != null && parentFallback != INHERITED_COLOR_MARKER;
       if (fallbackKey != null && parentOverwritingInheritance) {
         colorElements.addContent(new Element(OPTION_ELEMENT)
@@ -728,10 +742,10 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
       return;
     }
 
-    if (myParentScheme != null) {
-      Color parent = myParentScheme instanceof AbstractColorsScheme
-                     ? ((AbstractColorsScheme)myParentScheme).getDirectlyDefinedColor(key)
-                     : myParentScheme.getColor(key);
+    if (baseScheme != null) {
+      Color parent = baseScheme instanceof AbstractColorsScheme
+                     ? ((AbstractColorsScheme)baseScheme).getDirectlyDefinedColor(key)
+                     : baseScheme.getColor(key);
       if (parent != null && colorsEqual(color, parent)) {
         return;
       }
@@ -744,6 +758,14 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
       if (alpha != 0xFF) rgb += Integer.toString(alpha, 16);
     }
     JdomKt.addOptionTag(colorElements, key.getExternalName(), rgb);
+  }
+
+  private @Nullable EditorColorsScheme getBaseScheme() {
+    if (mySchemeName.startsWith(Scheme.EDITABLE_COPY_PREFIX)) {
+      EditorColorsScheme original = getOriginal();
+      if (original != null) return original;
+    }
+    return myParentScheme;
   }
 
   protected static boolean colorsEqual(@Nullable Color c1, @Nullable Color c2) {
@@ -924,7 +946,11 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
   }
 
   public boolean isVisible() {
-    return true;
+    return myIsVisible;
+  }
+
+  public void setVisible(boolean isVisible) {
+    myIsVisible = isVisible;
   }
 
   public static boolean isVisible(@NotNull EditorColorsScheme scheme) {
@@ -1044,5 +1070,20 @@ public abstract class AbstractColorsScheme extends EditorFontCacheImpl implement
       }
       myParentScheme = newParent;
     }
+    else {
+      String originalSchemeName = getMetaProperties().getProperty(META_INFO_ORIGINAL);
+      String isPartial = getMetaProperties().getProperty(META_INFO_PARTIAL);
+      if (originalSchemeName != null && isPartial != null && Boolean.parseBoolean(isPartial)) {
+        EditorColorsScheme original = nameResolver.apply(originalSchemeName);
+        if (original == null) {
+          throw new InvalidDataException(originalSchemeName);
+        }
+      }
+    }
+  }
+
+  void copyMissingAttributes(@NotNull AbstractColorsScheme sourceScheme) {
+    sourceScheme.myColorsMap.forEach((key, color) -> myColorsMap.putIfAbsent(key, color));
+    sourceScheme.myAttributesMap.forEach((key, attributes) -> myAttributesMap.putIfAbsent(key, attributes));
   }
 }

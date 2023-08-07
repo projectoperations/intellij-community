@@ -842,17 +842,28 @@ public class PsiTreeUtil {
   @Contract("null, _ -> null")
   public static @Nullable <T extends PsiElement> T getParentOfType(@Nullable PsiElement element,
                                                                    @NotNull Class<? extends T> @NotNull ... classes) {
-    if (element == null || element instanceof PsiFile) return null;
-    PsiElement parent = element.getParent();
-    if (parent == null) return null;
-    return getNonStrictParentOfType(parent, classes);
+    return getParentOfType(element, true, classes);
   }
 
   @SafeVarargs
   @Contract("null, _ -> null")
   public static @Nullable <T extends PsiElement> T getNonStrictParentOfType(@Nullable PsiElement element,
                                                                             @NotNull Class<? extends T> @NotNull ... classes) {
-    PsiElement run = element;
+    return getParentOfType(element, false, classes);
+  }
+
+  @SafeVarargs
+  @Contract("null, _, _ -> null")
+  public static @Nullable <T extends PsiElement> T getParentOfType(@Nullable PsiElement element, boolean strict,
+                                                                   @NotNull Class<? extends T> @NotNull ... classes) {
+    PsiElement run;
+    if (strict) {
+      if (element == null || element instanceof PsiFile) return null;
+      run = element.getParent();
+    } else {
+      run = element;
+    }
+
     while (run != null) {
       if (instanceOf(run, classes)) {
         //noinspection unchecked
@@ -1354,7 +1365,10 @@ public class PsiTreeUtil {
   @Contract("null, _ -> null; !null, _ -> !null")
   public static <T extends PsiElement> T findSameElementInCopy(@Nullable T element, @NotNull PsiFile copy) throws IllegalStateException {
     if (element == null) return null;
-
+    if (element instanceof SyntheticElement) {
+      //noinspection unchecked
+      return (T)((SyntheticElement)element).findSameElementInCopy(copy);
+    }
     IntArrayList offsets = new IntArrayList();
     PsiElement cur = element;
     while (!cur.getClass().equals(copy.getClass())) {

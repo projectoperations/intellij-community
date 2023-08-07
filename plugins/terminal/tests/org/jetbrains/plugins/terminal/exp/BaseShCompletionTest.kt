@@ -4,26 +4,25 @@
 
 package org.jetbrains.plugins.terminal.exp
 
+import com.intellij.codeInsight.completion.CompletionContributor
+import com.intellij.codeInsight.completion.CompletionContributorEP
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.fileTypes.FileTypes
+import com.intellij.openapi.extensions.DefaultPluginDescriptor
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.testFramework.utils.io.createDirectory
 import com.intellij.testFramework.utils.io.createFile
 import com.jediterm.core.util.TermSize
 import org.jetbrains.plugins.terminal.LocalTerminalDirectRunner
-import org.jetbrains.plugins.terminal.ShellStartupOptions
-import org.jetbrains.plugins.terminal.util.SHELL_TYPE_KEY
+import org.jetbrains.plugins.terminal.exp.util.TerminalSessionTestUtil
 import org.junit.Assume
 import org.junit.Test
 import java.io.File
 import java.nio.file.Path
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import kotlin.io.path.createTempDirectory
 
 abstract class BaseShCompletionTest : BasePlatformTestCase() {
@@ -38,15 +37,18 @@ abstract class BaseShCompletionTest : BasePlatformTestCase() {
     Assume.assumeTrue("Shell is not found in '$shellPath'", File(shellPath).exists())
     super.setUp()
 
+    val descriptor = DefaultPluginDescriptor("org.jetbrains.plugins.terminal")
+    val contributor = CompletionContributorEP("Shell Script", TerminalSessionCompletionContributor::class.java.name, descriptor)
+    ExtensionTestUtil.maskExtensions(CompletionContributor.EP, listOf(contributor), testRootDisposable)
+
     Registry.get(LocalTerminalDirectRunner.BLOCK_TERMINAL_REGISTRY).setValue(true, testRootDisposable)
-    session = startTerminalSession(TermSize(200, 20))
+    session = TerminalSessionTestUtil.startTerminalSession(project, shellPath, testRootDisposable)
     val completionManager = createCompletionManager(session)
     val model = session.model
 
-    myFixture.configureByText(FileTypes.PLAIN_TEXT, "")
+    myFixture.configureByText("test.sh", "")
     myFixture.editor.putUserData(TerminalSession.KEY, session)
     myFixture.editor.putUserData(TerminalCompletionManager.KEY, completionManager)
-    myFixture.file.putUserData(SHELL_TYPE_KEY, session.shellIntegration?.shellType)
 
     testDirectory = createTempDirectory(prefix = "sh_completion")
 
@@ -272,57 +274,14 @@ abstract class BaseShCompletionTest : BasePlatformTestCase() {
     }
   }
 
-  private fun startTerminalSession(size: TermSize): TerminalSession {
-    val runner = LocalTerminalDirectRunner.createTerminalRunner(project)
-    val baseOptions = ShellStartupOptions.Builder().shellCommand(listOf(shellPath, "-i")).build()
-    val configuredOptions = runner.configureStartupOptions(baseOptions)
-    val process = runner.createProcess(configuredOptions)
-    val ttyConnector = runner.createTtyConnector(process)
-
-    val session = TerminalSession(runner.settingsProvider)
-    session.shellIntegration = configuredOptions.shellIntegration
-    val model: TerminalModel = session.model
-
-    val promptShownFuture = CompletableFuture<Boolean>()
-    val resizedFuture = CompletableFuture<Boolean>()
-    val listenersDisposable = Disposer.newDisposable()
-    session.addCommandListener(object : ShellCommandListener {
-      override fun promptShown() {
-        promptShownFuture.complete(true)
-      }
-    }, listenersDisposable)
-
-    model.addTerminalListener(object : TerminalModel.TerminalListener {
-      override fun onSizeChanged(width: Int, height: Int) {
-        if (size.columns == width && size.rows == height) {
-          resizedFuture.complete(true)
-        }
-      }
-    }, listenersDisposable)
-
-    session.start(ttyConnector)
-    session.postResize(size)
-
-    try {
-      promptShownFuture.get(5000, TimeUnit.MILLISECONDS)
-      resizedFuture.get(5000, TimeUnit.MILLISECONDS)
+  protected fun assertSingleItemCompleted(elements: Array<LookupElement>?, expectedItem: String) {
+    if (!elements.isNullOrEmpty()) {
+      assertSameElements(elements.map { it.lookupString }, listOf(expectedItem))
     }
-    catch (ex: TimeoutException) {
-      fail("Session failed to initialize, size: ${model.height}x${model.width}, text buffer:\n${model.withContentLock { model.getAllText() }}")
+    else {
+      val promptText = myFixture.editor.document.text
+      assertTrue("Incorrect prompt text: '$promptText'", promptText.endsWith(expectedItem))
     }
-    finally {
-      Disposer.dispose(listenersDisposable)
-    }
-    // Remove all welcome messages
-    model.withContentLock { model.clearAllExceptPrompt(1) }
-
-    return session
-  }
-
-  private fun assertSingleItemCompleted(elements: Array<LookupElement>?, expectedItem: String) {
-    assertTrue("Completion result is not empty: ${elements?.map { it.lookupString }}", elements.isNullOrEmpty())
-    val promptText = myFixture.editor.document.text
-    assertTrue("Incorrect prompt text: '$promptText'", promptText.endsWith(expectedItem))
   }
 
   companion object {

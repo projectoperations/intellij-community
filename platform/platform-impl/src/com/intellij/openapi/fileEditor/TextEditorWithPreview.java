@@ -129,12 +129,16 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
     myPreview.deselectNotify();
   }
 
+  protected @NotNull JBSplitter createSplitter() {
+    return new JBSplitter(myIsVerticalSplit, 0.5f, 0.15f, 0.85f);
+  }
+
   @Override
   public @NotNull JComponent getComponent() {
     if (myComponent != null) {
       return myComponent;
     }
-    mySplitter = new JBSplitter(myIsVerticalSplit, 0.5f, 0.15f, 0.85f);
+    mySplitter = createSplitter();
     mySplitter.setSplitterProportionKey(getSplitterProportionKey());
     mySplitter.setFirstComponent(myEditor.getComponent());
     mySplitter.setSecondComponent(myPreview.getComponent());
@@ -594,9 +598,9 @@ public class TextEditorWithPreview extends UserDataHolderBase implements TextEdi
     return file == null ? null : file.getUserData(DEFAULT_LAYOUT_FOR_FILE);
   }
 
-  public static void openPreviewForFile(@NotNull Project project, @NotNull VirtualFile file) {
+  public static FileEditor @NotNull [] openPreviewForFile(@NotNull Project project, @NotNull VirtualFile file) {
     file.putUserData(DEFAULT_LAYOUT_FOR_FILE, Layout.SHOW_PREVIEW);
-    FileEditorManager.getInstance(project).openFile(file, true);
+    return FileEditorManager.getInstance(project).openFile(file, true);
   }
 
   private static class MyEditorLayeredComponentWrapper extends JBLayeredPane {

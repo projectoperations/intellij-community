@@ -12,10 +12,12 @@ import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.util.Suppressions;
 import com.intellij.util.User32Ex;
+import com.intellij.util.lang.JavaVersion;
 import com.sun.jna.platform.win32.WinDef;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -85,7 +87,7 @@ final class DirectoryLock {
     myFallbackMode = !areUdsSupported(myPortFile);
 
     if (LOG.isDebugEnabled()) {
-      LOG.debug("portFile=" + myPortFile + " lockFile=" + myLockFile + " fallback=" + myFallbackMode);
+      LOG.debug("portFile=" + myPortFile + " lockFile=" + myLockFile + " fallback=" + myFallbackMode + " PID=" + myPid);
     }
 
     if (!myFallbackMode && myPortFile.toString().length() > UDS_PATH_LENGTH_LIMIT) {
@@ -101,6 +103,20 @@ final class DirectoryLock {
   }
 
   private static boolean areUdsSupported(Path file) {
+    var fs = file.getFileSystem();
+    if (fs.getClass().getModule() != Object.class.getModule()) {
+      if (!System.getProperty("java.vm.vendor", "").contains("JetBrains") ||
+          JavaVersion.current().compareTo(JavaVersion.compose(17, 0, 6, 894, false)) < 0) {
+        return false;
+      }
+      try {
+        fs.provider().getClass().getMethod("getSunPathForSocketFile", Path.class);
+      }
+      catch (NoSuchMethodException | SecurityException e) {
+        return false;
+      }
+    }
+
     if (!SystemInfoRt.isUnix) {
       try {
         SocketChannel.open(StandardProtocolFamily.UNIX).close();
@@ -111,7 +127,7 @@ final class DirectoryLock {
       catch (IOException ignored) { }
     }
 
-    return file.getFileSystem().getClass().getModule() == Object.class.getModule();
+    return true;
   }
 
   /**
@@ -145,14 +161,25 @@ final class DirectoryLock {
       throw new CannotActivateException(e);
     }
 
+    if (LOG.isDebugEnabled()) LOG.debug("Deleting " + myPortFile);
     Files.deleteIfExists(myPortFile);
+    if (myRedirectedPortFile != null) {
+      if (LOG.isDebugEnabled()) LOG.debug("Deleting " + myRedirectedPortFile);
+      Files.deleteIfExists(myRedirectedPortFile);
+    }
+
     return tryListen();
   }
 
   void dispose() {
+    dispose(true);
+  }
+
+  private void dispose(boolean deleteLockFile) {
     var serverChannel = myServerChannel;
     myServerChannel = null;
     if (serverChannel != null) {
+      if (LOG.isDebugEnabled()) LOG.debug("Cleaning up");
       Suppressions.runSuppressing(
         () -> serverChannel.close(),
         () -> {
@@ -161,7 +188,11 @@ final class DirectoryLock {
           }
         },
         () -> Files.deleteIfExists(myPortFile),
-        () -> Files.deleteIfExists(myLockFile));
+        () -> {
+          if (deleteLockFile) {
+            Files.deleteIfExists(myLockFile);
+          }
+        });
     }
   }
 
@@ -240,7 +271,7 @@ final class DirectoryLock {
     }
     catch (Exception e) {
       LOG.debug(e);
-      dispose();
+      dispose(false);
       throw new CannotActivateException(e);
     }
 
@@ -316,6 +347,11 @@ final class DirectoryLock {
   }
 
   //<editor-fold desc="Helpers">
+  @VisibleForTesting
+  @Nullable Path getRedirectedPortFile() {
+    return myRedirectedPortFile;
+  }
+
   private static void sendLines(SocketChannel socketChannel, List<String> lines) throws IOException {
     var buffer = ByteBuffer.allocate(BUFFER_LENGTH);
     buffer.putInt(MARKER).putShort((short)0);

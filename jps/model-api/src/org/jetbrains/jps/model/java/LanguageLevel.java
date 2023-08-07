@@ -24,7 +24,7 @@ public enum LanguageLevel {
   JDK_16(16),
   JDK_17(17),
   JDK_18(18),
-  JDK_19(19), JDK_19_PREVIEW(19),
+  JDK_19(19),
   JDK_20(20), JDK_20_PREVIEW(20),
   JDK_21(21), JDK_21_PREVIEW(21),
   JDK_X(22);
@@ -43,6 +43,6 @@ public enum LanguageLevel {
   }
 
   public boolean isPreview() {
-    return name().endsWith("_PREVIEW");
+    return name().endsWith("_PREVIEW") || name().endsWith("_X");
   }
 }

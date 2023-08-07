@@ -5,6 +5,7 @@ import com.intellij.ide.FileSelectInContext;
 import com.intellij.ide.SelectInContext;
 import com.intellij.openapi.ListSelection;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.CompositeDataProvider;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys;
 import com.intellij.openapi.project.Project;
@@ -350,6 +351,29 @@ public abstract class VcsTreeModelData {
 
   @Nullable
   public static Object getData(@Nullable Project project, @NotNull JTree tree, @NotNull String dataId) {
+    return getDataOrSuper(project, tree, dataId, null);
+  }
+
+  @Nullable
+  public static Object getDataOrSuper(@Nullable Project project, @NotNull JTree tree, @NotNull String dataId,
+                                      @Nullable Object superProviderData) {
+    if (PlatformCoreDataKeys.BGT_DATA_PROVIDER.is(dataId)) {
+      VcsTreeModelData treeSelection = selected(tree);
+      VcsTreeModelData exactSelection = exactlySelected(tree);
+      return CompositeDataProvider.compose(slowId -> getSlowData(project, treeSelection, exactSelection, slowId),
+                                           (DataProvider)superProviderData);
+    }
+
+    Object data = getFastData(project, tree, dataId);
+    if (data != null) {
+      return data;
+    }
+
+    return superProviderData;
+  }
+
+  @Nullable
+  private static Object getFastData(@Nullable Project project, @NotNull JTree tree, @NotNull String dataId) {
     if (CommonDataKeys.PROJECT.is(dataId)) {
       return project;
     }
@@ -368,11 +392,6 @@ public abstract class VcsTreeModelData {
     else if (VcsDataKeys.CHANGE_LEAD_SELECTION.is(dataId)) {
       return mapToChange(exactlySelected(tree)).toArray(Change.EMPTY_CHANGE_ARRAY);
     }
-    else if (PlatformCoreDataKeys.BGT_DATA_PROVIDER.is(dataId)) {
-      VcsTreeModelData treeSelection = selected(tree);
-      VcsTreeModelData exactSelection = exactlySelected(tree);
-      return (DataProvider)slowId -> getSlowData(project, treeSelection, exactSelection, slowId);
-    }
     return null;
   }
 
@@ -386,6 +405,9 @@ public abstract class VcsTreeModelData {
       VirtualFile file = mapObjectToVirtualFile(exactSelection.iterateRawUserObjects()).first();
       if (file == null) return null;
       return new FileSelectInContext(project, file, null);
+    }
+    else if (VcsDataKeys.VIRTUAL_FILES.is(slowId)) {
+      return mapToVirtualFile(treeSelection);
     }
     else if (CommonDataKeys.VIRTUAL_FILE_ARRAY.is(slowId)) {
       return mapToVirtualFile(treeSelection).toArray(VirtualFile.EMPTY_ARRAY);
@@ -466,26 +488,29 @@ public abstract class VcsTreeModelData {
   @NotNull
   static JBIterable<FilePath> mapToFilePath(@NotNull VcsTreeModelData data) {
     return data.iterateUserObjects()
-      .map(entry -> {
-        if (entry instanceof Change) {
-          return ChangesUtil.getFilePath((Change)entry);
-        }
-        else if (entry instanceof VirtualFile) {
-          return VcsUtil.getFilePath((VirtualFile)entry);
-        }
-        else if (entry instanceof FilePath) {
-          return ((FilePath)entry);
-        }
-        return null;
-      })
+      .map(VcsTreeModelData::mapUserObjectToFilePath)
       .filterNotNull();
+  }
+
+  @Nullable
+  public static FilePath mapUserObjectToFilePath(@Nullable Object userObject) {
+    if (userObject instanceof Change change) {
+      return ChangesUtil.getFilePath(change);
+    }
+    else if (userObject instanceof VirtualFile file) {
+      return VcsUtil.getFilePath(file);
+    }
+    else if (userObject instanceof FilePath filePath) {
+      return filePath;
+    }
+    return null;
   }
 
   /**
    * @see ChangesListView#EXACTLY_SELECTED_FILES_DATA_KEY
    */
   @NotNull
-  static JBIterable<VirtualFile> mapToExactVirtualFile(@NotNull VcsTreeModelData data) {
+  public static JBIterable<VirtualFile> mapToExactVirtualFile(@NotNull VcsTreeModelData data) {
     return data.iterateUserObjects()
       .map(object -> {
         if (object instanceof VirtualFile) return (VirtualFile)object;

@@ -12,9 +12,7 @@ import com.intellij.util.containers.MultiMap
 import com.intellij.util.io.Compressor
 import com.jetbrains.plugin.blockmap.core.BlockMap
 import com.jetbrains.plugin.blockmap.core.FileHash
-import com.jetbrains.plugin.structure.base.plugin.PluginCreationFail
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationSuccess
-import com.jetbrains.plugin.structure.base.plugin.PluginProblem
 import com.jetbrains.plugin.structure.intellij.plugin.IdePluginManager
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
@@ -365,10 +363,8 @@ suspend fun buildNonBundledPlugins(pluginsToPublish: Set<PluginLayout>,
         generatePluginRepositoryMetaFile(list.filter { it.pluginZip.startsWith(autoUploadingDir) }, autoUploadingDir, context)
       }
       pluginSpecs.forEach {
-        if (it.pluginZip.startsWith(autoUploadingDir)) {
-          launch {
-            validatePlugin(it.pluginZip, context)
-          }
+        launch {
+          validatePlugin(it.pluginZip, context)
         }
       }
       mappings
@@ -382,22 +378,16 @@ private suspend fun validatePlugin(path: Path, context: BuildContext) {
       it.addEvent("path doesn't exist, skipped")
       return@executeStep
     }
-
-    var id: String? = null
-    val problems = when (val result = IdePluginManager.createManager().createPlugin(path)) {
-      is PluginCreationSuccess -> {
-        id = result.plugin.pluginId
-        result.unacceptableWarnings
-      }
-      is PluginCreationFail -> {
-        result.errorsAndWarnings
-      }
-    }
+    val pluginManager = IdePluginManager.createManager()
+    val id = (pluginManager.createPlugin(path, validateDescriptor = false)
+      as? PluginCreationSuccess)
+      ?.plugin?.pluginId
+    val result = pluginManager.createPlugin(path, validateDescriptor = true)
+    val problems = context.productProperties.validatePlugin(result, context)
     if (problems.isNotEmpty()) {
       reportBuildProblem(problems.joinToString(
         prefix = "${id ?: path}: ",
         separator = ". ",
-        transform = PluginProblem::message
       ), identity = "${id ?: path}")
     }
   }
@@ -424,13 +414,13 @@ private suspend fun buildHelpPlugin(helpPlugin: PluginLayout,
   return PluginRepositorySpec(destFile, moduleOutputPatcher.getPatchedPluginXml(helpPlugin.mainModule))
 }
 
-internal suspend fun generateProjectStructureMapping(context: BuildContext, platform: PlatformLayout): List<DistributionFileEntry> {
+internal suspend fun generateProjectStructureMapping(context: BuildContext, platformLayout: PlatformLayout): List<DistributionFileEntry> {
   val moduleOutputPatcher = ModuleOutputPatcher()
   return coroutineScope {
     val libDirLayout = async {
       layoutPlatformDistribution(moduleOutputPatcher = moduleOutputPatcher,
                                  targetDirectory = context.paths.distAllDir,
-                                 platform = platform,
+                                 platform = platformLayout,
                                  context = context,
                                  copyFiles = false)
     }
@@ -441,6 +431,7 @@ internal suspend fun generateProjectStructureMapping(context: BuildContext, plat
       if (satisfiesBundlingRequirements(plugin = plugin, osFamily = null, arch = null, withEphemeral = true, context = context)) {
         val targetDirectory = context.paths.distAllDir.resolve(PLUGINS_DIRECTORY).resolve(plugin.directoryName)
         entries.addAll(layoutDistribution(layout = plugin,
+                                          platformLayout = platformLayout,
                                           targetDirectory = targetDirectory,
                                           copyFiles = false,
                                           simplify = false,
@@ -489,6 +480,7 @@ private suspend fun buildPlugins(moduleOutputPatcher: ModuleOutputPatcher,
       val task = async {
         spanBuilder("plugin").setAttribute("path", context.paths.buildOutputDir.relativize(pluginDir).toString()).useWithScope2 {
           val (entries, file) = layoutDistribution(layout = plugin,
+                                                   platformLayout = state.platform,
                                                    targetDirectory = pluginDir,
                                                    copyFiles = true,
                                                    simplify = simplify,
@@ -619,6 +611,7 @@ suspend fun layoutPlatformDistribution(moduleOutputPatcher: ModuleOutputPatcher,
     .setAttribute("path", targetDirectory.toString())
     .useWithScope2 {
       layoutDistribution(layout = platform,
+                         platformLayout = platform,
                          targetDirectory = targetDirectory,
                          copyFiles = copyFiles,
                          moduleOutputPatcher = moduleOutputPatcher,
@@ -735,7 +728,7 @@ private suspend fun copyAnt(antDir: Path, antTargetFile: Path, context: BuildCon
   return spanBuilder("copy Ant lib").setAttribute("antDir", antDir.toString()).useWithScope2 {
     val sources = ArrayList<ZipSource>()
     val result = ArrayList<DistributionFileEntry>()
-    val libraryData = ProjectLibraryData("Ant", LibraryPackMode.MERGED)
+    val libraryData = ProjectLibraryData("Ant", LibraryPackMode.MERGED, reason = "ant")
     copyDir(sourceDir = context.paths.communityHomeDir.resolve("lib/ant"),
             targetDir = antDir,
             dirFilter = { !it.endsWith("src") },
@@ -785,7 +778,7 @@ private fun CoroutineScope.createBuildThirdPartyLibraryListJob(entries: List<Dis
       generator.generateJson(jsonFilePath)
 
       if (context.productProperties.generateLibraryLicensesTable) {
-        val artifactNamePrefix = context.productProperties.getBaseArtifactName(context.applicationInfo, context.buildNumber)
+        val artifactNamePrefix = context.productProperties.getBaseArtifactName(context)
         val htmlArtifact = context.paths.artifactDir.resolve("$artifactNamePrefix-third-party-libraries.html")
         val jsonArtifact = context.paths.artifactDir.resolve("$artifactNamePrefix-third-party-libraries.json")
         Files.createDirectories(context.paths.artifactDir)
@@ -804,12 +797,15 @@ fun satisfiesBundlingRequirements(plugin: PluginLayout,
                                   withEphemeral: Boolean,
                                   context: BuildContext): Boolean {
   val bundlingRestrictions = plugin.bundlingRestrictions
-  if (bundlingRestrictions.includeInEapOnly && !context.applicationInfo.isEAP) {
-    return false
-  }
 
-  if (bundlingRestrictions.includeInNightlyOnly && !context.options.isNightlyBuild) {
-    return false
+  if (context.options.useReleaseCycleRelatedBundlingRestrictionsForContentReport) {
+    if (bundlingRestrictions.includeInEapOnly && !context.applicationInfo.isEAP) {
+      return false
+    }
+
+    if (bundlingRestrictions.includeInNightlyOnly && !context.options.isNightlyBuild) {
+      return false
+    }
   }
 
   if (bundlingRestrictions == PluginBundlingRestrictions.EPHEMERAL) {
@@ -875,6 +871,7 @@ private suspend fun buildKeymapPlugins(targetDir: Path, context: BuildContext): 
 }
 
 suspend fun layoutDistribution(layout: BaseLayout,
+                               platformLayout: PlatformLayout,
                                targetDirectory: Path,
                                copyFiles: Boolean = true,
                                simplify: Boolean = false,
@@ -910,6 +907,7 @@ suspend fun layoutDistribution(layout: BaseLayout,
                          outputDir = outputDir,
                          isRootDir = layout is PlatformLayout,
                          layout = layout,
+                         platformLayout = platformLayout,
                          moduleOutputPatcher = moduleOutputPatcher,
                          dryRun = !copyFiles,
                          context = context)
@@ -1051,7 +1049,7 @@ private fun addArtifactMapping(artifact: JpsArtifact, entries: MutableCollection
         entries.add(ModuleLibraryFileEntry(path = artifactFile, moduleName = parentReference.moduleName, libraryName = LibraryLicensesListGenerator.getLibraryName(library), libraryFile = null, size = 0))
       }
       else {
-        val libraryData = ProjectLibraryData(library.name, LibraryPackMode.MERGED)
+        val libraryData = ProjectLibraryData(library.name, LibraryPackMode.MERGED, reason = "<- artifact ${artifact.name}")
         entries.add(ProjectLibraryEntry(path = artifactFile, data = libraryData, libraryFile = null, size = 0))
       }
     }
@@ -1148,16 +1146,16 @@ private fun buildBlockMap(file: Path, json: JSON) {
 }
 
 suspend fun createIdeClassPath(platform: PlatformLayout, context: BuildContext): Set<String> {
-  // for some reasons, maybe duplicated paths - use set
+  // for some reason, maybe duplicated paths - use set
   val classPath = LinkedHashSet<String>()
   val pluginLayouts = context.productProperties.productLayout.pluginLayouts
   val nonPluginEntries = mutableListOf<DistributionFileEntry>()
   val pluginEntries = mutableListOf<DistributionFileEntry>()
   val pluginDir = context.paths.distAllDir.resolve(PLUGINS_DIRECTORY)
-  for (e in generateProjectStructureMapping(context = context, platform = platform)) {
+  for (e in generateProjectStructureMapping(context = context, platformLayout = platform)) {
     if (e.path.startsWith(pluginDir)) {
       val relativePath = pluginDir.relativize(e.path)
-      // for plugins our classloader load jars only from lib folder
+      // for plugins, our classloader load jars only from lib folder
       if (relativePath.nameCount == 3 && relativePath.getName(1).toString() == "lib") {
         pluginEntries.add(e)
       }
@@ -1203,7 +1201,7 @@ suspend fun buildSearchableOptions(ideClassPath: Set<String>,
     return null
   }
 
-  val targetDirectory = context.searchableOptionDir
+  val targetDirectory = context.paths.searchableOptionDir
   val modules = withContext(Dispatchers.IO) {
     NioFiles.deleteRecursively(targetDirectory)
     // bundled maven is also downloaded during traverseUI execution in an external process,

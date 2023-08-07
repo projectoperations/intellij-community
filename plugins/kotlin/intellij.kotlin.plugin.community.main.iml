@@ -148,7 +148,6 @@
     <orderEntry type="module" module-name="kotlin.copyright" exported="" />
     <orderEntry type="module" module-name="kotlin.spellchecker" exported="" />
     <orderEntry type="module" module-name="kotlin.jvm-decompiler" exported="" />
-    <orderEntry type="module" module-name="kotlin.properties" exported="" />
     <orderEntry type="module" module-name="kotlin.plugin-updater" exported="" />
     <orderEntry type="module" module-name="kotlin.preferences" exported="" />
     <orderEntry type="module" module-name="kotlin.project-configuration" exported="" />
@@ -196,6 +195,7 @@
     <orderEntry type="module" module-name="kotlin.searching.base" exported="" />
     <orderEntry type="module" module-name="kotlin.refactorings.k2" exported="" />
     <orderEntry type="module" module-name="kotlin.refactorings.common" exported="" />
+    <orderEntry type="module" module-name="kotlin.refactorings.introduce.k2" exported="" />
     <orderEntry type="module" module-name="kotlin.performanceExtendedPlugin" exported="" />
     <orderEntry type="module" module-name="kotlin.bundled-compiler-plugins-support" exported="" />
   </component>

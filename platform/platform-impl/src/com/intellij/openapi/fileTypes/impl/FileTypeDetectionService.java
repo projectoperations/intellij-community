@@ -367,11 +367,15 @@ final class FileTypeDetectionService implements Disposable {
     int flags = BitUtil.set(0, AUTO_DETECTED_AS_TEXT_MASK, wasAutodetectedAsText);
     flags = BitUtil.set(flags, AUTO_DETECTED_AS_BINARY_MASK, wasAutodetectedAsBinary);
     if (file instanceof VirtualFileWithId) {
-      writeFlagsToCache(file, flags);
       int id = ((VirtualFileWithId)file).getId();
       flags = BitUtil.set(flags, AUTO_DETECT_WAS_RUN_MASK, true);
       flags = BitUtil.set(flags, ATTRIBUTES_WERE_LOADED_MASK, true);
-      packedFlags.set(id, flags);
+
+      long oldFlags = packedFlags.get(id);
+      if (oldFlags != flags) {
+        packedFlags.set(id, flags);
+        writeFlagsToCache(file, flags);
+      }
 
       if (wasAutodetectedAsText || wasAutodetectedAsBinary) {
         file.putUserData(DETECTED_FROM_CONTENT_FILE_TYPE_KEY, null);

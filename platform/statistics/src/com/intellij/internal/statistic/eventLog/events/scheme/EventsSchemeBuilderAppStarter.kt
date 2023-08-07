@@ -4,6 +4,7 @@ package com.intellij.internal.statistic.eventLog.events.scheme
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.internal.statistic.config.SerializationHelper
 import com.intellij.openapi.application.ApplicationStarter
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.io.FileUtil
 import java.io.File
@@ -15,9 +16,10 @@ private const val pluginsFileParameter = "--pluginsFile="
 private const val pluginIdParameter = "--pluginId="
 private const val errorsFileParameter = "--errorsFile="
 
-internal class EventsSchemeBuilderAppStarter : ApplicationStarter {
-  private val LOG = logger<EventsSchemeBuilderAppStarter>()
+private val LOG: Logger
+  get() = logger<EventsSchemeBuilderAppStarter>()
 
+internal class EventsSchemeBuilderAppStarter : ApplicationStarter {
   override val commandName: String
     get() = "buildEventsScheme"
 
@@ -42,7 +44,15 @@ internal class EventsSchemeBuilderAppStarter : ApplicationStarter {
       }
     }
 
-    val groups = EventsSchemeBuilder.buildEventsScheme(null, pluginId, getPluginsToSkipSchemeGeneration())
+    val groups: List<GroupDescriptor>
+    try {
+      groups = EventsSchemeBuilder.buildEventsScheme(null, pluginId, getPluginsToSkipSchemeGeneration())
+    }
+    catch (e: IllegalMetadataSchemeStateException) {
+      LOG.error(e)
+      if (errorsFile != null) FileUtil.writeToFile(File(errorsFile), e.toString())
+      exitProcess(0)
+    }
     val errors = EventSchemeValidator.validateEventScheme(groups)
     val errorsList = errors.values.flatten()
     if (errorsList.isNotEmpty()) {
@@ -67,7 +77,7 @@ internal class EventsSchemeBuilderAppStarter : ApplicationStarter {
 
   private fun logEnabledPlugins(pluginsFile: String?) {
     val text = buildString {
-      for (descriptor in PluginManagerCore.getLoadedPlugins()) {
+      for (descriptor in PluginManagerCore.loadedPlugins) {
         if (descriptor.isEnabled) {
           appendLine(descriptor.pluginId.idString)
         }

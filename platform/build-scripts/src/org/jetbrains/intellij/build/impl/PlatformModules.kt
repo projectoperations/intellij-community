@@ -186,12 +186,13 @@ internal suspend fun createPlatformLayout(addPlatformCoverage: Boolean,
     "intellij.platform.util.xmlDom",
     "intellij.platform.tracing.rt",
     "intellij.platform.util.base",
+    "intellij.platform.diagnostic",
     "intellij.platform.util",
     "intellij.platform.core",
   ), productLayout = productLayout, layout = layout)
   // used by jdom - pack to the same JAR
   layout.withProjectLibrary(libraryName = "aalto-xml", jarName = UTIL_8_JAR)
-  // Space plugin uses it and bundled into IntelliJ IDEA, but not bundled into DataGrip, so, or Space plugin should bundle this lib,
+  // Space plugin uses it and bundles into IntelliJ IDEA, but not bundles into DataGrip, so, or Space plugin should bundle this lib,
   // or IJ Platform. As it is a small library and consistency is important across other coroutine libs, bundle to IJ Platform.
   layout.withProjectLibrary(libraryName = "kotlinx-coroutines-slf4j", jarName = APP_JAR)
 
@@ -282,13 +283,15 @@ internal suspend fun createPlatformLayout(addPlatformCoverage: Boolean,
   // as a separate step, not a part of computing implicitModules, as we should collect libraries from a such implicitly included modules
   layout.collectProjectLibrariesFromIncludedModules(context = context) { lib, module ->
     val name = lib.name
-    //this module is used only when running IDE from sources, no need to include its dependencies, see IJPL-125 
+    // this module is used only when running IDE from sources, no need to include its dependencies, see IJPL-125
     if (module.name == "intellij.platform.buildScripts.downloader" && (name == "zstd-jni" || name == "zstd-jni-windows-aarch64")) {
       return@collectProjectLibrariesFromIncludedModules
     }
 
     layout.includedProjectLibraries
-      .addOrGet(ProjectLibraryData(name, PLATFORM_CUSTOM_PACK_MODE.getOrDefault(name, LibraryPackMode.MERGED)))
+      .addOrGet(ProjectLibraryData(libraryName = name,
+                                   packMode = PLATFORM_CUSTOM_PACK_MODE.getOrDefault(name, LibraryPackMode.MERGED),
+                                   reason = "<- ${module.name}"))
       .dependentModules.computeIfAbsent("core") { mutableListOf() }.add(module.name)
   }
   return layout
@@ -300,6 +303,10 @@ internal fun computeProjectLibsUsedByPlugins(enabledPluginModules: Set<String>, 
   val pluginLayoutsByJpsModuleNames = getPluginLayoutsByJpsModuleNames(modules = enabledPluginModules,
                                                                        productLayout = context.productProperties.productLayout)
   for (plugin in pluginLayoutsByJpsModuleNames) {
+    if (plugin.auto) {
+      continue
+    }
+
     for (moduleName in plugin.includedModules.asSequence().map { it.moduleName }.distinct()) {
       for (element in context.findRequiredModule(moduleName).dependenciesList.dependencies) {
         val libraryReference = (element as? JpsLibraryDependency)?.libraryReference ?: continue
@@ -317,7 +324,7 @@ internal fun computeProjectLibsUsedByPlugins(enabledPluginModules: Set<String>, 
         }
 
         val packMode = PLATFORM_CUSTOM_PACK_MODE.getOrDefault(libraryName, LibraryPackMode.MERGED)
-        result.addOrGet(ProjectLibraryData(libraryName, packMode))
+        result.addOrGet(ProjectLibraryData(libraryName, packMode, reason = "<- $moduleName"))
           .dependentModules
           .computeIfAbsent(plugin.directoryName) { mutableListOf() }
           .add(moduleName)

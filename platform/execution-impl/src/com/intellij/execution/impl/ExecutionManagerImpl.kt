@@ -12,6 +12,7 @@ import com.intellij.execution.configurations.RunProfileState
 import com.intellij.execution.executors.DefaultRunExecutor
 import com.intellij.execution.filters.TextConsoleBuilderFactory
 import com.intellij.execution.impl.ExecutionManagerImpl.Companion.DELEGATED_RUN_PROFILE_KEY
+import com.intellij.execution.impl.ExecutionManagerImpl.Companion.TERMINATING_FOR_RERUN
 import com.intellij.execution.impl.statistics.RunConfigurationUsageTriggerCollector
 import com.intellij.execution.impl.statistics.RunConfigurationUsageTriggerCollector.RunConfigurationFinishType
 import com.intellij.execution.impl.statistics.RunConfigurationUsageTriggerCollector.UI_SHOWN_STAGE
@@ -37,13 +38,13 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.project.*
+import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.IndexNotReadyException
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectCloseListener
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.util.Condition
-import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.Key
-import com.intellij.openapi.util.UserDataHolder
+import com.intellij.openapi.util.*
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.wm.ToolWindow
@@ -81,6 +82,9 @@ class ExecutionManagerImpl(private val project: Project) : ExecutionManager(), D
 
     @JvmField
     val EXECUTION_SKIP_RUN = ExecutionManager.EXECUTION_SKIP_RUN
+
+    internal val TERMINATING_FOR_RERUN = Key.create<Boolean>("TERMINATING_FOR_RERUN")
+    internal val REPORT_NEXT_START_AS_RERUN = Key.create<Boolean>("REPORT_NEXT_START_AS_RERUN")
 
     @JvmStatic
     fun getInstance(project: Project) = project.service<ExecutionManager>() as ExecutionManagerImpl
@@ -265,7 +269,7 @@ class ExecutionManagerImpl(private val project: Project) : ExecutionManager(), D
                 inProgress.remove(InProgressEntry(executor.id, environment.runner.runnerId))
                 project.messageBus.syncPublisher(EXECUTION_TOPIC).processStarted(executor.id, environment, processHandler)
 
-                val listener = ProcessExecutionListener(project, executor.id, environment, processHandler, descriptor, activity)
+                val listener = ProcessExecutionListener(project, executor.id, environment, descriptor, activity)
                 processHandler.addProcessListener(listener)
 
                 // Since we cannot guarantee that the listener is added before process handled is start notified,
@@ -514,8 +518,13 @@ class ExecutionManagerImpl(private val project: Project) : ExecutionManager(), D
       }
 
       for (descriptor in runningToStop) {
+        descriptor?.processHandler?.putUserData(TERMINATING_FOR_RERUN, true)
         stopProcess(descriptor)
       }
+
+      // This ExecutionEnvironment might be a fresh new object, so, technically, it hasn't been started yet,
+      // but it is going to be started because of the 'Rerun' action, so, need to report to FUS as rerun.
+      environment.putUserData(REPORT_NEXT_START_AS_RERUN, true)
     }
 
     if (awaitingRunProfiles[environment.runProfile] === environment) {
@@ -780,7 +789,7 @@ class ExecutionManagerImpl(private val project: Project) : ExecutionManager(), D
     })
   }
 
-  fun getRunningDescriptors(condition: Condition<in RunnerAndConfigurationSettings>): List<RunContentDescriptor> {
+  override fun getRunningDescriptors(condition: Condition<in RunnerAndConfigurationSettings>): List<RunContentDescriptor> {
     val result = SmartList<RunContentDescriptor>()
     for (entry in runningConfigurations) {
       if (entry.settings != null && condition.value(entry.settings)) {
@@ -803,7 +812,7 @@ class ExecutionManagerImpl(private val project: Project) : ExecutionManager(), D
     return result
   }
 
-  fun getExecutors(descriptor: RunContentDescriptor): Set<Executor> {
+  override fun getExecutors(descriptor: RunContentDescriptor): Set<Executor> {
     val result = HashSet<Executor>()
     for (entry in runningConfigurations) {
       if (descriptor === entry.descriptor) {
@@ -859,7 +868,14 @@ fun RunnerAndConfigurationSettings.isOfSameType(runnerAndConfigurationSettings: 
 private fun triggerUsage(environment: ExecutionEnvironment): StructuredIdeActivity? {
   val runConfiguration = environment.runnerAndConfigurationSettings?.configuration
   val configurationFactory = runConfiguration?.factory ?: return null
-  return RunConfigurationUsageTriggerCollector.trigger(environment.project, configurationFactory, environment.executor, runConfiguration)
+  val isRerun = environment.getUserData(ExecutionManagerImpl.REPORT_NEXT_START_AS_RERUN) == true
+
+  // The 'Rerun' button in the Run tool window will reuse the same ExecutionEnvironment object again.
+  // If there are no processes to stop, the REPORT_NEXT_START_AS_RERUN won't be set in restartRunProfile(), so need to set it here.
+  if (!isRerun) environment.putUserData(ExecutionManagerImpl.REPORT_NEXT_START_AS_RERUN, true)
+
+  return RunConfigurationUsageTriggerCollector
+    .trigger(environment.project, configurationFactory, environment.executor, runConfiguration, isRerun)
 }
 
 private fun createEnvironmentBuilder(project: Project,
@@ -955,7 +971,6 @@ private fun userApprovesStopForIncompatibleConfigurations(project: Project,
 private class ProcessExecutionListener(private val project: Project,
                                        private val executorId: String,
                                        private val environment: ExecutionEnvironment,
-                                       private val processHandler: ProcessHandler,
                                        private val descriptor: RunContentDescriptor,
                                        private val activity: StructuredIdeActivity?) : ProcessAdapter() {
   private val willTerminateNotified = AtomicBoolean()
@@ -973,11 +988,15 @@ private class ProcessExecutionListener(private val project: Project,
       }
     }, ModalityState.any(), project.disposed)
 
-    project.messageBus.syncPublisher(ExecutionManager.EXECUTION_TOPIC).processTerminated(executorId, environment, processHandler, event.exitCode)
+    val processHandler = event.processHandler
+    project.messageBus.syncPublisher(ExecutionManager.EXECUTION_TOPIC)
+      .processTerminated(executorId, environment, processHandler, event.exitCode)
 
-    val runConfigurationFinishType =
-      if (event.processHandler.getUserData(ProcessHandler.TERMINATION_REQUESTED) == true) RunConfigurationFinishType.TERMINATED
-      else RunConfigurationFinishType.UNKNOWN
+    val runConfigurationFinishType = when {
+      processHandler.getUserData(TERMINATING_FOR_RERUN) == true -> RunConfigurationFinishType.TERMINATED_DUE_TO_RERUN
+      processHandler.getUserData(ProcessHandler.TERMINATION_REQUESTED) == true -> RunConfigurationFinishType.TERMINATED_BY_STOP
+      else -> RunConfigurationFinishType.UNKNOWN
+    }
     RunConfigurationUsageTriggerCollector.logProcessFinished(activity, runConfigurationFinishType)
 
     processHandler.removeProcessListener(this)
@@ -989,7 +1008,7 @@ private class ProcessExecutionListener(private val project: Project,
       return
     }
 
-    project.messageBus.syncPublisher(ExecutionManager.EXECUTION_TOPIC).processTerminating(executorId, environment, processHandler)
+    project.messageBus.syncPublisher(ExecutionManager.EXECUTION_TOPIC).processTerminating(executorId, environment, event.processHandler)
   }
 }
 

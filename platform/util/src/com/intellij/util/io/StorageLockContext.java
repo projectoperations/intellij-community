@@ -4,6 +4,7 @@ package com.intellij.util.io;
 import com.intellij.util.indexing.impl.IndexDebugProperties;
 import com.intellij.util.io.FileChannelInterruptsRetryer.FileChannelIdempotentOperation;
 import com.intellij.util.io.OpenChannelsCache.FileChannelOperation;
+import com.intellij.util.io.pagecache.impl.PageContentLockingStrategy;
 import com.intellij.util.io.stats.FilePageCacheStatistics;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -21,7 +22,7 @@ import static com.intellij.util.io.PageCacheUtils.*;
 public final class StorageLockContext {
 
   private static final FilePageCache DEFAULT_FILE_PAGE_CACHE = new FilePageCache(FILE_PAGE_CACHE_OLD_CAPACITY_BYTES);
-  private static final @Nullable FilePageCacheLockFree DEFAULT_FILE_PAGE_CACHE_NEW = PageCacheUtils.LOCK_FREE_VFS_ENABLED ?
+  private static final @Nullable FilePageCacheLockFree DEFAULT_FILE_PAGE_CACHE_NEW = LOCK_FREE_VFS_ENABLED ?
                                                                                      new FilePageCacheLockFree(FILE_PAGE_CACHE_NEW_CAPACITY_BYTES) :
                                                                                      null;
 
@@ -33,10 +34,12 @@ public final class StorageLockContext {
 
   /** In general, null if {@link PageCacheUtils#LOCK_FREE_VFS_ENABLED} is false */
   private final @Nullable FilePageCacheLockFree myFilePageCacheLockFree;
+  private final PageContentLockingStrategy.SharedLockLockingStrategy pageContentLockingStrategy = new PageContentLockingStrategy.SharedLockLockingStrategy(myLock);
 
   private final boolean myUseReadWriteLock;
   private final boolean myCacheChannels;
   private final boolean myDisableAssertions;
+
 
   @VisibleForTesting
   StorageLockContext(@NotNull FilePageCache filePageCache,
@@ -160,7 +163,7 @@ public final class StorageLockContext {
   @ApiStatus.Internal
   public @NotNull FilePageCacheLockFree pageCache() {
     if (myFilePageCacheLockFree == null) {
-      if (PageCacheUtils.LOCK_FREE_VFS_ENABLED) {
+      if (LOCK_FREE_VFS_ENABLED) {
         throw new UnsupportedOperationException(
           "lock-free FilePageCache is not available in this storageLockContext."
         );
@@ -170,6 +173,11 @@ public final class StorageLockContext {
       );
     }
     return myFilePageCacheLockFree;
+  }
+
+  @NotNull
+  public PageContentLockingStrategy lockingStrategyWithGlobalLock(){
+    return pageContentLockingStrategy;
   }
 
   @ApiStatus.Internal
@@ -202,6 +210,11 @@ public final class StorageLockContext {
   @ApiStatus.Internal
   public static @NotNull FilePageCacheStatistics getStatistics() {
     return DEFAULT_FILE_PAGE_CACHE.getStatistics();
+  }
+
+  @ApiStatus.Internal
+  public static @Nullable com.intellij.util.io.pagecache.FilePageCacheStatistics getNewCacheStatistics() {
+    return DEFAULT_FILE_PAGE_CACHE_NEW != null ? DEFAULT_FILE_PAGE_CACHE_NEW.getStatistics() : null;
   }
 
   @ApiStatus.Internal

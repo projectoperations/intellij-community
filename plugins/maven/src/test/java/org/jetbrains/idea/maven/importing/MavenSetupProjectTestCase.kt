@@ -9,7 +9,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
-import com.intellij.openapi.externalSystem.util.performAction
+import com.intellij.openapi.externalSystem.util.performActionAsync
 import com.intellij.openapi.externalSystem.util.performOpenAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
@@ -66,8 +66,8 @@ abstract class MavenSetupProjectTestCase : MavenMultiVersionImportingTestCase() 
   }
 
   suspend fun attachProjectAsync(project: Project, projectFile: VirtualFile): Project {
-    performAction(
-      action = AddManagedFilesAction(),
+    performActionAsync(
+      action = { AddManagedFilesAction().actionPerformedAsync(it) },
       project = project,
       systemId = SYSTEM_ID,
       selectedFile = projectFile
@@ -76,12 +76,11 @@ abstract class MavenSetupProjectTestCase : MavenMultiVersionImportingTestCase() 
   }
 
   suspend fun attachProjectFromScriptAsync(project: Project, projectFile: VirtualFile): Project {
-    performAction(
-      action = AddFileAsMavenProjectAction(),
+    performActionAsync(
+      action = { AddFileAsMavenProjectAction().actionPerformedAsync(it) },
       project = project,
       systemId = SYSTEM_ID,
       selectedFile = projectFile,
-      blocking = true
     )
     return project
   }

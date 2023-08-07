@@ -4,6 +4,7 @@
   "author": "JetBrains",
   "parentTheme": "Light",
   "editorScheme": "/themes/expUI/expUI_lightScheme.xml",
+  "nameKey": "light.header.theme.name",
 
   "ui": {
     "CodeWithMe.MainToolbar.NoConnectionLabelForeground": "Grey7",
@@ -12,7 +13,8 @@
       "background": "Grey13",
       "foreground": "Grey1",
       "selectionForeground": "Grey1",
-      "selectionBackground": "Blue11"
+      "selectionBackground": "Blue11",
+      "transparentSelectionBackground": "#0000001A"
     },
 
     "MainWindow.Tab" : {
@@ -41,21 +43,38 @@
         "foreground": "Grey1",
         "background": "Grey13",
         "hoverBackground": "Grey12",
-        "transparentHoverBackground": "#0000001A",
+        "transparentHoverBackground": "#0000000D",
         "pressedBackground": "Grey11"
       }
     },
 
-    "WindowControls": {
-      "foreground": "#050708",
-      "inactiveForeground": "#9B9C9C"
-    },
+    "TitlePane.Button.hoverBackground": "#0000000D",
 
     "MenuBar.borderColor": "Grey12",
 
+    "Notification.Shadow": {
+      "borderInsets": "5,5,5,5",
+      "top0Color": "#FFFFFF00",
+      "top1Color": "#A0A0A010",
+      "bottom0Color": "#FFFFFF00",
+      "bottom1Color": "#A0A0A010",
+      "left0Color": "#FFFFFF00",
+      "left1Color": "#A0A0A010",
+      "right0Color": "#FFFFFF00",
+      "right1Color": "#A0A0A010",
+      "topLeft0Color": "#FFFFFF00",
+      "topLeft1Color": "#A0A0A010",
+      "topRight0Color": "#FFFFFF00",
+      "topRight1Color": "#A0A0A010",
+      "bottomLeft0Color": "#FFFFFF00",
+      "bottomLeft1Color": "#A0A0A010",
+      "bottomRight0Color": "#FFFFFF00",
+      "bottomRight1Color": "#A0A0A010"
+    },
+
     "Notification": {
       "background": "Grey14",
-      "borderColor": "Grey11",
+      "borderColor": "Grey10",
       "foreground": "Grey1",
       "linkForeground": "Blue2",
       "Button": {
@@ -67,7 +86,8 @@
         "background": "Grey13",
         "innerBorderColor": "Grey13",
         "foreground": "Grey6"
-      }
+      },
+      "WelcomeScreen.separatorColor": "#EBECF0"
     },
 
     "RunWidget" : {
@@ -102,6 +122,8 @@
       "codeBackground": "Grey14",
       "codeBorderColor": "Grey8",
       "linkForeground": "Blue2",
+      "imageBorderColor": "Grey12",
+      "animationBackground": "Grey13",
       "Button": {
         "foreground": "Grey3",
         "startBackground": "Grey11",

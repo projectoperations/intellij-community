@@ -1,7 +1,6 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.idea
 
-import com.intellij.diagnostic.runActivity
 import com.intellij.ide.gdpr.ConsentOptions
 import com.intellij.ide.gdpr.EndUserAgreement
 import com.intellij.ide.gdpr.showDataSharingAgreement
@@ -9,6 +8,7 @@ import com.intellij.ide.gdpr.showEndUserAndDataSharingAgreements
 import com.intellij.ide.ui.laf.IntelliJLaf
 import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.application.impl.RawSwingDispatcher
+import com.intellij.platform.diagnostic.telemetry.impl.span
 import kotlinx.coroutines.*
 import javax.swing.UIManager
 
@@ -21,8 +21,8 @@ internal suspend fun loadEuaDocument(appInfoDeferred: Deferred<ApplicationInfoEx
     return null
   }
   else {
-    val document = runActivity("eua getting") { EndUserAgreement.getLatestDocument() }
-    return if (runActivity("eua is accepted checking") { document.isAccepted }) null else document
+    val document = span("eua getting") { EndUserAgreement.getLatestDocument() }
+    return if (span("eua is accepted checking") { document.isAccepted }) null else document
   }
 }
 
@@ -41,10 +41,10 @@ internal suspend fun prepareShowEuaIfNeededTask(document: EndUserAgreement.Docum
     }
   }
 
-  return runActivity("eua showing") {
+  return span("eua showing") {
     when {
       document != null -> {
-        return {
+        return@span {
           prepareAndExecuteInEdt {
             showEndUserAndDataSharingAgreements(document)
           }
@@ -53,7 +53,7 @@ internal suspend fun prepareShowEuaIfNeededTask(document: EndUserAgreement.Docum
       }
       ConsentOptions.needToShowUsageStatsConsent() -> {
         updateCached.join()
-        return {
+        return@span {
           prepareAndExecuteInEdt {
             showDataSharingAgreement()
           }

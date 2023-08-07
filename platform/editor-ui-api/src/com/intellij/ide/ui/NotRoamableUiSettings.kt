@@ -12,6 +12,8 @@ import java.awt.Font
 @Service(Service.Level.APP)
 @State(name = "NotRoamableUiSettings", storages = [(Storage(StoragePathMacros.NON_ROAMABLE_FILE))])
 class NotRoamableUiSettings : SerializablePersistentStateComponent<NotRoamableUiOptions>(NotRoamableUiOptions()) {
+  private var initialConfigurationLoaded = false
+  
   companion object {
     fun getInstance(): NotRoamableUiSettings = ApplicationManager.getApplication().service<NotRoamableUiSettings>()
   }
@@ -64,6 +66,12 @@ class NotRoamableUiSettings : SerializablePersistentStateComponent<NotRoamableUi
       updateState { it.copy(overrideLafFonts = value) }
     }
 
+  var experimentalSingleStripe: Boolean
+    get() = state.experimentalSingleStripe
+    set(value) {
+      updateState { it.copy(experimentalSingleStripe = value) }
+    }
+
   override fun loadState(state: NotRoamableUiOptions) {
     var fontSize = UISettings.restoreFontSize(state.fontSize, state.fontScale)
     if (fontSize <= 0) {
@@ -80,33 +88,14 @@ class NotRoamableUiSettings : SerializablePersistentStateComponent<NotRoamableUi
     ))
 
     fixFontSettings()
+    if (initialConfigurationLoaded) {
+      UISettings.getInstance().fireUISettingsChanged()
+    }
+    initialConfigurationLoaded = true
   }
 
-  internal fun migratePresentationModeFontSize(presentationModeFontSize: Int) {
-    if (state.presentationModeIdeScale != 0f) {
-      return
-    }
-
-    if (presentationModeFontSize == 24) {
-      updateState {
-        it.copy(presentationModeIdeScale = UISettingsUtils.defaultScale(true))
-      }
-    }
-    else {
-      updateState {
-        it.copy(presentationModeIdeScale = presentationModeFontSize.toFloat() / it.fontSize)
-      }
-    }
-  }
-
-  internal fun migrateOverrideLafFonts(overrideLafFonts: Boolean) {
-    if (state.overrideLafFontsWasMigrated) {
-      return
-    }
-
-    updateState {
-      it.copy(overrideLafFontsWasMigrated = true, overrideLafFonts = overrideLafFonts)
-    }
+  override fun noStateLoaded() {
+    initialConfigurationLoaded = true
   }
 
   internal fun fixFontSettings() {
@@ -170,6 +159,9 @@ data class NotRoamableUiOptions(
   @JvmField
   @OptionTag
   val overrideLafFontsWasMigrated: Boolean = false,
+  @JvmField
+  @OptionTag
+  val experimentalSingleStripe: Boolean = false,
 )
 
 /**

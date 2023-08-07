@@ -63,7 +63,6 @@
     <orderEntry type="module" module-name="kotlin.project-wizard.compose" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.preferences" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.project-configuration" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.properties" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.compiler-reference-index" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.run-configurations.jvm" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.scripting" scope="RUNTIME" />
@@ -97,6 +96,7 @@
     <orderEntry type="module" module-name="kotlin.highlighting" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.refactorings.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.refactorings.common" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.refactorings.introduce.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.searching.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.searching.base" />
     <orderEntry type="module" module-name="kotlin.bundled-compiler-plugins-support" scope="RUNTIME" />
@@ -105,5 +105,6 @@
     <orderEntry type="module" module-name="kotlin.compiler-plugins.assignment.maven" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.compiler-plugins.parcelize.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.code-insight.structural-search-k2" />
+    <orderEntry type="module" module-name="kotlin.i18n" scope="RUNTIME" />
   </component>
 </module>

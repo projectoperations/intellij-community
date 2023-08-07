@@ -99,27 +99,27 @@ public class PersistentFsTest extends BareTestFixtureTestCase {
   public void testFileContentHash() throws Exception {
     File file = tempDirectory.newFile("test.txt", "one".getBytes(UTF_8));
     VirtualFile vFile = refreshAndFind(file);
-    PersistentFSImpl fs = (PersistentFSImpl)PersistentFS.getInstance();
+    PersistentFSImpl pfs = (PersistentFSImpl)PersistentFS.getInstance();
 
-    byte[] hash = PersistentFSImpl.getContentHashIfStored(vFile);
+    byte[] hash = pfs.contentHashIfStored(vFile);
     assertNull(hash);  // content is not yet loaded
 
     vFile.contentsToByteArray();
-    hash = PersistentFSImpl.getContentHashIfStored(vFile);
+    hash = pfs.contentHashIfStored(vFile);
     assertNotNull(hash);
 
     WriteAction.runAndWait(() -> VfsUtil.saveText(vFile, "two"));
-    byte[] newHash = PersistentFSImpl.getContentHashIfStored(vFile);
+    byte[] newHash = pfs.contentHashIfStored(vFile);
     assertNotNull(newHash);
     assertFalse(Arrays.equals(hash, newHash));  // different contents should have different hashes
 
     WriteAction.runAndWait(() -> VfsUtil.saveText(vFile, "one"));
-    newHash = PersistentFSImpl.getContentHashIfStored(vFile);
+    newHash = pfs.contentHashIfStored(vFile);
     assertArrayEquals(hash, newHash);  // equal contents should have the equal hashes
 
     VfsTestUtil.deleteFile(vFile);
-    assertNotNull(fs.contentsToByteArray(vFile));  // deleted files preserve content, and thus hash
-    assertArrayEquals(hash, PersistentFSImpl.getContentHashIfStored(vFile));
+    assertNotNull(pfs.contentsToByteArray(vFile));  // deleted files preserve content, and thus hash
+    assertArrayEquals(hash, pfs.contentHashIfStored(vFile));
   }
 
   @Test
@@ -1029,14 +1029,14 @@ public class PersistentFsTest extends BareTestFixtureTestCase {
     int id = ((VirtualFileWithId)vFile).getId();
     vFile.contentsToByteArray();
 
-    DataInputStream stream = FSRecords.readContent(id);
+    DataInputStream stream = FSRecords.getInstance().readContent(id);
     assertNotNull(stream);
     byte[] bytes = stream.readNBytes(initialContent.length);
     assertArrayEquals(initialContent, bytes);
-    DataInputStream stream2 = FSRecords.readContent(id);
+    DataInputStream stream2 = FSRecords.getInstance().readContent(id);
     byte[] portion1 = stream2.readNBytes(40);
-    FSRecords.writeContent(id, ByteArraySequence.EMPTY, true);
-    DataInputStream stream3 = FSRecords.readContent(id);
+    FSRecords.getInstance().writeContent(id, ByteArraySequence.EMPTY, true);
+    DataInputStream stream3 = FSRecords.getInstance().readContent(id);
     assertEquals(-1, stream3.read());
     byte[] portion2 = stream2.readNBytes(initialContent.length - 40);
     assertArrayEquals(initialContent, ArrayUtil.mergeArrays(portion1, portion2));

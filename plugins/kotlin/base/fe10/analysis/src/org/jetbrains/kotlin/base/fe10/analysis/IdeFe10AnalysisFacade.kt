@@ -1,12 +1,13 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.base.fe10.analysis
 
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import org.jetbrains.kotlin.analysis.api.descriptors.Fe10AnalysisFacade
 import org.jetbrains.kotlin.analysis.api.descriptors.Fe10AnalysisFacade.AnalysisMode
 import org.jetbrains.kotlin.analysis.api.symbols.KtSymbolOrigin
+import org.jetbrains.kotlin.caches.resolve.KotlinCacheService
 import org.jetbrains.kotlin.idea.FrontendInternals
-import org.jetbrains.kotlin.idea.caches.resolve.analyze
 import org.jetbrains.kotlin.idea.caches.resolve.getResolutionFacade
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.resolve.BindingContext
@@ -24,7 +25,7 @@ import org.jetbrains.kotlin.types.checker.KotlinTypeRefiner
 import org.jetbrains.kotlin.util.CancellationChecker
 
 @OptIn(FrontendInternals::class)
-internal class IdeFe10AnalysisFacade: Fe10AnalysisFacade {
+internal class IdeFe10AnalysisFacade(private val project: Project): Fe10AnalysisFacade {
     private inline fun <reified T: Any> getFe10Service(element: KtElement): T {
         return element.getResolutionFacade().getFrontendService(T::class.java)
     }
@@ -49,14 +50,22 @@ internal class IdeFe10AnalysisFacade: Fe10AnalysisFacade {
         )
     }
 
-    override fun analyze(element: KtElement, mode: AnalysisMode): BindingContext {
+    override fun analyze(elements: List<KtElement>, mode: AnalysisMode): BindingContext {
+        val resolutionFacade = KotlinCacheService.getInstance(project).getResolutionFacade(elements)
+
+        if (mode == AnalysisMode.ALL_COMPILER_CHECKS) {
+            return resolutionFacade.analyzeWithAllCompilerChecks(elements).bindingContext
+        }
+
+        @Suppress("KotlinConstantConditions")
         val bodyResolveMode = when (mode) {
             AnalysisMode.FULL -> BodyResolveMode.FULL
             AnalysisMode.PARTIAL_WITH_DIAGNOSTICS -> BodyResolveMode.PARTIAL_WITH_DIAGNOSTICS
             AnalysisMode.PARTIAL -> BodyResolveMode.PARTIAL
+            AnalysisMode.ALL_COMPILER_CHECKS -> error("Must have been handled above")
         }
 
-        return element.analyze(element.getResolutionFacade(), bodyResolveMode)
+        return resolutionFacade.analyze(elements, bodyResolveMode)
     }
 
     override fun getOrigin(file: VirtualFile): KtSymbolOrigin {

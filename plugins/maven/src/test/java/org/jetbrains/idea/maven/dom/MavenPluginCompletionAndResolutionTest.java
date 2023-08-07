@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.dom;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
@@ -9,10 +10,17 @@ import com.intellij.psi.xml.XmlTag;
 import org.jetbrains.idea.maven.indices.MavenIndicesTestFixture;
 import org.junit.Test;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
 public class MavenPluginCompletionAndResolutionTest extends MavenDomWithIndicesTestCase {
+
+  @Override
+  protected boolean importProjectOnSetup() {
+    return true;
+  }
   @Override
   protected MavenIndicesTestFixture createIndicesFixture() {
     return new MavenIndicesTestFixture(myDir.toPath(), myProject, "plugins");
@@ -87,12 +95,39 @@ public class MavenPluginCompletionAndResolutionTest extends MavenDomWithIndicesT
                        """);
 
 
-    if (mavenVersionIsOrMoreThan("3.9.0")) {
+    if (mavenVersionIsOrMoreThan("3.9.3")) {
+      assertCompletionVariants(myProjectPom, "2.0.2", "3.1", "3.10.1", "3.11.0");
+    }
+    else if (mavenVersionIsOrMoreThan("3.9.0")) {
       assertCompletionVariants(myProjectPom, "2.0.2", "3.1", "3.10.1");
     }
     else {
       assertCompletionVariants(myProjectPom, "2.0.2", "3.1");
     }
+  }
+
+  @Test
+  public void testPluginWithoutGroupIdResolution() throws IOException {
+    createProjectPom("""
+                       <groupId>test</groupId>
+                       <artifactId>project</artifactId>
+                       <version>1</version>
+                       <build>
+                         <plugins>
+                           <plugin>
+                             <artifactId><caret>maven-surefire-plugin</artifactId>
+                             <version>2.12.4</version>
+                           </plugin>
+                         </plugins>
+                       </build>
+                       """);
+
+    String pluginPath =
+      "plugins/org/apache/maven/plugins/maven-surefire-plugin/2.12.4/maven-surefire-plugin-2.12.4.pom";
+    String filePath = myIndicesFixture.getRepositoryHelper().getTestDataPath(pluginPath);
+    VirtualFile f = LocalFileSystem.getInstance().refreshAndFindFileByPath(filePath);
+    assertNotNull("file: " + filePath + " not exists!", f);
+    assertResolved(myProjectPom, findPsiFile(f));
   }
 
   @Test 
@@ -171,7 +206,10 @@ public class MavenPluginCompletionAndResolutionTest extends MavenDomWithIndicesT
                        </build>
                        """);
 
-    if (mavenVersionIsOrMoreThan("3.9.0")) {
+    if (mavenVersionIsOrMoreThan("3.9.3")) {
+      assertCompletionVariants(myProjectPom, RENDERING_TEXT, "2.0.2", "3.1", "3.10.1", "3.11.0");
+    }
+    else if (mavenVersionIsOrMoreThan("3.9.0")) {
       assertCompletionVariants(myProjectPom, RENDERING_TEXT, "2.0.2", "3.1", "3.10.1");
     }
     else {
@@ -951,7 +989,19 @@ public class MavenPluginCompletionAndResolutionTest extends MavenDomWithIndicesT
                        </build>
                        """);
 
-    if (mavenVersionIsOrMoreThan("3.9.0")) {
+    if (mavenVersionIsOrMoreThan("3.9.3")) {
+      assertDocumentation("""
+          Type: <b>java.lang.String</b><br>Default Value: <b>1.8</b><br>Expression: <b>${maven.compiler.source}</b><br><br><i>The -source argument for the Java compiler.
+
+          NOTE:\s
+
+          Since 3.8.0 the default value has changed from 1.5 to 1.6
+
+          Since 3.9.0 the default value has changed from 1.6 to 1.7
+
+          Since 3.11.0 the default value has changed from 1.7 to 1.8</i>""");
+    }
+    else if (mavenVersionIsOrMoreThan("3.9.0")) {
       assertDocumentation("""
           Type: <b>java.lang.String</b><br>Default Value: <b>1.7</b><br>Expression: <b>${maven.compiler.source}</b><br><br><i><p>The -source argument for the Java compiler.</p>
 

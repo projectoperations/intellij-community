@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions.searcheverywhere;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
@@ -11,6 +11,8 @@ import com.intellij.ide.util.gotoByName.GotoFileModel;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -23,6 +25,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.ui.DirtyUI;
 import com.intellij.util.Processor;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -117,21 +120,28 @@ public class FileSearchEverywhereContributor extends AbstractGotoSEContributor {
   @Override
   public boolean processSelectedItem(@NotNull Object selected, int modifiers, @NotNull String searchText) {
     if (selected instanceof PsiFile) {
-      VirtualFile file = ((PsiFile)selected).getVirtualFile();
-      if (file != null && myProject != null) {
-        Pair<Integer, Integer> pos = getLineAndColumn(searchText);
-        OpenFileDescriptor descriptor = new OpenFileDescriptor(myProject, file, pos.first, pos.second);
-        if (descriptor.canNavigate()) {
-          descriptor.navigate(true);
-          if (pos.first > 0) {
-            FeatureUsageTracker.getInstance().triggerFeatureUsed("navigation.goto.file.line");
+      ReadAction.nonBlocking(() -> ((PsiFile)selected).getVirtualFile())
+        .finishOnUiThread(ModalityState.nonModal(), file -> {
+          if (file != null && myProject != null) {
+            Pair<Integer, Integer> pos = getLineAndColumn(searchText);
+            OpenFileDescriptor descriptor = new OpenFileDescriptor(myProject, file, pos.first, pos.second);
+            if (descriptor.canNavigate()) {
+              descriptor.navigate(true);
+              if (pos.first > 0) {
+                FeatureUsageTracker.getInstance().triggerFeatureUsed("navigation.goto.file.line");
+              }
+              return;
+            }
           }
-          return true;
-        }
-      }
-    }
+          super.processSelectedItem(selected, modifiers, searchText);
+        })
+        .submit(AppExecutorUtil.getAppExecutorService());
 
-    return super.processSelectedItem(selected, modifiers, searchText);
+      return true;
+    }
+    else {
+      return super.processSelectedItem(selected, modifiers, searchText);
+    }
   }
 
   @Override
@@ -181,7 +191,7 @@ public class FileSearchEverywhereContributor extends AbstractGotoSEContributor {
   public static PersistentSearchEverywhereContributorFilter<FileTypeRef> createFileTypeFilter(@NotNull Project project) {
     List<FileTypeRef> items = new ArrayList<>(FileTypeRef.forAllFileTypes());
     items.add(0, GotoFileModel.DIRECTORY_FILE_TYPE_REF);
-    return new PersistentSearchEverywhereContributorFilter<>(items, GotoFileConfiguration.getInstance(project), FileTypeRef::getName,
+    return new PersistentSearchEverywhereContributorFilter<>(items, GotoFileConfiguration.getInstance(project), FileTypeRef::getDisplayName,
                                                              FileTypeRef::getIcon);
   }
 }

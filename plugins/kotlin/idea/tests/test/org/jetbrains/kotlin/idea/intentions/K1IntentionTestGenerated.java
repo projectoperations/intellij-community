@@ -2304,6 +2304,16 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             runTest("testData/intentions/anonymousFunctionToLambda/moveOut.kt");
         }
 
+        @TestMetadata("multipleLambdaArgumentsAreNotMovedOutsideParentheses.kt")
+        public void testMultipleLambdaArgumentsAreNotMovedOutsideParentheses() throws Exception {
+            runTest("testData/intentions/anonymousFunctionToLambda/multipleLambdaArgumentsAreNotMovedOutsideParentheses.kt");
+        }
+
+        @TestMetadata("namedLambdaArgumentIsNotMovedOutsideParentheses.kt")
+        public void testNamedLambdaArgumentIsNotMovedOutsideParentheses() throws Exception {
+            runTest("testData/intentions/anonymousFunctionToLambda/namedLambdaArgumentIsNotMovedOutsideParentheses.kt");
+        }
+
         @TestMetadata("noSpaceAfterFunctionLeftBrace.kt")
         public void testNoSpaceAfterFunctionLeftBrace() throws Exception {
             runTest("testData/intentions/anonymousFunctionToLambda/noSpaceAfterFunctionLeftBrace.kt");
@@ -2582,89 +2592,6 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/intentions/branched/folding")
         public abstract static class Folding extends AbstractK1IntentionTest {
-            @RunWith(JUnit3RunnerWithInners.class)
-            @TestMetadata("testData/intentions/branched/folding/ifToFunctionCall")
-            public static class IfToFunctionCall extends AbstractK1IntentionTest {
-                private void runTest(String testDataFilePath) throws Exception {
-                    KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-                }
-
-                @TestMetadata("block.kt")
-                public void testBlock() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/block.kt");
-                }
-
-                @TestMetadata("differentArguments.kt")
-                public void testDifferentArguments() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/differentArguments.kt");
-                }
-
-                @TestMetadata("differentArguments2.kt")
-                public void testDifferentArguments2() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/differentArguments2.kt");
-                }
-
-                @TestMetadata("differentFunctionCall.kt")
-                public void testDifferentFunctionCall() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/differentFunctionCall.kt");
-                }
-
-                @TestMetadata("differentReceiver.kt")
-                public void testDifferentReceiver() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/differentReceiver.kt");
-                }
-
-                @TestMetadata("elseIf.kt")
-                public void testElseIf() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/elseIf.kt");
-                }
-
-                @TestMetadata("multiArguments.kt")
-                public void testMultiArguments() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/multiArguments.kt");
-                }
-
-                @TestMetadata("multiArguments2.kt")
-                public void testMultiArguments2() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/multiArguments2.kt");
-                }
-
-                @TestMetadata("multiArguments3.kt")
-                public void testMultiArguments3() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/multiArguments3.kt");
-                }
-
-                @TestMetadata("multiArguments4.kt")
-                public void testMultiArguments4() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/multiArguments4.kt");
-                }
-
-                @TestMetadata("multiStatements.kt")
-                public void testMultiStatements() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/multiStatements.kt");
-                }
-
-                @TestMetadata("namedArgument.kt")
-                public void testNamedArgument() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/namedArgument.kt");
-                }
-
-                @TestMetadata("notFunctionCall.kt")
-                public void testNotFunctionCall() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/notFunctionCall.kt");
-                }
-
-                @TestMetadata("qualifiedExpression.kt")
-                public void testQualifiedExpression() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/qualifiedExpression.kt");
-                }
-
-                @TestMetadata("simple.kt")
-                public void testSimple() throws Exception {
-                    runTest("testData/intentions/branched/folding/ifToFunctionCall/simple.kt");
-                }
-            }
-
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/intentions/branched/folding/ifToReturnAsymmetrically")
             public static class IfToReturnAsymmetrically extends AbstractK1IntentionTest {
@@ -3268,64 +3195,6 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
                 @TestMetadata("simpleWhenWithComplexAssignmentLHS.kt")
                 public void testSimpleWhenWithComplexAssignmentLHS() throws Exception {
                     runTest("testData/intentions/branched/unfolding/assignmentToWhen/simpleWhenWithComplexAssignmentLHS.kt");
-                }
-            }
-
-            @RunWith(JUnit3RunnerWithInners.class)
-            @TestMetadata("testData/intentions/branched/unfolding/functionCallToIf")
-            public static class FunctionCallToIf extends AbstractK1IntentionTest {
-                private void runTest(String testDataFilePath) throws Exception {
-                    KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-                }
-
-                @TestMetadata("block.kt")
-                public void testBlock() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/block.kt");
-                }
-
-                @TestMetadata("elseIf.kt")
-                public void testElseIf() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/elseIf.kt");
-                }
-
-                @TestMetadata("multiArguments.kt")
-                public void testMultiArguments() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/multiArguments.kt");
-                }
-
-                @TestMetadata("multiArguments2.kt")
-                public void testMultiArguments2() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/multiArguments2.kt");
-                }
-
-                @TestMetadata("multiArguments3.kt")
-                public void testMultiArguments3() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/multiArguments3.kt");
-                }
-
-                @TestMetadata("multiArguments4.kt")
-                public void testMultiArguments4() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/multiArguments4.kt");
-                }
-
-                @TestMetadata("multiStatements.kt")
-                public void testMultiStatements() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/multiStatements.kt");
-                }
-
-                @TestMetadata("namedArgument.kt")
-                public void testNamedArgument() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/namedArgument.kt");
-                }
-
-                @TestMetadata("qualifiedExpression.kt")
-                public void testQualifiedExpression() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/qualifiedExpression.kt");
-                }
-
-                @TestMetadata("simple.kt")
-                public void testSimple() throws Exception {
-                    runTest("testData/intentions/branched/unfolding/functionCallToIf/simple.kt");
                 }
             }
 
@@ -5472,6 +5341,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
                 runTest("testData/intentions/convertForEachToForLoop/forEachIndexed/range.kt");
             }
 
+            @TestMetadata("returnFromNestedForLoop.kt")
+            public void testReturnFromNestedForLoop() throws Exception {
+                runTest("testData/intentions/convertForEachToForLoop/forEachIndexed/returnFromNestedForLoop.kt");
+            }
+
             @TestMetadata("sequence.kt")
             public void testSequence() throws Exception {
                 runTest("testData/intentions/convertForEachToForLoop/forEachIndexed/sequence.kt");
@@ -5533,6 +5407,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             @TestMetadata("parenthesizedExpression.kt")
             public void testParenthesizedExpression() throws Exception {
                 runTest("testData/intentions/convertForEachToForLoop/parenthesizedExpression.kt");
+            }
+
+            @TestMetadata("returnFromNestedForLoop.kt")
+            public void testReturnFromNestedForLoop() throws Exception {
+                runTest("testData/intentions/convertForEachToForLoop/returnFromNestedForLoop.kt");
             }
 
             @TestMetadata("simple.kt")
@@ -5647,6 +5526,16 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("extraArgumentsConflict.kt")
         public void testExtraArgumentsConflict() throws Exception {
             runTest("testData/intentions/convertFunctionToProperty/extraArgumentsConflict.kt");
+        }
+
+        @TestMetadata("funInterface.kt")
+        public void testFunInterface() throws Exception {
+            runTest("testData/intentions/convertFunctionToProperty/funInterface.kt");
+        }
+
+        @TestMetadata("funInterface2.kt")
+        public void testFunInterface2() throws Exception {
+            runTest("testData/intentions/convertFunctionToProperty/funInterface2.kt");
         }
 
         @TestMetadata("funWithParameters.kt")
@@ -5785,6 +5674,16 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("firstParameterWithJavaUsages.kt")
         public void testFirstParameterWithJavaUsages() throws Exception {
             runTest("testData/intentions/convertFunctionTypeParameterToReceiver/firstParameterWithJavaUsages.kt");
+        }
+
+        @TestMetadata("multipleLambdaArgumentsAreNotMovedOutsideParentheses.kt")
+        public void testMultipleLambdaArgumentsAreNotMovedOutsideParentheses() throws Exception {
+            runTest("testData/intentions/convertFunctionTypeParameterToReceiver/multipleLambdaArgumentsAreNotMovedOutsideParentheses.kt");
+        }
+
+        @TestMetadata("namedLambdaArgumentIsNotMovedOutsideParentheses.kt")
+        public void testNamedLambdaArgumentIsNotMovedOutsideParentheses() throws Exception {
+            runTest("testData/intentions/convertFunctionTypeParameterToReceiver/namedLambdaArgumentIsNotMovedOutsideParentheses.kt");
         }
 
         @TestMetadata("nonFirstParameter.kt")
@@ -7888,9 +7787,19 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             runTest("testData/intentions/convertReferenceToLambda/member.kt");
         }
 
+        @TestMetadata("multipleLambdaArgumentsAreNotMovedOutsideParentheses.kt")
+        public void testMultipleLambdaArgumentsAreNotMovedOutsideParentheses() throws Exception {
+            runTest("testData/intentions/convertReferenceToLambda/multipleLambdaArgumentsAreNotMovedOutsideParentheses.kt");
+        }
+
         @TestMetadata("name.kt")
         public void testName() throws Exception {
             runTest("testData/intentions/convertReferenceToLambda/name.kt");
+        }
+
+        @TestMetadata("namedLambdaArgumentIsNotMovedOutsideParentheses.kt")
+        public void testNamedLambdaArgumentIsNotMovedOutsideParentheses() throws Exception {
+            runTest("testData/intentions/convertReferenceToLambda/namedLambdaArgumentIsNotMovedOutsideParentheses.kt");
         }
 
         @TestMetadata("nestedLambdaWithReceiver.kt")
@@ -10031,6 +9940,16 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             @TestMetadata("final.kt")
             public void testFinal() throws Exception {
                 runTest("testData/intentions/declarations/convertMemberToExtension/final.kt");
+            }
+
+            @TestMetadata("funInterface.kt")
+            public void testFunInterface() throws Exception {
+                runTest("testData/intentions/declarations/convertMemberToExtension/funInterface.kt");
+            }
+
+            @TestMetadata("funInterface2.kt")
+            public void testFunInterface2() throws Exception {
+                runTest("testData/intentions/declarations/convertMemberToExtension/funInterface2.kt");
             }
 
             @TestMetadata("funcitonNoName.kt")
@@ -14863,9 +14782,19 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             runTest("testData/intentions/objectLiteralToLambda/MultipleBases.kt");
         }
 
+        @TestMetadata("MultipleLambdaArgumentsAreNotMovedOutsideParentheses.kt")
+        public void testMultipleLambdaArgumentsAreNotMovedOutsideParentheses() throws Exception {
+            runTest("testData/intentions/objectLiteralToLambda/MultipleLambdaArgumentsAreNotMovedOutsideParentheses.kt");
+        }
+
         @TestMetadata("MultipleParameters.kt")
         public void testMultipleParameters() throws Exception {
             runTest("testData/intentions/objectLiteralToLambda/MultipleParameters.kt");
+        }
+
+        @TestMetadata("NamedLambdaArgumentIsNotMovedOutsideParentheses.kt")
+        public void testNamedLambdaArgumentIsNotMovedOutsideParentheses() throws Exception {
+            runTest("testData/intentions/objectLiteralToLambda/NamedLambdaArgumentIsNotMovedOutsideParentheses.kt");
         }
 
         @TestMetadata("NoSamAdapterNeeded.kt")
@@ -17509,6 +17438,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("destructuringInLambda.kt")
         public void testDestructuringInLambda() throws Exception {
             runTest("testData/intentions/specifyTypeExplicitly/destructuringInLambda.kt");
+        }
+
+        @TestMetadata("destructuringInLoopParameter.kt")
+        public void testDestructuringInLoopParameter() throws Exception {
+            runTest("testData/intentions/specifyTypeExplicitly/destructuringInLoopParameter.kt");
         }
 
         @TestMetadata("enumType.kt")

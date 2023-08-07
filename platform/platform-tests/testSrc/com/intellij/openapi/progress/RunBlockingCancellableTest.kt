@@ -2,6 +2,7 @@
 package com.intellij.openapi.progress
 
 import com.intellij.concurrency.currentThreadContextOrNull
+import com.intellij.openapi.application.impl.ModalityStateEx
 import com.intellij.openapi.progress.impl.ProgressState
 import com.intellij.testFramework.common.timeoutRunBlocking
 import kotlinx.coroutines.*
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
+import kotlin.time.Duration.Companion.milliseconds
 
 class RunBlockingCancellableTest : CancellationTest() {
 
@@ -22,21 +24,57 @@ class RunBlockingCancellableTest : CancellationTest() {
   }
 
   @Test
+  fun `without context non-cancellable`() {
+    Cancellation.computeInNonCancelableSection<_, Nothing> {
+      assertDoesNotThrow {
+        runBlockingCancellable {
+          yield()
+        }
+      }
+    }
+  }
+
+  @Test
   fun `with current job context`() {
-    currentJobTest { job ->
-      assertNotNull(Cancellation.currentJob())
+    blockingContextTest {
+      val job = checkNotNull(Cancellation.currentJob())
       assertNull(ProgressManager.getGlobalProgressIndicator())
 
       runBlockingCancellable {
-        assertJobIsChildOf(job = coroutineContext.job, parent = job)
+        assertJobIsChildOf(coroutineContext.job, job)
         assertNull(currentThreadContextOrNull())
         assertNull(Cancellation.currentJob())
         assertNull(ProgressManager.getGlobalProgressIndicator())
       }
 
-      assertNotNull(Cancellation.currentJob())
+      assertSame(job, Cancellation.currentJob())
       assertNull(ProgressManager.getGlobalProgressIndicator())
     }
+  }
+
+  @Test
+  fun `with current job non-cancellable`(): Unit = timeoutRunBlocking {
+    val job = launch {
+      blockingContext {
+        Cancellation.computeInNonCancelableSection<_, Nothing> {
+          assertDoesNotThrow {
+            runBlockingCancellable {
+              @OptIn(ExperimentalCoroutinesApi::class)
+              assertNull(coroutineContext.job.parent) // rbc does not attach to blockingContext job
+              assertDoesNotThrow {
+                ensureActive()
+              }
+              this@launch.cancel()
+              assertDoesNotThrow {
+                ensureActive()
+              }
+            }
+          }
+        }
+      }
+    }
+    job.join()
+    assertTrue(job.isCancelled)
   }
 
   @Test
@@ -57,6 +95,18 @@ class RunBlockingCancellableTest : CancellationTest() {
   }
 
   @Test
+  fun `with indicator non-cancellable context`() {
+    val modalityState = ModalityStateEx()
+    withIndicator(EmptyProgressIndicator(modalityState)) {
+      ProgressManager.getInstance().computeInNonCancelableSection<_, Nothing> {
+        assertSame(modalityState, ProgressManager.getInstance().currentProgressModality)
+        runBlockingCancellable {}
+        assertSame(modalityState, ProgressManager.getInstance().currentProgressModality) // IDEA-325853
+      }
+    }
+  }
+
+  @Test
   fun `with indicator cancellation`() {
     val indicator = EmptyProgressIndicator()
     withIndicator(indicator) {
@@ -73,8 +123,31 @@ class RunBlockingCancellableTest : CancellationTest() {
   }
 
   @Test
+  fun `with indicator non-cancellable`() {
+    val indicator = EmptyProgressIndicator()
+    withIndicator(indicator) {
+      Cancellation.computeInNonCancelableSection<_, Nothing> {
+        assertDoesNotThrow {
+          runBlockingCancellable {
+            @OptIn(ExperimentalCoroutinesApi::class)
+            assertNull(coroutineContext.job.parent) // rbc does not attach to blockingContext job
+            assertDoesNotThrow {
+              ensureActive()
+            }
+            indicator.cancel()
+            delay(100.milliseconds) // let indicator polling job kick in
+            assertDoesNotThrow {
+              ensureActive()
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   fun `with current job rethrows exceptions`() {
-    currentJobTest {
+    blockingContextTest {
       testRunBlockingCancellableRethrow()
     }
   }
@@ -112,7 +185,7 @@ class RunBlockingCancellableTest : CancellationTest() {
 
   @Test
   fun `with current job child failure`() {
-    currentJobTest {
+    blockingContextTest {
       testRunBlockingCancellableChildFailure()
     }
   }

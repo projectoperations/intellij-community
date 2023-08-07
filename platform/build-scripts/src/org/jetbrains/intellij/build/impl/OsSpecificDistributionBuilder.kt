@@ -9,6 +9,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.archivers.zip.ZipFile
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.OsFamily
@@ -132,6 +133,14 @@ interface OsSpecificDistributionBuilder {
           MatchedFile(entry.name, OWNER_EXECUTE in PosixFilePermissionsUtil.fromUnixMode(entry.unixMode), matched)
         }
       }.toList()
+    }
+  }
+
+  companion object {
+    @Internal
+    fun suffix(arch: JvmArchitecture): String = when (arch) {
+      JvmArchitecture.x64 -> ""
+      else -> "-${arch.fileSuffix}"
     }
   }
 }

@@ -13,10 +13,7 @@ import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.QuickFix;
-import com.intellij.modcommand.ModCommand;
-import com.intellij.modcommand.ModCommandAction;
-import com.intellij.modcommand.ModCommandQuickFix;
-import com.intellij.modcommand.ModCommandService;
+import com.intellij.modcommand.*;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -26,6 +23,8 @@ import com.intellij.openapi.util.Iconable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.MathUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -66,9 +65,7 @@ public final class QuickFixWrapper implements IntentionAction, PriorityAction, C
     if (action instanceof QuickFixWrapper wrapper) {
       return wrapper.myFix;
     }
-    ModCommandAction modCommand = action instanceof ModCommandAction mc ? mc:
-                                  ModCommandAction.unwrap((IntentionAction)action);                              
-    if (modCommand instanceof ModCommandQuickFixAction qfAction) {
+    if (action.asModCommandAction() instanceof ModCommandQuickFixAction qfAction) {
       return qfAction.myFix;
     }
     return null;
@@ -82,7 +79,7 @@ public final class QuickFixWrapper implements IntentionAction, PriorityAction, C
     if (action instanceof QuickFixWrapper wrapper) {
       return wrapper.getFile();
     }
-    if (ModCommandAction.unwrap(action) instanceof ModCommandQuickFixAction qfAction) {
+    if (action.asModCommandAction() instanceof ModCommandQuickFixAction qfAction) {
       PsiElement element = qfAction.myDescriptor.getPsiElement();
       return element == null ? null : element.getContainingFile();
     }
@@ -162,7 +159,7 @@ public final class QuickFixWrapper implements IntentionAction, PriorityAction, C
     if (action instanceof QuickFixWrapper wrapper) {
       return wrapper.myDescriptor.getHighlightType();
     }
-    if (ModCommandAction.unwrap(action) instanceof ModCommandQuickFixAction qfAction) {
+    if (action.asModCommandAction() instanceof ModCommandQuickFixAction qfAction) {
       return qfAction.myDescriptor.getHighlightType();
     }
     return null;
@@ -226,7 +223,10 @@ public final class QuickFixWrapper implements IntentionAction, PriorityAction, C
     public @Nullable Presentation getPresentation(@NotNull ActionContext context) {
       if (myUnwrappedAction != null) {
         if (myDescriptor.getStartElement() == null) return null;
-        return myUnwrappedAction.getPresentation(ActionContext.from(myDescriptor));
+        ActionContext descriptorContext = ActionContext.from(myDescriptor);
+        return myUnwrappedAction.getPresentation(
+          descriptorContext.withOffset(MathUtil.clamp(context.offset(), descriptorContext.selection().getStartOffset(),
+                                                      descriptorContext.selection().getEndOffset())));
       }
       PsiElement psiElement = myDescriptor.getPsiElement();
       if (psiElement == null || !psiElement.isValid()) return null;
@@ -235,9 +235,20 @@ public final class QuickFixWrapper implements IntentionAction, PriorityAction, C
              containingFile.getViewProvider().getVirtualFile().equals(context.file().getViewProvider().getVirtualFile()))) {
         return null;
       }
-      return Presentation.of(myFix.getName())
-        .withPriority(myFix instanceof PriorityAction ? ((PriorityAction)myFix).getPriority() : Priority.NORMAL)
-        .withIcon(myFix instanceof Iconable ? ((Iconable)myFix).getIcon(0) : null);
+      Presentation presentation = Presentation.of(myFix.getName());
+      List<RangeToHighlight> highlight = myFix.getRangesToHighlight(context.project(), myDescriptor);
+      if (!highlight.isEmpty()) {
+        Presentation.HighlightRange[] ranges = ContainerUtil.map2Array(highlight, Presentation.HighlightRange.class,
+                                                          r -> new Presentation.HighlightRange(r.getRangeInFile(), r.getHighlightKey()));
+        presentation = presentation.withHighlighting(ranges);
+      }
+      if (myFix instanceof Iconable iconable) {
+        presentation = presentation.withIcon(iconable.getIcon(0));
+      }
+      if (myFix instanceof PriorityAction priorityAction) {
+        presentation = presentation.withPriority(priorityAction.getPriority());
+      }
+      return presentation;
     }
 
     @Override

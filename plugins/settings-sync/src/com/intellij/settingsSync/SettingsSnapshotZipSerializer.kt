@@ -7,10 +7,10 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.settingsSync.plugins.SettingsSyncPluginsState
 import com.intellij.util.io.*
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.OutputStream
+import java.lang.RuntimeException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -20,12 +20,15 @@ import java.util.function.Consumer
 import java.util.stream.Collectors
 import kotlin.io.path.div
 import kotlin.io.path.exists
+import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
 
 internal object SettingsSnapshotZipSerializer {
   private const val METAINFO = ".metainfo"
   private const val INFO = "info.json"
   private const val PLUGINS = "plugins.json"
+
+  private const val MAX_ZIP_SIZE = 524288 // bytes
 
   private val LOG = logger<SettingsSnapshotZipSerializer>()
 
@@ -34,6 +37,9 @@ internal object SettingsSnapshotZipSerializer {
   fun serializeToZip(snapshot: SettingsSnapshot): Path {
     val file = FileUtil.createTempFile(SETTINGS_SYNC_SNAPSHOT_ZIP, null)
     serialize(snapshot, Compressor.Zip(file))
+    if (file.length() > MAX_ZIP_SIZE) {
+      throw ZipSizeExceedException(file.length())
+    }
     return file.toPath()
   }
 
@@ -94,14 +100,14 @@ internal object SettingsSnapshotZipSerializer {
     val metaInfo = parseMetaInfo(metaInfoFolder)
 
     val fileStates = Files.walk(tempDir)
-      .filter { it.isFile() && !metaInfoFolder.isAncestor(it) }
+      .filter { it.isRegularFile() && !it.startsWith(metaInfoFolder) }
       .map { getFileStateFromFileWithDeletedMarker(it, tempDir) }
       .collect(Collectors.toSet())
 
     val (settingsFromProviders, filesFromProviders) = deserializeSettingsProviders(metaInfoFolder)
 
     val additionalFiles = Files.walk(metaInfoFolder)
-      .filter { it.isFile() && it.name != INFO && it.name != PLUGINS && !filesFromProviders.contains(it) }
+      .filter { it.isRegularFile() && it.name != INFO && it.name != PLUGINS && !filesFromProviders.contains(it) }
       .map { getFileStateFromFileWithDeletedMarker(it, metaInfoFolder) }
       .collect(Collectors.toSet())
 
@@ -182,5 +188,11 @@ internal object SettingsSnapshotZipSerializer {
     var hostName: String = ""
     var configFolder: String = ""
     var isDeleted: Boolean = false
+  }
+
+  class ZipSizeExceedException(private val size: Long): RuntimeException() {
+    override fun toString(): String {
+      return "Zip size $size excesses maximum allowed zip size"
+    }
   }
 }

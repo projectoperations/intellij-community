@@ -2,6 +2,7 @@
 
 package org.jetbrains.kotlin.idea.configuration.ui
 
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.components.Service
@@ -53,6 +54,9 @@ class KotlinConfigurationCheckerService(private val project: Project) {
     }
 
     private suspend fun doPerformProjectPostOpenActions() {
+        val propertiesComponent = PropertiesComponent.getInstance(project)
+        if (propertiesComponent.isValueSet(KOTLIN_LANGUAGE_VERSION_CONFIGURED_PROPERTY_NAME)) return
+
         val kotlinLanguageVersionConfigured = readAction { isKotlinLanguageVersionConfigured(project) }
 
         val ktModules = if (kotlinLanguageVersionConfigured) {
@@ -68,6 +72,7 @@ class KotlinConfigurationCheckerService(private val project: Project) {
                 }
 
             if (modulesWithKotlinFacets.isEmpty()) {
+                propertiesComponent.setValue(KOTLIN_LANGUAGE_VERSION_CONFIGURED_PROPERTY_NAME, true)
                 return
             }
 
@@ -77,6 +82,7 @@ class KotlinConfigurationCheckerService(private val project: Project) {
         }
 
         if (ktModules.isEmpty()) {
+            propertiesComponent.setValue(KOTLIN_LANGUAGE_VERSION_CONFIGURED_PROPERTY_NAME, true)
             return
         }
         if (!kotlinLanguageVersionConfigured) {
@@ -102,7 +108,7 @@ class KotlinConfigurationCheckerService(private val project: Project) {
                 writeActionContinuations.forEach { it.invoke() }
             }
         }
-        return
+        propertiesComponent.setValue(KOTLIN_LANGUAGE_VERSION_CONFIGURED_PROPERTY_NAME, true)
     }
 
     @IntellijInternalApi
@@ -153,8 +159,8 @@ class KotlinConfigurationCheckerService(private val project: Project) {
 
     companion object {
         const val CONFIGURE_NOTIFICATION_GROUP_ID = "Configure Kotlin in Project"
+        const val KOTLIN_LANGUAGE_VERSION_CONFIGURED_PROPERTY_NAME = "kotlin-language-version-configured"
 
         fun getInstance(project: Project): KotlinConfigurationCheckerService = project.service()
-
     }
 }

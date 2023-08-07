@@ -210,7 +210,7 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
         def isJvmTest = task instanceof Test
         def isAbstractTest = is44OrBetter && task instanceof AbstractTestTask
         externalTask.test = isJvmTest || isAbstractTest || isInternalTest || isEffectiveTest
-        externalTask.jvmTest = isJvmTest
+        externalTask.jvmTest = isJvmTest || isAbstractTest
         externalTask.type = ProjectExtensionsDataBuilderImpl.getType(task)
         result.put(externalTask.name, externalTask)
       }
@@ -280,22 +280,11 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
         downloadSources = ideaPluginModule.downloadSources
       }
     }
-    if (ideaPluginModule == null && downloadSourcesFlag != null) {
-      project.plugins.whenPluginAdded { plugin ->
-        if (plugin instanceof IdeaPlugin) {
-          def module = plugin?.model?.module
-          if (module != null) {
-            module.downloadJavadoc = downloadJavadoc
-            module.downloadSources = downloadSources
-          }
-        }
-      }
-    }
 
     def projectSourceCompatibility = getSourceCompatibility(project)
     def projectTargetCompatibility = getTargetCompatibility(project)
 
-    def result = new LinkedHashMap<String, DefaultExternalSourceSet>();
+    def result = new LinkedHashMap<String, DefaultExternalSourceSet>()
     def sourceSets = JavaPluginUtil.getJavaPluginAccessor(project).sourceSetContainer
     if (sourceSets == null) {
       return result
@@ -327,8 +316,10 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
             try {
               def metadata = compiler.get().metadata
               def configuredInstallationPath = metadata.installationPath.asFile.canonicalPath
-              boolean isFallbackToolchain = is80OrBetter && metadata instanceof JavaToolchain && ((JavaToolchain)metadata).isFallbackToolchain();
-              boolean isJavaHomeCompiler = configuredInstallationPath != null && configuredInstallationPath == System.getProperty("java.home");
+              boolean isFallbackToolchain =
+                is80OrBetter && metadata instanceof JavaToolchain && ((JavaToolchain)metadata).isFallbackToolchain()
+              boolean isJavaHomeCompiler =
+                configuredInstallationPath != null && configuredInstallationPath == System.getProperty("java.home")
               if (!isJavaHomeCompiler && !isFallbackToolchain) {
                 externalSourceSet.jdkInstallationPath = configuredInstallationPath
               }
@@ -767,17 +758,17 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
     def project = archiveTask.project
 
     try {
-      final Method mainSpecGetter = AbstractCopyTask.class.getDeclaredMethod("getMainSpec");
-      mainSpecGetter.setAccessible(true);
-      Object mainSpec = mainSpecGetter.invoke(archiveTask);
+      final Method mainSpecGetter = AbstractCopyTask.class.getDeclaredMethod("getMainSpec")
+      mainSpecGetter.setAccessible(true)
+      Object mainSpec = mainSpecGetter.invoke(archiveTask)
 
       final List<MetaMethod> sourcePathGetters =
-        DefaultGroovyMethods.respondsTo(mainSpec, "getSourcePaths", new Object[]{});
+        DefaultGroovyMethods.respondsTo(mainSpec, "getSourcePaths", new Object[]{})
       if (!sourcePathGetters.isEmpty()) {
-        Set<Object> sourcePaths = (Set<Object>)sourcePathGetters.get(0).doMethodInvoke(mainSpec, new Object[]{});
+        Set<Object> sourcePaths = (Set<Object>)sourcePathGetters.get(0).doMethodInvoke(mainSpec, new Object[]{})
         if (sourcePaths != null) {
           for (Object path : sourcePaths) {
-            if (isSafeToResolve(path)) {
+            if (isSafeToResolve(path, project)) {
               def files = project.files(path).files
               outputFiles.removeAll(files)
             }
@@ -786,7 +777,7 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
       }
     }
     catch (Exception e) {
-      throw new RuntimeException(e);
+      throw new RuntimeException(e)
     }
 
     return outputFiles.isEmpty()
@@ -797,10 +788,10 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
    *
    * @param object
    * @return true if object is safe to resolve using {@link Project#files(java.lang.Object...)}
-   * @see org.jetbrains.plugins.gradle.tooling.builder.ExternalProjectBuilderImpl#unpackPresentProvider
+   * @see org.jetbrains.plugins.gradle.tooling.builder.ExternalProjectBuilderImpl#tryUnpackPresentProvider
    */
-  private static boolean isSafeToResolve(Object param) {
-    Object object = unpackPresentProvider(param)
+  private static boolean isSafeToResolve(Object param, Project project) {
+    Object object = tryUnpackPresentProvider(param, project)
     boolean isDirectoryOrRegularFile = dynamicCheckInstanceOf(object,
                                                               "org.gradle.api.file.Directory",
                                                               "org.gradle.api.file.RegularFile")
@@ -813,12 +804,13 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
 
   /**
    * Some Gradle {@link org.gradle.api.provider.Provider} implementations can not be resolved during sync,
-   * causing {@link org.gradle.api.InvalidUserCodeException}
-   * and {@link org.gradle.api.InvalidUserDataException}.
+   * causing {@link org.gradle.api.InvalidUserCodeException} and {@link org.gradle.api.InvalidUserDataException}.
+   * Also some {@link org.gradle.api.provider.Provider} attempts to resolve dynamic
+   * configurations, witch results in resolving a configuration without write lock on the project.
    *
    * @return provided value or current if value isn't present or cannot be evaluated
    */
-  private static Object unpackPresentProvider(Object object) {
+  private static Object tryUnpackPresentProvider(Object object, Project project) {
     if (!dynamicCheckInstanceOf(object, "org.gradle.api.provider.Provider")) {
       return object
     }
@@ -838,7 +830,8 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
       if (isCodeException || isDataException) {
         return object
       }
-      throw exception
+      project.getLogger().info("Unable to resolve task source path: ${targetException?.message} (${targetException?.class?.canonicalName})")
+      return object
     }
   }
 
@@ -847,10 +840,10 @@ class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
     for (final SourceSet sourceSet in sourceSets) {
       if (archiveTask.name == sourceSet.jarTaskName) {
         // there is a sourceSet that 'owns' this task
-        return false;
+        return false
       }
     }
     // name of this task is not associated with any source set
-    return true;
+    return true
   }
 }

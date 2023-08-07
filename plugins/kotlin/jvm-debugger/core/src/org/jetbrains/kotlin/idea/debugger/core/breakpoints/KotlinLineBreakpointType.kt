@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 // The package directive doesn't match the file location to prevent API breakage
 package org.jetbrains.kotlin.idea.debugger.breakpoints
@@ -31,6 +31,7 @@ import org.jetbrains.kotlin.idea.base.psi.getTopmostElementAtOffset
 import org.jetbrains.kotlin.idea.debugger.KotlinReentrantSourcePosition
 import org.jetbrains.kotlin.idea.debugger.core.KotlinDebuggerCoreBundle
 import org.jetbrains.kotlin.idea.debugger.core.breakpoints.*
+import org.jetbrains.kotlin.idea.debugger.getContainingMethod
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.parentsWithSelf
@@ -107,16 +108,16 @@ class KotlinLineBreakpointType :
 
         val pos = SourcePosition.createFromLine(file, position.line)
         val lambdas = getLambdasAtLineIfAny(pos)
-        val condRet = findSingleConditionalReturn(file, position.line)
+        val condRet = if (canStopOnConditionalReturn(file)) findSingleConditionalReturn(file, position.line) else null
 
         if (lambdas.isEmpty() && condRet == null) return emptyList()
 
         val result = LinkedList<JavaLineBreakpointType.JavaBreakpointVariant>()
-        val elementAt = pos.elementAt.parentsWithSelf.firstIsInstance<KtElement>()
-        val mainMethod = PsiTreeUtil.getParentOfType(elementAt, KtFunction::class.java, false)
+        val elementAt = pos.elementAt?.parentsWithSelf?.firstIsInstance<KtElement>() ?: return emptyList()
+        val mainMethod = elementAt.getContainingMethod(excludingElement = false)
         var mainMethodAdded = false
         if (mainMethod != null) {
-            val bodyExpression = mainMethod.bodyExpression
+            val bodyExpression = if (mainMethod is KtDeclarationWithBody) mainMethod.bodyExpression else null
             val isLambdaResult = bodyExpression is KtLambdaExpression && bodyExpression.functionLiteral in lambdas
 
             if (!isLambdaResult) {
@@ -157,7 +158,7 @@ class KotlinLineBreakpointType :
         val lambdaOrdinal = properties.lambdaOrdinal ?: return null
         // Since lambda breakpoints are placed on the first lambda statement,
         // we should find the function parent to highlight lambda breakpoints properly
-        val function = position.elementAt.parentOfType<KtFunction>() ?: return null
+        val function = position.elementAt?.parentOfType<KtFunction>() ?: return null
         val updatedPosition = SourcePosition.createFromElement(function) ?: return null
         return getLambdaByOrdinal(updatedPosition, lambdaOrdinal)?.textRange
     }
@@ -191,9 +192,6 @@ class KotlinLineBreakpointType :
 
 private val LineBreakpoint<*>.javaBreakpointProperties
     get() = xBreakpoint?.properties as? JavaBreakpointProperties<*>
-
-private fun PsiElement.getContainingMethod(): PsiElement? =
-    PsiTreeUtil.getParentOfType(this, KtFunction::class.java, KtClassInitializer::class.java)
 
 private fun PsiElement?.isInlineOnlyDeclaration(): Boolean =
     this is KtCallableDeclaration && isInlineOnly()

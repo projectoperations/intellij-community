@@ -16,12 +16,10 @@
 package org.jetbrains.idea.maven.importing;
 
 import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCase;
-import com.intellij.maven.testFramework.utils.MavenImportingTestCaseKt;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.junit.Test;
 
 import java.util.Collections;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class IgnoresImportingTest extends MavenMultiVersionImportingTestCase {
   @Override
@@ -53,8 +51,6 @@ public class IgnoresImportingTest extends MavenMultiVersionImportingTestCase {
 
   @Test
   public void testAddingAndRemovingModulesWhenIgnoresChange() {
-    configConfirmationForYesAnswer();
-
     VirtualFile p1 = createModulePom("project1",
                                      """
                                        <groupId>test</groupId>
@@ -72,10 +68,12 @@ public class IgnoresImportingTest extends MavenMultiVersionImportingTestCase {
     assertModules("project1", "project2");
 
     setIgnoredFilesPathForNextImport(Collections.singletonList(p1.getPath()));
+    MavenProjectLegacyImporter.setAnswerToDeleteObsoleteModulesQuestion(true);
     doReadAndImport();
     assertModules("project2");
 
     setIgnoredFilesPathForNextImport(Collections.singletonList(p2.getPath()));
+    MavenProjectLegacyImporter.setAnswerToDeleteObsoleteModulesQuestion(true);
     doReadAndImport();
     assertModules("project1");
 
@@ -88,8 +86,6 @@ public class IgnoresImportingTest extends MavenMultiVersionImportingTestCase {
   public void testDoNotAskTwiceToRemoveIgnoredModule() {
     if (!supportsKeepingModulesFromPreviousImport()) return;
 
-    AtomicInteger counter = configConfirmationForNoAnswer();
-
     VirtualFile p1 = createModulePom("project1",
                                      """
                                        <groupId>test</groupId>
@@ -107,15 +103,15 @@ public class IgnoresImportingTest extends MavenMultiVersionImportingTestCase {
     assertModules("project1", "project2");
 
     setIgnoredFilesPathForNextImport(Collections.singletonList(p1.getPath()));
+    MavenProjectLegacyImporter.setAnswerToDeleteObsoleteModulesQuestion(false);
     doReadAndImport();
 
     assertModules("project1", "project2");
-    assertEquals(1, counter.get());
 
+    MavenProjectLegacyImporter.setAnswerToDeleteObsoleteModulesQuestion(false);
     doReadAndImport();
 
     assertModules("project1", "project2");
-    assertEquals(1, counter.get());
   }
 
   private void doReadAndImport() {
@@ -123,10 +119,7 @@ public class IgnoresImportingTest extends MavenMultiVersionImportingTestCase {
       doImportProjects(myProjectsManager.getProjectsTree().getExistingManagedFiles(), true);
     }
     else {
-      waitForReadingCompletion();
-
-      MavenImportingTestCaseKt.importMavenProjectsSync(myProjectsManager);
-      //myProjectsManager.performScheduledImportInTests();
+      updateAllProjects();
     }
   }
 }

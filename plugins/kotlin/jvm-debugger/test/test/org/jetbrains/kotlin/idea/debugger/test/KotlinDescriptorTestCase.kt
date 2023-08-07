@@ -32,7 +32,6 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.runInEdtAndGet
 import com.intellij.util.ThrowableRunnable
-import com.intellij.util.ui.UIUtil
 import com.intellij.xdebugger.XDebugSession
 import org.jetbrains.kotlin.config.*
 import org.jetbrains.kotlin.idea.base.plugin.artifacts.TestKotlinArtifacts
@@ -209,7 +208,15 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase() {
         val rawJvmTarget = preferences[DebuggerPreferenceKeys.JVM_TARGET]
         val jvmTarget = JvmTarget.fromString(rawJvmTarget) ?: error("Invalid JVM target value: $rawJvmTarget")
 
-        val languageVersion = chooseLanguageVersionForCompilation(compileWithK2)
+        val languageVersion = if (useIrBackend()) {
+            chooseLanguageVersionForCompilation(compileWithK2)
+        } else {
+            check(!compileWithK2) {
+                "Old backend-backed evaluator cannot work with K2"
+            }
+            null
+        }
+
         val enabledLanguageFeatures = preferences[DebuggerPreferenceKeys.ENABLED_LANGUAGE_FEATURE]
             .map { LanguageFeature.fromString(it) ?: error("Not found language feature $it") }
 
@@ -300,17 +307,9 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase() {
                 .asyncAgent(true)
                 .create(javaCommandLineState.javaParameters)
 
-        lateinit var debuggerSession: DebuggerSession
-
-        UIUtil.invokeAndWaitIfNeeded(Runnable {
-            try {
-                val env = javaCommandLineState.environment
-                env.putUserData(DefaultDebugEnvironment.DEBUGGER_TRACE_MODE, traceMode)
-                debuggerSession = attachVirtualMachine(javaCommandLineState, env, debugParameters, false)
-            } catch (e: ExecutionException) {
-                fail(e.message)
-            }
-        })
+        val env = javaCommandLineState.environment
+        env.putUserData(DefaultDebugEnvironment.DEBUGGER_TRACE_MODE, traceMode)
+        val debuggerSession = attachVirtualMachine(javaCommandLineState, env, debugParameters, false)
 
         val processHandler = debuggerSession.process.processHandler
         debuggerSession.process.addProcessListener(object : ProcessAdapter() {

@@ -4,7 +4,7 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.application.contextModality
 import com.intellij.openapi.progress.*
-import com.intellij.openapi.progress.impl.TextDetailsProgressReporter
+import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.wm.ex.ProgressIndicatorEx
@@ -15,15 +15,12 @@ import com.jetbrains.rd.framework.util.startChildAsync
 import com.jetbrains.rd.util.lifetime.Lifetime
 import com.jetbrains.rd.util.lifetime.LifetimeDefinition
 import com.jetbrains.rd.util.lifetime.isNotAlive
-import com.jetbrains.rd.util.reactive.WriteOnceProperty
-import com.jetbrains.rd.util.reactive.adviseOnce
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.channels.trySendBlocking
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 
 fun Lifetime.launchWithBackgroundProgress(
@@ -102,9 +99,22 @@ suspend fun <T>  withModalProgressContext(
   lifetime: Lifetime = Lifetime.Eternal,
   action: suspend ProgressCoroutineScope.() -> T
 ): T {
-  val context = CoroutineProgressContext.createModal(lifetime, title, canBeCancelled, isIndeterminate, project)
-  return doRunUnderProgress(context, action)
+  val owner = if (project != null) ModalTaskOwner.project(project) else ModalTaskOwner.guess()
+  val cancellation = if (canBeCancelled) TaskCancellation.cancellable() else TaskCancellation.nonCancellable()
+  return withModalProgress(owner, title, cancellation) {
+    withBackgroundContext(lifetime) {
+      ProgressCoroutineScopeBridge.use(true, action)
+    }
+  }
 }
+
+@Deprecated("Use withModalProgress")
+suspend fun <T>  withModalProgressContext(
+  @Nls(capitalization = Nls.Capitalization.Title) title: String,
+  canBeCancelled: Boolean = true,
+  project: Project? = null,
+  action: suspend ProgressCoroutineScope.() -> T
+): T = withModalProgressContext(title, canBeCancelled, true, project, Lifetime.Eternal, action)
 
 @Deprecated("Use withBackgroundProgress")
 suspend fun <T> withBackgroundProgressContext(
@@ -112,39 +122,33 @@ suspend fun <T> withBackgroundProgressContext(
   canBeCancelled: Boolean = true,
   project: Project,
   action: suspend ProgressCoroutineScope.() -> T
-): T = withBackgroundProgressContext(title, canBeCancelled, true, project, Lifetime.Eternal, action)
+): T = withBackgroundProgress(project, title, canBeCancelled) {
+  withBackgroundContext {
+    ProgressCoroutineScopeBridge.use(false, action)
+  }
+}
 
 @Deprecated("Use withBackgroundProgress")
 suspend fun <T> withBackgroundProgressContext(
   @Nls(capitalization = Nls.Capitalization.Sentence) title: String,
   canBeCancelled: Boolean = true,
   isIndeterminate: Boolean = true,
-  project: Project? = null,
   lifetime: Lifetime = Lifetime.Eternal,
   action: suspend ProgressCoroutineScope.() -> T
 ): T {
-  if (project != null) {
-    withBackgroundProgress(project, title, canBeCancelled) {
-      withBackgroundContext(lifetime) {
-        ProgressCoroutineScopeBridge.use(false, action)
-      }
-    }
-  }
-
-  val context = CoroutineProgressContext.createBackgroundable(lifetime, title, canBeCancelled, isIndeterminate, project)
+  val context = CoroutineProgressContext.createBackgroundable(lifetime, title, canBeCancelled, isIndeterminate, null)
   return doRunUnderProgress(context, action)
 }
 
+@Deprecated("Use launchWithModalProgress")
 fun Lifetime.launchUnderModalProgress(
   @Nls(capitalization = Nls.Capitalization.Title) title: String,
   canBeCancelled: Boolean = true,
   isIndeterminate: Boolean = true,
   project: Project? = null,
   action: suspend ProgressCoroutineScope.() -> Unit
-): Job {
-  return runModalAsync(title, canBeCancelled, isIndeterminate, project) { dispatcher, indicator ->
-    launch(dispatcher) { ProgressCoroutineScopeLegacy.execute(coroutineContext, this@runModalAsync, indicator(), action) }
-  }
+): Job = launchBackground {
+  withModalProgressContext(title, canBeCancelled, isIndeterminate, project, this@launchUnderModalProgress, action)
 }
 
 @Deprecated("Use launchWithBackgroundProgress")
@@ -152,28 +156,29 @@ fun Lifetime.launchUnderBackgroundProgress(
   @Nls(capitalization = Nls.Capitalization.Sentence) title: String,
   canBeCancelled: Boolean = true,
   isIndeterminate: Boolean = true,
-  project: Project? = null,
+  project: Project,
   action: suspend ProgressCoroutineScope.() -> Unit
-): Job {
+): Job = launchBackground { withBackgroundProgressContext(title, canBeCancelled, project, action) }
 
-  if (project != null)
-    return launchBackground { withBackgroundProgressContext(title, canBeCancelled, project, action) }
-
-  return runBackgroundAsync(title, canBeCancelled, isIndeterminate, project) { dispatcher, indicator ->
-    launch(dispatcher) { ProgressCoroutineScopeLegacy.execute(coroutineContext, this@runBackgroundAsync, indicator(), action) }
-  }
+@Deprecated("Use launchWithBackgroundProgress")
+fun Lifetime.launchUnderBackgroundProgress(
+  @Nls(capitalization = Nls.Capitalization.Sentence) title: String,
+  canBeCancelled: Boolean = true,
+  isIndeterminate: Boolean = true,
+  action: suspend ProgressCoroutineScope.() -> Unit
+): Job = runBackgroundAsync(title, canBeCancelled, isIndeterminate, null) { dispatcher, indicator ->
+  launch(dispatcher) { ProgressCoroutineScopeLegacy.execute(coroutineContext, this@runBackgroundAsync, indicator(), action) }
 }
 
+@Deprecated("Use startWithModalProgressAsync")
 fun <T> Lifetime.startUnderModalProgressAsync(
   @Nls(capitalization = Nls.Capitalization.Title) title: String,
   canBeCancelled: Boolean = true,
   isIndeterminate: Boolean = true,
   project: Project? = null,
   action: suspend ProgressCoroutineScope.() -> T
-): Deferred<T> {
-  return runModalAsync(title, canBeCancelled, isIndeterminate, project) { dispatcher, indicator ->
-    startAsync(dispatcher) { ProgressCoroutineScopeLegacy.execute(coroutineContext, this@runModalAsync, indicator(), action) }
-  }
+): Deferred<T> = startBackgroundAsync {
+  withModalProgressContext(title, canBeCancelled, isIndeterminate, project, this@startUnderModalProgressAsync, action)
 }
 
 @Deprecated("Use startWithBackgroundProgressAsync")
@@ -181,26 +186,22 @@ fun <T> Lifetime.startUnderBackgroundProgressAsync(
   @Nls(capitalization = Nls.Capitalization.Sentence) title: String,
   canBeCancelled: Boolean = true,
   isIndeterminate: Boolean = true,
-  project: Project? = null,
+  project: Project,
+  action: suspend ProgressCoroutineScope.() -> T
+): Deferred<T> = startBackgroundAsync { withBackgroundProgressContext(title, canBeCancelled, project, action) }
+
+
+@Deprecated("Use startWithBackgroundProgressAsync")
+fun <T> Lifetime.startUnderBackgroundProgressAsync(
+  @Nls(capitalization = Nls.Capitalization.Sentence) title: String,
+  canBeCancelled: Boolean = true,
+  isIndeterminate: Boolean = true,
   action: suspend ProgressCoroutineScope.() -> T
 ): Deferred<T> {
-
-  if (project != null)
-    return startBackgroundAsync { withBackgroundProgressContext(title, canBeCancelled, project, action) }
-
-  return runBackgroundAsync(title, canBeCancelled, isIndeterminate, project) { dispatcher, indicator ->
+  return runBackgroundAsync(title, canBeCancelled, isIndeterminate, null) { dispatcher, indicator ->
     startAsync(dispatcher) { ProgressCoroutineScopeLegacy.execute(coroutineContext, this@runBackgroundAsync, indicator(), action) }
   }
 }
-
-private fun <T: Job> Lifetime.runModalAsync(
-  @Nls(capitalization = Nls.Capitalization.Title) title: String,
-  canBeCancelled: Boolean = true,
-  isIndeterminate: Boolean = true,
-  project: Project? = null,
-  startCoroutine: Lifetime.(CoroutineDispatcher, () -> ProgressIndicator) -> T): T {
-  val context = CoroutineProgressContext.createModal(this, title, canBeCancelled, isIndeterminate, project)
-  return doRunUnderProgressAsync(context, startCoroutine) }
 
 private fun <T: Job> Lifetime.runBackgroundAsync(
   @Nls(capitalization = Nls.Capitalization.Sentence) title: String,
@@ -312,12 +313,11 @@ private class CoroutineProgressContext(
 
 @Deprecated("It is a legacy api")
 abstract class ProgressCoroutineScope(
-  override val coroutineContext: CoroutineContext,
   @Deprecated("Use progress reporter api")
-  val indicator: ProgressIndicator) : CoroutineScope
+  val indicator: ProgressIndicator)
 
 @Deprecated("It is a legacy api")
-private class ProgressCoroutineScopeBridge private constructor(coroutineContext: CoroutineContext, val bridgeIndicator: BridgeIndicator) : ProgressCoroutineScope(coroutineContext, bridgeIndicator) {
+private class ProgressCoroutineScopeBridge private constructor(coroutineContext: CoroutineContext, val bridgeIndicator: BridgeIndicator) : ProgressCoroutineScope(bridgeIndicator) {
   companion object {
 
     suspend fun <T> use(isModal: Boolean, action: suspend ProgressCoroutineScope.() -> T): T {
@@ -325,69 +325,65 @@ private class ProgressCoroutineScopeBridge private constructor(coroutineContext:
         val parentScope = this
         coroutineScope {
           val bridge = ProgressCoroutineScopeBridge(coroutineContext, BridgeIndicator(coroutineContext, isModal))
-          try {
-            bridge.initializationTask.await()
-            assert(bridge.bridgeIndicator.reporterIsSet)
-            bridge.action()
-          }
-          finally {
-            bridge.close(!parentScope.isActive)
+
+          withRawProgressReporter {
+            bridge.bridgeIndicator.reporter = rawProgressReporter!!
+
+            val job = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+              awaitCancellationAndInvoke {
+                if (!parentScope.isActive)
+                  bridge.bridgeIndicator.cancel()
+              }
+            }
+
+            try {
+              bridge.action()
+            }
+            finally {
+              job.cancel()
+            }
           }
         }
       }
     }
   }
-
-  private val needToCancel = AtomicBoolean(true)
-  val initializationTask = CompletableDeferred<Unit>()
-
-  fun close(needToCancelFlag: Boolean) {
-    needToCancel.set(needToCancelFlag)
-    job.cancel()
-  }
-
-  private val job = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-    withRawProgressReporter {
-      bridgeIndicator.reporter = rawProgressReporter!!
-      initializationTask.complete(Unit)
-      awaitCancellationAndInvoke {
-        if (needToCancel.get())
-          bridgeIndicator.cancel()
-      }
-    }
-  }
 }
 
-class BridgeIndicator(val coroutineContext: CoroutineContext, private val isModalFlag: Boolean) : EmptyProgressIndicatorBase(coroutineContext.contextModality() ?: ModalityState.nonModal()), StandardProgressIndicator {
+private interface BridgeIndicatorBase : ProgressIndicatorEx{
+  var reporter:  RawProgressReporter
+}
 
-  private var isCancelledFlag = false
-  lateinit var reporter:  RawProgressReporter
+private class BridgeIndicator(val coroutineContext: CoroutineContext, private val isModalFlag: Boolean) : BridgeIndicatorBase by BridgeIndicatorEx(coroutineContext) {
 
-  val reporterIsSet get() = this::reporter.isInitialized
+  override fun getModalityState(): ModalityState = coroutineContext.contextModality() ?: ModalityState.nonModal()
 
   override fun isModal(): Boolean {
     return isModalFlag
   }
+}
+
+private class BridgeIndicatorEx(val coroutineContext: CoroutineContext) : AbstractProgressIndicatorExBase(), StandardProgressIndicator, BridgeIndicatorBase {
+  override lateinit var reporter:  RawProgressReporter
 
   override fun cancel() {
-    isCancelledFlag = true
     coroutineContext.cancel()
-  }
-
-  override fun isCanceled(): Boolean {
-    return isCancelledFlag
+    super.cancel()
   }
 
   override fun setText(text: String?) {
     reporter.text(text)
+    super.setText(text)
   }
 
   override fun setText2(text: String?) {
     reporter.details(text)
+    super.setText2(text)
   }
 
   override fun setFraction(fraction: Double) {
+    isIndeterminate = false
     reporter.fraction(fraction)
+    super.setFraction(fraction)
   }
 
   override fun setIndeterminate(indeterminate: Boolean) {
@@ -397,11 +393,13 @@ class BridgeIndicator(val coroutineContext: CoroutineContext, private val isModa
     else {
       reporter.fraction(0.0)
     }
+
+    super.setIndeterminate(indeterminate)
   }
 }
 
 @Deprecated("It is a legacy api")
-class ProgressCoroutineScopeLegacy private constructor(coroutineContext: CoroutineContext, indicator: ProgressIndicator) : ProgressCoroutineScope(coroutineContext, indicator) {
+class ProgressCoroutineScopeLegacy private constructor(indicator: ProgressIndicator) : ProgressCoroutineScope(indicator) {
 
   companion object {
     internal suspend fun <T> execute(coroutineContext: CoroutineContext, progressLifetime: Lifetime, indicator: ProgressIndicator, action: suspend ProgressCoroutineScope.() -> T): T {
@@ -419,10 +417,8 @@ class ProgressCoroutineScopeLegacy private constructor(coroutineContext: Corouti
         }
 
         coroutineScope {
-          TextDetailsProgressReporter(this).use { reporter ->
-            withContext(ModalityState.defaultModalityState().asContextElement() + sink.asContextElement() + reporter.asContextElement()) {
-              ProgressCoroutineScopeLegacy(this.coroutineContext, indicator).action()
-            }
+          withContext(ModalityState.defaultModalityState().asContextElement() + sink.asContextElement()) {
+            ProgressCoroutineScopeLegacy(indicator).action()
           }
         }
       }

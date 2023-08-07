@@ -3,6 +3,7 @@
 
 package com.intellij.util
 
+import org.jetbrains.annotations.ApiStatus.Experimental
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.reflect.KProperty
 
@@ -26,3 +27,12 @@ typealias AsyncSupplier<T> = suspend () -> T
 operator fun <V> AtomicReference<V>.getValue(thisRef: Any?, property: KProperty<*>): V = get()
 
 operator fun <V> AtomicReference<V>.setValue(thisRef: Any?, property: KProperty<*>, value: V): Unit = set(value)
+
+@Experimental
+fun <T> Sequence<T>.multiple(): Boolean {
+  with(iterator()) {
+    if (!hasNext()) return false
+    next()
+    return hasNext()
+  }
+}

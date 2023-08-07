@@ -1,75 +1,67 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.ui.clone
 
+import com.intellij.collaboration.async.disposingScope
+import com.intellij.collaboration.async.launchNow
 import com.intellij.collaboration.async.nestedDisposable
 import com.intellij.collaboration.ui.CollaborationToolsUIUtil
 import com.intellij.collaboration.ui.util.bindContentIn
-import com.intellij.dvcs.repo.ClonePathProvider
 import com.intellij.dvcs.ui.DvcsBundle
-import com.intellij.dvcs.ui.FilePathDocumentChildPathHandle
-import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
-import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.vcs.CheckoutProvider
 import com.intellij.openapi.vcs.ui.cloneDialog.VcsCloneDialogExtensionComponent
-import com.intellij.ui.SearchTextField
 import com.intellij.ui.components.panels.Wrapper
 import com.intellij.util.childScope
-import git4idea.GitUtil
-import git4idea.remote.GitRememberedInputs
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collectLatest
+import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccountManager
+import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneLoginViewModel
+import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneRepositoriesViewModel
+import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneViewModelImpl
 import javax.swing.JComponent
 
 internal class GitLabCloneComponent(
   private val project: Project,
-  parentCs: CoroutineScope,
-  private val cloneVm: GitLabCloneViewModel
+  modalityState: ModalityState,
+  accountManager: GitLabAccountManager
 ) : VcsCloneDialogExtensionComponent() {
-  private val cs: CoroutineScope = parentCs.childScope()
+  private val cs: CoroutineScope = disposingScope() + modalityState.asContextElement() + Dispatchers.Default
+  private val uiCs: CoroutineScope = cs.childScope(Dispatchers.Main)
 
-  private val searchField: SearchTextField = SearchTextField(false)
-  private val directoryField: TextFieldWithBrowseButton = createDirectoryField()
-  private val cloneDirectoryChildHandle: FilePathDocumentChildPathHandle = FilePathDocumentChildPathHandle.install(
-    directoryField.textField.document,
-    ClonePathProvider.defaultParentDirectoryPath(project, GitRememberedInputs.getInstance())
-  )
+  private val cloneVm = GitLabCloneViewModelImpl(project, cs, accountManager)
 
-  private val loginPanel: JComponent = GitLabCloneLoginComponentFactory.create(cs, cloneVm)
-  private val repositoriesPanel: DialogPanel = GitLabCloneRepositoriesComponentFactory.create(
-    project, cs, cloneVm, searchField, directoryField
-  ).apply {
-    registerValidators(cs.nestedDisposable())
-  }
   private val wrapper: Wrapper = Wrapper().apply {
-    bindContentIn(cs, cloneVm.uiState) { componentState ->
-      when (componentState) {
-        GitLabCloneViewModel.UIState.LOGIN -> loginPanel
-        GitLabCloneViewModel.UIState.REPOSITORY_LIST -> repositoriesPanel
-      }
-    }
-  }
+    bindContentIn(uiCs, cloneVm.panelVm) { panelVm ->
+      val innerCs = this
+      when (panelVm) {
+        is GitLabCloneLoginViewModel -> GitLabCloneLoginComponentFactory.create(innerCs, panelVm, cloneVm)
+        is GitLabCloneRepositoriesViewModel -> GitLabCloneRepositoriesComponentFactory.create(
+          project, innerCs, panelVm, cloneVm
+        ).also { panel ->
+          panel.registerValidators(innerCs.nestedDisposable())
 
-  init {
-    cs.launch(start = CoroutineStart.UNDISPATCHED) {
-      cloneVm.selectedItem.collect { selectedItem ->
-        val isRepositorySelected = selectedItem != null && selectedItem is GitLabCloneListItem.Repository
-        dialogStateListener.onOkActionEnabled(isRepositorySelected)
-        if (isRepositorySelected) {
-          val repository = selectedItem as GitLabCloneListItem.Repository
-          val selectedUrl = repository.projectMember.project.httpUrlToRepo
-          val path = ClonePathProvider.relativeDirectoryPathForVcsUrl(project, selectedUrl).removeSuffix(GitUtil.DOT_GIT)
-          cloneDirectoryChildHandle.trySetChildPath(path)
+          innerCs.launchNow {
+            panelVm.selectedUrl.collectLatest { selectedUrl ->
+              val isUrlSelected = selectedUrl != null
+              dialogStateListener.onOkActionEnabled(isUrlSelected)
+            }
+          }
+
+          innerCs.launchNow {
+            panelVm.accountsUpdatedRequest.collectLatest {
+              dialogStateListener.onListItemChanged()
+            }
+          }
+
+          innerCs.launch {
+            yield()
+            CollaborationToolsUIUtil.focusPanel(panel)
+          }
         }
-      }
-    }
-
-    cs.launch(start = CoroutineStart.UNDISPATCHED) {
-      cloneVm.accountsRefreshRequest.collect {
-        dialogStateListener.onListItemChanged()
       }
     }
   }
@@ -79,7 +71,7 @@ internal class GitLabCloneComponent(
   }
 
   override fun doClone(checkoutListener: CheckoutProvider.Listener) {
-    cloneVm.doClone(checkoutListener, directoryField.text)
+    cloneVm.doClone(checkoutListener)
   }
 
   override fun doValidateAll(): List<ValidationInfo> {
@@ -97,24 +89,6 @@ internal class GitLabCloneComponent(
 
   override fun onComponentSelected() {
     dialogStateListener.onOkActionNameChanged(DvcsBundle.message("clone.button"))
-  }
-
-  override fun getPreferredFocusedComponent(): JComponent {
-    return searchField
-  }
-
-  private fun createDirectoryField(): TextFieldWithBrowseButton {
-    return TextFieldWithBrowseButton().apply {
-      val fcd = FileChooserDescriptorFactory.createSingleFolderDescriptor().apply {
-        isShowFileSystemRoots = true
-        isHideIgnored = false
-      }
-      addBrowseFolderListener(
-        DvcsBundle.message("clone.destination.directory.browser.title"),
-        DvcsBundle.message("clone.destination.directory.browser.description"),
-        project,
-        fcd
-      )
-    }
+    CollaborationToolsUIUtil.focusPanel(wrapper.targetComponent)
   }
 }

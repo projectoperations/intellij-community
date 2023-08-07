@@ -12,10 +12,7 @@ import com.intellij.ide.structureView.SearchableTextProvider;
 import com.intellij.ide.structureView.StructureView;
 import com.intellij.ide.structureView.StructureViewModel;
 import com.intellij.ide.structureView.impl.common.PsiTreeElementBase;
-import com.intellij.ide.structureView.newStructureView.StructureViewComponent;
-import com.intellij.ide.structureView.newStructureView.TreeActionWrapper;
-import com.intellij.ide.structureView.newStructureView.TreeActionsOwner;
-import com.intellij.ide.structureView.newStructureView.TreeModelWrapper;
+import com.intellij.ide.structureView.newStructureView.*;
 import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.NodeRenderer;
@@ -24,7 +21,6 @@ import com.intellij.internal.statistic.collectors.fus.actions.persistence.Action
 import com.intellij.internal.statistic.eventLog.EventLogGroup;
 import com.intellij.internal.statistic.eventLog.events.EventFields;
 import com.intellij.internal.statistic.eventLog.events.EventId1;
-import com.intellij.internal.statistic.eventLog.events.LongEventField;
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector;
 import com.intellij.lang.LangBundle;
 import com.intellij.lang.Language;
@@ -56,7 +52,6 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.StubBasedPsiElement;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBCheckBox;
@@ -287,7 +282,9 @@ public final class FileStructurePopup implements Disposable, TreeActionsOwner {
       .setCancelKeyEnabled(false)
       .setDimensionServiceKey(myProject, getDimensionServiceKey(), true)
       .setCancelCallback(() -> {
-        myProject.getMessageBus().syncPublisher(FileStructurePopupListener.TOPIC).stateChanged(false);
+        FileStructurePopupListener listener = myProject.getMessageBus().syncPublisher(FileStructurePopupListener.TOPIC);
+        listener.stateChanged(false);
+        listener.isLoading(false);
         return myCanClose;
       })
       .setAdvertiser(new SpeedSearchAdvertiser().addSpeedSearchAdvertisement())
@@ -295,20 +292,22 @@ public final class FileStructurePopup implements Disposable, TreeActionsOwner {
 
     Disposer.register(myPopup, this);
     myTree.getEmptyText().setText(CommonBundle.getLoadingTreeNodeText());
+    myProject.getMessageBus().syncPublisher(FileStructurePopupListener.TOPIC).isLoading(true);
     myPopup.showCenteredInCurrentWindow(myProject);
 
     ((AbstractPopup)myPopup).setShowHints(true);
 
     IdeFocusManager.getInstance(myProject).requestFocus(myTree, true);
 
-    return rebuildAndSelect(false, myInitialElement, null).onProcessed(path -> UIUtil.invokeLaterIfNeeded(() -> {
+    return rebuildAndSelect(false, myInitialElement, null).onSuccess(path -> UIUtil.invokeLaterIfNeeded(() -> {
       TreeUtil.ensureSelection(myTree);
-      installUpdater();
+      myProject.getService(FileStructurePopupLoadingStateUpdater.class).installUpdater(this::installUpdater, myProject, myTreeModel);
       showTime = System.nanoTime();
     }));
   }
 
-  private void installUpdater() {
+
+  private void installUpdater(final int delayMillis) {
     if (ApplicationManager.getApplication().isUnitTestMode() || myPopup.isDisposed()) {
       return;
     }
@@ -348,10 +347,10 @@ public final class FileStructurePopup implements Disposable, TreeActionsOwner {
           }));
         }
         if (!alarm.isDisposed()) {
-          alarm.addRequest(this, 300);
+          alarm.addRequest(this, delayMillis);
         }
       }
-    }, 300);
+    }, delayMillis);
   }
 
   private boolean handleBackspace(String filter) {
@@ -369,31 +368,15 @@ public final class FileStructurePopup implements Disposable, TreeActionsOwner {
   }
 
   public @NotNull Promise<TreePath> select(Object element) {
-    int[] stage = {1, 0}; // 1 - first pass, 2 - optimization applied, 3 - retry w/o optimization
-    TreePath[] deepestPath = {null};
-    TreeVisitor visitor = path -> {
-      Object last = path.getLastPathComponent();
-      Object userObject = StructureViewComponent.unwrapNavigatable(last);
-      Object value = StructureViewComponent.unwrapValue(last);
-      if (Comparing.equal(value, element) ||
-          userObject instanceof AbstractTreeNode && ((AbstractTreeNode<?>)userObject).canRepresent(element)) {
-        return TreeVisitor.Action.INTERRUPT;
-      }
-      if (value instanceof PsiElement && element instanceof PsiElement) {
-        if (PsiTreeUtil.isAncestor((PsiElement)value, (PsiElement)element, true)) {
-          int count = path.getPathCount();
-          if (stage[1] == 0 || stage[1] < count) {
-            stage[1] = count;
-            deepestPath[0] = path;
-          }
-        }
-        else if (stage[0] != 3) {
-          stage[0] = 2;
-          return TreeVisitor.Action.SKIP_CHILDREN;
-        }
-      }
-      return TreeVisitor.Action.CONTINUE;
-    };
+    int editorOffset;
+    if (myFileEditor instanceof TextEditor textEditor) {
+      editorOffset = textEditor.getEditor().getCaretModel().getOffset();
+    }
+    else {
+      editorOffset = -1;
+    }
+    var state = new StructureViewSelectVisitorState();
+    TreeVisitor visitor = path -> StructureViewComponent.visitPathForElementSelection(path, element, editorOffset, state);
     Function<TreePath, Promise<TreePath>> action = path -> {
       myTree.expandPath(path);
       TreeUtil.selectPath(myTree, path);
@@ -403,15 +386,15 @@ public final class FileStructurePopup implements Disposable, TreeActionsOwner {
     Function<TreePath, Promise<TreePath>> fallback = new Function<>() {
       @Override
       public Promise<TreePath> fun(TreePath path) {
-        if (path == null && stage[0] == 2) {
+        if (path == null && state.isOptimizationUsed()) {
           // Some structure views merge unrelated psi elements into a structure node (MarkdownStructureViewModel).
           // So turn off the isAncestor() optimization and retry once.
-          stage[0] = 3;
+          state.disableOptimization();
           return myAsyncTreeModel.accept(visitor).thenAsync(this);
         }
         else {
-          TreePath adjusted = path == null ? deepestPath[0] : path;
-          if (path == null && adjusted != null && element instanceof PsiElement) {
+          TreePath adjusted = path == null ? state.getDeepestMatch() : path;
+          if (path == null && adjusted != null && !state.isExactMatch() && element instanceof PsiElement) {
             Object minChild = findClosestPsiElement((PsiElement)element, adjusted, myAsyncTreeModel);
             if (minChild != null) adjusted = adjusted.pathByAddingChild(minChild);
           }

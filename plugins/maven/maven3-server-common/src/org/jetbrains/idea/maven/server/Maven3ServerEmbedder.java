@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.server;
 
 import com.intellij.util.text.VersionComparatorUtil;
@@ -310,7 +310,7 @@ public abstract class Maven3ServerEmbedder extends MavenServerEmbeddedBase {
   }
 
   @Override
-  public Set<MavenRemoteRepository> resolveRepositories(@NotNull Collection<MavenRemoteRepository> repositories, MavenToken token)
+  public HashSet<MavenRemoteRepository> resolveRepositories(@NotNull ArrayList<MavenRemoteRepository> repositories, MavenToken token)
     throws RemoteException {
     MavenServerUtil.checkToken(token);
     try {
@@ -323,42 +323,42 @@ public abstract class Maven3ServerEmbedder extends MavenServerEmbeddedBase {
   }
 
   @Override
-  public Collection<MavenArchetype> getLocalArchetypes(MavenToken token, @NotNull String path) throws RemoteException {
+  public ArrayList<MavenArchetype> getLocalArchetypes(MavenToken token, @NotNull String path) throws RemoteException {
     MavenServerUtil.checkToken(token);
     try {
       ArchetypeDataSource source = getComponent(ArchetypeDataSource.class, "catalog");
       Properties properties = new Properties();
-      properties.put(ARCHETYPE_CATALOG_PROPERTY, path);
+      properties.setProperty(ARCHETYPE_CATALOG_PROPERTY, path);
       ArchetypeCatalog archetypeCatalog = source.getArchetypeCatalog(properties);
       return getArchetypes(archetypeCatalog);
     }
     catch (Exception e) {
       MavenServerGlobals.getLogger().warn(e);
     }
-    return Collections.emptyList();
+    return new ArrayList<>();
   }
 
   @Override
-  public Collection<MavenArchetype> getRemoteArchetypes(MavenToken token, @NotNull String url) throws RemoteException {
+  public ArrayList<MavenArchetype> getRemoteArchetypes(MavenToken token, @NotNull String url) throws RemoteException {
     MavenServerUtil.checkToken(token);
     try {
       ArchetypeDataSource source = getComponent(ArchetypeDataSource.class, "remote-catalog");
       Properties properties = new Properties();
-      properties.put(REPOSITORY_PROPERTY, url);
+      properties.setProperty(REPOSITORY_PROPERTY, url);
       ArchetypeCatalog archetypeCatalog = source.getArchetypeCatalog(properties);
       return getArchetypes(archetypeCatalog);
     }
     catch (ArchetypeDataSourceException e) {
       MavenServerGlobals.getLogger().warn(e);
     }
-    return Collections.emptyList();
+    return new ArrayList<>();
   }
 
   @Nullable
   @Override
-  public Map<String, String> resolveAndGetArchetypeDescriptor(@NotNull String groupId, @NotNull String artifactId,
+  public HashMap<String, String> resolveAndGetArchetypeDescriptor(@NotNull String groupId, @NotNull String artifactId,
                                                               @NotNull String version,
-                                                              @NotNull List<MavenRemoteRepository> repositories,
+                                                              @NotNull ArrayList<MavenRemoteRepository> repositories,
                                                               @Nullable String url, MavenToken token) throws RemoteException {
     MavenServerUtil.checkToken(token);
     try {
@@ -368,7 +368,7 @@ public abstract class Maven3ServerEmbedder extends MavenServerEmbeddedBase {
         request.addRemoteRepository(repository);
       }
 
-      Map<String, String> result = new HashMap<>();
+      HashMap<String, String> result = new HashMap<>();
       AtomicBoolean unknownArchetypeError = new AtomicBoolean(false);
       executeWithMavenSession(request, () -> {
         MavenArtifactRepository artifactRepository = null;

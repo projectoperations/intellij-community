@@ -33,7 +33,6 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="intellij.platform.ide" exported="" />
-    <orderEntry type="library" name="Log4J" level="project" />
     <orderEntry type="library" name="commons-codec" level="project" />
     <orderEntry type="library" name="OroMatcher" level="project" />
     <orderEntry type="library" name="CGLIB" level="project" />
@@ -85,7 +84,13 @@
     <orderEntry type="module" module-name="intellij.platform.statistics" />
     <orderEntry type="module-library">
       <library name="byte-buddy-agent" type="repository">
-        <properties include-transitive-deps="false" maven-id="net.bytebuddy:byte-buddy-agent:1.14.0" />
+        <properties include-transitive-deps="false" maven-id="net.bytebuddy:byte-buddy-agent:1.14.0">
+          <verification>
+            <artifact url="file://$MAVEN_REPOSITORY$/net/bytebuddy/byte-buddy-agent/1.14.0/byte-buddy-agent-1.14.0.jar">
+              <sha256sum>4b23cda64beade8b78ec80fd321e017a0cc2413e4d73f323d8e617222a0e5d2c</sha256sum>
+            </artifact>
+          </verification>
+        </properties>
         <CLASSES>
           <root url="jar://$MAVEN_REPOSITORY$/net/bytebuddy/byte-buddy-agent/1.14.0/byte-buddy-agent-1.14.0.jar!/" />
         </CLASSES>
@@ -134,7 +139,6 @@
     <orderEntry type="module" module-name="intellij.platform.util.jdom" />
     <orderEntry type="library" name="jvm-native-trusted-roots" level="project" />
     <orderEntry type="library" name="opentelemetry" level="project" />
-    <orderEntry type="module" module-name="intellij.platform.diagnostic" />
     <orderEntry type="module" module-name="intellij.platform.diagnostic.telemetry" />
     <orderEntry type="library" name="opentelemetry-extension-kotlin" level="project" />
     <orderEntry type="module" module-name="intellij.platform.tips" scope="RUNTIME" />
@@ -145,5 +149,8 @@
     <orderEntry type="library" name="hash4j" level="project" />
     <orderEntry type="module" module-name="intellij.platform.util.ex" />
     <orderEntry type="module" module-name="intellij.platform.backend.workspace" />
+    <orderEntry type="module" module-name="intellij.platform.diagnostic.startUpPerformanceReporter" />
+    <orderEntry type="module" module-name="intellij.platform.diagnostic.telemetry.impl" />
+    <orderEntry type="module" module-name="intellij.platform.diagnostic" />
   </component>
 </module>

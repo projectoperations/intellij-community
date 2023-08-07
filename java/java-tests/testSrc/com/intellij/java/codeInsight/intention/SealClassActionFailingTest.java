@@ -3,10 +3,9 @@ package com.intellij.java.codeInsight.intention;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.codeInsight.intention.impl.SealClassAction;
-import com.intellij.codeInspection.ModCommands;
 import com.intellij.java.JavaBundle;
+import com.intellij.modcommand.ActionContext;
 import com.intellij.modcommand.ModCommand;
-import com.intellij.modcommand.ModCommandAction.ActionContext;
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import org.jetbrains.annotations.NotNull;
 
@@ -39,7 +38,7 @@ public class SealClassActionFailingTest extends LightJavaCodeInsightFixtureTestC
     SealClassAction action = new SealClassAction();
     assertNotNull(action.getPresentation(ac));
     ModCommand command = action.perform(ac);
-    assertEquals(ModCommands.error(message), command);
+    assertEquals(ModCommand.error(message), command);
   }
 
   @Override

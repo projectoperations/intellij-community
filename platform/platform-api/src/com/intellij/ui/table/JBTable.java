@@ -3,7 +3,6 @@ package com.intellij.ui.table;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.ExpirableRunnable;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
@@ -79,6 +78,8 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
 
   private final Color disabledForeground = JBColor.namedColor("Table.disabledForeground", JBColor.gray);
   private boolean myShowLastHorizontalLine;
+
+  private ValueScaler myValueScaler;
 
   public JBTable() {
     this(new DefaultTableModel());
@@ -184,7 +185,7 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
 
   protected void onTableChanged(@NotNull TableModelEvent e) {
     if (!myRowHeightIsExplicitlySet) {
-      myRowHeight = -1;
+      setRowHeightWithScaler(-1);
     }
     if (e.getType() == TableModelEvent.DELETE && isEmpty() ||
         e.getType() == TableModelEvent.INSERT && !isEmpty() ||
@@ -239,7 +240,7 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
     if (myRowHeight < 0) {
       try {
         myRowHeightIsComputing = true;
-        myRowHeight = calculateRowHeight();
+        setRowHeightWithScaler(calculateRowHeight());
       }
       finally {
         myRowHeightIsComputing = false;
@@ -293,11 +294,17 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
   @Override
   public void setRowHeight(int rowHeight) {
     if (!myUiUpdating) {
-      myRowHeight = rowHeight;
+      setRowHeightWithScaler(rowHeight);
       myRowHeightIsExplicitlySet = true;
     }
     // call super to clean rowModel
     super.setRowHeight(rowHeight);
+  }
+
+  private void setRowHeightWithScaler(int rowHeight) {
+    myRowHeight = rowHeight;
+    if (myRowHeight < 0) myValueScaler = null;
+    else myValueScaler = new ValueScaler(myRowHeight);
   }
 
   @Override
@@ -305,7 +312,10 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
     myUiUpdating = true;
     try {
       super.updateUI();
+
       myMinRowHeight = null;
+      if (!myRowHeightIsExplicitlySet) setRowHeightWithScaler(-1);
+      else if (myValueScaler != null) myRowHeight = myValueScaler.get();
     }
     finally {
       myUiUpdating = false;
@@ -523,7 +533,7 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
     if (ScreenUtil.isStandardAddRemoveNotify(this)) {
       if (myBusyIcon != null) {
         remove(myBusyIcon);
-        Disposer.dispose(myBusyIcon);
+        myBusyIcon.dispose();
         myBusyIcon = null;
       }
     }
@@ -1496,7 +1506,7 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
           return c.getAccessibleContext();
         }
         // Note: don't call "super" as 1) we know for sure the cell is not accessible
-        // and 2) the super implementation is incorrect anyways
+        // and 2) the super implementation is incorrect anyway
         return null;
       }
     }

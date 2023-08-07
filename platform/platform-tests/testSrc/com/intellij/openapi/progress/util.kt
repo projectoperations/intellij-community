@@ -83,9 +83,8 @@ fun assertCurrentJobIsChildOf(parent: Job): Job {
 }
 
 fun assertJobIsChildOf(job: Job, parent: Job) {
-  val children = parent.children.toSet()
-  job.ensureActive()
-  assertTrue(job in children)
+  @OptIn(ExperimentalCoroutinesApi::class)
+  assertSame(parent, job.parent)
 }
 
 fun loggedError(canThrow: Semaphore): Throwable {
@@ -113,14 +112,10 @@ fun loggedError(canThrow: Semaphore): Throwable {
   return throwable
 }
 
-fun currentJobTest(test: (Job) -> Unit) {
-  val job = Job()
-  blockingContext(job) {
-    test(job)
+fun blockingContextTest(test: () -> Unit) {
+  timeoutRunBlocking {
+    blockingContext(test)
   }
-  assertTrue(job.isActive)
-  assertFalse(job.isCompleted)
-  assertFalse(job.isCancelled)
 }
 
 fun indicatorTest(test: (ProgressIndicator) -> Unit) {
@@ -146,7 +141,7 @@ internal suspend fun <X> childCallable(cs: CoroutineScope, action: () -> X): Cal
             continuation.resume(Unit)
           }
         }
-        catch (e: JobCanceledException) {
+        catch (e: CeProcessCanceledException) {
           continuation.resume(Unit)
           throw e
         }

@@ -96,7 +96,9 @@ public class MavenProjectLegacyImporter extends MavenProjectImporterLegacyBase {
       hasChanges = true;
       StructuredIdeActivity createModulesPhase = MavenImportCollector.LEGACY_CREATE_MODULES_PHASE.startedWithParent(myProject, activity);
       extensionImporters.addAll(importModules());
-      scheduleRefreshResolvedArtifacts(postTasks, myProjectsToImportWithChanges.keySet());
+      if (!MavenUtil.isMavenUnitTestModeEnabled()) {
+        scheduleRefreshResolvedArtifacts(postTasks, myProjectsToImportWithChanges.keySet());
+      }
       createModulesPhase.finished();
     }
 
@@ -143,7 +145,7 @@ public class MavenProjectLegacyImporter extends MavenProjectImporterLegacyBase {
       deleteObsoletePhase.finished();
 
       StructuredIdeActivity importersPhase = MavenImportCollector.LEGACY_IMPORTERS_PHASE.startedWithParent(myProject, activity);
-      importExtensions(myProject, myIdeModifiableModelsProvider, extensionImporters, postTasks, importersPhase);
+      importExtensions(myProject, myIdeModifiableModelsProvider, extensionImporters, postTasks, importersPhase, false);
       importersPhase.finished();
     }
     else {

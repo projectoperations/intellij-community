@@ -289,21 +289,28 @@ class EditorTabbedContainer internal constructor(private val window: EditorWindo
 
     val closeTab = CloseTab(component = component, file = file, editorWindow = window, parentDisposable = parentDisposable)
     val dataContext = DataManager.getInstance().getDataContext(component)
-    val editorActionGroup = ActionManager.getInstance().getAction("EditorTabActionGroup") as DefaultActionGroup
+    val actionManager = ActionManager.getInstance()
+    val editorActionGroup = actionManager.getAction("EditorTabActionGroup") as DefaultActionGroup
     val group = DefaultActionGroup()
     val event = AnActionEvent.createFromDataContext("EditorTabActionGroup", null, dataContext)
-    for (action in editorActionGroup.getChildren(event)) {
+    for (action in editorActionGroup.getChildren(event, actionManager)) {
       if (action is ActionGroup) {
-        group.addAll(*action.getChildren(event))
+        group.addAll(action.getChildren(event, actionManager).asList(), actionManager)
       }
       else {
-        group.addAction(action!!)
+        group.addAction(action)
       }
     }
     group.addAction(closeTab, Constraints.LAST)
     tab.setTabLabelActions(group, ActionPlaces.EDITOR_TAB)
     tab.setTabPaneActions(composite.selectedEditor!!.tabActions)
-    editorTabs.addTabSilently(tab, indexToInsert)
+    if (EditorsSplitters.isOpenedInBulk(file)) {
+      editorTabs.addTabWithoutUpdating(info = tab, index = indexToInsert, isDropTarget = false)
+      editorTabs.updateListeners()
+    }
+    else {
+      editorTabs.addTabSilently(tab, indexToInsert)
+    }
   }
 
   val isEmptyVisible: Boolean

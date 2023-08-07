@@ -7,6 +7,7 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentMap
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
 import org.jetbrains.jps.api.GlobalOptions
 import java.nio.file.Path
 import java.util.*
@@ -192,16 +193,20 @@ class BuildOptions(
     const val INTELLIJ_BUILD_INCREMENTAL_COMPILATION = "intellij.build.incremental.compilation"
 
     /**
-     * Allows override version isEap flag in ApplicationInfo.xml
-     * @see [org.jetbrains.intellij.build.ApplicationInfoPropertiesImpl]
+     * Allows to override [ApplicationInfoProperties.isEAP]
      */
     const val INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_IS_EAP = "intellij.build.override.application.version.is.eap"
 
     /**
-     * Allows override version suffix in ApplicationInfo.xml
-     * @see [org.jetbrains.intellij.build.ApplicationInfoPropertiesImpl]
+     * Allows to override [ApplicationInfoProperties.versionSuffix]
      */
     const val INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_SUFFIX = "intellij.build.override.application.version.suffix"
+
+    /**
+     * Allows to override [ApplicationInfoProperties.majorReleaseDate]
+     */
+    const val INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_MAJOR_RELEASE_DATE = "intellij.build.override.application.version.majorReleaseDate"
+
     /**
      * Pass comma-separated names of build steps (see below) to this system property to skip them.
      */
@@ -427,6 +432,14 @@ class BuildOptions(
   var randomSeedNumber: Long = 0
 
   var isNightlyBuild: Boolean = SystemProperties.getBooleanProperty(INTELLIJ_BUILD_IS_NIGHTLY, (buildNumber?.count { it == '.' } ?: 1) <= 1)
+
+  /**
+   * If `false`, [org.jetbrains.intellij.build.impl.projectStructureMapping.buildJarContentReport] won't be affected by
+   * neither [PluginBundlingRestrictions.includeInEapOnly] nor [PluginBundlingRestrictions.includeInNightlyOnly]
+   */
+  @set:TestOnly
+  @ApiStatus.Internal
+  var useReleaseCycleRelatedBundlingRestrictionsForContentReport: Boolean = true
 
   init {
     val targetOsId = System.getProperty(TARGET_OS_PROPERTY, OS_ALL).lowercase()

@@ -20,16 +20,22 @@ import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import org.jetbrains.plugins.gitlab.authentication.GitLabSecurityUtil
+import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneLoginViewModel
+import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneViewModel
 import org.jetbrains.plugins.gitlab.util.GitLabBundle
 import javax.swing.JButton
 import javax.swing.JComponent
 
+@OptIn(ExperimentalCoroutinesApi::class)
 internal object GitLabCloneLoginComponentFactory {
-  fun create(cs: CoroutineScope, cloneVm: GitLabCloneViewModel): JComponent {
-    val loginModel = cloneVm.loginModel
+  fun create(cs: CoroutineScope, loginVm: GitLabCloneLoginViewModel, cloneVm: GitLabCloneViewModel): JComponent {
+    val loginModel = loginVm.tokenLoginModel
     val titlePanel = JBUI.Panels.simplePanel().apply {
       @Suppress("DialogTitleCapitalization")
       val title = JBLabel(GitLabBundle.message("clone.dialog.login.title"), UIUtil.ComponentStyle.LARGE).apply {
@@ -38,12 +44,10 @@ internal object GitLabCloneLoginComponentFactory {
       addToLeft(title)
     }
     val loginButton = JButton(CollaborationToolsBundle.message("clone.dialog.button.login.mnemonic")).apply {
-      bindDisabledIn(cs, loginModel.loginState.map { loginState ->
-        loginState is LoginModel.LoginState.Connecting
-      })
+      bindDisabledIn(cs, loginModel.loginState.map { it is LoginModel.LoginState.Connecting })
     }
     val backLink = LinkLabel<Unit>(IdeBundle.message("button.back"), null) { _, _ -> cloneVm.switchToRepositoryList() }.apply {
-      bindVisibilityIn(cs, cloneVm.accountsRefreshRequest.map { it.isNotEmpty() })
+      bindVisibilityIn(cs, loginVm.accounts.map { it.isNotEmpty() })
     }
     val loginInputPanel = TokenLoginInputPanelFactory(loginModel).create(
       serverFieldDisabled = false,
@@ -61,14 +65,19 @@ internal object GitLabCloneLoginComponentFactory {
 
     loginButton.addActionListener {
       cs.launch {
-        validateAndApplyAction(loginInputPanel, cloneVm)
+        validateAndApplyAction(loginInputPanel, loginModel::login)
       }
     }
 
-    val errorPresenter = GitLabLoginErrorStatusPresenter()
-    val errorPanel = ErrorStatusPanelFactory.create(cs, cloneVm.errorLogin, errorPresenter, Alignment.LEFT).apply {
-      bindVisibilityIn(cs, cloneVm.errorLogin.map { it != null })
+    val errorFlow: Flow<Throwable?> = loginModel.loginState.transformLatest { loginState ->
+      when (loginState) {
+        LoginModel.LoginState.Connecting -> emit(null)
+        is LoginModel.LoginState.Failed -> emit(loginState.error)
+        else -> {}
+      }
     }
+    val errorPresenter = GitLabLoginErrorStatusPresenter()
+    val errorPanel = ErrorStatusPanelFactory.create(cs, errorFlow, errorPresenter, Alignment.LEFT)
 
     return VerticalListPanel().apply {
       border = JBEmptyBorder(UIUtil.getRegularPanelInsets())
@@ -78,11 +87,11 @@ internal object GitLabCloneLoginComponentFactory {
     }
   }
 
-  private suspend fun validateAndApplyAction(panel: DialogPanel, cloneVm: GitLabCloneViewModel) {
+  private suspend fun validateAndApplyAction(panel: DialogPanel, action: suspend () -> Unit) {
     panel.apply()
     val errors = panel.validateAll()
     if (errors.isEmpty()) {
-      cloneVm.login()
+      action()
       panel.reset()
     }
     else {

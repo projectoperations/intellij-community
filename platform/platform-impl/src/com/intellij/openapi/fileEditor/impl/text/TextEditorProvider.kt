@@ -84,6 +84,8 @@ open class TextEditorProvider : DefaultPlatformFileEditorProvider, TextBasedFile
     return isTextFile(file) && !SingleRootFileViewProvider.isTooLargeForContentLoading(file)
   }
 
+  override fun acceptRequiresReadAction() = false
+
   override fun createEditor(project: Project, file: VirtualFile): FileEditor {
     return TextEditorImpl(project, file, this, createTextEditor(project, file))
   }
@@ -107,8 +109,8 @@ open class TextEditorProvider : DefaultPlatformFileEditorProvider, TextBasedFile
     return state
   }
 
-  override fun writeState(@Suppress("LocalVariableName") _state: FileEditorState, project: Project, element: Element) {
-    val state = _state as TextEditorState
+  override fun writeState(state: FileEditorState, project: Project, element: Element) {
+    state as TextEditorState
     if (state.relativeCaretPosition != 0) {
       element.setAttribute(RELATIVE_CARET_POSITION_ATTR, state.relativeCaretPosition.toString())
     }
@@ -187,6 +189,7 @@ open class TextEditorProvider : DefaultPlatformFileEditorProvider, TextBasedFile
       }
       editor.caretModel.setCaretsAndSelections(states, false)
     }
+
     val relativeCaretPosition = state.relativeCaretPosition
     if (AsyncEditorLoader.isEditorLoaded(editor) || ApplicationManager.getApplication().isUnitTestMode) {
       if (ApplicationManager.getApplication().isUnitTestMode) {

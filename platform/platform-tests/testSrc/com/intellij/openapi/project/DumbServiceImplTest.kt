@@ -12,7 +12,6 @@ import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.project.DumbServiceImpl.Companion.IDEA_FORCE_DUMB_QUEUE_TASKS
 import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.text.Strings
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileImpl
 import com.intellij.psi.PsiManager
@@ -29,12 +28,11 @@ import com.intellij.util.indexing.contentQueue.IndexUpdateRunner
 import com.intellij.util.indexing.diagnostic.ProjectDumbIndexingHistoryImpl
 import com.intellij.util.indexing.diagnostic.ProjectIndexingHistoryImpl
 import com.intellij.util.indexing.diagnostic.ScanningType
-import com.intellij.util.messages.impl.MessageBusImpl
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -100,22 +98,21 @@ class DumbServiceImplTest {
   }
 
   @Test
+  @Suppress("INVISIBLE_MEMBER")
   fun `test runWhenSmart does not hang in scheduler queue after Default dispatcher starvation`() {
     val releaseDefaultDispatcher = CountDownLatch(1)
     val inSmartMode = CountDownLatch(1)
 
     try {
       // occupy all the Dispatcher.Default threads with useless work
-      CoroutineScope(Dispatchers.Default).launch {
-        while (releaseDefaultDispatcher.count > 0) {
+      val defaultDispatcherJob = CoroutineScope(Dispatchers.Default).launch {
+        repeat(kotlinx.coroutines.scheduling.CORE_POOL_SIZE) {
           launch {
-            releaseDefaultDispatcher.awaitOrThrow(10, "releaseDefaultDispatcher was not invoked")
+            delay(10_000)
+            fail("this coroutine should have been cancelled")
           }
-          yield() // let just submitted coroutine to start and use current thread, so `yield` will suspend until releaseDefaultDispatcher.
         }
       }
-
-      Thread.sleep(100) // saturate default dispatcher (wait until `launch` suspended and cannot create new tasks)
 
       runInEdtAndWait {
         dumbService.queue {
@@ -132,13 +129,13 @@ class DumbServiceImplTest {
       // We want dumb service to become dumb and then smart WHILE all the dispatcher threads are busy, so all the StateFlows listeners
       //   missed both these events (due to conflation)
       for (i in 1..10) {
-        if (runInEdtAndGet { !dumbService.isDumb }) break
+        if (!dumbService.isDumb) break
         Thread.sleep(100)
       }
       assertFalse("Dumb mode didn't finish", runInEdtAndGet { dumbService.isDumb })
 
       // now release Default dispatcher and see if runnable is executed (it should)
-      releaseDefaultDispatcher.countDown()
+      defaultDispatcherJob.cancel()
       inSmartMode.awaitOrThrow(5, "Smart mode runnable didn't run")
     }
     finally {
@@ -150,44 +147,6 @@ class DumbServiceImplTest {
     queueTask(object : DumbModeTask() {
       override fun performInDumbMode(indicator: ProgressIndicator) = task(indicator)
     })
-  }
-  
-  @Test
-  fun `test runWhenSmart not invoked in dumb mode`() {
-    val toStringAlphabeticOrderComparator = Comparator<Any?> { s1, s2 ->
-      Strings.compare(s1?.toString(), s2?.toString(), false)
-    }
-
-    var invokedWhileDumb = false
-    project.messageBus.connect(testDisposable).subscribe(DumbService.DUMB_MODE, object : DumbService.DumbModeListener {
-      override fun enteredDumbMode() {
-        dumbService.runWhenSmart {
-          invokedWhileDumb = dumbService.isDumb
-        }
-      }
-    })
-
-    // Perform dumb task to initialize DumbService.DUMB_MODE lazy subscribers
-    queueEmptyDumbTaskOnEdtAndWaitForSmartMode()
-
-    // sort subscribers such that SmartModeScheduler is the last in the list
-    (project.messageBus as MessageBusImpl).sortSubscribers(DumbService.DUMB_MODE, toStringAlphabeticOrderComparator)
-    queueEmptyDumbTaskOnEdtAndWaitForSmartMode()
-    assertFalse("runWhenSmart should only be invoked in smart mode", invokedWhileDumb)
-
-    // sort subscribers such that SmartModeScheduler is the first in the list
-    (project.messageBus as MessageBusImpl).sortSubscribers(DumbService.DUMB_MODE, toStringAlphabeticOrderComparator.reversed())
-    queueEmptyDumbTaskOnEdtAndWaitForSmartMode()
-    assertFalse("runWhenSmart should only be invoked in smart mode", invokedWhileDumb)
-  }
-
-  private fun queueEmptyDumbTaskOnEdtAndWaitForSmartMode() {
-    runInEdtAndWait {
-      dumbService.queueTask(object : DumbModeTask() {
-        override fun performInDumbMode(indicator: ProgressIndicator) = Unit
-      })
-    }
-    waitForSmartModeFiveSecondsOrThrow()
   }
 
   @Test

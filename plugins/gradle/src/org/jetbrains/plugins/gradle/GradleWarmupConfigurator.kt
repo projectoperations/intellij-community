@@ -21,30 +21,28 @@ import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import com.intellij.openapi.progress.blockingContextScope
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.io.toNioPath
+import com.intellij.util.io.createFile
 import org.jetbrains.plugins.gradle.service.notification.ExternalAnnotationsProgressNotificationListener
 import org.jetbrains.plugins.gradle.service.notification.ExternalAnnotationsProgressNotificationManager
 import org.jetbrains.plugins.gradle.service.notification.ExternalAnnotationsTaskId
 import org.jetbrains.plugins.gradle.service.project.open.createLinkSettings
 import org.jetbrains.plugins.gradle.settings.GradleImportHintService
 import org.jetbrains.plugins.gradle.settings.GradleSettings
+import org.jetbrains.plugins.gradle.startup.GradleProjectSettingsUpdater
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import java.io.File
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.ConcurrentHashMap
-import org.jetbrains.plugins.gradle.startup.GradleProjectSettingsUpdater
-import java.io.BufferedWriter
-import java.io.FileWriter
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
+import kotlin.io.path.appendText
+import kotlin.io.path.div
 
 
 private val LOG = logger<GradleCommandLineProjectConfigurator>()
 
-private val gradleLogWriter = BufferedWriter(FileWriter(PathManager.getLogPath() + "/gradle-import.log"))
-
+private val gradleLogWriterPath = PathManager.getLogPath().toNioPath() / "gradle-import.log"
 
 private const val DISABLE_GRADLE_AUTO_IMPORT = "external.system.auto.import.disabled"
 private const val DISABLE_GRADLE_JDK_FIX = "gradle.auto.auto.jdk.fix.disabled"
@@ -64,7 +62,7 @@ class GradleWarmupConfigurator : WarmupConfigurator {
   override suspend fun runWarmup(project: Project): Boolean {
     val basePath = project.basePath ?: return false
     val service = service<EnvironmentService>()
-    val projectSelectionKey = service.getEnvironmentValue(ProjectOpenKeyProvider.PROJECT_OPEN_PROCESSOR, "Gradle")
+    val projectSelectionKey = service.getEnvironmentValue(ProjectOpenKeyProvider.Keys.PROJECT_OPEN_PROCESSOR, "Gradle")
     if (projectSelectionKey != "Gradle") {
       // something else was selected to open the project
       return false
@@ -208,9 +206,16 @@ class GradleWarmupConfigurator : WarmupConfigurator {
   }
 
   class LoggingNotificationListener(val logger: CommandLineInspectionProgressReporter?) : ExternalSystemTaskNotificationListenerAdapter() {
+
+    private val logPath = try {
+      gradleLogWriterPath.createFile()
+    } catch (e : java.nio.file.FileAlreadyExistsException) {
+      gradleLogWriterPath
+    }
+
     override fun onTaskOutput(id: ExternalSystemTaskId, text: String, stdOut: Boolean) {
       val gradleText = (if (stdOut) "" else "STDERR: ") + text
-      gradleLogWriter.write(gradleText)
+      logPath.appendText(gradleText)
       val croppedMessage = processMessage(gradleText)
       if (croppedMessage != null) {
         logger?.reportMessage(1, croppedMessage)
@@ -231,18 +236,14 @@ class GradleWarmupConfigurator : WarmupConfigurator {
       }
       return cropped
     }
-
-    override fun onEnd(id: ExternalSystemTaskId) {
-      gradleLogWriter.flush()
-    }
   }
 }
 
 internal fun prepareGradleConfiguratorEnvironment(logger : CommandLineInspectionProgressReporter?)  {
-  Registry.get(DISABLE_GRADLE_AUTO_IMPORT).setValue(true)
-  Registry.get(DISABLE_GRADLE_JDK_FIX).setValue(true)
-  Registry.get(DISABLE_ANDROID_GRADLE_PROJECT_STARTUP_ACTIVITY).setValue(true)
-  Registry.get(DISABLE_UPDATE_ANDROID_SDK_LOCAL_PROPERTIES).setValue(true)
+  System.setProperty(DISABLE_GRADLE_AUTO_IMPORT, true.toString())
+  System.setProperty(DISABLE_GRADLE_JDK_FIX, true.toString())
+  System.setProperty(DISABLE_ANDROID_GRADLE_PROJECT_STARTUP_ACTIVITY, true.toString())
+  System.setProperty(DISABLE_UPDATE_ANDROID_SDK_LOCAL_PROPERTIES, true.toString())
   val progressManager = ExternalSystemProgressNotificationManager.getInstance()
   if (logger != null) {
     progressManager.addNotificationListener(GradleWarmupConfigurator.LoggingNotificationListener(logger))

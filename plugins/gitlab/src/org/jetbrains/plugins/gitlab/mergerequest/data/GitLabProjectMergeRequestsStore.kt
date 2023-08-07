@@ -4,8 +4,8 @@ package org.jetbrains.plugins.gitlab.mergerequest.data
 import com.github.benmanes.caffeine.cache.Caffeine
 import com.intellij.collaboration.api.HttpStatusErrorException
 import com.intellij.collaboration.api.page.SequentialListLoader
-import com.intellij.collaboration.async.channelWithInitial
 import com.intellij.collaboration.async.mapScoped
+import com.intellij.collaboration.async.withInitial
 import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.openapi.project.Project
 import com.intellij.util.childScope
@@ -20,6 +20,7 @@ import org.jetbrains.plugins.gitlab.api.request.getCurrentUser
 import org.jetbrains.plugins.gitlab.mergerequest.api.dto.GitLabMergeRequestDTO
 import org.jetbrains.plugins.gitlab.mergerequest.api.request.loadMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.loaders.GitLabMergeRequestsListLoader
+import org.jetbrains.plugins.gitlab.util.GitLabBundle
 import org.jetbrains.plugins.gitlab.util.GitLabProjectMapping
 import java.util.concurrent.ConcurrentHashMap
 
@@ -75,8 +76,8 @@ class CachingGitLabProjectMergeRequestsStore(private val project: Project,
     val simpleId = GitLabMergeRequestId.Simple(id)
     return models.getOrPut(simpleId) {
       reloadMergeRequest
-        .filter { requestedId -> requestedId == id }
-        .channelWithInitial(id)
+        .filter { requestedId -> requestedId.iid == id.iid }
+        .withInitial(id)
         .mapScoped { mrId ->
           runCatching {
             // TODO: create from cached details
@@ -95,13 +96,16 @@ class CachingGitLabProjectMergeRequestsStore(private val project: Project,
     reloadMergeRequest.emit(id)
   }
 
-  @Throws(HttpStatusErrorException::class, IllegalStateException::class)
+  @Throws(HttpStatusErrorException::class, GitLabMergeRequestDataException.EmptySourceProject::class, IllegalStateException::class)
   private suspend fun loadMergeRequest(id: GitLabMergeRequestId): GitLabMergeRequestDTO {
     return withContext(Dispatchers.IO) {
       val body = api.graphQL.loadMergeRequest(glProject, id).body()
       if (body == null) {
         api.rest.getCurrentUser(glProject.serverPath) // Exception is generated automatically if status code >= 400
         error(CollaborationToolsBundle.message("graphql.errors", "empty response"))
+      }
+      if (body.sourceProject == null) {
+        throw GitLabMergeRequestDataException.EmptySourceProject(GitLabBundle.message("merge.request.source.project.not.found"), body.webUrl)
       }
       body
     }

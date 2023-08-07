@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.Nls
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.mergerequest.ui.timeline.GitLabMergeRequestTimelineUIUtil
+import java.net.URL
 import javax.swing.JComponent
 
 object GitLabNoteComponentFactory {
@@ -32,12 +33,12 @@ object GitLabNoteComponentFactory {
              cs: CoroutineScope,
              avatarIconsProvider: IconsProvider<GitLabUserDTO>,
              vm: GitLabNoteViewModel): JComponent {
-    val textPanel = createTextPanel(cs, vm.bodyHtml)
+    val textPanel = createTextPanel(cs, vm.bodyHtml, vm.serverUrl)
 
     val actionsVm = vm.actionsVm
     val contentPanel = if (actionsVm != null) {
-      EditableComponentFactory.create(cs, textPanel, actionsVm.editVm) { editCs, editVm ->
-        val editor = GitLabNoteEditorComponentFactory.create(project, editCs, editVm, createEditActionsConfig(actionsVm, editVm))
+      EditableComponentFactory.create(cs, textPanel, actionsVm.editVm) { editVm ->
+        val editor = GitLabNoteEditorComponentFactory.create(project, this, editVm, createEditActionsConfig(actionsVm, editVm))
         editVm.requestFocus()
         editor
       }
@@ -105,18 +106,16 @@ object GitLabNoteComponentFactory {
     return panel
   }
 
-  fun createTextPanel(cs: CoroutineScope, textFlow: Flow<@Nls String>): JComponent =
-    SimpleHtmlPane().apply {
+  fun createTextPanel(cs: CoroutineScope, textFlow: Flow<@Nls String>, baseUrl: URL): JComponent =
+    SimpleHtmlPane(baseUrl = baseUrl).apply {
       putClientProperty(UIUtil.HIDE_EDITOR_FROM_DATA_CONTEXT_PROPERTY, true)
       bindTextIn(cs, textFlow)
     }
 
-  fun createEditActionsConfig(actionsVm: GitLabNoteAdminActionsViewModel,
-                              editVm: GitLabNoteEditingViewModel): CommentInputActionsComponentFactory.Config =
+  fun CoroutineScope.createEditActionsConfig(actionsVm: GitLabNoteAdminActionsViewModel,
+                                             editVm: GitLabNoteEditingViewModel): CommentInputActionsComponentFactory.Config =
     CommentInputActionsComponentFactory.Config(
-      primaryAction = MutableStateFlow(swingAction(CollaborationToolsBundle.message("review.comment.save")) {
-        editVm.submit()
-      }),
+      primaryAction = MutableStateFlow(editVm.submitActionIn(this, CollaborationToolsBundle.message("review.comment.save"))),
       cancelAction = MutableStateFlow(swingAction(CommonBundle.getCancelButtonText()) {
         actionsVm.stopEditing()
       }),

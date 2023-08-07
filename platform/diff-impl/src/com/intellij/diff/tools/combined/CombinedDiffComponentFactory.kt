@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff.tools.combined
 
 import com.intellij.diff.*
@@ -10,11 +10,9 @@ import com.intellij.diff.util.DiffUserDataKeys
 import com.intellij.diff.util.DiffUserDataKeysEx
 import com.intellij.diff.util.DiffUtil
 import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.concurrency.annotations.RequiresEdt
-import com.intellij.util.ui.update.UiNotifyConnector
 import java.awt.Dimension
 
 private val LOG = logger<CombinedDiffComponentFactory>()
@@ -40,9 +38,8 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
     }
     model.addListener(ModelListener(), ourDisposable)
     mainUi = createMainUI()
-    combinedViewer = createCombinedViewer()
 
-    buildLoadingBlocks()
+    combinedViewer = createCombinedViewer(true)
   }
 
   internal fun getPreferredFocusedComponent() = mainUi.getPreferredFocusedComponent()
@@ -56,12 +53,15 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
     }
   }
 
-  private fun createCombinedViewer(): CombinedDiffViewer {
+  private fun createCombinedViewer(initialFocusRequest: Boolean): CombinedDiffViewer {
     val context = model.context
-    return CombinedDiffViewer(context).also { viewer ->
+    val blocks = model.requests.keys.toList()
+    val blockToSelect = model.context.getUserData(COMBINED_DIFF_SCROLL_TO_BLOCK)
+
+    return CombinedDiffViewer(context, blocks, blockToSelect, MyBlockListener()).also { viewer ->
       Disposer.register(ourDisposable, viewer)
       context.putUserData(COMBINED_DIFF_VIEWER_KEY, viewer)
-      viewer.addBlockListener(MyBlockListener())
+      context.putUserData(COMBINED_DIFF_VIEWER_INITIAL_FOCUS_REQUEST, initialFocusRequest)
       mainUi.setContent(viewer)
     }
   }
@@ -69,14 +69,11 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
   protected abstract fun createGoToChangeAction(): AnAction?
 
   private inner class ModelListener : CombinedDiffModelListener {
-    override fun onProgressBar(visible: Boolean) {
-      runInEdt { if (visible) mainUi.startProgress() else mainUi.stopProgress() }
-    }
-
     override fun onModelReset() {
       Disposer.dispose(combinedViewer)
-      combinedViewer = createCombinedViewer()
-      buildLoadingBlocks()
+      model.context.putUserData(COMBINED_DIFF_VIEWER_KEY, null)
+
+      combinedViewer = createCombinedViewer(false)
     }
 
     @RequiresEdt
@@ -93,11 +90,8 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
     @RequiresEdt
     override fun onRequestContentsUnloaded(requests: Map<CombinedBlockId, DiffRequest>) {
       for ((blockId, request) in requests) {
-        val size = combinedViewer.getDiffViewerForId(blockId)?.component?.size
-        buildLoadingBlockContent(blockId, size).let { newContent ->
-          combinedViewer.updateBlockContent(newContent)
-          request.onAssigned(false)
-        }
+        combinedViewer.replaceBlockWithPlaceholder(blockId)
+        request.onAssigned(false)
       }
     }
   }
@@ -111,20 +105,6 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
     override fun blocksVisible(blockIds: Collection<CombinedBlockId>) {
       model.loadRequestContents(blockIds)
     }
-  }
-
-  private fun buildLoadingBlocks() {
-    for (blockId in model.requests.keys) {
-      combinedViewer.addBlock(buildLoadingBlockContent(blockId))
-    }
-
-    val blockToSelect = model.context.getUserData(COMBINED_DIFF_SCROLL_TO_BLOCK)
-
-    UiNotifyConnector.doWhenFirstShown(
-      getMainComponent(),
-      { combinedViewer.selectDiffBlock(blockToSelect, true, CombinedDiffViewer.ScrollPolicy.SCROLL_TO_BLOCK) },
-      ourDisposable
-    )
   }
 
   companion object {

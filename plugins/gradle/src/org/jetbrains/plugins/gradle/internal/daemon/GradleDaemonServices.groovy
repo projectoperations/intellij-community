@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.internal.daemon
 
 import com.intellij.AbstractBundle
@@ -46,6 +46,12 @@ class GradleDaemonServices {
     }
   }
 
+  static void gracefulStopDaemons() {
+    forEachConnection { ConsumerConnection connection, String gradleUserHome ->
+      runAction(gradleUserHome, connection, DaemonStopWhenIdleAction, null)
+    }
+  }
+
   static List<DaemonState> getDaemonsStatus() {
     List<DaemonState> result = new ArrayList<>()
     forEachConnection { ConsumerConnection connection, String gradleUserHome ->
@@ -54,6 +60,7 @@ class GradleDaemonServices {
         result.addAll(daemonStates)
       }
     }
+    result.unique(true, Comparator.comparing(DaemonState::getPid))
     return result
   }
 

@@ -30,6 +30,7 @@ public class JsonValidationError {
 
   public enum FixableIssueKind {
     MissingProperty,
+    MissingNotRequiredProperty,
     MissingOneOfProperty,
     MissingAnyOfProperty,
     ProhibitedProperty,

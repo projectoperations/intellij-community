@@ -40,6 +40,16 @@ public abstract class K2IndyLambdaKotlinSteppingTestGenerated extends AbstractK2
             runTest("../testData/stepping/stepIntoAndSmartStepInto/extFun.kt");
         }
 
+        @TestMetadata("internalInlineMethod.kt")
+        public void testInternalInlineMethod() throws Exception {
+            runTest("../testData/stepping/stepIntoAndSmartStepInto/internalInlineMethod.kt");
+        }
+
+        @TestMetadata("internalMethod.kt")
+        public void testInternalMethod() throws Exception {
+            runTest("../testData/stepping/stepIntoAndSmartStepInto/internalMethod.kt");
+        }
+
         @TestMetadata("javaFun.kt")
         public void testJavaFun() throws Exception {
             runTest("../testData/stepping/stepIntoAndSmartStepInto/javaFun.kt");
@@ -126,6 +136,16 @@ public abstract class K2IndyLambdaKotlinSteppingTestGenerated extends AbstractK2
         @TestMetadata("extFun.kt")
         public void testExtFun() throws Exception {
             runTest("../testData/stepping/stepIntoAndSmartStepInto/extFun.kt");
+        }
+
+        @TestMetadata("internalInlineMethod.kt")
+        public void testInternalInlineMethod() throws Exception {
+            runTest("../testData/stepping/stepIntoAndSmartStepInto/internalInlineMethod.kt");
+        }
+
+        @TestMetadata("internalMethod.kt")
+        public void testInternalMethod() throws Exception {
+            runTest("../testData/stepping/stepIntoAndSmartStepInto/internalMethod.kt");
         }
 
         @TestMetadata("javaFun.kt")
@@ -1095,6 +1115,36 @@ public abstract class K2IndyLambdaKotlinSteppingTestGenerated extends AbstractK2
             runTest("../testData/stepping/custom/anonymousFunAsParamDefaultValue.kt");
         }
 
+        @TestMetadata("breakpointInCrossinlineLambda.kt")
+        public void testBreakpointInCrossinlineLambda() throws Exception {
+            runTest("../testData/stepping/custom/breakpointInCrossinlineLambda.kt");
+        }
+
+        @TestMetadata("breakpointInCrossinlineLambdaInvokeOperator.kt")
+        public void testBreakpointInCrossinlineLambdaInvokeOperator() throws Exception {
+            runTest("../testData/stepping/custom/breakpointInCrossinlineLambdaInvokeOperator.kt");
+        }
+
+        @TestMetadata("breakpointInCrossinlineLambdaJvmName.kt")
+        public void testBreakpointInCrossinlineLambdaJvmName() throws Exception {
+            runTest("../testData/stepping/custom/breakpointInCrossinlineLambdaJvmName.kt");
+        }
+
+        @TestMetadata("breakpointInCrossinlineLambdaWithImport.kt")
+        public void testBreakpointInCrossinlineLambdaWithImport() throws Exception {
+            runTest("../testData/stepping/custom/breakpointInCrossinlineLambdaWithImport.kt");
+        }
+
+        @TestMetadata("breakpointInCrossinlineLambdaWithNoLambdaPassing.kt")
+        public void testBreakpointInCrossinlineLambdaWithNoLambdaPassing() throws Exception {
+            runTest("../testData/stepping/custom/breakpointInCrossinlineLambdaWithNoLambdaPassing.kt");
+        }
+
+        @TestMetadata("breakpointInFlowLambda.kt")
+        public void testBreakpointInFlowLambda() throws Exception {
+            runTest("../testData/stepping/custom/breakpointInFlowLambda.kt");
+        }
+
         @TestMetadata("breakpointInInlineLambda.kt")
         public void testBreakpointInInlineLambda() throws Exception {
             runTest("../testData/stepping/custom/breakpointInInlineLambda.kt");
@@ -1283,6 +1333,11 @@ public abstract class K2IndyLambdaKotlinSteppingTestGenerated extends AbstractK2
         @TestMetadata("kt17295.kt")
         public void testKt17295() throws Exception {
             runTest("../testData/stepping/custom/kt17295.kt");
+        }
+
+        @TestMetadata("kt23064.kt")
+        public void testKt23064() throws Exception {
+            runTest("../testData/stepping/custom/kt23064.kt");
         }
 
         @TestMetadata("ktij12731.kt")

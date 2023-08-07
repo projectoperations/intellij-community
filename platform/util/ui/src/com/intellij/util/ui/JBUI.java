@@ -53,15 +53,15 @@ public final class JBUI {
    * In the IDE-managed HiDPI mode defaults to {@link #pixScale()}
    */
   public static float pixScale(@Nullable GraphicsConfiguration gc) {
-    return JreHiDpiUtil.isJreHiDPIEnabled() ? JBUIScale.sysScale(gc) * JBUIScale.scale(1f) : JBUIScale.scale(1f);
+    return JBUIScale.pixScale(gc);
   }
 
   /**
    * Returns the pixel scale factor, corresponding to the device the provided component is tied to.
    * In the IDE-managed HiDPI mode defaults to {@link #pixScale()}
    */
-  public static float pixScale(@Nullable Component comp) {
-    return pixScale(comp != null ? comp.getGraphicsConfiguration() : null);
+  public static float pixScale(@Nullable Component component) {
+    return pixScale(component == null ? null : component.getGraphicsConfiguration());
   }
 
   /**
@@ -260,6 +260,7 @@ public final class JBUI {
     }
 
     public static @NotNull Border empty(@NotNull Insets insets) {
+      insets = JBInsets.unwrap(insets);
       return empty(insets.top, insets.left, insets.bottom, insets.right);
     }
 
@@ -469,6 +470,14 @@ public final class JBUI {
       }
     }
 
+    public interface SearchOption {
+      JBColor BUTTON_SELECTED_BACKGROUND = JBColor.namedColor("SearchOption.selectedBackground", 0xDAE4ED, 0x5C6164);
+      JBColor BUTTON_SELECTED_PRESSED_BACKGROUND =
+        JBColor.namedColor("SearchOption.selectedPressedBackground", JBUI.CurrentTheme.ActionButton.pressedBackground());
+      JBColor BUTTON_SELECTED_HOVERED_BACKGROUND =
+        JBColor.namedColor("SearchOption.selectedHoveredBackground", JBUI.CurrentTheme.ActionButton.pressedBackground());
+    }
+
     public interface SegmentedButton {
       Color SELECTED_START_BORDER_COLOR = JBColor.namedColor("SegmentedButton.selectedStartBorderColor", Gray.xBF);
       Color SELECTED_END_BORDER_COLOR = JBColor.namedColor("SegmentedButton.selectedEndBorderColor", Gray.xB8);
@@ -506,8 +515,12 @@ public final class JBUI {
 
       public static @NotNull Color mainToolbarBackground(boolean active) {
         JBColor activeBG = JBColor.namedColor("MainToolbar.background", titlePaneBackground());
-        JBColor inactiveBG = JBColor.namedColor("MainToolbar.inactiveBackground", activeBG);
-        return active ? activeBG : inactiveBG;
+        if (active) {
+          return activeBG;
+        }
+        else {
+          return JBColor.namedColor("MainToolbar.inactiveBackground", activeBG);
+        }
       }
 
       public static @NotNull Color titlePaneInfoForeground() {
@@ -624,7 +637,7 @@ public final class JBUI {
       }
 
       public static Insets verticalTabInsets() {
-        return insets(verticalTabInsetsKey(), JBInsets.create(tabInsets()));
+        return insets(verticalTabInsetsKey(), isNewUI() ? insets(-2, 8) : insets(0, 4));
       }
 
       public static String verticalTabInsetsKey() {
@@ -708,7 +721,7 @@ public final class JBUI {
       Color BORDER_COLOR = JBColor.namedColor("Editor.Toolbar.borderColor", JBColor.border());
 
       interface SearchField {
-        static @NotNull JBInsets borderInsets() {
+        static @NotNull Insets borderInsets() {
           return insets(borderInsetsKey(),
                         isNewUI() ? insets(7, 10, 7, 8) :
                         insets(SystemInfo.isLinux ? 2 : 1));
@@ -720,7 +733,7 @@ public final class JBUI {
       }
 
       interface SearchToolbar {
-        static @NotNull JBInsets borderInsets() {
+        static @NotNull Insets borderInsets() {
           return insets(borderInsetsKey(),
                         isNewUI() ? insetsTop(3) :
                         emptyInsets());
@@ -732,7 +745,7 @@ public final class JBUI {
       }
 
       interface ReplaceToolbar {
-        static @NotNull JBInsets borderInsets() {
+        static @NotNull Insets borderInsets() {
           return insets(borderInsetsKey(),
                         isNewUI() ? insetsTop(10) :
                         insetsTop(3));
@@ -744,7 +757,7 @@ public final class JBUI {
       }
 
       interface SearchReplaceModePanel {
-        static @NotNull JBInsets borderInsets() {
+        static @NotNull Insets borderInsets() {
           return insets(borderInsetsKey(), insets(7, 3));
         }
 
@@ -759,12 +772,27 @@ public final class JBUI {
       }
 
       interface Notification {
-        static @NotNull JBInsets borderInsets(@NotNull JBInsets defaultValue) {
-          return insets("Editor.Notification.borderInsets", defaultValue);
-        }
 
         static @NotNull JBInsets borderInsets() {
-          return borderInsets(insets(10, 12));
+          return insets(borderInsetsKey(), insets(10, 12));
+        }
+
+        static @NotNull String borderInsetsKey() {
+          return "Editor.Notification.borderInsets";
+        }
+
+        static @NotNull JBInsets borderInsetsWithoutStatus() {
+          return insets(
+            borderInsetsKeyWithoutStatus(),
+            insets(
+              borderInsetsKey(), // fall back to the other key first to keep backwards compatibility
+              isNewUI() ? JBInsets.create(9, 16) : JBInsets.create(5, 10)
+            )
+          );
+        }
+
+        static @NotNull String borderInsetsKeyWithoutStatus() {
+          return "Editor.Notification.borderInsetsWithoutStatus";
         }
       }
     }
@@ -1055,18 +1083,23 @@ public final class JBUI {
         return insets("Toolbar.Button.buttonInsets", JBInsets.create(1, 2));
       }
 
-      @Nullable public static JBInsets verticalToolbarInsets() {
+      @Nullable public static Insets verticalToolbarInsets() {
         return isNewUI() ? insets("ToolBar.verticalToolbarInsets", insets(7, 4)) :
-               JBInsets.createOrNull(UIManager.getInsets("ToolBar.verticalToolbarInsets"));
+               UIManager.getInsets("ToolBar.verticalToolbarInsets");
       }
 
-      @Nullable public static JBInsets horizontalToolbarInsets() {
+      @Nullable public static Insets horizontalToolbarInsets() {
         return isNewUI() ? insets("ToolBar.horizontalToolbarInsets", insets(4, 7)) :
-               JBInsets.createOrNull(UIManager.getInsets("ToolBar.horizontalToolbarInsets"));
+               UIManager.getInsets("ToolBar.horizontalToolbarInsets");
       }
 
       public static Insets mainToolbarButtonInsets() {
-        return insets("MainToolbar.Button.buttonInsets", isNewUI() ? emptyInsets() : insets(1, 2));
+        return insets(mainToolbarButtonInsetsKey(), isNewUI() ? emptyInsets() : insets(1, 2));
+      }
+
+      @NotNull
+      public static String mainToolbarButtonInsetsKey() {
+        return "MainToolbar.Icon.insets";
       }
 
       public static @NotNull Dimension experimentalToolbarButtonSize() {
@@ -1155,7 +1188,11 @@ public final class JBUI {
       public static final class Dropdown {
 
         @NotNull public static Insets borderInsets() {
-          return insets("MainToolbar.Dropdown.borderInsets", isNewUI() ? insets(5, 12, 5, 6) : insets(3, 5));
+          return insets("MainToolbar.Dropdown.borderInsets", isNewUI() ? insets(5, 10, 5, 6) : insets(3, 5));
+        }
+
+        @NotNull public static JBValue hoverArc() {
+          return new JBValue.UIInteger("MainToolbar.Dropdown.arc", 12);
         }
       }
 
@@ -1163,6 +1200,12 @@ public final class JBUI {
 
         @NotNull public static Insets borderInsets() {
           return insets("MainToolbar.SplitDropdown.borderInsets", isNewUI() ? insets(5, 5, 5, 3) : insets(3, 5));
+        }
+      }
+
+      public static final class Button {
+        @NotNull public static JBValue hoverArc() {
+          return new JBValue.UIInteger("MainToolbar.Button.arc", 12);
         }
       }
     }
@@ -1595,7 +1638,16 @@ public final class JBUI {
           return 7;
         }
       }
+    }
 
+    public interface Window {
+      static Border getBorder(boolean undecoratedWindow) {
+        Border result = UIManager.getBorder("Window.border");
+        if (result == null && undecoratedWindow && SystemInfoRt.isXWindow && Registry.is("ide.linux.use.undecorated.border")) {
+          result = UIManager.getBorder("Window.undecorated.border");
+        }
+        return result;
+      }
     }
 
     public static final class Link {
@@ -1724,6 +1776,14 @@ public final class JBUI {
           return JBColor.namedColor("Tooltip.Learning.borderColor", base);
         }
         return base;
+      }
+
+      public static @NotNull Color imageBorderColor(boolean useContrastColors) {
+        return JBColor.namedColor("GotItTooltip.imageBorderColor", background(useContrastColors));
+      }
+
+      public static @NotNull Color animationBackground(boolean useContrastColors) {
+        return JBColor.namedColor("GotItTooltip.animationBackground", background(useContrastColors));
       }
 
       public static @NotNull Color buttonBackgroundContrast() {
@@ -2105,18 +2165,13 @@ public final class JBUI {
 
     public final static class TitlePane {
 
-      public static @NotNull Dimension buttonPreferredSize() {
-        return size(buttonPreferredSizeKey(), defaultButtonPreferredSize());
+      public static @NotNull Dimension buttonPreferredSize(float scaleDefaultValues) {
+        return size(buttonPreferredSizeKey(), size((int)(47 * scaleDefaultValues), (int)(28 * scaleDefaultValues)));
       }
 
       @NotNull
       public static String buttonPreferredSizeKey() {
         return "TitlePane.Button.preferredSize";
-      }
-
-      @NotNull
-      public static JBDimension defaultButtonPreferredSize() {
-        return size(47, 28);
       }
     }
 
@@ -2188,6 +2243,6 @@ public final class JBUI {
   }
 
   private static boolean isNewUI() {
-    return NewUi.isEnabled();
+    return NewUiValue.isEnabled();
   }
 }

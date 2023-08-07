@@ -1,3 +1,4 @@
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.cce.evaluation
 
 import com.intellij.cce.evaluation.step.FinishEvaluationStep
@@ -59,8 +60,7 @@ class EvaluationProcess private constructor(private val steps: List<EvaluationSt
 
       if (shouldInterpretActions) {
         factory.setupStatsCollectorStep()?.let { steps.add(it) }
-        steps.add(factory.setupCompletionStep())
-        steps.add(factory.setupFullLineStep())
+        steps.addAll(factory.featureSpecificSteps())
       }
 
       if (shouldGenerateActions) {
@@ -70,17 +70,14 @@ class EvaluationProcess private constructor(private val steps: List<EvaluationSt
       if (shouldInterpretActions) {
         if (shouldGenerateActions) {
           steps.add(factory.interpretActionsStep())
-        } else {
+        }
+        else {
           steps.add(factory.interpretActionsOnNewWorkspaceStep())
         }
       }
 
       if (shouldReorderElements) {
         steps.add(factory.reorderElements())
-      }
-
-      if (shouldHighlightInIde) {
-        steps.add(factory.highlightTokensInIdeStep())
       }
 
       if (shouldGenerateReports) {

@@ -15,12 +15,15 @@ import com.intellij.debugger.engine.evaluation.EvaluationContext
 import com.intellij.debugger.impl.DebuggerUtilsAsync
 import com.intellij.debugger.impl.DebuggerUtilsEx
 import com.intellij.debugger.jdi.StackFrameProxyImpl
+import com.intellij.debugger.jdi.VirtualMachineProxyImpl
 import com.intellij.debugger.requests.ClassPrepareRequestor
+import com.intellij.debugger.ui.breakpoints.Breakpoint
 import com.intellij.debugger.ui.impl.watch.StackFrameDescriptorImpl
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.fileTypes.FileType
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiElement
@@ -28,26 +31,36 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.impl.compiled.ClsFileImpl
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.childrenOfType
+import com.intellij.psi.util.descendantsOfType
 import com.intellij.psi.util.parentOfType
 import com.intellij.util.ThreeState
+import com.intellij.util.asSafely
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.xdebugger.frame.XStackFrame
+import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.jetbrains.jdi.LocalVariableImpl
 import com.sun.jdi.*
 import com.sun.jdi.request.ClassPrepareRequest
+import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.annotations.KtConstantAnnotationValue
+import org.jetbrains.kotlin.analysis.api.annotations.annotations
+import org.jetbrains.kotlin.analysis.api.base.KtConstantValue
 import org.jetbrains.kotlin.analysis.api.calls.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.calls.symbol
+import org.jetbrains.kotlin.analysis.api.symbols.KtFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.types.KtFunctionalType
 import org.jetbrains.kotlin.analysis.api.types.KtUsualClassType
 import org.jetbrains.kotlin.analysis.decompiler.psi.file.KtClsFile
 import org.jetbrains.kotlin.codegen.inline.KOTLIN_STRATA_NAME
 import org.jetbrains.kotlin.fileClasses.JvmFileClassUtil
-import org.jetbrains.kotlin.idea.base.analysis.isInlinedArgument
 import org.jetbrains.kotlin.idea.base.projectStructure.RootKindFilter
 import org.jetbrains.kotlin.idea.base.projectStructure.matches
 import org.jetbrains.kotlin.idea.base.psi.*
 import org.jetbrains.kotlin.idea.base.util.KOTLIN_FILE_TYPES
+import org.jetbrains.kotlin.idea.codeinsight.utils.getInlineArgumentSymbol
 import org.jetbrains.kotlin.idea.core.syncNonBlockingReadAction
 import org.jetbrains.kotlin.idea.debugger.base.util.*
 import org.jetbrains.kotlin.idea.debugger.core.*
@@ -56,7 +69,6 @@ import org.jetbrains.kotlin.idea.debugger.core.DebuggerUtils.isGeneratedIrBacken
 import org.jetbrains.kotlin.idea.debugger.core.breakpoints.*
 import org.jetbrains.kotlin.idea.debugger.core.stackFrame.InlineStackTraceCalculator
 import org.jetbrains.kotlin.idea.debugger.core.stackFrame.KotlinStackFrame
-import org.jetbrains.kotlin.idea.debugger.core.stepping.getLineRange
 import org.jetbrains.kotlin.load.java.JvmAbi
 import org.jetbrains.kotlin.load.java.JvmAbi.LOCAL_VARIABLE_NAME_PREFIX_INLINE_ARGUMENT
 import org.jetbrains.kotlin.name.FqName
@@ -162,26 +174,6 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
         if (sourcePosition !is KotlinReentrantSourcePosition && location.shouldBeTreatedAsReentrantSourcePosition(psiFile, fileName)) {
             return KotlinReentrantSourcePosition(sourcePosition)
         }
-
-		// Here we are trying to detect whether we should highlight the entire line of a source position or not.
-		// Consider the example:
-		//    1.also { // Stop on a breakpoint here and perform a step over
-		//        println(it)
-		//    }.also { // You will get to this line
-		//        println(it)
-		//    }
-		// In this example the entire line with `also` should be highlighted.
-		// Another example:
-		//    1.also {
-		//        println(it) // Stop on a breakpoint here and perform a step over
-		//    }.also { // You will get to this line
-		//        println(it)
-		//    }
-		// Now we should highlight the line before the curly brace, since we are still inside the `also` inline lambda.
-		val lines = sourcePosition.elementAt?.parent.safeAs<KtFunctionLiteral>()?.getLineRange() ?: return sourcePosition
-		if (!location.hasVisibleInlineLambdasOnLines(lines)) {
-			return KotlinSourcePositionWithEntireLineHighlighted(sourcePosition)
-		}
 
         return sourcePosition
     }
@@ -325,7 +317,8 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
             val notInlinedLambdas = mutableListOf<KtFunction>()
             var innermostContainingLiteral: KtFunction? = null
             for (literal in literalsOrFunctions) {
-                if (isInlinedArgument(literal, checkNonLocalReturn = true)) {
+                val inlineArgument = getInlineArgumentSymbol(literal)
+                if (inlineArgument != null && (!inlineArgument.isCrossinline || isInlinedArgument(literal, location))) {
                     if (isInsideInlineArgument(literal, location, debugProcess as DebugProcessImpl)) {
                         innermostContainingLiteral = literal
                     }
@@ -336,12 +329,72 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
             if (innermostContainingLiteral != null) return innermostContainingLiteral
 
             return notInlinedLambdas.getAppropriateLiteralBasedOnDeclaringClassName(currentLocationClassName) ?:
+                   notInlinedLambdas.getAppropriateLiteralForCrossinlineLambda(currentLocationClassName, this) ?:
                    notInlinedLambdas.getAppropriateLiteralBasedOnLambdaName(location, lineNumber)
         }
     }
 
     private fun List<KtFunction>.getAppropriateLiteralBasedOnDeclaringClassName(currentLocationClassName: String): KtFunction? {
         return firstOrNull { it.firstChild.calculatedClassNameMatches(currentLocationClassName, true) }
+    }
+
+    /**
+     * Crossinline lambda generated class name contains $$inlined$<CALL METHOD NAME>$N substring
+     * where N is the sequential number of the lambda with the same call method name
+     */
+    private fun List<KtFunction>.getAppropriateLiteralForCrossinlineLambda(currentLocationClassName: String, session: KtAnalysisSession): KtFunction? {
+        if (isEmpty()) return null
+        val crossinlineLambdaPrefix = "\$\$inlined\$"
+        if (crossinlineLambdaPrefix !in currentLocationClassName) return null
+        if (size == 1) return first()
+
+        val fittingCallMethodName = filter {
+            val name = it.getLambdaCallMethod()?.getBytecodeMethodName(session) ?: return@filter false
+            "$crossinlineLambdaPrefix$name\$" in currentLocationClassName
+        }
+        if (fittingCallMethodName.isEmpty()) return null
+        if (fittingCallMethodName.size == 1) return fittingCallMethodName.first()
+
+        // Now we try to guess the exact index of crossinline lambda.
+        // However, we cannot distinguish crossinline lambdas from usual ones with the same method name,
+        // so this works only when a method contains only crossinline lambdas before the target one.
+        val callMethodName = fittingCallMethodName.first().getLambdaCallMethod()?.getBytecodeMethodName(session) ?: return null
+        val containingMethod = fittingCallMethodName.first().getContainingMethod() ?: return null
+
+        val allCallsInMethod = containingMethod
+            .descendantsOfType<KtCallExpression>()
+            .filter { it.getBytecodeMethodName(session) == callMethodName }.toList()
+
+        val candidatesBySequenceNumber = mutableListOf<KtFunction>()
+        for (call in fittingCallMethodName) {
+            val lambdaCall = call.getLambdaCallMethod() ?: continue
+            if (lambdaCall !in allCallsInMethod) continue
+            val indexInOuterMethod = allCallsInMethod.indexOf(lambdaCall)
+            val candidateName = "$crossinlineLambdaPrefix$callMethodName\$${indexInOuterMethod + 1}"
+            if (candidateName in currentLocationClassName) {
+                candidatesBySequenceNumber.add(call)
+            }
+        }
+
+        return candidatesBySequenceNumber.singleOrNull()
+    }
+
+    private fun KtFunction.getLambdaCallMethod(): KtCallExpression? = parentOfType<KtCallExpression>()
+    private fun KtCallExpression.getBytecodeMethodName(session: KtAnalysisSession): String? {
+        val call = this
+        with(session) {
+            val resolvedCall = call.resolveCall()?.successfulFunctionCallOrNull() ?: return null
+            val symbol = resolvedCall.partiallyAppliedSymbol.symbol.asSafely<KtFunctionSymbol>() ?: return null
+            val jvmName = symbol.annotations
+              .filter { it.classId?.asFqNameString() == "kotlin.jvm.JvmName" }
+              .firstNotNullOfOrNull {
+                  it.arguments.singleOrNull { a -> a.name.asString() == "name" }
+                    ?.expression?.asSafely<KtConstantAnnotationValue>()
+                    ?.constantValue?.asSafely<KtConstantValue.KtStringConstantValue>()?.value
+              }
+            if (jvmName != null) return jvmName
+            return symbol.name.identifier
+        }
     }
 
     private fun PsiElement.calculatedClassNameMatches(currentLocationClassName: String, isLambda: Boolean): Boolean {
@@ -528,7 +581,11 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
             throw NoDataException.INSTANCE
         }
         try {
-            if (DexDebugFacility.isDex(debugProcess)) {
+            if (DexDebugFacility.isDex(debugProcess) &&
+                (debugProcess.virtualMachineProxy as? VirtualMachineProxyImpl)?.canGetSourceDebugExtension() != true) {
+                // If we cannot get source debug extension information, we approximate information for inline functions.
+                // This allows us to stop on some breakpoints in inline functions, but does not work very well.
+                // Source debug extensions are not available on Android devices before Android O.
                 val inlineLocations = runReadAction { DebuggerUtils.getLocationsOfInlinedLine(type, position, debugProcess.searchScope) }
                 if (inlineLocations.isNotEmpty()) {
                     return inlineLocations
@@ -563,7 +620,7 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
         }
 
         val isInsideProjectWithCompose = position.isInsideProjectWithCompose()
-        return ReadAction.nonBlocking<List<ClassPrepareRequest>> {
+        var nonBlocking = ReadAction.nonBlocking<List<ClassPrepareRequest>> {
             val kotlinRequests = createKotlinClassPrepareRequests(requestor, position)
             if (isInsideProjectWithCompose) {
                 val singletonRequest = getClassPrepareRequestForComposableSingletons(debugProcess, requestor, file)
@@ -574,7 +631,19 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
             } else {
                 kotlinRequests
             }
-        }.inSmartMode(debugProcess.project).executeSynchronously()
+        }
+            .inSmartMode(debugProcess.project)
+
+        val xBreakpoint = requestor.safeAs<Breakpoint<*>>()?.xBreakpoint
+        val xSession = debugProcess.asSafely<DebugProcessImpl>()?.xdebugProcess?.session.asSafely<XDebugSessionImpl>()
+        if (xBreakpoint != null && xSession != null) {
+            nonBlocking = nonBlocking.expireWhen { !xSession.isBreakpointActive(xBreakpoint) }
+        }
+        try {
+            return nonBlocking.executeSynchronously()
+        } catch (_: ProcessCanceledException) {
+            return emptyList()
+        }
     }
 
     @RequiresReadLock
@@ -594,6 +663,13 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
             }
     }
 }
+
+internal fun PsiElement.getContainingMethod(excludingElement: Boolean = true): PsiElement? =
+    PsiTreeUtil.getParentOfType(this, excludingElement,
+                                KtFunction::class.java,
+                                KtClassInitializer::class.java,
+                                KtPropertyAccessor::class.java,
+                                KtScript::class.java)
 
 // Kotlin compiler generates private final static <outer-method>$lambda$0 method
 // per each lambda that takes lambda (kotlin.jvm.functions.FunctionN) as the first parameter

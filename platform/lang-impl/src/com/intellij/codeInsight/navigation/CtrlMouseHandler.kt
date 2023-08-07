@@ -7,7 +7,7 @@ import com.intellij.codeInsight.hint.HintManager
 import com.intellij.codeInsight.hint.HintManagerImpl
 import com.intellij.codeInsight.hint.HintUtil
 import com.intellij.injected.editor.EditorWindow
-import com.intellij.internal.statistic.service.fus.collectors.CtrlMouseHintShown
+import com.intellij.internal.statistic.service.fus.collectors.UIEventLogger.CtrlMouseHintShown
 import com.intellij.lang.documentation.ide.impl.DocumentationManager
 import com.intellij.lang.documentation.ide.impl.injectedThenHost
 import com.intellij.lang.injection.InjectedLanguageManager
@@ -43,6 +43,7 @@ import com.intellij.openapi.util.NlsContexts.HintText
 import com.intellij.openapi.util.TextRange
 import com.intellij.platform.backend.documentation.DocumentationTarget
 import com.intellij.psi.PsiFile
+import com.intellij.ui.AppUIUtil
 import com.intellij.ui.LightweightHint
 import com.intellij.ui.ScreenUtil
 import com.intellij.ui.ScreenUtil.isMovementTowards
@@ -295,7 +296,7 @@ class CtrlMouseHandler2(
 
   private fun showHint(editor: EditorEx, hostOffset: Int, result: CtrlMouseResult): LightweightHint? {
     val skipHint = EditorMouseHoverPopupManager.getInstance().isHintShown ||
-                   DocumentationManager.instance(project).isPopupVisible ||
+                   DocumentationManager.getInstance(project).isPopupVisible ||
                    ApplicationManager.getApplication().isUnitTestMode
     if (skipHint) {
       return null
@@ -309,6 +310,7 @@ class CtrlMouseHandler2(
     val component = HintUtil.createInformationLabel(text, hyperlinkListener, null, null).also {
       it.border = JBUI.Borders.empty(6, 6, 5, 6)
     }
+    //AppUIUtil.targetToDevice(component, editor.component)
     return showHint(editor, hostOffset, component)
   }
 
@@ -326,7 +328,7 @@ class CtrlMouseHandler2(
         return
       }
       cs.launch(Dispatchers.EDT + ModalityState.current().asContextElement(), start = CoroutineStart.UNDISPATCHED) {
-        val ok = DocumentationManager.instance(project).activateInlineLinkS(
+        val ok = DocumentationManager.getInstance(project).activateInlineLinkS(
           targetPointer::dereference, description, editor, editorPoint(e, editor)
         )
         if (ok) {
@@ -416,7 +418,7 @@ private fun wrapInScrollPaneIfNeeded(component: JComponent, editor: Editor): JCo
   if (preferredSize.width <= maxWidth && preferredSize.height <= maxHeight) {
     return component
   }
-  // We expect documentation providers to exercise good judgement in limiting the displayed information,
+  // We expect documentation providers to exercise good judgment in limiting the displayed information,
   // but in any case, we don't want the hint to cover the whole screen, so we also implement certain limiting here.
   return ScrollPaneFactory.createScrollPane(component, true).also {
     it.preferredSize = Dimension(

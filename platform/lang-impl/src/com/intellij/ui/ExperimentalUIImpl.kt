@@ -7,30 +7,32 @@ import com.intellij.feedback.new_ui.state.NewUIInfoService
 import com.intellij.icons.AllIcons
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.ide.IdeBundle
+import com.intellij.ide.actions.DistractionFreeModeController
 import com.intellij.ide.ui.IconMapLoader
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.util.PropertiesComponent
+import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.registry.EarlyAccessRegistryManager
 import com.intellij.util.PlatformUtils
-import com.intellij.util.application
+
+private val LOG: Logger
+  get() = logger<ExperimentalUI>()
 
 /**
  * @author Konstantin Bulenkov
  */
 private class ExperimentalUIImpl : ExperimentalUI() {
-  companion object {
-    private val logger = logger<ExperimentalUI>()
-  }
-
   private var shouldApplyOnClose: Boolean? = null
+  private var shouldUnsetNewUiSwitchKey: Boolean = true
 
   override fun getIconMappings(): Map<ClassLoader, Map<String, String>> = service<IconMapLoader>().loadIconMapping()
 
@@ -48,18 +50,23 @@ private class ExperimentalUIImpl : ExperimentalUI() {
    * On app closing, we save new value stored in the [shouldApplyOnClose]
    */
   override fun setNewUIInternal(newUI: Boolean, suggestRestart: Boolean) {
-    if (newUI == NewUi.isEnabled()) {
-      logger.warn("Setting the same value $newUI")
+    if (newUI == NewUiValue.isEnabled()) {
+      LOG.warn("Setting the same value $newUI")
       return
     }
 
     if (PlatformUtils.isJetBrainsClient()) {
       changeUiWithDelegate(newUI)
     }
-    else if (suggestRestart && !PlatformUtils.isJetBrainsClient()) {
+    else {
       onValueChanged(newUI)
-      shouldApplyOnClose = newUI
-      showRestartDialog()
+      if (suggestRestart) {
+        shouldApplyOnClose = newUI
+        showRestartDialog()
+      }
+      else {
+        saveNewValue(newUI)
+      }
     }
   }
 
@@ -73,20 +80,25 @@ private class ExperimentalUIImpl : ExperimentalUI() {
 
   fun appStarted() {
     if (isNewUI()) {
-      PropertiesComponent.getInstance()
-        .setValue(NEW_UI_USED_PROPERTY, true)
+      val version = ApplicationInfo.getInstance().build.asStringWithoutProductCodeAndSnapshot()
+      PropertiesComponent.getInstance().setValue(NEW_UI_USED_VERSION, version)
     }
   }
 
   fun appClosing() {
+    if (shouldUnsetNewUiSwitchKey) {
+      PropertiesComponent.getInstance().unsetValue(NEW_UI_SWITCH)
+    }
     val newValue = shouldApplyOnClose
-    if (newValue != null && newValue != NewUi.isEnabled()) {
+    if (newValue != null && newValue != NewUiValue.isEnabled()) {
       saveNewValue(newValue)
     }
   }
 
   private fun onValueChanged(isEnabled: Boolean) {
-    if (isEnabled) setNewUiUsed()
+    if (isEnabled) {
+      setNewUiUsed()
+    }
 
     if (ApplicationManager.getApplication().isHeadlessEnvironment) {
       return
@@ -94,33 +106,49 @@ private class ExperimentalUIImpl : ExperimentalUI() {
 
     if (isEnabled) {
       NewUIInfoService.getInstance().updateEnableNewUIDate()
-      UISettings.getInstance().hideToolStripes = false
+      // Do not force enabling tool window stripes in DFM
+      if (!DistractionFreeModeController.shouldMinimizeCustomHeader()) {
+        UISettings.getInstance().hideToolStripes = false
+      }
     }
     else {
       NewUIInfoService.getInstance().updateDisableNewUIDate()
     }
 
+    // On the client, onValueChanged will not be called again as there's no real registry value change.
+    // Set the override before calling resetLafSettingsToDefault to ensure the correct LaF is chosen.
+    if (PlatformUtils.isJetBrainsClient()) {
+      NewUiValue.overrideNewUiForOneRemDevSession(isEnabled)
+    }
     resetLafSettingsToDefault()
   }
 
   private fun saveNewValue(enabled: Boolean) {
     try {
-      logger.info("Saving newUi=$enabled to registry")
-      Registry.get(KEY).setValue(enabled)
+      LOG.info("Saving newUi=$enabled to registry")
+      EarlyAccessRegistryManager.setBoolean(KEY, enabled)
+      EarlyAccessRegistryManager.syncAndFlush()
     }
     catch (e: Throwable) {
-      logger.error(e)
+      LOG.error(e)
     }
+  }
+
+  override fun saveCurrentValueAndReapplyDefaultLaf() {
+    saveNewValue(NewUiValue.isEnabled())
+    resetLafSettingsToDefault()
   }
 
   private fun setNewUiUsed() {
     val propertyComponent = PropertiesComponent.getInstance()
-    if (propertyComponent.getBoolean(NEW_UI_USED_PROPERTY)) {
+    if (isNewUiUsedOnce()) {
       propertyComponent.unsetValue(NEW_UI_FIRST_SWITCH)
     }
     else {
       propertyComponent.setValue(NEW_UI_FIRST_SWITCH, true)
     }
+    propertyComponent.setValue(NEW_UI_SWITCH, true)
+    shouldUnsetNewUiSwitchKey = false
   }
 
   private fun changeUiWithDelegate(isEnabled: Boolean) {
@@ -132,7 +160,7 @@ private class ExperimentalUIImpl : ExperimentalUI() {
       .noText(IdeBundle.message("dialog.newui.message.new.ui.revert"))
       .guessWindowAndAsk()
     if (shouldRestart) {
-      val delegate = application.service<ExperimentalUIJetBrainsClientDelegate>()
+      val delegate = ExperimentalUIJetBrainsClientDelegate.getInstance()
       delegate.changeUi(isEnabled, updateLocally = {
         onValueChanged(isEnabled)
         saveNewValue(isEnabled)
@@ -160,21 +188,17 @@ private class ExperimentalUIImpl : ExperimentalUI() {
       ApplicationManagerEx.getApplicationEx().restart(true)
     }
   }
+}
 
-  private fun resetLafSettingsToDefault() {
-    val lafManager = LafManager.getInstance()
-    val defaultLightLaf = lafManager.defaultLightLaf
-    val defaultDarkLaf = lafManager.defaultDarkLaf
-    if (defaultLightLaf == null || defaultDarkLaf == null) {
-      return
-    }
-
-    val laf = if (JBColor.isBright()) defaultLightLaf else defaultDarkLaf
-    lafManager.currentLookAndFeel = laf
-    if (lafManager.autodetect) {
-      lafManager.setPreferredLightLaf(defaultLightLaf)
-      lafManager.setPreferredDarkLaf(defaultDarkLaf)
-    }
+private fun resetLafSettingsToDefault() {
+  val lafManager = LafManager.getInstance()
+  val defaultLightLaf = lafManager.defaultLightLaf ?: return
+  val defaultDarkLaf = lafManager.defaultDarkLaf ?: return
+  val laf = if (JBColor.isBright()) defaultLightLaf else defaultDarkLaf
+  lafManager.currentLookAndFeel = laf
+  if (lafManager.autodetect) {
+    lafManager.setPreferredLightLaf(defaultLightLaf)
+    lafManager.setPreferredDarkLaf(defaultDarkLaf)
   }
 }
 
@@ -195,5 +219,9 @@ private class ExperimentalUiAppLifecycleListener : AppLifecycleListener {
 }
 
 interface ExperimentalUIJetBrainsClientDelegate {
+  companion object {
+    fun getInstance() = service<ExperimentalUIJetBrainsClientDelegate>()
+  }
+
   fun changeUi(isEnabled: Boolean, updateLocally: (Boolean) -> Unit)
 }

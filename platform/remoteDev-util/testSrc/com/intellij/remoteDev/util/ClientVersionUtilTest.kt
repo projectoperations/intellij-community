@@ -1,26 +1,48 @@
 package com.intellij.remoteDev.util
 
-import org.junit.Assert
-import org.junit.Test
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.util.registry.Registry
+import com.intellij.remoteDev.util.ClientVersionUtil.computeSeparateConfigEnvVariableValue
+import com.intellij.remoteDev.util.ClientVersionUtil.isJBCSeparateConfigSupported
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.TestDisposable
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
+@TestApplication
 class ClientVersionUtilTest {
-  @Test
-  fun `233_173 is supported`() {
-    Assert.assertTrue(ClientVersionUtil.isJBCSeparateConfigSupported("233.173"))
+  @TestDisposable
+  lateinit var disposable: Disposable
+  
+  @ValueSource(strings = ["233.2350", "233.SNAPSHOT", "241.1", "241.SNAPSHOT"])
+  @ParameterizedTest
+  fun `separate config supported and enabled`(version: String) {
+    assertTrue(isJBCSeparateConfigSupported(version))
+    assertNull(computeSeparateConfigEnvVariableValue(version))
+    disableProcessPerConnection()
+    assertEquals("false", computeSeparateConfigEnvVariableValue(version))
   }
 
-  @Test
-  fun `233_172 is not supported`() {
-    Assert.assertFalse(ClientVersionUtil.isJBCSeparateConfigSupported("233.172"))
+  @ValueSource(strings = ["233.172", "232.SNAPSHOT", "232.9999"])
+  @ParameterizedTest
+  fun `separate config not supported`(version: String) {
+    assertFalse(isJBCSeparateConfigSupported(version))
+    assertNull(computeSeparateConfigEnvVariableValue(version))
+    disableProcessPerConnection()
+    assertNull(computeSeparateConfigEnvVariableValue(version))
   }
 
-  @Test
-  fun `232_9999 is not supported`() {
-    Assert.assertFalse(ClientVersionUtil.isJBCSeparateConfigSupported("232.9999"))
+  @ValueSource(strings = ["233.173", "233.2349"])
+  @ParameterizedTest
+  fun `separate config supported but not enabled`(version: String) {
+    assertTrue(isJBCSeparateConfigSupported(version))
+    assertEquals("true", computeSeparateConfigEnvVariableValue(version))
+    disableProcessPerConnection()
+    assertEquals("false", computeSeparateConfigEnvVariableValue(version))
   }
 
-  @Test
-  fun `241_1 is supported`() {
-    Assert.assertTrue(ClientVersionUtil.isJBCSeparateConfigSupported("241.1"))
+  private fun disableProcessPerConnection() {
+    Registry.get("rdct.enable.per.connection.client.process").setValue(false, disposable)
   }
 }

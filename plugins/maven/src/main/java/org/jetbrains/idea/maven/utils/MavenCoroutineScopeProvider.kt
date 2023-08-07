@@ -5,8 +5,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
+import org.jetbrains.annotations.ApiStatus
 
-internal class MavenCoroutineScopeProvider {
+@ApiStatus.Internal
+class MavenCoroutineScopeProvider {
   @Service
   private class AppService(val coroutineScope: CoroutineScope)
 
@@ -23,3 +25,4 @@ internal class MavenCoroutineScopeProvider {
     }
   }
 }
+

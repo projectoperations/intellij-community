@@ -78,7 +78,8 @@ public final class ChangesUtil {
     return ContainerUtil.map2SetNotNull(changes, change -> vcsManager.getVcsFor(getFilePath(change)));
   }
 
-  public static @NotNull Set<AbstractVcs> getAffectedVcsesForFilePaths(@NotNull Collection<? extends FilePath> files, @NotNull Project project) {
+  public static @NotNull Set<AbstractVcs> getAffectedVcsesForFilePaths(@NotNull Collection<? extends FilePath> files,
+                                                                       @NotNull Project project) {
     ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(project);
     return ContainerUtil.map2SetNotNull(files, file -> vcsManager.getVcsFor(file));
   }
@@ -87,6 +88,11 @@ public final class ChangesUtil {
     return ProjectLevelVcsManager.getInstance(project).getVcsFor(file);
   }
 
+  /**
+   * @deprecated This method will detect {@link FilePath#isDirectory()} using NIO.
+   * Avoid using the method, if {@code isDirectory} is known from context or not important.
+   */
+  @Deprecated
   public static @Nullable AbstractVcs getVcsForFile(@NotNull File file, @NotNull Project project) {
     return ProjectLevelVcsManager.getInstance(project).getVcsFor(VcsUtil.getFilePath(file));
   }
@@ -276,7 +282,8 @@ public final class ChangesUtil {
   public static void processFilePathsByVcs(@NotNull Project project,
                                            @NotNull Collection<? extends FilePath> files,
                                            @NotNull PerVcsProcessor<FilePath> processor) {
-    processItemsByVcs(files, filePath -> getVcsForFile(filePath.getIOFile(), project), processor);
+    ProjectLevelVcsManager projectLevelVcsManager = ProjectLevelVcsManager.getInstance(project);
+    processItemsByVcs(files, filePath -> projectLevelVcsManager.getVcsFor(filePath), processor);
   }
 
   public static @NotNull List<File> filePathsToFiles(@NotNull Collection<? extends FilePath> filePaths) {

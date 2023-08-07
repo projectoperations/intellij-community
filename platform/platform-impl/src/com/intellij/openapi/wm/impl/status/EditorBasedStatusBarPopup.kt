@@ -4,7 +4,7 @@
 package com.intellij.openapi.wm.impl.status
 
 import com.intellij.ide.DataManager
-import com.intellij.internal.statistic.service.fus.collectors.StatusBarPopupShown
+import com.intellij.internal.statistic.service.fus.collectors.UIEventLogger.StatusBarPopupShown
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
@@ -145,7 +145,7 @@ abstract class EditorBasedStatusBarPopup(
   private suspend fun doUpdate(finishUpdate: Runnable?) {
     val file = getSelectedFile()
     val state = readAction {
-      getWidgetState(file)
+      getWidgetState(file?.takeIf { it.isValid })
     }
     if (state != WidgetState.NO_CHANGE) {
       withContext(Dispatchers.EDT) {

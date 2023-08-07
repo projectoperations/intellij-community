@@ -6,13 +6,12 @@ import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.editor.impl.EditorImpl
-import com.intellij.openapi.fileTypes.FileTypes
+import com.intellij.openapi.fileTypes.PlainTextLanguage
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComponentContainer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.ui.LanguageTextField
 import com.intellij.util.SystemProperties
@@ -21,7 +20,7 @@ import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider
-import org.jetbrains.plugins.terminal.util.SHELL_TYPE_KEY
+import org.jetbrains.plugins.terminal.exp.completion.TerminalShellSupport
 import org.jetbrains.plugins.terminal.util.ShellType
 import java.awt.Color
 import java.awt.Dimension
@@ -48,7 +47,7 @@ class TerminalPromptPanel(private val project: Project,
     get() = Dimension(editor.charHeight, editor.lineHeight)
 
   init {
-    editorTextField = createPromptTextField()
+    editorTextField = createPromptTextField(session)
 
     promptLabel = createPromptLabel()
     promptLabel.text = computePromptText(TerminalProjectOptionsProvider.getInstance(project).startingDirectory ?: "")
@@ -60,13 +59,10 @@ class TerminalPromptPanel(private val project: Project,
     }
 
     commandHistoryManager = CommandHistoryManager(session)
-    commandHistoryPresenter = CommandHistoryPresenter(project, editor)
+    commandHistoryPresenter = CommandHistoryPresenter(project, editor, commandExecutor)
 
     editor.putUserData(TerminalSession.KEY, session)
     editor.putUserData(TerminalCompletionManager.KEY, completionManager)
-    val psiFile = PsiDocumentManager.getInstance(project).getCachedPsiFile(editor.document)
-                  ?: error("Psi file is null for prompt text field")
-    psiFile.putUserData(SHELL_TYPE_KEY, session.shellIntegration?.shellType)
 
     session.addCommandListener(this)
 
@@ -80,8 +76,13 @@ class TerminalPromptPanel(private val project: Project,
     add(editorTextField)
   }
 
-  private fun createPromptTextField(): LanguageTextField {
-    val textField = object : LanguageTextField(FileTypes.PLAIN_TEXT.language, project, "", false) {
+  private fun createPromptTextField(session: TerminalSession): LanguageTextField {
+    val shellType = session.shellIntegration?.shellType
+    val language = if (shellType != null) {
+      TerminalShellSupport.findByShellType(shellType)?.promptLanguage ?: PlainTextLanguage.INSTANCE
+    }
+    else PlainTextLanguage.INSTANCE
+    val textField = object : LanguageTextField(language, project, "", false) {
       override fun setBackground(bg: Color?) {
         // do nothing to not set background to editor in super method
       }

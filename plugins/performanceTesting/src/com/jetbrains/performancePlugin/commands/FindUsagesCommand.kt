@@ -4,7 +4,9 @@ import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
 import com.intellij.find.actions.ShowUsagesAction
 import com.intellij.find.findUsages.FindUsagesOptions
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.smartReadAction
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.ui.playback.PlaybackContext
@@ -27,7 +29,7 @@ class FindUsagesCommand(text: String, line: Int) : PerformanceCommandCoroutineAd
   companion object {
     const val PREFIX: @NonNls String = CMD_PREFIX + "findUsages"
     const val SPAN_NAME: @NonNls String = "findUsages"
-    private val LOG = Logger.getInstance(FindUsagesCommand::class.java)
+    private val LOG = logger<FindUsagesCommand>()
   }
 
   @Suppress("TestOnlyProblems")
@@ -55,11 +57,13 @@ class FindUsagesCommand(text: String, line: Int) : PerformanceCommandCoroutineAd
           throw Exception("No editor is opened")
         }
         val offset = editor.caretModel.offset
-        val element = if (GotoDeclarationAction.findElementToShowUsagesOf(editor, offset) == null) {
-          GotoDeclarationAction.findTargetElement(context.project, editor, offset)
-        }
-        else {
-          GotoDeclarationAction.findElementToShowUsagesOf(editor, offset)
+        val element = smartReadAction(context.project) {
+          if (GotoDeclarationAction.findElementToShowUsagesOf(editor, offset) == null) {
+            GotoDeclarationAction.findTargetElement(context.project, editor, offset)
+          }
+          else {
+            GotoDeclarationAction.findElementToShowUsagesOf(editor, offset)
+          }
         }
         if (element == null) {
           throw Exception("Can't find an element under $offset offset.")

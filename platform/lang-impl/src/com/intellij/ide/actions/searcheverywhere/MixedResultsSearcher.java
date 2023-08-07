@@ -286,7 +286,8 @@ class MixedResultsSearcher implements SESearcher {
       hasMoreMap.put(contributor, hasMore);
     }
 
-    public boolean addElement(Object element, SearchEverywhereContributor<?> contributor, int priority, ProgressIndicator indicator) throws InterruptedException {
+    public boolean addElement(Object element, SearchEverywhereContributor<?> contributor, int priority, ProgressIndicator indicator)
+      throws InterruptedException {
       final var mlService = SearchEverywhereMlService.getInstance();
       final SearchEverywhereFoundElementInfo newElementInfo;
       if (mlService == null) {
@@ -335,15 +336,16 @@ class MixedResultsSearcher implements SESearcher {
         List<SearchEverywhereFoundElementInfo> toRemove = action instanceof SEEqualElementsActionType.Replace
                                                           ? ((SEEqualElementsActionType.Replace)action).getToBeReplaced()
                                                           : Collections.emptyList();
+
         toRemove.forEach(info -> {
           Collection<SearchEverywhereFoundElementInfo> list = mySections.get(info.getContributor());
           Condition listCondition = conditionsMap.get(info.getContributor());
           list.remove(info);
-          LOG.debug(String.format("Element %s for contributor %s is removed", info.getElement().toString(), info.getContributor().getSearchProviderId()));
+          LOG.debug(String.format("Element %s for contributor %s is removed", info.getElement().toString(),
+                                  info.getContributor().getSearchProviderId()));
           listCondition.signal();
         });
         runInNotificationExecutor(() -> myListener.elementsRemoved(toRemove));
-
         if (section.size() >= limit) {
           stopSearchIfNeeded();
         }

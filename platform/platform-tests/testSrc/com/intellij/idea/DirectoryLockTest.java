@@ -35,7 +35,7 @@ public abstract sealed class DirectoryLockTest {
     Logger.setFactory(TestLoggerFactory.class);
   }
 
-  public static final class DirectModeTest extends DirectoryLockTest {
+  public static final class StandardModeTest extends DirectoryLockTest {
     @Override
     protected Path getTestDir() throws IOException {
       var testDir = tempDir.getRootPath();
@@ -47,22 +47,22 @@ public abstract sealed class DirectoryLockTest {
     }
   }
 
-  public static final class IndirectModeTest extends DirectoryLockTest {
+  public static final class RedirectedModeTest extends DirectoryLockTest {
     @Override
     protected Path getTestDir() throws IOException {
       var testDir = tempDir.getRootPath();
       if (testDir.toString().length() < 100) {
-        var padding = "length_padding_" + "x".repeat(100 - testDir.toString().length());
+        var padding = "_path_length_padding_" + "x".repeat(100 - testDir.toString().length());
         testDir = Files.createDirectories(testDir.resolve(padding));
       }
       return testDir;
     }
   }
 
-  public static final class CustomFileSystemTest extends DirectoryLockTest {
+  public static final class FallbackModeTest extends DirectoryLockTest {
     @Override
     protected Path getTestDir() {
-      var path = SystemInfo.isWindows ? "C:\\tests\\" + tempDir.getRootPath().getFileName().toString() : tempDir.getRootPath().toString();
+      var path = SystemInfo.isWindows ? "C:\\tests\\" + tempDir.getRootPath().getFileName() : tempDir.getRootPath().toString();
       return memoryFs.getFs().getPath(path);
     }
   }
@@ -187,13 +187,17 @@ public abstract sealed class DirectoryLockTest {
     var lock2 = createLock(configDir, systemDir2);
     assertNull(lock1.lockOrActivate(currentDir, List.of()));
     assertThatThrownBy(() -> lock2.lockOrActivate(currentDir, List.of())).isInstanceOf(CannotActivateException.class);
+    assertThatThrownBy(() -> lock2.lockOrActivate(currentDir, List.of())).isInstanceOf(CannotActivateException.class);
   }
 
   @Test
   public void deletingStalePortFile() throws Exception {
     var systemDir = Files.createDirectories(testDir.resolve("s"));
-    Files.createFile(systemDir.resolve(SpecialConfigFiles.PORT_FILE));
     var lock = createLock(testDir.resolve("c"), systemDir);
+    Files.createFile(systemDir.resolve(SpecialConfigFiles.PORT_FILE));
+    if (lock.getRedirectedPortFile() != null) {
+      Files.createFile(lock.getRedirectedPortFile());
+    }
     assertNull(lock.lockOrActivate(currentDir, List.of()));
   }
 

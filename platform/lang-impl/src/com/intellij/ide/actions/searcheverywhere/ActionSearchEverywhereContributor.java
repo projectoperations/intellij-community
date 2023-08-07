@@ -54,11 +54,23 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
   private final GotoActionItemProvider myProvider;
   protected boolean myDisabledActions;
 
+  public ActionSearchEverywhereContributor(ActionSearchEverywhereContributor other) {
+    myProject = other.myProject;
+    myContextComponent = other.myContextComponent;
+    myModel = other.myModel;
+    myProvider = other.myProvider;
+    myDisabledActions = other.myDisabledActions;
+  }
+
   public ActionSearchEverywhereContributor(Project project, Component contextComponent, Editor editor) {
     myProject = project;
     myContextComponent = new WeakReference<>(contextComponent);
     myModel = new GotoActionModel(project, contextComponent, editor);
     myProvider = new GotoActionItemProvider(myModel);
+  }
+
+  protected GotoActionModel getModel()  {
+    return myModel;
   }
 
   @NotNull
@@ -70,7 +82,7 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
   @Nullable
   @Override
   public String getAdvertisement() {
-    if (Registry.is("search.everywhere.footer.extended.info")) return null;
+    if (SearchEverywhereUI.isExtendedInfoEnabled()) return null;
 
     ShortcutSet altEnterShortcutSet = getActiveKeymapShortcuts(IdeActions.ACTION_SHOW_INTENTION_ACTIONS);
     @NlsSafe String altEnter = getFirstKeyboardShortcutText(altEnterShortcutSet);
@@ -105,7 +117,7 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
                                     @NotNull Processor<? super FoundItemDescriptor<GotoActionModel.MatchedValue>> consumer) {
 
     if (StringUtil.isEmptyOrSpaces(pattern)) {
-      if (Registry.is("search.everywhere.recents")) {
+      if (isRecentEnabled()) {
         Set<String> actionIDs = ActionHistoryManager.getInstance().getState().getIds();
         Predicate<GotoActionModel.MatchedValue> actionDegreePredicate =
           element -> {
@@ -143,6 +155,10 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
         return consumer.process(descriptor);
       });
     }, progressIndicator);
+  }
+
+  private static boolean isRecentEnabled() {
+    return Registry.is("search.everywhere.recents") || ApplicationManager.getApplication().isInternal();
   }
 
   @NotNull
@@ -216,7 +232,7 @@ public class ActionSearchEverywhereContributor implements WeightedSearchEverywhe
       return false;
     }
 
-    if (Registry.is("search.everywhere.recents")) {
+    if (isRecentEnabled()) {
       saveRecentAction(item);
     }
 

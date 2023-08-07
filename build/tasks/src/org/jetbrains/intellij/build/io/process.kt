@@ -4,8 +4,8 @@
 package org.jetbrains.intellij.build.io
 
 import com.fasterxml.jackson.jr.ob.JSON
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope2
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope2
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.*
@@ -71,9 +71,15 @@ suspend fun runJava(mainClass: String,
             span.setAttribute("processArgs", processArgs.joinToString(separator = " "))
             span.setAttribute("output", runCatching { Files.readString(outputFile) }.getOrNull() ?: "output file doesn't exist")
             val errorOutput = runCatching { Files.readString(errorOutputFile) }.getOrNull()
+            val output = runCatching { Files.readString(outputFile) }.getOrNull()
             span.setAttribute("errorOutput", errorOutput ?: "error output file doesn't exist")
             onError?.invoke()
-            throw RuntimeException("Cannot execute $mainClass: $reason\n${processArgs.joinToString(separator = " ")}\n$errorOutput")
+            throw RuntimeException("Cannot execute $mainClass: $reason\n${processArgs.joinToString(separator = " ")}" +
+                                   "\n--- error output ---\n" +
+                                   "$errorOutput" +
+                                   "\n--- output ---" +
+                                   "$output\n" +
+                                   "\n--- ---")
           }
 
           try {
@@ -170,11 +176,12 @@ private fun createClassPathFile(classPath: List<String>, classpathFile: Path): S
   return classPathStringBuilder
 }
 
-fun runProcessBlocking(args: List<String>, workingDir: Path? = null) {
+@JvmOverloads
+fun runProcessBlocking(args: List<String>, workingDir: Path? = null, timeoutMillis: Long = DEFAULT_TIMEOUT.inWholeMilliseconds) {
   runBlocking {
     runProcess(args = args,
                workingDir = workingDir,
-               timeout = DEFAULT_TIMEOUT,
+               timeout = timeoutMillis.milliseconds,
                additionalEnvVariables = emptyMap(),
                inheritOut = false)
   }

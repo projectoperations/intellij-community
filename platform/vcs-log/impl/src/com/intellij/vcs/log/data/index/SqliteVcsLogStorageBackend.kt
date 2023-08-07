@@ -115,7 +115,7 @@ private class ProjectLevelConnectionManager private constructor(@JvmField val st
   val selectCommitterForCommitPool = connection.statementPool("select name, email from user where commitId = ? and isCommitter = ?") { IntBinder(2) }
 
   @JvmField
-  val selectCommitsForUserPool = connection.statementPool("select commitId from user where name = ? and email = ?") { ObjectBinder(2) }
+  val selectCommitsForUserPool = connection.statementPool("select commitId from user where isCommitter = 0 and name = ? and email = ?") { ObjectBinder(2) }
 
   @JvmField
   val insertCommitPool = connection.statementPool("insert into commit_hashes(position, hash) values(?, ?) returning rowid") { ObjectBinder(2) }
@@ -198,6 +198,18 @@ internal class SqliteVcsLogStorageBackend(project: Project,
     return missing
   }
 
+  override fun iterateIndexedCommits(limit: Int, processor: IntFunction<Boolean>) {
+    connectionManager.runUnderReadonlyConnection { connection ->
+      val limitClause = if (limit > 0) " limit $limit" else ""
+      connection.prepareStatement("select commitId from log$limitClause", IntBinder(paramCount = 0)).use { statement ->
+        val rs = statement.executeQuery()
+        while (rs.next()) {
+          if (!processor.apply(rs.getInt(0))) return@runUnderReadonlyConnection
+        }
+      }
+    }
+  }
+
   override fun getMessage(commitId: Int): String? {
     return connection.selectString("select message from log where commitId = ?", commitId)
   }
@@ -219,7 +231,7 @@ internal class SqliteVcsLogStorageBackend(project: Project,
     return result
   }
 
-  override fun getCommitterOrAuthorForCommit(commitId: Int): VcsUser? {
+  override fun getCommitterForCommit(commitId: Int): VcsUser? {
     val batch = IntBinder(paramCount = 1)
     connection.prepareStatement("select isCommitter from log where commitId = ?", batch).use { statement ->
       batch.bind(commitId)
@@ -303,13 +315,6 @@ internal class SqliteVcsLogStorageBackend(project: Project,
           break
         }
       }
-    }
-  }
-
-  override fun getRename(parent: Int, child: Int): IntArray {
-    return connectionManager.selectRename.use { statement, binder ->
-      binder.bind(parent, child)
-      readIntArray(statement)
     }
   }
 
@@ -461,7 +466,10 @@ internal class SqliteVcsLogStorageBackend(project: Project,
   }
 
   override fun findRename(parent: Int, child: Int, root: VirtualFile, path: FilePath, isChildPath: Boolean): EdgeData<FilePath?>? {
-    val renames = getRename(parent, child)
+    val renames = connectionManager.selectRename.use { statement, binder ->
+      binder.bind(parent, child)
+      readIntArray(statement)
+    }
     if (renames.isEmpty()) {
       return null
     }
@@ -554,14 +562,14 @@ internal class SqliteVcsLogStorageBackend(project: Project,
     val sql = "select rowid, position, hash from commit_hashes where rowid in $inClause"
 
     connection.prepareStatement(sql, paramBinder).use { statement ->
-        val rs = statement.executeQuery()
-        while (rs.next()) {
-          val commitId = rs.getInt(0)
-          val root = sortedRoots.get(rs.getInt(1))
-          val hash = rs.getString(2)!!.let(HashImpl::build)
-          result.put(commitId, CommitId(hash, root))
-        }
+      val rs = statement.executeQuery()
+      while (rs.next()) {
+        val commitId = rs.getInt(0)
+        val root = sortedRoots.get(rs.getInt(1))
+        val hash = rs.getString(2)!!.let(HashImpl::build)
+        result.put(commitId, CommitId(hash, root))
       }
+    }
 
     return result
   }
@@ -655,6 +663,7 @@ internal class SqliteVcsLogStorageBackend(project: Project,
 
 @Suppress("SqlResolve")
 private class SqliteVcsLogWriter(private val connection: SqliteConnection, private val storage: VcsLogStorage) : VcsLogWriter {
+
   init {
     connection.beginTransaction()
   }
@@ -782,6 +791,8 @@ private class SqliteVcsLogWriter(private val connection: SqliteConnection, priva
       }
     }
   }
+
+  override fun interrupt() = connection.interruptAndClose()
 }
 
 private fun readIntArray(statement: SqlitePreparedStatement<IntBinder>): IntArray {
@@ -807,4 +818,4 @@ private fun readIntArray(statement: SqlitePreparedStatement<IntBinder>): IntArra
 
 private fun Iterable<Int>.toInClause() = "(" + joinToString(separator = ",") { "'$it'" } + ")"
 
-internal val VcsLogStorageBackend.isSqliteBackend : Boolean get() = this is SqliteVcsLogStorageBackend
+internal val VcsLogStorageBackend.isSqliteBackend: Boolean get() = this is SqliteVcsLogStorageBackend

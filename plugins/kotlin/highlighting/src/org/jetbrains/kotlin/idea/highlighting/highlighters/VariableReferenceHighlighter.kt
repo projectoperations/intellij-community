@@ -3,18 +3,21 @@ package org.jetbrains.kotlin.idea.highlighting.highlighters
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.openapi.project.Project
+import com.intellij.util.containers.addIfNotNull
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolKind
+import org.jetbrains.kotlin.idea.base.highlighting.HighlightingFactory
 import org.jetbrains.kotlin.idea.base.highlighting.KotlinBaseHighlightingBundle
-import org.jetbrains.kotlin.idea.base.highlighting.isNameHighlightingEnabled
+import org.jetbrains.kotlin.idea.highlighter.KotlinHighlightInfoTypeSemanticNames
+import org.jetbrains.kotlin.idea.highlighting.KotlinRefsHolder
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
-import org.jetbrains.kotlin.idea.highlighter.KotlinHighlightingColors as Colors
 
 internal class VariableReferenceHighlighter(
-  project: Project
+  project: Project,
+  private val kotlinRefsHolder: KotlinRefsHolder
 ) : AfterResolveHighlighter(project) {
 
     context(KtAnalysisSession)
@@ -27,7 +30,6 @@ internal class VariableReferenceHighlighter(
 
     context(KtAnalysisSession)
     private fun highlightSimpleNameExpression(expression: KtSimpleNameExpression): List<HighlightInfo.Builder> {
-        if (!expression.project.isNameHighlightingEnabled) return emptyList()
         if (expression.isAssignmentReference()) return emptyList()
         if (expression.isByNameArgumentReference()) return emptyList()
         if (expression.parent is KtInstanceExpressionWithLabel) return emptyList()
@@ -37,33 +39,52 @@ internal class VariableReferenceHighlighter(
             is KtBackingFieldSymbol -> highlightBackingField(symbol, expression)
             is KtKotlinPropertySymbol -> highlightProperty(symbol, expression)
             is KtLocalVariableSymbol -> {
+                kotlinRefsHolder.registerLocalRef(symbol.psi, expression)
                 val result = mutableListOf<HighlightInfo.Builder>()
-                if (!symbol.isVal) {
-                    highlightName(expression, Colors.MUTABLE_VARIABLE)?.let { result.add(it) }
-                }
-                highlightName(expression, Colors.LOCAL_VARIABLE)?.let { result.add(it) }
+                result.addIfNotNull(symbol.getHighlightingForMutableVar(expression))
+                HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.LOCAL_VARIABLE)?.let { result.add(it) }
                 result
             }
-            is KtSyntheticJavaPropertySymbol -> listOfNotNull(highlightName (expression, Colors.SYNTHETIC_EXTENSION_PROPERTY))
+            is KtSyntheticJavaPropertySymbol -> buildList {
+                addIfNotNull(HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.SYNTHETIC_EXTENSION_PROPERTY))
+                addIfNotNull(symbol.getHighlightingForMutableVar(expression))
+            }
             is KtValueParameterSymbol -> listOfNotNull(highlightValueParameter (symbol, expression))
-            is KtEnumEntrySymbol -> listOfNotNull(highlightName (expression, Colors.ENUM_ENTRY))
+            is KtEnumEntrySymbol -> listOfNotNull(HighlightingFactory.highlightName (expression, KotlinHighlightInfoTypeSemanticNames.ENUM_ENTRY))
+            is KtJavaFieldSymbol -> buildList {
+                if (symbol.isStatic) {
+                    addIfNotNull(HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.PACKAGE_PROPERTY))
+                } else {
+                    addIfNotNull(HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.INSTANCE_PROPERTY))
+                }
+                addIfNotNull(symbol.getHighlightingForMutableVar(expression))
+            }
             else -> emptyList()
         }
+    }
 
+    context(KtAnalysisSession)
+    private fun KtVariableSymbol.getHighlightingForMutableVar(expression: KtSimpleNameExpression): HighlightInfo.Builder? {
+        return if (isVal) {
+            null
+        } else {
+            HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.MUTABLE_VARIABLE)
+        }
     }
 
     context(KtAnalysisSession)
     private fun highlightValueParameter(symbol: KtValueParameterSymbol, expression: KtSimpleNameExpression): HighlightInfo.Builder? {
+        kotlinRefsHolder.registerLocalRef(symbol.psi, expression)
         return when {
             symbol.isImplicitLambdaParameter -> {
-                createInfoAnnotation(
-                    expression,
-                    KotlinBaseHighlightingBundle.message("automatically.declared.based.on.the.expected.type"),
-                    Colors.FUNCTION_LITERAL_DEFAULT_PARAMETER
+                HighlightingFactory.highlightName(
+                  expression,
+                  KotlinHighlightInfoTypeSemanticNames.FUNCTION_LITERAL_DEFAULT_PARAMETER,
+                  KotlinBaseHighlightingBundle.message("automatically.declared.based.on.the.expected.type")
                 )
             }
 
-            else -> highlightName(expression, Colors.PARAMETER)
+            else -> HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.PARAMETER)
         }
     }
 
@@ -73,23 +94,24 @@ internal class VariableReferenceHighlighter(
         expression: KtSimpleNameExpression
     ): List<HighlightInfo.Builder> {
         val result = mutableListOf<HighlightInfo.Builder>()
+        kotlinRefsHolder.registerLocalRef(symbol.psi, expression)
         if (!symbol.isVal) {
-            highlightName(expression, Colors.MUTABLE_VARIABLE)?.let { result.add(it) }
+            HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.MUTABLE_VARIABLE)?.let { result.add(it) }
         }
         val hasExplicitGetterOrSetter = symbol.getter?.hasBody == true || symbol.setter?.hasBody == true
         val color = when {
-            symbol.isExtension -> Colors.EXTENSION_PROPERTY
+            symbol.isExtension -> KotlinHighlightInfoTypeSemanticNames.EXTENSION_PROPERTY
             symbol.symbolKind == KtSymbolKind.TOP_LEVEL -> when {
-                hasExplicitGetterOrSetter -> Colors.PACKAGE_PROPERTY_CUSTOM_PROPERTY_DECLARATION
-                else -> Colors.PACKAGE_PROPERTY
+                hasExplicitGetterOrSetter -> KotlinHighlightInfoTypeSemanticNames.PACKAGE_PROPERTY_CUSTOM_PROPERTY_DECLARATION
+                else -> KotlinHighlightInfoTypeSemanticNames.PACKAGE_PROPERTY
             }
 
             else -> when {
-                hasExplicitGetterOrSetter -> Colors.INSTANCE_PROPERTY_CUSTOM_PROPERTY_DECLARATION
-                else -> Colors.INSTANCE_PROPERTY
+                hasExplicitGetterOrSetter -> KotlinHighlightInfoTypeSemanticNames.INSTANCE_PROPERTY_CUSTOM_PROPERTY_DECLARATION
+                else -> KotlinHighlightInfoTypeSemanticNames.INSTANCE_PROPERTY
             }
         }
-        highlightName(expression, color)?.let { result.add(it) }
+        HighlightingFactory.highlightName(expression, color)?.let { result.add(it) }
         return result
     }
 
@@ -97,9 +119,9 @@ internal class VariableReferenceHighlighter(
     private fun highlightBackingField(symbol: KtBackingFieldSymbol, expression: KtSimpleNameExpression): List<HighlightInfo.Builder> {
         val result = mutableListOf<HighlightInfo.Builder>()
         if (!symbol.owningProperty.isVal) {
-            highlightName(expression, Colors.MUTABLE_VARIABLE)?.let { result.add(it) }
+            HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.MUTABLE_VARIABLE)?.let { result.add(it) }
         }
-        highlightName(expression, Colors.BACKING_FIELD_VARIABLE)?.let { result.add(it) }
+        HighlightingFactory.highlightName(expression, KotlinHighlightInfoTypeSemanticNames.BACKING_FIELD_VARIABLE)?.let { result.add(it) }
         return result
     }
 

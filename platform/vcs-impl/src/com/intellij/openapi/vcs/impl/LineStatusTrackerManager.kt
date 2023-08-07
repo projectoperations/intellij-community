@@ -106,11 +106,12 @@ class LineStatusTrackerManager(private val project: Project) : LineStatusTracker
   }
 
   internal class MyStartupActivity : VcsStartupActivity {
+    override val order: Int
+      get() = VcsInitObject.OTHER_INITIALIZATION.order
+
     override fun runActivity(project: Project) {
       getInstanceImpl(project).startListenForEditors()
     }
-
-    override fun getOrder(): Int = VcsInitObject.OTHER_INITIALIZATION.order
   }
 
   private fun startListenForEditors() {
@@ -1391,6 +1392,16 @@ private object ChangelistsLocalStatusTrackerProvider : BaseRevisionStatusTracker
 }
 
 private object DefaultLocalStatusTrackerProvider : BaseRevisionStatusTrackerContentLoader() {
+  override fun isTrackedFile(project: Project, file: VirtualFile): Boolean {
+    val vcsFile = VcsUtil.resolveSymlinkIfNeeded(project, file)
+    return super.isTrackedFile(project, vcsFile)
+  }
+
+  override fun getContentInfo(project: Project, file: VirtualFile): ContentInfo? {
+    val vcsFile = VcsUtil.resolveSymlinkIfNeeded(project, file)
+    return super.getContentInfo(project, vcsFile)
+  }
+
   override fun isMyTracker(tracker: LocalLineStatusTracker<*>): Boolean = tracker is SimpleLocalLineStatusTracker
 
   override fun createTracker(project: Project, file: VirtualFile): LocalLineStatusTracker<*>? {

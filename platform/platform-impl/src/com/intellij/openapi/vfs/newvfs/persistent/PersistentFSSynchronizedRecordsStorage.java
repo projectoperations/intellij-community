@@ -12,6 +12,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.intellij.openapi.vfs.newvfs.persistent.PersistentFSHeaders.HEADER_ERRORS_ACCUMULATED_OFFSET;
+
 @ApiStatus.Internal
 final class PersistentFSSynchronizedRecordsStorage implements PersistentFSRecordsStorage {
   private static final int PARENT_OFFSET = 0;
@@ -89,7 +91,7 @@ final class PersistentFSSynchronizedRecordsStorage implements PersistentFSRecord
     final long length = file.length();
 
     final int recordsCount;
-    if (length == 0) {
+    if (length <= RECORD_SIZE) {
       recordsCount = 0;
     }
     else {
@@ -149,6 +151,18 @@ final class PersistentFSSynchronizedRecordsStorage implements PersistentFSRecord
   public int getConnectionStatus() throws IOException {
     return read(() -> {
       return myFile.getInt(PersistentFSHeaders.HEADER_CONNECTION_STATUS_OFFSET);
+    });
+  }
+
+  @Override
+  public int getErrorsAccumulated() throws IOException {
+    return read(() -> myFile.getInt(HEADER_ERRORS_ACCUMULATED_OFFSET));
+  }
+
+  @Override
+  public void setErrorsAccumulated(int errors) throws IOException {
+    write(() -> {
+      myFile.putInt(HEADER_ERRORS_ACCUMULATED_OFFSET, errors);
     });
   }
 
@@ -333,13 +347,6 @@ final class PersistentFSSynchronizedRecordsStorage implements PersistentFSRecord
   }
 
   @Override
-  public long length() {
-    return read(() -> {
-      return myFile.length();
-    });
-  }
-
-  @Override
   public int recordsCount() {
     return myRecordCount.get();
   }
@@ -353,6 +360,16 @@ final class PersistentFSSynchronizedRecordsStorage implements PersistentFSRecord
   public void close() throws IOException {
     write(() -> {
       saveGlobalModCount();
+      //Newly allocated record could be not yet modified -- and myFile automatically expands only
+      // on modification. To not lose recordCount value -- expand file manually.
+      int recordsCount = myRecordCount.get();
+      if (recordsCount == 0) {
+        myFile.setLogicalSize(PersistentFSHeaders.HEADER_SIZE);
+      }
+      else {
+        int fileSize = (recordsCount + 1) * RECORD_SIZE;
+        myFile.setLogicalSize(fileSize);
+      }
       myFile.close();
     });
   }

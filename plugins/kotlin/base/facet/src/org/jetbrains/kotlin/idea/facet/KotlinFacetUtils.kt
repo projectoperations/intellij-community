@@ -27,6 +27,7 @@ import org.jetbrains.kotlin.platform.IdePlatformKind
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.idePlatformKind
 import org.jetbrains.kotlin.platform.impl.JvmIdePlatformKind
+import org.jetbrains.kotlin.platform.impl.isKotlinNative
 import org.jetbrains.kotlin.platform.jvm.JvmPlatforms
 import org.jetbrains.kotlin.psi.NotNullableUserDataProperty
 import kotlin.reflect.KProperty1
@@ -61,6 +62,7 @@ fun KotlinFacetSettings.initializeIfNeeded(
                 when {
                     argumentsForPlatform is K2JVMCompilerArguments &&
                             this is K2JVMCompilerArguments -> copyK2JVMCompilerArguments(argumentsForPlatform, this)
+
                     argumentsForPlatform is K2JSCompilerArguments &&
                             this is K2JSCompilerArguments -> copyK2JSCompilerArguments(argumentsForPlatform, this)
 
@@ -80,23 +82,34 @@ fun KotlinFacetSettings.initializeIfNeeded(
     }
 
     if (shouldInferAPILevel) {
-        apiLevel = if (useProjectSettings) {
-            LanguageVersion.fromVersionString(commonArguments.apiVersion) ?: languageLevel
-        } else {
-            val maximumValue = getLibraryVersion(
-                module,
-                rootModel,
-                this.targetPlatform?.idePlatformKind,
-                coerceRuntimeLibraryVersionToReleased = compilerVersion == null
-            )
-            languageLevel?.coerceAtMostVersion(maximumValue)
+        apiLevel = when {
+            useProjectSettings -> {
+                LanguageVersion.fromVersionString(commonArguments.apiVersion) ?: languageLevel
+            }
+            /*
+            The below 'getLibraryVersion' call tries to figure out apiVersion by inspecting the stdlib available in dependencies.
+            This is not supported for K/N (07.2023), we therefore just fallback to the compiler version
+             */
+            targetPlatform?.idePlatformKind?.isKotlinNative == true && compilerVersion != null -> {
+                languageLevel?.coerceAtMostVersion(compilerVersion)
+            }
+
+            else -> {
+                val maximumValue = getLibraryVersion(
+                    module,
+                    rootModel,
+                    this.targetPlatform?.idePlatformKind,
+                    coerceRuntimeLibraryVersionToReleased = compilerVersion == null
+                )
+                languageLevel?.coerceAtMostVersion(maximumValue)
+            }
         }
     }
 }
 
 private fun getDefaultTargetPlatform(module: Module, rootModel: ModuleRootModel?): TargetPlatform {
     val platformKind = IdePlatformKind.ALL_KINDS.firstOrNull {
-        getRuntimeLibraryVersions(module, rootModel, it).isNotEmpty()
+        getRuntimeLibraryVersions(module, rootModel, it).any()
     } ?: JvmPlatforms.defaultJvmPlatform.idePlatformKind
     if (platformKind == JvmIdePlatformKind) {
         var jvmTarget = Kotlin2JvmCompilerArgumentsHolder.getInstance(module.project).settings.jvmTarget?.let { JvmTarget.fromString(it) }
@@ -133,7 +146,7 @@ fun parseCompilerArgumentsToFacet(
     modelsProvider: IdeModifiableModelsProvider?
 ) {
     val compilerArgumentsClass = kotlinFacet.configuration.settings.compilerArguments?.javaClass ?: return
-    val currentArgumentsBean = compilerArgumentsClass.newInstance()
+    val currentArgumentsBean = compilerArgumentsClass.getDeclaredConstructor().newInstance()
     val currentArgumentWithDefaults = substituteDefaults(arguments, currentArgumentsBean)
     parseCommandLineArguments(currentArgumentWithDefaults, currentArgumentsBean)
     applyCompilerArgumentsToFacet(currentArgumentsBean, kotlinFacet, modelsProvider)
@@ -147,7 +160,7 @@ fun applyCompilerArgumentsToFacet(
     with(kotlinFacet.configuration.settings) {
         val compilerArguments = this.compilerArguments ?: return
         val oldPluginOptions = compilerArguments.pluginOptions
-        val emptyArgs = compilerArguments::class.java.newInstance()
+        val emptyArgs = compilerArguments::class.java.getDeclaredConstructor().newInstance()
 
         // Ad-hoc work-around for android compilations: middle source sets could be actualized up to
         // Android target, meanwhile compiler arguments are of type K2Metadata

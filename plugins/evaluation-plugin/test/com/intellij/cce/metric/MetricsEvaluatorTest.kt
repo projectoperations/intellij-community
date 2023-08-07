@@ -1,8 +1,6 @@
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.cce.metric
 
-import com.intellij.cce.actions.CompletionContext
-import com.intellij.cce.actions.CompletionPrefix
-import com.intellij.cce.actions.CompletionStrategy
 import com.intellij.cce.core.Lookup
 import com.intellij.cce.core.Session
 import com.intellij.cce.core.Suggestion
@@ -17,9 +15,6 @@ class MetricsEvaluatorTest {
     private val sessionTop3 = Mockito.mock(Session::class.java)
     private val sessionTop5 = Mockito.mock(Session::class.java)
     private val sessionNone = Mockito.mock(Session::class.java)
-    private val defaultStrategy = CompletionStrategy(CompletionPrefix.NoPrefix, CompletionContext.ALL,
-                                                     emulateUser = false, completionGolf = null, filters = emptyMap()
-    )
 
     private const val EXPECTED = "expected"
     private const val UNEXPECTED = "unexpected"
@@ -34,7 +29,7 @@ class MetricsEvaluatorTest {
 
   @Test
   fun `test metrics evaluator`() {
-    val evaluator = MetricsEvaluator.withDefaultMetrics("", defaultStrategy)
+    val evaluator = MetricsEvaluator.withDefaultMetrics("")
     val result = evaluator.evaluate(listOf(sessionTop1, sessionTop3, sessionTop3, sessionNone))
     Assertions.assertTrue(result.isNotEmpty())
   }

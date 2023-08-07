@@ -82,6 +82,14 @@ public final class IOUtil {
     }
   }
 
+  /** reads all bytes from the buffer, and creates UTF8 string from them */
+  public static @NotNull String readString(@NotNull ByteBuffer buffer) {
+    byte[] bytes = new byte[buffer.remaining()];
+    buffer.get(bytes);
+    return new String(bytes, StandardCharsets.UTF_8);
+  }
+
+
   public static void writeString(@Nullable String s, @NotNull DataOutput stream) throws IOException {
     writeCharSequence(s, stream);
   }
@@ -310,7 +318,7 @@ public final class IOUtil {
    * Consider to use {@link com.intellij.util.io.externalizer.StringCollectionExternalizer}.
    */
   public static @NotNull <C extends Collection<String>> C readStringCollection(@NotNull DataInput in,
-                                                                      @NotNull IntFunction<? extends C> collectionGenerator)
+                                                                               @NotNull IntFunction<? extends C> collectionGenerator)
     throws IOException {
     int size = DataInputOutputUtil.readINT(in);
     C strings = collectionGenerator.apply(size);
@@ -327,7 +335,8 @@ public final class IOUtil {
     return readStringCollection(in, ArrayList::new);
   }
 
-  public static void closeSafe(@NotNull Logger log, Closeable... closeables) {
+  public static void closeSafe(@NotNull Logger log,
+                               Closeable... closeables) {
     for (Closeable closeable : closeables) {
       if (closeable != null) {
         try {
@@ -340,6 +349,19 @@ public final class IOUtil {
     }
   }
 
+  public static void closeSafe(@NotNull Logger log,
+                               AutoCloseable... closeables) {
+    for (AutoCloseable closeable : closeables) {
+      if (closeable != null) {
+        try {
+          closeable.close();
+        }
+        catch (Exception e) {
+          log.error(e);
+        }
+      }
+    }
+  }
 
 
   private static final ByteBuffer ZEROES = ByteBuffer.allocateDirect(1);
@@ -382,7 +404,10 @@ public final class IOUtil {
     }
   }
 
-  /** @return string with buffer content, as-if it is byte[], formatted by Arrays.toString(byte[]) */
+  /**
+   * @return string with buffer content (full: [0..capacity)), as-if it is byte[], formatted by Arrays.toString(byte[])
+   * Method is for debug view, for reading string from bytebuffer use {@link #readString(ByteBuffer)}
+   */
   public static String toString(final @NotNull ByteBuffer buffer) {
     final byte[] bytes = new byte[buffer.capacity()];
     final ByteBuffer slice = buffer.duplicate();

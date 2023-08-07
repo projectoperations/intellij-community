@@ -32,6 +32,7 @@ public final class JobLauncherImpl extends JobLauncher {
   static final int CORES_FORK_THRESHOLD = 1;
   private static final Logger LOG = Logger.getInstance(JobLauncher.class);
   private final boolean logAllExceptions = System.getProperty("idea.job.launcher.log.all.exceptions", "false").equals("true");
+  static final boolean joinWithoutTimeout = Boolean.getBoolean("idea.job.launcher.without.timeout");
 
   @Override
   public <T> boolean invokeConcurrentlyUnderProgress(@NotNull List<? extends T> things,
@@ -67,9 +68,13 @@ public final class JobLauncherImpl extends JobLauncher {
       // call checkCanceled a bit more often than .invoke()
       while (!applier.isDone()) {
         ProgressManager.checkCanceled();
-        // does automatic compensation against starvation (in ForkJoinPool.awaitJoin)
         try {
-          applier.get(10, TimeUnit.MILLISECONDS);
+          if (joinWithoutTimeout) {
+            applier.get();
+          } else {
+            // does automatic compensation against starvation (in ForkJoinPool.awaitJoin)
+            applier.get(10, TimeUnit.MILLISECONDS);
+          }
         }
         catch (TimeoutException ignored) {
         }
@@ -164,7 +169,6 @@ public final class JobLauncherImpl extends JobLauncher {
   private static final class VoidForkJoinTask implements Job<Void> {
     private final Runnable myAction;
     private final Consumer<? super Future<?>> myOnDoneCallback;
-    private final CoroutineContext myContext;
     private enum Status { STARTED, EXECUTED } // null=not yet executed, STARTED=started execution, EXECUTED=finished
     private volatile Status myStatus;
     private final ForkJoinTask<Void> myForkJoinTask = new ForkJoinTask<>() {
@@ -181,9 +185,7 @@ public final class JobLauncherImpl extends JobLauncher {
       protected boolean exec() {
         myStatus = Status.STARTED;
         try {
-          try (AccessToken ignored = ThreadContext.installThreadContext(myContext, true)) {
-            myAction.run();
-          }
+          myAction.run();
           complete(null); // complete manually before calling callback
         }
         catch (Throwable throwable) {
@@ -193,9 +195,7 @@ public final class JobLauncherImpl extends JobLauncher {
         finally {
           myStatus = Status.EXECUTED;
           if (myOnDoneCallback != null) {
-            try (AccessToken ignored = ThreadContext.installThreadContext(myContext, true)) {
-              myOnDoneCallback.accept(this);
-            }
+            myOnDoneCallback.accept(this);
           }
         }
         return true;
@@ -205,7 +205,6 @@ public final class JobLauncherImpl extends JobLauncher {
     private VoidForkJoinTask(@NotNull Runnable action, @Nullable Consumer<? super Future<?>> onDoneCallback) {
       myAction = action;
       myOnDoneCallback = onDoneCallback;
-      myContext = ThreadContext.currentThreadContext().minusKey(kotlinx.coroutines.Job.Key);
     }
 
     private void submit() {

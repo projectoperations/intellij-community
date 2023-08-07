@@ -28,7 +28,7 @@ internal class MarkdownCodeFenceErrorHighlightingIntention : IntentionAction {
       val editorManager = FileEditorManager.getInstance(project) ?: return
       val codeAnalyzer = DaemonCodeAnalyzer.getInstance(project) ?: return
       val psiManager = PsiManager.getInstance(project)
-      val files = editorManager.openFiles.asSequence().filter { it.hasMarkdownType() }
+      val files = editorManager.openFiles.filter { it.hasMarkdownType() }
       for (file in files) {
         if (!file.isValid) {
           thisLogger().warn("Virtual file $file is not valid")

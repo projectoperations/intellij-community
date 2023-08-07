@@ -72,6 +72,14 @@ public abstract class VcsVFSListener implements Disposable {
     public boolean isCaseSensitive() {
       return myFile.isCaseSensitive();
     }
+
+    public @NotNull FilePath getOldPath() {
+      return VcsUtil.getFilePath(myOldPath, myFile.isDirectory());
+    }
+
+    public @NotNull FilePath getNewPath() {
+      return VcsUtil.getFilePath(myNewPath, myFile.isDirectory());
+    }
   }
 
   protected static class AllDeletedFiles {
@@ -274,6 +282,10 @@ public abstract class VcsVFSListener implements Disposable {
       });
     }
 
+    private void processBeforeDeletedFile(@NotNull VFileDeleteEvent event) {
+      processBeforeDeletedFile(event.getFile());
+    }
+
     private void processBeforeDeletedFile(@NotNull VirtualFile file) {
       if (file.isDirectory() && file instanceof NewVirtualFile && !isDirectoryVersioningSupported() && !isRecursiveDeleteSupported()) {
         for (VirtualFile child : ((NewVirtualFile)file).getCachedChildren()) {
@@ -328,7 +340,7 @@ public abstract class VcsVFSListener implements Disposable {
           // so it is not suitable for moving unversioned files: if an unversioned file is moved, it won't be recorded,
           // won't affect doNotDeleteAddedCopiedOrMovedFiles(), and therefore won't save the file from deletion.
           // Thus here goes a special handle for unversioned files overwrite-move.
-          myDeletedFiles.remove(VcsUtil.getFilePath(newPath));
+          myDeletedFiles.remove(VcsUtil.getFilePath(newPath, file.isDirectory()));
         }
       });
     }
@@ -363,7 +375,7 @@ public abstract class VcsVFSListener implements Disposable {
         if (isEventIgnored(event)) continue;
 
         if (event instanceof VFileDeleteEvent && allowedDeletion(event)) {
-          processBeforeDeletedFile(((VFileDeleteEvent)event).getFile());
+          processBeforeDeletedFile((VFileDeleteEvent)event);
         }
         else if (event instanceof VFileMoveEvent) {
           processBeforeFileMovement((VFileMoveEvent)event);
@@ -439,7 +451,7 @@ public abstract class VcsVFSListener implements Disposable {
   }
 
   protected boolean isEventIgnored(@NotNull VFileEvent event) {
-    FilePath filePath = VcsUtil.getFilePath(event.getPath());
+    FilePath filePath = getEventFilePath(event);
     return !isUnderMyVcs(filePath) || myChangeListManager.isIgnoredFile(filePath);
   }
 
@@ -451,16 +463,33 @@ public abstract class VcsVFSListener implements Disposable {
     return filePath != null && ReadAction.compute(() -> !myProject.isDisposed() && myVcsManager.getVcsFor(filePath) == myVcs);
   }
 
+  @NotNull
+  private static FilePath getEventFilePath(@NotNull VFileEvent event) {
+    if (event instanceof VFileCreateEvent createEvent) {
+      return VcsUtil.getFilePath(event.getPath(), createEvent.isDirectory());
+    }
+
+    VirtualFile file = event.getFile();
+    if (file != null) {
+      // Do not use file.getPath(), as it is slower.
+      return VcsUtil.getFilePath(event.getPath(), file.isDirectory());
+    }
+    else {
+      LOG.error("VFileEvent should have VirtualFile: " + event);
+      return VcsUtil.getFilePath(event.getPath());
+    }
+  }
+
   private boolean allowedDeletion(@NotNull VFileEvent event) {
     if (myVcsFileListenerContextHelper.isDeletionContextEmpty()) return true;
 
-    return !myVcsFileListenerContextHelper.isDeletionIgnored(VcsUtil.getFilePath(event.getPath()));
+    return !myVcsFileListenerContextHelper.isDeletionIgnored(getEventFilePath(event));
   }
 
   private boolean allowedAddition(@NotNull VFileEvent event) {
     if (myVcsFileListenerContextHelper.isAdditionContextEmpty()) return true;
 
-    return !myVcsFileListenerContextHelper.isAdditionIgnored(VcsUtil.getFilePath(event.getPath()));
+    return !myVcsFileListenerContextHelper.isAdditionIgnored(getEventFilePath(event));
   }
 
   @RequiresBackgroundThread

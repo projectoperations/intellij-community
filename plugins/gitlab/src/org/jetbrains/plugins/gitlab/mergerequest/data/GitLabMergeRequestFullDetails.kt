@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.mergerequest.data
 
+import com.intellij.collaboration.ui.codereview.details.data.ReviewRequestState
 import com.intellij.openapi.util.NlsSafe
 import org.jetbrains.plugins.gitlab.api.dto.*
 import org.jetbrains.plugins.gitlab.mergerequest.api.dto.GitLabMergeRequestDTO
@@ -8,23 +9,24 @@ import java.util.*
 
 data class GitLabMergeRequestFullDetails(
   override val iid: String,
-  override val title: @NlsSafe String,
-  override val createdAt: Date,
-  override val author: GitLabUserDTO,
-  override val mergeStatus: GitLabMergeStatus,
-  override val isMergeable: Boolean,
-  override val state: GitLabMergeRequestState,
-  override val draft: Boolean,
-  override val assignees: List<GitLabUserDTO>,
-  override val reviewers: List<GitLabUserDTO>,
-  override val webUrl: @NlsSafe String,
+  val title: @NlsSafe String,
+  val createdAt: Date,
+  val author: GitLabUserDTO,
+  val mergeStatus: GitLabMergeStatus,
+  val isMergeable: Boolean,
+  val state: GitLabMergeRequestState,
+  val draft: Boolean,
+  val assignees: List<GitLabUserDTO>,
+  val reviewers: List<GitLabReviewerDTO>,
+  val webUrl: @NlsSafe String,
   val detailedLabels: List<GitLabLabelDTO>,
   val targetProject: GitLabProjectDTO,
-  val sourceProject: GitLabProjectDTO,
+  val sourceProject: GitLabProjectDTO?,
   val description: String,
   val approvedBy: List<GitLabUserDTO>,
   val targetBranch: String,
   val sourceBranch: String,
+  val isApproved: Boolean,
   val conflicts: Boolean,
   val commits: List<GitLabCommitDTO>,
   val diffRefs: GitLabDiffRefs,
@@ -32,8 +34,7 @@ data class GitLabMergeRequestFullDetails(
   val userPermissions: GitLabMergeRequestPermissionsDTO,
   val shouldBeRebased: Boolean,
   val rebaseInProgress: Boolean
-) : GitLabMergeRequestDetails(iid, title, createdAt, author, mergeStatus, isMergeable, state, draft, assignees, reviewers, webUrl,
-                              detailedLabels.map { it.title }) {
+) : GitLabMergeRequestId {
 
   companion object {
     fun fromGraphQL(dto: GitLabMergeRequestDTO) = GitLabMergeRequestFullDetails(
@@ -54,6 +55,7 @@ data class GitLabMergeRequestFullDetails(
       approvedBy = dto.approvedBy,
       targetBranch = dto.targetBranch,
       sourceBranch = dto.sourceBranch,
+      isApproved = dto.approved ?: true,
       conflicts = dto.conflicts,
       commits = dto.commits,
       diffRefs = dto.diffRefs,
@@ -65,3 +67,15 @@ data class GitLabMergeRequestFullDetails(
     )
   }
 }
+
+val GitLabMergeRequestFullDetails.reviewState: ReviewRequestState
+  get() =
+    if (draft) {
+      ReviewRequestState.DRAFT
+    }
+    else when (state) {
+      GitLabMergeRequestState.CLOSED -> ReviewRequestState.CLOSED
+      GitLabMergeRequestState.MERGED -> ReviewRequestState.MERGED
+      GitLabMergeRequestState.OPENED -> ReviewRequestState.OPENED
+      else -> ReviewRequestState.OPENED // to avoid null state
+    }

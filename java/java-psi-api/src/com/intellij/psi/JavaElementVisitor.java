@@ -160,9 +160,11 @@ public abstract class JavaElementVisitor extends PsiElementVisitor {
   public void visitForeachPatternStatement(@NotNull PsiForeachPatternStatement statement) {
     visitForeachStatementBase(statement);
   }
+
   public void visitForeachStatement(@NotNull PsiForeachStatement statement) {
     visitForeachStatementBase(statement);
   }
+
   public void visitForeachStatementBase(@NotNull PsiForeachStatementBase statement) {
     visitStatement(statement);
   }
@@ -171,8 +173,8 @@ public abstract class JavaElementVisitor extends PsiElementVisitor {
     visitStatement(statement);
   }
 
-  public void visitGuardedPattern(@NotNull PsiGuardedPattern pattern) {
-    visitPattern(pattern);
+  public void visitFragment(@NotNull PsiFragment fragment) {
+    visitElement(fragment);
   }
 
   public void visitIdentifier(@NotNull PsiIdentifier identifier) {
@@ -436,6 +438,14 @@ public abstract class JavaElementVisitor extends PsiElementVisitor {
     visitStatement(statement);
   }
 
+  public void visitTemplate(@NotNull PsiTemplate template) {
+    visitElement(template);
+  }
+
+  public void visitTemplateExpression(@NotNull PsiTemplateExpression expression) {
+    visitExpression(expression);
+  }
+
   public void visitThisExpression(@NotNull PsiThisExpression expression) {
     visitExpression(expression);
   }
@@ -470,6 +480,10 @@ public abstract class JavaElementVisitor extends PsiElementVisitor {
 
   public void visitUnaryExpression(@NotNull PsiUnaryExpression expression) {
     visitExpression(expression);
+  }
+
+  public void visitUnnamedPattern(@NotNull PsiUnnamedPattern pattern) {
+    visitPattern(pattern);
   }
 
   public void visitUsesStatement(@NotNull PsiUsesStatement statement) {

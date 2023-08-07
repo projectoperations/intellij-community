@@ -21,6 +21,8 @@ object CommunityLibraryLicenses {
     LibraryLicense(name = "AhoCorasickDoubleArrayTrie", libraryName = "com.hankcs:aho-corasick-double-array-trie",
                    url = "https://github.com/hankcs/AhoCorasickDoubleArrayTrie")
       .apache("https://github.com/hankcs/AhoCorasickDoubleArrayTrie#license"),
+    LibraryLicense(name = "Allure java commons", libraryName = "io.qameta.allure.java.commons", url = "https://github.com/allure-framework/allure-java")
+      .apache("https://github.com/allure-framework/allure-java/blob/master/README.md"),
     androidDependency(name = "Am Instrument Data proto", libraryName = "libam-instrumentation-data-proto"),
     LibraryLicense(name = "Amazon Ion Java", libraryName = "ion", url = "https://github.com/amzn/ion-java")
       .apache("https://github.com/amzn/ion-java/blob/master/LICENSE"),
@@ -199,6 +201,9 @@ object CommunityLibraryLicenses {
     LibraryLicense(name = "AssertJ Swing", libraryName = "assertj-swing",
                    url = "https://github.com/assertj/assertj-swing")
       .apache("https://github.com/assertj/assertj-swing/blob/main/licence-header.txt"),
+    LibraryLicense(name = "Atlassian Commonmark", libraryName = "atlassian.commonmark",
+                   url = "https://github.com/commonmark/commonmark-java")
+      .simplifiedBsd("https://github.com/commonmark/commonmark-java/blob/main/LICENSE.txt"),
     LibraryLicense(name = "Automaton", libraryName = "automaton", url = "https://www.brics.dk/automaton/")
       .simplifiedBsd("https://github.com/cs-au-dk/dk.brics.automaton/blob/master/COPYING"),
     LibraryLicense(name = "batik", libraryName = "batik-transcoder", url = "https://xmlgraphics.apache.org/batik/")
@@ -257,6 +262,9 @@ object CommunityLibraryLicenses {
                    url = "https://code.google.com/p/decentxml").newBsd(),
     LibraryLicense(name = "docutils", attachedTo = "intellij.python", version = "0.12", license = "BSD",
                    url = "https://docutils.sourceforge.io/"),
+    LibraryLicense(name = "dotenv-kotlin", libraryName = "io.github.cdimascio.dotenv.kotlin",
+                   url = "https://github.com/cdimascio/dotenv-kotlin")
+      .apache("https://github.com/cdimascio/dotenv-kotlin/blob/master/LICENSE"),
     LibraryLicense(name = "Eclipse JDT Core", attachedTo = "intellij.platform.jps.build", version = "4.2.1", license = "CPL 1.0",
                    url = "https://www.eclipse.org/jdt/core/index.php"),
     LibraryLicense(name = "Eclipse Layout Kernel", url = "https://www.eclipse.org/elk/", libraryName = "eclipse-layout-kernel").eplV1(),
@@ -306,11 +314,11 @@ object CommunityLibraryLicenses {
     LibraryLicense(name = "Google Auto Common Utilities", libraryName = "auto-common",
                    url = "https://github.com/google/auto/tree/master/common")
       .apache("https://github.com/google/auto/blob/master/LICENSE"),
-    LibraryLicense(name = "Google Drive API V3", libraryName = "google.apis.api.services.drive",
-                   url = "https://github.com/googleapis/google-api-java-client-services/tree/master/clients/google-api-services-drive/v3")
-      .apache("https://github.com/googleapis/google-api-java-client-services/blob/master/LICENSE"),
     LibraryLicense(libraryName = "Gradle", url = "https://gradle.org/", licenseUrl = "https://gradle.org/license")
       .apache("https://github.com/gradle/gradle/blob/master/LICENSE"),
+    LibraryLicense(name = "graphql-java-dataloader", libraryName = "graphql.java.dataloader",
+                   url = "https://github.com/graphql-java/java-dataloader")
+      .apache("https://github.com/graphql-java/java-dataloader/blob/master/LICENSE"),
     LibraryLicense(name = "Grazie AI", libraryName = "ai.grazie.spell.gec.engine.local",
                    url = "https://packages.jetbrains.team/maven/p/grazi/grazie-platform-public/",
                    additionalLibraryNames = listOf("ai.grazie.nlp.patterns",
@@ -327,7 +335,13 @@ object CommunityLibraryLicenses {
                                                    "ai.grazie.model.common",
                                                    "ai.grazie.model.gec",
                                                    "ai.grazie.model.text",
-                                                   "ai.grazie.spell.hunspell.en")).apache(),
+                                                   "ai.grazie.spell.hunspell.en",
+                                                   "ai.grazie.emb",
+                                                   "ai.grazie.model.nlp.encoder",
+                                                   "ai.grazie.utils.ki",
+                                                   "ai.grazie.nlp.encoder",
+                                                   "ai.grazie.nlp.encoder.bert.uncased",
+                                                   "ai.grazie.emb.local")).apache(),
     LibraryLicense(name = "Groovy", libraryName = "org.codehaus.groovy:groovy", url = "https://groovy-lang.org/")
       .apache("https://github.com/apache/groovy/blob/master/LICENSE"),
     LibraryLicense(name = "Groovy Ant", libraryName = "org.codehaus.groovy:groovy-ant", url = "https://groovy-lang.org/")
@@ -507,6 +521,8 @@ object CommunityLibraryLicenses {
                    url = "https://github.com/JetBrains/jps-javac-extension/")
       .apache("https://github.com/JetBrains/jps-javac-extension/blob/master/LICENSE.txt"),
     LibraryLicense(libraryName = "JSch", url = "https://www.jcraft.com/jsch/").newBsd("https://www.jcraft.com/jsch/LICENSE.txt"),
+    LibraryLicense(name = "jsch", libraryName = "eclipse.jgit.ssh.jsch", url = "https://www.jcraft.com/jsch/")
+      .newBsd("https://www.jcraft.com/jsch/LICENSE.txt"),
     LibraryLicense(libraryName = "jsch-agent-proxy", url = "https://github.com/ymnk/jsch-agent-proxy")
       .newBsd("https://github.com/ymnk/jsch-agent-proxy/blob/master/LICENSE.txt"),
     LibraryLicense(name = "JSON", libraryName = "json.jar", license = "JSON License", licenseUrl = "https://www.json.org/license.html",
@@ -558,9 +574,6 @@ object CommunityLibraryLicenses {
                    libraryName = "kotlinx-serialization-protobuf",
                    url = "https://github.com/Kotlin/kotlinx.serialization")
       .apache("https://github.com/Kotlin/kotlinx.serialization/blob/master/LICENSE.txt"),
-    LibraryLicense(name = "Kotlin Refactoring Miner", libraryName = "jetbrains.research.refactorinsight.kotlin.impl",
-                   url = "https://github.com/JetBrains-Research/kotlinRMiner")
-      .apache("https://github.com/JetBrains-Research/kotlinRMiner"),
     LibraryLicense(name = "Kotlin reflection library",
                    libraryName = "kotlin-reflect",
                    url = "https://github.com/JetBrains/kotlin")
@@ -696,9 +709,6 @@ object CommunityLibraryLicenses {
     LibraryLicense(name = "plexus-archiver", libraryName = "plexus-archiver",
                    url = "https://github.com/codehaus-plexus/plexus-archiver")
       .apache("https://github.com/codehaus-plexus/plexus-archiver/blob/master/LICENSE"),
-    LibraryLicense(name = "plexus-classworlds", attachedTo = "intellij.maven.server.m30.impl", version = "2.4",
-                   url = "https://github.com/codehaus-plexus/plexus-classworlds")
-      .apache("https://github.com/codehaus-plexus/plexus-classworlds/blob/master/LICENSE.txt"),
 
     LibraryLicense(name = "Plexus Utils", libraryName = "plexus-utils",
                    url = "https://github.com/codehaus-plexus/plexus-utils")
@@ -748,6 +758,9 @@ object CommunityLibraryLicenses {
     LibraryLicense(name = "rd text buffers",libraryName = "rd-text",
                    url = "https://github.com/JetBrains/rd/tree/master/rd-kt/rd-text")
       .apache("https://github.com/JetBrains/rd/blob/master/LICENSE"),
+    LibraryLicense(name = "Reactive Streams", libraryName = "reactivestreams.reactive.streams",
+                   url = "https://github.com/reactive-streams/reactive-streams-jvm")
+      .mit("https://github.com/reactive-streams/reactive-streams-jvm/blob/master/LICENSE"),
     LibraryLicense(name = "Relax NG Object Model", libraryName = "rngom-20051226-patched.jar",
                    url = "https://github.com/kohsuke/rngom", version = LibraryLicense.CUSTOM_REVISION)
       .mit("https://github.com/kohsuke/rngom/blob/master/licenceheader.txt"),
@@ -801,10 +814,6 @@ object CommunityLibraryLicenses {
     LibraryLicense(name = "ssh-nio-fs", libraryName = "ssh-nio-fs",
                    url = "https://github.com/JetBrains/intellij-deps-ssh-nio-fs")
       .mit("https://github.com/JetBrains/intellij-deps-ssh-nio-fs/blob/master/LICENSE"),
-    LibraryLicense(name = "SSHJ",
-                   libraryName = "SSHJ",
-                   url = "https://github.com/hierynomus/sshj")
-      .apache("https://github.com/hierynomus/sshj/blob/master/LICENSE"),
     LibraryLicense(name = "StreamEx", libraryName = "StreamEx",
                    url = "https://github.com/amaembo/streamex")
       .apache("https://github.com/amaembo/streamex/blob/master/LICENSE"),
@@ -908,8 +917,8 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("completion-ranking-kotlin"),
     jetbrainsLibrary("completion-ranking-kotlin-exp"),
     jetbrainsLibrary("completion-ranking-php-exp"),
-    jetbrainsLibrary("completion-ranking-python"),
     jetbrainsLibrary("completion-ranking-python-exp"),
+    jetbrainsLibrary("completion-ranking-python-with-full-line"),
     jetbrainsLibrary("completion-ranking-ruby-exp"),
     jetbrainsLibrary("completion-ranking-rust-exp"),
     jetbrainsLibrary("completion-ranking-scala-exp"),
@@ -976,6 +985,8 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("kotlinx-collections-immutable"),
     jetbrainsLibrary("ml-completion-prev-exprs-models"),
     jetbrainsLibrary("tcServiceMessages"),
+    jetbrainsLibrary("terminal-completion-db-with-extensions"),
+    jetbrainsLibrary("terminal-completion-spec"),
     jetbrainsLibrary("tips-idea-ce"),
     jetbrainsLibrary("tips-pycharm-community"),
     jetbrainsLibrary("workspace-model-codegen"),

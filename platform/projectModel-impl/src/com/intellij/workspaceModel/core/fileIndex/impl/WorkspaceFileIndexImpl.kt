@@ -2,9 +2,9 @@
 package com.intellij.workspaceModel.core.fileIndex.impl
 
 import com.intellij.injected.editor.VirtualFileWindow
-import com.intellij.model.ModelBranch
 import com.intellij.notebook.editor.BackedVirtualFile
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.diagnostic.thisLogger
@@ -14,14 +14,14 @@ import com.intellij.openapi.roots.ContentIteratorEx
 import com.intellij.openapi.roots.impl.CustomEntityProjectModelInfoProvider
 import com.intellij.openapi.roots.impl.DirectoryIndexImpl
 import com.intellij.openapi.roots.impl.RootFileSupplier
-import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.LowMemoryWatcher
-import com.intellij.openapi.util.Pair
 import com.intellij.openapi.vfs.*
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.platform.backend.workspace.virtualFile
+import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.util.CollectionQuery
 import com.intellij.util.PathUtil
 import com.intellij.util.Query
 import com.intellij.util.ThreeState
@@ -32,13 +32,10 @@ import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetData
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetWithCustomData
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileInternalInfo.NonWorkspace
 import com.intellij.workspaceModel.ide.getInstance
-import com.intellij.platform.backend.workspace.virtualFile
-import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 
 class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexEx, Disposable.Default {
   companion object {
     val EP_NAME: ExtensionPointName<WorkspaceFileIndexContributor<*>> = ExtensionPointName("com.intellij.workspaceModel.fileIndexContributor")
-    private val BRANCH_INDEX_DATA_KEY = Key.create<Pair<Long, WorkspaceFileIndexData>>("BRANCH_WORKSPACE_FILE_INDEX")
   }
 
   @Volatile
@@ -112,24 +109,37 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                                               processor: ContentIteratorEx,
                                               customFilter: VirtualFileFilter?,
                                               fileSetFilter: (WorkspaceFileSetWithCustomData<*>) -> Boolean): Boolean {
+    return processContentFilesRecursively(fileOrDir, processor, customFilter, fileSetFilter, 0)
+  }
+
+  private fun processContentFilesRecursively(fileOrDir: VirtualFile,
+                                             processor: ContentIteratorEx,
+                                             customFilter: VirtualFileFilter?,
+                                             fileSetFilter: (WorkspaceFileSetWithCustomData<*>) -> Boolean,
+                                             numberOfExcludedParentDirectories: Int): Boolean {
     val visitor = object : VirtualFileVisitor<Void?>() {
       override fun visitFileEx(file: VirtualFile): Result {
-        val fileInfo = runReadAction {
-            getFileInfo(file, true, true, false, false)
-        }
+        val fileInfo = ApplicationManager.getApplication().runReadAction(Computable {
+          getFileInfo(file = file,
+                      honorExclusion = true,
+                      includeContentSets = true,
+                      includeExternalSets = false,
+                      includeExternalSourceSets = false)
+        })
         if (file.isDirectory && fileInfo is NonWorkspace) {
           return when (fileInfo) {
             NonWorkspace.EXCLUDED, NonWorkspace.NOT_UNDER_ROOTS -> {
-              processContentFilesUnderExcludedDirectory(file, processor, customFilter, fileSetFilter, fileOrDir)
+              processContentFilesUnderExcludedDirectory(file, processor, customFilter, fileSetFilter, fileOrDir, 
+                                                        numberOfExcludedParentDirectories)
             }
             NonWorkspace.IGNORED, NonWorkspace.INVALID -> {
               SKIP_CHILDREN
             }
           }
         }
-        val accepted = runReadAction {
+        val accepted = ApplicationManager.getApplication().runReadAction(Computable {
           fileInfo.findFileSet(fileSetFilter) != null && (customFilter == null || customFilter.accept(file))
-        }
+        })
         val status = if (accepted) processor.processFileEx(file) else TreeNodeProcessingResult.CONTINUE
         return when (status) {
           TreeNodeProcessingResult.CONTINUE -> CONTINUE
@@ -147,7 +157,18 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                                                         processor: ContentIteratorEx,
                                                         customFilter: VirtualFileFilter?,
                                                         fileSetFilter: (WorkspaceFileSetWithCustomData<*>) -> Boolean,
-                                                        rootDir: VirtualFile): VirtualFileVisitor.Result {
+                                                        rootDir: VirtualFile,
+                                                        numberOfExcludedParentDirectories: Int): VirtualFileVisitor.Result {
+    if (numberOfExcludedParentDirectories > 5) {
+      /* 
+         It seems improbable that there are more than 5 alternations between excluded and non-excluded directories, so it seems that this 
+         is an infinite recursion.
+         However, check should catch such cases in VirtualFileVisitor.allowVisitChildren, so report the details and skip processing.
+      */
+      reportInfiniteRecursion(dir, this)
+      return VirtualFileVisitor.SKIP_CHILDREN
+    }
+    
     /* there may be other file sets under this directory; their URLs must be registered in VirtualFileUrlManager,
        so it's enough to process VirtualFileUrls only. */
     val virtualFileUrlManager = VirtualFileUrlManager.getInstance(project)
@@ -155,7 +176,7 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
     val processed = virtualFileUrlManager.processChildrenRecursively(virtualFileUrl) { childUrl ->
       val childFile = childUrl.virtualFile ?: return@processChildrenRecursively TreeNodeProcessingResult.SKIP_CHILDREN
       return@processChildrenRecursively if (runReadAction { isInContent (childFile) }) {
-        if (processContentFilesRecursively(childFile, processor, customFilter, fileSetFilter)) {
+        if (processContentFilesRecursively(childFile, processor, customFilter, fileSetFilter, numberOfExcludedParentDirectories + 1)) {
           TreeNodeProcessingResult.SKIP_CHILDREN
         }
         else {
@@ -217,7 +238,7 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                            includeExternalSets: Boolean,
                            includeExternalSourceSets: Boolean): WorkspaceFileInternalInfo {
     val unwrappedFile = BackedVirtualFile.getOriginFileIfBacked((file as? VirtualFileWindow)?.delegate ?: file)
-    return getOrCreateIndexData(unwrappedFile).getFileInfo(unwrappedFile, honorExclusion, includeContentSets, includeExternalSets, includeExternalSourceSets)
+    return getMainIndexData().getFileInfo(unwrappedFile, honorExclusion, includeContentSets, includeExternalSets, includeExternalSourceSets)
   }
 
   override fun visitFileSets(visitor: WorkspaceFileSetVisitor) {
@@ -225,7 +246,7 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
   }
 
   override fun getPackageName(directory: VirtualFile): String? {
-    return getOrCreateIndexData(directory).getPackageName(directory)
+    return getMainIndexData().getPackageName(directory)
   }
 
   override fun getDirectoriesByPackageName(packageName: String, includeLibrarySources: Boolean): Query<VirtualFile> {
@@ -233,35 +254,18 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
   }
 
   override fun getDirectoriesByPackageName(packageName: String, scope: GlobalSearchScope): Query<VirtualFile> {
-    val branches = scope.modelBranchesAffectingScope
-    if (branches.isEmpty()) {
-      return getDirectoriesByPackageName(packageName, true).filtering { scope.contains(it) }
-    }
-    val indexDataList = mutableListOf(getMainIndexData()).also {
-      branches.mapTo(it, ::obtainBranchIndexData)
-    }
-    return CollectionQuery(indexDataList)
-             .flatMapping { it.getDirectoriesByPackageName(packageName, true) }
-             .filtering { scope.contains(it) }
-  }
-
-  private fun getOrCreateIndexData(file: VirtualFile): WorkspaceFileIndexData {
-    val branch = ModelBranch.getFileBranch(file)
-    if (branch != null) {
-      return obtainBranchIndexData(branch)
-    }
-    return getMainIndexData()
+    return getDirectoriesByPackageName(packageName, true).filtering { scope.contains(it) }
   }
 
   private fun getMainIndexData(): WorkspaceFileIndexData {
     var data = indexData
     when (data) {
       EmptyWorkspaceFileIndexData.NOT_INITIALIZED -> {
-        if (!project.isDefault) {
-          thisLogger().error("WorkspaceFileIndex is not initialized yet, empty data is returned. Activities which use the project configuration must be postponed until the project is fully loaded.")
+        if (project.isDefault) {
+          thisLogger().warn("WorkspaceFileIndex must not be queried for the default project")
         }
         else {
-          thisLogger().warn("WorkspaceFileIndex must not be queried for the default project")
+          thisLogger().error("WorkspaceFileIndex is not initialized yet, empty data is returned. Activities which use the project configuration must be postponed until the project is fully loaded.")
         }
       }
       EmptyWorkspaceFileIndexData.RESET -> {
@@ -274,16 +278,6 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
 
   val contributors: List<WorkspaceFileIndexContributor<*>>
     get() = EP_NAME.extensionList + CustomEntityProjectModelInfoProvider.EP.extensionList.map { CustomEntityProjectModelInfoProviderBridge(it) }
-
-  private fun obtainBranchIndexData(branch: ModelBranch): WorkspaceFileIndexData {
-    var pair = branch.getUserData(BRANCH_INDEX_DATA_KEY)
-    val modCount = branch.branchedVfsStructureModificationCount
-    if (pair == null || pair.first != modCount) {
-      pair = Pair(modCount, WorkspaceFileIndexDataImpl(contributors, branch.project, RootFileSupplier.forBranch(branch)))
-      branch.putUserData(BRANCH_INDEX_DATA_KEY, pair)
-    }
-    return pair.second
-  }
 
   override fun reset() {
     indexData = EmptyWorkspaceFileIndexData.RESET

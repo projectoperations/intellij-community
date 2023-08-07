@@ -2,10 +2,8 @@
 package com.intellij.internal.statistic.eventLog.events.scheme
 
 import com.intellij.internal.statistic.eventLog.events.*
-import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
-import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger
 import com.intellij.internal.statistic.service.fus.collectors.FeatureUsagesCollector
-import com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector
+import com.intellij.internal.statistic.service.fus.collectors.UsageCollectors
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.extensions.PluginDescriptor
 import java.util.regex.Pattern
@@ -25,8 +23,8 @@ object EventsSchemeBuilder {
 
   private fun fieldSchema(field: EventField<*>, fieldName: String, eventName: String, groupId: String): Set<FieldDescriptor> {
     if (field.name.contains(".")) {
-      throw IllegalStateException("Field name should not contains dots, because dots are used to express hierarchy. " +
-                                  "Group=$groupId, event=$eventName, field=${field.name}")
+      throw IllegalMetadataSchemeStateException("Field name should not contains dots, because dots are used to express hierarchy. " +
+                                                "Group=$groupId, event=$eventName, field=${field.name}")
     }
 
     return when (field) {
@@ -65,7 +63,7 @@ object EventsSchemeBuilder {
 
   private fun validateRegexp(regexp: String) {
     if (regexp == ".*") {
-      throw IllegalStateException("Regexp should be more strict to prevent accidentally reporting sensitive data.")
+      throw IllegalMetadataSchemeStateException("Regexp should be more strict to prevent accidentally reporting sensitive data.")
     }
     Pattern.compile(regexp)
   }
@@ -93,7 +91,7 @@ object EventsSchemeBuilder {
   fun buildEventsScheme(recorder: String?, pluginId: String? = null, brokenPluginIds: Set<String> = emptySet()): List<GroupDescriptor> {
     val result = mutableListOf<GroupDescriptor>()
     val counterCollectors = ArrayList<FeatureUsageCollectorInfo>()
-    FUCounterUsageLogger.EP_NAME.processWithPluginDescriptor { counterUsageCollectorEP, descriptor: PluginDescriptor ->
+    UsageCollectors.COUNTER_EP_NAME.processWithPluginDescriptor { counterUsageCollectorEP, descriptor: PluginDescriptor ->
       if (counterUsageCollectorEP.implementationClass != null) {
         val collectorPlugin = descriptor.pluginId.idString
         if ((pluginId == null && !brokenPluginIds.contains(collectorPlugin)) || pluginId == collectorPlugin) {
@@ -106,16 +104,16 @@ object EventsSchemeBuilder {
     result.addAll(collectGroupsFromExtensions("counter", counterCollectors, recorder))
 
     val stateCollectors = ArrayList<FeatureUsageCollectorInfo>()
-    ApplicationUsagesCollector.EP_NAME.processWithPluginDescriptor { collector, descriptor ->
+    UsageCollectors.APPLICATION_EP_NAME.processWithPluginDescriptor { bean, descriptor ->
       val collectorPlugin = descriptor.pluginId.idString
       if ((pluginId == null && !brokenPluginIds.contains(collectorPlugin)) || pluginId == collectorPlugin) {
-        stateCollectors.add(FeatureUsageCollectorInfo(collector, collectorPlugin))
+        stateCollectors.add(FeatureUsageCollectorInfo(bean.collector, collectorPlugin))
       }
     }
-    ProjectUsagesCollector.EP_NAME.processWithPluginDescriptor { collector, descriptor ->
+    UsageCollectors.PROJECT_EP_NAME.processWithPluginDescriptor { bean, descriptor ->
       val collectorPlugin = descriptor.pluginId.idString
       if ((pluginId == null && !brokenPluginIds.contains(collectorPlugin)) || pluginId == collectorPlugin) {
-        stateCollectors.add(FeatureUsageCollectorInfo(collector, collectorPlugin))
+        stateCollectors.add(FeatureUsageCollectorInfo(bean.collector, collectorPlugin))
       }
     }
     result.addAll(collectGroupsFromExtensions("state", stateCollectors, recorder))
@@ -134,8 +132,8 @@ object EventsSchemeBuilder {
       if (recorder != null && group.recorder != recorder) continue
       val existingGroup = result[group.id]
       if (existingGroup != null && group.version != existingGroup.version) {
-        throw IllegalStateException("If group is reused in multiple collectors classes (e.g Project and Application collector), " +
-                                    "it should have the same version (group=${group.id})")
+        throw IllegalMetadataSchemeStateException("If group is reused in multiple collectors classes (e.g Project and Application collector), " +
+                                                  "it should have the same version (group=${group.id})")
       }
       val existingScheme = existingGroup?.schema ?: HashSet()
       val eventsDescriptors = existingScheme + group.events.groupBy { it.eventId }
@@ -158,7 +156,8 @@ object EventsSchemeBuilder {
   }
 
   private fun buildFields(events: List<BaseEventId>, eventName: String, groupId: String): Set<FieldDescriptor> {
-    return events.flatMap { it.getFields() }
+    return events.asSequence()
+      .flatMap { it.getFields() }
       .flatMap { field -> fieldSchema(field, field.name, eventName, groupId) }
       .groupBy { it.path }
       .map { (name, values) ->
@@ -171,7 +170,7 @@ object EventsSchemeBuilder {
   private fun defineDataType(values: List<FieldDescriptor>, name: String, eventName: String, groupId: String): FieldDataType {
     val dataType = values.first().dataType
     return if (values.any { it.dataType != dataType })
-      throw IllegalStateException("Field couldn't have multiple types (group=$groupId, event=$eventName, field=$name)")
+      throw IllegalMetadataSchemeStateException("Field couldn't have multiple types (group=$groupId, event=$eventName, field=$name)")
     else {
       dataType
     }
@@ -180,3 +179,5 @@ object EventsSchemeBuilder {
   data class FeatureUsageCollectorInfo(val collector: FeatureUsagesCollector,
                                        val pluginId: String)
 }
+
+internal class IllegalMetadataSchemeStateException(message: String) : Exception(message)

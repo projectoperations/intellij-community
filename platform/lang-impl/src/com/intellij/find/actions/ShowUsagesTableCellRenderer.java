@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.find.actions;
 
 import com.intellij.find.FindBundle;
@@ -21,19 +21,27 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.accessibility.*;
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleTable;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumnModel;
 import java.awt.*;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
+
+import static com.intellij.find.actions.ShowUsagesTableClippingStrategiesKt.getClippingStrategy;
 
 @ApiStatus.Internal
 final class ShowUsagesTableCellRenderer implements TableCellRenderer {
 
   static final int MARGIN = 2;
+  private static final int MAX_PANEL_WIDTH = 500;
+  private static final String CLIPPING_STRATEGY = "cutStrategyKey";
 
   private final @NotNull Predicate<? super Usage> myOriginUsageCheck;
   private final @NotNull AtomicInteger myOutOfScopeUsages;
@@ -53,7 +61,6 @@ final class ShowUsagesTableCellRenderer implements TableCellRenderer {
   private static final int FILE_GROUP_COL = 1;
   private static final int LINE_NUMBER_COL = 2;
   private static final int USAGE_TEXT_COL = 3;
-
   @MagicConstant(intValues = {CURRENT_ASTERISK_COL, FILE_GROUP_COL, LINE_NUMBER_COL, USAGE_TEXT_COL})
   private @interface UsageTableColumn {
   }
@@ -134,7 +141,7 @@ final class ShowUsagesTableCellRenderer implements TableCellRenderer {
 
     SelectablePanel panel = new SelectablePanel() {
       @Override
-      public AccessibleContext getAccessibleContext() {
+      public @NotNull AccessibleContext getAccessibleContext() {
         AccessibleContext acc = super.getAccessibleContext();
         if (column == CURRENT_ASTERISK_COL) {
           acc.setAccessibleName(getAccessibleNameForRow(list, row, isOriginUsage));
@@ -163,7 +170,10 @@ final class ShowUsagesTableCellRenderer implements TableCellRenderer {
           panel.add(new JLabel(isSelected ? AllIcons.General.ModifiedSelected : AllIcons.General.Modified));
         }
       }
-      case FILE_GROUP_COL -> appendGroupText(list, (GroupNode)usageNode.getParent(), panel, fileBgColor, isSelected);
+      case FILE_GROUP_COL -> {
+        appendGroupText(list, (GroupNode)usageNode.getParent(), panel, fileBgColor, isSelected);
+        cutGroupsText(panel, MAX_PANEL_WIDTH);
+      }
       case LINE_NUMBER_COL -> {
         SimpleColoredComponent textChunks = new SimpleColoredComponent();
         textChunks.setOpaque(false);
@@ -223,6 +233,31 @@ final class ShowUsagesTableCellRenderer implements TableCellRenderer {
     }
 
     return panel;
+  }
+
+  private static void cutGroupsText(JPanel panel, int maxWidth) {
+    if (panel.getPreferredSize().width <= maxWidth) return;
+
+    List<SimpleColoredComponent> clippingChildren = Arrays.stream(panel.getComponents())
+      .filter(c -> c instanceof SimpleColoredComponent scc &&
+                   scc.getClientProperty(CLIPPING_STRATEGY) != null &&
+                   scc.getClientProperty(CLIPPING_STRATEGY) != UsageGroup.ClippingMode.NO_CLIPPING)
+      .map(c -> (SimpleColoredComponent) c)
+      .toList();
+    if (clippingChildren.isEmpty()) return;
+
+    int componentsCount = clippingChildren.size();
+
+    // Compute the width for each child component
+    int widthPerComponent = maxWidth / componentsCount;
+
+    for (SimpleColoredComponent scc : clippingChildren) {
+      Dimension size = scc.getPreferredSize();
+      if (size.width > widthPerComponent) {
+        UsageGroup.ClippingMode clippingMode = (UsageGroup.ClippingMode) scc.getClientProperty(CLIPPING_STRATEGY);
+        getClippingStrategy(clippingMode).cutText(scc, widthPerComponent);
+      }
+    }
   }
 
   private static @NotNull @NlsSafe String getAccessibleNameForRow(JTable table, int row, boolean isOriginUsage) {
@@ -351,6 +386,7 @@ final class ShowUsagesTableCellRenderer implements TableCellRenderer {
     GroupNode parentGroup = (GroupNode)node.getParent();
     appendGroupText(table, parentGroup, panel, fileBgColor, isSelected);
     SimpleColoredComponent renderer = new SimpleColoredComponent();
+    renderer.putClientProperty(CLIPPING_STRATEGY, group.getClippingMode());
     renderer.setOpaque(false);
     renderer.setIcon(group.getIcon());
     SimpleTextAttributes attributes = deriveBgColor(group.getTextAttributes(isSelected), fileBgColor);
@@ -393,7 +429,12 @@ final class ShowUsagesTableCellRenderer implements TableCellRenderer {
       panel.setSelectionColor(rowSelectionBackground);
     }
     else {
-      panel.setBorder(JBUI.Borders.empty(MARGIN, MARGIN, MARGIN, 0));
+      if (column == CURRENT_ASTERISK_COL) {
+        panel.setBorder(JBUI.Borders.empty(MARGIN, MARGIN, MARGIN, 0));
+      }
+      else {
+        panel.setBorder(JBUI.Borders.empty(MARGIN, 0));
+      }
       panel.setBackground(rowSelectionBackground == null ? rowBackground : rowSelectionBackground);
     }
   }

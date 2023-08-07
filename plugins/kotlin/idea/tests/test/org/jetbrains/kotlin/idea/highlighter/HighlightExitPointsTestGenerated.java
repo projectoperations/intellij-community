@@ -33,9 +33,89 @@ public class HighlightExitPointsTestGenerated extends AbstractHighlightExitPoint
         runTest("testData/exitPoints/anonymousFunction2.kt");
     }
 
+    @TestMetadata("funKeyword.kt")
+    public void testFunKeyword() throws Exception {
+        runTest("testData/exitPoints/funKeyword.kt");
+    }
+
+    @TestMetadata("funKeyword2.kt")
+    public void testFunKeyword2() throws Exception {
+        runTest("testData/exitPoints/funKeyword2.kt");
+    }
+
+    @TestMetadata("funKeyword3.kt")
+    public void testFunKeyword3() throws Exception {
+        runTest("testData/exitPoints/funKeyword3.kt");
+    }
+
+    @TestMetadata("funKeyword31.kt")
+    public void testFunKeyword31() throws Exception {
+        runTest("testData/exitPoints/funKeyword31.kt");
+    }
+
+    @TestMetadata("funName.kt")
+    public void testFunName() throws Exception {
+        runTest("testData/exitPoints/funName.kt");
+    }
+
     @TestMetadata("getter.kt")
     public void testGetter() throws Exception {
         runTest("testData/exitPoints/getter.kt");
+    }
+
+    @TestMetadata("getter2.kt")
+    public void testGetter2() throws Exception {
+        runTest("testData/exitPoints/getter2.kt");
+    }
+
+    @TestMetadata("getter3.kt")
+    public void testGetter3() throws Exception {
+        runTest("testData/exitPoints/getter3.kt");
+    }
+
+    @TestMetadata("inLambda.kt")
+    public void testInLambda() throws Exception {
+        runTest("testData/exitPoints/inLambda.kt");
+    }
+
+    @TestMetadata("inLambda1.kt")
+    public void testInLambda1() throws Exception {
+        runTest("testData/exitPoints/inLambda1.kt");
+    }
+
+    @TestMetadata("inLambda2.kt")
+    public void testInLambda2() throws Exception {
+        runTest("testData/exitPoints/inLambda2.kt");
+    }
+
+    @TestMetadata("inLambdaLastStatement1.kt")
+    public void testInLambdaLastStatement1() throws Exception {
+        runTest("testData/exitPoints/inLambdaLastStatement1.kt");
+    }
+
+    @TestMetadata("inLambdaLastStatement2.kt")
+    public void testInLambdaLastStatement2() throws Exception {
+        runTest("testData/exitPoints/inLambdaLastStatement2.kt");
+    }
+
+    @TestMetadata("inLambdaLastStatement3.kt")
+    public void testInLambdaLastStatement3() throws Exception {
+        runTest("testData/exitPoints/inLambdaLastStatement3.kt");
+    }
+
+    @TestMetadata("inLambdaLastStatement4.kt")
+    public void testInLambdaLastStatement4() throws Exception {
+        runTest("testData/exitPoints/inLambdaLastStatement4.kt");
+    }
+
+    @TestMetadata("inLambdaLastStatement5.kt")
+    public void testInLambdaLastStatement5() throws Exception {
+        runTest("testData/exitPoints/inLambdaLastStatement5.kt");
+    }
+
+    @TestMetadata("inLambdaLastStatement6.kt")
+    public void testInLambdaLastStatement6() throws Exception {
+        runTest("testData/exitPoints/inLambdaLastStatement6.kt");
     }
 
     @TestMetadata("inline1.kt")
@@ -116,6 +196,21 @@ public class HighlightExitPointsTestGenerated extends AbstractHighlightExitPoint
     @TestMetadata("notReturnedLabeledExpression.kt")
     public void testNotReturnedLabeledExpression() throws Exception {
         runTest("testData/exitPoints/notReturnedLabeledExpression.kt");
+    }
+
+    @TestMetadata("returnIfStatement.kt")
+    public void testReturnIfStatement() throws Exception {
+        runTest("testData/exitPoints/returnIfStatement.kt");
+    }
+
+    @TestMetadata("returnTryStatement.kt")
+    public void testReturnTryStatement() throws Exception {
+        runTest("testData/exitPoints/returnTryStatement.kt");
+    }
+
+    @TestMetadata("returnWhenStatement.kt")
+    public void testReturnWhenStatement() throws Exception {
+        runTest("testData/exitPoints/returnWhenStatement.kt");
     }
 
     @TestMetadata("simple.kt")

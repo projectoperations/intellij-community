@@ -11,7 +11,7 @@ import com.intellij.formatting.service.FormattingService
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
-import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -31,7 +31,7 @@ import kotlin.time.toKotlinDuration
 
 class BlackFormattingService : AsyncDocumentFormattingService() {
   companion object {
-    private val LOG = thisLogger()
+    private val LOG = Logger.getInstance(BlackFormattingService::class.java)
     val NAME: String = PyBundle.message("black.formatting.service.name")
     val DEFAULT_CHARSET: Charset = StandardCharsets.UTF_8
     const val NOTIFICATION_GROUP_ID = "Black Formatter Integration"
@@ -45,11 +45,17 @@ class BlackFormattingService : AsyncDocumentFormattingService() {
     val project = source.project
     val blackConfiguration = BlackFormatterConfiguration.getBlackConfiguration(project)
 
-    BlackFormatterAdvertiserService.getInstance().suggestBlack(project, blackConfiguration)
+    val vFile = source.virtualFile ?: return false
+
+    val isApplicable = BlackFormatterUtil.isFileApplicable(vFile)
+
+    if (isApplicable) {
+      BlackFormatterAdvertiserService.getInstance(source.project).suggestBlack(source, blackConfiguration)
+    }
 
     if (!blackConfiguration.enabledOnReformat) return false
-    val vFile = source.virtualFile ?: return false
-    return BlackFormatterUtil.isFileApplicable(vFile)
+
+    return isApplicable
   }
 
   override fun createFormattingTask(formattingRequest: AsyncFormattingRequest): FormattingTask? {
@@ -77,8 +83,8 @@ class BlackFormattingService : AsyncDocumentFormattingService() {
     }
 
     val text = document.text
-    val fragment: String = document.getText(formattingRange)
-    if (fragment.isEmpty()) return null
+    val fragment = runCatching { document.getText(formattingRange) }.getOrNull()
+    if (fragment.isNullOrBlank()) return null
 
     val editor = PsiEditorUtil.findEditor(file)
 
@@ -106,14 +112,26 @@ class BlackFormattingService : AsyncDocumentFormattingService() {
               }
               formattingRequest.onTextReady(formattedDocumentText)
               val message = buildNotificationMessage(document, formattedDocumentText)
-              showFormattedLinesInfo(editor, message)
+              showFormattedLinesInfo(editor, message, false)
             }
             is BlackFormattingResponse.Failure -> {
-              LOG.warn(response.getLoggingMessage())
-              formattingRequest.onError(response.title, response.description)
+              LOG.debug(response.getLoggingMessage())
+              when (blackFormattingRequest) {
+                is BlackFormattingRequest.File -> {
+                  formattingRequest.onError(response.title, response.getPopupMessage())
+                }
+                is BlackFormattingRequest.Fragment -> {
+                  showFormattedLinesInfo(editor,
+                                         PyBundle.message("black.format.fragment.inline.error",
+                                                          response.getInlineNotificationMessage()),
+                                         true)
+                  formattingRequest.onTextReady(text)
+                }
+              }
             }
             is BlackFormattingResponse.Ignored -> {
-              showFormattedLinesInfo(editor, PyBundle.message("black.file.ignored.notification.message", vFile.name))
+              showFormattedLinesInfo(editor, PyBundle.message("black.file.ignored.notification.message", vFile.name), false)
+              formattingRequest.onTextReady(text)
             }
           }
         }.onFailure { exception ->
@@ -145,11 +163,11 @@ class BlackFormattingService : AsyncDocumentFormattingService() {
       PyBundle.message("black.formatted.n.lines", diff, if (diff == 1) 1 else 0)
   }
 
-  private fun showFormattedLinesInfo(editor: Editor?, text: @Nls String) {
+  private fun showFormattedLinesInfo(editor: Editor?, text: @Nls String, isError: Boolean) {
     if (editor != null) {
       ApplicationManager.getApplication()
         .invokeLater({
-                       val component = HintUtil.createInformationLabel(text, null, null, null)
+                       val component = if (isError) HintUtil.createErrorLabel(text) else HintUtil.createInformationLabel(text)
                        val hint = LightweightHint(component)
                        HintManagerImpl.getInstanceImpl()
                          .showEditorHint(hint, editor, HintManager.ABOVE,

@@ -14,6 +14,7 @@ import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.panels.OpaquePanel;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -206,7 +207,17 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
     final Dimension preferredSize = myComponent.getPreferredSize();
 
     final Point layeredPanePoint = SwingUtilities.convertPoint(parentComponent, point, layeredPane);
-    myComponent.setBounds(layeredPanePoint.x, layeredPanePoint.y, preferredSize.width, preferredSize.height);
+    Rectangle popupRect = new Rectangle(layeredPanePoint.x, layeredPanePoint.y, preferredSize.width, preferredSize.height);
+
+    int borderGap = JBUI.scale(3); // leave some pretty gap to the edge of frame
+    if (popupRect.getMaxX() > layeredPane.getWidth()) {
+      popupRect.width = layeredPane.getWidth() - popupRect.x - borderGap;
+    }
+    if (popupRect.getMaxY() > layeredPane.getHeight()) {
+      popupRect.height = layeredPane.getHeight() - popupRect.y - borderGap;
+    }
+
+    myComponent.setBounds(popupRect);
     layeredPane.add(myComponent, JLayeredPane.POPUP_LAYER);
 
     myComponent.validate();
@@ -329,7 +340,7 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
   public boolean isVisible() {
     Boolean shownAtDebug = getUserData(SHOWN_AT_DEBUG);
     if (shownAtDebug != null) return shownAtDebug;
-    
+
     if (myIsRealPopup) {
       return myPopup != null && myPopup.isVisible();
     }
@@ -343,7 +354,7 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
     return myIsRealPopup || myForceShowAsPopup;
   }
 
-  public final boolean isShouldBeReopen(){
+  public final boolean isShouldBeReopen() {
     return myShouldReopenPopup;
   }
 
@@ -509,7 +520,8 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
 
       myComponent.revalidate();
       myComponent.repaint();
-    } else { // isAwtTooltip() case, we have to update Balloon size
+    }
+    else { // isAwtTooltip() case, we have to update Balloon size
       Component c = myComponent;
       while (c != null) {
         if (c.getParent() instanceof JLayeredPane) {

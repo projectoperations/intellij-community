@@ -18,25 +18,25 @@ package com.intellij.codeInsight.folding.impl.actions;
 
 import com.intellij.codeInsight.folding.impl.FoldingUtil;
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.actionSystem.EditorAction;
-import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class ExpandRegionAction extends EditorAction {
+public class ExpandRegionAction extends EditorAction implements ActionRemoteBehaviorSpecification.Frontend {
   public ExpandRegionAction() {
     super(new BaseFoldingHandler() {
       @Override
       public void doExecute(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
-        expandRegionAtCaret(editor.getProject(), editor);
+        expandRegionAtCaret(editor);
       }
     });
   }
 
-  private static void expandRegionAtCaret(final Project project, @Nullable final Editor editor) {
+  private static void expandRegionAtCaret(@Nullable final Editor editor) {
     if (editor == null) return;
 
     final int[] offsets = editor.getCaretModel().getAllCarets().stream()
@@ -45,8 +45,8 @@ public class ExpandRegionAction extends EditorAction {
     expandRegionAtOffsets(editor, offsets);
   }
 
-  public static void expandRegionAtOffset(@NotNull Project project, @NotNull final Editor editor, final int offset) {
-    expandRegionAtOffsets(editor, new int[offset]);
+  public static void expandRegionAtOffset(@NotNull final Editor editor, final int offset) {
+    expandRegionAtOffsets(editor, new int[]{offset});
   }
 
   public static void expandRegionAtOffsets(@NotNull final Editor editor, final int[] offsets) {

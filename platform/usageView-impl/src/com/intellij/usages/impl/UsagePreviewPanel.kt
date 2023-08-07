@@ -14,6 +14,8 @@ import com.intellij.openapi.actionSystem.DataProvider
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.*
@@ -144,15 +146,17 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
         validate()
       }
 
-      if (infos != myCachedSelectedUsageInfos // avoid moving viewport
-          || !UsageViewPresentation.arePatternsEqual(myCachedSearchPattern, myPresentation.searchPattern)
-          || myCachedReplaceString != myPresentation.replaceString || myCachedCaseSensitive != myPresentation.isCaseSensitive) {
-        highlight(infos, myEditor!!, myProject, true, HighlighterLayer.ADDITIONAL_SYNTAX)
-        myCachedSelectedUsageInfos = infos
-        myCachedSearchPattern = myPresentation.searchPattern
-        myCachedCaseSensitive = myPresentation.isCaseSensitive
-        myCachedReplaceString = myPresentation.replaceString
-      }
+      PsiDocumentManager.getInstance(myProject).performForCommittedDocument(document, Runnable {
+        if (infos != myCachedSelectedUsageInfos // avoid moving viewport
+            || !UsageViewPresentation.arePatternsEqual(myCachedSearchPattern, myPresentation.searchPattern)
+            || myCachedReplaceString != myPresentation.replaceString || myCachedCaseSensitive != myPresentation.isCaseSensitive) {
+          highlight(infos, myEditor!!, myProject, true, HighlighterLayer.ADDITIONAL_SYNTAX)
+          myCachedSelectedUsageInfos = infos
+          myCachedSearchPattern = myPresentation.searchPattern
+          myCachedCaseSensitive = myPresentation.isCaseSensitive
+          myCachedReplaceString = myPresentation.replaceString
+        }
+      })
     }
   }
 
@@ -285,7 +289,7 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
   }
 
   override fun updateLayoutLater(infos: List<UsageInfo>?) {
-    cs.launch {
+    cs.launch(ModalityState.current().asContextElement()) {
       previewUsages(infos)
     }
   }

@@ -1,28 +1,25 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.navbar.ui
 
-import com.intellij.ide.navbar.ide.*
 import com.intellij.ide.navbar.vm.NavBarVm
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.project.Project
+import com.intellij.ui.ComponentUtil
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.attachAsChildTo
-import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.update.Activatable
 import com.intellij.util.ui.update.UiNotifyConnector
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.transformLatest
 import java.awt.BorderLayout
 import java.awt.Window
+import javax.swing.JComponent
 
 internal class StaticNavBarPanel(
   private val project: Project,
   private val cs: CoroutineScope,
-  private val updateRequests: Flow<Any>,
-  private val requestNavigation: (NavBarVmItem) -> Unit,
+  private val provider: suspend (CoroutineScope, Window, JComponent) -> NavBarVm
 ) : JBPanel<StaticNavBarPanel>(BorderLayout()), Activatable {
 
   private val _window: MutableStateFlow<Window?> = MutableStateFlow(null)
@@ -34,7 +31,7 @@ internal class StaticNavBarPanel(
   }
 
   override fun showNotify() {
-    _window.value = UIUtil.getWindow(this)
+    _window.value = ComponentUtil.getWindow(this)
   }
 
   init {
@@ -68,27 +65,13 @@ internal class StaticNavBarPanel(
   }
 
   private suspend fun handleWindow(window: Window): Nothing = supervisorScope {
-    val vm = NavBarVmImpl(
-      this@supervisorScope,
-      initialItems = defaultModel(project),
-      contextItems = contextItems(window),
-      requestNavigation,
-    )
+    val vm = provider.invoke(this@supervisorScope, window, this@StaticNavBarPanel)
     _vm.value = vm
     try {
       awaitCancellation()
     }
     finally {
       _vm.value = null
-    }
-  }
-
-  private fun contextItems(window: Window): Flow<List<NavBarVmItem>> {
-    @OptIn(ExperimentalCoroutinesApi::class)
-    return updateRequests.transformLatest {
-      dataContext(window, panel = this@StaticNavBarPanel)?.let {
-        emit(contextModel(it, project))
-      }
     }
   }
 

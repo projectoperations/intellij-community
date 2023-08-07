@@ -106,7 +106,7 @@ final class GradleAttachSourcesProvider implements AttachSourcesProvider {
           GradleLog.LOG.warn(e);
           return ActionCallback.REJECTED;
         }
-        final String taskName = "DownloadSources";
+        final String taskName = "IjDownloadSources";
         // @formatter:off
         String initScript = "allprojects {\n" +
                             "  afterEvaluate { project ->\n" +
@@ -148,7 +148,9 @@ final class GradleAttachSourcesProvider implements AttachSourcesProvider {
         UserDataHolderBase userData = new UserDataHolderBase();
         userData.putUserData(GradleTaskManager.INIT_SCRIPT_KEY, initScript);
 
-        String gradleVmOptions = GradleSettings.getInstance(project).getGradleVmOptions();
+        String projectGradleVmOptions = Objects.requireNonNullElse(GradleSettings.getInstance(project).getGradleVmOptions(), "");
+        String gradleVmOptions =
+          projectGradleVmOptions + " -Dorg.gradle.configuration-cache=false -Dorg.gradle.unsafe.configuration-cache=false";
         ExternalSystemTaskExecutionSettings settings = new ExternalSystemTaskExecutionSettings();
         settings.setExecutionName(getName());
         settings.setExternalProjectPath(gradleModuleData.getDirectoryToRunTask());

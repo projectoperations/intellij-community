@@ -1,9 +1,12 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileEditor.impl.text
 
+import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.structureView.StructureViewBuilder
 import com.intellij.lang.Language
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -19,15 +22,19 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.diagnostic.telemetry.impl.rootTask
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.childScope
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.NonNls
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
 import javax.swing.JComponent
+import kotlin.coroutines.EmptyCoroutineContext
 
 private val TRANSIENT_EDITOR_STATE_KEY = Key.create<TransientEditorState>("transientState")
 
@@ -46,8 +53,13 @@ open class TextEditorImpl @Internal constructor(@JvmField protected val project:
                                          file = file,
                                          editor = editor,
                                          asyncLoader = createAsyncEditorLoader(provider, project)) {
+    val editorSupplier = suspend { editor }
     @Suppress("LeakingThis")
-    asyncLoader.start(textEditor = this, highlighterDeferred = asyncLoader.createHighlighterAsync(editor.document, file))
+    asyncLoader.start(textEditor = this, tasks = listOf(
+      asyncLoader.coroutineScope.async(CoroutineName("HighlighterTextEditorInitializer")) {
+        HighlighterTextEditorInitializer().init(project, file, editor.document, editorSupplier)
+      },
+    ))
   }
 
   init {
@@ -70,9 +82,17 @@ open class TextEditorImpl @Internal constructor(@JvmField protected val project:
   // don't pollute global scope
   companion object {
     fun createAsyncEditorLoader(provider: TextEditorProvider, project: Project): AsyncEditorLoader {
-      return AsyncEditorLoader(project = project,
-                               provider = provider,
-                               coroutineScope = project.service<AsyncEditorLoaderService>().coroutineScope.childScope(supervisor = false))
+      // `openEditorImpl` uses runWithModalProgressBlocking,
+      // but an async editor load is performed in the background, out of the `openEditorImpl` call
+      val modality = ModalityState.any().asContextElement()
+
+      val context = if (StartUpMeasurer.isEnabled()) rootTask() else EmptyCoroutineContext
+      return AsyncEditorLoader(
+        project = project,
+        provider = provider,
+        coroutineScope = project.service<AsyncEditorLoaderService>().coroutineScope.childScope(supervisor = false,
+                                                                                               context = context + modality),
+      )
     }
 
     @Internal
@@ -93,14 +113,6 @@ open class TextEditorImpl @Internal constructor(@JvmField protected val project:
       val factory = EditorFactory.getInstance() as EditorFactoryImpl
       return factory.createMainEditor(document!!, project, file)
     }
-
-  }
-
-  /**
-   * @return a continuation to be called in EDT
-   */
-  open suspend fun loadEditorInBackground(): Runnable? {
-    return null
   }
 
   protected open fun createEditorComponent(project: Project, file: VirtualFile, editor: EditorImpl): TextEditorComponent {

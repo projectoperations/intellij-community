@@ -54,12 +54,12 @@ import org.jetbrains.plugins.gradle.service.GradleInstallationManager.getGradleV
 import org.jetbrains.plugins.gradle.service.project.open.suggestGradleHome
 import org.jetbrains.plugins.gradle.service.project.wizard.GradleNewProjectWizardStep.DistributionTypeItem.LOCAL
 import org.jetbrains.plugins.gradle.service.project.wizard.GradleNewProjectWizardStep.DistributionTypeItem.WRAPPER
-import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.Companion.logGradleDistributionChanged
-import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.Companion.logGradleDistributionFinished
-import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.Companion.logGradleDslChanged
-import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.Companion.logGradleDslFinished
-import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.Companion.logGradleVersionChanged
-import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.Companion.logGradleVersionFinished
+import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.logGradleDistributionChanged
+import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.logGradleDistributionFinished
+import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.logGradleDslChanged
+import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.logGradleDslFinished
+import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.logGradleVersionChanged
+import org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector.logGradleVersionFinished
 import org.jetbrains.plugins.gradle.service.settings.PlaceholderGroup.Companion.placeholderGroup
 import org.jetbrains.plugins.gradle.settings.DistributionType
 import org.jetbrains.plugins.gradle.settings.GradleDefaultProjectSettings
@@ -87,10 +87,10 @@ abstract class GradleNewProjectWizardStep<ParentStep>(parent: ParentStep) :
   private val gradleHomeProperty = propertyGraph.lazyProperty { suggestGradleHome() }
   private val updateDefaultProjectSettingsProperty = propertyGraph.lazyProperty { true }
 
-  private var distributionType by distributionTypeProperty
+  protected var distributionType by distributionTypeProperty
   protected var gradleVersion by gradleVersionProperty
   private var autoSelectGradleVersion by autoSelectGradleVersionProperty
-  private var gradleHome by gradleHomeProperty
+  protected var gradleHome by gradleHomeProperty
   private var updateDefaultProjectSettings by updateDefaultProjectSettingsProperty
 
   init {
@@ -124,7 +124,7 @@ abstract class GradleNewProjectWizardStep<ParentStep>(parent: ParentStep) :
 
   protected fun setupGradleDslUI(builder: Panel) {
     builder.row(GradleBundle.message("gradle.dsl.new.project.wizard")) {
-      segmentedButton(listOf(GradleDsl.KOTLIN, GradleDsl.GROOVY)) { it.text }
+      segmentedButton(listOf(GradleDsl.KOTLIN, GradleDsl.GROOVY)) { text = it.text }
         .bind(gradleDslProperty)
         .whenItemSelectedFromUi { logGradleDslChanged(gradleDsl) }
     }.bottomGap(BottomGap.SMALL)
@@ -250,7 +250,7 @@ abstract class GradleNewProjectWizardStep<ParentStep>(parent: ParentStep) :
       withDialog = withDialog,
       message = GradleBundle.message(
         "gradle.settings.wizard.java.unsupported.message",
-        ApplicationNamesInfo.getInstance().productName,
+        ApplicationNamesInfo.getInstance().fullProductName,
         oldestSupportedJavaVersion.toFeatureString()
       ),
       dialogTitle = GradleBundle.message(
@@ -258,7 +258,7 @@ abstract class GradleNewProjectWizardStep<ParentStep>(parent: ParentStep) :
       ),
       dialogMessage = GradleBundle.message(
         "gradle.settings.wizard.java.unsupported.message",
-        ApplicationNamesInfo.getInstance().productName,
+        ApplicationNamesInfo.getInstance().fullProductName,
         oldestSupportedJavaVersion.toFeatureString(),
       )
     )
@@ -273,7 +273,7 @@ abstract class GradleNewProjectWizardStep<ParentStep>(parent: ParentStep) :
       withDialog = withDialog,
       message = GradleBundle.message(
         "gradle.settings.wizard.gradle.unsupported.message",
-        ApplicationNamesInfo.getInstance().productName,
+        ApplicationNamesInfo.getInstance().fullProductName,
         oldestSupportedGradleVersion.version
       ),
       dialogTitle = GradleBundle.message(
@@ -281,7 +281,7 @@ abstract class GradleNewProjectWizardStep<ParentStep>(parent: ParentStep) :
       ),
       dialogMessage = GradleBundle.message(
         "gradle.settings.wizard.gradle.unsupported.message",
-        ApplicationNamesInfo.getInstance().productName,
+        ApplicationNamesInfo.getInstance().fullProductName,
         oldestSupportedGradleVersion.version,
       )
     )

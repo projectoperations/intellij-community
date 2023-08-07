@@ -31,10 +31,7 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.registry.RegistryManager;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
-import com.intellij.openapi.wm.impl.IdeFrameDecorator;
-import com.intellij.openapi.wm.impl.IdeFrameImpl;
-import com.intellij.openapi.wm.impl.IdeGlassPaneImpl;
-import com.intellij.openapi.wm.impl.ProjectFrameHelper;
+import com.intellij.openapi.wm.impl.*;
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomFrameDialogContent;
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomHeader;
 import com.intellij.reference.SoftReference;
@@ -47,11 +44,8 @@ import com.intellij.ui.mac.touchbar.TouchbarSupport;
 import com.intellij.util.IJSwingUtilities;
 import com.intellij.util.SlowOperations;
 import com.intellij.util.containers.JBIterable;
-import com.intellij.util.ui.EdtInvocationManager;
-import com.intellij.util.ui.JBInsets;
-import com.intellij.util.ui.OwnerOptional;
-import com.intellij.util.ui.UIUtil;
-import com.jetbrains.JBR;
+import com.intellij.util.ui.*;
+import kotlin.Unit;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -392,11 +386,14 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
     AnCancelAction anCancelAction = new AnCancelAction();
     JRootPane rootPane = getRootPane();
-    UIUtil.decorateWindowHeader(rootPane);
+    ComponentUtil.decorateWindowHeader(rootPane);
 
     Window window = getWindow();
     if (window instanceof JDialog && !((JDialog)window).isUndecorated() && rootPane != null && LoadingState.COMPONENTS_LOADED.isOccurred()) {
-      ToolbarUtil.setTransparentTitleBar(window, rootPane, runnable -> Disposer.register(myWrapper.getDisposable(), () -> runnable.run()));
+      ToolbarService.Companion.getInstance().setTransparentTitleBar(window, rootPane, runnable -> {
+        Disposer.register(myWrapper.getDisposable(), () -> runnable.run());
+        return Unit.INSTANCE;
+      });
     }
 
     Container contentPane = getContentPane();
@@ -444,8 +441,6 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
     if (appStarted) {
       hidePopupsIfNeeded();
     }
-
-    myDialog.getWindow().setAutoRequestFocus((getOwner() != null && getOwner().isActive()) || !isDisableAutoRequestFocus());
 
     if (SystemInfo.isMac) {
       final Disposable tb = TouchbarSupport.showWindowActions(myDialog.getContentPane());
@@ -578,7 +573,6 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
       myWindowListener = new MyWindowListener();
       addWindowListener(myWindowListener);
       addWindowFocusListener(myWindowListener);
-      UIUtil.setAutoRequestFocus(this, (owner != null && owner.isActive()) || !isDisableAutoRequestFocus());
     }
 
     @Override
@@ -659,8 +653,8 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
     @Override
     public void addNotify() {
-      if (IdeFrameDecorator.isCustomDecorationActive()) {
-        CustomHeader.enableCustomHeader(this);
+      if (IdeFrameDecorator.Companion.isCustomDecorationActive()) {
+        CustomHeader.Companion.enableCustomHeader(this);
       }
       super.addNotify();
       if (SystemInfo.isMacOSVentura && Registry.is("ide.mac.stage.manager.support", false)) {
@@ -918,7 +912,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
         setGlassPane(new IdeGlassPaneImpl(this));
         myGlassPaneIsSet = true;
         putClientProperty("DIALOG_ROOT_PANE", true);
-        setBorder(UIManager.getBorder("Window.border"));
+        setBorder(JBUI.CurrentTheme.Window.getBorder(isUndecorated()));
       }
 
       @Override
@@ -1009,7 +1003,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
   @Override
   public void setContentPane(JComponent content) {
-    myDialog.setContentPane(IdeFrameDecorator.isCustomDecorationActive() && !isHeadlessEnv()
+    myDialog.setContentPane(IdeFrameDecorator.Companion.isCustomDecorationActive() && !isHeadlessEnv()
                                 ? CustomFrameDialogContent.Companion.getCustomContentHolder(getWindow(), content, false)
                                 : content);
   }
@@ -1030,12 +1024,6 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
     RegistryManager registryManager = getRegistryManager();
     return registryManager != null && registryManager.is("ide.perProjectModality");
-  }
-
-  public static boolean isDisableAutoRequestFocus() {
-    RegistryManager registryManager = getRegistryManager();
-    return (registryManager == null || registryManager.is("suppress.focus.stealing.disable.auto.request.focus"))
-           && !(SystemInfo.isXfce || SystemInfo.isI3);
   }
 
   private static @Nullable RegistryManager getRegistryManager() {

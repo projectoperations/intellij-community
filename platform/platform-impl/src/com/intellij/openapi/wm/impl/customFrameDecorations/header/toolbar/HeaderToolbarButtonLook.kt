@@ -7,7 +7,6 @@ import com.intellij.openapi.actionSystem.impl.IdeaActionButtonLook
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.ScalableIcon
 import com.intellij.openapi.wm.impl.headertoolbar.adjustIconForHeader
-import com.intellij.openapi.wm.impl.headertoolbar.isDarkHeader
 import com.intellij.ui.JBColor
 import com.intellij.ui.icons.loadIconCustomVersionOrScale
 import com.intellij.util.ui.JBUI
@@ -15,6 +14,7 @@ import com.intellij.util.ui.JBValue
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Color
+import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Rectangle
 import java.awt.image.RGBImageFilter
@@ -23,9 +23,7 @@ import javax.swing.JComponent
 import javax.swing.UIManager
 
 @ApiStatus.Internal
-val lightThemeDarkHeaderDisableFilter: () -> RGBImageFilter =  {
-  if (isDarkHeader()) UIUtil.GrayFilter(-70, -70, 100) else UIUtil.getGrayFilter()
-}
+val lightThemeDarkHeaderDisableFilter: () -> RGBImageFilter =  { UIUtil.GrayFilter(0, 0, 30) }
 
 fun getHeaderBackgroundColor(component: JComponent, state: Int): Color? {
   if (ProjectWindowCustomizerService.getInstance().isActive()) {
@@ -47,6 +45,10 @@ internal class HeaderToolbarButtonLook(
   private val iconSize: () -> Int = { JBUI.CurrentTheme.Toolbar.experimentalToolbarButtonIconSize() }
 ) : IdeaActionButtonLook() {
 
+  override fun getButtonArc(): JBValue {
+    return JBUI.CurrentTheme.MainToolbar.Button.hoverArc()
+  }
+
   override fun getStateBackground(component: JComponent, state: Int): Color? = getHeaderBackgroundColor(component, state)
 
   override fun paintLookBorder(g: Graphics, rect: Rectangle, color: Color) {}
@@ -63,7 +65,12 @@ internal class HeaderToolbarButtonLook(
 
   override fun paintIcon(g: Graphics?, actionButton: ActionButtonComponent?, icon: Icon, x: Int, y: Int) {
     val scaledIcon = scaleIcon(adjustIconForHeader(icon))
-    paintIconImpl(g, actionButton, scaledIcon, x, y)
+    val originalSize = Dimension(icon.iconWidth, icon.iconHeight)
+    val scaledSize = Dimension(scaledIcon.iconWidth, scaledIcon.iconHeight)
+    val scaledX = x - (scaledSize.width - originalSize.width) / 2
+    val scaledY = y - (scaledSize.height - originalSize.height) / 2
+
+    paintIconImpl(g, actionButton, scaledIcon, scaledX, scaledY)
   }
 
   override fun paintDownArrow(g: Graphics?, actionButton: ActionButtonComponent?, originalIcon: Icon, arrowIcon: Icon) {

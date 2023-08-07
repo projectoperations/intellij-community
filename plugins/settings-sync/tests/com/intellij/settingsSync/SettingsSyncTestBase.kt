@@ -52,7 +52,7 @@ internal abstract class SettingsSyncTestBase {
     configDir = mainDir.resolve("rootconfig").createDirectories()
 
     SettingsSyncLocalSettings.getInstance().state.reset()
-    SettingsSyncSettings.getInstance().state.reset()
+    SettingsSyncSettings.getInstance().state = SettingsSyncSettings.State()
 
     remoteCommunicator = if (isTestingAgainstRealCloudServer()) {
       TestRemoteCommunicator()
@@ -114,4 +114,4 @@ internal fun CountDownLatch.wait(): Boolean {
 
 private fun isTestingAgainstRealCloudServer() = System.getenv("SETTINGS_SYNC_TEST_CLOUD") == "real"
 
-private fun getDefaultTimeoutInSeconds(): Long = if (isTestingAgainstRealCloudServer()) 60 else 10
+private fun getDefaultTimeoutInSeconds(): Long = 10

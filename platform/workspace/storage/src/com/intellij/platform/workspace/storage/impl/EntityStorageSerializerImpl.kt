@@ -19,16 +19,21 @@ import com.google.common.collect.HashBiMap
 import com.google.common.collect.HashMultimap
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.util.ReflectionUtil
-import com.intellij.util.SmartList
-import com.intellij.util.containers.*
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.containers.*
 import com.intellij.platform.workspace.storage.impl.containers.BidirectionalMap
 import com.intellij.platform.workspace.storage.impl.indices.*
+import com.intellij.platform.workspace.storage.impl.references.ImmutableAbstractOneToOneContainer
+import com.intellij.platform.workspace.storage.impl.references.ImmutableOneToAbstractManyContainer
+import com.intellij.platform.workspace.storage.impl.references.ImmutableOneToManyContainer
+import com.intellij.platform.workspace.storage.impl.references.ImmutableOneToOneContainer
 import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlImpl
+import com.intellij.platform.workspace.storage.url.UrlRelativizer
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
+import com.intellij.util.ReflectionUtil
+import com.intellij.util.SmartList
+import com.intellij.util.containers.*
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.objects.*
@@ -82,9 +87,10 @@ class EntityStorageSerializerImpl(
   private val typesResolver: EntityTypesResolver,
   private val virtualFileManager: VirtualFileUrlManager,
   private val versionsContributor: () -> Map<String, String> = { emptyMap() },
+  private val urlRelativizer: UrlRelativizer? = null
 ) : EntityStorageSerializer {
   companion object {
-    const val SERIALIZER_VERSION = "v50"
+    const val SERIALIZER_VERSION = "v52"
   }
 
   private val interner = HashSetInterner<SerializableEntityId>()
@@ -103,7 +109,7 @@ class EntityStorageSerializerImpl(
     kryo.references = true
     kryo.instantiatorStrategy = StdInstantiatorStrategy()
 
-    kryo.addDefaultSerializer(VirtualFileUrl::class.java, VirtualFileUrlSerializer())
+    kryo.addDefaultSerializer(VirtualFileUrl::class.java, VirtualFileUrlSerializer(urlRelativizer))
     kryo.addDefaultSerializer(List::class.java, DefaultListSerializer::class.java)
     kryo.addDefaultSerializer(Set::class.java, DefaultSetSerializer::class.java)
     kryo.addDefaultSerializer(Map::class.java, DefaultMapSerializer::class.java)
@@ -146,17 +152,23 @@ class EntityStorageSerializerImpl(
 
     kryo.register(ByteArray::class.java)
     kryo.register(ImmutableEntityFamily::class.java)
-    kryo.register(RefsTable::class.java)
-    kryo.register(ImmutableNonNegativeIntIntBiMap::class.java)
-    kryo.register(ImmutableIntIntUniqueBiMap::class.java)
     kryo.register(VirtualFileIndex::class.java)
     kryo.register(EntityStorageInternalIndex::class.java)
     kryo.register(SymbolicIdInternalIndex::class.java)
-    kryo.register(ImmutableNonNegativeIntIntMultiMap.ByList::class.java)
     kryo.register(IntArray::class.java)
     kryo.register(Pair::class.java)
     kryo.register(MultimapStorageIndex::class.java)
     kryo.register(SerializableEntityId::class.java)
+
+    // Refs table
+    kryo.register(RefsTable::class.java)
+    kryo.register(ImmutableOneToOneContainer::class.java)
+    kryo.register(ImmutableOneToManyContainer::class.java)
+    kryo.register(ImmutableAbstractOneToOneContainer::class.java)
+    kryo.register(ImmutableOneToAbstractManyContainer::class.java)
+    kryo.register(MutableIntIntUniqueBiMap::class.java)
+    kryo.register(MutableNonNegativeIntIntBiMap::class.java)
+    kryo.register(MutableNonNegativeIntIntMultiMap.ByList::class.java)
 
     kryo.register(ChangeEntry.AddEntity::class.java)
     kryo.register(ChangeEntry.RemoveEntity::class.java)
@@ -377,7 +389,7 @@ class EntityStorageSerializerImpl(
       kryo.writeObject(output, storage.indexes.entitySourceIndex)
       kryo.writeObject(output, storage.indexes.symbolicIdIndex)
 
-      SerializationResult.Success
+      SerializationResult.Success(output.total())
     }
     catch (e: Exception) {
       output.reset()
@@ -571,7 +583,7 @@ class EntityStorageSerializerImpl(
         return false
       }
       if (currentVersion != version) {
-        LOG.info("Cache isn't loaded. For cache id '$id' cache version is '$version' and current versioni is '$currentVersion'")
+        LOG.info("Cache isn't loaded. For cache id '$id' cache version is '$version' and current version is '$currentVersion'")
         return false
       }
     }
@@ -651,7 +663,7 @@ class EntityStorageSerializerImpl(
       val res = HashMap<TypeInfo, EntityFamily<*>>()
       `object`.entityFamilies.forEachIndexed { i, v ->
         if (v == null) return@forEachIndexed
-        val clazz = i.findEntityClass<WorkspaceEntity>()
+        val clazz = i.findWorkspaceEntity()
         val typeInfo = clazz.typeInfo
         res[typeInfo] = v
       }
@@ -673,8 +685,8 @@ class EntityStorageSerializerImpl(
 
   private inner class ConnectionIdSerializer(private val classCache: Object2IntMap<TypeInfo>) : Serializer<ConnectionId>(false, true) {
     override fun write(kryo: Kryo, output: Output, `object`: ConnectionId) {
-      val parentClassType = `object`.parentClass.findEntityClass<WorkspaceEntity>()
-      val childClassType = `object`.childClass.findEntityClass<WorkspaceEntity>()
+      val parentClassType = `object`.parentClass.findWorkspaceEntity()
+      val childClassType = `object`.childClass.findWorkspaceEntity()
       val parentTypeInfo = parentClassType.typeInfo
       val childTypeInfo = childClassType.typeInfo
 
@@ -725,7 +737,7 @@ class EntityStorageSerializerImpl(
   private inner class EntityIdSerializer(val classCache: Object2IntMap<TypeInfo>) : Serializer<EntityId>(false, true) {
     override fun write(kryo: Kryo, output: Output, `object`: EntityId) {
       output.writeInt(`object`.arrayId)
-      val typeClass = `object`.clazz.findEntityClass<WorkspaceEntity>()
+      val typeClass = `object`.clazz.findWorkspaceEntity()
       val typeInfo = typeClass.typeInfo
       kryo.writeClassAndObject(output, typeInfo)
     }
@@ -740,16 +752,28 @@ class EntityStorageSerializerImpl(
     }
   }
 
-  private inner class VirtualFileUrlSerializer : Serializer<VirtualFileUrl>(false, true) {
+  private inner class VirtualFileUrlSerializer(private val urlRelativizer: UrlRelativizer?) : Serializer<VirtualFileUrl>(false, true) {
     override fun write(kryo: Kryo, output: Output, obj: VirtualFileUrl) {
       // TODO Write IDs only
-      kryo.writeObject(output, (obj as VirtualFileUrlImpl).getUrlSegments())
+
+      obj as VirtualFileUrlImpl
+      val urlToWrite = urlRelativizer?.toRelativeUrl(obj.url) ?: obj.getUrlSegments()
+      kryo.writeObject(output, urlToWrite)
     }
 
     @Suppress("UNCHECKED_CAST")
     override fun read(kryo: Kryo, input: Input, type: Class<out VirtualFileUrl>): VirtualFileUrl {
-      val url = kryo.readObject(input, List::class.java) as List<String>
-      return virtualFileManager.fromUrlSegments(url)
+      // TODO consider the case when the saved cache had relative paths, and now we are expecting absolute paths
+      //  (because of the Registry key value change)
+
+      if (urlRelativizer == null) {
+        val url = kryo.readObject(input, List::class.java) as List<String>
+        return virtualFileManager.fromUrlSegments(url)
+      } else {
+        val serializedUrl = kryo.readObject(input, String::class.java) as String
+        val convertedUrl = urlRelativizer.toAbsoluteUrl(serializedUrl)
+        return virtualFileManager.fromUrl(convertedUrl)
+      }
     }
   }
 
@@ -895,7 +919,7 @@ class EntityStorageSerializerImpl(
 
   private fun EntityId.toSerializableEntityId(): SerializableEntityId {
     val arrayId = this.arrayId
-    val clazz = this.clazz.findEntityClass<WorkspaceEntity>()
+    val clazz = this.clazz.findWorkspaceEntity()
     return interner.intern(SerializableEntityId(arrayId, clazz.typeInfo))
   }
 

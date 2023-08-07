@@ -195,6 +195,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private boolean isReleased;
 
   private boolean mySuppressPainting;
+  private boolean mySuppressDisposedPainting;
 
   private @Nullable MouseEvent myMousePressedEvent;
   private @Nullable MouseEvent myMouseMovedEvent;
@@ -829,6 +830,11 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   @Override
   public void installPopupHandler(@NotNull EditorPopupHandler popupHandler) {
     myPopupHandlers.add(popupHandler);
+  }
+
+  @ApiStatus.Internal
+  public @NotNull List<EditorPopupHandler> getPopupHandlers() {
+    return myPopupHandlers;
   }
 
   @Override
@@ -1945,24 +1951,36 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     mySuppressPainting = suppress;
   }
 
+  @ApiStatus.Internal
+  public void suppressDisposedPainting(boolean suppress) {
+    mySuppressDisposedPainting = suppress;
+  }
+
+  private boolean shouldPaint() {
+    return !isReleased && !mySuppressPainting;
+  }
+
+  private void fillPlaceholder(@NotNull Graphics2D g) {
+    Rectangle clip = g.getClipBounds();
+    if (clip == null) {
+      return;
+    }
+    Color bg = isReleased ? getDisposedBackground() : getBackgroundColor();
+    g.setColor(bg);
+    g.fillRect(clip.x, clip.y, clip.width, clip.height);
+  }
+
   void paint(@NotNull Graphics2D g) {
     ReadAction.run(() -> {
-      Rectangle clip = g.getClipBounds();
-
-      if (clip == null) {
-        return;
-      }
-
+      if (g.getClipBounds() == null) return;
       BufferedImage buffer = Registry.is("editor.dumb.mode.available") ? getUserData(BUFFER) : null;
       if (buffer != null) {
         Rectangle rect = getContentComponent().getVisibleRect();
         StartupUiUtil.drawImage(g, buffer, null, rect.x, rect.y);
         return;
       }
-
-      if (isReleased || mySuppressPainting) {
-        g.setColor(getDisposedBackground());
-        g.fillRect(clip.x, clip.y, clip.width, clip.height);
+      if (!shouldPaint()) {
+        fillPlaceholder(g);
         return;
       }
       if (myUpdateCursor && !myPurePaintingMode) {
@@ -1982,7 +2000,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     });
   }
 
-  static @NotNull Color getDisposedBackground() {
+  @NotNull Color getDisposedBackground() {
+    if (mySuppressDisposedPainting) return getBackgroundColor();
     return new JBColor(new Color(128, 255, 128), new Color(128, 255, 128));
   }
 
@@ -1993,6 +2012,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @Override
   public void setHeaderComponent(JComponent header) {
+    JComponent oldComponent = getHeaderComponent();
     myHeaderPanel.removeAll();
     JComponent permanentHeader = getPermanentHeaderComponent();
     if (header == null) {
@@ -2005,6 +2025,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       header = headerPanel;
     }
     if (header != null) {
+      myPropertyChangeSupport.firePropertyChange(PROP_HEADER_COMPONENT, oldComponent, header);
       myHeaderPanel.add(header);
     }
 
@@ -2514,6 +2535,14 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
                                   ? myDocument.getLineStartOffset(myDragOnGutterSelectionStartLine) : myDocument.getTextLength());
       }
       myDragOnGutterSelectionStartLine = -1;
+    }
+
+    if (eventArea == EditorMouseEventArea.LINE_NUMBERS_AREA &&
+        NewUI.isEnabled() && EditorUtil.isBreakPointsOnLineNumbers() &&
+        getMouseSelectionState() != MOUSE_SELECTION_STATE_LINE_SELECTED) {
+      //IDEA-305975
+      selectLineAtCaret(true);
+      getGutterComponentEx().putClientProperty("active.line.number", null); //clear hovered breakpoint
     }
 
     boolean columnSelectionDragEvent = isColumnSelectionDragEvent(e);
@@ -4965,8 +4994,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     private static final MouseEvent mouseEventStub = new MouseEvent(new Component() {}, 0, 0L, 0, 0, 0, 0, false, 0);
 
     private static EditorImpl getEditor(@NotNull JComponent comp) {
-      EditorComponentImpl editorComponent = (EditorComponentImpl)comp;
-      return editorComponent.getEditor();
+      if (comp instanceof EditorComponentImpl editorComponent) {
+        return editorComponent.getEditor();
+      }
+      return ((EditorGutterComponentImpl)comp).getEditor();
     }
 
     @Override

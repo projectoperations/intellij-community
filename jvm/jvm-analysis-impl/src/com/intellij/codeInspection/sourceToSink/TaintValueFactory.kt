@@ -18,29 +18,45 @@ import org.jetbrains.uast.UVariable
 import org.jetbrains.uast.toUElement
 import kotlin.streams.asSequence
 
+
+internal class CustomContext(val target: PsiElement, val place: PsiElement?)
+
 class TaintValueFactory(private val myConfiguration: UntaintedConfiguration) {
   private val JAVAX_ANNOTATION_UNTAINTED = "javax.annotation.Untainted"
   private val myTaintedAnnotations: MutableSet<String> = HashSet()
   private val myUnTaintedAnnotations: MutableSet<String> = HashSet()
-  private val customFactories: MutableList<(PsiElement) -> TaintValue?> = ArrayList()
+  private val customFactories: MutableList<(CustomContext) -> TaintValue?> = ArrayList()
 
   init {
     myTaintedAnnotations.addAll(myConfiguration.taintedAnnotations.filterNotNull())
     myUnTaintedAnnotations.addAll(myConfiguration.unTaintedAnnotations.filterNotNull())
 
-    customFactories.add(fromMethodResult(methodNames = myConfiguration.methodNames,
+    customFactories.add(adapterToContext(fromMethodResult(methodNames = myConfiguration.methodNames,
                                          methodClass = myConfiguration.methodClass,
-                                         targetValue = TaintValue.UNTAINTED))
+                                         targetValue = TaintValue.UNTAINTED)))
 
-    customFactories.add(fromField(myConfiguration))
+    customFactories.add(adapterToContext(fromField(myConfiguration)))
   }
 
-
   fun add(customFactory: (PsiElement) -> TaintValue?) {
+    customFactories.add(adapterToContext(customFactory))
+  }
+
+  internal fun addForContext(customFactory: (CustomContext) -> TaintValue?) {
     customFactories.add(customFactory)
   }
 
+  private fun adapterToContext(previous: (PsiElement) -> TaintValue?): (CustomContext) -> TaintValue? {
+    return {
+      val target = it.target
+      previous.invoke(target)
+    }
+  }
+
   private fun fromAnnotationOwner(annotationOwner: PsiAnnotationOwner?): TaintValue {
+    if (annotationsIsEmpty()) {
+      return TaintValue.UNKNOWN
+    }
     if (annotationOwner == null) return TaintValue.UNKNOWN
     for (annotation in annotationOwner.annotations) {
       val value = fromAnnotation(annotation)
@@ -84,10 +100,11 @@ class TaintValueFactory(private val myConfiguration: UntaintedConfiguration) {
       }
     }
     if (info.kind != RestrictionInfoKind.KNOWN) {
-      info = tryFromCustom(owner) ?: info
+      val customContext = CustomContext(owner, context.place)
+      info = tryFromCustom(customContext) ?: info
       if (allowSecond) {
         info = context.secondaryItems().asSequence()
-                 .flatMap { listOf(fromElementInner(it, false), fromAnnotationOwner(it.modifierList)) }
+                 .flatMap { listOf(fromElementInner(CustomContext(it, context.place), false), fromAnnotationOwner(it.modifierList)) }
                  .filter { it != null && it !== TaintValue.UNKNOWN }
                  .firstOrNull() ?: info
       }
@@ -109,6 +126,9 @@ class TaintValueFactory(private val myConfiguration: UntaintedConfiguration) {
   }
 
   private fun fromExternalAnnotations(owner: PsiModifierListOwner): TaintValue {
+    if (annotationsIsEmpty()) {
+      return TaintValue.UNKNOWN
+    }
     val annotationsManager = ExternalAnnotationsManager.getInstance(owner.project)
     val annotations = annotationsManager.findExternalAnnotations(owner) ?: return TaintValue.UNKNOWN
     return annotations.asSequence()
@@ -118,6 +138,9 @@ class TaintValueFactory(private val myConfiguration: UntaintedConfiguration) {
   }
 
   private fun of(annotationOwner: PsiModifierListOwner): TaintValue {
+    if (annotationsIsEmpty()) {
+      return TaintValue.UNKNOWN
+    }
     val allNames = java.util.HashSet<String>()
     allNames.addAll(myUnTaintedAnnotations)
     allNames.addAll(myTaintedAnnotations)
@@ -153,6 +176,9 @@ class TaintValueFactory(private val myConfiguration: UntaintedConfiguration) {
   }
 
   private fun fromUAnnotation(annotation: UAnnotation): TaintValue? {
+    if (annotationsIsEmpty()) {
+      return TaintValue.UNKNOWN
+    }
     val annotationQualifiedName = annotation.qualifiedName
     val fromJsr = processUJsr(annotationQualifiedName, annotation)
     if (fromJsr != null) return fromJsr
@@ -163,6 +189,10 @@ class TaintValueFactory(private val myConfiguration: UntaintedConfiguration) {
       TaintValue.UNTAINTED
     }
     else null
+  }
+
+  private fun annotationsIsEmpty(): Boolean {
+    return myTaintedAnnotations.isEmpty() && myUnTaintedAnnotations.isEmpty()
   }
 
   private fun processJsr(qualifiedName: String?, annotation: PsiAnnotation): TaintValue? {
@@ -188,13 +218,15 @@ class TaintValueFactory(private val myConfiguration: UntaintedConfiguration) {
   }
 
   fun fromElement(target: PsiElement?): TaintValue? {
-    return fromElementInner(target, true)
+    if(target==null) return null
+    return fromElementInner(CustomContext(target, null) , true)
   }
-  private fun fromElementInner(target: PsiElement?, allowSecond: Boolean): TaintValue? {
-    if (target == null) return null
+  private fun fromElementInner(context: CustomContext?, allowSecond: Boolean): TaintValue? {
+    if (context == null) return null
+    val target = context.target
     val type = PsiUtil.getTypeByPsiElement(target) ?: return null
     if (target is PsiClass) return null
-    var taintValue = tryFromCustom(target)
+    var taintValue = tryFromCustom(context)
     if (taintValue != null) return taintValue
     if (target is PsiModifierListOwner) {
       taintValue = fromModifierListOwner(target, allowSecond)
@@ -204,9 +236,9 @@ class TaintValueFactory(private val myConfiguration: UntaintedConfiguration) {
     return fromAnnotationOwner(type)
   }
 
-  private fun tryFromCustom(target: PsiElement): TaintValue? {
+  private fun tryFromCustom(context: CustomContext): TaintValue? {
     return customFactories.asSequence()
-      .map { it.invoke(target) }
+      .map { it.invoke(context) }
       .find { it != null }
   }
 

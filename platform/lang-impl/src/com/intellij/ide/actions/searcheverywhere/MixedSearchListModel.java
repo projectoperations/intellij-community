@@ -1,6 +1,8 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions.searcheverywhere;
 
+import com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector;
+import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -15,6 +17,10 @@ class MixedSearchListModel extends SearchListModel {
 
   private final Map<SearchEverywhereContributor<?>, Boolean> hasMoreContributors = new HashMap<>();
 
+  private final SearchEverywhereReorderingService myReorderingService = SearchEverywhereReorderingService.getInstance();
+
+  private Computable<String> tabIDProvider;
+
   private Comparator<? super SearchEverywhereFoundElementInfo> myElementsComparator = SearchEverywhereFoundElementInfo.COMPARATOR.reversed();
 
   // new elements cannot be added before this index when "more..." elements are loaded
@@ -22,6 +28,10 @@ class MixedSearchListModel extends SearchListModel {
 
   public void setElementsComparator(Comparator<? super SearchEverywhereFoundElementInfo> elementsComparator) {
     myElementsComparator = elementsComparator;
+  }
+
+  public void setTabIDProvider(Computable<String> provider) {
+    tabIDProvider = provider;
   }
 
   @Override
@@ -71,6 +81,16 @@ class MixedSearchListModel extends SearchListModel {
         fireContentsChanged(this, begin, endIndex);
       }
     }
+
+    reorderItemsIfApplicable();
+  }
+
+  private void reorderItemsIfApplicable() {
+    if (myReorderingService != null && myMaxFrozenIndex == -1) {
+      String tabID = tabIDProvider.compute();
+      myReorderingService.reorder(tabID, listElements);
+      fireContentsChanged(this, 0, listElements.size() - 1);
+    }
   }
 
   @Override
@@ -118,6 +138,10 @@ class MixedSearchListModel extends SearchListModel {
     }
 
     if (!alreadyHas && hasMore) {
+      SearchEverywhereUsageTriggerCollector.MORE_ITEM_SHOWN.log(
+        SearchEverywhereUsageTriggerCollector.ITEM_NUMBER_BEFORE_MORE.with(listElements.size()),
+        SearchEverywhereUsageTriggerCollector.IS_ONLY_MORE.with(true)
+      );
       listElements.add(new SearchEverywhereFoundElementInfo(MORE_ELEMENT, 0, null));
       lasItemIndex += 1;
       fireIntervalAdded(this, lasItemIndex, lasItemIndex);

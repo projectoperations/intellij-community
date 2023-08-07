@@ -13,6 +13,7 @@ import org.jetbrains.kotlin.idea.completion.contributors.helpers.insertStringAnd
 import org.jetbrains.kotlin.idea.completion.lookups.KotlinLookupObject
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithTypeParameters
+import org.jetbrains.kotlin.idea.completion.FirCompletionSessionParameters
 import org.jetbrains.kotlin.idea.completion.weighers.WeighingContext
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.renderer.render
@@ -22,9 +23,11 @@ internal class FirTypeParameterConstraintNameInWhereClauseCompletionContributor(
     priority: Int
 ) : FirCompletionContributorBase<FirTypeConstraintNameInWhereClausePositionContext>(basicContext, priority) {
 
-    override fun KtAnalysisSession.complete(
+    context(KtAnalysisSession)
+    override fun complete(
         positionContext: FirTypeConstraintNameInWhereClausePositionContext,
-        weighingContext: WeighingContext
+        weighingContext: WeighingContext,
+        sessionParameters: FirCompletionSessionParameters,
     ) {
         val ownerSymbol = positionContext.typeParametersOwner.getSymbol() as? KtSymbolWithTypeParameters ?: return
         ownerSymbol.typeParameters.forEach { typeParameter ->

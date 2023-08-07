@@ -9,10 +9,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.psi.util.JavaPsiPatternUtil;
-import com.intellij.psi.util.JavaPsiRecordUtil;
-import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.*;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.Stack;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -963,7 +960,8 @@ final class ControlFlowAnalyzer extends JavaElementVisitor {
     PsiCodeBlock body = statement.getBody();
     if (body != null) {
       PsiStatement[] statements = body.getStatements();
-      boolean needToCreateDefault = false;
+      //16.2.9 (for statements) and 16.1.6 (for expressions)
+      boolean needToCreateDefault = JavaPsiSwitchUtil.isEnhancedSwitch(statement);
       PsiType exprType = expr == null ? null : expr.getType();
       for (PsiStatement aStatement : statements) {
         ProgressManager.checkCanceled();
@@ -973,7 +971,7 @@ final class ControlFlowAnalyzer extends JavaElementVisitor {
           needToCreateDefault = true;
         }
         PsiCaseLabelElementList labelElementList = labelStatement.getCaseLabelElementList();
-        if (labelElementList != null) {
+        if (!needToCreateDefault && labelElementList != null) {
           for (PsiCaseLabelElement element : labelElementList.getElements()) {
             if (element instanceof PsiDefaultCaseLabelElement ||
                 exprType != null && JavaPsiPatternUtil.isUnconditionalForType(element, exprType)) {
@@ -1654,9 +1652,6 @@ final class ControlFlowAnalyzer extends JavaElementVisitor {
         ProgressManager.checkCanceled();
         processPattern(deconstructionComponent);
       }
-    }
-    else if (pattern instanceof PsiGuardedPattern) {
-      generateExpressionInstructions(((PsiGuardedPattern)pattern).getGuardingExpression());
     }
   }
 

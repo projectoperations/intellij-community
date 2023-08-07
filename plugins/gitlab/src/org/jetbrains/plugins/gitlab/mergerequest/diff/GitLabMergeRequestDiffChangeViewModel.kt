@@ -1,9 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.mergerequest.diff
 
-import com.intellij.collaboration.async.mapCaching
-import com.intellij.collaboration.async.mapFiltered
-import com.intellij.collaboration.async.modelFlow
+import com.intellij.collaboration.async.*
 import com.intellij.collaboration.ui.codereview.diff.DiffLineLocation
 import com.intellij.collaboration.ui.codereview.diff.DiscussionsViewOption
 import com.intellij.diff.util.Range
@@ -23,7 +21,6 @@ import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabDiscussion
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabNote
 import org.jetbrains.plugins.gitlab.ui.comment.*
-import kotlin.coroutines.cancellation.CancellationException
 
 private typealias DiscussionsFlow = Flow<Collection<GitLabMergeRequestDiffDiscussionViewModel>>
 private typealias NewDiscussionsFlow = Flow<Map<DiffLineLocation, NewGitLabNoteViewModel>>
@@ -56,18 +53,25 @@ internal class GitLabMergeRequestDiffChangeViewModelImpl(
   override val isCumulativeChange: Boolean = !diffData.isCumulative
 
   override val discussions: DiscussionsFlow = mergeRequest.discussions
+    .throwFailure()
     .mapCaching(
       GitLabDiscussion::id,
-      { cs, disc -> GitLabMergeRequestDiffDiscussionViewModelImpl(cs, diffData, currentUser, disc, discussionsViewOption) },
+      { disc ->
+        GitLabMergeRequestDiffDiscussionViewModelImpl(this, diffData, currentUser, disc, discussionsViewOption, mergeRequest.glProject)
+      },
       GitLabMergeRequestDiffDiscussionViewModelImpl::destroy
-    ).modelFlow(cs, LOG)
+    )
+    .modelFlow(cs, LOG)
 
-  override val draftDiscussions: DiscussionsFlow = mergeRequest.draftNotes.mapFiltered { it.discussionId == null }
+  override val draftDiscussions: DiscussionsFlow = mergeRequest.draftNotes
+    .throwFailure()
+    .mapFiltered { it.discussionId == null }
     .mapCaching(
       GitLabNote::id,
-      { cs, note -> GitLabMergeRequestDiffDraftDiscussionViewModel(cs, diffData, note) },
+      { note -> GitLabMergeRequestDiffDraftDiscussionViewModel(this, diffData, note, mergeRequest.glProject) },
       GitLabMergeRequestDiffDraftDiscussionViewModel::destroy
-    ).modelFlow(cs, LOG)
+    )
+    .modelFlow(cs, LOG)
 
 
   private val _newDiscussions = MutableStateFlow<Map<DiffLineLocation, NewGitLabNoteViewModel>>(emptyMap())
@@ -134,14 +138,7 @@ internal class GitLabMergeRequestDiffChangeViewModelImpl(
     }
   }
 
-  suspend fun destroy() {
-    try {
-      cs.coroutineContext[Job]!!.cancelAndJoin()
-    }
-    catch (e: CancellationException) {
-      // ignore, cuz we don't want to cancel the invoker
-    }
-  }
+  suspend fun destroy() = cs.cancelAndJoinSilently()
 }
 
 private fun transferToOtherSide(patch: TextFilePatch, location: DiffLineLocation): Int? {

@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.actionSystem.impl;
 
 import com.intellij.accessibility.AccessibilityUtils;
@@ -41,6 +41,7 @@ import com.intellij.util.animation.AlphaAnimationContext;
 import com.intellij.util.concurrency.EdtScheduledExecutorService;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.messages.Topic;
 import com.intellij.util.ui.*;
 import com.intellij.util.ui.update.UiNotifyConnector;
 import org.intellij.lang.annotations.MagicConstant;
@@ -69,6 +70,14 @@ import java.util.function.Supplier;
 
 public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickActionProvider, AlphaAnimated {
   private static final Logger LOG = Logger.getInstance(ActionToolbarImpl.class);
+
+  @Topic.AppLevel
+  public static final Topic<ActionToolbarAppListener> TOPIC = new Topic<>(ActionToolbarAppListener.class, Topic.BroadcastDirection.NONE);
+
+  public interface ActionToolbarAppListener {
+    default void toolbarAdded(@NotNull ActionToolbar toolbar) {
+    }
+  }
 
   private static final Set<ActionToolbarImpl> ourToolbars = new LinkedHashSet<>();
   private static final String RIGHT_ALIGN_KEY = "RIGHT_ALIGN";
@@ -219,7 +228,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     myActionGroup = actionGroup;
     myVisibleActions = new ArrayList<>();
     myDecorateButtons = decorateButtons;
-    myUpdater = new ToolbarUpdater(this) {
+    myUpdater = new ToolbarUpdater(this, place) {
       @Override
       protected void updateActionsImpl(boolean forced) {
         if (!ApplicationManager.getApplication().isDisposed()) {
@@ -319,6 +328,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     return baseline;
   }
 
+  @Override
   public @NotNull String getPlace() {
     return myPlace;
   }
@@ -326,9 +336,16 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
   @Override
   public void addNotify() {
     super.addNotify();
-    if (ComponentUtil.getParentOfType(CellRendererPane.class, this) != null) return;
+    if (ComponentUtil.getParentOfType(CellRendererPane.class, this) != null) {
+      return;
+    }
     ourToolbars.add(this);
 
+    updateActionsOnAdd();
+    ApplicationManager.getApplication().getMessageBus().syncPublisher(TOPIC).toolbarAdded(this);
+  }
+
+  protected void updateActionsOnAdd() {
     if (isShowing()) {
       updateActionsImmediately();
     }
@@ -1265,6 +1282,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     myOrientation = orientation;
   }
 
+  @Override
   @MagicConstant(intValues = {SwingConstants.HORIZONTAL, SwingConstants.VERTICAL})
   public int getOrientation() {
     return myOrientation;
@@ -1288,6 +1306,12 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     if (!isTestMode && myCachedImage == null && getComponentCount() == 0 && isShowing()) {
       addLoadingIcon();
     }
+    updateActionsWithoutLoadingIcon(includeInvisible);
+  }
+
+  @ApiStatus.Internal
+  @RequiresEdt
+  protected void updateActionsWithoutLoadingIcon(boolean includeInvisible) {
     myUpdater.updateActions(true, false, includeInvisible);
   }
 
@@ -1302,51 +1326,53 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     if (forced) myForcedUpdateRequested = true;
     boolean isUnitTestMode = ApplicationManager.getApplication().isUnitTestMode();
 
+    ActionGroup adjustedGroup = myHideDisabled ? ActionGroupUtil.forceHideDisabledChildren(myActionGroup) : myActionGroup;
     DataContext dataContext = Utils.wrapDataContext(getDataContext());
-    ActionUpdater updater = new ActionUpdater(myPresentationFactory, dataContext, myPlace, false, true);
     if (Utils.isAsyncDataContext(dataContext) && !isUnitTestMode) {
       CancellablePromise<List<AnAction>> lastUpdate = myLastUpdate;
       myLastUpdate = null;
       if (lastUpdate != null) lastUpdate.cancel();
 
-      updateActionsImplFastTrack(updater);
-
-      boolean forcedActual = forced || myForcedUpdateRequested;
-      CancellablePromise<List<AnAction>> promise = myLastUpdate = updater.expandActionGroupAsync(myActionGroup, myHideDisabled);
-      promise
-        .onSuccess(actions -> {
-          if (myLastUpdate == promise) myLastUpdate = null;
-          actionsUpdated(forcedActual, actions);
-        })
-        .onError(ex -> {
-          if (!(ex instanceof ControlFlowException || ex instanceof CancellationException)) {
-            LOG.error(ex);
-          }
-        });
+      boolean firstTimeFastTrack = !hasVisibleActions() &&
+                                   getComponentCount() == 1 &&
+                                   getClientProperty(SUPPRESS_FAST_TRACK) == null;
+      CancellablePromise<List<AnAction>> promise = myLastUpdate =
+        Utils.expandActionGroupAsync(adjustedGroup, myPresentationFactory, dataContext, myPlace, true, firstTimeFastTrack);
+      if (promise.isSucceeded()) {
+        myLastUpdate = null;
+        List<AnAction> fastActions;
+        try {
+          fastActions = promise.get(0, TimeUnit.MILLISECONDS);
+        }
+        catch (Throwable th) {
+          throw new AssertionError(th);
+        }
+        actionsUpdated(true, fastActions);
+      }
+      else {
+        if (firstTimeFastTrack) {
+          putClientProperty(SUPPRESS_FAST_TRACK, true);
+        }
+        boolean forcedActual = forced || myForcedUpdateRequested;
+        promise
+          .onSuccess(actions -> {
+            if (myLastUpdate == promise) myLastUpdate = null;
+            actionsUpdated(forcedActual, actions);
+          })
+          .onError(ex -> {
+            if (!(ex instanceof ControlFlowException || ex instanceof CancellationException)) {
+              LOG.error(ex);
+            }
+          });
+      }
     }
     else {
       boolean forcedActual = forced || myForcedUpdateRequested;
-      actionsUpdated(forcedActual, updater.expandActionGroupWithTimeout(myActionGroup, myHideDisabled));
+      actionsUpdated(forcedActual, Utils.expandActionGroupWithTimeout(adjustedGroup, myPresentationFactory, dataContext, myPlace, true, -1));
     }
     if (mySecondaryActionsButton != null) {
       mySecondaryActionsButton.update();
       mySecondaryActionsButton.repaint();
-    }
-  }
-
-  private void updateActionsImplFastTrack(@NotNull ActionUpdater updater) {
-    boolean firstTime = myVisibleActions.isEmpty() &&
-                        getComponentCount() == 1 &&
-                        getClientProperty(SUPPRESS_FAST_TRACK) == null;
-    if (!firstTime) {
-      return;
-    }
-    List<AnAction> actions = Utils.expandActionGroupFastTrack(updater, myActionGroup, myHideDisabled, null);
-    if (actions != null) {
-      actionsUpdated(true, actions);
-    }
-    else {
-      putClientProperty(SUPPRESS_FAST_TRACK, true);
     }
   }
 
@@ -1816,10 +1842,10 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
       setOpaque(false);
     }
     else {
-      JBInsets i = myOrientation == SwingConstants.VERTICAL ? JBUI.CurrentTheme.Toolbar.verticalToolbarInsets()
-                                                            : JBUI.CurrentTheme.Toolbar.horizontalToolbarInsets();
+      Insets i = myOrientation == SwingConstants.VERTICAL ? JBUI.CurrentTheme.Toolbar.verticalToolbarInsets()
+                                                          : JBUI.CurrentTheme.Toolbar.horizontalToolbarInsets();
       if (i != null) {
-        setBorder(JBUI.Borders.empty(i.getUnscaled()));
+        setBorder(JBUI.Borders.empty(i));
       } else {
         setBorder(JBUI.Borders.empty(2));
       }
@@ -1857,7 +1883,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     void update(@NotNull AnActionEvent e);
   }
 
-  private class ActionButtonBorder extends JBEmptyBorder {
+  private final class ActionButtonBorder extends JBEmptyBorder {
     private final int myDirectionalGap;
     private final int myOrthogonalGap;
 
@@ -1901,7 +1927,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     return accessibleContext;
   }
 
-  private class AccessibleActionToolbar extends AccessibleJPanel {
+  private final class AccessibleActionToolbar extends AccessibleJPanel {
     @Override
     public AccessibleRole getAccessibleRole() {
       return AccessibilityUtils.GROUPED_ELEMENTS;

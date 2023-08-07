@@ -88,7 +88,7 @@
     <localInspection language="XML" applyToDialects="false"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
-                     enabledByDefault="false" level="WARNING"
+                     enabledByDefault="true" level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.PluginXmlDynamicPluginInspection"
                      key="inspection.plugin.xml.dynamic.plugin.display.name"/>
     <localInspection language="XML" applyToDialects="false"
@@ -520,6 +520,8 @@
     <smartUpdateStep implementation="org.jetbrains.idea.devkit.actions.updateFromSources.UpdateFromSourcesStep" order="first"/>
     <registryKey key="intellij.commit.message.validation.enabled" defaultValue="false"
                  description="Enables commit messages validation for intellij project"/>
+
+    <iconMapper mappingFile="DevkitIconMappings.json"/>
   </extensions>
 
   <extensions defaultExtensionNs="DevKit.lang">
@@ -586,6 +588,11 @@
                     beanClass="com.intellij.lang.LanguageExtensionPoint"
                     dynamic="true">
       <with attribute="implementationClass" implements="org.jetbrains.idea.devkit.inspections.quickfix.AppServiceAsStaticFinalFieldFixProvider"/>
+    </extensionPoint>
+    <extensionPoint qualifiedName="DevKit.lang.uElementAsPsiCheckProvider"
+                    beanClass="com.intellij.lang.LanguageExtensionPoint"
+                    dynamic="true">
+      <with attribute="implementationClass" implements="org.jetbrains.idea.devkit.inspections.UElementAsPsiCheckProvider"/>
     </extensionPoint>
   </extensionPoints>
 

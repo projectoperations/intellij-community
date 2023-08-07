@@ -5,6 +5,7 @@ import com.intellij.ide.IdeBundle;
 import com.intellij.ide.actions.SearchEverywhereClassifier;
 import com.intellij.ide.util.gotoByName.GotoActionModel;
 import com.intellij.openapi.ui.popup.util.PopupUtil;
+import com.intellij.openapi.util.Computable;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.ExperimentalUI;
@@ -31,7 +32,7 @@ abstract class SEResultsListFactory {
   private static final JBInsets TOGGLE_BUTTON_RENDERER_INSETS =
     new JBInsets(0, RENDERER_INSETS.getUnscaled().left, 0, RENDERER_INSETS.getUnscaled().right);
 
-  abstract SearchListModel createModel();
+  abstract SearchListModel createModel(Computable<String> tabIDProvider);
 
   abstract JBList<Object> createList(SearchListModel model);
 

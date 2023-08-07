@@ -30,8 +30,11 @@ import com.intellij.util.PlatformUtils
 import com.intellij.util.application
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.EdtScheduledExecutorService
-import com.intellij.util.io.*
+import com.intellij.util.io.BaseOutputReader
+import com.intellij.util.io.DigestUtil
+import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.HttpRequests.HttpStatusException
+import com.intellij.util.io.readText
 import com.intellij.util.system.CpuArch
 import com.intellij.util.text.VersionComparatorUtil
 import com.intellij.util.withFragment
@@ -61,7 +64,6 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.*
-import kotlin.io.path.exists
 import kotlin.math.min
 
 @ApiStatus.Experimental
@@ -363,9 +365,7 @@ object CodeWithMeClientDownloader {
 
     val dataList = listOfNotNull(jdkData, guestData)
 
-    val activity: StructuredIdeActivity? =
-      if (dataList.isNotEmpty()) RemoteDevStatisticsCollector.onGuestDownloadStarted()
-      else null
+    val activity: StructuredIdeActivity? = if (dataList.isEmpty()) null else RemoteDevStatisticsCollector.onGuestDownloadStarted()
 
     fun updateStateText() {
       val downloadList = dataList.filter { it.status.get() == DownloadableFileData.DownloadableFileState.Downloading }.joinToString(", ") { it.fileCaption }
@@ -693,8 +693,9 @@ object CodeWithMeClientDownloader {
     service<JetBrainsClientDownloaderConfigurationProvider>().patchVmOptions(vmOptionsFile, URI(url))
 
     val clientEnvironment = mutableMapOf<String, String>()
-    if (Registry.`is`("rdct.enable.per.connection.client.process") && ClientVersionUtil.isJBCSeparateConfigSupported(extractedJetBrainsClientData.version)) {
-      clientEnvironment["JBC_SEPARATE_CONFIG"] = "true"
+    val separateConfigOption = ClientVersionUtil.computeSeparateConfigEnvVariableValue(extractedJetBrainsClientData.version)
+    if (separateConfigOption != null) {
+      clientEnvironment["JBC_SEPARATE_CONFIG"] = separateConfigOption
     }
 
     if (SystemInfo.isWindows) {

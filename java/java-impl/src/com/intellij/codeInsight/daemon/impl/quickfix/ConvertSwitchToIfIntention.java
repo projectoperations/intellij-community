@@ -3,11 +3,12 @@ package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.BlockUtils;
 import com.intellij.codeInsight.Nullability;
-import com.intellij.codeInsight.daemon.impl.actions.IntentionActionWithFixAllOption;
-import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.dataFlow.NullabilityUtil;
-import com.intellij.openapi.editor.Editor;
+import com.intellij.modcommand.ActionContext;
+import com.intellij.modcommand.ModPsiUpdater;
+import com.intellij.modcommand.Presentation;
+import com.intellij.modcommand.PsiUpdateModCommandAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
@@ -28,33 +29,20 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class ConvertSwitchToIfIntention implements IntentionActionWithFixAllOption {
-  private final PsiSwitchStatement mySwitchStatement;
-
+public class ConvertSwitchToIfIntention extends PsiUpdateModCommandAction<PsiSwitchStatement> {
   public ConvertSwitchToIfIntention(@NotNull PsiSwitchStatement switchStatement) {
-    mySwitchStatement = switchStatement;
-  }
-
-  @Override
-  public @Nullable FileModifier getFileModifierForPreview(@NotNull PsiFile target) {
-    return new ConvertSwitchToIfIntention(PsiTreeUtil.findSameElementInCopy(mySwitchStatement, target));
-  }
-
-  @NotNull
-  @Override
-  public String getText() {
-    return CommonQuickFixBundle.message("fix.replace.x.with.y", PsiKeyword.SWITCH, PsiKeyword.IF);
+    super(switchStatement);
   }
 
   @NotNull
   @Override
   public String getFamilyName() {
-    return getText();
+    return CommonQuickFixBundle.message("fix.replace.x.with.y", PsiKeyword.SWITCH, PsiKeyword.IF);
   }
 
   @Override
-  public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    return isAvailable(mySwitchStatement);
+  protected @Nullable Presentation getPresentation(@NotNull ActionContext context, @NotNull PsiSwitchStatement statement) {
+    return isAvailable(statement) ? Presentation.of(getFamilyName()).withFixAllOption(this) : null;
   }
 
   public static boolean isAvailable(@NotNull PsiSwitchStatement switchStatement) {
@@ -74,19 +62,8 @@ public class ConvertSwitchToIfIntention implements IntentionActionWithFixAllOpti
   }
 
   @Override
-  public void invoke(@NotNull Project project, Editor editor, PsiFile file) {
-    doProcessIntention(mySwitchStatement);
-  }
-
-  @NotNull
-  @Override
-  public PsiElement getElementToMakeWritable(@NotNull PsiFile file) {
-    return mySwitchStatement.getContainingFile();
-  }
-
-  @Override
-  public boolean startInWriteAction() {
-    return true;
+  protected void invoke(@NotNull ActionContext context, @NotNull PsiSwitchStatement statement, @NotNull ModPsiUpdater updater) {
+    doProcessIntention(statement);
   }
 
   public static void doProcessIntention(@NotNull PsiSwitchStatement switchStatement) {
@@ -403,14 +380,6 @@ public class ConvertSwitchToIfIntention implements IntentionActionWithFixAllOpti
     PsiPattern normalizedPattern = JavaPsiPatternUtil.skipParenthesizedPatternDown(pattern);
     if (normalizedPattern instanceof PsiTypeTestPattern typeTestPattern) {
       return createIfCondition(typeTestPattern, expressionText, commentTracker);
-    }
-    else if (normalizedPattern instanceof PsiGuardedPattern guardedPattern) {
-      PsiPattern primaryPattern = JavaPsiPatternUtil.skipParenthesizedPatternDown(guardedPattern.getPrimaryPattern());
-      if (!(primaryPattern instanceof PsiTypeTestPattern typeTestPattern)) return null;
-      String primaryCondition = createIfCondition(typeTestPattern, expressionText, commentTracker);
-      PsiExpression guardingExpression = guardedPattern.getGuardingExpression();
-      if (guardingExpression == null) return null;
-      return primaryCondition + "&&" + commentTracker.textWithComments(guardingExpression);
     }
     else if (normalizedPattern instanceof PsiDeconstructionPattern deconstructionPattern) {
       return createIfCondition(deconstructionPattern, expressionText, commentTracker);

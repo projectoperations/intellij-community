@@ -1162,6 +1162,11 @@ public abstract class NewJavaToKotlinConverterSingleFileTestGenerated extends Ab
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("arrayInitializer.java")
+        public void testArrayInitializer() throws Exception {
+            runTest("testData/newJ2k/comments/arrayInitializer.java");
+        }
+
         @TestMetadata("beginningOfCommentInsideMultilineOne.java")
         public void testBeginningOfCommentInsideMultilineOne() throws Exception {
             runTest("testData/newJ2k/comments/beginningOfCommentInsideMultilineOne.java");
@@ -2107,6 +2112,11 @@ public abstract class NewJavaToKotlinConverterSingleFileTestGenerated extends Ab
         @TestMetadata("Equals4.java")
         public void testEquals4() throws Exception {
             runTest("testData/newJ2k/equals/Equals4.java");
+        }
+
+        @TestMetadata("EqualsFloatingPoint.java")
+        public void testEqualsFloatingPoint() throws Exception {
+            runTest("testData/newJ2k/equals/EqualsFloatingPoint.java");
         }
 
         @TestMetadata("ObjectsEquals.java")
@@ -3539,11 +3549,6 @@ public abstract class NewJavaToKotlinConverterSingleFileTestGenerated extends Ab
             runTest("testData/newJ2k/issues/kt-871.java");
         }
 
-        @TestMetadata("kt-879.java")
-        public void testKt_879() throws Exception {
-            runTest("testData/newJ2k/issues/kt-879.java");
-        }
-
         @TestMetadata("kt-893.java")
         public void testKt_893() throws Exception {
             runTest("testData/newJ2k/issues/kt-893.java");
@@ -4941,6 +4946,26 @@ public abstract class NewJavaToKotlinConverterSingleFileTestGenerated extends Ab
             runTest("testData/newJ2k/postProcessing/java8MapForEachWithFullJdk.java");
         }
 
+        @TestMetadata("LiftAssignmentComplex.java")
+        public void testLiftAssignmentComplex() throws Exception {
+            runTest("testData/newJ2k/postProcessing/LiftAssignmentComplex.java");
+        }
+
+        @TestMetadata("LiftAssignmentSingleStatement.java")
+        public void testLiftAssignmentSingleStatement() throws Exception {
+            runTest("testData/newJ2k/postProcessing/LiftAssignmentSingleStatement.java");
+        }
+
+        @TestMetadata("LiftReturnComplex.java")
+        public void testLiftReturnComplex() throws Exception {
+            runTest("testData/newJ2k/postProcessing/LiftReturnComplex.java");
+        }
+
+        @TestMetadata("LiftReturnSingleStatement.java")
+        public void testLiftReturnSingleStatement() throws Exception {
+            runTest("testData/newJ2k/postProcessing/LiftReturnSingleStatement.java");
+        }
+
         @TestMetadata("MapGetOrDefault.java")
         public void testMapGetOrDefault() throws Exception {
             runTest("testData/newJ2k/postProcessing/MapGetOrDefault.java");
@@ -4959,6 +4984,11 @@ public abstract class NewJavaToKotlinConverterSingleFileTestGenerated extends Ab
         @TestMetadata("OptimizeImports.java")
         public void testOptimizeImports() throws Exception {
             runTest("testData/newJ2k/postProcessing/OptimizeImports.java");
+        }
+
+        @TestMetadata("PrivateMutablePropertyAccessedByQualifiedExpression.java")
+        public void testPrivateMutablePropertyAccessedByQualifiedExpression() throws Exception {
+            runTest("testData/newJ2k/postProcessing/PrivateMutablePropertyAccessedByQualifiedExpression.java");
         }
 
         @TestMetadata("RedundantTypeCast.java")
@@ -5825,6 +5855,74 @@ public abstract class NewJavaToKotlinConverterSingleFileTestGenerated extends Ab
         @TestMetadata("varargLengthAccess.java")
         public void testVarargLengthAccess() throws Exception {
             runTest("testData/newJ2k/varArg/varargLengthAccess.java");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("testData/newJ2k/visibility")
+    public static class Visibility extends AbstractNewJavaToKotlinConverterSingleFileTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("exposedInternalSupertypeByPublic.java")
+        public void testExposedInternalSupertypeByPublic() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedInternalSupertypeByPublic.java");
+        }
+
+        @TestMetadata("exposedParameterType.java")
+        public void testExposedParameterType() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedParameterType.java");
+        }
+
+        @TestMetadata("exposedPrivateSupertypeByProtected.java")
+        public void testExposedPrivateSupertypeByProtected() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedPrivateSupertypeByProtected.java");
+        }
+
+        @TestMetadata("exposedPrivateSupertypeByPublic.java")
+        public void testExposedPrivateSupertypeByPublic() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedPrivateSupertypeByPublic.java");
+        }
+
+        @TestMetadata("exposedPropertyType.java")
+        public void testExposedPropertyType() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedPropertyType.java");
+        }
+
+        @TestMetadata("exposedPropertyTypeInConstructor.java")
+        public void testExposedPropertyTypeInConstructor() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedPropertyTypeInConstructor.java");
+        }
+
+        @TestMetadata("exposedReturnType.java")
+        public void testExposedReturnType() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedReturnType.java");
+        }
+
+        @TestMetadata("exposedSuperInterface.java")
+        public void testExposedSuperInterface() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedSuperInterface.java");
+        }
+
+        @TestMetadata("exposedTypeParameterBound.java")
+        public void testExposedTypeParameterBound() throws Exception {
+            runTest("testData/newJ2k/visibility/exposedTypeParameterBound.java");
+        }
+
+        @TestMetadata("nestedClassPrivateConstructor.java")
+        public void testNestedClassPrivateConstructor() throws Exception {
+            runTest("testData/newJ2k/visibility/nestedClassPrivateConstructor.java");
+        }
+
+        @TestMetadata("nestedClassPrivateField.java")
+        public void testNestedClassPrivateField() throws Exception {
+            runTest("testData/newJ2k/visibility/nestedClassPrivateField.java");
+        }
+
+        @TestMetadata("nestedClassPrivateMethod.java")
+        public void testNestedClassPrivateMethod() throws Exception {
+            runTest("testData/newJ2k/visibility/nestedClassPrivateMethod.java");
         }
     }
 

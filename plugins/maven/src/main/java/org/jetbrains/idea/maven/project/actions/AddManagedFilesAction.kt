@@ -25,15 +25,23 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.getPresentablePath
 import com.intellij.openapi.vfs.VirtualFile
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.idea.maven.project.MavenProjectBundle
 import org.jetbrains.idea.maven.project.MavenProjectsManager
+import org.jetbrains.idea.maven.utils.MavenCoroutineScopeProvider
 import org.jetbrains.idea.maven.utils.actions.MavenAction
 import org.jetbrains.idea.maven.utils.actions.MavenActionUtil
 import org.jetbrains.idea.maven.wizards.MavenOpenProjectProvider
 
 class AddManagedFilesAction : MavenAction() {
   override fun actionPerformed(e: AnActionEvent) {
+    val cs = MavenCoroutineScopeProvider.getCoroutineScope(e.project)
+    cs.launch { actionPerformedAsync(e) }
+  }
+
+  suspend fun actionPerformedAsync(e: AnActionEvent) {
     val project = MavenActionUtil.getProject(e.dataContext) ?: return
     val manager = MavenProjectsManager.getInstanceIfCreated(project) ?: return
 
@@ -52,8 +60,7 @@ class AddManagedFilesAction : MavenAction() {
 
     if (files.size == 1) {
       val projectFile = files[0]
-      val cs = CoroutineScope(SupervisorJob())
-      cs.launch { addManagedFiles(projectFile, files, project) }
+      addManagedFiles(projectFile, files, project)
     }
   }
 

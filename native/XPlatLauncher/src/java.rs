@@ -1,7 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
-use std::{env, mem, thread};
-use std::ffi::{c_char, c_void, c_int, CString, CStr};
+use std::{env, thread};
+use std::ffi::{c_void, CString};
 use std::path::Path;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
@@ -11,6 +11,7 @@ use jni::JNIEnv;
 use jni::objects::{JObject, JValue};
 use jni::sys::{jboolean, jint, jsize};
 use log::{debug, error};
+use crate::jvm_property;
 
 #[cfg(target_os = "macos")]
 use {
@@ -19,6 +20,9 @@ use {
     core_foundation::runloop::{CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRunInMode, CFRunLoopTimerCreate,
                                CFRunLoopTimerRef, kCFRunLoopDefaultMode, kCFRunLoopRunFinished}
 };
+
+#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
+use std::ffi::{c_char, CStr, c_int};
 
 #[cfg(target_os = "windows")]
 const LIBJVM_REL_PATH: &str = "bin\\server\\jvm.dll";
@@ -30,26 +34,35 @@ const LIBJVM_REL_PATH: &str = "lib/server/libjvm.so";
 static HOOK_NAME: &str = "vfprintf";
 static HOOK_MESSAGES: Mutex<Option<Vec<String>>> = Mutex::new(None);
 
+#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 #[no_mangle]
-extern "C" fn vfprintf_hook(fp: *const c_void, format: *const c_char, args: *const c_void) -> jint {
+extern "C" fn vfprintf_hook(fp: *const c_void, format: *const c_char, args: va_list::VaList) -> jint {
     extern "C" {
-        fn vfprintf(fp: *const c_void, format: *const c_char, args: *const c_void) -> c_int;
-        fn vsnprintf(s: *mut c_char, n: usize, format: *const c_char, args: *const c_void) -> c_int;
+        fn vfprintf(fp: *const c_void, format: *const c_char, args: va_list::VaList) -> c_int;
+        fn vsnprintf(s: *mut c_char, n: usize, format: *const c_char, args: va_list::VaList) -> c_int;
     }
 
     match &mut *HOOK_MESSAGES.lock().unwrap() {
         None => unsafe { vfprintf(fp, format, args) },
         Some(messages) => {
-            let len = unsafe { vsnprintf(std::ptr::null_mut(), 0, format, args) } as usize + 1;
-            let mut buffer = Vec::<c_char>::with_capacity(len);
-            let len = unsafe { vsnprintf(buffer.as_mut_ptr(), len, format, args) };
-            let c_str = unsafe { CStr::from_ptr(buffer.as_ptr()) };
-            let message = c_str.to_string_lossy().to_string();
+            let mut buffer = [0; 4096];
+            let _ = unsafe { vsnprintf(buffer.as_mut_ptr(), buffer.len(), format, args) };
+            let message = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().to_string();
             debug!("[JVM] vfprintf_hook: {:?}", message);
             messages.push(message);
-            len
+            0  // because nothing was actually printed
         }
     }
+}
+
+#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
+fn get_vfprintf_hook_pointer() -> *mut c_void {
+    unsafe { std::mem::transmute::<extern "C" fn(*const c_void, *const c_char, va_list::VaList) -> jint, *mut c_void>(vfprintf_hook) }
+}
+
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+fn get_vfprintf_hook_pointer() -> *mut c_void {
+    std::ptr::null_mut()
 }
 
 const MAIN_METHOD_NAME: &str = "main";
@@ -79,6 +92,9 @@ pub fn run_jvm_and_event_loop(jre_home: &Path, vm_options: Vec<String>, main_cla
     debug!("Starting a JVM thread");
     let join_handle = thread::Builder::new().spawn(move || {
         debug!("[JVM] Thread started [{:?}]", thread::current().id());
+
+        let mut vm_options = vm_options.clone();
+        vm_options.push(jvm_property!("sun.java.command", main_class));
 
         let jni_env_result = load_and_start_jvm(&jre_home, vm_options);
         let jni_env = match jni_env_result {
@@ -119,7 +135,7 @@ pub fn run_jvm_and_event_loop(jre_home: &Path, vm_options: Vec<String>, main_cla
 #[cfg(target_family = "unix")]
 fn reset_signal_handler(signal: c_int) -> Result<()> {
     unsafe {
-        let mut action: libc::sigaction = mem::zeroed();
+        let mut action: libc::sigaction = std::mem::zeroed();
         action.sa_sigaction = libc::SIG_DFL;
         match libc::sigaction(signal, &action, std::ptr::null_mut()) {
             0 => Ok(()),
@@ -193,10 +209,13 @@ fn load_libjvm(_jre_home: &Path, libjvm_path: &Path) -> Result<libloading::Libra
 fn get_jvm_init_args(vm_options: Vec<String>) -> Result<(jni::sys::JavaVMInitArgs, Vec<jni::sys::JavaVMOption>)> {
     let mut jni_options = Vec::with_capacity(vm_options.len() + 1);
 
-    jni_options.push(jni::sys::JavaVMOption {
-        optionString: CString::new(HOOK_NAME)?.into_raw(),
-        extraInfo: unsafe { mem::transmute::<extern "C" fn(*const c_void, *const c_char, *const c_void) -> jint, *mut c_void>(vfprintf_hook) },
-    });
+    let hook_pointer = get_vfprintf_hook_pointer();
+    if hook_pointer != std::ptr::null_mut() {
+        jni_options.push(jni::sys::JavaVMOption {
+            optionString: CString::new(HOOK_NAME)?.into_raw(),
+            extraInfo: hook_pointer,
+        });
+    }
 
     for opt in vm_options {
         jni_options.push(jni::sys::JavaVMOption {

@@ -36,7 +36,7 @@ import static com.intellij.platform.diagnostic.telemetry.PlatformScopesKt.Storag
  * <p/>
  * Storage is optimized to store small records (~tens bytes) -- it tries to compress record headers
  * so smaller records have just 2 bytes of overhead because of header. At the same time storage allows
- * record size up to 1Mb large -- in contrast to {@link SmallStreamlinedBlobStorage}.
+ * record size up to 1Mb large.
  * <p>
  */
 public class LargeSizeStreamlinedBlobStorage implements StreamlinedBlobStorage {
@@ -391,7 +391,7 @@ public class LargeSizeStreamlinedBlobStorage implements StreamlinedBlobStorage {
           if (recordType == LargeBlobStorageRecordLayout.RECORD_TYPE_MOVED) {
             final int redirectToId = recordLayout.redirectToId(buffer, offsetOnPage);
             if (redirectToId == NULL_ID) { //!actual && redirectTo = NULL
-              throw new IOException("Record[" + currentRecordId + "] is deleted");
+              throw new RecordAlreadyDeletedException("Can't read record[" + currentRecordId + "]: it was deleted");
             }
             currentRecordId = redirectToId;
           }
@@ -500,7 +500,7 @@ public class LargeSizeStreamlinedBlobStorage implements StreamlinedBlobStorage {
           if (recordType == LargeBlobStorageRecordLayout.RECORD_TYPE_MOVED) {
             final int redirectToId = recordLayout.redirectToId(buffer, offsetOnPage);
             if (!isValidRecordId(redirectToId)) {
-              throw new IOException("Can't write to record[" + currentRecordId + "]: it was deleted");
+              throw new RecordAlreadyDeletedException("Can't write to record[" + currentRecordId + "]: it was deleted");
             }
             currentRecordId = redirectToId;
             continue;//hope redirect chains are not too long...
@@ -622,7 +622,7 @@ public class LargeSizeStreamlinedBlobStorage implements StreamlinedBlobStorage {
           case LargeBlobStorageRecordLayout.RECORD_TYPE_MOVED -> {
             final int redirectToId = recordLayout.redirectToId(buffer, offsetOnPage);
             if (!isValidRecordId(redirectToId)) {
-              throw new IllegalStateException("Can't delete record[" + recordId + "]: it was already deleted");
+              throw new RecordAlreadyDeletedException("Can't delete record[" + recordId + "]: it was already deleted");
             }
 
             // (redirectToId=NULL) <=> 'record deleted' ('moved nowhere')
@@ -1140,7 +1140,7 @@ public class LargeSizeStreamlinedBlobStorage implements StreamlinedBlobStorage {
 
   @NotNull
   private BatchCallback setupReportingToOpenTelemetry(final Path fileName) {
-    final Meter meter = TelemetryManager.getMeter(Storage);
+    final Meter meter = TelemetryManager.getInstance().getMeter(Storage);
 
     final var recordsAllocated = meter.counterBuilder("StreamlinedBlobStorage.recordsAllocated").buildObserver();
     final var recordsRelocated = meter.counterBuilder("StreamlinedBlobStorage.recordsRelocated").buildObserver();

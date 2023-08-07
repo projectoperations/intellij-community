@@ -197,6 +197,7 @@ public final class PsiImplUtil {
     if (fromBody) {
       final PsiParameter[] parameters = element.getParameterList().getParameters();
       for (PsiParameter parameter : parameters) {
+        if (parameter.isUnnamed()) continue;
         if (!processor.execute(parameter, state)) return false;
       }
     }
@@ -213,7 +214,9 @@ public final class PsiImplUtil {
 
     for (PsiResourceListElement resource : resourceList) {
       if (resource == lastParent) break;
-      if (resource instanceof PsiResourceVariable && !processor.execute(resource, state)) return false;
+      if (resource instanceof PsiResourceVariable &&
+          !((PsiResourceVariable)resource).isUnnamed() &&     
+          !processor.execute(resource, state)) return false;
     }
 
     return true;
@@ -393,7 +396,8 @@ public final class PsiImplUtil {
       if (parent instanceof PsiDeclarationStatement) return new LocalSearchScope(parent.getParent());
     }
 
-    PsiModifierList modifierList = member.getModifierList();
+    PsiModifierList modifierList = (member instanceof PsiRecordComponent && aClass != null) ?
+                                   aClass.getModifierList() : member.getModifierList();
     int accessLevel = modifierList == null ? PsiUtil.ACCESS_LEVEL_PUBLIC : PsiUtil.getAccessLevel(modifierList);
     if (accessLevel == PsiUtil.ACCESS_LEVEL_PUBLIC ||
         accessLevel == PsiUtil.ACCESS_LEVEL_PROTECTED) {
@@ -500,6 +504,9 @@ public final class PsiImplUtil {
    * Checks if the given PSI element is deprecated with annotation or JavaDoc tag.
    * <br>
    * It is suitable for elements other than {@link PsiDocCommentOwner}.
+   * <p>
+   *   Prefer specifying context for more precise check using JavaDeprecationUtils#isDeprecated.
+   * </p>
    */
   public static boolean isDeprecated(@NotNull PsiElement psiElement) {
     if (psiElement instanceof PsiDocCommentOwner) {

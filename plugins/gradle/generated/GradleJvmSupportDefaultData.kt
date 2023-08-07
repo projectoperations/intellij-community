@@ -19,7 +19,7 @@ internal val DEFAULT_DATA = GradleCompatibilityState(
     "5.0", "5.1", "5.2", "5.3", "5.3.1", "5.4", "5.4.1", "5.5", "5.5.1", "5.6", "5.6.2",
     "6.0", "6.0.1", "6.1", "6.2", "6.3", "6.4", "6.5", "6.6", "6.7", "6.8", "6.8.3", "6.9",
     "7.0", "7.1", "7.2", "7.3", "7.4", "7.5", "7.5.1", "7.6",
-    "8.0", "8.1"
+    "8.0", "8.1", "8.2"
   ),
   compatibility = listOf(
     VersionMapping(java = "6-8", gradle = "INF-5.0"),
@@ -34,6 +34,7 @@ internal val DEFAULT_DATA = GradleCompatibilityState(
     VersionMapping(java = "16-17", gradle = "7.0-INF"),
     VersionMapping(java = "17-18", gradle = "7.2-INF"),
     VersionMapping(java = "18-19", gradle = "7.5-INF"),
-    VersionMapping(java = "19-20", gradle = "7.6-INF")
+    VersionMapping(java = "19-20", gradle = "7.6-INF"),
+    VersionMapping(java = "20-21", gradle = "8.3-INF")
   )
 );

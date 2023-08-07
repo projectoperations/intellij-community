@@ -6,6 +6,7 @@ import com.intellij.ide.plugins.PluginManager
 import com.intellij.ide.scratch.ScratchFileService
 import com.intellij.ide.scratch.ScratchRootType
 import com.intellij.ide.script.IdeConsoleRootType
+import com.intellij.injected.editor.VirtualFileWindow
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadAction
@@ -91,20 +92,18 @@ class ScriptDefinitionsManager(private val project: Project) : LazyScriptDefinit
 
     override fun findDefinition(script: SourceCode): ScriptDefinition? {
         val locationId = script.locationId ?: return null
-        if (nonScriptId(locationId)) return null
 
         configurations?.tryGetScriptDefinitionFast(locationId)?.let { fastPath -> return fastPath }
-
-        if (!isReady()) return null
-
         scriptDefinitionsCacheLock.withLock { scriptDefinitionsCache.get(locationId) }?.let { cached -> return cached }
 
         val definition =
             if (isScratchFile(script)) {
-                // Scratch should always have default script definition
+                // Scratch should always have the default script definition
                 getDefaultDefinition()
             } else {
-                super.findDefinition(script) ?: return null
+                if (definitions == null) return DeferredScriptDefinition(script, this)
+                super.findDefinition(script) // Some embedded scripts (e.g., Kotlin Notebooks) have their own definition
+                    ?: if (isEmbeddedScript(script)) getDefaultDefinition() else return null
             }
 
         scriptDefinitionsCacheLock.withLock {
@@ -114,11 +113,26 @@ class ScriptDefinitionsManager(private val project: Project) : LazyScriptDefinit
         return definition
     }
 
+    internal fun DeferredScriptDefinition.valueIfAny(): ScriptDefinition? {
+        if (definitions == null) return null
+
+        val locationId = requireNotNull(scriptCode.locationId)
+        configurations?.tryGetScriptDefinitionFast(locationId)?.let { fastPath -> return fastPath }
+        scriptDefinitionsCacheLock.withLock { scriptDefinitionsCache.get(locationId) }?.let { cached -> return cached }
+        return super.findDefinition(scriptCode)
+    }
+
     private fun isScratchFile(script: SourceCode): Boolean {
         val virtualFile =
             if (script is VirtualFileScriptSource) script.virtualFile
             else script.locationId?.let { VirtualFileManager.getInstance().findFileByUrl(it) }
         return virtualFile != null && ScratchFileService.getInstance().getRootType(virtualFile) is ScratchRootType
+    }
+
+    private fun isEmbeddedScript(code: SourceCode): Boolean {
+        val scriptSource = code as? VirtualFileScriptSource ?: return false
+        val virtualFile = scriptSource.virtualFile
+        return virtualFile is VirtualFileWindow && virtualFile.fileType == KotlinFileType.INSTANCE
     }
 
     @Suppress("OVERRIDE_DEPRECATION")

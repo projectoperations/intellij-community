@@ -14,6 +14,7 @@ import org.apache.commons.compress.archivers.zip.Zip64Mode
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.TraceManager.spanBuilder
+import org.jetbrains.intellij.build.impl.OsSpecificDistributionBuilder.Companion.suffix
 import org.jetbrains.intellij.build.impl.productInfo.*
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.copyFile
@@ -107,8 +108,7 @@ class MacDistributionBuilder(override val context: BuildContext,
       copyDistFiles(context = context, newDir = macDistDir, os = OsFamily.MACOS, arch = arch)
     }
 
-    customizer.copyAdditionalFiles(context = context, targetDirectory = macDistDir)
-    customizer.copyAdditionalFiles(context = context, targetDirectory = macDistDir, arch = arch)
+    customizer.copyAdditionalFiles(context = context, targetDir = macDistDir, arch = arch)
   }
 
   override suspend fun buildArtifacts(osAndArchSpecificDistPath: Path, arch: JvmArchitecture) {
@@ -192,14 +192,12 @@ class MacDistributionBuilder(override val context: BuildContext,
 
   private suspend fun signMacBinaries(osAndArchSpecificDistPath: Path, runtimeDist: Path, arch: JvmArchitecture) {
     val binariesToSign = customizer.getBinariesToSign(context, arch).map(osAndArchSpecificDistPath::resolve)
+    val matchers = generateExecutableFilesMatchers(includeRuntime = false, arch = arch).keys
     withContext(Dispatchers.IO) {
       signMacBinaries(files = binariesToSign, context = context)
-
       for (dir in listOf(osAndArchSpecificDistPath, runtimeDist)) {
         launch {
-          recursivelySignMacBinaries(root = dir,
-                                     context = context,
-                                     executableFileMatchers = generateExecutableFilesMatchers(includeRuntime = false, arch = arch).keys)
+          recursivelySignMacBinaries(root = dir, context = context, executableFileMatchers = matchers)
         }
       }
     }
@@ -230,6 +228,12 @@ class MacDistributionBuilder(override val context: BuildContext,
     val icnsPath = Path.of((if (context.applicationInfo.isEAP) customizer.icnsPathForEAP else null) ?: customizer.icnsPath)
     val resourcesDistDir = macDistDir.resolve("Resources")
     copyFile(icnsPath, resourcesDistDir.resolve(targetIcnsFileName))
+
+    val alternativeIcon = (if (context.applicationInfo.isEAP) customizer.icnsPathForAlternativeIconForEAP else null)
+                          ?: customizer.icnsPathForAlternativeIcon
+    if (alternativeIcon != null) {
+      copyFile(Path.of(alternativeIcon), resourcesDistDir.resolve("custom.icns"))
+    }
 
     for (fileAssociation in customizer.fileAssociations) {
       if (!fileAssociation.iconPath.isEmpty()) {
@@ -362,9 +366,8 @@ class MacDistributionBuilder(override val context: BuildContext,
     }
   }
 
-  override fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture): List<String> {
-    return customizer.generateExecutableFilesPatterns(context, includeRuntime, arch)
-  }
+  override fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture): List<String> =
+    customizer.generateExecutableFilesPatterns(context, includeRuntime, arch)
 
   private suspend fun buildForArch(arch: JvmArchitecture,
                                    macZip: Path,
@@ -388,7 +391,6 @@ class MacDistributionBuilder(override val context: BuildContext,
                                    notarize: Boolean,
                                    customizer: MacDistributionCustomizer,
                                    context: BuildContext) {
-    val suffix = if (arch == JvmArchitecture.x64) "" else "-${arch.fileSuffix}"
     val archStr = arch.name
     coroutineScope {
       if (context.options.buildMacArtifactsWithRuntime) {
@@ -399,10 +401,9 @@ class MacDistributionBuilder(override val context: BuildContext,
           signAndBuildDmg(builder = this@MacDistributionBuilder,
                           context = context,
                           customizer = customizer,
-                          macHostProperties = context.proprietaryBuildTools.macHostProperties,
                           macZip = macZip,
                           isRuntimeBundled = true,
-                          suffix = suffix,
+                          suffix = suffix(arch),
                           arch = arch,
                           notarize = notarize)
         }
@@ -417,10 +418,9 @@ class MacDistributionBuilder(override val context: BuildContext,
           signAndBuildDmg(builder = this@MacDistributionBuilder,
                           context = context,
                           customizer = customizer,
-                          macHostProperties = context.proprietaryBuildTools.macHostProperties,
                           macZip = macZipWithoutRuntime,
                           isRuntimeBundled = false,
-                          suffix = "-no-jdk$suffix",
+                          suffix = "-no-jdk${suffix(arch)}",
                           arch = arch,
                           notarize = notarize)
         }

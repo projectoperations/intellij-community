@@ -15,13 +15,17 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.impl.ProjectImpl
+import com.intellij.openapi.project.impl.projectMethodType
 import com.intellij.serviceContainer.ComponentManagerImpl
 import com.intellij.serviceContainer.PrecomputedExtensionModel
 import com.intellij.serviceContainer.executeRegisterTaskForOldContent
+import com.intellij.serviceContainer.findConstructorOrNull
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.namedChildScope
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus
+import java.lang.invoke.MethodHandles
+import java.lang.invoke.MethodType
 
 private val LOG = logger<ClientSessionImpl>()
 
@@ -37,13 +41,18 @@ abstract class ClientSessionImpl(
   coroutineScope = GlobalScope.namedChildScope("ClientSessionImpl", clientId.asContextElement2()),
   setExtensionsRootArea = false,
 ), ClientSession {
-
-  override val isLightServiceSupported: Boolean = false
-  override val isMessageBusSupported: Boolean = false
+  final override val isLightServiceSupported: Boolean = false
+  final override val isMessageBusSupported: Boolean = false
 
   init {
     @Suppress("LeakingThis")
     registerServiceInstance(ClientSession::class.java, this, fakeCorePluginDescriptor)
+  }
+
+  override fun <T : Any> findConstrictorAndInstantiateClass(lookup: MethodHandles.Lookup, aClass: Class<T>): T {
+    @Suppress("UNCHECKED_CAST")
+    return (lookup.findConstructorOrNull(aClass, sessionConstructorMethodType)?.invoke(this) as T?)
+           ?: super.findConstrictorAndInstantiateClass(lookup, aClass)
   }
 
   fun registerServices() {
@@ -63,23 +72,23 @@ abstract class ClientSessionImpl(
     assert(containerState.compareAndSet(ContainerState.PRE_INIT, ContainerState.COMPONENT_CREATED))
   }
 
-  override suspend fun preloadService(service: ServiceDescriptor, serviceInterface: String) {
+  final override suspend fun preloadService(service: ServiceDescriptor, serviceInterface: String) {
     return ClientId.withClientId(clientId) {
       super.preloadService(service, serviceInterface)
     }
   }
 
-  override fun isServiceSuitable(descriptor: ServiceDescriptor): Boolean {
+  final override fun isServiceSuitable(descriptor: ServiceDescriptor): Boolean {
     return descriptor.client?.let { type.matches(it) } ?: false
   }
 
   /**
    * only per-client services are supported (no components, extensions, listeners)
    */
-  override fun registerComponents(modules: List<IdeaPluginDescriptorImpl>,
-                                  app: Application?,
-                                  precomputedExtensionModel: PrecomputedExtensionModel?,
-                                  listenerCallbacks: MutableList<in Runnable>?) {
+  final override fun registerComponents(modules: List<IdeaPluginDescriptorImpl>,
+                                        app: Application?,
+                                        precomputedExtensionModel: PrecomputedExtensionModel?,
+                                        listenerCallbacks: MutableList<in Runnable>?) {
     for (rootModule in modules) {
       registerServices(getContainerDescriptor(rootModule).services, rootModule)
       executeRegisterTaskForOldContent(rootModule) { module ->
@@ -88,12 +97,12 @@ abstract class ClientSessionImpl(
     }
   }
 
-  override fun isComponentSuitable(componentConfig: ComponentConfig): Boolean {
+  final override fun isComponentSuitable(componentConfig: ComponentConfig): Boolean {
     LOG.error("components aren't supported")
     return false
   }
 
-  override fun <T : Any> doGetService(serviceClass: Class<T>, createIfNeeded: Boolean): T? {
+  final override fun <T : Any> doGetService(serviceClass: Class<T>, createIfNeeded: Boolean): T? {
     return doGetService(serviceClass, createIfNeeded, true)
   }
 
@@ -126,7 +135,7 @@ abstract class ClientSessionImpl(
     }
   }
 
-  override fun getApplication(): Application? {
+  final override fun getApplication(): Application? {
     return sharedComponentManager.getApplication()
   }
 
@@ -134,11 +143,11 @@ abstract class ClientSessionImpl(
     get() = sharedComponentManager.componentStore
 
   @Deprecated("sessions don't have their own message bus", level = DeprecationLevel.ERROR)
-  override fun getMessageBus(): MessageBus {
+  final override fun getMessageBus(): MessageBus {
     error("Not supported")
   }
 
-  override fun toString(): String {
+  final override fun toString(): String {
     return clientId.toString()
   }
 }
@@ -162,6 +171,9 @@ open class ClientAppSessionImpl(
   }
 }
 
+private val sessionConstructorMethodType: MethodType = MethodType.methodType(Void.TYPE, ClientAppSession::class.java)
+private val projectSessionConstructorMethodType: MethodType = MethodType.methodType(Void.TYPE, ClientProjectSession::class.java)
+
 @ApiStatus.Internal
 open class ClientProjectSessionImpl(
   clientId: ClientId,
@@ -169,8 +181,18 @@ open class ClientProjectSessionImpl(
   componentManager: ClientAwareComponentManager,
   final override val project: Project,
 ) : ClientSessionImpl(clientId, clientType, componentManager), ClientProjectSession {
+  constructor(clientId: ClientId, clientType: ClientType, project: ProjectImpl) : this(clientId = clientId,
+                                                                                       clientType = clientType,
+                                                                                       componentManager = project,
+                                                                                       project = project)
 
-  constructor(clientId: ClientId, clientType: ClientType, project: ProjectImpl) : this(clientId, clientType, project, project)
+  override fun <T : Any> findConstrictorAndInstantiateClass(lookup: MethodHandles.Lookup, aClass: Class<T>): T {
+    @Suppress("UNCHECKED_CAST")
+    return ((lookup.findConstructorOrNull(aClass, projectMethodType)?.invoke(project)
+            ?: lookup.findConstructorOrNull(aClass, projectSessionConstructorMethodType)?.invoke(this) ) as T?)
+           ?: super.findConstrictorAndInstantiateClass(lookup, aClass)
+  }
+
 
   override fun getContainerDescriptor(pluginDescriptor: IdeaPluginDescriptorImpl): ContainerDescriptor {
     return pluginDescriptor.projectContainerDescriptor

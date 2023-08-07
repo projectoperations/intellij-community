@@ -1,6 +1,6 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("StartupUtil")
-@file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE", "ReplacePutWithAssignment")
+@file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE")
 
 package com.intellij.idea
 
@@ -27,16 +27,19 @@ import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.ShutDownTracker
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.registry.EarlyAccessRegistryManager
-import com.intellij.platform.diagnostic.telemetry.TelemetryManager
+import com.intellij.platform.diagnostic.telemetry.OpenTelemetryConfigurator
+import com.intellij.platform.diagnostic.telemetry.impl.TelemetryManagerImpl
+import com.intellij.platform.diagnostic.telemetry.impl.rootTask
+import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.ui.*
-import com.intellij.ui.mac.MacOSApplicationProvider
+import com.intellij.ui.mac.initMacApplication
 import com.intellij.ui.mac.screenmenu.Menu
 import com.intellij.ui.svg.createSvgCacheManager
 import com.intellij.ui.svg.svgCache
 import com.intellij.util.*
 import com.intellij.util.lang.ZipFilePool
-import com.intellij.util.ui.EDT
 import com.jetbrains.JBR
+import io.opentelemetry.sdk.OpenTelemetrySdkBuilder
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.ide.BuiltInServerManager
@@ -61,6 +64,7 @@ import java.util.function.BiFunction
 import java.util.logging.ConsoleHandler
 import java.util.logging.Level
 import javax.swing.*
+import kotlin.coroutines.CoroutineContext
 import kotlin.system.exitProcess
 
 internal const val IDE_STARTED: String = "------------------------------------------------------ IDE STARTED ------------------------------------------------------"
@@ -95,6 +99,15 @@ fun CoroutineScope.startApplication(args: List<String>,
                                     appStarterDeferred: Deferred<AppStarter>,
                                     mainScope: CoroutineScope,
                                     busyThread: Thread) {
+  CoroutineTracerShim.coroutineTracer = object : CoroutineTracerShim {
+    override suspend fun getTraceActivity() = com.intellij.platform.diagnostic.telemetry.impl.getTraceActivity()
+    override fun rootTrace(): CoroutineContext = rootTask()
+
+    override suspend fun <T> span(name: String, context: CoroutineContext, action: suspend CoroutineScope.() -> T): T {
+      return com.intellij.platform.diagnostic.telemetry.impl.span(name = name, context = context, action = action)
+    }
+  }
+
   val appInfoDeferred = async(CoroutineName("app info")) {
     // required for DisabledPluginsState and EUA
     ApplicationInfoImpl.getShadowInstance()
@@ -102,20 +115,15 @@ fun CoroutineScope.startApplication(args: List<String>,
 
   val isHeadless = AppMode.isHeadless()
 
-  val configImportNeededDeferred = if (isHeadless) {
-    CompletableDeferred(false)
-  }
-  else {
-    async {
-      val configPath = PathManager.getConfigDir()
-      withContext(Dispatchers.IO) { isConfigImportNeeded(configPath) }
-    }
+  val configImportNeededDeferred = if (isHeadless) CompletableDeferred(false)
+  else async(Dispatchers.IO) {
+    isConfigImportNeeded(PathManager.getConfigDir())
   }
 
   val lockSystemDirsJob = launch {
     // the "import-needed" check must be performed strictly before IDE directories are locked
     configImportNeededDeferred.join()
-    subtask("system dirs locking") {
+    span("system dirs locking") {
       lockSystemDirs(args)
     }
   }
@@ -130,13 +138,11 @@ fun CoroutineScope.startApplication(args: List<String>,
   }
 
   val initAwtToolkitAndEventQueueJob = scheduleInitAwtToolkitAndEventQueue(lockSystemDirsJob, busyThread, isHeadless)
-  schedulePreloadingLafClasses()
 
-  // LookAndFeel type is not specified to avoid class loading
   val initLafJob = launch {
     initAwtToolkitAndEventQueueJob.join()
     // SwingDispatcher must be used after Toolkit init
-    withContext(RawSwingDispatcher) {
+    span("initUi", RawSwingDispatcher) {
       initUi(isHeadless)
     }
   }
@@ -154,7 +160,7 @@ fun CoroutineScope.startApplication(args: List<String>,
   launch {
     initLafJob.join()
     if (isImplicitReadOnEDTDisabled && !isAutomaticIWLOnDirtyUIDisabled) {
-      subtask("Write Intent Lock UI class transformer loading") {
+      span("Write Intent Lock UI class transformer loading") {
         WriteIntentLockInstrumenter.instrument()
       }
     }
@@ -175,7 +181,7 @@ fun CoroutineScope.startApplication(args: List<String>,
   shellEnvDeferred = async {
     // EnvironmentUtil wants logger
     logDeferred.join()
-    subtask("environment loading", Dispatchers.IO) {
+    span("environment loading", Dispatchers.IO) {
       EnvironmentUtil.loadEnvironment(coroutineContext.job)
     }
   }
@@ -185,7 +191,7 @@ fun CoroutineScope.startApplication(args: List<String>,
 
     launch {
       lockSystemDirsJob.join()
-      subtask("SvgCache creation") {
+      span("SvgCache creation") {
         svgCache = createSvgCacheManager(cacheFile = getSvgIconCacheFile())
       }
     }
@@ -193,10 +199,7 @@ fun CoroutineScope.startApplication(args: List<String>,
     updateFrameClassAndWindowIconAndPreloadSystemFonts(initLafJob)
   }
 
-  loadSystemLibsAndLogInfoAndInitMacApp(logDeferred = logDeferred,
-                                        appInfoDeferred = appInfoDeferred,
-                                        initUiDeferred = initLafJob,
-                                        args = args)
+  loadSystemLibsAndLogInfoAndInitMacApp(logDeferred, appInfoDeferred, initLafJob, args, mainScope)
 
   val euaDocumentDeferred = async { loadEuaDocument(appInfoDeferred) }
 
@@ -214,23 +217,14 @@ fun CoroutineScope.startApplication(args: List<String>,
         euaDocumentDeferred = euaDocumentDeferred,
       )
 
-      if (ConfigImportHelper.isNewUser() && System.getProperty(NewUi.KEY) == null) {
+      if (ConfigImportHelper.isNewUser() && System.getProperty("ide.experimental.ui") == null) {
         runCatching {
-          EarlyAccessRegistryManager.setAndFlush(mapOf(NewUi.KEY to "true"))
+          EarlyAccessRegistryManager.setAndFlush(mapOf("ide.experimental.ui" to "true"))
         }.getOrLogException(log)
       }
     }
 
-    PluginManagerCore.scheduleDescriptorLoading(asyncScope, zipFilePoolDeferred)
-  }
-
-  // async - handle error separately
-  val telemetryInitJob = launch {
-    lockSystemDirsJob.join()
-    appInfoDeferred.join()
-    subtask("opentelemetry configuration") {
-      TelemetryManager.getInstance()
-    }
+    PluginManagerCore.scheduleDescriptorLoading(coroutineScope = asyncScope, zipFilePoolDeferred = zipFilePoolDeferred)
   }
 
   val isInternal = java.lang.Boolean.getBoolean(ApplicationManagerEx.IS_INTERNAL_PROPERTY)
@@ -245,82 +239,49 @@ fun CoroutineScope.startApplication(args: List<String>,
     }
   }
 
-  val appDeferred = async {
-    val rwLockHolderDeferred = async {
-      // configure EDT thread
-      initAwtToolkitAndEventQueueJob.join()
-      RwLockHolder(EDT.getEventDispatchThread())
-    }
-
-    checkSystemDirJob.join()
-
-    if (!configImportNeededDeferred.await()) {
-      runPreAppClass(args, logDeferred)
-    }
-
-    val rwLockHolder = rwLockHolderDeferred.await()
-    subtask("app instantiation") {
-      // we don't want to inherit mainScope Dispatcher and CoroutineTimeMeasurer, we only want the job
-      ApplicationImpl(CoroutineScope(mainScope.coroutineContext.job).namedChildScope(ApplicationImpl::class.java.name),
-                      isInternal,
-                      AppMode.isHeadless(),
-                      AppMode.isCommandLine(),
-                      rwLockHolder)
-    }
-  }
-
-  val initServiceContainerJob = launch {
-    initServiceContainer(app = appDeferred.await(), pluginSetDeferred = pluginSetDeferred)
-  }
-
   val appRegisteredJob = CompletableDeferred<Unit>()
 
-  val preloadCriticalServicesJob = async {
-    preInitApp(app = appDeferred.await(),
-               asyncScope = asyncScope,
-               initServiceContainerJob = initServiceContainerJob,
-               initLafJob = initLafJob,
-               telemetryInitJob = telemetryInitJob,
-               log = logDeferred.await(),
-               appRegisteredJob = appRegisteredJob,
-               euaDocumentDeferred = euaDocumentDeferred)
+  launch {
+    val classLoader = AppStarter::class.java.classLoader
+    Class.forName(TelemetryManagerImpl::class.java.name, true, classLoader)
+    Class.forName(OpenTelemetryConfigurator::class.java.name, true, classLoader)
+    Class.forName(OpenTelemetrySdkBuilder::class.java.name, true, classLoader)
   }
 
   val appLoaded = launch {
-    val app = appDeferred.await()
+    checkSystemDirJob.join()
 
-    // only here as the last - it is a heavy-weight (~350ms) activity, let's first schedule more important tasks
-    if (System.getProperty("idea.enable.coroutine.dump", "true").toBoolean()) {
-      launch(CoroutineName("coroutine debug probes init")) {
-        enableCoroutineDump()
-        JBR.getJstack()?.includeInfoFrom {
-          """
-    $COROUTINE_DUMP_HEADER
-    ${dumpCoroutines(stripDump = false)}
-    """
-        }
-      }
+    val classBeforeAppProperty = System.getProperty(IDEA_CLASS_BEFORE_APPLICATION_PROPERTY)
+    if (classBeforeAppProperty != null && !configImportNeededDeferred.await()) {
+      logDeferred.join()
+      runPreAppClass(args = args, classBeforeAppProperty = classBeforeAppProperty)
     }
 
-    appRegisteredJob.join()
-    initServiceContainerJob.join()
+    val app = span("app instantiation") {
+      // we don't want to inherit mainScope Dispatcher and CoroutineTimeMeasurer, we only want the job
+      ApplicationImpl(CoroutineScope(mainScope.coroutineContext.job).namedChildScope("Application"), isInternal)
+    }
 
-    initApplicationImpl(args = args.filterNot { CommandLineArgs.isKnownArgument(it) },
-                        initAppActivity = StartUpMeasurer.appInitPreparationActivity!!.endAndStart("app initialization"),
-                        app = app,
-                        preloadCriticalServicesJob = preloadCriticalServicesJob,
-                        asyncScope = asyncScope)
+    loadApp(app = app,
+            initAwtToolkitAndEventQueueJob = initAwtToolkitAndEventQueueJob,
+            pluginSetDeferred = pluginSetDeferred,
+            euaDocumentDeferred = euaDocumentDeferred,
+            asyncScope = asyncScope,
+            initLafJob = initLafJob,
+            logDeferred = logDeferred,
+            appRegisteredJob = appRegisteredJob,
+            args = args.filterNot { CommandLineArgs.isKnownArgument(it) })
   }
 
   launch {
     // required for appStarter.prepareStart
     appInfoDeferred.join()
 
-    val appStarter = subtask("main class loading waiting") {
+    val appStarter = span("main class loading waiting") {
       appStarterDeferred.await()
     }
 
-    withContext(mainScope.coroutineContext) {
+    withContext(mainScope.coroutineContext + CoroutineName("appStarter set")) {
       appStarter.prepareStart(args)
     }
 
@@ -334,38 +295,54 @@ fun CoroutineScope.startApplication(args: List<String>,
   }
 }
 
-fun isConfigImportNeeded(configPath: Path): Boolean =
-  !Files.exists(configPath) || Files.exists(configPath.resolve(ConfigImportHelper.CUSTOM_MARKER_FILE_NAME))
+fun isConfigImportNeeded(configPath: Path): Boolean {
+  return !Files.exists(configPath) ||
+         Files.exists(configPath.resolve(ConfigImportHelper.CUSTOM_MARKER_FILE_NAME)) ||
+         customTargetDirectoryToImportConfig != null
+}
+
+/**
+ * Directory where the configuration files should be imported to.
+ * This property is used to override the default target directory ([PathManager.getConfigPath]) when a custom way to read and write
+ * configuration files is implemented.
+ */
+@get:Internal @set:Internal
+var customTargetDirectoryToImportConfig: Path? = null
 
 @Suppress("SpellCheckingInspection")
 private fun CoroutineScope.loadSystemLibsAndLogInfoAndInitMacApp(logDeferred: Deferred<Logger>,
                                                                  appInfoDeferred: Deferred<ApplicationInfoEx>,
                                                                  initUiDeferred: Job,
-                                                                 args: List<String>) {
+                                                                 args: List<String>,
+                                                                 mainScope: CoroutineScope) {
   launch {
     // this must happen after locking system dirs
     val log = logDeferred.await()
 
-    subtask("system libs setup") {
-      if (SystemInfoRt.isWindows && System.getProperty("winp.folder.preferred") == null) {
-        System.setProperty("winp.folder.preferred", PathManager.getTempPath())
+    if (SystemInfoRt.isWindows) {
+      span("system libs setup") {
+        if (System.getProperty("winp.folder.preferred") == null) {
+          System.setProperty("winp.folder.preferred", PathManager.getTempPath())
+        }
       }
     }
 
-    subtask("system libs loading", Dispatchers.IO) {
+    span("system libs loading", Dispatchers.IO) {
       JnaLoader.load(log)
     }
 
     val appInfo = appInfoDeferred.await()
     launch(CoroutineName("essential IDE info logging")) {
-      logEssentialInfoAboutIde(log, appInfo, args)
+      logEssentialInfoAboutIde(log = log, appInfo = appInfo, args = args)
     }
 
-    if (!AppMode.isHeadless() && !AppMode.isRemoteDevHost() && SystemInfoRt.isMac) {
+    if (SystemInfoRt.isMac && !AppMode.isHeadless() && !AppMode.isRemoteDevHost()) {
       // JNA and Swing are used - invoke only after both are loaded
       initUiDeferred.join()
       launch(CoroutineName("mac app init")) {
-        MacOSApplicationProvider.initApplication(log)
+        runCatching {
+          initMacApplication(mainScope)
+        }.getOrLogException(log)
       }
     }
   }
@@ -376,7 +353,7 @@ private fun CoroutineScope.showSplashIfNeeded(initUiDeferred: Job, appInfoDeferr
     return
   }
 
-  launch {
+  launch(CoroutineName("showSplashIfNeeded")) {
     if (CommandLineArgs.isSplashNeeded(args)) {
       showSplashIfNeeded(initUiDeferred = initUiDeferred, appInfoDeferred = appInfoDeferred)
     }
@@ -400,10 +377,8 @@ fun addExternalInstanceListener(processor: (List<String>) -> Deferred<CliResult>
   commandProcessor.set(processor)
 }
 
-private suspend fun runPreAppClass(args: List<String>, logDeferred: Deferred<Logger>) {
-  val classBeforeAppProperty = System.getProperty(IDEA_CLASS_BEFORE_APPLICATION_PROPERTY) ?: return
-  logDeferred.join()
-  runActivity("pre app class running") {
+private suspend fun runPreAppClass(args: List<String>, classBeforeAppProperty: String) {
+  span("pre app class running") {
     try {
       val aClass = AppStarter::class.java.classLoader.loadClass(classBeforeAppProperty)
       MethodHandles.lookup()
@@ -420,30 +395,28 @@ private suspend fun importConfig(args: List<String>,
                                  log: Logger,
                                  appStarter: AppStarter,
                                  euaDocumentDeferred: Deferred<EndUserAgreement.Document?>) {
-  var activity = StartUpMeasurer.startActivity("screen reader checking")
-  try {
-    withContext(RawSwingDispatcher) { AccessibilityUtils.enableScreenReaderSupportIfNecessary() }
-  }
-  catch (e: Throwable) {
-    log.error(e)
+  span("screen reader checking") {
+    runCatching {
+      withContext(RawSwingDispatcher) { AccessibilityUtils.enableScreenReaderSupportIfNecessary() }
+    }.getOrLogException(log)
   }
 
-  activity = activity.endAndStart("config importing")
-  appStarter.beforeImportConfigs()
-  val newConfigDir = PathManager.getConfigDir()
+  span("config importing") {
+    appStarter.beforeImportConfigs()
+    val newConfigDir = customTargetDirectoryToImportConfig ?: PathManager.getConfigDir()
 
-  withContext(RawSwingDispatcher) {
-    UIManager.setLookAndFeel(IntelliJLaf())
-  }
+    withContext(RawSwingDispatcher) {
+      UIManager.setLookAndFeel(IntelliJLaf())
+    }
 
-  val veryFirstStartOnThisComputer = euaDocumentDeferred.await() != null
-  withContext(RawSwingDispatcher) {
-    ConfigImportHelper.importConfigsTo(veryFirstStartOnThisComputer, newConfigDir, args, log)
+    val veryFirstStartOnThisComputer = euaDocumentDeferred.await() != null
+    withContext(RawSwingDispatcher) {
+      ConfigImportHelper.importConfigsTo(veryFirstStartOnThisComputer, newConfigDir, args, log)
+    }
+    appStarter.importFinished(newConfigDir)
+    EarlyAccessRegistryManager.invalidate()
+    IconLoader.clearCache()
   }
-  appStarter.importFinished(newConfigDir)
-  EarlyAccessRegistryManager.invalidate()
-  IconLoader.clearCache()
-  activity.end()
 }
 
 private fun CoroutineScope.configureJavaUtilLogging(): Job {
@@ -463,7 +436,7 @@ private fun CoroutineScope.checkSystemDirs(lockSystemDirJob: Job): Job {
     lockSystemDirJob.join()
 
     val (configPath, systemPath) = PathManager.getConfigDir() to PathManager.getSystemDir()
-    runActivity("system dirs checking") {
+    span("system dirs checking") {
       if (!doCheckSystemDirs(configPath, systemPath)) {
         exitProcess(AppExitCodes.DIR_CHECK_FAILED)
       }
@@ -638,7 +611,7 @@ private fun CoroutineScope.setupLogger(consoleLoggerJob: Job, checkSystemDirJob:
     consoleLoggerJob.join()
     checkSystemDirJob.join()
 
-    runActivity("file logger configuration") {
+    span("file logger configuration") {
       try {
         Logger.setFactory(LoggerFactory())
       }
@@ -691,7 +664,7 @@ fun logEssentialInfoAboutIde(log: Logger, appInfo: ApplicationInfo, args: List<S
     ${PathManager.PROPERTY_LOG_PATH}=${logPath(PathManager.getLogPath())}""")
   val cores = Runtime.getRuntime().availableProcessors()
   val pool = ForkJoinPool.commonPool()
-  log.info("CPU cores: $cores; ForkJoinPool.commonPool: $pool; factory: ${pool.factory}")
+  log.info("CPU cores: ${cores}; ForkJoinPool.commonPool: ${pool}; factory: ${pool.factory}")
 }
 
 private fun logEnvVar(log: Logger, variable: String) {
@@ -704,13 +677,11 @@ private fun logPath(path: String): String {
   try {
     val configured = Path.of(path)
     val real = configured.toRealPath()
-    return if (configured == real) path else "$path -> $real"
+    return if (configured == real) path else "${path} -> ${real}"
   }
-  catch (ignored: IOException) {
-  }
-  catch (ignored: InvalidPathException) {
-  }
-  return "$path -> ?"
+  catch (_: IOException) { }
+  catch (_: InvalidPathException) { }
+  return "${path} -> ?"
 }
 
 interface AppStarter {

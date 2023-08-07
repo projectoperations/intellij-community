@@ -9,6 +9,7 @@ import org.jetbrains.intellij.build.impl.BundledMavenDownloader
 import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.PluginLayout
 import org.jetbrains.intellij.build.impl.PluginLayout.Companion.plugin
+import org.jetbrains.intellij.build.impl.PluginLayout.Companion.pluginAuto
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.kotlin.KotlinPluginBuilder
 import org.jetbrains.intellij.build.python.PythonCommunityPluginModules
@@ -96,7 +97,6 @@ object CommunityRepositoryModules {
     plugin("intellij.maven") { spec ->
       spec.withModule("intellij.maven.jps")
       spec.withModule("intellij.maven.server.m3.common", "maven3-server-common.jar")
-      spec.withModule("intellij.maven.server.m30.impl", "maven30-server.jar")
       spec.withModule("intellij.maven.server.m3.impl", "maven3-server.jar")
       spec.withModule("intellij.maven.server.m36.impl", "maven36-server.jar")
       spec.withModule("intellij.maven.server.m40", "maven40-server.jar")
@@ -109,9 +109,6 @@ object CommunityRepositoryModules {
       spec.withModuleLibrary(libraryName = "apache.maven.archetype.common:3.2.1", moduleName = "intellij.maven.server.indexer",
                              relativeOutputPath = "intellij.maven.server.indexer/lib")
 
-      spec.withModule("intellij.maven.artifactResolver.m3", "artifact-resolver-m3.jar")
-      spec.withModule("intellij.maven.artifactResolver.common", "artifact-resolver-m3.jar")
-
       spec.withModule("intellij.maven.artifactResolver.m31", "artifact-resolver-m31.jar")
       spec.withModule("intellij.maven.artifactResolver.common", "artifact-resolver-m31.jar")
 
@@ -119,11 +116,9 @@ object CommunityRepositoryModules {
 
       spec.doNotCopyModuleLibrariesAutomatically(listOf(
         "intellij.maven.artifactResolver.common",
-        "intellij.maven.artifactResolver.m3",
         "intellij.maven.artifactResolver.m31",
         "intellij.maven.server.m3.common",
         "intellij.maven.server.m3.impl",
-        "intellij.maven.server.m30.impl",
         "intellij.maven.server.m36.impl",
         "intellij.maven.server.m40",
         "intellij.maven.server.indexer",
@@ -149,16 +144,15 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.gradle.toolingExtension", "gradle-tooling-extension-api.jar")
       spec.withModule("intellij.gradle.toolingExtension.impl", "gradle-tooling-extension-impl.jar")
       spec.withProjectLibrary("Gradle", LibraryPackMode.STANDALONE_SEPARATE)
+      spec.withProjectLibrary("Ant", "ant", LibraryPackMode.STANDALONE_SEPARATE)
     },
-    plugin(listOf(
+    pluginAuto(listOf(
       "intellij.packageSearch",
       "intellij.packageSearch.gradle",
       "intellij.packageSearch.maven",
       "intellij.packageSearch.kotlin",
-      )) { spec ->
+    )) { spec ->
       spec.withModule("intellij.packageSearch.gradle.tooling", "pkgs-tooling-extension.jar")
-      spec.withProjectLibrary("kotlinx-serialization-protobuf")
-      spec.withProjectLibrary("package-search-version-utils")
     },
     plugin("intellij.android.gradle.dsl") { spec ->
       spec.withModule("intellij.android.gradle.dsl.kotlin")
@@ -179,7 +173,7 @@ object CommunityRepositoryModules {
       spec.withProjectLibrary("TestNG")
     },
     plugin(listOf("intellij.dev", "intellij.dev.psiViewer", "intellij.platform.statistics.devkit")),
-    plugin("intellij.devkit") { spec ->
+    pluginAuto(listOf("intellij.devkit")) { spec ->
       spec.withModule("intellij.devkit.core")
       spec.withModule("intellij.devkit.git")
       spec.withModule("intellij.devkit.themes")
@@ -194,7 +188,6 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.kotlin.devkit")
       spec.withModule("intellij.devkit.jps")
       spec.withModule("intellij.devkit.runtimeModuleRepository.jps")
-      spec.withProjectLibrary("workspace-model-codegen")
     },
     plugin("intellij.eclipse") { spec ->
       spec.withModule("intellij.eclipse.jps", "eclipse-jps.jar")
@@ -212,9 +205,8 @@ object CommunityRepositoryModules {
     },
     javaFXPlugin("intellij.javaFX.community"),
     plugin("intellij.terminal") { spec ->
-      spec.withResource("resources/zsh/.zshenv", "zsh")
-      spec.withResource("resources/zsh/hooks.zsh", "zsh")
-      spec.withResource("resources/pwsh/pwsh.ps1", "pwsh")
+      spec.withModule("intellij.terminal.completion")
+      spec.withModule("intellij.terminal.sh")
       spec.withResource("resources/shell-integrations", "shell-integrations")
     },
     plugin("intellij.emojipicker") { spec ->
@@ -272,7 +264,8 @@ object CommunityRepositoryModules {
       "intellij.searchEverywhereMl.ranking",
       "intellij.searchEverywhereMl.ranking.yaml",
       "intellij.searchEverywhereMl.ranking.vcs",
-      "intellij.searchEverywhereMl.typos"
+      "intellij.searchEverywhereMl.typos",
+      "intellij.searchEverywhereMl.semantics"
     )),
     plugin("intellij.platform.testFramework.ui") { spec ->
       spec.withModuleLibrary("intellij.remoterobot.remote.fixtures", spec.mainModule, "")

@@ -11,14 +11,13 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.childScope
 import kotlinx.coroutines.CoroutineScope
 
-internal class FloatingCodeToolbarEditorCustomizer: TextEditorCustomizer {
+private class FloatingCodeToolbarEditorCustomizer: TextEditorCustomizer {
   override fun customize(textEditor: TextEditor) {
     val editor = textEditor.editor
     val project = editor.project ?: return
     val file = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return
-    if (!FloatingToolbarFilter.isEnabledForLanguage(file.language)) {
-      return
-    }
+    val languages = file.viewProvider.languages
+    if (languages.none { language -> FloatingToolbarCustomizer.findActionGroupFor(language) != null }) return
     val coroutineScope = FloatingCodeToolbarScope.createChildScope(project)
     val toolbar = CodeFloatingToolbar(editor, coroutineScope)
     Disposer.register(textEditor, toolbar)

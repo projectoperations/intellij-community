@@ -3,25 +3,32 @@ package org.jetbrains.kotlin.idea.base.highlighting
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightInfoHolder
-import com.intellij.openapi.editor.colors.TextAttributesKey
-import com.intellij.openapi.util.NlsSafe
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.NlsContexts.DetailedDescription
 import com.intellij.openapi.util.TextRange
-import org.jetbrains.kotlin.utils.addToStdlib.applyIf
+import com.intellij.psi.PsiElement
 
 object HighlightingFactory {
-    fun addInfoAnnotation(holder: HighlightInfoHolder, textRange: TextRange, message: @NlsSafe String?, textAttributes: TextAttributesKey?) {
-        holder.add(createInfoAnnotation(textRange, message, textAttributes).create())
+    fun highlightName(element: PsiElement, highlightInfoType: HighlightInfoType, message: @DetailedDescription String? = null): HighlightInfo.Builder? {
+        val project = element.project
+        if (!element.textRange.isEmpty) {
+            return highlightName(project, element.textRange, highlightInfoType, message)
+        }
+        return null
     }
-    fun createInfoAnnotation(textRange: TextRange, message: String?, textAttributes: TextAttributesKey?): HighlightInfo.Builder {
-        val builder = HighlightInfo.newHighlightInfo(HighlightInfoType.INFORMATION)
+
+    fun highlightName(
+        project: Project,
+        textRange: TextRange,
+        highlightInfoType: HighlightInfoType,
+        message: @DetailedDescription String? = null
+    ): HighlightInfo.Builder {
+        val builder = HighlightInfo.newHighlightInfo(highlightInfoType)
         if (message != null) {
             builder.descriptionAndTooltip(message)
         }
-        return builder
-          .range(textRange)
-          .applyIf(textAttributes != null) {
-              textAttributes(textAttributes!!)
-          }
+        val annotation = builder
+            .range(textRange)
+        return annotation
     }
 }

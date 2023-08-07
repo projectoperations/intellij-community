@@ -12,10 +12,14 @@
             qualifiedName="org.jetbrains.kotlin.gradleProjectImportHandler" area="IDEA_PROJECT"
             interface="org.jetbrains.kotlin.idea.gradleJava.configuration.GradleProjectImportHandler"
             dynamic="true"/>
+
+    <extensionPoint
+            qualifiedName="org.jetbrains.kotlin.mppProjectResolve"
+            interface="org.jetbrains.kotlin.idea.gradleJava.configuration.mpp.KotlinMppGradleProjectResolverExtension"
+            dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
-    <testTasksProvider implementation="org.jetbrains.kotlin.idea.gradleJava.run.KotlinMPPGradleTestTasksProvider"/>
 
     <frameworkSupport implementation="org.jetbrains.kotlin.idea.gradleJava.configuration.GradleKotlinMPPSourceSetsFrameworkSupportProvider"/>
     <frameworkSupport implementation="org.jetbrains.kotlin.idea.gradleJava.configuration.GradleKotlinJavaFrameworkSupportProvider"/>

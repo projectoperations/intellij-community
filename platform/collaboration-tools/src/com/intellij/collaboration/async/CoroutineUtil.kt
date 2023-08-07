@@ -4,7 +4,6 @@ package com.intellij.collaboration.async
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.Disposer
-import com.intellij.util.childScope
 import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.containers.HashingStrategy
 import kotlinx.coroutines.*
@@ -141,13 +140,10 @@ suspend fun <T> Flow<T>.collectWithPrevious(initial: T, collector: suspend (prev
 }
 
 @ApiStatus.Experimental
-fun <T> Flow<T>.channelWithInitial(initialValue: T): Flow<T> =
-  channelFlow {
-    send(initialValue)
-    collect {
-      send(it)
-    }
-  }
+fun <T> Flow<T>.withInitial(initial: T): Flow<T> = flow {
+  emit(initial)
+  emitAll(this@withInitial)
+}
 
 /**
  * Lazy shared flow that logs all exceptions as errors and never throws (beside cancellation)
@@ -156,83 +152,114 @@ fun <T> Flow<T>.modelFlow(cs: CoroutineScope, log: Logger): SharedFlow<T> =
   catch { log.error(it) }.shareIn(cs, SharingStarted.Lazily, 1)
 
 fun <ID : Any, T, R> Flow<Iterable<T>>.associateBy(sourceIdentifier: (T) -> ID,
-                                                   mapper: (CoroutineScope, T) -> R,
+                                                   mapper: CoroutineScope.(T) -> R,
                                                    destroy: suspend R.() -> Unit,
                                                    update: (suspend R.(T) -> Unit)? = null,
                                                    customHashingStrategy: HashingStrategy<ID>? = null)
-  : Flow<Map<ID, R>> = associateIndexedBy(sourceIdentifier, { cs, item, _ -> mapper(cs, item) }, destroy, update, customHashingStrategy)
+  : Flow<Map<ID, R>> = channelFlow {
+  val cs = this
+  var initial = true
+  var prevResult = createLinkedMap<ID, R>(customHashingStrategy)
 
-fun <ID : Any, T, R> Flow<Iterable<T>>.associateIndexedBy(
-  sourceIdentifier: (T) -> ID,
-  mapper: (CoroutineScope, item: T, index: Int) -> R,
-  destroy: suspend R.() -> Unit,
-  update: (suspend R.(T) -> Unit)? = null,
-  customHashingStrategy: HashingStrategy<ID>? = null
-): Flow<Map<ID, R>> =
-  channelFlow {
-    val cs = this
-    var initial = true
-    val result = if (customHashingStrategy == null) {
-      mutableMapOf<ID, R>()
+  collect { items ->
+    var hasStructureChanges = false
+    val newItemsIdSet = if (customHashingStrategy == null) {
+      items.mapTo(LinkedHashSet(), sourceIdentifier)
     }
     else {
-      CollectionFactory.createCustomHashingStrategyMap(customHashingStrategy)
+      CollectionFactory.createLinkedCustomHashingStrategySet(customHashingStrategy).let {
+        items.mapTo(it, sourceIdentifier)
+      }
     }
 
-    collect { items ->
-      var hasStructureChanges = false
-      val newItemsIdSet = if (customHashingStrategy == null) {
-        items.mapTo(mutableSetOf(), sourceIdentifier)
+    // remove missing
+    val iter = prevResult.iterator()
+    while (iter.hasNext()) {
+      val (key, exisingResult) = iter.next()
+      if (!newItemsIdSet.contains(key)) {
+        iter.remove()
+        hasStructureChanges = true
+        exisingResult.destroy()
+      }
+    }
+
+    val result = createLinkedMap<ID, R>(customHashingStrategy)
+    // add new or update existing
+    for (item in items) {
+      val id = sourceIdentifier(item)
+
+      val existing = prevResult[id]
+      if (existing != null && update != null) {
+        existing.update(item)
+        result[id] = existing
       }
       else {
-        CollectionFactory.createCustomHashingStrategySet(customHashingStrategy).let {
-          items.mapTo(it, sourceIdentifier)
-        }
-      }
-
-      // remove missing
-      val iter = result.iterator()
-      while (iter.hasNext()) {
-        val (key, exisingResult) = iter.next()
-        if (!newItemsIdSet.contains(key)) {
-          iter.remove()
-          hasStructureChanges = true
-          exisingResult.destroy()
-        }
-      }
-
-      // add new or update existing
-      for ((index, item) in items.withIndex()) {
-        val id = sourceIdentifier(item)
-
-        val existing = result[id]
-        if (existing != null && update != null) {
-          existing.update(item)
-        }
-        else {
-          result[id] = mapper(cs, item, index)
-          hasStructureChanges = true
-        }
-      }
-
-      if (hasStructureChanges || initial) {
-        initial = false
-        send(result)
+        result[id] = mapper(cs, item)
+        hasStructureChanges = true
       }
     }
-    awaitClose()
+
+    prevResult = result
+    if (hasStructureChanges || initial) {
+      initial = false
+      send(result)
+    }
+  }
+  awaitClose()
+}
+
+private fun <ID : Any, R> createLinkedMap(customHashingStrategy: HashingStrategy<ID>?): MutableMap<ID, R> =
+  if (customHashingStrategy == null) {
+    LinkedHashMap()
+  }
+  else {
+    CollectionFactory.createLinkedCustomHashingStrategyMap(customHashingStrategy)
   }
 
 fun <ID : Any, T, R> Flow<Iterable<T>>.mapCaching(sourceIdentifier: (T) -> ID,
-                                                  mapper: (CoroutineScope, T) -> R,
+                                                  mapper: CoroutineScope.(T) -> R,
                                                   destroy: suspend R.() -> Unit,
                                                   update: (suspend R.(T) -> Unit)? = null): Flow<List<R>> =
   associateBy(sourceIdentifier, mapper, destroy, update).map { it.values.toList() }
 
-fun <ID : Any, T, R> Flow<Iterable<T>>.mapCachingIndexed(sourceIdentifier: (T) -> ID,
-                                                         mapper: (CoroutineScope, T, index: Int) -> R,
-                                                         destroy: suspend R.() -> Unit,
-                                                         update: (suspend R.(T) -> Unit)? = null): Flow<List<R>> =
-  associateIndexedBy(sourceIdentifier, mapper, destroy, update).map { it.values.toList() }
-
 fun <T> Flow<Collection<T>>.mapFiltered(predicate: (T) -> Boolean): Flow<List<T>> = map { it.filter(predicate) }
+
+/**
+ * Treats 'this' flow as representing a single list of results. Meaning each emitted value is accumulated
+ * with the previous ones into a single list and re-emitted.
+ *
+ * This emits the same mutable list every time, new results in upstream flow will thus modify the previously
+ * emitted list. Take note of this when using the emitted list directly.
+ */
+fun <T> Flow<List<T>>.collectBatches(): Flow<List<T>> {
+  val result = mutableListOf<T>()
+  return transform {
+    result.addAll(it)
+    emit(result)
+  }
+}
+
+/**
+ * Maps values in the flow to successful results and catches and wraps any exception into a failure result.
+ */
+fun <T> Flow<T>.asResultFlow(): Flow<Result<T>> =
+  map { Result.success(it) }.catch { emit(Result.failure(it)) }
+
+/**
+ * Maps a flow or results to a flow of values from successful results. Failure results are re-thrown as exceptions.
+ */
+fun <T> Flow<Result<T>>.throwFailure(): Flow<T> =
+  map { it.getOrThrow() }
+
+/**
+ * Cancel the scope, await its completion but ignore the completion exception if any to void cancelling the caller
+ */
+suspend fun CoroutineScope.cancelAndJoinSilently() {
+  val cs = this
+  val job = cs.coroutineContext[Job] ?: error("Missing Job in $cs")
+  try {
+    job.cancelAndJoin()
+  }
+  catch (ignored: Exception) {
+  }
+}

@@ -88,6 +88,7 @@ public class DataFlowRangeAnalysisTest extends DataFlowInspectionTestCase {
   public void testFloatingPointRanges() { doTest(); }
   public void testFloatingPointCasts() { doTest(); }
   public void testFloatingPointMaxLoop() { doTest(); }
+  public void testFloatingPointConstantMath() { doTest(); }
   public void testStringIndexOfRelation() { doTest(); }
   public void testIncompleteLoop() { doTest(); }
   public void testTwoFlagsMixed() { doTest(); }
@@ -129,6 +130,11 @@ public class DataFlowRangeAnalysisTest extends DataFlowInspectionTestCase {
                               int get(TemporalField field);
                               long getLong(TemporalField field);
                              }""");
+    doTest();
+  }
+  
+  public void testJmhParamRange() {
+    myFixture.addClass("package org.openjdk.jmh.annotations;public @interface Param {String[] value();}");
     doTest();
   }
 }

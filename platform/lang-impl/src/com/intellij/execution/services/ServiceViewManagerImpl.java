@@ -13,6 +13,7 @@ import com.intellij.ide.lightEdit.LightEditUtil;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.util.treeView.TreeState;
 import com.intellij.navigation.ItemPresentation;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -39,6 +40,7 @@ import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.openapi.wm.ex.ToolWindowEx;
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.AutoScrollToSourceHandler;
 import com.intellij.ui.UIBundle;
@@ -55,6 +57,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import javax.swing.*;
 import java.lang.ref.WeakReference;
@@ -75,6 +78,7 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
   private final ServiceModel myModel;
   private final ServiceModelFilter myModelFilter;
   private final Map<String, Collection<ServiceViewContributor<?>>> myGroups = new ConcurrentHashMap<>();
+  private final Set<ServiceViewContributor<?>> myNotInitializedContributors = new HashSet<>();
   private final List<ServiceViewContentHolder> myContentHolders = new SmartList<>();
   private boolean myActivationActionsRegistered;
   private AutoScrollToSourceHandler myAutoScrollToSourceHandler;
@@ -101,8 +105,14 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
     }
 
     ServiceViewItem eventRoot = ContainerUtil.find(myModel.getRoots(), root -> e.contributorClass.isInstance(root.getRootContributor()));
+    ServiceViewContributor<?> notInitializedContributor = findNotInitializedContributor(e.contributorClass, eventRoot);
+    boolean initialized = notInitializedContributor == null;
+    if (!initialized &&
+        (e.type == ServiceEventListener.EventType.RESET || e.type == ServiceEventListener.EventType.UNLOAD_SYNC_RESET)) {
+      myNotInitializedContributors.remove(notInitializedContributor);
+    }
     if (eventRoot != null) {
-      boolean show = !(eventRoot.getViewDescriptor() instanceof ServiceViewNonActivatingDescriptor);
+      boolean show = !(eventRoot.getViewDescriptor() instanceof ServiceViewNonActivatingDescriptor) && initialized;
       updateToolWindow(toolWindowId, true, show);
     }
     else {
@@ -112,14 +122,16 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
     }
   }
 
-  private void initRoots() {
-    myModel.getInvoker().invokeLater(() -> {
-      myModel.initRoots().onSuccess(result -> {
-        if (result) {
-          registerToolWindows(myGroups.keySet());
-        }
-      });
-    });
+  private @Nullable ServiceViewContributor<?> findNotInitializedContributor(Class<?> contributorClass, ServiceViewItem eventRoot) {
+    if (eventRoot != null) {
+      return myNotInitializedContributors.contains(eventRoot.getRootContributor()) ? eventRoot.getRootContributor() : null;
+    }
+    for (ServiceViewContributor<?> contributor : myNotInitializedContributors) {
+      if (contributorClass.isInstance(contributor)) {
+        return contributor;
+      }
+    }
+    return null;
   }
 
   private Set<? extends ServiceViewContributor<?>> getActiveContributors() {
@@ -340,6 +352,30 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
 
   @Override
   public @NotNull Promise<Void> select(@NotNull Object service, @NotNull Class<?> contributorClass, boolean activate, boolean focus) {
+    return trackingSelect(service, contributorClass, activate, focus).then(result -> null);
+  }
+
+  public @NotNull Promise<Boolean> trackingSelect(@NotNull Object service, @NotNull Class<?> contributorClass,
+                                                  boolean activate, boolean focus) {
+    if (!myState.selectActiveService) {
+      if (activate) {
+        String toolWindowId = getToolWindowId(contributorClass);
+        if (toolWindowId == null) {
+          return Promises.rejectedPromise("Contributor group not found");
+        }
+        ToolWindowManager.getInstance(myProject).invokeLater(() -> {
+          ToolWindow toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(toolWindowId);
+          if (toolWindow != null) {
+            toolWindow.activate(null, focus, focus);
+          }
+        });
+      }
+      return expand(service, contributorClass).then(o -> false);
+    }
+    return doSelect(service, contributorClass, activate, focus).then(o -> true);
+  }
+
+  private @NotNull Promise<Void> doSelect(@NotNull Object service, @NotNull Class<?> contributorClass, boolean activate, boolean focus) {
     AsyncPromise<Void> result = new AsyncPromise<>();
     // Ensure model is updated, then iterate over service views on EDT in order to find view with service and select it.
     myModel.getInvoker().invoke(() -> AppUIUtil.invokeLaterIfProjectAlive(myProject, () -> {
@@ -478,7 +514,7 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
         fileCondition
       );
       if (fileItem != null) {
-        Promise<Void> promise = select(fileItem.getValue(), fileItem.getRootContributor().getClass(), false, false);
+        Promise<Void> promise = doSelect(fileItem.getValue(), fileItem.getRootContributor().getClass(), false, false);
         promise.processed(result);
       }
     });
@@ -734,8 +770,30 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
   private void loadGroups() {
     for (ServiceViewContributor<?> contributor : CONTRIBUTOR_EP_NAME.getExtensionList()) {
       addToGroup(contributor);
+      myNotInitializedContributors.add(contributor);
     }
-    initRoots();
+
+    registerToolWindows(myGroups.keySet());
+
+    Disposable disposable = Disposer.newDisposable();
+    Disposer.register(myProject, disposable);
+    myProject.getMessageBus().connect(disposable).subscribe(ToolWindowManagerListener.TOPIC, new ToolWindowManagerListener() {
+      @Override
+      public void toolWindowShown(@NotNull ToolWindow toolWindow) {
+        Collection<ServiceViewContributor<?>> contributors = myGroups.get(toolWindow.getId());
+        if (contributors != null) {
+          for (ServiceViewContributor<?> contributor : contributors) {
+            if (myNotInitializedContributors.remove(contributor)) {
+              ServiceEvent e = ServiceEvent.createResetEvent(contributor.getClass());
+              myModel.handle(e);
+            }
+          }
+        }
+        if (myNotInitializedContributors.isEmpty()) {
+          Disposer.dispose(disposable);
+        }
+      }
+    });
   }
 
   private static void clearViewStateIfNeeded(@NotNull State state) {
@@ -756,6 +814,7 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
     public List<ServiceViewState> viewStates = new ArrayList<>();
 
     public boolean showServicesTree = true;
+    public boolean selectActiveService = true;
     public final Set<String> included = new HashSet<>();
     public final Set<String> excluded = new HashSet<>();
   }
@@ -780,6 +839,14 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
         serviceView.getUi().setMasterComponentVisible(value);
       }
     }
+  }
+
+  boolean isSelectActiveService() {
+    return myState.selectActiveService;
+  }
+
+  void setSelectActiveService(boolean value) {
+    myState.selectActiveService = value;
   }
 
   boolean isSplitByTypeEnabled(@NotNull ServiceView selectedView) {
@@ -1226,6 +1293,7 @@ public final class ServiceViewManagerImpl implements ServiceViewManager, Persist
 
     @Override
     public void extensionRemoved(@NotNull ServiceViewContributor<?> extension, @NotNull PluginDescriptor pluginDescriptor) {
+      myNotInitializedContributors.remove(extension);
       ServiceEvent e = ServiceEvent.createUnloadSyncResetEvent(extension.getClass());
       myModel.handle(e).onProcessed(o -> {
         eventHandled(e);

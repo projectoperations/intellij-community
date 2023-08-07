@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.notification.impl;
 
 import com.intellij.codeInsight.hint.TooltipController;
@@ -84,7 +84,7 @@ public final class NotificationsManagerImpl extends NotificationsManager {
   private static final Logger LOG = Logger.getInstance(NotificationsManagerImpl.class);
 
   private @Nullable List<Pair<Notification, @Nullable Project>> myEarlyNotifications = new ArrayList<>();
-  private final IJTracer myTracer = TelemetryManager.getInstance().getTracer(NotificationScopeKt.NotificationScope);;
+  private final IJTracer myTracer = TelemetryManager.getInstance().getTracer(NotificationScopeKt.NotificationScope);
 
   public NotificationsManagerImpl() {
     ApplicationManager.getApplication().getMessageBus().connect().subscribe(ProjectCloseListener.TOPIC, new ProjectCloseListener() {
@@ -126,7 +126,8 @@ public final class NotificationsManagerImpl extends NotificationsManager {
     return ArrayUtil.toObjectArray(result, klass);
   }
 
-  private void doNotify(Notification notification, @Nullable Project project) {
+  @Override
+  public void showNotification(@NotNull Notification notification, @Nullable Project project) {
     NotificationsConfigurationImpl configuration = NotificationsConfigurationImpl.getInstanceImpl();
     NotificationSettings settings = NotificationsConfigurationImpl.getSettings(notification.getGroupId());
 
@@ -166,7 +167,7 @@ public final class NotificationsManagerImpl extends NotificationsManager {
   }
 
   @RequiresEdt
-  private void showNotification(Notification notification, @Nullable Project project) {
+  private void showNotificationInner(Notification notification, @Nullable Project project) {
     if (LOG.isDebugEnabled()) LOG.debug("incoming: " + notification + ", project=" + project);
 
     if (myEarlyNotifications != null) {
@@ -297,7 +298,7 @@ public final class NotificationsManagerImpl extends NotificationsManager {
         span.setAttribute("project", project.toString());
       }
       span.setAttribute("notification", notification.toString());
-      showNotification(notification, project);
+      showNotificationInner(notification, project);
     });
   }
 
@@ -1135,7 +1136,7 @@ public final class NotificationsManagerImpl extends NotificationsManager {
     return text.getPreferredSize().height;
   }
 
-  private static boolean isDummyEnvironment() {
+  static boolean isDummyEnvironment() {
     Application app = ApplicationManager.getApplication();
     return app.isUnitTestMode() || app.isCommandLine();
   }
@@ -1234,27 +1235,6 @@ public final class NotificationsManagerImpl extends NotificationsManager {
     return null;
   }
 
-  static final class MyNotificationListener implements Notifications {
-    private final Project project;
-
-    @SuppressWarnings("unused")
-    MyNotificationListener() {
-      project = null;
-    }
-
-    @SuppressWarnings("unused")
-    private MyNotificationListener(@Nullable Project project) {
-      this.project = project;
-      if (isDummyEnvironment()) {
-        throw ExtensionNotApplicableException.create();
-      }
-    }
-
-    @Override
-    public void notify(@NotNull Notification notification) {
-      ((NotificationsManagerImpl)NotificationsManager.getNotificationsManager()).doNotify(notification, project);
-    }
-  }
 
   private static @Nullable Point getCollapsedTextEndLocation(JEditorPane text, BalloonLayoutData layoutData) {
     try {

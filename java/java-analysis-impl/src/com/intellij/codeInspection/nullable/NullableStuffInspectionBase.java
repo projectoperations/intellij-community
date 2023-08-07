@@ -11,6 +11,7 @@ import com.intellij.codeInspection.dataFlow.DfaPsiUtil;
 import com.intellij.codeInspection.dataFlow.java.inst.MethodCallInstruction;
 import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.java.analysis.JavaAnalysisBundle;
+import com.intellij.modcommand.ModCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.GeneratedSourcesFilter;
@@ -175,12 +176,14 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
             PsiElement parent = context.getParent();
             if (parent instanceof PsiJavaCodeReferenceElement) {
               if (outerCtx.resolve() instanceof PsiPackage) {
+                ModCommandAction action = new MoveAnnotationOnStaticMemberQualifyingTypeFix(annotation);
                 reportIncorrectLocation(holder, annotation, listOwner, "inspection.nullable.problems.applied.to.package",
-                                        new MoveAnnotationOnStaticMemberQualifyingTypeFix(annotation).asQuickFix());
+                                        LocalQuickFix.from(action));
               }
               else {
+                ModCommandAction action = new MoveAnnotationOnStaticMemberQualifyingTypeFix(annotation);
                 reportIncorrectLocation(holder, annotation, listOwner, "inspection.nullable.problems.outer.type",
-                                        new MoveAnnotationOnStaticMemberQualifyingTypeFix(annotation).asQuickFix());
+                                        LocalQuickFix.from(action));
               }
             }
             if (parent instanceof PsiReferenceList) {
@@ -794,9 +797,10 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
     if (REPORT_NOT_ANNOTATED_METHOD_OVERRIDES_NOTNULL &&
         !(method.getReturnType() instanceof PsiPrimitiveType) &&
         !method.isConstructor()) {
-      NullabilityAnnotationInfo info = getNullityManager(method).findEffectiveNullabilityInfo(method);
+      NullableNotNullManager manager = getNullityManager(method);
+      NullabilityAnnotationInfo info = manager.findEffectiveNullabilityInfo(method);
       if ((info == null || info.isInferred() ||
-           (!info.isContainer() && !info.isExternal() && !PsiTreeUtil.isAncestor(method, info.getAnnotation(), true))) &&
+           (info.getInheritedFrom() != null && manager.findContainerAnnotation(method) == null)) &&
           isNotNullNotInferred(superMethod, true, IGNORE_EXTERNAL_SUPER_NOTNULL) &&
           !hasInheritableNotNull(superMethod)) {
         return true;
@@ -928,16 +932,17 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
                                                                 PsiParameter parameter) {
     if (!REPORT_NULLS_PASSED_TO_NOT_NULL_PARAMETER || !holder.isOnTheFly()) return;
 
-    PsiElement elementToHighlight;
-    if (DfaPsiUtil.getTypeNullability(parameter.getType()) == Nullability.NOT_NULL) {
-      elementToHighlight = parameter.getNameIdentifier();
+    PsiElement elementToHighlight = null;
+    NullabilityAnnotationInfo info = nullableManager.findOwnNullabilityInfo(parameter);
+    if (info != null && !info.isInferred()) {
+      if (info.getNullability() == Nullability.NOT_NULL) {
+        PsiAnnotation notNullAnnotation = info.getAnnotation();
+        boolean physical = PsiTreeUtil.isAncestor(parameter, notNullAnnotation, true);
+        elementToHighlight = physical ? notNullAnnotation : parameter.getNameIdentifier();
+      }
     }
-    else {
-      NullabilityAnnotationInfo info = nullableManager.findOwnNullabilityInfo(parameter);
-      if (info == null || info.getNullability() != Nullability.NOT_NULL || info.isInferred()) return;
-      PsiAnnotation notNullAnnotation = info.getAnnotation();
-      boolean physical = PsiTreeUtil.isAncestor(parameter, notNullAnnotation, true);
-      elementToHighlight = physical ? notNullAnnotation : parameter.getNameIdentifier();
+    else if (DfaPsiUtil.getTypeNullability(parameter.getType()) == Nullability.NOT_NULL) {
+      elementToHighlight = parameter.getNameIdentifier();
     }
     if (elementToHighlight == null || !JavaNullMethodArgumentUtil.hasNullArgument(method, parameterIdx)) return;
 

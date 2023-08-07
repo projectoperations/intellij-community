@@ -14,14 +14,13 @@ import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.util.PopupUtil;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeGlassPaneUtil;
 import com.intellij.openapi.wm.impl.IdeFrameImpl;
-import com.intellij.ui.ClientProperty;
-import com.intellij.ui.ExperimentalUI;
-import com.intellij.ui.IconManager;
-import com.intellij.ui.InplaceButton;
+import com.intellij.ui.*;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.awt.RelativeRectangle;
+import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.ui.docking.DockContainer;
 import com.intellij.ui.docking.DockableContent;
 import com.intellij.ui.docking.DockableContentContainer;
@@ -43,10 +42,12 @@ import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.JBFont;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import kotlinx.coroutines.CoroutineScope;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.PopupMenuEvent;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.Rectangle2D;
@@ -179,7 +180,47 @@ public final class WindowTabsComponent extends JBTabsImpl {
       public void setTabActions(ActionGroup group) {
         super.setTabActions(group);
         if (myActionPanel != null) {
+          Container parent = myActionPanel.getParent();
+          parent.remove(myActionPanel);
+          parent.add(new Wrapper(myActionPanel) {
+            @Override
+            public Dimension getPreferredSize() {
+              return myActionPanel.getPreferredSize();
+            }
+          }, BorderLayout.WEST);
+
           myActionPanel.setBorder(JBUI.Borders.emptyLeft(6));
+          myActionPanel.setVisible(!showCloseActionOnHover());
+        }
+      }
+
+      @Override
+      protected void setHovered(boolean value) {
+        super.setHovered(value);
+        myActionPanel.setVisible(!showCloseActionOnHover() || value || getInfo() == myTabs.getPopupInfo());
+      }
+
+      @Override
+      protected void handlePopup(MouseEvent e) {
+        super.handlePopup(e);
+        JPopupMenu popup = myTabs.getActivePopup();
+        if (popup != null) {
+          popup.addPopupMenuListener(new PopupMenuListenerAdapter() {
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+              handle();
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {
+              handle();
+            }
+
+            private void handle() {
+              popup.removePopupMenuListener(this);
+              myActionPanel.setVisible(!showCloseActionOnHover() || isHovered());
+            }
+          });
         }
       }
 
@@ -193,6 +234,10 @@ public final class WindowTabsComponent extends JBTabsImpl {
         return false;
       }
     };
+  }
+
+  private static boolean showCloseActionOnHover() {
+    return Registry.is("ide.mac.os.wintabs.show.closeaction.on.hover", true);
   }
 
   @Override
@@ -227,7 +272,7 @@ public final class WindowTabsComponent extends JBTabsImpl {
         int border = JBUI.scale(1);
 
         if (info.getObject() == myNativeWindow) {
-          Window window = UIUtil.getWindow(WindowTabsComponent.this);
+          Window window = ComponentUtil.getWindow(WindowTabsComponent.this);
           Color tabColor = JBUI.CurrentTheme.MainWindow.Tab.background(true, window != null && !window.isActive(), false);
           myTabPainter.paintTab(tabs.getTabsPosition(), g2d, rect, tabs.getBorderThickness(), tabColor, true, false);
 
@@ -611,7 +656,9 @@ public final class WindowTabsComponent extends JBTabsImpl {
 
   private static @NotNull DockManagerImpl getDockManager() {
     if (myDockManager == null) {
-      myDockManager = new DockManagerImpl(ProjectManager.getInstance().getDefaultProject());
+      Project project = ProjectManager.getInstance().getDefaultProject();
+      //noinspection deprecation
+      myDockManager = new DockManagerImpl(project, project.getCoroutineScope());
     }
     return myDockManager;
   }
@@ -629,7 +676,7 @@ public final class WindowTabsComponent extends JBTabsImpl {
     getDockManager().register(new TabsDockContainer(), myParentDisposable);
   }
 
-  static void registerFrameDockContainer(@NotNull IdeFrameImpl frame, Disposable parentDisposable) {
+  static void registerFrameDockContainer(@NotNull IdeFrameImpl frame, @NotNull CoroutineScope coroutineScope) {
     getDockManager().register(new DockContainer() {
       private Disposable myPaintDisposable;
       private AbstractPainter myDropPainter;
@@ -682,7 +729,7 @@ public final class WindowTabsComponent extends JBTabsImpl {
       public boolean isDisposeWhenEmpty() {
         return false;
       }
-    }, parentDisposable);
+    }, coroutineScope);
   }
 
   private class TabsDockContainer implements DockContainer {

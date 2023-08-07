@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.collaboration.ui.codereview.details
 
+import com.intellij.collaboration.async.launchNow
 import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.collaboration.ui.HorizontalListPanel
 import com.intellij.collaboration.ui.VerticalListPanel
@@ -11,6 +12,7 @@ import com.intellij.collaboration.ui.codereview.details.data.ReviewState
 import com.intellij.collaboration.ui.codereview.details.model.CodeReviewStatusViewModel
 import com.intellij.collaboration.ui.util.*
 import com.intellij.icons.AllIcons
+import com.intellij.icons.ExpUiIcons
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.*
@@ -18,8 +20,10 @@ import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBList
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JLabelUtil
+import com.intellij.vcsUtil.showAbove
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -49,7 +53,7 @@ object CodeReviewDetailsStatusComponentFactory {
   fun createConflictsComponent(scope: CoroutineScope, hasConflicts: Flow<Boolean>): JComponent {
     return ReviewDetailsStatusLabel("Code review status: review has conflicts").apply {
       border = JBUI.Borders.empty(STATUS_COMPONENT_BORDER, 0)
-      icon = AllIcons.RunConfigurations.TestError
+      icon = if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.Error else AllIcons.RunConfigurations.TestError
       text = CollaborationToolsBundle.message("review.details.status.conflicts")
       bindVisibilityIn(scope, hasConflicts)
     }
@@ -58,7 +62,7 @@ object CodeReviewDetailsStatusComponentFactory {
   fun <T> createNeedReviewerComponent(scope: CoroutineScope, reviewersReview: Flow<Map<T, ReviewState>>): JComponent {
     return ReviewDetailsStatusLabel("Code review status: need reviewer").apply {
       border = JBUI.Borders.empty(STATUS_COMPONENT_BORDER, 0)
-      icon = AllIcons.RunConfigurations.TestError
+      icon = if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.Error else AllIcons.RunConfigurations.TestError
       text = CollaborationToolsBundle.message("review.details.status.reviewer.missing")
       bindVisibilityIn(scope, reviewersReview.map { it.isEmpty() })
     }
@@ -67,7 +71,7 @@ object CodeReviewDetailsStatusComponentFactory {
   fun createRequiredReviewsComponent(scope: CoroutineScope, requiredApprovingReviewsCount: Flow<Int>, isDraft: Flow<Boolean>): JComponent {
     return ReviewDetailsStatusLabel("Code review status: required reviews").apply {
       border = JBUI.Borders.empty(STATUS_COMPONENT_BORDER, 0)
-      icon = AllIcons.RunConfigurations.TestError
+      icon = if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.Error else AllIcons.RunConfigurations.TestError
       bindVisibilityIn(scope, combine(requiredApprovingReviewsCount, isDraft) { requiredApprovingReviewsCount, isDraft ->
         requiredApprovingReviewsCount > 0 && !isDraft
       })
@@ -80,7 +84,7 @@ object CodeReviewDetailsStatusComponentFactory {
   fun createRestrictionComponent(scope: CoroutineScope, isRestricted: Flow<Boolean>, isDraft: Flow<Boolean>): JComponent {
     return ReviewDetailsStatusLabel("Code review status: restricted rights").apply {
       border = JBUI.Borders.empty(STATUS_COMPONENT_BORDER, 0)
-      icon = AllIcons.RunConfigurations.TestError
+      icon = if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.Error else AllIcons.RunConfigurations.TestError
       text = CollaborationToolsBundle.message("review.details.status.not.authorized.to.merge")
       bindVisibilityIn(scope, combine(isRestricted, isDraft) { isRestricted, isDraft ->
         isRestricted && !isDraft
@@ -90,14 +94,6 @@ object CodeReviewDetailsStatusComponentFactory {
 
   fun createCiComponent(scope: CoroutineScope, statusVm: CodeReviewStatusViewModel): JComponent {
     val ciJobs = statusVm.ciJobs
-    val listModel = CollectionListModel<CodeReviewCIJob>(emptyList())
-    val jobsList = createJobsList(listModel)
-    scope.launch {
-      ciJobs.collect { jobs ->
-        listModel.removeAll()
-        jobs.forEach { job -> listModel.add(job) }
-      }
-    }
 
     val title = JLabel().apply {
       bindIconIn(scope, ciJobs.map { jobs -> ciJobIcon(jobs) })
@@ -105,20 +101,28 @@ object CodeReviewDetailsStatusComponentFactory {
     }
 
     val detailsLink = ActionLink(CollaborationToolsBundle.message("review.details.status.ci.link.details")) {
-      val parentComponent = it.source as JComponent
-      val scrollPane = ScrollPaneFactory.createScrollPane(jobsList, true).apply {
-        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-        verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-        isOpaque = false
-        viewport.isOpaque = false
-      }
-      JBPopupFactory.getInstance()
-        .createComponentPopupBuilder(scrollPane, null)
-        .setResizable(true)
-        .createPopup()
-        .showUnderneathOf(parentComponent)
+      statusVm.showJobsDetails()
+
     }.apply {
       bindVisibilityIn(scope, ciJobs.map { jobs -> !jobs.all { it.status == CodeReviewCIJobState.SUCCESS } })
+    }
+
+    scope.launchNow {
+      statusVm.showJobsDetailsRequests.collectLatest { jobs ->
+        val listModel = CollectionListModel(jobs)
+        val jobsList = createJobsList(listModel)
+        val scrollPane = ScrollPaneFactory.createScrollPane(jobsList, true).apply {
+          horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+          verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+          isOpaque = false
+          viewport.isOpaque = false
+        }
+        JBPopupFactory.getInstance()
+          .createComponentPopupBuilder(scrollPane, null)
+          .setResizable(true)
+          .createPopup()
+          .showAbove(detailsLink)
+      }
     }
 
     return HorizontalListPanel(CI_COMPONENTS_GAP).apply {
@@ -208,10 +212,10 @@ object CodeReviewDetailsStatusComponentFactory {
     val failed = jobs.count { it.status == CodeReviewCIJobState.FAILED }
     val pending = jobs.count { it.status == CodeReviewCIJobState.PENDING }
     return when {
-      jobs.all { it.status == CodeReviewCIJobState.SUCCESS } -> AllIcons.RunConfigurations.TestPassed
-      pending != 0 && failed != 0 -> AllIcons.RunConfigurations.TestCustom
-      pending != 0 -> AllIcons.RunConfigurations.TestNotRan
-      else -> AllIcons.RunConfigurations.TestError
+      jobs.all { it.status == CodeReviewCIJobState.SUCCESS } -> if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.Success else AllIcons.RunConfigurations.TestPassed
+      pending != 0 && failed != 0 -> if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.FailedInProgress else AllIcons.Status.FailedInProgress
+      pending != 0 -> if (ExperimentalUI.isNewUI()) ExpUiIcons.Run.TestNotRunYet else AllIcons.RunConfigurations.TestNotRan
+      else -> if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.Error else AllIcons.RunConfigurations.TestError
     }
   }
 
@@ -242,9 +246,9 @@ object CodeReviewDetailsStatusComponentFactory {
         append(value.name, SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES, SimpleColoredComponent.BrowserLauncherTag(value.detailsUrl))
       }
       component.icon = when (value.status) {
-        CodeReviewCIJobState.SUCCESS -> AllIcons.RunConfigurations.TestPassed
-        CodeReviewCIJobState.PENDING -> AllIcons.RunConfigurations.TestNotRan
-        CodeReviewCIJobState.FAILED -> AllIcons.RunConfigurations.TestError
+        CodeReviewCIJobState.SUCCESS -> if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.Success else AllIcons.RunConfigurations.TestPassed
+        CodeReviewCIJobState.PENDING -> if (ExperimentalUI.isNewUI()) ExpUiIcons.Run.TestNotRunYet else AllIcons.RunConfigurations.TestNotRan
+        CodeReviewCIJobState.FAILED -> if (ExperimentalUI.isNewUI()) ExpUiIcons.Status.Error else AllIcons.RunConfigurations.TestError
       }
 
       return component

@@ -31,6 +31,8 @@ import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsLibraryDependency
+import org.jetbrains.jps.model.module.JpsModule
+import org.jetbrains.jps.model.module.JpsModuleDependency
 import org.jetbrains.jps.model.module.JpsModuleReference
 import java.io.File
 import java.nio.ByteBuffer
@@ -46,9 +48,6 @@ import kotlin.io.path.invariantSeparatorsPathString
 
 private val JAR_NAME_WITH_VERSION_PATTERN = "(.*)-\\d+(?:\\.\\d+)*\\.jar*".toPattern()
 private val isUnpackedDist = System.getProperty("idea.dev.build.unpacked").toBoolean()
-
-internal val BuildContext.searchableOptionDir: Path
-  get() = paths.tempDir.resolve("searchableOptionsResult")
 
 @Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
 private val libsThatUsedInJps = java.util.Set.of(
@@ -100,7 +99,7 @@ private val predefinedMergeRules = persistentMapOf<String, (String, JetBrainsCli
   map.put(PRODUCT_CLIENT_JAR) { name, filter -> name.startsWith("License") && filter.isProjectLibraryIncluded(name) }
   // see ClassPathUtil.getUtilClassPath
   map.put(UTIL_8_JAR) { it, _ ->
-  libsThatUsedInJps.contains(it) ||
+    libsThatUsedInJps.contains(it) ||
     (it.startsWith("kotlinx-") && !notImportantKotlinLibs.contains(it)) ||
     it == "kotlin-reflect"
   }
@@ -122,7 +121,10 @@ internal fun getLibraryFileName(library: JpsLibrary): String {
   return PathUtilRt.getFileName(roots.first().url.removeSuffix(URLUtil.JAR_SEPARATOR))
 }
 
-class JarPackager private constructor(private val outputDir: Path, private val context: BuildContext, private val isRootDir: Boolean) {
+class JarPackager private constructor(private val outputDir: Path,
+                                      private val context: BuildContext,
+                                      private val platformLayout: PlatformLayout?,
+                                      private val isRootDir: Boolean) {
   private val jarDescriptors = LinkedHashMap<Path, JarDescriptor>()
   private val libraryEntries = ConcurrentLinkedQueue<LibraryFileEntry>()
   private val libToMetadata = HashMap<JpsLibrary, ProjectLibraryData>()
@@ -134,10 +136,11 @@ class JarPackager private constructor(private val outputDir: Path, private val c
                      isRootDir: Boolean,
                      isCodesignEnabled: Boolean = true,
                      layout: BaseLayout?,
+                     platformLayout: PlatformLayout?,
                      moduleOutputPatcher: ModuleOutputPatcher = ModuleOutputPatcher(),
                      dryRun: Boolean = false,
                      context: BuildContext): Collection<DistributionFileEntry> {
-      val packager = JarPackager(outputDir = outputDir, isRootDir = isRootDir, context = context)
+      val packager = JarPackager(outputDir = outputDir, platformLayout = platformLayout, isRootDir = isRootDir, context = context)
 
       // must be concurrent - buildJars executed in parallel
       val moduleNameToSize = ConcurrentHashMap<String, Int>()
@@ -179,7 +182,8 @@ class JarPackager private constructor(private val outputDir: Path, private val c
 
       if (layout != null) {
         val clientModuleFilter = context.jetBrainsClientModuleFilter
-        val libraryToMerge = packager.packProjectLibraries(outputDir = outputDir, layout = layout, copiedFiles = packager.copiedFiles, clientModuleFilter)
+        val libraryToMerge = packager.packProjectLibraries(outputDir = outputDir, layout = layout, copiedFiles = packager.copiedFiles,
+                                                           clientModuleFilter)
         if (isRootDir) {
           for ((key, value) in predefinedMergeRules) {
             packager.mergeLibsByPredicate(key, libraryToMerge, outputDir, value, clientModuleFilter)
@@ -225,10 +229,15 @@ class JarPackager private constructor(private val outputDir: Path, private val c
 
         // sort because projectStructureMapping is a concurrent collection
         // call invariantSeparatorsPathString because the result of Path ordering is platform-dependent
+
+        // also, put libraries from Maven repo ahead of others, for them to not depend on the lexicographical order of Maven repo and source path
+        fun isFromLocalMavenRepo(path: Path) = path.startsWith(MAVEN_REPO)
+
         list +
         unpackedModules.sortedWith(compareBy({ it.moduleName }, { it.path.invariantSeparatorsPathString })) +
         packager.libraryEntries.sortedWith(compareBy({ it.path.invariantSeparatorsPathString },
                                                      { it.type },
+                                                     { it.libraryFile?.let(::isFromLocalMavenRepo) != true },
                                                      { it.libraryFile?.invariantSeparatorsPathString }))
       }
     }
@@ -240,95 +249,150 @@ class JarPackager private constructor(private val outputDir: Path, private val c
                                   layout: BaseLayout?): List<ModuleOutputEntry> {
     val unpackedModules = mutableListOf<ModuleOutputEntry>()
     for (item in includedModules) {
-      val moduleName = item.moduleName
-      val patchedDirs = moduleOutputPatcher.getPatchedDir(moduleName)
-      val patchedContent = moduleOutputPatcher.getPatchedContent(moduleName)
+      packModule(item = item,
+                 moduleOutputPatcher = moduleOutputPatcher,
+                 layout = layout,
+                 moduleNameToSize = moduleNameToSize,
+                 unpackedModules = unpackedModules)
+    }
 
-      val searchableOptionsModuleDir = context.searchableOptionDir.resolve(moduleName).takeIf {
-        withContext(Dispatchers.IO) {
-          Files.exists(it)
+    if (layout is PluginLayout && layout.auto) {
+      // for now, check only direct dependencies of the main plugin module
+      val module = context.findRequiredModule(layout.mainModule)
+      val javaExtensionService = JpsJavaExtensionService.getInstance()
+      val childPrefix = "${layout.mainModule}."
+      for (element in module.dependenciesList.dependencies) {
+        if (element !is JpsModuleDependency ||
+            javaExtensionService.getDependencyExtension(element)?.scope?.isIncludedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME) != true) {
+          continue
         }
-      }
 
-      val moduleOutputDir = context.getModuleOutputDir(context.findRequiredModule(moduleName))
-      val extraExcludes = layout?.moduleExcludes?.get(moduleName) ?: emptyList()
-
-      val packToDir = isUnpackedDist && layout is PlatformLayout && patchedContent.isEmpty() && extraExcludes.isEmpty()
-
-      val descriptor = jarDescriptors.computeIfAbsent(outputDir.resolve(item.relativeOutputFile)) { jarFile ->
-        createJarDescriptor(outputDir = outputDir, targetFile = jarFile, context = context)
-      }
-      descriptor.includedModules = descriptor.includedModules.add(item)
-
-      val sourceList: MutableList<Source>
-      if (packToDir) {
-        sourceList = mutableListOf()
-        // suppress assert
-        moduleNameToSize.putIfAbsent(moduleName, 0)
-      }
-      else {
-        sourceList = descriptor.sources
-      }
-
-      val sizeConsumer = IntConsumer {
-        moduleNameToSize.merge(moduleName, it) { oldValue, value -> oldValue + value }
-      }
-
-      for (entry in patchedContent) {
-        sourceList.add(InMemoryContentSource(entry.key, entry.value, sizeConsumer))
-      }
-
-      // must be before module output to override
-      for (moduleOutputPatch in patchedDirs) {
-        sourceList.add(DirSource(dir = moduleOutputPatch, sizeConsumer = sizeConsumer))
-      }
-
-      if (searchableOptionsModuleDir != null) {
-        sourceList.add(DirSource(dir = searchableOptionsModuleDir, sizeConsumer = sizeConsumer))
-      }
-
-      val excludes = if (extraExcludes.isEmpty()) {
-        commonModuleExcludes
-      }
-      else {
-        val fileSystem = FileSystems.getDefault()
-        commonModuleExcludes + extraExcludes.map { fileSystem.getPathMatcher("glob:$it") }
-      }
-      sourceList.add(DirSource(dir = moduleOutputDir,
-                               excludes = excludes,
-                               sizeConsumer = sizeConsumer))
-
-      if (layout != null) {
-        packModuleLibs(item = item, layout = layout, copiedFiles = copiedFiles, sources = descriptor.sources)
-      }
-
-      if (packToDir) {
-        for (source in sourceList) {
-          unpackedModules.add(ModuleOutputEntry(moduleName = moduleName, path = (source as DirSource).dir, size = 0))
+        val name = element.moduleReference.moduleName
+        if (includedModules.any { it.moduleName == name } || !name.startsWith(childPrefix)) {
+          continue
         }
+
+        val moduleItem = ModuleItem(moduleName = name, relativeOutputFile = layout.getMainJarName(), reason = "<- ${layout.mainModule}")
+        if (platformLayout!!.includedModules.contains(moduleItem)) {
+          continue
+        }
+
+        packModule(item = moduleItem,
+                   moduleOutputPatcher = moduleOutputPatcher,
+                   layout = layout,
+                   moduleNameToSize = moduleNameToSize,
+                   unpackedModules = unpackedModules)
       }
     }
     return unpackedModules
   }
 
+  private suspend fun JarPackager.packModule(item: ModuleItem,
+                                             moduleOutputPatcher: ModuleOutputPatcher,
+                                             layout: BaseLayout?,
+                                             moduleNameToSize: ConcurrentHashMap<String, Int>,
+                                             unpackedModules: MutableList<ModuleOutputEntry>) {
+    val moduleName = item.moduleName
+    val patchedDirs = moduleOutputPatcher.getPatchedDir(moduleName)
+    val patchedContent = moduleOutputPatcher.getPatchedContent(moduleName)
+
+    val searchableOptionsModuleDir = context.paths.searchableOptionDir.resolve(moduleName).takeIf {
+      withContext(Dispatchers.IO) {
+        Files.exists(it)
+      }
+    }
+
+    val module = context.findRequiredModule(moduleName)
+    val moduleOutputDir = context.getModuleOutputDir(module)
+    val extraExcludes = layout?.moduleExcludes?.get(moduleName) ?: emptyList()
+
+    val packToDir = isUnpackedDist && layout is PlatformLayout && patchedContent.isEmpty() && extraExcludes.isEmpty()
+
+    val descriptor = jarDescriptors.computeIfAbsent(outputDir.resolve(item.relativeOutputFile)) { jarFile ->
+      createJarDescriptor(outputDir = outputDir, targetFile = jarFile, context = context)
+    }
+    descriptor.includedModules = descriptor.includedModules.add(item)
+
+    val sourceList: MutableList<Source>
+    if (packToDir) {
+      sourceList = mutableListOf()
+      // suppress assert
+      moduleNameToSize.putIfAbsent(moduleName, 0)
+    }
+    else {
+      sourceList = descriptor.sources
+    }
+
+    val sizeConsumer = IntConsumer {
+      moduleNameToSize.merge(moduleName, it) { oldValue, value -> oldValue + value }
+    }
+
+    for (entry in patchedContent) {
+      sourceList.add(InMemoryContentSource(entry.key, entry.value, sizeConsumer))
+    }
+
+    // must be before module output to override
+    for (moduleOutputPatch in patchedDirs) {
+      sourceList.add(DirSource(dir = moduleOutputPatch, sizeConsumer = sizeConsumer))
+    }
+
+    if (searchableOptionsModuleDir != null) {
+      sourceList.add(DirSource(dir = searchableOptionsModuleDir, sizeConsumer = sizeConsumer))
+    }
+
+    val excludes = if (extraExcludes.isEmpty()) {
+      commonModuleExcludes
+    }
+    else {
+      val fileSystem = FileSystems.getDefault()
+      commonModuleExcludes + extraExcludes.map { fileSystem.getPathMatcher("glob:$it") }
+    }
+    sourceList.add(DirSource(dir = moduleOutputDir,
+                             excludes = excludes,
+                             sizeConsumer = sizeConsumer))
+
+    if (layout != null) {
+      packModuleLibs(item = item, module = module, layout = layout, copiedFiles = copiedFiles, sources = descriptor.sources)
+    }
+
+    if (packToDir) {
+      for (source in sourceList) {
+        unpackedModules.add(ModuleOutputEntry(moduleName = moduleName, path = (source as DirSource).dir, size = 0))
+      }
+    }
+  }
+
   private suspend fun packModuleLibs(item: ModuleItem,
                                      layout: BaseLayout,
+                                     module: JpsModule,
                                      copiedFiles: MutableMap<Path, CopiedFor>,
                                      sources: MutableList<Source>) {
     if (item.relativeOutputFile.contains('/')) {
       return
     }
 
-    val moduleName = item.moduleName
+    val moduleName = module.name
     if (layout.modulesWithExcludedModuleLibraries.contains(moduleName)) {
       return
     }
 
+    val includeProjectLib = layout is PluginLayout && layout.auto
+
     val excluded = layout.excludedModuleLibraries.get(moduleName)
-    for (element in context.findRequiredModule(moduleName).dependenciesList.dependencies) {
+    for (element in module.dependenciesList.dependencies) {
+      var isModuleLevel = true
       val libraryReference = (element as? JpsLibraryDependency)?.libraryReference ?: continue
       if (libraryReference.parentReference !is JpsModuleReference) {
-        continue
+        if (includeProjectLib) {
+          val name = element.library!!.name
+          if (platformLayout!!.hasLibrary(name) || layout.hasLibrary(name)) {
+            continue
+          }
+          isModuleLevel = false
+        }
+        else {
+          continue
+        }
       }
 
       if (JpsJavaExtensionService.getInstance().getDependencyExtension(element)?.scope
@@ -355,11 +419,21 @@ class JarPackager private constructor(private val outputDir: Path, private val c
 
       for (file in files) {
         sources.add(ZipSource(file) { size ->
-          libraryEntries.add(ModuleLibraryFileEntry(path = targetFile,
-                                                    moduleName = moduleName,
-                                                    libraryName = LibraryLicensesListGenerator.getLibraryName(library),
-                                                    libraryFile = file,
-                                                    size = size))
+          val entry = if (isModuleLevel) {
+            ModuleLibraryFileEntry(path = targetFile,
+                                   moduleName = moduleName,
+                                   libraryName = LibraryLicensesListGenerator.getLibraryName(library),
+                                   libraryFile = file,
+                                   size = size)
+          }
+          else {
+            ProjectLibraryEntry(path = targetFile,
+                                libraryFile = file,
+                                size = size,
+                                data = ProjectLibraryData(libraryName, LibraryPackMode.MERGED, reason = "<- $moduleName"))
+
+          }
+          libraryEntries.add(entry)
         })
       }
     }
@@ -431,7 +505,8 @@ class JarPackager private constructor(private val outputDir: Path, private val c
       libToMetadata.put(library, libraryData)
       val libName = library.name
       var packMode = libraryData.packMode
-      if (packMode == LibraryPackMode.MERGED && !predefinedMergeRules.values.any { it(libName, clientModuleFilter) } && !isLibraryMergeable(libName)) {
+      if (packMode == LibraryPackMode.MERGED && !predefinedMergeRules.values.any { it(libName, clientModuleFilter) } && !isLibraryMergeable(
+          libName)) {
         packMode = LibraryPackMode.STANDALONE_MERGED
       }
 

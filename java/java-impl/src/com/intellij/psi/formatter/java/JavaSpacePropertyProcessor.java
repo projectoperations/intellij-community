@@ -668,14 +668,6 @@ public final class JavaSpacePropertyProcessor extends JavaElementVisitor {
   }
 
   @Override
-  public void visitGuardedPattern(@NotNull PsiGuardedPattern pattern) {
-    super.visitGuardedPattern(pattern);
-    if (myType1 == JavaTokenType.ANDAND || myType2 == JavaTokenType.ANDAND) {
-      createSpaceInCode(true);
-    }
-  }
-
-  @Override
   public void visitPatternGuard(@NotNull PsiPatternGuard guard) {
     if (myType1 == JavaTokenType.WHEN_KEYWORD || myType2 == JavaTokenType.WHEN_KEYWORD) {
       createSpaceInCode(true);
@@ -1965,6 +1957,9 @@ public final class JavaSpacePropertyProcessor extends JavaElementVisitor {
     // for >> lexer generates > and >, we need to handle it separately (IDEA-287538)
     if (type1 == JavaTokenType.GTGT && type2 != JavaTokenType.GT && type2 != JavaTokenType.EQ) return true;
     if (type1 != JavaTokenType.GT && type2 == JavaTokenType.GTGT) return true;
+
+    // Because 21 Preview is not the highest language level.
+    if (ElementType.STRING_TEMPLATE_FRAGMENTS.contains(type1) || ElementType.STRING_TEMPLATE_FRAGMENTS.contains(type2)) return true;
 
     Pair<IElementType, IElementType> key = pair(type1, type2);
     Boolean result = ourTokenStickingMatrix.get(key);

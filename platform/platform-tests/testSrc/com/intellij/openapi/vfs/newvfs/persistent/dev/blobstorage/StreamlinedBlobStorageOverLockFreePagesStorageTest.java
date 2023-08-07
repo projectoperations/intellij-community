@@ -2,17 +2,29 @@
 package com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage;
 
 import com.intellij.util.io.PageCacheUtils;
-import com.intellij.util.io.PagedFileStorageLockFree;
+import com.intellij.util.io.PagedFileStorageWithRWLockedPageContent;
+import com.intellij.util.io.pagecache.impl.PageContentLockingStrategy;
 import org.jetbrains.annotations.NotNull;
 import org.junit.BeforeClass;
+import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeTrue;
 
 public class StreamlinedBlobStorageOverLockFreePagesStorageTest
   extends StreamlinedBlobStorageTestBase<StreamlinedBlobStorageOverLockFreePagesStorage> {
+
+  @Test
+  public void newStorage_HasVersion_OfCurrentStorageFormat() throws Exception {
+    assertEquals(
+      "New storage version == STORAGE_VERSION_CURRENT",
+      storage.getStorageVersion(),
+      StreamlinedBlobStorageOverLockFreePagesStorage.STORAGE_VERSION_CURRENT
+    );
+  }
 
   @BeforeClass
   public static void beforeClass() throws Exception {
@@ -35,12 +47,12 @@ public class StreamlinedBlobStorageOverLockFreePagesStorageTest
 
   @Override
   protected StreamlinedBlobStorageOverLockFreePagesStorage openStorage(final Path pathToStorage) throws IOException {
-    final PagedFileStorageLockFree pagedStorage = new PagedFileStorageLockFree(
-      pathToStorage,
-      LOCK_CONTEXT,
-      pageSize,
-      true
-    );
+    PagedFileStorageWithRWLockedPageContent pagedStorage = new PagedFileStorageWithRWLockedPageContent(
+        pathToStorage,
+        LOCK_CONTEXT,
+        pageSize,
+        PageContentLockingStrategy.LOCK_PER_PAGE
+      );
     return new StreamlinedBlobStorageOverLockFreePagesStorage(
       pagedStorage,
       allocationStrategy

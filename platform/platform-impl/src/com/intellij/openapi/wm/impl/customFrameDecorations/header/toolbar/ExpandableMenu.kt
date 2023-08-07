@@ -29,7 +29,7 @@ private const val ALPHA = (255 * 0.6).toInt()
 
 internal class ExpandableMenu(private val headerContent: JComponent, coroutineScope: CoroutineScope, frame: JFrame) {
   val ideMenu: IdeMenuBar = createMenuBar(coroutineScope, frame)
-  private val ideMenuHelper = IdeMenuHelper(ideMenu, null)
+  private val ideMenuHelper = IdeMenuHelper(menu = ideMenu, coroutineScope = null)
   private var expandedMenuBar: JPanel? = null
   private var headerColorfulPanel: HeaderColorfulPanel? = null
   private val shadowComponent = ShadowComponent()
@@ -38,7 +38,7 @@ internal class ExpandableMenu(private val headerContent: JComponent, coroutineSc
   private var hideMenu = false
   private val menuSelectionListener = ChangeListener {
     if (MenuSelectionManager.defaultManager().selectedPath.isNullOrEmpty()) {
-      // After resetting selectedPath another menu can be shown right after that, so don't hide main menu immediately
+      // After resetting selectedPath another menu can be shown right after that, so don't hide the main menu immediately
       hideMenu = true
       ApplicationManager.getApplication().invokeLater {
         if (hideMenu) {
@@ -106,7 +106,7 @@ internal class ExpandableMenu(private val headerContent: JComponent, coroutineSc
     updateColor()
     layeredPane.add(expandedMenuBar!!, (JLayeredPane.DEFAULT_LAYER - 2) as Any)
 
-    // First menu usage has no selection in menu. Fix it by invokeLater
+    // The first menu usage has no selection in the menu. Fix it by invokeLater
     ApplicationManager.getApplication().invokeLater {
       selectMenu(actionToShow)
     }
@@ -143,14 +143,16 @@ internal class ExpandableMenu(private val headerContent: JComponent, coroutineSc
   }
 
   private fun updateBounds() {
-    val location = SwingUtilities.convertPoint(headerContent, 0, 0, rootPane ?: return)
+    val rootPaneCopy = rootPane ?: return
+    val location = SwingUtilities.convertPoint(headerContent, 0, 0, rootPaneCopy)
     if (location == null) {
       headerColorfulPanel?.horizontalOffset = 0
     } else {
       val insets = headerContent.insets
       headerColorfulPanel?.horizontalOffset = location.x + insets.left
       expandedMenuBar?.let {
-        it.bounds = Rectangle(location.x + insets.left, location.y + insets.top,
+        val rootPaneInsets = rootPaneCopy.insets
+        it.bounds = Rectangle(location.x + insets.left - rootPaneInsets.left, location.y + insets.top - rootPaneInsets.top,
                               headerContent.width - insets.left - insets.right,
                               headerContent.height - insets.top - insets.bottom)
       }

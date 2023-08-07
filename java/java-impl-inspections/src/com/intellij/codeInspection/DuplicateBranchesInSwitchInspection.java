@@ -4,6 +4,7 @@ package com.intellij.codeInspection;
 import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.java.JavaBundle;
 import com.intellij.modcommand.ModPsiUpdater;
+import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
@@ -805,7 +806,7 @@ public final class DuplicateBranchesInSwitchInspection extends LocalInspectionTo
         if (labelElementList == null) continue;
         PsiCaseLabelElement[] elements = labelElementList.getElements();
         for (PsiCaseLabelElement element : elements) {
-          if (PsiTreeUtil.instanceOf(element, PsiGuardedPattern.class, PsiPatternGuard.class) ||
+          if (element instanceof PsiPatternGuard ||
               element instanceof PsiPattern && (!java20plus || JavaPsiPatternUtil.containsPatternVariable(element))) {
             return false;
           }

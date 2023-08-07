@@ -4,6 +4,7 @@ package git4idea.history;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
@@ -21,6 +22,7 @@ import git4idea.commands.*;
 import git4idea.config.GitVersionSpecialty;
 import git4idea.log.GitLogProvider;
 import git4idea.log.GitRefManager;
+import git4idea.telemetry.GitTelemetrySpan.Log;
 import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -67,6 +69,17 @@ public final class GitLogUtil {
                                       @Nullable Consumer<? super VcsUser> userConsumer,
                                       @Nullable Consumer<? super VcsRef> refConsumer,
                                       @NotNull Consumer<? super TimedVcsCommit> commitConsumer) throws VcsException {
+    readTimedCommits(project, root, configParameters, parameters, Collections.emptyList(), userConsumer, refConsumer, commitConsumer);
+  }
+
+  public static void readTimedCommits(@NotNull Project project,
+                                      @NotNull VirtualFile root,
+                                      @NotNull List<String> configParameters,
+                                      @NotNull List<String> parameters,
+                                      @NotNull List<FilePath> filePaths,
+                                      @Nullable Consumer<? super VcsUser> userConsumer,
+                                      @Nullable Consumer<? super VcsRef> refConsumer,
+                                      @NotNull Consumer<? super TimedVcsCommit> commitConsumer) throws VcsException {
     VcsLogObjectsFactory factory = getObjectsFactoryWithDisposeCheck(project);
     if (factory == null) {
       return;
@@ -88,6 +101,7 @@ public final class GitLogUtil {
     handler.addParameters("--decorate=full");
     handler.addParameters(parameters);
     handler.endOptions();
+    handler.addRelativePaths(filePaths);
 
     GitLogOutputSplitter<GitLogRecord> handlerListener = new GitLogOutputSplitter<>(handler, parser, record -> {
       Hash hash = HashImpl.build(record.getHash());
@@ -182,7 +196,7 @@ public final class GitLogUtil {
       handler.addParameters("--decorate=full");
       handler.endOptions();
 
-      runWithSpanThrows(TelemetryManager.getInstance().getTracer(VcsScope), "loading commit metadata", span -> {
+      runWithSpanThrows(TelemetryManager.getInstance().getTracer(VcsScope), Log.LoadingCommitMetadata.getName(), span -> {
         span.setAttribute("rootName", root.getName());
 
         GitLogOutputSplitter<GitLogRecord> handlerListener = new GitLogOutputSplitter<>(handler, parser, recordConsumer);

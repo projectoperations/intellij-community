@@ -31,7 +31,6 @@ import java.awt.image.RGBImageFilter
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import java.util.function.Function
 import java.util.function.Supplier
 import javax.swing.Icon
 import javax.swing.ImageIcon
@@ -52,9 +51,6 @@ private val standardDisablingFilter: () -> RGBImageFilter = { UIUtil.getGrayFilt
 
 private val colorPatchCache = ConcurrentHashMap<Int, MutableMap<LongArray, MutableMap<Icon, Icon>>>()
 
-@Volatile
-private var STRICT_GLOBAL = false
-
 internal val fakeComponent: JComponent by lazy { object : JComponent() {} }
 
 /**
@@ -65,10 +61,6 @@ internal val fakeComponent: JComponent by lazy { object : JComponent() {} }
  * @see com.intellij.util.IconUtil
  */
 object IconLoader {
-  fun setStrictGlobally(strict: Boolean) {
-    STRICT_GLOBAL = strict
-  }
-
   @JvmStatic
   fun installPathPatcher(patcher: IconPathPatcher) {
     updateTransform { it.withPathPatcher(patcher) }
@@ -388,6 +380,7 @@ object IconLoader {
    */
   @JvmStatic
   fun getDarkIcon(icon: Icon, dark: Boolean): Icon {
+    // Cannot `inline` this call, because we need an object to propagate the needed replacer recursively to the parts of compound icon
     return object : IconReplacer {
       override fun replaceIcon(icon: Icon): Icon {
         if (icon is DarkIconProvider) return icon.getDarkIcon(dark)
@@ -442,30 +435,33 @@ private fun getScaleContextSupport(icon: Icon): ScaleContextSupport? {
   }
 }
 
-private fun updateTransform(updater: Function<in IconTransform, IconTransform>) {
+private fun updateTransform(updater: (IconTransform) -> IconTransform) {
   var prev: IconTransform
   var next: IconTransform
   do {
     prev = pathTransform.get()
-    next = updater.apply(prev)
+    next = updater(prev)
   }
   while (!pathTransform.compareAndSet(prev, next))
-  pathTransformGlobalModCount.incrementAndGet()
-  if (prev != next) {
-    iconToDisabledIcon.clear()
-    colorPatchCache.clear()
-    iconToStrokeIcon.clear()
 
-    // clear svg cache
-    clearImageCache()
-    // iconCache is not cleared because it contains an original icon (instance that will delegate to)
+  pathTransformGlobalModCount.incrementAndGet()
+  if (prev == next) {
+    return
   }
+
+  iconToDisabledIcon.clear()
+  colorPatchCache.clear()
+  iconToStrokeIcon.clear()
+
+  // clear svg cache
+  clearImageCache()
+  // iconCache is not cleared because it contains an original icon (instance that will delegate to)
 }
 
 private fun findIcon(originalPath: String,
                      aClass: Class<*>?,
                      classLoader: ClassLoader,
-                     strict: Boolean = STRICT_GLOBAL,
+                     strict: Boolean = false,
                      deferUrlResolve: Boolean): Icon? {
   if (deferUrlResolve) {
     return findIconUsingDeprecatedImplementation(originalPath = originalPath,
@@ -488,7 +484,7 @@ fun findIconUsingDeprecatedImplementation(originalPath: String,
                                           classLoader: ClassLoader,
                                           aClass: Class<*>?,
                                           toolTip: Supplier<String?>? = null,
-                                          strict: Boolean = STRICT_GLOBAL): Icon? {
+                                          strict: Boolean = false): Icon? {
   var effectiveClassLoader = classLoader
   val startTime = StartUpMeasurer.getCurrentTimeIfEnabled()
   val patchedPath = patchIconPath(originalPath = originalPath, classLoader = effectiveClassLoader)

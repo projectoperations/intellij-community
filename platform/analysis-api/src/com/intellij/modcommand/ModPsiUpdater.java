@@ -18,7 +18,7 @@ import java.util.function.BiConsumer;
 /**
  * A helper to perform editor command when building the {@link ModCommand}
  * 
- * @see com.intellij.codeInspection.ModCommands#psiUpdate(PsiElement, BiConsumer)
+ * @see ModCommand#psiUpdate(PsiElement, BiConsumer)
  */
 @ApiStatus.Experimental
 public interface ModPsiUpdater extends ModPsiNavigator {
@@ -66,10 +66,22 @@ public interface ModPsiUpdater extends ModPsiNavigator {
   void rename(@NotNull PsiNameIdentifierOwner element, @NotNull List<@NotNull String> suggestedNames);
 
   /**
+   * @return a builder that allows you to create a template
+   */
+  @NotNull ModTemplateBuilder templateBuilder();
+  
+  /**
    * Cancels any changes done previously, displaying an error message with the given text instead.
    * The subsequent updates will be ignored.
    *
    * @param errorMessage the error message to display
    */
   void cancel(@NotNull @NlsContexts.Tooltip String errorMessage);
+
+  /**
+   * Display message
+   * 
+   * @param message message to display
+   */
+  void message(@NotNull @NlsContexts.Tooltip String message);
 }
