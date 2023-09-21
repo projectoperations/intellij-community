@@ -62,7 +62,10 @@ public abstract class Decompressor {
     @Override
     protected Entry nextEntry() throws IOException {
       TarArchiveEntry te;
-      while ((te = myStream.getNextTarEntry()) != null && !(te.isFile() || te.isDirectory() || te.isSymbolicLink())) /* skipping unsupported */;
+      while ((te = myStream.getNextTarEntry()) != null &&
+             !((te.isFile() && !te.isLink()) // ignore hardlink
+               || te.isDirectory()
+               || te.isSymbolicLink())) /* skipping unsupported */;
       if (te == null) return null;
       if (!SystemInfo.isWindows) return new Entry(te.getName(), type(te), te.getMode(), te.getLinkName(), te.getSize());
       // UNIX permissions are ignored on Windows
@@ -102,10 +105,10 @@ public abstract class Decompressor {
 
     /**
      * <p>Returns an alternative implementation that is slower but supports ZIP extensions (UNIX/DOS attributes, symlinks).</p>
-     * <p><b>NOTE</b>: requires Commons Compress to be on the classpath.</p>
+     * <p><b>NOTE</b>: requires the Apache Commons Compress library to be on the classpath.</p>
      */
     public @NotNull Decompressor withZipExtensions() {
-      return new CommonsZip(mySource);
+      return new ExtZip(mySource);
     }
 
     //<editor-fold desc="Implementation">
@@ -141,13 +144,13 @@ public abstract class Decompressor {
       myZip.close();
     }
 
-    private static final class CommonsZip extends Decompressor {
+    private static final class ExtZip extends Decompressor {
       private final Path mySource;
       private org.apache.commons.compress.archivers.zip.ZipFile myZip;
       private Enumeration<? extends ZipArchiveEntry> myEntries;
       private ZipArchiveEntry myEntry;
 
-      CommonsZip(Path file) {
+      ExtZip(Path file) {
         mySource = file;
       }
 
@@ -213,7 +216,7 @@ public abstract class Decompressor {
     public static final int DOS_READ_ONLY = 0b01;
     public static final int DOS_HIDDEN = 0b010;
 
-    /** An entry name (separators converted to '/' and trimmed); handle with care */
+    /** An entry name with separators converted to '/' and trimmed; handle with care */
     public final String name;
     public final Type type;
     /** Depending on the source, could be POSIX permissions, DOS attributes, or just {@code 0} */
@@ -248,12 +251,12 @@ public abstract class Decompressor {
   public enum EscapingSymlinkPolicy {
     /**
      * Extract as is with no modification or check. Potentially can point to a completely different object
-     * if archive is transferred from some other host.
+     * if the archive is transferred from some other host.
      */
     ALLOW,
 
     /**
-     * Check during extraction and throw exception. See {@link com.intellij.util.io.Decompressor#verifySymlinkTarget}
+     * Check during extraction and throw exception. See {@link Decompressor#verifySymlinkTarget}
      */
     DISALLOW,
 

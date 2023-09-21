@@ -12,8 +12,8 @@ import com.intellij.ui.scale.ScaleType
 import com.intellij.util.SVGLoader
 import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.ui.MultiResolutionImageProvider
-import com.intellij.util.ui.StartupUiUtil
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
 import java.awt.*
 import java.awt.image.BufferedImage
@@ -40,17 +40,19 @@ internal var isIconActivated: Boolean = !GraphicsEnvironment.isHeadless()
 @JvmField
 internal val pathTransformGlobalModCount: AtomicInteger = AtomicInteger()
 
-internal fun patchIconPath(originalPath: String, classLoader: ClassLoader): Pair<String, ClassLoader>? {
+// opened for https://github.com/search?q=repo%3AJetBrains%2Fjewel%20patchIconPath&type=code
+@Internal
+fun patchIconPath(originalPath: String, classLoader: ClassLoader): Pair<String, ClassLoader>? {
   return pathTransform.get().patchPath(originalPath, classLoader)
 }
 
 @JvmField
 internal val pathTransform: AtomicReference<IconTransform> = AtomicReference(
-  IconTransform(StartupUiUtil.isUnderDarcula, arrayOf<IconPathPatcher>(DeprecatedDuplicatesIconPathPatcher()), null)
+  IconTransform(/* dark = */ false, /* patchers = */ arrayOf<IconPathPatcher>(DeprecatedDuplicatesIconPathPatcher()), /* filter = */ null)
 )
 
 @JvmField
-internal val iconToStrokeIcon: ConcurrentMap<CachedImageIcon, CachedImageIcon> = CollectionFactory.createConcurrentWeakKeyWeakValueMap<CachedImageIcon, CachedImageIcon>()
+internal val iconToStrokeIcon: ConcurrentMap<CachedImageIcon, CachedImageIcon> = CollectionFactory.createConcurrentWeakKeyWeakValueMap()
 
 @TestOnly
 @ApiStatus.Internal
@@ -107,7 +109,7 @@ open class CachedImageIcon internal constructor(
       return
     }
 
-    val gc = c?.graphicsConfiguration ?: (g as Graphics2D).deviceConfiguration
+    val gc = c?.graphicsConfiguration ?: (g as? Graphics2D)?.deviceConfiguration
     synchronized(scaledIconCache) {
       checkPathTransform()
       scaledIconCache.getCachedIcon(host = this, gc = gc) ?: EMPTY_ICON
@@ -220,7 +222,9 @@ open class CachedImageIcon internal constructor(
                                    isDarkOverridden = isDark,
                                    localFilterSupplier = localFilterSupplier,
                                    colorPatcher = colorPatcher,
-                                   useStroke = useStroke)
+                                   useStroke = useStroke,
+                                   toolTip = toolTip,
+                                   scaleContext = scaleContext)
           if (isDark) {
             darkVariant = result
           }

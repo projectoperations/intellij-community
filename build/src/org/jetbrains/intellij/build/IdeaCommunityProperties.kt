@@ -36,7 +36,7 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
 
   init {
     platformPrefix = "Idea"
-    applicationInfoModule = "intellij.idea.community.resources"
+    applicationInfoModule = "intellij.idea.community.customization"
     additionalIDEPropertiesFilePaths = persistentListOf(communityHomeDir.resolve("build/conf/ideaCE.properties"))
     toolsJarRequired = true
     scrambleMainJar = false
@@ -47,7 +47,11 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
        so this property is set only when IDEA CE is built from the intellij-ultimate project. */
     embeddedJetBrainsClientMainModule = null
 
-    productLayout.productImplementationModules = listOf("intellij.platform.main", "intellij.idea.community.resources")
+    productLayout.productImplementationModules = listOf(
+      "intellij.platform.main",
+      "intellij.idea.customization.base",
+      "intellij.idea.community.customization",
+    )
     productLayout.bundledPluginModules = IDEA_BUNDLED_PLUGINS
       .add("intellij.javaFX.community")
       .toMutableList()
@@ -73,6 +77,7 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
     ))
 
     versionCheckerConfig = CE_CLASS_VERSIONS
+    baseDownloadUrl = "https://download.jetbrains.com/idea/"
     buildDocAuthoringAssets = true
   }
 
@@ -139,8 +144,6 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
     init {
       icnsPath = "${communityHomeDir}/build/conf/ideaCE/mac/images/idea.icns"
       icnsPathForEAP = "${communityHomeDir}/build/conf/ideaCE/mac/images/communityEAP.icns"
-      icnsPathForAlternativeIcon = "${communityHomeDir}/build/conf/ideaCE/mac/images/idea_com_bigsur.icns"
-      icnsPathForAlternativeIconForEAP = "${communityHomeDir}/build/conf/ideaCE/mac/images/idea_com_EAP_bigsur.icns"
       urlSchemes = listOf("idea")
       associateIpr = true
       fileAssociations = FileAssociation.from("java", "groovy", "kt", "kts")

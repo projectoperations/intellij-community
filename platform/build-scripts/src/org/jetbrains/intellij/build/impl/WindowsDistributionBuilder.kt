@@ -88,7 +88,7 @@ internal class WindowsDistributionBuilder(
 
   override suspend fun buildArtifacts(osAndArchSpecificDistPath: Path, arch: JvmArchitecture) {
     copyFilesForOsDistribution(osAndArchSpecificDistPath, arch)
-    val runtimeDir = context.bundledRuntime.extract(BundledRuntimeImpl.getProductPrefix(context), OsFamily.WINDOWS, arch)
+    val runtimeDir = context.bundledRuntime.extract(os = OsFamily.WINDOWS, arch = arch)
 
     @Suppress("SpellCheckingInspection")
     val vcRtDll = runtimeDir.resolve("jbr/bin/msvcp140.dll")
@@ -247,9 +247,8 @@ internal class WindowsDistributionBuilder(
   }
 
   private fun generateVMOptions(distBinDir: Path) {
-    val productProperties = context.productProperties
-    val fileName = "${productProperties.baseFileName}64.exe.vmoptions"
-    val vmOptions = VmOptionsGenerator.computeVmOptions(context.applicationInfo.isEAP, productProperties)
+    val fileName = "${context.productProperties.baseFileName}64.exe.vmoptions"
+    val vmOptions = VmOptionsGenerator.computeVmOptions(context)
     VmOptionsGenerator.writeVmOptions(distBinDir.resolve(fileName), vmOptions, "\r\n")
   }
 

@@ -8,6 +8,7 @@ import com.intellij.codeWithMe.ClientId.Companion.isLocal
 import com.intellij.diagnostic.Activity
 import com.intellij.diagnostic.ActivityCategory
 import com.intellij.diagnostic.StartUpMeasurer
+import com.intellij.featureStatistics.fusCollectors.FileEditorCollector.EmptyStateCause
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsListener
@@ -16,7 +17,6 @@ import com.intellij.openapi.application.*
 import com.intellij.openapi.client.ClientSessionsManager
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceOrNull
-import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -57,6 +57,7 @@ import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.JBRectangle
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import org.jdom.Element
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -193,6 +194,12 @@ open class EditorsSplitters internal constructor(
     coroutineScope.launch(CoroutineName("EditorSplitters file icon update")) {
       iconUpdateChannel.start()
     }
+
+    coroutineScope.launch(CoroutineName("EditorSplitters frame title update")) {
+      currentCompositeFlow.collectLatest { composite ->
+        updateFrameTitle()
+      }
+    }
   }
 
   fun clear() {
@@ -218,15 +225,17 @@ open class EditorsSplitters internal constructor(
   }
 
   fun writeExternal(element: Element) {
+    val componentCount = componentCount
     if (componentCount == 0) {
       return
     }
 
-    val panel = getComponent(0) as JPanel
-    if (panel.componentCount != 0) {
-      runCatching {
-        element.addContent(writePanel(panel.getComponent(0)))
-      }.getOrLogException(LOG)
+    val component = getComponent(0)
+    try {
+      element.addContent(writePanel(component))
+    }
+    catch (e: Throwable) {
+      LOG.error(e)
     }
   }
 
@@ -237,9 +246,9 @@ open class EditorsSplitters internal constructor(
         result.setAttribute("split-orientation", if (component.orientation) "vertical" else "horizontal")
         result.setAttribute("split-proportion", component.proportion.toString())
         val first = Element("split-first")
-        first.addContent(writePanel(component.firstComponent.getComponent(0)))
+        first.addContent(writePanel(component.firstComponent))
         val second = Element("split-second")
-        second.addContent(writePanel(component.secondComponent.getComponent(0)))
+        second.addContent(writePanel(component.secondComponent))
         result.addContent(first)
         result.addContent(second)
         result
@@ -289,6 +298,7 @@ open class EditorsSplitters internal constructor(
         // clear empty splitters
         if (window.tabCount == 0) {
           window.removeFromSplitter()
+          window.logEmptyStateIfMainSplitter(cause = EmptyStateCause.CONTEXT_RESTORED)
         }
         else {
           (window.tabbedPane.tabs as JBTabsImpl).revalidateAndRepaint()
@@ -471,6 +481,10 @@ open class EditorsSplitters internal constructor(
       }
     }
 
+    updateFrameTitle()
+  }
+
+  private suspend fun updateFrameTitle() {
     val project = manager.project
     val frame = getFrame() ?: return
     val file = currentFile
@@ -526,7 +540,7 @@ open class EditorsSplitters internal constructor(
   }
 
   internal val splitCount: Int
-    get() = if (componentCount > 0) getSplitCount(getComponent(0) as JPanel) else 0
+    get() = if (componentCount > 0) getSplitCount(getComponent(0) as JComponent) else 0
 
   internal open fun afterFileClosed(file: VirtualFile) {}
 
@@ -545,7 +559,7 @@ open class EditorsSplitters internal constructor(
   }
 
   val isEmptyVisible: Boolean
-    get() = getWindows().all { it.isEmptyVisible }
+    get() = getWindowSequence().all { it.isEmptyVisible }
 
   private fun findNextFile(file: VirtualFile): VirtualFile? {
     for (window in windows) {
@@ -577,9 +591,9 @@ open class EditorsSplitters internal constructor(
 
     val nextFile = findNextFile(file)
     for (window in windows) {
-      val composite = window.getComposite(file)
+      val composite = window.getComposite(file) ?: continue
       window.closeFile(file = file, composite = composite,
-                       disposeIfNeeded = FileEditorManagerImpl.isSingletonFileEditor(composite?.selectedEditor))
+                       disposeIfNeeded = FileEditorManagerImpl.isSingletonFileEditor(composite.selectedEditor))
       if (isProjectOpen && window.tabCount == 0 && !window.isDisposed &&
           nextFile != null && !FileEditorManagerImpl.forbidSplitFor(nextFile)) {
         manager.newEditorComposite(nextFile)?.let {
@@ -596,7 +610,7 @@ open class EditorsSplitters internal constructor(
           continue
         }
         if (window.tabCount == 0) {
-          window.unsplit(false)
+          window.unsplit(setCurrent = false)
         }
       }
     }
@@ -644,7 +658,7 @@ open class EditorsSplitters internal constructor(
   internal fun createCurrentWindow() {
     LOG.assertTrue(currentWindow == null)
     val window = EditorWindow(owner = this, coroutineScope.childScope(CoroutineName("EditorWindow")))
-    add(window.panel, BorderLayout.CENTER)
+    add(window.component, BorderLayout.CENTER)
     setCurrentWindowAndComposite(window)
   }
 
@@ -707,35 +721,25 @@ open class EditorsSplitters internal constructor(
 
   internal fun getWindowSequence(): Sequence<EditorWindow> = windows.asSequence()
 
-  // Collector for windows in tree ordering:
-  // get a root component and traverse splitters tree:
+  // collector for windows in tree ordering: get a root component and traverse splitters tree
   internal fun getOrderedWindows(): MutableList<EditorWindow> {
     val result = ArrayList<EditorWindow>()
 
-    // Collector for windows in tree ordering:
-    class WindowCollector {
-      fun collect(panel: JPanel) {
-        val component = panel.getComponent(0)
-        if (component is Splitter) {
-          collect(component.firstComponent as JPanel)
-          collect(component.secondComponent as JPanel)
-        }
-        else if (component is JPanel || component is JBTabs) {
-          findWindowWith(component)?.let {
-            result.add(it)
-          }
+    fun collectWindow(component: JComponent) {
+      if (component is Splitter) {
+        collectWindow(component.firstComponent)
+        collectWindow(component.secondComponent)
+      }
+      else if (component is JPanel || component is JBTabs) {
+        findWindowWith(component)?.let {
+          result.add(it)
         }
       }
     }
 
-    // get root component and traverse splitters tree:
+    // get root component and traverse splitters tree
     if (componentCount != 0) {
-      val comp = getComponent(0)
-      LOG.assertTrue(comp is JPanel)
-      val panel = comp as JPanel
-      if (panel.componentCount != 0) {
-        WindowCollector().collect(panel)
-      }
+      collectWindow(getComponent(0) as JComponent)
     }
     LOG.assertTrue(result.size == windows.size)
     return result
@@ -777,12 +781,12 @@ open class EditorsSplitters internal constructor(
   @JvmOverloads
   fun openInRightSplit(file: VirtualFile, requestFocus: Boolean = true): EditorWindow? {
     val window = currentWindow ?: return null
-    val parent = window.panel.parent
+    val parent = window.component.parent
     if (parent is Splitter) {
       val component = parent.secondComponent
-      if (component !== window.panel) {
+      if (component !== window.component) {
         // reuse
-        windows.find { SwingUtilities.isDescendingFrom(component, it.panel) }?.let { rightSplitWindow ->
+        windows.find { SwingUtilities.isDescendingFrom(component, it.component) }?.let { rightSplitWindow ->
           manager.openFile(file = file, window = rightSplitWindow, options = FileEditorOpenOptions(requestFocus = requestFocus))
           return rightSplitWindow
         }
@@ -823,15 +827,10 @@ class EditorSplitterStateSplitter(
   splitterElement: Element,
 ) {
   @JvmField
-  val isVertical: Boolean
+  val isVertical: Boolean = splitterElement.getAttributeValue("split-orientation") == "vertical"
 
   @JvmField
-  val proportion: Float
-
-  init {
-    isVertical = splitterElement.getAttributeValue("split-orientation") == "vertical"
-    proportion = splitterElement.getAttributeValue("split-proportion")?.toFloat() ?: 0.5f
-  }
+  val proportion: Float = splitterElement.getAttributeValue("split-proportion")?.toFloat() ?: 0.5f
 }
 
 @Internal
@@ -885,7 +884,7 @@ class EditorSplitterState(element: Element) {
 }
 
 private class UiBuilder(private val splitters: EditorsSplitters) {
-  suspend fun process(state: EditorSplitterState, addChild: (child: JPanel) -> Unit) {
+  suspend fun process(state: EditorSplitterState, addChild: (child: JComponent) -> Unit) {
     val splitState = state.splitters
     if (splitState == null) {
       val leaf = state.leaf
@@ -911,7 +910,7 @@ private class UiBuilder(private val splitters: EditorsSplitters) {
     }
     else {
       val splitter = withContext(Dispatchers.EDT) {
-        val splitter = createSplitter(orientation = splitState.isVertical,
+        val splitter = createSplitter(isVertical = splitState.isVertical,
                                       proportion = splitState.proportion,
                                       minProp = 0.1f,
                                       maxProp = 0.9f)
@@ -927,15 +926,15 @@ private class UiBuilder(private val splitters: EditorsSplitters) {
 
   private suspend fun processFiles(fileEntries: List<EditorSplitterStateLeaf.FileEntry>,
                                    tabSizeLimit: Int,
-                                   addChild: (child: JPanel) -> Unit) {
+                                   addChild: (child: JComponent) -> Unit) {
     coroutineScope {
       val windowDeferred = async(Dispatchers.EDT) {
         val editorWindow = EditorWindow(owner = splitters, splitters.coroutineScope.childScope(CoroutineName("EditorWindow")))
-        editorWindow.panel.isFocusable = false
+        editorWindow.component.isFocusable = false
         if (tabSizeLimit != 1) {
           editorWindow.tabbedPane.component.putClientProperty(JBTabsImpl.SIDE_TABS_SIZE_LIMIT_KEY, tabSizeLimit)
         }
-        addChild(editorWindow.panel)
+        addChild(editorWindow.component)
         editorWindow
       }
 
@@ -1012,14 +1011,17 @@ private class UiBuilder(private val splitters: EditorsSplitters) {
           }
         }
       }
-      else {
-        val window = windowDeferred.await()
-        fileEditorManager.addSelectionRecord(focusedFile, window)
-        splitters.coroutineScope.launch(Dispatchers.EDT) {
-          window.getComposite(focusedFile)?.let { composite ->
-            window.selectOpenedCompositeOnStartup(composite = composite)
-            splitters.setCurrentWindowAndComposite(window = window)
-          }
+
+      val window = windowDeferred.await()
+      splitters.coroutineScope.launch(Dispatchers.EDT) {
+        val composite = focusedFile?.let { window.getComposite(focusedFile) } ?: window.selectedComposite
+        if (composite != null) {
+          fileEditorManager.addSelectionRecord(composite.file, window)
+
+          // OPENED_IN_BULK is forcing 'JBTabsImpl.addTabWithoutUpdating',
+          // so these need to be fired even if the composite is already selected
+          window.selectOpenedCompositeOnStartup(composite = composite)
+          splitters.setCurrentWindowAndComposite(window = window)
         }
       }
     }
@@ -1049,13 +1051,8 @@ private fun enableEditorActivationOnEscape() {
 }
 
 private fun getSplitCount(component: JComponent): Int {
-  if (component.componentCount <= 0) {
-    return 0
-  }
-
-  val firstChild = component.getComponent(0) as JComponent
-  if (firstChild is Splitter) {
-    return getSplitCount(firstChild.firstComponent) + getSplitCount(firstChild.secondComponent)
+  if (component is Splitter) {
+    return getSplitCount(component.firstComponent) + getSplitCount(component.secondComponent)
   }
   return 1
 }
@@ -1071,7 +1068,7 @@ private fun getSplittersToFocus(suggestedProject: Project?): EditorsSplitters? {
     if (project == null) {
       project = lastFocusedFrame?.project
     }
-    return getSplittersForProject(activeWindow, project)
+    return getSplittersForProject(activeWindow = activeWindow, project = project)
   }
   if (activeWindow is IdeFrame.Child) {
     return getLastFocusedSplittersForProject(activeWindow, project ?: (activeWindow as IdeFrame).project)
@@ -1079,7 +1076,7 @@ private fun getSplittersToFocus(suggestedProject: Project?): EditorsSplitters? {
 
   val frame = FocusManagerImpl.getInstance().lastFocusedFrame
   if (frame is IdeFrameImpl && frame.isActive) {
-    return getLastFocusedSplittersForProject(activeWindow, frame.getProject())
+    return activeWindow?.let { getLastFocusedSplittersForProject(activeWindow = it, project = frame.getProject()) }
   }
 
   // getSplitters is not implemented in unit test mode
@@ -1089,21 +1086,19 @@ private fun getSplittersToFocus(suggestedProject: Project?): EditorsSplitters? {
   return null
 }
 
-private fun getSplittersForProject(activeWindow: Window?, project: Project?): EditorsSplitters? {
-  val fileEditorManager = (if (project == null || project.isDisposed) null else FileEditorManagerEx.getInstanceEx(project))
-                          ?: return null
-  val splitters = if (activeWindow == null) null else fileEditorManager.getSplittersFor(activeWindow)
-  return splitters ?: fileEditorManager.splitters
+private fun getSplittersForProject(activeWindow: Window, project: Project?): EditorsSplitters? {
+  val fileEditorManager = (if (project == null || project.isDisposed) null else FileEditorManagerEx.getInstanceEx(project)) ?: return null
+  return fileEditorManager.getSplittersFor(activeWindow) ?: fileEditorManager.splitters
 }
 
-private fun getLastFocusedSplittersForProject(activeWindow: Window?, project: Project?): EditorsSplitters? {
+private fun getLastFocusedSplittersForProject(activeWindow: Window, project: Project?): EditorsSplitters? {
   val fileEditorManager = (if (project == null || project.isDisposed) null else FileEditorManagerEx.getInstanceEx(project))
                           ?: return null
   return (fileEditorManager as? FileEditorManagerImpl)?.getLastFocusedSplitters() ?: getSplittersForProject(activeWindow, project)
 }
 
-internal fun createSplitter(orientation: Boolean, proportion: Float, minProp: Float, maxProp: Float): Splitter {
-  return object : Splitter(orientation, proportion, minProp, maxProp) {
+internal fun createSplitter(isVertical: Boolean, proportion: Float, minProp: Float, maxProp: Float): Splitter {
+  return object : Splitter(isVertical, proportion, minProp, maxProp) {
     init {
       setDividerWidth(1)
       setFocusable(false)
@@ -1121,11 +1116,11 @@ private fun decorateFileIcon(composite: EditorComposite, baseIcon: Icon): Icon? 
   val settings = UISettings.getInstance()
   val showAsterisk = settings.markModifiedTabsWithAsterisk && composite.isModified
   val showFileIconInTabs = settings.showFileIconInTabs
-  if (ExperimentalUI.isNewUI() || !showAsterisk) {
+  if (!showAsterisk || ExperimentalUI.isNewUI()) {
     return if (showFileIconInTabs) baseIcon else null
   }
 
-  val modifiedIcon = IconUtil.cropIcon(AllIcons.General.Modified, JBRectangle(3, 3, 7, 7))
+  val modifiedIcon = IconUtil.cropIcon(icon = AllIcons.General.Modified, area = JBRectangle(3, 3, 7, 7))
   val result = LayeredIcon(2)
   if (showFileIconInTabs) {
     result.setIcon(baseIcon, 0)

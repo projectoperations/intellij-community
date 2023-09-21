@@ -26,7 +26,7 @@ import static com.intellij.openapi.vfs.newvfs.persistent.VFSInitException.ErrorC
  *    later on)</li>
  * </ol>
  */
-public class ContentStoragesRecoverer implements VFSRecoverer {
+public final class ContentStoragesRecoverer implements VFSRecoverer {
   private static final Logger LOG = Logger.getInstance(ContentStoragesRecoverer.class);
 
   @Override
@@ -56,7 +56,10 @@ public class ContentStoragesRecoverer implements VFSRecoverer {
 
         RefCountingContentStorage contentStorage = loader.contentsStorage();
         contentStorage.dispose();
+        ContentHashEnumerator contentHashEnumerator = loader.contentHashesEnumerator();
+        contentHashEnumerator.close();
         IOUtil.deleteAllFilesStartingWith(loader.contentsFile);
+        IOUtil.deleteAllFilesStartingWith(loader.contentsHashesFile);
 
         RefCountingContentStorage emptyContentStorage = loader.createContentStorage(loader.contentsFile);
         ContentHashEnumerator emptyHashesEnumerator = PersistentFSLoader.createContentHashStorage(loader.contentsHashesFile);
@@ -65,6 +68,8 @@ public class ContentStoragesRecoverer implements VFSRecoverer {
 
 
         cleanAllContentIds(records);
+        // FIXME MAYBE VfsLog recovery related: we don't place a special event in VfsLog about content storage being cleared.
+        //  Clearing all references to old contents from records should suffice.
 
         //inform others (LocalHistory) that old contentIds are no longer valid:
         loader.contentIdsInvalidated(true);

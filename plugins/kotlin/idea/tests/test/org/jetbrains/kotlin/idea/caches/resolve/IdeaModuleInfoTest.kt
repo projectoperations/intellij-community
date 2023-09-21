@@ -1145,7 +1145,7 @@ class IdeaModuleInfoTest8 : JavaModuleTestCase() {
         js.addDependency(stdlibJs)
         js.addDependency(KotlinSdk, testRootDisposable)
 
-        val stdlibWasm = projectLibrary("stdlibWasm", classesRoot = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(TestKotlinArtifacts.kotlinStdlibWasm))
+        val stdlibWasm = projectLibrary("stdlibWasm", classesRoot = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(TestKotlinArtifacts.kotlinStdlibWasmJs))
         val stdlibWasmInfo = stdlibWasm.toLibraryInfo()
 
         wasm.addDependency(stdlibWasm)
@@ -1458,6 +1458,93 @@ class IdeaModuleInfoTest8 : JavaModuleTestCase() {
         }
     }
 
+    fun testDependencyResolutionAnchorsWithStdlib() {
+        val libraryWithAnchor = projectLibrary("LibraryWithAnchor", classesRoot = TestKotlinArtifacts.kotlinCompiler.jarRoot)
+        val regularLibrary = projectLibrary("RegularLibrary", classesRoot = TestKotlinArtifacts.kotlinDaemon.jarRoot)
+        val stdlib = projectLibrary("stdlib", classesRoot = TestKotlinArtifacts.kotlinStdlib.jarRoot)
+
+        val module = module("regular_module")
+        module.addDependency(libraryWithAnchor)
+        module.addDependency(regularLibrary)
+        module.addDependency(stdlib)
+
+        val anchorModule = module("anchor_module")
+        val anchorModuleDependency = projectLibrary("AnchorModuleDependency", classesRoot = TestKotlinArtifacts.kotlinReflect.jarRoot)
+        anchorModule.addDependency(anchorModuleDependency)
+
+        val anchorModuleForStdlib = module("anchor_module_for_stdlib")
+        val resolutionAnchorCacheService = ResolutionAnchorCacheService.getInstance(project) as ResolutionAnchorCacheServiceImpl
+        val anchorMapping = mapOf(
+            libraryWithAnchor.name!! to anchorModule.name,
+            stdlib.name!! to anchorModuleForStdlib.name,
+        )
+
+        resolutionAnchorCacheService.setAnchors(anchorMapping)
+
+        val libraryWithAnchorInfo = libraryWithAnchor.toLibraryInfo()
+        val regularLibraryInfo = regularLibrary.toLibraryInfo()
+        val stdlibInfo = stdlib.toLibraryInfo()
+        val anchorModuleDependencyInfo = anchorModuleDependency.toLibraryInfo()
+
+        module.production.assertDependenciesEqual(
+            module.production,
+            libraryWithAnchorInfo,
+            regularLibraryInfo,
+            stdlibInfo,
+        )
+
+        anchorModule.production.assertDependenciesEqual(
+            anchorModule.production,
+            anchorModuleDependencyInfo,
+        )
+
+        anchorModuleForStdlib.production.assertDependenciesEqual(
+            anchorModuleForStdlib.production,
+        )
+
+        assertDependencies(
+            lib = libraryWithAnchorInfo,
+            libraryWithAnchorInfo, regularLibraryInfo, stdlibInfo
+        )
+
+        assertDependencies(
+            lib = regularLibraryInfo,
+            libraryWithAnchorInfo, regularLibraryInfo, stdlibInfo
+        )
+
+        assertDependencies(
+            lib = stdlibInfo,
+            stdlibInfo,
+        )
+
+        fun assertAnchors(lib: LibraryInfo, expected: Collection<Module>) {
+            val anchors = resolutionAnchorCacheService.getDependencyResolutionAnchors(lib)
+            assertSortedEquals(
+                lib.name.asString(),
+                expected.map { it.production },
+                actual = anchors,
+                renderer = { it.name.asString() },
+            )
+        }
+
+        project.withLibraryToSourceAnalysis {
+            assertAnchors(
+                lib = libraryWithAnchorInfo,
+                expected = listOf(anchorModule, anchorModuleForStdlib),
+            )
+
+            assertAnchors(
+                lib = regularLibraryInfo,
+                expected = listOf(anchorModule, anchorModuleForStdlib),
+            )
+
+            assertAnchors(
+                lib = stdlibInfo,
+                expected = listOf(anchorModuleForStdlib),
+            )
+        }
+    }
+
     fun testExportedDependency() {
         val (a, b, c) = modules()
 
@@ -1709,7 +1796,7 @@ class IdeaModuleInfoTest8 : JavaModuleTestCase() {
         val stdlibCommon = stdlibCommon()
         val stdlibJvm = stdlibJvm()
         val stdlibJs = stdlibJs()
-        val stdlibWasm = stdlibWasm()
+        val stdlibWasm = stdlibWasmJs()
 
         val a = module("a")
         a.addDependency(stdlibCommon)
@@ -2118,10 +2205,27 @@ class IdeaModuleInfoTest8 : JavaModuleTestCase() {
 
     private fun assertDependencies(lib: LibraryInfo, vararg expectedLibraries: LibraryInfo) {
         val dependencies = LibraryDependenciesCache.getInstance(project).getLibraryDependencies(lib)
-        assertEquals(
+        assertEqualsLibraries(
             "LibraryInfo '${lib.name}' dependencies",
-            expectedLibraries.joinToString(separator = "\n") { it.name.asString() },
-            dependencies.libraries.map { it.name.asString() }.sorted().joinToString(separator = "\n"),
+            expectedLibraries.toList(),
+            dependencies.libraries,
+        )
+    }
+
+    private fun assertEqualsLibraries(message: String, expected: Collection<LibraryInfo>, actual: Collection<LibraryInfo>) {
+        assertSortedEquals(
+            message = message,
+            expected = expected,
+            actual = actual,
+            renderer = { it.name.asString() },
+        )
+    }
+
+    private fun <T> assertSortedEquals(message: String, expected: Collection<T>, actual: Collection<T>, renderer: (T) -> String) {
+        assertEquals(
+            message,
+            expected.joinToString(separator = "\n", transform = renderer),
+            actual.map(renderer).sorted().joinToString(separator = "\n"),
         )
     }
 
@@ -2215,14 +2319,14 @@ class IdeaModuleInfoTest8 : JavaModuleTestCase() {
     private fun stdlibJvm(): LibraryEx = projectLibrary("kotlin-stdlib", TestKotlinArtifacts.kotlinStdlib.jarRoot)
 
     private fun stdlibJs(): LibraryEx = projectLibrary(
-      "kotlin-stdlib-js",
-      TestKotlinArtifacts.kotlinStdlibJs.jarRoot,
-      kind = KotlinJavaScriptLibraryKind
+        "kotlin-stdlib-js",
+        LocalFileSystem.getInstance().refreshAndFindFileByIoFile(TestKotlinArtifacts.kotlinStdlibJs),
+        kind = KotlinJavaScriptLibraryKind
     )
 
-    private fun stdlibWasm(): LibraryEx = projectLibrary(
-        "kotlin-stdlib-wasm",
-        LocalFileSystem.getInstance().refreshAndFindFileByIoFile(TestKotlinArtifacts.kotlinStdlibWasm),
+    private fun stdlibWasmJs(): LibraryEx = projectLibrary(
+        "kotlin-stdlib-wasm-js",
+        LocalFileSystem.getInstance().refreshAndFindFileByIoFile(TestKotlinArtifacts.kotlinStdlibWasmJs),
         kind = KotlinWasmLibraryKind
     )
 

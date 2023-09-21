@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.uast.kotlin
 
@@ -22,6 +22,7 @@ import org.jetbrains.kotlin.asJava.toLightAnnotation
 import org.jetbrains.kotlin.asJava.toLightElements
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.name.SpecialNames
+import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.parents
 import org.jetbrains.uast.*
@@ -40,7 +41,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
     private val KtExpression.parentValueArgument: ValueArgument?
         get() = parents.firstOrNull { it is ValueArgument } as? ValueArgument
 
-    fun isSupportedElement(psiElement: PsiElement): Boolean
+    fun isSupportedFile(file: KtFile): Boolean = true
 
     override fun convertToPsiAnnotation(ktElement: KtElement): PsiAnnotation? {
         return ktElement.toLightAnnotation()
@@ -114,22 +115,6 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
                 else ->
                     baseKotlinConverter.createVarargsHolder(arguments, parent)
             }
-        }
-    }
-
-    override fun getImplicitReturn(ktLambdaExpression: KtLambdaExpression, parent: UElement): KotlinUImplicitReturnExpression? {
-        val lastExpression = ktLambdaExpression.bodyExpression?.statements?.lastOrNull() ?: return null
-        // Skip _explicit_ return.
-        if (lastExpression is KtReturnExpression) return null
-        analyzeForUast(ktLambdaExpression) {
-            // TODO: Should check an explicit, expected return type as well
-            //  e.g., val y: () -> Unit = { 1 } // the lambda return type is Int, but we won't add an implicit return here.
-            val returnType = ktLambdaExpression.functionLiteral.getAnonymousFunctionSymbol().returnType
-            val returnUnitOrNothing = returnType.isUnit || returnType.isNothing
-            return if (returnUnitOrNothing) null else
-                KotlinUImplicitReturnExpression(parent).apply {
-                    returnExpression = baseKotlinConverter.convertOrEmpty(lastExpression, this)
-                }
         }
     }
 
@@ -598,6 +583,23 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
                     isBoxed = ktType.isMarkedNullable,
                     isForFake = isForFake,
                 )
+            )
+        }
+    }
+
+    override fun getSuspendContinuationType(
+        suspendFunction: KtFunction,
+        containingLightDeclaration: PsiModifierListOwner?,
+    ): PsiType? {
+        analyzeForUast(suspendFunction) {
+            val symbol = suspendFunction.getSymbol() as? KtFunctionSymbol ?: return null
+            if (!symbol.isSuspend) return null
+            val continuationType = buildClassType(StandardClassIds.Continuation) { argument(symbol.returnType) }
+            return toPsiType(
+                continuationType,
+                containingLightDeclaration,
+                suspendFunction,
+                PsiTypeConversionConfiguration.create(suspendFunction)
             )
         }
     }

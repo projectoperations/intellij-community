@@ -61,21 +61,18 @@ final class ActionPopupMenuImpl implements ActionPopupMenu, ApplicationActivatio
     myMenu = new MyMenu(place, group, factory);
   }
 
-  @NotNull
   @Override
-  public JPopupMenu getComponent() {
+  public @NotNull JPopupMenu getComponent() {
     return myMenu;
   }
 
   @Override
-  @NotNull
-  public String getPlace() {
+  public @NotNull String getPlace() {
     return myMenu.myPlace;
   }
 
-  @NotNull
   @Override
-  public ActionGroup getActionGroup() {
+  public @NotNull ActionGroup getActionGroup() {
     return myMenu.myGroup;
   }
 
@@ -89,15 +86,12 @@ final class ActionPopupMenuImpl implements ActionPopupMenu, ApplicationActivatio
     myDataContextProvider = dataProvider;
   }
 
-  private class MyMenu extends JBPopupMenu implements PlaceProvider {
-    @NotNull
-    private final String myPlace;
-    @NotNull
-    private final ActionGroup myGroup;
+  private final class MyMenu extends JBPopupMenu implements PlaceProvider {
+    private final @NotNull String myPlace;
+    private final @NotNull ActionGroup myGroup;
     private DataContext myContext;
     private final PresentationFactory myPresentationFactory;
-    @NotNull
-    private final MyPopupMenuListener myListener;
+    private final @NotNull MyPopupMenuListener myListener;
 
     MyMenu(@NotNull String place, @NotNull ActionGroup group, @Nullable PresentationFactory factory) {
       myPlace = place;
@@ -190,7 +184,7 @@ final class ActionPopupMenuImpl implements ActionPopupMenu, ApplicationActivatio
       }
     }
 
-    private class MyPopupMenuListener implements PopupMenuListener {
+    private final class MyPopupMenuListener implements PopupMenuListener {
       Component targetComponent;
 
       @Override

@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.projectView.impl;
 
 import com.intellij.ide.DataManager;
@@ -11,10 +11,11 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.DumbModeBlockedFunctionality;
+import com.intellij.openapi.project.DumbModeBlockedFunctionalityCollector;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -73,19 +74,9 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
     TreePath[] sources = getSourcePaths(event.getAttachedObject());
     if (sources != null) {
       if (ArrayUtilRt.find(sources, target) != -1) return false;//TODO???? nodes
-      if (!handler.isValidSource(sources, target)) return false;
-      if (Stream.of(sources).allMatch(source -> handler.isDropRedundant(source, target))) return false;
     }
     else if (!FileCopyPasteUtil.isFileListFlavorAvailable(event)) {
       return false;
-    }
-    else {
-      // it seems like it's not possible to obtain dragged items _before_ accepting _drop_ on Macs, so just skip this check
-      if (!SystemInfo.isMac) {
-        PsiFileSystemItem[] psiFiles = getPsiFiles(FileCopyPasteUtil.getFileListFromAttachedObject(event.getAttachedObject()));
-        if (psiFiles == null || psiFiles.length == 0) return false;
-        if (!MoveHandler.isValidTarget(getPsiElement(target), psiFiles)) return false;
-      }
     }
     event.setHighlighting(new RelativeRectangle(myTree, bounds), DnDEvent.DropTargetHighlightingType.RECTANGLE);
     event.setDropPossible(true);
@@ -262,7 +253,7 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
     return sourceFiles.toArray(new PsiFileSystemItem[0]);
   }
 
-  private class MoveDropHandler extends MoveCopyDropHandler {
+  private final class MoveDropHandler extends MoveCopyDropHandler {
     @Override
     protected boolean canDrop(TreePath @NotNull [] sources, @NotNull TreePath target) {
       DropTargetNode node = getLastUserObject(DropTargetNode.class, target);
@@ -367,7 +358,7 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
     }
   }
 
-  private class CopyDropHandler extends MoveCopyDropHandler {
+  private final class CopyDropHandler extends MoveCopyDropHandler {
     @Override
     protected boolean canDrop(TreePath @NotNull [] sources, @NotNull TreePath target) {
       PsiElement[] sourceElements = getPsiElements(sources);
@@ -394,6 +385,7 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
       if (targetElement == null || sources == null) return;
 
       if (DumbService.isDumb(myProject)) {
+        DumbModeBlockedFunctionalityCollector.INSTANCE.logFunctionalityBlocked(myProject, DumbModeBlockedFunctionality.ProjectView);
         Messages.showMessageDialog(myProject, LangBundle.message("dialog.message.copy.refactoring.available.while.indexing.in.progress"),
                                    LangBundle.message("dialog.title.indexing"), null);
         return;

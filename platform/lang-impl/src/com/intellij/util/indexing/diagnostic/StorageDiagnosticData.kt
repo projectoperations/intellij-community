@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing.diagnostic
 
 import com.fasterxml.jackson.annotation.JsonIgnore
@@ -9,6 +9,7 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.vfs.newvfs.persistent.FSRecords
+import com.intellij.openapi.vfs.newvfs.persistent.mapped.MappedStorageOTelMonitor
 import com.intellij.platform.diagnostic.telemetry.Storage
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.diagnostic.telemetry.impl.helpers.ReentrantReadWriteLockUsageMonitor
@@ -17,10 +18,7 @@ import com.intellij.util.SystemProperties
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.indexing.ID
 import com.intellij.util.indexing.IndexInfrastructure
-import com.intellij.util.io.DirectByteBufferAllocator
-import com.intellij.util.io.PageCacheUtils
-import com.intellij.util.io.StorageLockContext
-import com.intellij.util.io.delete
+import com.intellij.util.io.*
 import com.intellij.util.io.stats.FilePageCacheStatistics
 import com.intellij.util.io.stats.PersistentEnumeratorStatistics
 import com.intellij.util.io.stats.PersistentHashMapStatistics
@@ -58,8 +56,11 @@ object StorageDiagnosticData {
   @Volatile
   private var regularDumpHandle: Future<*>? = null
 
+  @Volatile
+  private var mmappedStoragesMonitoringHandle: MappedStorageOTelMonitor? = null
+
   @JvmStatic
-  fun dumpPeriodically() {
+  fun startPeriodicDumping() {
     setupReportingToOpenTelemetry()
 
     val executor = AppExecutorUtil.createBoundedScheduledExecutorService(
@@ -80,6 +81,13 @@ object StorageDiagnosticData {
       regularDumpHandleLocalCopy.cancel(false)
       regularDumpHandle = null
     }
+
+    val mmappedStoragesMonitoringHandleLocalCopy = mmappedStoragesMonitoringHandle
+    if (mmappedStoragesMonitoringHandleLocalCopy != null) {
+      mmappedStoragesMonitoringHandleLocalCopy.close()
+      mmappedStoragesMonitoringHandle = null
+    }
+
     dump(onShutdown = true)
   }
 
@@ -266,11 +274,16 @@ object StorageDiagnosticData {
 
     setupFilePageCacheReporting(otelMeter)
 
-    if (PageCacheUtils.LOCK_FREE_VFS_ENABLED) {
+    if (PageCacheUtils.LOCK_FREE_PAGE_CACHE_ENABLED) {
       setupFilePageCacheLockFreeReporting(otelMeter)
     }
-  }
 
+    otelMeter.counterBuilder("FileChannelInterruptsRetryer.totalRetriedAttempts").buildWithCallback {
+      it.record(FileChannelInterruptsRetryer.totalRetriedAttempts())
+    }
+
+    mmappedStoragesMonitoringHandle = MappedStorageOTelMonitor(otelMeter)
+  }
 
   private fun setupFilePageCacheLockFreeReporting(otelMeter: Meter) {
     val totalNativeBytesAllocated = otelMeter.counterBuilder("FilePageCacheLockFree.totalNativeBytesAllocated").buildObserver()

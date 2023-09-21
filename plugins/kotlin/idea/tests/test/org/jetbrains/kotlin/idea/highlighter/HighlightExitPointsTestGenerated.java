@@ -33,6 +33,46 @@ public class HighlightExitPointsTestGenerated extends AbstractHighlightExitPoint
         runTest("testData/exitPoints/anonymousFunction2.kt");
     }
 
+    @TestMetadata("doWhileLoopBreak.kt")
+    public void testDoWhileLoopBreak() throws Exception {
+        runTest("testData/exitPoints/doWhileLoopBreak.kt");
+    }
+
+    @TestMetadata("doWhileLoopBreak2.kt")
+    public void testDoWhileLoopBreak2() throws Exception {
+        runTest("testData/exitPoints/doWhileLoopBreak2.kt");
+    }
+
+    @TestMetadata("forLoopBreak.kt")
+    public void testForLoopBreak() throws Exception {
+        runTest("testData/exitPoints/forLoopBreak.kt");
+    }
+
+    @TestMetadata("forLoopNestedBreak.kt")
+    public void testForLoopNestedBreak() throws Exception {
+        runTest("testData/exitPoints/forLoopNestedBreak.kt");
+    }
+
+    @TestMetadata("forLoopNestedBreak2.kt")
+    public void testForLoopNestedBreak2() throws Exception {
+        runTest("testData/exitPoints/forLoopNestedBreak2.kt");
+    }
+
+    @TestMetadata("forLoopNestedLabeledBreak.kt")
+    public void testForLoopNestedLabeledBreak() throws Exception {
+        runTest("testData/exitPoints/forLoopNestedLabeledBreak.kt");
+    }
+
+    @TestMetadata("forLoopNestedLabeledBreakOnLoop.kt")
+    public void testForLoopNestedLabeledBreakOnLoop() throws Exception {
+        runTest("testData/exitPoints/forLoopNestedLabeledBreakOnLoop.kt");
+    }
+
+    @TestMetadata("forLoopNestedLabeledBreakOnLoop2.kt")
+    public void testForLoopNestedLabeledBreakOnLoop2() throws Exception {
+        runTest("testData/exitPoints/forLoopNestedLabeledBreakOnLoop2.kt");
+    }
+
     @TestMetadata("funKeyword.kt")
     public void testFunKeyword() throws Exception {
         runTest("testData/exitPoints/funKeyword.kt");
@@ -116,6 +156,11 @@ public class HighlightExitPointsTestGenerated extends AbstractHighlightExitPoint
     @TestMetadata("inLambdaLastStatement6.kt")
     public void testInLambdaLastStatement6() throws Exception {
         runTest("testData/exitPoints/inLambdaLastStatement6.kt");
+    }
+
+    @TestMetadata("inUnitLambdaLastStatement.kt")
+    public void testInUnitLambdaLastStatement() throws Exception {
+        runTest("testData/exitPoints/inUnitLambdaLastStatement.kt");
     }
 
     @TestMetadata("inline1.kt")
@@ -226,5 +271,10 @@ public class HighlightExitPointsTestGenerated extends AbstractHighlightExitPoint
     @TestMetadata("throw2.kt")
     public void testThrow2() throws Exception {
         runTest("testData/exitPoints/throw2.kt");
+    }
+
+    @TestMetadata("whileLoopBreak.kt")
+    public void testWhileLoopBreak() throws Exception {
+        runTest("testData/exitPoints/whileLoopBreak.kt");
     }
 }

@@ -125,23 +125,14 @@ public class StringLiteralLexer extends LexerBase {
       return StringEscapesTokenTypes.VALID_STRING_ESCAPE_TOKEN;
     }
 
-    if (highlightAsOriginalLiteral(nextChar)) {
-      return myOriginalLiteralToken;
-    }
-
     return StringEscapesTokenTypes.INVALID_CHARACTER_ESCAPE_TOKEN;
-  }
-
-  protected boolean highlightAsOriginalLiteral(char escapedChar) {
-    return false;
   }
 
   protected boolean shouldAllowSlashZero() {
     return false;
   }
 
-  @NotNull
-  protected IElementType handleSingleSlashEscapeSequence() {
+  protected @NotNull IElementType handleSingleSlashEscapeSequence() {
     return StringEscapesTokenTypes.INVALID_CHARACTER_ESCAPE_TOKEN;
   }
 
@@ -150,14 +141,12 @@ public class StringLiteralLexer extends LexerBase {
     return getStandardLimitedHexCodedEscapeSeq(4);
   }
 
-  @NotNull
-  protected IElementType getUnicodeEscapeSequenceType() {
+  protected @NotNull IElementType getUnicodeEscapeSequenceType() {
     // \uFFFF
     return getStandardLimitedHexCodedEscapeSeq(6);
   }
 
-  @NotNull
-  protected IElementType getStandardLimitedHexCodedEscapeSeq(int offsetLimit) {
+  protected @NotNull IElementType getStandardLimitedHexCodedEscapeSeq(int offsetLimit) {
     for (int i = myStart + 2; i < myStart + offsetLimit; i++) {
       if (i >= myEnd || !StringUtil.isHexDigit(myBuffer.charAt(i))) return StringEscapesTokenTypes.INVALID_UNICODE_ESCAPE_TOKEN;
     }
@@ -285,9 +274,8 @@ public class StringLiteralLexer extends LexerBase {
     myEnd = locateToken(myStart);
   }
 
-  @NotNull
   @Override
-  public CharSequence getBufferSequence() {
+  public @NotNull CharSequence getBufferSequence() {
     return myBuffer;
   }
 

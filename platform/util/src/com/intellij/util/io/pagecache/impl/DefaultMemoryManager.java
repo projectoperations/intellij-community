@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.io.pagecache.impl;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.io.DirectByteBufferAllocator;
 import com.intellij.util.io.pagecache.FilePageCacheStatistics;
 import org.jetbrains.annotations.NotNull;
@@ -14,7 +15,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * Utilises {@link DirectByteBufferAllocator} for direct ByteBuffer caching & re-use
  * Heap buffers are not cached: just allocated and released to GC.
  */
-public class DefaultMemoryManager implements IMemoryManager {
+public final class DefaultMemoryManager implements IMemoryManager {
+  private static final Logger LOG = Logger.getInstance(DefaultMemoryManager.class);
+
   private final long nativeCapacityBytes;
   private final long heapCapacityBytes;
 
@@ -62,9 +65,16 @@ public class DefaultMemoryManager implements IMemoryManager {
         return null;
       }
       if (heapBytesUsed.compareAndSet(used, used + bufferSize)) {
-        ByteBuffer heapByteBuffer = ByteBuffer.allocate(bufferSize);
-        statistics.pageAllocatedHeap(bufferSize);
-        return heapByteBuffer;
+        try {
+          ByteBuffer heapByteBuffer = ByteBuffer.allocate(bufferSize);
+          statistics.pageAllocatedHeap(bufferSize);
+          return heapByteBuffer;
+        }
+        catch (OutOfMemoryError e) {
+          LOG.warnWithDebug("OutOfMemory: can't allocate heap buffer[size: " + bufferSize + "b] -> skip, will try to deal without it", e);
+          heapBytesUsed.addAndGet(-bufferSize);
+          return null;
+        }
       }
     }
   }
@@ -88,17 +98,31 @@ public class DefaultMemoryManager implements IMemoryManager {
   }
 
   @Override
-  public void releaseBuffer(@NotNull ByteBuffer buffer) {
-    int bufferSize = buffer.capacity();
-    if (buffer.isDirect()) {
-      DirectByteBufferAllocator.ALLOCATOR.release(buffer);
+  public void releaseBuffer(int bufferSize,
+                            @NotNull ByteBuffer buffer) {
+    //RC: why don't we use buffer.capacity() instead of bufferSize? Because DirectByteBufferAllocator could
+    //    return buffers of capacity > size requested. In tryAllocate() we account only for requested size,
+    //    not actually returned, so must do the same here, otherwise numbers don't check out.
+    //
+    //    This makes sense (kind of): we ask for 1M buffer, and we account for 1M we asked -- we don't care
+    //    if we really receive 2M we didn't ask for. Allocator's responsibility is to manage the actual capacity
+    //    of buffers it allocates -- MemoryManager's responsibility is to manage the capacity it has requested.
 
-      nativeBytesUsed.addAndGet(-bufferSize);
+    if (buffer.isDirect()) {
+      directBufferAllocator.release(buffer);
+
+      long memoryUsed = nativeBytesUsed.addAndGet(-bufferSize);
+      if (memoryUsed < 0) {
+        throw new IllegalStateException("nativeBytesUsed(=" + memoryUsed + ") must be >=0");
+      }
 
       statistics.pageReclaimedNative(bufferSize);
     }
     else {
-      heapBytesUsed.addAndGet(-bufferSize);
+      long memoryUsed = heapBytesUsed.addAndGet(-bufferSize);
+      if (memoryUsed < 0) {
+        throw new IllegalStateException("heapBytesUsed(=" + memoryUsed + ") must be >=0");
+      }
 
       statistics.pageReclaimedHeap(bufferSize);
     }
@@ -133,5 +157,15 @@ public class DefaultMemoryManager implements IMemoryManager {
   @Override
   public boolean hasFreeNativeCapacity(int bufferSize) {
     return nativeBytesUsed.get() + bufferSize <= nativeCapacityBytes;
+  }
+
+  @Override
+  public String toString() {
+    return "DefaultMemoryManager{" +
+           "nativeCapacity: " + nativeCapacityBytes +
+           ", heapCapacity: " + heapCapacityBytes +
+           ", nativeUsed: " + nativeBytesUsed +
+           ", heapUsed: " + heapBytesUsed +
+           '}';
   }
 }

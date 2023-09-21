@@ -46,8 +46,8 @@ public class PersistentFSRecordsStorageOverLockFreePagedStorageTest
   @BeforeClass
   public static void beforeClass() throws Exception {
     assumeTrue(
-      "LockFree FilePageCache must be enabled: see PageCacheUtils.LOCK_FREE_VFS_ENABLED",
-      PageCacheUtils.LOCK_FREE_VFS_ENABLED
+      "LockFree FilePageCache must be enabled: see PageCacheUtils.LOCK_FREE_PAGE_CACHE_ENABLED",
+      PageCacheUtils.LOCK_FREE_PAGE_CACHE_ENABLED
     );
   }
 

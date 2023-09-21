@@ -4,6 +4,7 @@ package com.intellij.openapi.util;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.ExceptionUtil;
+import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.*;
 
@@ -194,7 +195,7 @@ public final class RecursionManager {
   }
 
 
-  private static class MyKey {
+  private static final class MyKey {
     final String guardId;
     final Object userObject;
     private final int myHashCode;
@@ -238,7 +239,7 @@ public final class RecursionManager {
     private int firstLoopStart = Integer.MAX_VALUE; // outermost recursion-prevented frame depth; memoized values are dropped on its change.
     private final LinkedHashMap<MyKey, StackFrame> progressMap = new LinkedHashMap<>();
     private final Map<MyKey, Throwable> preventions = new IdentityHashMap<>();
-    private final Map<@NotNull MyKey, MemoizedValue> intermediateCache = ContainerUtil.createSoftKeySoftValueMap();
+    private final Map<@NotNull MyKey, MemoizedValue> intermediateCache = CollectionFactory.createSoftKeySoftValueMap();
     private int enters;
     private int exits;
 
@@ -385,7 +386,7 @@ public final class RecursionManager {
     "com.jetbrains.python.psi.impl.references.PyReferenceImpl.multiResolve(",
   };
 
-  private static class MemoizedValue {
+  private static final class MemoizedValue {
     final Object value;
     final MyKey[] dependencies;
 
@@ -395,7 +396,7 @@ public final class RecursionManager {
     }
   }
 
-  private static class StackFrame {
+  private static final class StackFrame {
     int reentrancyStamp;
     @Nullable Set<MyKey> preventionsInside;
 
@@ -471,7 +472,7 @@ public final class RecursionManager {
    * In this case, you may call {@link #disableMissedCacheAssertions} in the tests
    * which check such exotic situations.
    */
-  static class CachingPreventedException extends RuntimeException {
+  static final class CachingPreventedException extends RuntimeException {
     CachingPreventedException(Map<MyKey, Throwable> preventions) {
       super("Caching disabled due to recursion prevention, please get rid of cyclic dependencies. Preventions: " + new ArrayList<>(preventions.keySet()),
             ContainerUtil.getFirstItem(preventions.values()));

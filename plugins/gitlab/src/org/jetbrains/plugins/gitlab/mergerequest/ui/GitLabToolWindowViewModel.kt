@@ -3,6 +3,7 @@ package org.jetbrains.plugins.gitlab.mergerequest.ui
 
 import com.intellij.collaboration.async.combineState
 import com.intellij.collaboration.async.mapScoped
+import com.intellij.collaboration.async.mapState
 import com.intellij.collaboration.ui.toolwindow.ReviewToolwindowViewModel
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -10,9 +11,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.childScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.plugins.gitlab.GitLabProjectsManager
@@ -36,12 +35,16 @@ internal class GitLabToolWindowViewModel(
   private val projectsManager: GitLabProjectsManager = project.service<GitLabProjectsManager>()
   private val accountManager: GitLabAccountManager = service<GitLabAccountManager>()
 
+  val isAvailable: StateFlow<Boolean> = projectsManager.knownRepositoriesState.mapState(cs) {
+    it.isNotEmpty()
+  }
+
   override val projectVm: StateFlow<GitLabToolWindowProjectViewModel?> =
     connectionManager.connectionState.mapScoped { connection ->
-      connection?.let { GitLabToolWindowProjectViewModel(project, accountManager, it) }
+      connection?.let { GitLabToolWindowProjectViewModel(project, accountManager, it, this@GitLabToolWindowViewModel) }
     }.stateIn(cs, SharingStarted.Eagerly, null)
 
-  val selectorVm: GitLabRepositoryAndAccountSelectorViewModel by lazy {
+  val selectorVm: GitLabRepositoryAndAccountSelectorViewModel = run {
     val preferences = project.service<GitLabMergeRequestsPreferences>()
     GitLabRepositoryAndAccountSelectorViewModel(
       cs, projectsManager, accountManager,
@@ -60,6 +63,9 @@ internal class GitLabToolWindowViewModel(
     }
   }
 
+  private val _activationRequests = MutableSharedFlow<Unit>(1)
+  val activationRequests: Flow<Unit> = _activationRequests.asSharedFlow()
+
   private val singleProjectAndAccountState: StateFlow<Pair<GitLabProjectMapping, GitLabAccount>?> =
     createSingleProjectAndAccountState(cs, projectsManager, accountManager)
 
@@ -74,5 +80,9 @@ internal class GitLabToolWindowViewModel(
       project.service<GitLabMergeRequestsPreferences>().selectedRepoAndAccount = null
       connectionManager.closeConnection()
     }
+  }
+
+  fun activate() {
+    _activationRequests.tryEmit(Unit)
   }
 }

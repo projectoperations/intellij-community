@@ -42,7 +42,7 @@ import java.util.*;
 
 // Android team doesn't want to use new mockito for now, so, class cannot be final
 @ApiStatus.NonExtendable
-public class UndoManagerImpl extends UndoManager {
+public final class UndoManagerImpl extends UndoManager {
   private static final Logger LOG = Logger.getInstance(UndoManagerImpl.class);
 
   @SuppressWarnings("StaticNonFinalField")
@@ -142,8 +142,7 @@ public class UndoManagerImpl extends UndoManager {
     return getComponentManager().getService(ClientState.class);
   }
 
-  @Nullable
-  private ClientState getClientState(@Nullable FileEditor editor) {
+  private @Nullable ClientState getClientState(@Nullable FileEditor editor) {
     ClientState state = getClientState();
     if (myProject == null || editor == null) return state;
 
@@ -677,7 +676,7 @@ public class UndoManagerImpl extends UndoManager {
     return d.getUserData(ORIGINAL_DOCUMENT) != null;
   }
 
-  protected void compact(@NotNull ClientState state) {
+  void compact(@NotNull ClientState state) {
     if (state.myCurrentOperationState == OperationState.NONE && state.myCommandTimestamp % COMMAND_TO_RUN_COMPACT == 0) {
       doCompact(state);
     }
@@ -754,10 +753,16 @@ public class UndoManagerImpl extends UndoManager {
       return;
     }
     flushMergers();
-    LOG.assertTrue(state.myCommandLevel == 0, state.myCommandLevel);
+    int commandLevel = state.myCommandLevel;
 
+    state.myCommandLevel = 0;
     state.myUndoStacksHolder.clearAllStacksInTests();
     state.myRedoStacksHolder.clearAllStacksInTests();
+
+    LOG.assertTrue(
+      commandLevel == 0,
+      "Level: " + commandLevel +
+      "\nCommand: " + state.myMerger.getCommandName());
   }
 
   @TestOnly

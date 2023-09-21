@@ -218,7 +218,7 @@ public class FontEditorPreview implements PreviewPanel{
     }
   }
 
-  final static class RestorePreviewTextAction extends DumbAwareAction {
+  static final class RestorePreviewTextAction extends DumbAwareAction {
     @Override
     public @NotNull ActionUpdateThread getActionUpdateThread() {
       return ActionUpdateThread.EDT;
@@ -448,7 +448,7 @@ public class FontEditorPreview implements PreviewPanel{
     }
   }
 
-  private static class RangeHighlightingData {
+  private static final class RangeHighlightingData {
     private TextRange textRange;
     private final boolean isBold;
 

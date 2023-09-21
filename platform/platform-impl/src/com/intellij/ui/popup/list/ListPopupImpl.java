@@ -255,6 +255,11 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
   }
 
   @Override
+  protected WizardPopup createPopup(WizardPopup parent, PopupStep step, Object parentValue) {
+    return super.createPopup(parent, step, parentValue);
+  }
+
+  @Override
   protected JComponent createContent() {
     myMouseMotionListener = new MyMouseMotionListener();
     myMouseListener = new MyMouseListener();
@@ -449,16 +454,18 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
 
     if (getSpeedSearch().isHoldingFilter() && myList.getModel().getSize() == 0) return false;
 
-    if (!myExecuteExpandedItemOnClick && myList.getSelectedIndex() == getIndexForShowingChild()) {
-      if (myChild != null && !myChild.isVisible()) setIndexForShowingChild(-1);
-      return false;
-    }
-
     Object[] selectedValues = myList.getSelectedValues();
     if (selectedValues.length == 0) return false;
     ListPopupStep<Object> listStep = getListStep();
     Object selectedValue = selectedValues[0];
-    if (!listStep.isSelectable(selectedValue)) return false;
+
+    boolean selectable = listStep.isSelectable(selectedValue);
+    boolean preferExecution = listStep.isFinal(selectedValue) && selectable && handleFinalChoices;
+    if (!myExecuteExpandedItemOnClick && !preferExecution && myList.getSelectedIndex() == getIndexForShowingChild()) {
+      if (myChild != null && !myChild.isVisible()) setIndexForShowingChild(-1);
+      return false;
+    }
+    if (!selectable) return false;
 
     if ((listStep instanceof MultiSelectionListPopupStep<?> && !((MultiSelectionListPopupStep<Object>)listStep).hasSubstep(Arrays.asList(selectedValues))
          || !listStep.hasSubstep(selectedValue)) && !handleFinalChoices) return false;
@@ -598,15 +605,19 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
 
   @Override
   public void onModelChanged() {
+    boolean updateEmptyModel = myListModel.getSize() == 0;
     myListModel.syncModel();
-    selectFirstSelectableItem();
+    if (updateEmptyModel) {
+      selectFirstSelectableItem();
+    }
+    pack(true, true);
   }
 
   private enum ExtendMode {
     NO_EXTEND, EXTEND_ON_HOVER
   }
 
-  private class MyMouseMotionListener extends MouseMotionAdapter {
+  private final class MyMouseMotionListener extends MouseMotionAdapter {
 
     private int myLastSelectedIndex = -2;
     private ExtendMode myExtendMode = ExtendMode.NO_EXTEND;
@@ -667,8 +678,7 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
       notifyParentOnChildSelection();
     }
 
-    @NotNull
-    private ExtendMode calcExtendMode(int index) {
+    private @NotNull ExtendMode calcExtendMode(int index) {
       ListPopupStep<Object> listStep = getListStep();
       Object selectedValue = myListModel.getElementAt(index);
       if (selectedValue == null || !listStep.hasSubstep(selectedValue)) return ExtendMode.NO_EXTEND;
@@ -724,7 +734,7 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
     return myList.getSelectedValues();
   }
 
-  private class MyMouseListener extends MouseAdapter {
+  private final class MyMouseListener extends MouseAdapter {
 
     @Override
     public void mouseReleased(MouseEvent e) {
@@ -768,7 +778,7 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
     @Nullable Integer getSelectedButtonIndex();
   }
 
-  private class MyList extends JBList implements DataProvider, ListWithInlineButtons {
+  private final class MyList extends JBList implements DataProvider, ListWithInlineButtons {
 
     private @Nullable Integer selectedButtonIndex;
 

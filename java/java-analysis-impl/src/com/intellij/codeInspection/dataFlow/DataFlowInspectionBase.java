@@ -292,14 +292,16 @@ public abstract class DataFlowInspectionBase extends AbstractBaseJavaLocalInspec
     for (Map.Entry<PsiCaseLabelElement, ThreeState> entry : labelReachability.entrySet()) {
       if (entry.getValue() != ThreeState.YES) continue;
       PsiCaseLabelElement label = entry.getKey();
-      PsiSwitchLabelStatementBase labelStatement = Objects.requireNonNull(PsiImplUtil.getSwitchLabel(label));
+      PsiSwitchLabelStatementBase labelStatement = PsiImplUtil.getSwitchLabel(label);
+      if (labelStatement == null) continue; // could be a guard
+      PsiExpression guardExpression = labelStatement.getGuardExpression();
+      if (guardExpression != null) {
+        ThreeState guardReachability = labelReachability.get(guardExpression);
+        if (guardReachability != ThreeState.YES) continue;
+      }
       PsiSwitchBlock switchBlock = labelStatement.getEnclosingSwitchBlock();
       if (switchBlock == null) continue;
       if (!canRemoveTheOnlyReachableLabel(label, switchBlock)) continue;
-      if (SwitchUtils.findRemovableUnreachableBranches(label, switchBlock).isEmpty()) {
-        holder.registerProblem(label, JavaAnalysisBundle.message("dataflow.message.only.switch.label"));
-        continue;
-      }
       if (!StreamEx.iterate(labelStatement, Objects::nonNull, l -> PsiTreeUtil.getPrevSiblingOfType(l, PsiSwitchLabelStatementBase.class))
         .skip(1).map(PsiSwitchLabelStatementBase::getCaseLabelElementList)
         .nonNull().flatArray(PsiCaseLabelElementList::getElements)
@@ -317,7 +319,8 @@ public abstract class DataFlowInspectionBase extends AbstractBaseJavaLocalInspec
       }
       coveredSwitches.add(switchBlock);
       LocalQuickFix unwrapFix;
-      if (switchBlock instanceof PsiSwitchExpression && !CodeBlockSurrounder.canSurround(((PsiSwitchExpression)switchBlock))) {
+      if ((switchBlock instanceof PsiSwitchExpression && !CodeBlockSurrounder.canSurround(((PsiSwitchExpression)switchBlock))) ||
+          SwitchUtils.findRemovableUnreachableBranches(label, switchBlock).isEmpty()) {
         unwrapFix = null;
       }
       else {
@@ -330,7 +333,8 @@ public abstract class DataFlowInspectionBase extends AbstractBaseJavaLocalInspec
     for (Map.Entry<PsiCaseLabelElement, ThreeState> entry : labelReachability.entrySet()) {
       if (entry.getValue() != ThreeState.NO) continue;
       PsiCaseLabelElement label = entry.getKey();
-      PsiSwitchLabelStatementBase labelStatement = Objects.requireNonNull(PsiImplUtil.getSwitchLabel(label));
+      PsiSwitchLabelStatementBase labelStatement = PsiImplUtil.getSwitchLabel(label);
+      if (labelStatement == null) continue;
       PsiSwitchBlock switchBlock = labelStatement.getEnclosingSwitchBlock();
       if (switchBlock == null || coveredSwitches.contains(switchBlock)) continue;
       unreachableLabels.put(label, switchBlock);

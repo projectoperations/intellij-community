@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.ide.util.gotoByName;
 
@@ -17,6 +17,7 @@ import com.intellij.internal.inspector.UiInspectorContextProvider;
 import com.intellij.internal.inspector.UiInspectorUtil;
 import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.impl.ActionPresentationDecorator;
 import com.intellij.openapi.actionSystem.impl.Utils;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
@@ -533,7 +534,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
     return true;
   }
 
-  public static class GroupMapping implements Comparable<GroupMapping> {
+  public static final class GroupMapping implements Comparable<GroupMapping> {
     private final boolean myShowNonPopupGroups;
     private final List<List<ActionGroup>> myPaths = new ArrayList<>();
 
@@ -763,7 +764,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
   }
 
   @DirtyUI
-  public static class GotoActionListCellRenderer extends DefaultListCellRenderer {
+  public static final class GotoActionListCellRenderer extends DefaultListCellRenderer {
     public static final Border TOGGLE_BUTTON_BORDER = JBUI.Borders.empty(0, 2);
     private final Function<? super OptionDescription, @ActionText String> myGroupNamer;
     private final boolean myUseListFont;
@@ -855,7 +856,8 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
         @NlsSafe String actionId = ActionManager.getInstance().getId(anAction);
         Shortcut[] shortcuts = KeymapUtil.getActiveKeymapShortcuts(actionId).getShortcuts();
         String shortcutText = KeymapUtil.getPreferredShortcutText(shortcuts);
-        String name = getName(presentation.getText(), groupName, toggle);
+        String text = ActionPresentationDecorator.decorateTextIfNeeded(anAction, presentation.getText());
+        String name = getName(text, groupName, toggle);
         name = cutName(name, shortcutText, list, panel);
 
         appendWithColoredMatches(nameComponent, name, pattern, fg, isSelected);

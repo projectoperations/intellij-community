@@ -133,9 +133,8 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
       CancellablePromise<List<AnAction>> promise = toolbar.myLastUpdate;
       toolbar.myLastUpdate = null;
       if (promise != null) promise.cancel();
-      toolbar.myVisibleActions.clear();
       Image image = !isTestMode && toolbar.isShowing() ? paintToImage(toolbar) : null;
-      toolbar.removeAll();
+      toolbar.reset();
       if (image != null) toolbar.myCachedImage = image;
       else if (!isTestMode) toolbar.addLoadingIcon();
     }
@@ -196,6 +195,10 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
   private final EventDispatcher<ActionToolbarListener> myListeners = EventDispatcher.create(ActionToolbarListener.class);
 
   private @NotNull Function<? super String, ? extends Component> mySeparatorCreator = (name) -> new MySeparator(name);
+
+  private @Nullable DataProvider myAdditionalDataProvider = null;
+
+  private boolean myNeedCheckHoverOnLayout = false;
 
   public ActionToolbarImpl(@NotNull String place, @NotNull ActionGroup actionGroup, boolean horizontal) {
     this(place, actionGroup, horizontal, false, true);
@@ -515,7 +518,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     }
   }
 
-  final protected @NotNull JComponent getCustomComponent(@NotNull AnAction action) {
+  protected final @NotNull JComponent getCustomComponent(@NotNull AnAction action) {
     Presentation presentation = myPresentationFactory.getPresentation(action);
     JComponent customComponent = presentation.getClientProperty(CustomComponentAction.COMPONENT_KEY);
     if (customComponent == null) {
@@ -533,7 +536,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
 
     AbstractButton clickable = UIUtil.findComponentOfType(customComponent, AbstractButton.class);
     if (clickable != null) {
-      class ToolbarClicksCollectorListener extends MouseAdapter {
+      final class ToolbarClicksCollectorListener extends MouseAdapter {
         @Override
         public void mouseClicked(MouseEvent e) { ToolbarClicksCollector.record(action, myPlace, e, getDataContext()); }
       }
@@ -607,7 +610,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     ToolbarActionTracker.followToolbarComponent(presentation, component, getComponent());
   }
 
-  final protected @NotNull ActionButton createToolbarButton(@NotNull AnAction action) {
+  protected final @NotNull ActionButton createToolbarButton(@NotNull AnAction action) {
     return createToolbarButton(
       action,
       getActionButtonLook(),
@@ -615,8 +618,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
       myMinimumButtonSizeFunction);
   }
 
-  @Nullable
-  protected ActionButtonLook getActionButtonLook() {
+  protected @Nullable ActionButtonLook getActionButtonLook() {
     if (myCustomButtonLook != null) {
       return myCustomButtonLook;
     }
@@ -648,6 +650,17 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     for (int i = componentCount - 1; i >= 0; i--) {
       final Component component = getComponent(i);
       component.setBounds(myComponentBounds.get(i));
+    }
+
+    if (myNeedCheckHoverOnLayout) {
+      Point location = MouseInfo.getPointerInfo().getLocation();
+      SwingUtilities.convertPointFromScreen(location, this);
+      for (int i = componentCount - 1; i >= 0; i--) {
+        final Component component = getComponent(i);
+        if (component instanceof ActionButton actionButton && component.getBounds().contains(location)) {
+          actionButton.myRollover = true;
+        }
+      }
     }
   }
 
@@ -1484,8 +1497,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     return result;
   }
 
-  @Nullable
-  private static JComponent getParentLightweightHintComponent(@Nullable JComponent component) {
+  private static @Nullable JComponent getParentLightweightHintComponent(@Nullable JComponent component) {
     Ref<JComponent> result = Ref.create();
     UIUtil.uiParents(component, false).reduce((a, b) -> {
       if (b instanceof JLayeredPane && ((JLayeredPane)b).getLayer(a) == JLayeredPane.POPUP_LAYER) {
@@ -1548,7 +1560,12 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
                "Please call toolbar.setTargetComponent() explicitly.", myCreationTrace);
     }
     Component target = myTargetComponent != null ? myTargetComponent : IJSwingUtilities.getFocusedComponentInWindowOrSelf(this);
-    return DataManager.getInstance().getDataContext(target);
+    DataContext context = DataManager.getInstance().getDataContext(target);
+    if (myAdditionalDataProvider != null) {
+      return CustomizedDataContext.create(context, myAdditionalDataProvider);
+    } else {
+      return context;
+    }
   }
 
   @Override
@@ -1875,8 +1892,16 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     return myPresentationFactory.getPresentation(action);
   }
 
-  public void clearPresentationCache() {
+  /**
+   * Clear internal caches.
+   * <p>
+   * This method can be called after updating {@link ActionToolbarImpl#myActionGroup}
+   * to make sure toolbar does not reference old {@link AnAction} instances.
+   */
+  public void reset() {
     myPresentationFactory.reset();
+    myVisibleActions.clear();
+    removeAll();
   }
 
   public interface SecondaryGroupUpdater {
@@ -1925,6 +1950,16 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     }
 
     return accessibleContext;
+  }
+
+  @ApiStatus.Internal
+  public void setAdditionalDataProvider(@Nullable DataProvider additionalDataProvider) {
+    myAdditionalDataProvider = additionalDataProvider;
+  }
+
+  @ApiStatus.Internal
+  public void setNeedCheckHoverOnLayout(boolean needCheckHoverOnLayout) {
+    myNeedCheckHoverOnLayout = needCheckHoverOnLayout;
   }
 
   private final class AccessibleActionToolbar extends AccessibleJPanel {

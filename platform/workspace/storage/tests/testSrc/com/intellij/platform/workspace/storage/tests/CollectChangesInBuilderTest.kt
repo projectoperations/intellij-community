@@ -1,28 +1,23 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.platform.workspace.storage.tests
 
-import com.intellij.platform.workspace.storage.testEntities.entities.*
 import com.intellij.platform.workspace.storage.EntityChange
 import com.intellij.platform.workspace.storage.EntityStorageSnapshot
 import com.intellij.platform.workspace.storage.MutableEntityStorage
-import com.intellij.platform.workspace.storage.impl.MutableEntityStorageImpl
 import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerImpl
+import com.intellij.platform.workspace.storage.testEntities.entities.*
 import com.intellij.platform.workspace.storage.toBuilder
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Ignore
-import org.junit.Test
-import kotlin.test.assertIs
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
+import com.intellij.testFramework.junit5.TestApplication
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import kotlin.test.*
 
 @Suppress("UNCHECKED_CAST")
 class CollectChangesInBuilderTest {
   private lateinit var initialStorage: EntityStorageSnapshot
   private lateinit var builder: MutableEntityStorage
 
-  @Before
+  @BeforeEach
   fun setUp() {
     initialStorage = createEmptyBuilder().apply {
       this addEntity SampleEntity(false,
@@ -337,13 +332,13 @@ class CollectChangesInBuilderTest {
   private fun assertChangelogSize(size: Int,
                                   myBuilder: MutableEntityStorage = builder,
                                   original: EntityStorageSnapshot = initialStorage): Map<Class<*>, List<EntityChange<*>>> {
-    val changes = myBuilder.collectChanges(original)
+    val changes = myBuilder.collectChanges()
     assertEquals(size, changes.values.flatten().size)
     return changes
   }
 
   private fun collectSampleEntityChanges(): List<EntityChange<SampleEntity>> {
-    val changes = builder.collectChanges(initialStorage)
+    val changes = builder.collectChanges()
     if (changes.isEmpty()) return emptyList()
     return changes.entries.single().value as List<EntityChange<SampleEntity>>
   }

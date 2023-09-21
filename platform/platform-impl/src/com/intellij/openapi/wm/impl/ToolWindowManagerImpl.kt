@@ -47,7 +47,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectCloseListener
 import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.project.getOpenedProjects
-import com.intellij.openapi.ui.FrameWrapper
 import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.ui.ThreeComponentsSplitter
 import com.intellij.openapi.ui.popup.Balloon
@@ -498,8 +497,8 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
                      reopeningEditorJob: Job,
                      taskListDeferred: Deferred<List<RegisterToolWindowTask>>?) {
     withContext(ModalityState.any().asContextElement()) {
+      val frameHelper = frameHelperDeferred.await()
       launch(Dispatchers.EDT) {
-        val frameHelper = frameHelperDeferred.await()
         this@ToolWindowManagerImpl.frameHelper = frameHelper
 
         // Make sure we haven't already created the root tool window pane.
@@ -538,7 +537,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     }
   }
 
-  internal suspend fun initToolWindow(bean: ToolWindowEP, plugin: PluginDescriptor) {
+  suspend fun initToolWindow(bean: ToolWindowEP, plugin: PluginDescriptor) {
     val condition = bean.getCondition(plugin)
     if (condition != null && !condition.value(project)) {
       return
@@ -549,18 +548,13 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
       return
     }
 
-    // Always add to the default tool window pane
-    val toolWindowPane = getDefaultToolWindowPaneIfInitialized()
-    val anchor = getToolWindowAnchor(factory, bean)
-
-    @Suppress("DEPRECATION")
-    val sideTool = bean.secondary || bean.side
-    val entry = withContext(Dispatchers.EDT) {
-      registerToolWindow(RegisterToolWindowTask(
+    withContext(Dispatchers.EDT) {
+      // always add to the default tool window pane
+      val task = RegisterToolWindowTask(
         id = bean.id,
         icon = findIconFromBean(bean, factory, plugin),
-        anchor = anchor,
-        sideTool = sideTool,
+        anchor = getToolWindowAnchor(factory, bean),
+        sideTool = bean.secondary || bean.side,
         canCloseContent = bean.canCloseContents,
         canWorkInDumbMode = DumbService.isDumbAware(factory),
         shouldBeAvailable = factory.shouldBeAvailable(project),
@@ -568,13 +562,16 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
         stripeTitle = getStripeTitleSupplier(bean.id, project, plugin)
       ).apply {
         pluginDescriptor = plugin
-      }, toolWindowPane.buttonManager)
-    }
-    project.messageBus.syncPublisher(ToolWindowManagerListener.TOPIC).toolWindowsRegistered(listOf(entry.id), this)
+      }
 
-    toolWindowPane.buttonManager.getStripeFor(anchor, sideTool).revalidate()
-    toolWindowPane.validate()
-    toolWindowPane.repaint()
+      val toolWindowPane = getDefaultToolWindowPaneIfInitialized()
+      registerToolWindow(task, toolWindowPane.buttonManager)
+
+      toolWindowPane.buttonManager.getStripeFor(task.anchor, task.sideTool).revalidate()
+      toolWindowPane.validate()
+      toolWindowPane.repaint()
+    }
+    project.messageBus.syncPublisher(ToolWindowManagerListener.TOPIC).toolWindowsRegistered(listOf(bean.id), this)
   }
 
   private fun getDefaultToolWindowPaneIfInitialized(): ToolWindowPane {
@@ -1707,7 +1704,8 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
                           layoutState: DesktopLayout?) {
     if (isNewUi && currentInfo != null) {
       entry.removeStripeButton(currentInfo.anchor, currentInfo.isSplit)
-    } else {
+    }
+    else {
       entry.removeStripeButton()
     }
 
@@ -1808,8 +1806,12 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
 
   protected open fun fireStateChanged(changeType: ToolWindowManagerEventType, toolWindow: ToolWindow? = null) {
     val topic = project.messageBus.syncPublisher(ToolWindowManagerListener.TOPIC)
-    if (toolWindow != null) topic.stateChanged(this, toolWindow, changeType)
-    else topic.stateChanged(this, changeType)
+    if (toolWindow != null) {
+      topic.stateChanged(this, toolWindow, changeType)
+    }
+    else {
+      topic.stateChanged(this, changeType)
+    }
   }
 
   private fun fireToolWindowShown(toolWindow: ToolWindow) {
@@ -1817,7 +1819,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   }
 
   internal fun setToolWindowAutoHide(id: String, autoHide: Boolean) {
-    ApplicationManager.getApplication().assertIsDispatchThread()
+    EDT.assertIsEdt()
 
     val info = getRegisteredMutableInfoOrLogError(id)
     if (info.isAutoHide == autoHide) {
@@ -1968,7 +1970,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
 
     val id = entry.id
     val decorator = entry.toolWindow.getOrCreateDecoratorComponent()
-    val windowedDecorator = FrameWrapper(project, title = "${entry.toolWindow.stripeTitle} - ${project.name}", component = decorator)
+    val windowedDecorator = WindowedDecorator(project, title = "${entry.toolWindow.stripeTitle} - ${project.name}", component = decorator)
     val window = windowedDecorator.getFrame()
 
     MnemonicHelper.init((window as RootPaneContainer).contentPane)

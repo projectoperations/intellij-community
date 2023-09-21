@@ -2,7 +2,6 @@
 package com.intellij.compiler.server;
 
 import com.intellij.DynamicBundle;
-import com.intellij.ProjectTopics;
 import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.compiler.CompilerConfigurationImpl;
 import com.intellij.compiler.CompilerWorkspaceConfiguration;
@@ -57,6 +56,7 @@ import com.intellij.openapi.roots.*;
 import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.registry.RegistryManager;
 import com.intellij.openapi.util.registry.RegistryManagerKt;
@@ -469,7 +469,7 @@ public final class BuildManager implements Disposable {
         home = parent;
       }
     }
-    return FileUtil.toSystemIndependentName(home);
+    return FileUtilRt.toSystemIndependentName(home);
   }
 
   private static @NotNull List<Project> getOpenProjects() {
@@ -1978,7 +1978,7 @@ public final class BuildManager implements Disposable {
       if (!project.isDefault()) {
         connection.subscribe(WorkspaceModelTopics.CHANGED, new WSModelChangeListener(project));
 
-        connection.subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
+        connection.subscribe(ModuleRootListener.TOPIC, new ModuleRootListener() {
           @Override
           public void rootsChanged(@NotNull ModuleRootEvent event) {
             if (!event.isCausedByWorkspaceModelChangesOnly()) {

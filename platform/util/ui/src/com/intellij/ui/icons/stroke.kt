@@ -34,7 +34,7 @@ private val strokeColors = pairWithDigest(listOf(
 private val strokeColorsForReplacer = pairWithDigest(listOf("white", "#ffffff"))
 
 private fun pairWithDigest(list: List<String>): Pair<List<String>, Long> {
-  return list to Hashing.komihash4_3().hashStream().putOrderedIterable(list, HashFunnel.forString()).asLong
+  return list to Hashing.komihash5_0().hashStream().putOrderedIterable(list, HashFunnel.forString()).asLong
 }
 
 fun toStrokeIcon(original: Icon, resultColor: Color): Icon {
@@ -78,9 +78,14 @@ private fun getStrokePatcher(resultColor: Color,
     packTwoIntToLong(resultColor.rgb, resultColor.alpha),
   )
   return object : SVGLoader.SvgElementColorPatcherProvider {
-    override fun attributeForPath(path: String?): SvgAttributePatcher? {
+    override fun attributeForPath(path: String): SvgAttributePatcher? {
+      val newPalette = map + (backgroundColors?.first?.associateWith { "#00000000" } ?: emptyMap())
+      if (newPalette.isEmpty()) {
+        return null
+      }
+
       return newSvgPatcher(digest = digest,
-                           newPalette = map + (backgroundColors?.first?.associateWith { "#00000000" } ?: emptyMap()),
+                           newPalette = newPalette,
                            alphaProvider = { color ->
                              alpha.getInt(color).takeIf { it != Int.MIN_VALUE }
                            })

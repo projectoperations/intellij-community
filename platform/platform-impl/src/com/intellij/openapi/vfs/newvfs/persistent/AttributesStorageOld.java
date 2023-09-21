@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.openapi.util.Disposer;
@@ -31,7 +31,7 @@ import static com.intellij.openapi.vfs.newvfs.persistent.AbstractAttributesStora
 /**
  *
  */
-public class AttributesStorageOld implements AbstractAttributesStorage {
+public final class AttributesStorageOld implements AbstractAttributesStorage {
 
   /**
    * RC: this flag influences storage layout, but used nowhere. Seems like it is an unfinished effort to
@@ -48,16 +48,15 @@ public class AttributesStorageOld implements AbstractAttributesStorage {
    */
   private final boolean inlineAttributes;
 
-  @NotNull
-  private final Storage attributesBlobStorage;
+  private final @NotNull Storage attributesBlobStorage;
 
   private final ReadWriteLock lock = new ReentrantReadWriteLock();
   private final AtomicInteger modCount = new AtomicInteger();
 
 
-  protected AttributesStorageOld(final boolean bulkAttrReadSupport,
-                                 final boolean inlineAttributes,
-                                 final @NotNull Storage attributesBlobStorage) {
+  AttributesStorageOld(final boolean bulkAttrReadSupport,
+                       final boolean inlineAttributes,
+                       final @NotNull Storage attributesBlobStorage) {
     this.bulkAttrReadSupport = bulkAttrReadSupport;
     this.inlineAttributes = inlineAttributes;
 
@@ -151,8 +150,7 @@ public class AttributesStorageOld implements AbstractAttributesStorage {
    * Opens given attribute of given file for writing
    */
   @Override
-  @NotNull
-  public AttributeOutputStream writeAttribute(final @NotNull PersistentFSConnection connection,
+  public @NotNull AttributeOutputStream writeAttribute(final @NotNull PersistentFSConnection connection,
                                               final int fileId,
                                               final @NotNull FileAttribute attribute) {
     return new AttributeOutputStreamBase(
@@ -249,8 +247,7 @@ public class AttributesStorageOld implements AbstractAttributesStorage {
 
   private final class AttributeOutputStreamImpl extends DataOutputStream implements RepresentableAsByteArraySequence {
     private final PersistentFSConnection connection;
-    @NotNull
-    private final FileAttribute attribute;
+    private final @NotNull FileAttribute attribute;
     private final int fileId;
 
     private AttributeOutputStreamImpl(final PersistentFSConnection connection,
@@ -432,9 +429,8 @@ public class AttributesStorageOld implements AbstractAttributesStorage {
       }
     }
 
-    @NotNull
     @Override
-    public ByteArraySequence asByteArraySequence() {
+    public @NotNull ByteArraySequence asByteArraySequence() {
       return ((BufferExposingByteArrayOutputStream)out).asByteArraySequence();
     }
   }
@@ -517,11 +513,11 @@ public class AttributesStorageOld implements AbstractAttributesStorage {
         DataInputOutputUtil.writeINT(appender, encodedAttrId);
         int attrAddress = attributesBlobStorage.createNewRecord();
         DataInputOutputUtil.writeINT(appender, inlineAttributes ? attrAddress + INLINE_ATTRIBUTE_SMALLER_THAN : attrAddress);
-        PersistentFSConnection.REASONABLY_SMALL.myAttrPageRequested = true;
+        PersistentFSConnection.REASONABLY_SMALL.attrPageRequested = true;
         return attrAddress;
       }
       finally {
-        PersistentFSConnection.REASONABLY_SMALL.myAttrPageRequested = false;
+        PersistentFSConnection.REASONABLY_SMALL.attrPageRequested = false;
       }
     }
 

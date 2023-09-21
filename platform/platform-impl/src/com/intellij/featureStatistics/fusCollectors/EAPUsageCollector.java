@@ -16,7 +16,7 @@ import java.util.*;
 /**
  * @author Eugene Zhuravlev
  */
-public class EAPUsageCollector extends ApplicationUsagesCollector {
+public final class EAPUsageCollector extends ApplicationUsagesCollector {
   private static final EventLogGroup GROUP = new EventLogGroup("user.advanced.info", 5);
   private static final EventId1<BuildType> BUILD = GROUP.registerEvent("build", EventFields.Enum("value", BuildType.class));
   private static final EnumEventField<LicenceType> LICENSE_VALUE = EventFields.Enum("value", LicenceType.class);
@@ -30,14 +30,12 @@ public class EAPUsageCollector extends ApplicationUsagesCollector {
     return GROUP;
   }
 
-  @NotNull
   @Override
-  public Set<MetricEvent> getMetrics() {
+  public @NotNull Set<MetricEvent> getMetrics() {
     return collectMetrics();
   }
 
-  @NotNull
-  private static Set<MetricEvent> collectMetrics() {
+  private static @NotNull Set<MetricEvent> collectMetrics() {
     try {
       if (!AppMode.isHeadless()) {
         final Set<MetricEvent> result = new HashSet<>();
@@ -66,8 +64,7 @@ public class EAPUsageCollector extends ApplicationUsagesCollector {
     return Collections.emptySet();
   }
 
-  @NotNull
-  private static MetricEvent newLicencingMetric(@NotNull LicenceType value, @NotNull LicensingFacade licensingFacade) {
+  private static @NotNull MetricEvent newLicencingMetric(@NotNull LicenceType value, @NotNull LicensingFacade licensingFacade) {
     List<EventPair<?>> data = new ArrayList<>();
     String licensedToMessage = licensingFacade.getLicensedToMessage();
     if (licensedToMessage != null && licensedToMessage.contains("JetBrains Team")) {

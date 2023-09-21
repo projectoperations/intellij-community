@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui.popup;
 
 import com.intellij.openapi.actionSystem.*;
@@ -21,7 +21,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-class ActionStepBuilder {
+final class ActionStepBuilder {
   private final List<PopupFactoryImpl.ActionItem> myListModel;
   private final DataContext myDataContext;
   private final boolean                         myShowNumbers;
@@ -61,8 +61,7 @@ class ActionStepBuilder {
     myActionPlace = ObjectUtils.notNull(actionPlace, ActionPlaces.POPUP);
   }
 
-  @NotNull
-  public List<PopupFactoryImpl.ActionItem> getItems() {
+  public @NotNull List<PopupFactoryImpl.ActionItem> getItems() {
     return myListModel;
   }
 

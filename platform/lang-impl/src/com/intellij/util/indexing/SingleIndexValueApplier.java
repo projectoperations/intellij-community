@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing;
 
 import com.intellij.openapi.vfs.VirtualFile;
@@ -10,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.function.Supplier;
 
 @ApiStatus.Internal
+final
 class SingleIndexValueApplier<FileIndexMetaData> {
   private final FileBasedIndexImpl myIndex;
   @NotNull final ID<?, ?> indexId;
@@ -41,10 +42,6 @@ class SingleIndexValueApplier<FileIndexMetaData> {
   boolean wasIndexProvidedByExtension() {
     return storageUpdate instanceof IndexInfrastructureExtensionUpdateComputation &&
            ((IndexInfrastructureExtensionUpdateComputation)storageUpdate).isIndexProvided();
-  }
-
-  boolean applyImmediately() {
-    return doApply();
   }
 
   boolean apply() {
@@ -83,7 +80,6 @@ class SingleIndexValueApplier<FileIndexMetaData> {
                                                           int inputId,
                                                           boolean indexWasProvided) {
     if (index instanceof FileBasedIndexInfrastructureExtensionUpdatableIndex) {
-      //noinspection unchecked
       ((FileBasedIndexInfrastructureExtensionUpdatableIndex<?, ?, ?, FileIndexMetaData>)index)
         .setIndexedStateForFileOnFileIndexMetaData(inputId, fileData, indexWasProvided);
     }

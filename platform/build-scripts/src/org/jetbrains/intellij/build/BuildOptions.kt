@@ -36,7 +36,7 @@ class BuildOptions(
     const val OS_CURRENT = "current"
 
     /**
-     * If this value is set no distributions of the product will be produced, only [non-bundled plugins][ProductModulesLayout.setPluginModulesToPublish]
+     * If this value is set no distributions of the product will be produced, only [non-bundled plugins][ProductModulesLayout.pluginModulesToPublish]
      * will be built.
      */
     const val OS_NONE = "none"
@@ -125,7 +125,7 @@ class BuildOptions(
     const val TEAMCITY_ARTIFACTS_PUBLICATION_STEP = "teamcity_artifacts_publication"
 
     /**
-     * @see org.jetbrains.intellij.build.fus.StatisticsRecorderBundledMetadataProvider
+     * @see org.jetbrains.intellij.build.fus.createStatisticsRecorderBundledMetadataProviderTask
      */
     const val FUS_METADATA_BUNDLE_STEP = "fus_metadata_bundle_step"
 
@@ -135,16 +135,6 @@ class BuildOptions(
     const val REPAIR_UTILITY_BUNDLE_STEP = "repair_utility_bundle_step"
 
     const val DOC_AUTHORING_ASSETS_STEP = "doc_authoring_assets"
-
-    /**
-     * Pass 'true' to this system property to produce an additional .dmg and .sit archives for macOS without Runtime.
-     */
-    const val BUILD_MAC_ARTIFACTS_WITHOUT_RUNTIME = "intellij.build.dmg.without.bundled.jre"
-
-    /**
-     * Pass 'false' to this system property to skip building .dmg and .sit with bundled Runtime.
-     */
-    const val BUILD_MAC_ARTIFACTS_WITH_RUNTIME = "intellij.build.dmg.with.bundled.jre"
 
     /**
      * By default, build cleanup output folder before compilation, use this property to change this behaviour.
@@ -271,12 +261,9 @@ class BuildOptions(
         add(MAC_SIGN_STEP)
         add(MAC_NOTARIZE_STEP)
       }
+      // skipped until IDEA-223423 is implemented
+      add(SoftwareBillOfMaterials.STEP_ID)
     }
-
-  var buildMacArtifactsWithoutRuntime =
-    SystemProperties.getBooleanProperty(BUILD_MAC_ARTIFACTS_WITHOUT_RUNTIME, SystemProperties.getBooleanProperty("artifact.mac.no.jdk", false))
-  var buildMacArtifactsWithRuntime =
-    SystemProperties.getBooleanProperty(BUILD_MAC_ARTIFACTS_WITH_RUNTIME, true)
 
   /**
    * Pass 'true' to this system property to produce .snap packages.
@@ -311,6 +298,12 @@ class BuildOptions(
    */
   var incrementalCompilationFallbackRebuild =
     SystemProperties.getBooleanProperty(INCREMENTAL_COMPILATION_FALLBACK_REBUILD_PROPERTY, true)
+
+  /**
+   * Full rebuild will be triggered if this timeout is exceeded for incremental compilation
+   */
+  val incrementalCompilationTimeout: Long = SystemProperties.getLongProperty("intellij.build.incremental.compilation.timeoutMin",
+                                                                             Long.MAX_VALUE)
 
   /**
    * Build number without product code (e.g. '162.500.10'), if `null` '&lt;baseline&gt;.SNAPSHOT' will be used. Use [BuildContext.buildNumber] to
@@ -358,9 +351,9 @@ class BuildOptions(
   val bundledPluginDirectoriesToSkip: Set<String> = getSetProperty("intellij.build.bundled.plugin.dirs.to.skip")
 
   /**
-   * Specifies list of names of directories of non-bundled plugins (determined by [ProductModulesLayout.pluginsToPublish] and
+   * Specifies list of names of directories of non-bundled plugins (determined by [ProductModulesLayout.pluginModulesToPublish] and
    * [ProductModulesLayout.buildAllCompatiblePlugins]) which should be actually built. This option can be used to speed up updating
-   * the IDE from sources. By default, all plugins determined by [ProductModulesLayout.pluginsToPublish] and
+   * the IDE from sources. By default, all plugins determined by [ProductModulesLayout.pluginModulesToPublish] and
    * [ProductModulesLayout.buildAllCompatiblePlugins] are built. In order to skip building all non-bundled plugins, set the property to
    * `none`.
    */
@@ -368,17 +361,18 @@ class BuildOptions(
 
   /**
    * If this option and [ProductProperties.supportModularLoading] are set to `true`, a file containing module descriptors will be added to 
-   * the distribution (IJPL-109), and launchers will use it to start the IDE (IJPL-128). 
+   * the distribution (IJPL-109), and launchers will use it to start the IDE (IJPL-128).
    */
   @ApiStatus.Experimental
-  var useModularLoader = SystemProperties.getBooleanProperty("intellij.build.use.modular.loader", false)
+  var useModularLoader = SystemProperties.getBooleanProperty("intellij.build.use.modular.loader", true)
   
   /**
-   * If `true`, a [runtime module repository][com.intellij.platform.runtime.repository.RuntimeModuleRepository] will be generated in the distribution.
-   * This option doesn't make sense if [useModularLoader] is set to `true`, in this case the generation is enabled automatically. 
+   * If this option is set to `true` and [enableEmbeddedJetBrainsClient] is enabled, a [runtime module repository][com.intellij.platform.runtime.repository.RuntimeModuleRepository] 
+   * will be generated in the distribution.
+   * This option doesn't make sense if [modular loader][BuildContext.useModularLoader] is used, in this case the generation is enabled automatically. 
    */
   @ApiStatus.Experimental
-  var generateRuntimeModuleRepository = SystemProperties.getBooleanProperty("intellij.build.generate.runtime.module.repository", false)
+  var generateRuntimeModuleRepository = SystemProperties.getBooleanProperty("intellij.build.generate.runtime.module.repository", true)
   
   /**
    * If `true` and [ProductProperties.embeddedJetBrainsClientMainModule] is not null, the JAR files in the distribution will be adjusted
@@ -397,11 +391,6 @@ class BuildOptions(
    * Enables fastdebug runtime
    */
   var runtimeDebug: Boolean = parseBooleanValue(System.getProperty("intellij.build.bundled.jre.debug", "false"))
-
-  /**
-   * Specifies an algorithm to build distribution checksums.
-   */
-  val hashAlgorithm: String = "SHA-384"
 
   var validateModuleStructure: Boolean = parseBooleanValue(System.getProperty(VALIDATE_MODULES_STRUCTURE_PROPERTY, "false"))
 

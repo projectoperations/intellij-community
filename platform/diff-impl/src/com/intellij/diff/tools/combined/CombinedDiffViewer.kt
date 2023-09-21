@@ -125,7 +125,6 @@ class CombinedDiffViewer(
   init {
     blockListeners.listeners.add(blockListener)
     selectDiffBlock(blockState.currentBlock, true)
-    notifyVisibleBlocksChanged()
   }
 
   internal fun updateBlockContent(newContent: CombinedDiffBlockContent) {
@@ -133,6 +132,7 @@ class CombinedDiffViewer(
     createDiffBlock.updateBlockContent(newContent)
     val newViewer = newContent.viewer
     removeAdditionalLines(newViewer)
+    installCombinedDiffViewer(newViewer, this)
 
     val blockId = newContent.blockId
     diffBlocks[blockId] = createDiffBlock
@@ -148,6 +148,9 @@ class CombinedDiffViewer(
       if (requestFocus && blockState.currentBlock == blockId) {
         requestFocusInDiffViewer(blockId)
       }
+    }
+    if (blockState.currentBlock == blockId) {
+      scrollToFirstChange(blockId, false, ScrollPolicy.SCROLL_TO_CARET)
     }
   }
 
@@ -269,6 +272,10 @@ class CombinedDiffViewer(
     val delta = CombinedDiffRegistry.getPreloadedBlocksCount()
     val viewRect = scrollPane.viewport.viewRect
 
+    if (viewRect.height == 0) {
+      return
+    }
+
     val beforeViewport = arrayOfNulls<CombinedBlockId>(delta)
     val afterViewport = arrayOfNulls<CombinedBlockId>(delta)
     val blocksInViewport = arrayListOf<CombinedBlockId>()
@@ -308,6 +315,9 @@ class CombinedDiffViewer(
     val totalVisible = inViewport + afterViewport + beforeViewport
     if (totalVisible.isNotEmpty()) {
       blockListeners.multicaster.blocksVisible(totalVisible)
+      if (context.getUserData(DISABLE_LOADING_BLOCKS) == true) {
+        return
+      }
 
       totalVisible.forEach {
         if (diffViewers[it] != null) return
@@ -338,7 +348,8 @@ class CombinedDiffViewer(
     val showBorder = viewRect.minY > block.component.bounds.minY
     stickyHeaderPanel.setContent(stickyHeader)
     stickyHeaderPanel.setBounds(0, stickyHeaderY, block.component.width, headerHeight)
-    stickyHeaderPanel.border = JBUI.Borders.customLineBottom(if (!showBorder) CombinedDiffUI.MAIN_HEADER_BACKGROUND else CombinedDiffUI.EDITOR_BORDER_COLOR)
+    stickyHeaderPanel.border = JBUI.Borders.customLineBottom(
+      if (!showBorder) CombinedDiffUI.MAIN_HEADER_BACKGROUND else CombinedDiffUI.EDITOR_BORDER_COLOR)
     stickyHeaderPanel.repaint()
   }
 
@@ -357,12 +368,22 @@ class CombinedDiffViewer(
     selectDiffBlock(blockId, scrollPolicy, focusBlock)
   }
 
+  fun scrollToFirstChange(blockId: CombinedBlockId,
+                          focusBlock: Boolean,
+                          scrollPolicy: ScrollPolicy? = ScrollPolicy.SCROLL_TO_BLOCK) {
+    selectDiffBlock(blockId, scrollPolicy, false, animated = false, ScrollType.RELATIVE)
+    currentDiffIterable.goFirst(ScrollType.RELATIVE, animated = false)
+    scrollSupport.scroll(ScrollPolicy.SCROLL_TO_CARET, blockId, animated = false, ScrollType.CENTER_DOWN)
+  }
+
   private fun selectDiffBlock(blockId: CombinedBlockId,
                               scrollPolicy: ScrollPolicy? = null,
-                              focusBlock: Boolean = true) {
+                              focusBlock: Boolean = true,
+                              animated: Boolean = true,
+                              scrollType: ScrollType = ScrollType.CENTER) {
     val doSelect = {
       blockState.currentBlock = blockId
-      scrollSupport.scroll(scrollPolicy, blockId)
+      scrollSupport.scroll(scrollPolicy, blockId, animated = animated, scrollType = scrollType)
     }
 
     if (!focusBlock) {
@@ -515,20 +536,25 @@ class CombinedDiffViewer(
 
     val combinedEditorsScrollingModel = ScrollingModelImpl(CombinedEditorsScrollingModelHelper(project, viewer))
 
-    fun scroll(scrollPolicy: ScrollPolicy?, combinedBlockId: CombinedBlockId) {
+    fun scroll(scrollPolicy: ScrollPolicy?,
+               combinedBlockId: CombinedBlockId,
+               animated: Boolean = true,
+               scrollType: ScrollType = ScrollType.CENTER) {
       val isEditorBased = viewer.getDiffViewerForId(combinedBlockId)?.isEditorBased ?: false
       if (scrollPolicy == ScrollPolicy.SCROLL_TO_BLOCK || !isEditorBased) {
         scrollToDiffBlock(combinedBlockId)
       }
       else if (scrollPolicy == ScrollPolicy.SCROLL_TO_CARET) {
-        scrollToDiffChangeWithCaret()
+        scrollToDiffChangeWithCaret(animated, scrollType)
       }
     }
 
-    private fun scrollToDiffChangeWithCaret() {
-      if (viewer.getCurrentDiffViewer().isEditorBased) { //avoid scrolling for non editor based viewers
-        combinedEditorsScrollingModel.scrollToCaret(ScrollType.CENTER)
-      }
+    private fun scrollToDiffChangeWithCaret(animated: Boolean = true, scrollType: ScrollType = ScrollType.CENTER) {
+      if (!viewer.getCurrentDiffViewer().isEditorBased) return //avoid scrolling for non editor based viewers
+
+      if (!animated) combinedEditorsScrollingModel.disableAnimation()
+      combinedEditorsScrollingModel.scrollToCaret(scrollType)
+      if (!animated) combinedEditorsScrollingModel.enableAnimation()
     }
 
     private fun scrollToDiffBlock(id: CombinedBlockId) {
@@ -559,10 +585,10 @@ class CombinedDiffViewer(
         scrollToDiffChangeWithCaret()
       }
 
-      fun goFirst() {
+      fun goFirst(scrollType: ScrollType = ScrollType.CENTER, animated: Boolean = true) {
         val diffIterable = viewer.getDifferencesIterable() ?: return
         while (diffIterable.canGoPrev()) diffIterable.goPrev()
-        scrollToDiffChangeWithCaret()
+        scrollToDiffChangeWithCaret(scrollType = scrollType, animated = animated)
       }
 
       fun goLast() {
@@ -616,7 +642,7 @@ private fun runPreservingViewportContent(scroll: JBScrollPane, blocksPanel: Comb
     val minY = block.minY
     val maxY = block.maxY
 
-    if (maxY < viewRect.minY) {
+    if (!viewRect.intersects(block)) {
       // full block before the viewport
       continue
     }
@@ -686,9 +712,13 @@ private fun removeAdditionalLines(viewer: DiffViewer) {
   }
 }
 
+private fun installCombinedDiffViewer(newViewer: DiffViewer, combinedDiffViewer: CombinedDiffViewer) {
+  newViewer.editors.forEach { it.putUserData(COMBINED_DIFF_VIEWER_KEY, combinedDiffViewer) }
+}
+
 private fun Rectangle.intersects(bb: BlockBounds): Boolean =
-  (bb.minY >= minY && bb.minY <= maxY) ||
-  (bb.maxY >= minY && bb.maxY <= maxY) ||
+  (bb.minY >= minY && bb.minY < maxY) ||
+  (bb.maxY > minY && bb.maxY <= maxY) ||
   (bb.minY <= minY && bb.maxY >= maxY)
 
 interface BlockListener : EventListener {
@@ -703,16 +733,19 @@ internal interface BlockOrder {
 }
 
 private class BlockState(list: List<CombinedBlockId>, current: CombinedBlockId) : PrevNextDifferenceIterable, BlockOrder {
-  private val blocks: List<CombinedBlockId>
+  private val blocks: List<CombinedBlockId> = list.toList()
 
   private val blockByIndex: MutableMap<CombinedBlockId, Int> = mutableMapOf()
 
   var currentBlock: CombinedBlockId = current
 
   init {
-    blocks = list.toList()
     blocks.forEachIndexed { index, block ->
       blockByIndex[block] = index
+    }
+    // todo: find and fix initial problem in Space review integration
+    if (!blocks.contains(current)) {
+      currentBlock = blocks.first()
     }
   }
 

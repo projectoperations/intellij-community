@@ -3,6 +3,7 @@ package com.intellij.searchEverywhereMl.ranking
 
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereMixedListInfo
 import com.intellij.ide.actions.searcheverywhere.SearchRestartReason
+import com.intellij.internal.statistic.collectors.fus.actions.persistence.ActionRuleValidator
 import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.events.*
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
@@ -14,7 +15,6 @@ import com.intellij.searchEverywhereMl.SE_TABS
 import com.intellij.searchEverywhereMl.log.MLSE_RECORDER_ID
 import com.intellij.searchEverywhereMl.ranking.features.*
 import com.intellij.searchEverywhereMl.ranking.id.SearchEverywhereMlItemIdProvider
-import com.intellij.util.concurrency.NonUrgentExecutor
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 
@@ -125,11 +125,10 @@ class SearchEverywhereMLStatisticsCollector : CounterUsagesCollector() {
                              elements: List<SearchEverywhereFoundElementInfoWithMl>,
                              elementIdProvider: SearchEverywhereMlItemIdProvider,
                              additionalEvents: List<EventPair<*>>) {
-    NonUrgentExecutor.getInstance().execute {
-      val eventData = mutableListOf<EventPair<*>>()
-      eventData.addAll(additionalEvents)
+    eventId.log(project) {
+      addAll(additionalEvents)
 
-      eventData.addAll(
+      addAll(
         getCommonTypeLevelEvents(seSessionId = seSessionId,
                                  tabId = cache.tabId,
                                  elementsSize = elements.size,
@@ -145,9 +144,7 @@ class SearchEverywhereMLStatisticsCollector : CounterUsagesCollector() {
                                  experimentGroup = cache.experimentGroup)
       )
 
-      eventData.addAll(getElementsEvents(project, shouldLogFeatures, elements, mixedListInfo, elementIdProvider))
-
-      eventId.log(eventData)
+      addAll(getElementsEvents(project, shouldLogFeatures, elements, mixedListInfo, elementIdProvider))
     }
   }
 
@@ -272,7 +269,7 @@ class SearchEverywhereMLStatisticsCollector : CounterUsagesCollector() {
   }
 
   companion object {
-    private val GROUP = EventLogGroup("mlse.log", 71, MLSE_RECORDER_ID)
+    private val GROUP = EventLogGroup("mlse.log", 74, MLSE_RECORDER_ID)
     private const val REPORTED_ITEMS_LIMIT = 50
 
     private val ORDER_BY_ML_GROUP = EventFields.Boolean("orderByMl")
@@ -307,7 +304,7 @@ class SearchEverywhereMLStatisticsCollector : CounterUsagesCollector() {
 
     @VisibleForTesting
     val ID_KEY = EventFields.Int("id")
-    internal val ACTION_ID_KEY = EventFields.StringValidatedByCustomRule("actionId", "action")
+    internal val ACTION_ID_KEY = EventFields.StringValidatedByCustomRule("actionId", ActionRuleValidator::class.java)
 
     @VisibleForTesting
     val FEATURES_DATA_KEY = createFeaturesEventObject()

@@ -16,6 +16,7 @@ import com.intellij.openapi.vcs.changes.DiffPreviewUpdateProcessor
 import com.intellij.openapi.vcs.changes.DiffRequestProcessorWithProducers
 import com.intellij.openapi.vcs.changes.EditorTabPreviewBase
 import com.intellij.openapi.vcs.changes.actions.diff.CombinedDiffPreviewModel.Companion.prepareCombinedDiffModelRequests
+import com.intellij.openapi.vcs.changes.ui.ChangeDiffRequestChain
 import com.intellij.openapi.vcs.changes.ui.ChangesBrowserBase
 import com.intellij.openapi.vcs.changes.ui.ChangesTree
 import com.intellij.openapi.vfs.VirtualFile
@@ -126,6 +127,16 @@ abstract class CombinedDiffPreviewModel(protected val tree: ChangesTree,
             ?.let { CombinedPathBlockId(wrapper.filePath, wrapper.fileStatus, wrapper.tag) to it }
         }.toMap()
     }
+
+    @JvmStatic
+    fun prepareCombinedDiffModelRequestsFromProducers(changes: List<ChangeDiffRequestChain.Producer>): Map<CombinedBlockId, DiffRequestProducer> {
+      return changes
+        .asSequence()
+        .map { wrapper ->
+          CombinedPathBlockId(wrapper.filePath, wrapper.fileStatus, null) to wrapper
+        }.toMap()
+    }
+
   }
 
   override fun collectDiffProducers(selectedOnly: Boolean): ListSelection<DiffRequestProducer> {
@@ -172,14 +183,14 @@ abstract class CombinedDiffPreviewModel(protected val tree: ChangesTree,
     selected = newSelected
   }
 
-  internal fun iterateSelectedOrAllChanges(): Iterable<Wrapper> {
+  private fun iterateSelectedOrAllChanges(): Iterable<Wrapper> {
     return if (iterateSelectedChanges().none() && showAllChangesForEmptySelection()) iterateAllChanges() else iterateSelectedChanges()
   }
 
   private fun scrollToChange(change: Wrapper) {
     context.getUserData(COMBINED_DIFF_VIEWER_KEY)
-      ?.selectDiffBlock(CombinedPathBlockId(change.filePath, change.fileStatus, change.tag), false,
-                        CombinedDiffViewer.ScrollPolicy.SCROLL_TO_BLOCK)
+      ?.scrollToFirstChange(CombinedPathBlockId(change.filePath, change.fileStatus, change.tag), false,
+                            CombinedDiffViewer.ScrollPolicy.SCROLL_TO_BLOCK)
   }
 
   open fun selectChangeInTree(change: Wrapper) {

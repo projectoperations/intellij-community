@@ -461,7 +461,7 @@ public class Maven40ServerEmbedderImpl extends MavenServerEmbeddedBase {
       result.setSystemProperties(mySystemProperties);
       Properties userProperties = new Properties();
       if (file != null) {
-        userProperties.putAll(MavenServerConfigUtil.getMavenAndJvmConfigProperties(file.getParentFile()));
+        userProperties.putAll(MavenServerConfigUtil.getMavenAndJvmConfigPropertiesForNestedProjectDir(file.getParentFile()));
       }
       result.setUserProperties(userProperties);
 
@@ -640,6 +640,7 @@ public class Maven40ServerEmbedderImpl extends MavenServerEmbeddedBase {
   @Override
   public ArrayList<PluginResolutionResponse> resolvePlugins(@NotNull String longRunningTaskId,
                                                        @NotNull ArrayList<PluginResolutionRequest> pluginResolutionRequests,
+                                                       boolean forceUpdateSnapshots,
                                                        MavenToken token) {
     MavenServerUtil.checkToken(token);
 
@@ -647,6 +648,7 @@ public class Maven40ServerEmbedderImpl extends MavenServerEmbeddedBase {
     try (LongRunningTask task = newLongRunningTask(longRunningTaskId, pluginResolutionRequests.size(), myConsoleWrapper)) {
       MavenExecutionRequest request = createRequest(null, null, null);
       request.setTransferListener(new Maven40TransferListenerAdapter(task.getIndicator()));
+      request.setUpdateSnapshots(myAlwaysUpdateSnapshots || forceUpdateSnapshots);
 
       DefaultMaven maven = (DefaultMaven)getComponent(Maven.class);
       RepositorySystemSession session = maven.newRepositorySession(request);
@@ -698,6 +700,7 @@ public class Maven40ServerEmbedderImpl extends MavenServerEmbeddedBase {
                                                  List<Dependency> pluginDependencies,
                                                  List<RemoteRepository> remoteRepos,
                                                  RepositorySystemSession session) {
+    long startTime = System.currentTimeMillis();
     List<MavenArtifact> artifacts = new ArrayList<>();
     if (task.isCanceled()) return new PluginResolutionResponse(mavenPluginId, false, artifacts);
 
@@ -733,6 +736,9 @@ public class Maven40ServerEmbedderImpl extends MavenServerEmbeddedBase {
     catch (Exception e) {
       MavenServerGlobals.getLogger().warn(e);
       return new PluginResolutionResponse(mavenPluginId, false, artifacts);
+    } finally {
+      long totalTime = System.currentTimeMillis() - startTime;
+      MavenServerGlobals.getLogger().debug("Resolved plugin " + mavenPluginId + " in " + totalTime + " ms");
     }
   }
 

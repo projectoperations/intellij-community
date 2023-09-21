@@ -13,7 +13,7 @@ import com.intellij.psi.util.PsiFormatUtilBase
 import com.intellij.util.Processor
 import org.jetbrains.annotations.Nls
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
-import org.jetbrains.kotlin.analysis.api.analyzeInModalWindow
+import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.analysis.api.calls.*
 import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KtRendererAnnotationsFilter
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.KtDeclarationRenderer
@@ -207,10 +207,9 @@ private fun formatPsiClass(
     inCode: Boolean
 ): String {
     fun wrapOrSkip(s: String, inCode: Boolean) = if (inCode) "<code>$s</code>" else s
-    var description: String
 
     val kind = if (psiClass.isInterface) "interface " else "class "
-    description = kind + PsiFormatUtil.formatClass(
+    var description = kind + PsiFormatUtil.formatClass(
         psiClass,
         PsiFormatUtilBase.SHOW_CONTAINING_CLASS or PsiFormatUtilBase.SHOW_NAME or PsiFormatUtilBase.SHOW_PARAMETERS or PsiFormatUtilBase.SHOW_TYPE
     )

@@ -171,7 +171,8 @@ public final class GitChangeProvider implements ChangeProvider {
 
         GitRepository repository = GitRepositoryManager.getInstance(myProject).getRepositoryForFile(vcsFile);
         if (repository == null) continue;
-        if (repository.getUntrackedFilesHolder().containsFile(filePath)) continue;
+        if (repository.getUntrackedFilesHolder().containsUntrackedFile(filePath)) continue;
+        if (repository.getUntrackedFilesHolder().containsIgnoredFile(filePath)) continue;
 
         VirtualFile root = repository.getRoot();
         VcsRevisionNumber beforeRevisionNumber = myHeadRevisions.get(root);

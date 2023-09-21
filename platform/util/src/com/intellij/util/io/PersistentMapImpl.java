@@ -48,7 +48,7 @@ import java.util.stream.Stream;
  * Also for certain Value types it is possible to avoid random reads at all: e.g. in case Value is non-negative integer the value can be stored
  * directly in storage used for offset and in case of btree enumerator directly in btree leaf.
  **/
-public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Value> {
+public final class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Value> {
   private static final Logger LOG = Logger.getInstance(PersistentMapImpl.class);
 
   private static final boolean myDoTrace = SystemProperties.getBooleanProperty("idea.trace.persistent.map", false);
@@ -315,11 +315,13 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
     };
   }
 
-  protected @NotNull Lock getWriteLock() {
+  @NotNull
+  private Lock getWriteLock() {
     return myLock.writeLock();
   }
 
-  protected @NotNull Lock getReadLock() {
+  @NotNull
+  private Lock getReadLock() {
     return PersistentEnumeratorBase.USE_RW_LOCK ? myLock.readLock() : myLock.writeLock();
   }
 
@@ -404,7 +406,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
   }
 
   @Override
-  public final void put(Key key, Value value) throws IOException {
+  public void put(Key key, Value value) throws IOException {
     if (myIsReadOnly) throw new IncorrectOperationException();
     if (myWal != null) {
       myWal.put(key, value);
@@ -426,7 +428,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
     }
   }
 
-  protected void doPut(Key key, Value value) throws IOException {
+  private void doPut(Key key, Value value) throws IOException {
     long newValueOffset = -1;
 
     if (!myIntMapping) {
@@ -495,7 +497,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
    * be eventually called for the key, deserializer will read all bytes retrieving Strings and collecting them into Set
    */
   @Override
-  public final void appendData(Key key, @NotNull AppendablePersistentMap.ValueDataAppender appender) throws IOException {
+  public void appendData(Key key, @NotNull AppendablePersistentMap.ValueDataAppender appender) throws IOException {
     if (myIsReadOnly) throw new IncorrectOperationException();
     if (myWal != null) {
       myWal.appendData(key, appender);
@@ -541,7 +543,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
    * {@link #processExistingKeys(Processor)} to process only keys with existing mappings
    */
   @Override
-  public final boolean processKeys(@NotNull Processor<? super Key> processor) throws IOException {
+  public boolean processKeys(@NotNull Processor<? super Key> processor) throws IOException {
     getReadLock().lock();
     try {
       flushAppendCache();
@@ -575,7 +577,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
   }
 
   @Override
-  public final boolean processExistingKeys(@NotNull Processor<? super Key> processor) throws IOException {
+  public boolean processExistingKeys(@NotNull Processor<? super Key> processor) throws IOException {
     getReadLock().lock();
     try {
       flushAppendCache();
@@ -599,7 +601,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
   }
 
   @Override
-  public final Value get(Key key) throws IOException {
+  public Value get(Key key) throws IOException {
     getReadLock().lock();
     try {
       return doGet(key);
@@ -628,7 +630,8 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
     }
   }
 
-  protected @Nullable Value doGet(Key key) throws IOException {
+  @Nullable
+  private Value doGet(Key key) throws IOException {
     flushAppendCache(key);
 
     myEnumerator.lockStorageRead();
@@ -701,7 +704,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
   }
 
   @Override
-  public final boolean containsKey(Key key) throws IOException {
+  public boolean containsKey(Key key) throws IOException {
     getReadLock().lock();
     try {
       return doContainsMapping(key);
@@ -734,7 +737,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
   }
 
   @Override
-  public final void remove(Key key) throws IOException {
+  public void remove(Key key) throws IOException {
     if (myIsReadOnly) throw new IncorrectOperationException();
     if (myWal != null) {
       myWal.remove(key);
@@ -749,7 +752,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
     }
   }
 
-  protected void doRemove(Key key) throws IOException {
+  private void doRemove(Key key) throws IOException {
     myEnumerator.lockStorageWrite();
     try {
       flushAppendCache(key);
@@ -783,7 +786,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
   }
 
   @Override
-  public final void force() throws IOException {
+  public void force() throws IOException {
     if (myIsReadOnly) return;
     if (myDoTrace) LOG.info("Forcing " + myStorageFile);
     if (myWal != null) {
@@ -798,7 +801,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
     }
   }
 
-  protected void doForce() {
+  private void doForce() {
     myEnumerator.lockStorageWrite();
     try {
       try {
@@ -820,7 +823,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
   }
 
   @Override
-  public final void close() throws IOException {
+  public void close() throws IOException {
     close(false);
   }
 
@@ -1162,7 +1165,7 @@ public class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Val
     return new PersistentHashMapStatistics(((PersistentBTreeEnumerator<?>)myEnumerator).getStatistics(), valueStorageSizeInBytes);
   }
 
-  private class MyEnumeratorRecordHandler extends PersistentEnumeratorBase.RecordBufferHandler<PersistentEnumeratorBase<?>> {
+  private final class MyEnumeratorRecordHandler extends PersistentEnumeratorBase.RecordBufferHandler<PersistentEnumeratorBase<?>> {
     private final ThreadLocal<byte @NotNull []> myRecordBuffer;
     private final ThreadLocal<byte @NotNull []> mySmallRecordBuffer;
     private final PersistentEnumeratorBase.@NotNull RecordBufferHandler<PersistentEnumeratorBase<?>> myRecordHandler;

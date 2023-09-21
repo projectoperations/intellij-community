@@ -8,6 +8,7 @@ import io.opentelemetry.api.metrics.Meter
 import kotlinx.coroutines.CoroutineName
 import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.TestOnly
 import java.util.*
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -15,6 +16,23 @@ import kotlin.coroutines.EmptyCoroutineContext
 /**
  * See [Span](https://opentelemetry.io/docs/reference/specification),
  * [Manual Instrumentation](https://opentelemetry.io/docs/instrumentation/java/manual/#create-spans-with-events).
+ *
+ * Commonly used entry point to work with OpenTelemetry. Configures and initializes OpenTelemetry instances.
+ *
+ * Using tracer example:
+ * ```
+ * val myTracer = TelemetryManager.getInstance().getTracer(VcsScopeKt.VcsScope)
+ * val span = myTracer.spanBuilder("my.span").startSpan()
+ * ... code you want to trace ...
+ * span.end()
+ * ```
+ *
+ * Using meter example:
+ * ```
+ * val jvmMeter = TelemetryManager.getMeter(JVM)
+ * val threadCountGauge = jvmMeter.gaugeBuilder("JVM.threadCount").ofLongs().buildObserver()
+ * jvmMeter.batchCallback( { threadCountGauge.record(threadMXBean.threadCount.toLong()) }, threadCountGauge)
+ * ```
  */
 @Experimental
 @Internal
@@ -55,6 +73,13 @@ interface TelemetryManager {
   fun getMeter(scope: Scope): Meter
 
   fun addMetricsExporters(exporters: List<MetricsExporterEntry>)
+
+  /**
+   * Force measurement collection and metrics flushing to appropriate files (.json for spans and .csv for meters)
+   * Looks like it is bad idea to use this method in production
+   **/
+  @TestOnly
+  fun forceFlushMetrics()
 }
 
 private val instance = SynchronizedClearableLazy {
@@ -94,6 +119,11 @@ internal class NoopTelemetryManager : TelemetryManager {
   override fun getMeter(scope: Scope): Meter = OpenTelemetry.noop().getMeter(scope.toString())
 
   override fun addMetricsExporters(exporters: List<MetricsExporterEntry>) {
+    logger<NoopTelemetryManager>().info("Noop telemetry manager is in use. No metrics exporters are defined.")
+  }
+
+  override fun forceFlushMetrics() {
+    logger<NoopTelemetryManager>().info("Cannot force flushing metrics for Noop telemetry manager")
   }
 }
 

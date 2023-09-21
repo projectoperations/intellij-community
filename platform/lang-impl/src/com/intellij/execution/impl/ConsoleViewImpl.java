@@ -40,7 +40,6 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.event.EditorMouseEvent;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.FoldingModelEx;
-import com.intellij.openapi.editor.ex.ScrollingModelEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.ContextMenuPopupHandler;
 import com.intellij.openapi.editor.impl.DocumentImpl;
@@ -54,10 +53,7 @@ import com.intellij.openapi.keymap.Keymap;
 import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.*;
-import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.pom.Navigatable;
@@ -114,6 +110,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
   @NotNull
   private final Alarm myHeavyAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
   private volatile int myHeavyUpdateTicket;
+  private final ExpirableTokenProvider myPredefinedFiltersUpdateExpirableTokenProvider = new ExpirableTokenProvider();
   private final Collection<ChangeListener> myListeners = new CopyOnWriteArraySet<>();
 
   private final List<AnAction> customActions = new ArrayList<>();
@@ -747,7 +744,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
 
     int startLine = lastProcessedOutput.isValid() ? editor.getDocument().getLineNumber(lastProcessedOutput.getEndOffset()) : 0;
     lastProcessedOutput.dispose();
-    highlightHyperlinksAndFoldings(startLine);
+    highlightHyperlinksAndFoldings(startLine, myPredefinedFiltersUpdateExpirableTokenProvider.createExpirable());
 
     if (shouldStickToEnd) {
       scrollToEnd();
@@ -948,7 +945,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     return new DefaultActionGroup(result);
   }
 
-  private void highlightHyperlinksAndFoldings(int startLine) {
+  private void highlightHyperlinksAndFoldings(int startLine, @NotNull Expirable expirableToken) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     CompositeFilter compositeFilter = createCompositeFilter();
     boolean canHighlightHyperlinks = !compositeFilter.isEmpty();
@@ -962,7 +959,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     int endLine = Math.max(0, document.getLineCount() - 1);
 
     if (canHighlightHyperlinks) {
-      getHyperlinks().highlightHyperlinks(compositeFilter, startLine, endLine);
+      getHyperlinks().highlightHyperlinksLater(compositeFilter, startLine, endLine, expirableToken);
     }
 
     if (myAllowHeavyFilters && compositeFilter.isAnyHeavy() && compositeFilter.shouldRunHeavy()) {
@@ -973,12 +970,16 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     }
   }
 
+  public void invalidateFiltersExpirableTokens() {
+    myPredefinedFiltersUpdateExpirableTokenProvider.invalidateAll();
+  }
+
   public void rehighlightHyperlinksAndFoldings() {
     ApplicationManager.getApplication().assertIsDispatchThread();
     if (isDisposed()) return;
-
+    invalidateFiltersExpirableTokens();
     clearHyperlinkAndFoldings();
-    highlightHyperlinksAndFoldings(0);
+    highlightHyperlinksAndFoldings(0, myPredefinedFiltersUpdateExpirableTokenProvider.createExpirable());
   }
 
   private void runHeavyFilters(@NotNull CompositeFilter compositeFilter, int line1, int endLine) {
@@ -1131,7 +1132,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     return null;
   }
 
-  private static class ClearThisConsoleAction extends ClearConsoleAction {
+  private static final class ClearThisConsoleAction extends ClearConsoleAction {
     private final ConsoleView myConsoleView;
 
     ClearThisConsoleAction(@NotNull ConsoleView consoleView) {
@@ -1244,7 +1245,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     }
   }
 
-  private static class EnterHandler extends ConsoleAction {
+  private static final class EnterHandler extends ConsoleAction {
     @Override
     public void execute(@NotNull ConsoleViewImpl consoleView, @NotNull DataContext context) {
       consoleView.print("\n", ConsoleViewContentType.USER_INPUT);
@@ -1254,7 +1255,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     }
   }
 
-  private static class PasteHandler extends ConsoleAction {
+  private static final class PasteHandler extends ConsoleAction {
     @Override
     public void execute(@NotNull ConsoleViewImpl consoleView, @NotNull DataContext context) {
       String text = CopyPasteManager.getInstance().getContents(DataFlavor.stringFlavor);
@@ -1264,7 +1265,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     }
   }
 
-  private static class DeleteBackspaceHandler extends ConsoleAction {
+  private static final class DeleteBackspaceHandler extends ConsoleAction {
     private final int myTextOffsetToDeleteRelativeToCaret;
     private final String myParentActionId;
 
@@ -1308,7 +1309,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     }
   }
 
-  private static class TabHandler extends ConsoleAction {
+  private static final class TabHandler extends ConsoleAction {
     @Override
     protected void execute(@NotNull ConsoleViewImpl console, @NotNull DataContext context) {
       console.type(console.getEditor(), "\t");
@@ -1515,7 +1516,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
    * <p/>
    * Our point is to fold such long command line and represent it as a single visual line by default.
    */
-  private class CommandLineFolding extends ConsoleFolding {
+  private final class CommandLineFolding extends ConsoleFolding {
     @Override
     public boolean shouldFoldLine(@NotNull Project project, @NotNull String line) {
       return line.length() >= 1000 && myState.isCommandLine(line);
@@ -1606,7 +1607,7 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
     return myProject;
   }
 
-  private class HyperlinkNavigationAction extends DumbAwareAction {
+  private final class HyperlinkNavigationAction extends DumbAwareAction {
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
       Runnable runnable = getHyperlinks().getLinkNavigationRunnable(getEditor().getCaretModel().getLogicalPosition());
@@ -1624,6 +1625,8 @@ public class ConsoleViewImpl extends JPanel implements ConsoleView, ObservableCo
       return ActionUpdateThread.EDT;
     }
   }
+
+
 
   @NotNull
   public String getText() {

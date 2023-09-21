@@ -1,13 +1,13 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.formatting.commandLine
 
+import com.intellij.application.options.codeStyle.cache.IS_CLI_FORMATTER_KEY
 import com.intellij.formatting.commandLine.CodeStyleProcessorBuildException.ArgumentsException
 import com.intellij.formatting.commandLine.CodeStyleProcessorBuildException.ShowUsageException
+import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationStarter
 import com.intellij.openapi.application.ex.ApplicationEx
-import com.intellij.openapi.application.ex.ApplicationInfoEx
-import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.psi.codeStyle.CodeStyleSettings
@@ -29,6 +29,8 @@ internal class FormatterStarter : ApplicationStarter {
     get() = "format"
 
   override fun main(args: List<String>) {
+    ApplicationManager.getApplication().putUserData(IS_CLI_FORMATTER_KEY, true)
+
     messageOutput.info("$appInfo Formatter\n")
     LOG.info(args.joinToString(",", prefix = "Attributes: "))
 
@@ -136,7 +138,7 @@ fun readSettings(settingsFile: File): CodeStyleSettings? {
 private fun readSettings(settingsPath: String): CodeStyleSettings? = readSettings(File(settingsPath))
 
 private val appInfo: String =
-  (ApplicationInfoEx.getInstanceEx() as ApplicationInfoImpl)
+  ApplicationInfo.getInstance()
     .let { "${it.fullApplicationName}, build ${it.build.asString()}" }
 
 sealed class CodeStyleProcessorBuildException : RuntimeException {

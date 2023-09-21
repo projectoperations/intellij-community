@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.actionSystem.ex;
 
 import com.intellij.diagnostic.PluginException;
@@ -23,7 +23,10 @@ import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDocumentManager;
@@ -33,6 +36,8 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.SlowOperations;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
+import kotlin.coroutines.AbstractCoroutineContextElement;
+import kotlin.coroutines.CoroutineContext;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -49,6 +54,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import static com.intellij.concurrency.ThreadContext.currentThreadContext;
+import static com.intellij.concurrency.ThreadContext.installThreadContext;
+
 public final class ActionUtil {
   private static final Logger LOG = Logger.getInstance(ActionUtil.class);
 
@@ -64,7 +72,9 @@ public final class ActionUtil {
   private ActionUtil() {
   }
 
-  public static void showDumbModeWarning(@Nullable Project project, AnActionEvent @NotNull ... events) {
+  public static void showDumbModeWarning(@Nullable Project project,
+                                         @NotNull AnAction action,
+                                         AnActionEvent @NotNull ... events) {
     List<String> actionNames = new ArrayList<>();
     for (AnActionEvent event : events) {
       String s = event.getPresentation().getText();
@@ -76,7 +86,8 @@ public final class ActionUtil {
       LOG.debug("Showing dumb mode warning for " + Arrays.asList(events), new Throwable());
     }
     if (project == null) return;
-    DumbService.getInstance(project).showDumbModeNotification(getActionUnavailableMessage(actionNames));
+    DumbService.getInstance(project).showDumbModeNotificationForAction(getActionUnavailableMessage(actionNames),
+                                                                       ActionManager.getInstance().getId(action));
   }
 
   private static @NotNull @NlsContexts.PopupContent String getActionUnavailableMessage(@NotNull List<String> actionNames) {
@@ -291,7 +302,7 @@ public final class ActionUtil {
         return false;
       }
 
-      showDumbModeWarning(project, e);
+      showDumbModeWarning(project, action, e);
       return false;
     }
 
@@ -349,17 +360,18 @@ public final class ActionUtil {
     ActionManagerEx manager = ActionManagerEx.getInstanceEx();
     manager.fireBeforeActionPerformed(action, event);
     Component component = event.getData(PlatformCoreDataKeys.CONTEXT_COMPONENT);
+    String actionId = StringUtil.notNullize(event.getActionManager().getId(action), action.getClass().getName());
     if (component != null && !UIUtil.isShowing(component) &&
         !ActionPlaces.TOUCHBAR_GENERAL.equals(event.getPlace()) &&
         !Boolean.TRUE.equals(ClientProperty.get(component, ALLOW_ACTION_PERFORM_WHEN_HIDDEN))) {
-      String id = StringUtil.notNullize(event.getActionManager().getId(action), action.getClass().getName());
       LOG.warn("Action is not performed because target component is not showing: " +
-               "action=" + id + ", component=" + component.getClass().getName());
+               "action=" + actionId + ", component=" + component.getClass().getName());
       manager.fireAfterActionPerformed(action, event, AnActionResult.IGNORED);
       return;
     }
     AnActionResult result = null;
-    try (AccessToken ignore = SlowOperations.startSection(SlowOperations.ACTION_PERFORM)) {
+    try (AccessToken ignore = SlowOperations.startSection(SlowOperations.ACTION_PERFORM);
+         AccessToken ignore2 = withActionThreadContext(actionId)) {
       performRunnable.run();
       result = AnActionResult.PERFORMED;
     }
@@ -377,7 +389,7 @@ public final class ActionUtil {
     }
     if (indexError != null) {
       LOG.info(indexError);
-      showDumbModeWarning(project, event);
+      showDumbModeWarning(project, action, event);
     }
   }
 
@@ -393,16 +405,12 @@ public final class ActionUtil {
     }
     catch (IndexNotReadyException ex) {
       LOG.info(ex);
-      showDumbModeWarning(project, event);
+      showDumbModeWarning(project, action, event);
     }
   }
 
   public static @NotNull AnActionEvent createEmptyEvent() {
     return AnActionEvent.createFromDataContext(ActionPlaces.UNKNOWN, null, dataId -> null);
-  }
-
-  public static void sortAlphabetically(@NotNull List<? extends AnAction> list) {
-    list.sort((o1, o2) -> Comparing.compare(o1.getTemplateText(), o2.getTemplateText()));
   }
 
   /**
@@ -644,5 +652,27 @@ public final class ActionUtil {
     }
 
     return anAction;
+  }
+
+  @ApiStatus.Internal
+  public static @Nullable String getActionThreadContext() {
+    ActionContext context = currentThreadContext().get(ACTION_CONTEXT_KEY);
+    return context == null ? null : context.actionId;
+  }
+
+  private static @NotNull AccessToken withActionThreadContext(@NotNull String actionId) {
+    return installThreadContext(currentThreadContext().plus(new ActionContext(actionId)), true);
+  }
+
+  private static final CoroutineContext.Key<ActionContext> ACTION_CONTEXT_KEY = new CoroutineContext.Key<>() {
+  };
+
+  private static class ActionContext extends AbstractCoroutineContextElement implements CoroutineContext.Element {
+    final String actionId;
+
+    ActionContext(@NotNull String actionId) {
+      super(ACTION_CONTEXT_KEY);
+      this.actionId = actionId;
+    }
   }
 }

@@ -7,9 +7,8 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.progress.blockingContextScope
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
-import com.intellij.vcs.log.data.index.VcsLogModifiableIndex
+import com.intellij.vcs.log.data.VcsLogData
 import com.intellij.vcs.log.impl.VcsLogManager
 import com.intellij.vcs.log.impl.VcsLogProjectTabsProperties
 import com.intellij.vcs.log.impl.VcsLogSharedSettings
@@ -26,7 +25,7 @@ class GitWarmupConfigurator : WarmupConfigurator {
 
   override suspend fun runWarmup(project: Project): Boolean {
     val logger = coroutineContext[CommandLineProgressReporterElement.Key]?.reporter
-    if (!Registry.`is`("vcs.log.index.git") || !VcsLogSharedSettings.isIndexSwitchedOn(project)) {
+    if (!VcsLogData.isIndexSwitchedOnInRegistry() || !VcsLogSharedSettings.isIndexSwitchedOn(project)) {
       logger?.reportMessage(1, "Indexing of git log is disabled")
       return false
     }
@@ -61,7 +60,7 @@ class GitWarmupConfigurator : WarmupConfigurator {
     withContext(Dispatchers.EDT) {
       assert(manager.isLogUpToDate)
     }
-    val modifiableIndex = manager.dataManager.index as VcsLogModifiableIndex
-    assert(modifiableIndex.indexingRoots.all { !modifiableIndex.isIndexingEnabled(it) || modifiableIndex.isIndexed(it) })
+    val index = manager.dataManager.index
+    assert(index.indexingRoots.all { !index.isIndexingEnabled(it) || index.isIndexed(it) })
   }
 }

@@ -8,6 +8,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diagnostic.RuntimeExceptionWithAttachments;
 import com.intellij.util.ui.EDT;
 import org.jetbrains.annotations.ApiStatus.Internal;
+import org.jetbrains.annotations.ApiStatus.Obsolete;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,7 +33,7 @@ public final class ThreadingAssertions {
   @Internal
   @VisibleForTesting
   public static final String MUST_EXECUTE_INSIDE_READ_ACTION =
-    "Read access is allowed from inside read-action or Event Dispatch Thread (EDT) only (see Application.runReadAction())";
+    "Read access is allowed from inside read-action (see Application.runReadAction())";
   @Internal
   @VisibleForTesting
   public static final String MUST_NOT_EXECUTE_INSIDE_READ_ACTION =
@@ -79,10 +80,28 @@ public final class ThreadingAssertions {
   /**
    * Asserts that the current thread has read access.
    * <p/>
-   * Please note that this function <b>does not throw</b>, it logs an error if the assertion is violated, but then proceeds normally.
+   * For consistency with other assertions, this function <b>throws</b> an error when called without holding the read lock.
+   *
+   * @see #softAssertReadAccess
+   * @see com.intellij.util.concurrency.annotations.RequiresReadLock
+   */
+  public static void assertReadAccess() {
+    if (!ApplicationManager.getApplication().isReadAccessAllowed()) {
+      throwThreadAccessException(MUST_EXECUTE_INSIDE_READ_ACTION);
+    }
+  }
+
+  /**
+   * Asserts that the current thread has read access <b>without throwing</b>.
+   * <p/>
+   * Historically, it was not possible to throw everywhere,
+   * so this function logs an error without throwing, but then proceeds normally.
+   * When writing the new code, please prefer throwing {@link #assertReadAccess} instead,
+   * because only it can guarantee that the caller holds the read lock.
    *
    * @see com.intellij.util.concurrency.annotations.RequiresReadLock
    */
+  @Obsolete
   public static void softAssertReadAccess() {
     if (!ApplicationManager.getApplication().isReadAccessAllowed()) {
       getLogger().error(createThreadAccessException(MUST_EXECUTE_INSIDE_READ_ACTION));

@@ -6,13 +6,13 @@ import com.intellij.facet.mock.MockFacetType
 import com.intellij.facet.mock.registerFacetType
 import com.intellij.java.workspace.entities.*
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.platform.workspace.jps.entities.ExcludeUrlEntity
 import com.intellij.platform.workspace.jps.entities.SourceRootEntity
 import com.intellij.platform.workspace.storage.EntityStorage
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.workspace.storage.EntityStorageSerializer
-import com.intellij.platform.workspace.storage.impl.EntityStorageSerializerImpl
+import com.intellij.platform.workspace.storage.impl.serialization.EntityStorageSerializerImpl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.testFramework.ApplicationRule
@@ -81,6 +81,9 @@ class JpsProjectUrlRelativizerTest {
   @Test
   fun `check that required base paths exist`() {
     assertBasePathExistsWithProtocolsFor("\$PROJECT_DIR$")
+    assertBasePathExistsWithProtocolsFor("\$GRADLE_REPOSITORY$")
+    assertBasePathExistsWithProtocolsFor("\$MAVEN_REPOSITORY$")
+
     assertBasePathExistsWithProtocolsFor("\$USER_HOME$")
     assertBasePathExistsWithProtocolsFor("\$APPLICATION_HOME_DIR$")
     assertBasePathExistsWithProtocolsFor("\$APPLICATION_PLUGINS_DIR$")
@@ -196,8 +199,8 @@ class JpsProjectUrlRelativizerTest {
   }
 
   private fun assertBasePathExistsFor(identifier: String) {
-    urlRelativizer.basePaths.forEach { basePath ->
-      if (identifier == basePath.identifier)
+    urlRelativizer.getAllBasePathIdentifiers().forEach { basePathIdentifier ->
+      if (identifier == basePathIdentifier)
         return
     }
     fail("Base path with identifier $identifier not found.")

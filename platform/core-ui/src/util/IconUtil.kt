@@ -18,10 +18,7 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VFileProperty
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.WritingAccessProvider
-import com.intellij.ui.ColorUtil
-import com.intellij.ui.IconManager
-import com.intellij.ui.LayeredIcon
-import com.intellij.ui.RowIcon
+import com.intellij.ui.*
 import com.intellij.ui.icons.CachedImageIcon
 import com.intellij.ui.icons.CopyableIcon
 import com.intellij.ui.icons.TextIcon
@@ -31,13 +28,14 @@ import com.intellij.ui.scale.JBUIScale.scale
 import com.intellij.ui.scale.ScaleContext
 import com.intellij.ui.scale.ScaleContextAware
 import com.intellij.ui.scale.ScaleType
+import com.intellij.ui.svg.paintIconWithSelection
 import com.intellij.util.IconUtil.ICON_FLAG_IGNORE_MASK
-import com.intellij.util.SVGLoader.paintIconWithSelection
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.JBImageIcon
 import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Contract
 import org.jetbrains.annotations.NonNls
 import java.awt.*
@@ -46,6 +44,7 @@ import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
 import java.awt.image.RGBImageFilter
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Supplier
 import java.util.function.ToIntFunction
 import javax.swing.Icon
@@ -122,7 +121,7 @@ object IconUtil {
 
   @JvmStatic
   fun cropIcon(icon: Icon, area: Rectangle): Icon {
-    return if (!Rectangle(icon.iconWidth, icon.iconHeight).contains(area)) icon else CropIcon(icon, area)
+    return if (Rectangle(icon.iconWidth, icon.iconHeight).contains(area)) CropIcon(icon, area) else icon
   }
 
   @JvmStatic
@@ -155,8 +154,9 @@ object IconUtil {
    * @return a deferred icon for the file, taking into account [FileIconProvider] and [FileIconPatcher] extensions.
    */
   @JvmStatic
-  fun computeFileIcon(file: VirtualFile, @IconFlags flags: Int, project: Project?): Icon =
-    computeFileIconImpl(BackedVirtualFile.getOriginFileIfBacked(file), project, flags)
+  fun computeFileIcon(file: VirtualFile, @IconFlags flags: Int, project: Project?): Icon {
+    return computeFileIconImpl(BackedVirtualFile.getOriginFileIfBacked(file), project, flags)
+  }
 
   private fun computeFileIconImpl(file: VirtualFile, project: Project?, flags: Int): Icon {
     if (!file.isValid || project != null && (project.isDisposed || !wasEverInitialized(project))) {
@@ -176,12 +176,12 @@ object IconUtil {
       icon = patcher.patchIcon(icon, file, flags and Iconable.ICON_FLAG_READ_STATUS.inv(), project)
     }
     if (file.`is`(VFileProperty.SYMLINK)) {
-      icon = LayeredIcon(icon, PlatformIcons.SYMLINK_ICON)
+      icon = LayeredIcon.layeredIcon(arrayOf(icon, PlatformIcons.SYMLINK_ICON))
     }
     if (BitUtil.isSet(flags, Iconable.ICON_FLAG_READ_STATUS) &&
         Registry.`is`("ide.locked.icon.enabled", false) &&
         (!file.isWritable || !WritingAccessProvider.isPotentiallyWritable(file, project))) {
-      icon = LayeredIcon(icon, PlatformIcons.LOCKED_ICON)
+      icon = LayeredIcon.layeredIcon(arrayOf(icon, PlatformIcons.LOCKED_ICON))
     }
     LastComputedIconCache.put(file, icon, flags)
     return icon
@@ -189,11 +189,12 @@ object IconUtil {
 
   /**
    * @return a deferred icon for the file, taking into account [FileIconProvider] and [FileIconPatcher] extensions.
-   * Use [computeFileIcon] where possible (e.g. in background threads) to get a non-deferred icon.
+   * Use [computeFileIcon] where possible (e.g., in background threads) to get a non-deferred icon.
    */
   @JvmStatic
-  fun getIcon(file: VirtualFile, @IconFlags flags: Int, project: Project?): Icon =
-    getIconImpl(BackedVirtualFile.getOriginFileIfBacked(file), flags, project)
+  fun getIcon(file: VirtualFile, @IconFlags flags: Int, project: Project?): Icon {
+    return getIconImpl(BackedVirtualFile.getOriginFileIfBacked(file), flags, project)
+  }
 
   private fun getIconImpl(file: VirtualFile, flags: Int, project: Project?): Icon {
     val lastIcon = LastComputedIconCache.get(file, flags)
@@ -335,11 +336,11 @@ object IconUtil {
         paintIconWithSelection(icon = iconUnderSelection, c = c, g = g, x = x, y = y)
       }
 
-      override fun getIconWidth(): Int = iconUnderSelection.iconWidth
+      override fun getIconWidth() = iconUnderSelection.iconWidth
 
-      override fun getIconHeight(): Int = iconUnderSelection.iconHeight
+      override fun getIconHeight() = iconUnderSelection.iconHeight
 
-      override fun toString(): String = "IconUtil.wrapToSelectionAwareIcon for $iconUnderSelection"
+      override fun toString() = "IconUtil.wrapToSelectionAwareIcon for $iconUnderSelection"
     }
   }
 
@@ -386,7 +387,6 @@ object IconUtil {
    * Returns a deep copy of the provided icon.
    * @see CopyableIcon
    */
-  @JvmStatic
   fun deepCopy(icon: Icon, ancestor: Component?): Icon = copyIcon(icon = icon, ancestor = ancestor, deepCopy = true)
 
   /**
@@ -518,6 +518,23 @@ object IconUtil {
   @JvmStatic
   fun darker(source: Icon, tones: Int): Icon = filterIcon(icon = source, filterSupplier = { DarkerFilter(tones) })
 
+  @Internal
+  fun mainColor(source: Icon): Color {
+    val icon = (source as? DeferredIcon)?.evaluate() ?: source
+
+    val iconImage = toBufferedImage(icon)
+    val filter = MainColorFilter()
+
+    for (x in 0 until iconImage.width) {
+      for (y in 0 until iconImage.height) {
+        val color = iconImage.getRGB(x, y)
+        filter.filterRGB(x, y, color)
+      }
+    }
+
+    return filter.mainColor
+  }
+
   @JvmStatic
   fun createImageIcon(img: Image): JBImageIcon {
     return object : JBImageIcon(img) {
@@ -601,7 +618,7 @@ private class IconSizeWrapper(private val icon: Icon?, private val width: Int, p
   override fun getIconHeight(): Int = height
 }
 
-class CropIcon internal constructor(val mySrc: Icon, val crop: Rectangle) : Icon {
+class CropIcon internal constructor(val sourceIcon: Icon, val crop: Rectangle) : Icon {
   override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
     val customG = g.create()
     try {
@@ -611,18 +628,18 @@ class CropIcon internal constructor(val mySrc: Icon, val crop: Rectangle) : Icon
         Rectangle2D.intersect(iconClip, gClip, iconClip)
       }
       customG.clip = iconClip
-      mySrc.paintIcon(c, customG, x - crop.x, y - crop.y)
+      sourceIcon.paintIcon(c, customG, x - crop.x, y - crop.y)
     }
     finally {
       customG.dispose()
     }
   }
 
-  override fun toString(): String = "${javaClass.simpleName} ($mySrc -> $crop)"
+  override fun toString(): String = "${javaClass.simpleName} ($sourceIcon -> $crop)"
   override fun getIconWidth(): Int = crop.width
   override fun getIconHeight(): Int = crop.height
-  override fun equals(other: Any?): Boolean = this === other || other is CropIcon && mySrc == other.mySrc && crop == other.crop
-  override fun hashCode(): Int = Objects.hash(mySrc, crop)
+  override fun equals(other: Any?): Boolean = this === other || other is CropIcon && sourceIcon == other.sourceIcon && crop == other.crop
+  override fun hashCode(): Int = Objects.hash(sourceIcon, crop)
 }
 
 private class ColorFilter(color: Color, private val keepGray: Boolean) : RGBImageFilter() {
@@ -664,6 +681,45 @@ private class DarkerFilter(private val tones: Int) : RGBImageFilter() {
   override fun filterRGB(x: Int, y: Int, rgb: Int): Int {
     val originalColor = Color(rgb, true)
     return ColorUtil.toAlpha(ColorUtil.darker(originalColor, tones), originalColor.alpha).rgb
+  }
+}
+
+private class MainColorFilter : RGBImageFilter() {
+  private val colorsMap = ConcurrentHashMap<Color, Int>()
+
+  @Suppress("UseJBColor")
+  val mainColor: Color get() {
+    var red = 0
+    var green = 0
+    var blue = 0
+    var alpha = 0
+    var count = 0
+
+    colorsMap.forEach {
+      red += it.key.red * it.value
+      green += it.key.green * it.value
+      blue += it.key.blue * it.value
+      alpha += it.key.alpha * it.value
+      count += it.value
+    }
+
+    if (count > 0) {
+      red /= count
+      green /= count
+      blue /= count
+      alpha /= count
+    }
+
+    return Color(red, green, blue, alpha)
+  }
+
+  @Suppress("UseJBColor")
+  override fun filterRGB(x: Int, y: Int, rgb: Int): Int {
+    val originalColor = Color(rgb, true)
+    if (originalColor.alpha > 0) {
+      colorsMap[originalColor] = (colorsMap[originalColor] ?: 0) + 1
+    }
+    return rgb
   }
 }
 

@@ -13,15 +13,15 @@ class MeanRankMetric : Metric {
   override val value: Double
     get() = sample.mean()
 
-  override fun evaluate(sessions: List<Session>, comparator: SuggestionsComparator): Double {
-    val completions = sessions.map { session -> Pair(session.lookups.last().suggestions, session.expectedText) }
+  override fun evaluate(sessions: List<Session>): Double {
+    val lookups = sessions.flatMap { session -> session.lookups }
 
     val fileSample = Sample()
-    completions.forEach { (suggests, expectedText) ->
-      val position = suggests.indexOfFirst { comparator.accept(it, expectedText) }
-      if (position != -1) {
-        fileSample.add(position.toDouble())
-        sample.add(position.toDouble())
+    lookups.forEach { lookup ->
+      val selectedPosition = lookup.selectedPosition
+      if (lookup.selectedPosition != -1) {
+        fileSample.add(selectedPosition.toDouble())
+        sample.add(selectedPosition.toDouble())
       }
     }
 

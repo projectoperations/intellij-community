@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui;
 
 import com.intellij.ide.util.PropertiesComponent;
@@ -44,8 +44,7 @@ public class SearchTextField extends JPanel {
   private final MyModel myModel;
   private final TextFieldWithProcessing myTextField;
 
-  @Nullable
-  private JBPopup myPopup;
+  private @Nullable JBPopup myPopup;
   private String myHistoryPropertyName;
   private final boolean historyPopupEnabled;
 
@@ -418,6 +417,7 @@ public class SearchTextField extends JPanel {
         .setRequestFocus(true)
         .setItemChosenCallback(chooseRunnable)
         .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+        .setAccessibleName(UIBundle.message("search.text.field.history.popup.accessible.name"))
         .createPopup();
       AlignedPopup.showUnderneathWithoutAlignment(myPopup, getPopupLocationComponent());
     }

@@ -27,6 +27,7 @@ import com.intellij.util.Java11Shim
 import com.intellij.util.PlatformUtils
 import com.intellij.util.lang.UrlClassLoader
 import com.intellij.util.lang.ZipFilePool
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.future.asCompletableFuture
@@ -44,6 +45,7 @@ import kotlin.streams.asSequence
 
 @Suppress("SpellCheckingInspection")
 private val QODANA_PLUGINS_THIRD_PARTY_ACCEPT = java.lang.Boolean.getBoolean("idea.qodana.thirdpartyplugins.accept")
+private val FLEET_BACKEND_PLUGINS_THIRD_PARTY_ACCEPT = java.lang.Boolean.getBoolean("fleet.backend.third-party.plugins.accept")
 private const val THIRD_PARTY_PLUGINS_FILE = "alien_plugins.txt"
 
 @Volatile
@@ -198,9 +200,7 @@ object PluginManagerCore {
   @ApiStatus.ScheduledForRemoval
   @Deprecated("Use {@link PluginManager#getPluginByClass}.")
   @JvmStatic
-  fun getPluginOrPlatformByClassName(className: String): PluginId? {
-    return getPluginDescriptorOrPlatformByClassName(className)?.getPluginId()
-  }
+  fun getPluginOrPlatformByClassName(className: String): PluginId? = getPluginDescriptorOrPlatformByClassName(className)?.getPluginId()
 
   @Internal
   @JvmStatic
@@ -358,16 +358,23 @@ object PluginManagerCore {
     return applied
   }
 
+  @Internal
   fun scheduleDescriptorLoading(coroutineScope: CoroutineScope) {
-    scheduleDescriptorLoading(coroutineScope = coroutineScope, zipFilePoolDeferred = null)
+    scheduleDescriptorLoading(coroutineScope = coroutineScope,
+                              zipFilePoolDeferred = null,
+                              mainClassLoaderDeferred = CompletableDeferred(PluginManagerCore::class.java.classLoader), 
+                              logDeferred = null)
   }
 
   @Internal
   @Synchronized
-  fun scheduleDescriptorLoading(coroutineScope: CoroutineScope, zipFilePoolDeferred: Deferred<ZipFilePool>?): Deferred<PluginSet> {
+  fun scheduleDescriptorLoading(coroutineScope: CoroutineScope,
+                                zipFilePoolDeferred: Deferred<ZipFilePool>?,
+                                mainClassLoaderDeferred: Deferred<ClassLoader>,
+                                logDeferred: Deferred<Logger>?): Deferred<PluginSet> {
     var result = initFuture
     if (result == null) {
-      result = coroutineScope.scheduleLoading(zipFilePoolDeferred)
+      result = coroutineScope.scheduleLoading(zipFilePoolDeferred, mainClassLoaderDeferred, logDeferred)
       initFuture = result
     }
     return result
@@ -377,9 +384,8 @@ object PluginManagerCore {
    * Think twice before use and get an approval from the core team. Returns enabled plugins only.
    */
   @Internal
-  fun getEnabledPluginRawList(): CompletableFuture<List<IdeaPluginDescriptorImpl>> {
-    return initFuture!!.asCompletableFuture().thenApply { it.enabledPlugins }
-  }
+  fun getEnabledPluginRawList(): CompletableFuture<List<IdeaPluginDescriptorImpl>> =
+    initFuture!!.asCompletableFuture().thenApply { it.enabledPlugins }
 
   @get:Internal
   val initPluginFuture: Deferred<PluginSet>
@@ -417,63 +423,57 @@ object PluginManagerCore {
                                          idMap: Map<PluginId, IdeaPluginDescriptorImpl>,
                                          errors: MutableMap<PluginId, PluginLoadingError>) {
     val selectedIds = System.getProperty("idea.load.plugins.id")
-    val selectedCategory = System.getProperty("idea.load.plugins.category")
-    var explicitlyEnabled: MutableSet<IdeaPluginDescriptorImpl>? = null
-    if (selectedIds != null) {
+    val shouldLoadPlugins = System.getProperty("idea.load.plugins", "true").toBoolean()
+
+    val explicitlyEnabled = if (selectedIds == null) null else {
       val set = HashSet<PluginId>()
-      for (it in selectedIds.split(',').dropLastWhile { it.isEmpty() }) {
-        set.add(PluginId.getId(it))
+      for (it in selectedIds.split(',')) {
+        if (it.isNotEmpty()) {
+          set.add(PluginId.getId(it))
+        }
       }
       set.addAll(ApplicationInfoImpl.getShadowInstance().getEssentialPluginsIds())
-      explicitlyEnabled = LinkedHashSet(set.size)
+      val selectedPlugins = LinkedHashSet<IdeaPluginDescriptorImpl>(set.size)
       for (id in set) {
-        val descriptor = idMap[id]
-        if (descriptor != null) {
-          explicitlyEnabled.add(descriptor)
-        }
-      }
-    }
-    else if (selectedCategory != null) {
-      explicitlyEnabled = LinkedHashSet()
-      for (descriptor in descriptors) {
-        if (selectedCategory == descriptor.getCategory()) {
-          explicitlyEnabled.add(descriptor)
-        }
-      }
-    }
-
-    if (explicitlyEnabled != null) {
-      // add all required dependencies
-      val nonOptionalDependencies: MutableList<IdeaPluginDescriptorImpl> = ArrayList()
-      for (descriptor in explicitlyEnabled) {
+        val descriptor = idMap[id] ?: continue
+        selectedPlugins.add(descriptor)
         processAllNonOptionalDependencies(rootDescriptor = descriptor, pluginIdMap = idMap, consumer = { dependency ->
-          nonOptionalDependencies.add(dependency!!)
+          selectedPlugins.add(dependency!!)
           FileVisitResult.CONTINUE
         })
       }
-      explicitlyEnabled.addAll(nonOptionalDependencies)
+      selectedPlugins
     }
 
     val coreDescriptor = idMap.get(CORE_ID)
-    val shouldLoadPlugins = System.getProperty("idea.load.plugins", "true").toBoolean()
     for (descriptor in descriptors) {
       if (descriptor === coreDescriptor) {
         continue
       }
-
       if (explicitlyEnabled != null) {
         if (!explicitlyEnabled.contains(descriptor)) {
           descriptor.isEnabled = false
-          logger.info("Plugin '" + descriptor.getName() + "' " +
-                      if (selectedIds == null) "category doesn't match 'idea.load.plugins.category' system property" else "is not in 'idea.load.plugins.id' system property")
+          logger.info("Plugin '" + descriptor.getName() + "' is not in 'idea.load.plugins.id' system property")
         }
       }
       else if (!shouldLoadPlugins) {
         descriptor.isEnabled = false
         errors.put(descriptor.getPluginId(), PluginLoadingError(descriptor,
-                                                                message("plugin.loading.error.long.plugin.loading.disabled",
-                                                                        descriptor.getName()),
+                                                                message("plugin.loading.error.long.plugin.loading.disabled", descriptor.getName()),
                                                                 message("plugin.loading.error.short.plugin.loading.disabled")))
+      }
+    }
+
+    if (explicitlyEnabled == null && shouldLoadPlugins) {
+      for (essentialId in ApplicationInfoImpl.getShadowInstance().getEssentialPluginsIds()) {
+        val essentialPlugin = idMap[essentialId] ?: continue
+        for (incompatibleId in essentialPlugin.incompatibilities) {
+          val incompatiblePlugin = idMap[incompatibleId] ?: continue
+          if (incompatiblePlugin.isEnabled) {
+            incompatiblePlugin.isEnabled = false
+            logger.info("Plugin '${incompatiblePlugin.name}' conflicts with required plugin '${essentialPlugin.name}', hence disabled")
+          }
+        }
       }
     }
   }
@@ -481,23 +481,20 @@ object PluginManagerCore {
   @JvmStatic
   fun isCompatible(descriptor: IdeaPluginDescriptor): Boolean = isCompatible(descriptor = descriptor, buildNumber = null)
 
-  fun isCompatible(descriptor: IdeaPluginDescriptor, buildNumber: BuildNumber?): Boolean {
-    return !isIncompatible(descriptor = descriptor, buildNumber = buildNumber)
-  }
+  fun isCompatible(descriptor: IdeaPluginDescriptor, buildNumber: BuildNumber?): Boolean =
+    !isIncompatible(descriptor = descriptor, buildNumber = buildNumber)
 
   @JvmStatic
   fun isIncompatible(descriptor: IdeaPluginDescriptor): Boolean = isIncompatible(descriptor = descriptor, buildNumber = null)
 
   @JvmStatic
-  fun isIncompatible(descriptor: IdeaPluginDescriptor, buildNumber: BuildNumber?): Boolean {
-    return checkBuildNumberCompatibility(descriptor, buildNumber ?: PluginManagerCore.buildNumber) != null
-  }
+  fun isIncompatible(descriptor: IdeaPluginDescriptor, buildNumber: BuildNumber?): Boolean =
+    checkBuildNumberCompatibility(descriptor, buildNumber ?: PluginManagerCore.buildNumber) != null
 
-  fun getIncompatiblePlatform(descriptor: IdeaPluginDescriptor): IdeaPluginPlatform? {
-    return descriptor.getDependencies().asSequence()
+  fun getIncompatiblePlatform(descriptor: IdeaPluginDescriptor): IdeaPluginPlatform? =
+    descriptor.getDependencies().asSequence()
       .map { fromModuleId(it.pluginId) }
       .firstOrNull { p -> p != null && !p.isHostPlatform() }
-  }
 
   @JvmStatic
   fun checkBuildNumberCompatibility(descriptor: IdeaPluginDescriptor, ideBuildNumber: BuildNumber): PluginLoadingError? {
@@ -591,18 +588,8 @@ object PluginManagerCore {
       throw EssentialPluginMissingException(listOf("$CORE_ID (platform prefix: ${System.getProperty(PlatformUtils.PLATFORM_PREFIX_KEY)})"))
     }
 
-    val activity = parentActivity?.startChild("3rd-party plugins consent")
-    val aliens = ArrayList<IdeaPluginDescriptorImpl>()
-    for (id in get3rdPartyPluginIds()) {
-      val pluginDescriptor = idMap.get(id) ?: continue
-      aliens.add(pluginDescriptor)
-    }
+    check3rdPartyPluginsPrivacyConsent(parentActivity, idMap)
 
-    if (!aliens.isEmpty()) {
-      check3rdPartyPluginsPrivacyConsent(aliens)
-    }
-
-    activity?.end()
     val pluginSetBuilder = PluginSetBuilder(loadingResult.enabledPluginsById.values)
     disableIncompatiblePlugins(descriptors = pluginSetBuilder.unsortedPlugins, idMap = idMap, errors = pluginErrorsById)
     pluginSetBuilder.checkPluginCycles(globalErrors)
@@ -649,9 +636,24 @@ object PluginManagerCore {
     return PluginManagerState(pluginSet = pluginSet, pluginIdsToDisable = pluginsToDisable.keys, pluginIdsToEnable = pluginsToEnable.keys)
   }
 
+  private fun check3rdPartyPluginsPrivacyConsent(parentActivity: Activity?, idMap: Map<PluginId, IdeaPluginDescriptorImpl>) {
+    val activity = parentActivity?.startChild("3rd-party plugins consent")
+
+    val aliens = ArrayList<IdeaPluginDescriptorImpl>()
+    for (id in get3rdPartyPluginIds()) {
+      val pluginDescriptor = idMap.get(id) ?: continue
+      aliens.add(pluginDescriptor)
+    }
+    if (!aliens.isEmpty()) {
+      check3rdPartyPluginsPrivacyConsent(aliens)
+    }
+
+    activity?.end()
+  }
+
   private fun check3rdPartyPluginsPrivacyConsent(aliens: List<IdeaPluginDescriptorImpl>) {
     if (GraphicsEnvironment.isHeadless()) {
-      if (QODANA_PLUGINS_THIRD_PARTY_ACCEPT) {
+      if (QODANA_PLUGINS_THIRD_PARTY_ACCEPT || FLEET_BACKEND_PLUGINS_THIRD_PARTY_ACCEPT) {
         thirdPartyPluginsNoteAccepted = true
         return
       }
@@ -834,9 +836,7 @@ object PluginManagerCore {
 
   @Contract("null -> null")
   @JvmStatic
-  fun getPlugin(id: PluginId?): IdeaPluginDescriptor? {
-    return if (id == null) null else findPlugin(id)
-  }
+  fun getPlugin(id: PluginId?): IdeaPluginDescriptor? = if (id == null) null else findPlugin(id)
 
   @Internal
   @JvmStatic
@@ -846,9 +846,8 @@ object PluginManagerCore {
   }
 
   @Internal
-  fun findPluginByModuleDependency(id: PluginId): IdeaPluginDescriptorImpl? {
-    return getPluginSet().allPlugins.firstOrNull { it.modules.contains(id) }
-  }
+  fun findPluginByModuleDependency(id: PluginId): IdeaPluginDescriptorImpl? =
+    getPluginSet().allPlugins.firstOrNull { it.modules.contains(id) }
 
   @JvmStatic
   fun isPluginInstalled(id: PluginId): Boolean {
@@ -945,16 +944,12 @@ object PluginManagerCore {
   //<editor-fold desc="Deprecated stuff.">
   @Deprecated("Use {@link #disablePlugin(PluginId)} ")
   @JvmStatic
-  fun disablePlugin(id: String): Boolean {
-    return disablePlugin(PluginId.getId(id))
-  }
+  fun disablePlugin(id: String): Boolean = disablePlugin(PluginId.getId(id))
 
   @ApiStatus.ScheduledForRemoval
   @Deprecated("Use {@link #enablePlugin(PluginId)} ")
   @JvmStatic
-  fun enablePlugin(id: String): Boolean {
-    return enablePlugin(PluginId.getId(id))
-  }
+  fun enablePlugin(id: String): Boolean = enablePlugin(PluginId.getId(id))
 
   @ApiStatus.ScheduledForRemoval
   @Deprecated("Use {@link DisabledPluginsState#addDisablePluginListener} directly")
@@ -969,9 +964,8 @@ object PluginManagerCore {
 class EssentialPluginMissingException internal constructor(@JvmField val pluginIds: List<String>)
   : RuntimeException("Missing essential plugins: ${pluginIds.joinToString(", ")}")
 
-private fun message(key: @PropertyKey(resourceBundle = CoreBundle.BUNDLE) String?, vararg params: Any?): @Nls Supplier<String> {
-  return Supplier { CoreBundle.message(key!!, *params) }
-}
+private fun message(key: @PropertyKey(resourceBundle = CoreBundle.BUNDLE) String?, vararg params: Any?): @Nls Supplier<String> =
+  Supplier { CoreBundle.message(key!!, *params) }
 
 @Synchronized
 internal fun tryReadPluginIdsFromFile(path: Path, log: Logger): Set<PluginId> {

@@ -40,6 +40,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
 import java.awt.*
 import java.awt.event.MouseEvent
 import java.beans.PropertyChangeListener
@@ -50,6 +51,7 @@ import javax.swing.JComponent
 import javax.swing.JFrame
 import javax.swing.JPanel
 import kotlin.math.max
+import kotlin.math.min
 
 private const val MAIN_TOOLBAR_ID = IdeActions.GROUP_MAIN_TOOLBAR_NEW_UI
 
@@ -76,7 +78,8 @@ private class MenuButtonInToolbarMainToolbarFlavor(coroutineScope: CoroutineScop
 
 private object DefaultMainToolbarFlavor : MainToolbarFlavor
 
-internal class MainToolbar(
+@ApiStatus.Internal
+class MainToolbar(
   private val coroutineScope: CoroutineScope,
   frame: JFrame,
   isOpaque: Boolean = false,
@@ -274,6 +277,12 @@ private fun createActionBar(group: ActionGroup, customizationGroup: ActionGroup?
   return toolbar
 }
 
+/**
+ * Method is added for Demo-action only
+ * Do not use it in your code
+ */
+internal fun createDemoToolbar(group: ActionGroup): MyActionToolbarImpl = createActionBar(group, null)
+
 private fun addWidget(widget: JComponent, parent: JComponent, position: HorizontalLayout.Group) {
   parent.add(widget, position)
   if (widget is Disposable) {
@@ -281,29 +290,7 @@ private fun addWidget(widget: JComponent, parent: JComponent, position: Horizont
   }
 }
 
-internal suspend fun computeMainActionGroups(): List<Pair<ActionGroup, HorizontalLayout.Group>> {
-  return span("toolbar action groups computing") {
-    serviceAsync<ActionManager>()
-    val customActionSchema = CustomActionsSchema.getInstanceAsync()
-    computeMainActionGroups(customActionSchema)
-  }
-}
-
-internal fun computeMainActionGroups(customActionSchema: CustomActionsSchema): List<Pair<ActionGroup, HorizontalLayout.Group>> {
-  return sequenceOf(
-    GroupInfo("MainToolbarLeft", ActionsTreeUtil.getMainToolbarLeft(), HorizontalLayout.Group.LEFT),
-    GroupInfo("MainToolbarCenter", ActionsTreeUtil.getMainToolbarCenter(), HorizontalLayout.Group.CENTER),
-    GroupInfo("MainToolbarRight", ActionsTreeUtil.getMainToolbarRight(), HorizontalLayout.Group.RIGHT)
-  )
-    .mapNotNull { info ->
-      customActionSchema.getCorrectedAction(info.id, info.name)?.let {
-        it to info.align
-      }
-    }
-    .toList()
-}
-
-private class MyActionToolbarImpl(group: ActionGroup, customizationGroup: ActionGroup?)
+internal class MyActionToolbarImpl(group: ActionGroup, customizationGroup: ActionGroup?)
   : ActionToolbarImpl(ActionPlaces.MAIN_TOOLBAR, group, true, false, true, customizationGroup, MAIN_TOOLBAR_ID) {
   private val iconUpdater = HeaderIconUpdater()
 
@@ -327,6 +314,14 @@ private class MyActionToolbarImpl(group: ActionGroup, customizationGroup: Action
       val rect = bounds[i]
       fitRectangle(prevRect, rect, getComponent(i), size2Fit.height)
     }
+  }
+
+  override fun getChildPreferredSize(index: Int): Dimension {
+    val pref = super.getChildPreferredSize(index)
+
+    val cmp = getComponent(index)
+    val max = cmp.getMaximumSize()
+    return Dimension(min(pref.width, max.width), min(pref.height, max.height))
   }
 
   private fun fitRectangle(prevRect: Rectangle?, currRect: Rectangle, cmp: Component, toolbarHeight: Int) {
@@ -415,6 +410,28 @@ private class MyActionToolbarImpl(group: ActionGroup, customizationGroup: Action
       component.font = font
     }
   }
+}
+
+internal suspend fun computeMainActionGroups(): List<Pair<ActionGroup, HorizontalLayout.Group>> {
+  return span("toolbar action groups computing") {
+    serviceAsync<ActionManager>()
+    val customActionSchema = CustomActionsSchema.getInstanceAsync()
+    computeMainActionGroups(customActionSchema)
+  }
+}
+
+internal fun computeMainActionGroups(customActionSchema: CustomActionsSchema): List<Pair<ActionGroup, HorizontalLayout.Group>> {
+  return sequenceOf(
+    GroupInfo("MainToolbarLeft", ActionsTreeUtil.getMainToolbarLeft(), HorizontalLayout.Group.LEFT),
+    GroupInfo("MainToolbarCenter", ActionsTreeUtil.getMainToolbarCenter(), HorizontalLayout.Group.CENTER),
+    GroupInfo("MainToolbarRight", ActionsTreeUtil.getMainToolbarRight(), HorizontalLayout.Group.RIGHT)
+  )
+    .mapNotNull { info ->
+      customActionSchema.getCorrectedAction(info.id, info.name)?.let {
+        it to info.align
+      }
+    }
+    .toList()
 }
 
 internal fun isToolbarInHeader(): Boolean {

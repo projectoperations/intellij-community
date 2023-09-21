@@ -2,9 +2,11 @@
 package com.intellij.coverage;
 
 import com.intellij.codeEditor.printing.ExportToHTMLSettings;
+import com.intellij.coverage.analysis.Annotator;
+import com.intellij.coverage.analysis.JavaCoverageClassesAnnotator;
+import com.intellij.coverage.analysis.PackageAnnotator;
 import com.intellij.idea.ExcludeFromTestDiscovery;
 import com.intellij.openapi.application.PluginPathManager;
-import com.intellij.openapi.module.Module;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiPackage;
@@ -35,7 +37,7 @@ public class CoverageIntegrationTest extends JavaModuleTestCase {
     CoverageSuitesBundle bundle = loadCoverageSuite(IDEACoverageRunner.class, "simple$foo_in_simple.coverage");
     PsiPackage psiPackage = JavaPsiFacade.getInstance(myProject).findPackage("foo");
     PackageAnnotationConsumer consumer = new PackageAnnotationConsumer();
-    new JavaCoverageClassesAnnotator(bundle, myProject, consumer).visitRootPackage(psiPackage);
+    new JavaCoverageClassesAnnotator(bundle, myProject, consumer).visitRootPackage(psiPackage, (JavaCoverageSuite)bundle.getSuites()[0]);
     PackageAnnotator.ClassCoverageInfo barClassCoverage = consumer.myClassCoverageInfo.get("foo.bar.BarClass");
     assertEquals(3, barClassCoverage.totalMethodCount);
     assertEquals(1, barClassCoverage.coveredMethodCount);
@@ -80,19 +82,14 @@ public class CoverageIntegrationTest extends JavaModuleTestCase {
     return bundle;
   }
 
-  private static class PackageAnnotationConsumer implements PackageAnnotator.Annotator {
+  private static class PackageAnnotationConsumer implements Annotator {
     private final Map<VirtualFile, PackageAnnotator.PackageCoverageInfo> myDirectoryCoverage = new HashMap<>();
     private final Map<String, PackageAnnotator.PackageCoverageInfo> myPackageCoverage = new HashMap<>();
     private final Map<String, PackageAnnotator.PackageCoverageInfo> myFlatPackageCoverage = new HashMap<>();
     private final Map<String, PackageAnnotator.ClassCoverageInfo> myClassCoverageInfo = new HashMap<>();
 
     @Override
-    public void annotateSourceDirectory(VirtualFile virtualFile, PackageAnnotator.PackageCoverageInfo packageCoverageInfo, Module module) {
-      myDirectoryCoverage.put(virtualFile, packageCoverageInfo);
-    }
-
-    @Override
-    public void annotateTestDirectory(VirtualFile virtualFile, PackageAnnotator.PackageCoverageInfo packageCoverageInfo, Module module) {
+    public void annotateSourceDirectory(VirtualFile virtualFile, PackageAnnotator.PackageCoverageInfo packageCoverageInfo) {
       myDirectoryCoverage.put(virtualFile, packageCoverageInfo);
     }
 

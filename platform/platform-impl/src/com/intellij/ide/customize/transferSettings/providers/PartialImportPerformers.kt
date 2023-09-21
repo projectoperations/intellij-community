@@ -1,16 +1,20 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.customize.transferSettings.providers
 
 import com.intellij.ide.RecentProjectsManagerBase
-import com.intellij.ide.actions.QuickChangeLookAndFeel
 import com.intellij.ide.customize.transferSettings.models.*
 import com.intellij.ide.ui.LafManager
+import com.intellij.ide.ui.UISettings
+import com.intellij.ide.ui.laf.darcula.DarculaInstaller
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.keymap.ex.KeymapManagerEx
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.IconLoader
+import com.intellij.ui.JBColor
+import com.intellij.util.ui.StartupUiUtil
 
 /**
  * Similar to ImportPerformer
@@ -40,7 +44,7 @@ class LookAndFeelImportPerformer : PartialImportPerformer {
   override fun patchSettingsAfterPluginInstallation(settings: Settings, pluginIds: Set<String>): Settings {
     (settings.laf as? PluginLookAndFeel)?.let {
       if (pluginIds.contains(it.pluginId)) {
-        settings.laf = BundledLookAndFeel.fromManager(it.installedName)
+        settings.laf = BundledLookAndFeel.fromManager(it.transferableId, it.installedName)
       }
       else {
         settings.laf = it.fallback
@@ -54,9 +58,30 @@ class LookAndFeelImportPerformer : PartialImportPerformer {
 
   override fun performEdt(project: Project?, settings: Settings) {
     (settings.laf as? BundledLookAndFeel)?.let {
-      val mgr = LafManager.getInstance()
-      mgr.currentLookAndFeel = it.lafInfo
-      QuickChangeLookAndFeel.switchLafAndUpdateUI(mgr, mgr.currentLookAndFeel, false)
+      val laf = it.lafInfo
+      val wasDark = StartupUiUtil.isUnderDarcula
+
+      LafManager.getInstance().apply {
+        setCurrentLookAndFeel(laf, false)
+        updateUI()
+        repaintUI()
+      }
+
+      val isDark = StartupUiUtil.isUnderDarcula
+
+      if (isDark) {
+        DarculaInstaller.install()
+      }
+      else if (wasDark) {
+        DarculaInstaller.uninstall()
+      }
+
+      JBColor.setDark(isDark)
+      IconLoader.setUseDarkIcons(isDark)
+
+      LafManager.getInstance().updateUI()
+
+      UISettings.getInstance().fireUISettingsChanged()
     }
   }
 }
@@ -118,7 +143,7 @@ class KeymapSchemeImportPerformer : PartialImportPerformer {
       val parent = km.parent as? PluginKeymap
       if (parent != null) {
         if (pluginIds.contains(parent.pluginId)) {
-          km.parent = BundledKeymap.fromManager(parent.installedName, emptyList())
+          km.parent = BundledKeymap.fromManager(km.transferableId, parent.installedName, emptyList())
         }
         else {
           km.parent = parent.fallback
@@ -127,7 +152,7 @@ class KeymapSchemeImportPerformer : PartialImportPerformer {
     }
     if (km is PluginKeymap) {
       if (pluginIds.contains(km.pluginId)) {
-        settings.keymap = BundledKeymap.fromManager(km.installedName, emptyList())
+        settings.keymap = BundledKeymap.fromManager(km.transferableId, km.installedName, emptyList())
       }
       else {
         settings.keymap = km.fallback

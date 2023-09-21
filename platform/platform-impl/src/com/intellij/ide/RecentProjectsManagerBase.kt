@@ -10,12 +10,14 @@ import com.intellij.ide.impl.ProjectUtil.isSameProject
 import com.intellij.ide.impl.ProjectUtilCore
 import com.intellij.ide.lightEdit.LightEdit
 import com.intellij.idea.AppMode
-import com.intellij.notification.impl.NotificationsToolWindowFactory
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.application.ex.ApplicationManagerEx
-import com.intellij.openapi.components.*
+import com.intellij.openapi.components.PersistentStateComponent
+import com.intellij.openapi.components.RoamingType
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.advanced.AdvancedSettings
@@ -30,18 +32,14 @@ import com.intellij.openapi.util.ModificationTracker
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.IdeFrame
-import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.*
-import com.intellij.platform.ProjectSelfieUtil
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.project.stateStore
-import com.intellij.ui.ExperimentalUI
 import com.intellij.util.PathUtilRt
+import com.intellij.util.io.createParentDirectories
 import com.intellij.util.io.systemIndependentPath
-import com.intellij.util.io.write
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -55,6 +53,7 @@ import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.LongAdder
@@ -87,9 +86,6 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
   }
 
-  // https://youtrack.jetbrains.com/issue/IDEA-310958/Screenshot-of-the-mixed-old-new-UI-is-shown-after-switching-to-new-UI-and-restart
-  private val appStartedWithOldUi = !ExperimentalUI.isNewUI()
-
   private val modCounter = LongAdder()
   private val projectIconHelper by lazy(::RecentProjectIconHelper)
   private val namesToResolve = HashSet<String>(MAX_PROJECTS_IN_MAIN_MENU)
@@ -98,7 +94,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
 
   private val disableUpdatingRecentInfo = AtomicBoolean()
 
-  private val nameResolveRequests = MutableSharedFlow<Unit>(replay=1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+  private val nameResolveRequests = MutableSharedFlow<Unit>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
   private val stateLock = Any()
   private var state = RecentProjectManagerState()
@@ -557,19 +553,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
 
     val projectManager = ProjectManagerEx.getInstanceEx()
     for ((path, options) in taskList) {
-      try {
-        projectManager.openProjectAsync(path, options)
-      }
-      catch (e: CancellationException) {
-        // we must catch it here because as we create a project frame before calling `openProjectAsync`,
-        // it is possible that a user will cancel the loading before ProjectManagerImpl will be able to catch and handle the error
-        if (e.message == FrameLoadingState.PROJECT_LOADING_CANCELLED_BY_USER) {
-          LOG.info("Reopening project cancelled (path=$path)")
-        }
-        else {
-          throw e
-        }
-      }
+      projectManager.openProjectAsync(path, options)
     }
     return true
   }
@@ -680,20 +664,6 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       if (writeLastProjectInfo) {
         writeInfoFile(frameInfo, frame)
       }
-
-      if (workspaceId != null) {
-        val selfieLocation = ProjectSelfieUtil.getSelfieLocation(workspaceId)
-        if (!appStartedWithOldUi && ProjectSelfieUtil.isEnabled) {
-          NotificationsToolWindowFactory.clearAll(project)
-          frameHelper.balloonLayout?.closeAll()
-          (project.serviceIfCreated<ToolWindowManager>() as? ToolWindowManagerEx)?.closeBalloons()
-
-          ProjectSelfieUtil.takeProjectSelfie(frameHelper.frame.rootPane, selfieLocation)
-        }
-        else {
-          Files.deleteIfExists(selfieLocation)
-        }
-      }
     }.getOrLogException(LOG)
   }
 
@@ -759,7 +729,9 @@ int32 "extendedState"
     buffer.putInt(frameInfo.extendedState)
 
     buffer.flip()
-    infoFile.write(buffer)
+    Files.newByteChannel(infoFile.createParentDirectories(), StandardOpenOption.WRITE, StandardOpenOption.CREATE).use {
+      it.write(buffer)
+    }
   }
 
   fun patchRecentPaths(patcher: (String) -> String?) {
@@ -827,6 +799,9 @@ int32 "extendedState"
       getInstanceEx().updateLastProjectPath()
     }
   }
+
+  @Internal
+  fun hasCustomIcon(project: Project) = projectIconHelper.hasCustomIcon(project)
 }
 
 private fun fireChangeEvent() {

@@ -10,7 +10,7 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
-import org.jetbrains.kotlin.analysis.api.analyzeInModalWindow
+import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.refactoring.introduce.IntroduceRefactoringException
 import org.jetbrains.kotlin.idea.refactoring.renderTrimmed
@@ -51,7 +51,7 @@ private fun selectElement(
     }
 }
 
-private fun findElementAtRange(
+internal fun findElementAtRange(
     file: KtFile,
     selectionStart: Int,
     selectionEnd: Int,
@@ -85,7 +85,7 @@ private fun findElementAtRange(
         .firstOrNull()
 }
 
-private fun getSmartSelectSuggestions(
+internal fun getSmartSelectSuggestions(
     file: PsiFile,
     offset: Int,
     elementKind: ElementKind,

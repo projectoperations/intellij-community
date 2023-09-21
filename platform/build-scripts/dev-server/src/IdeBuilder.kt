@@ -1,6 +1,4 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "ReplaceNegatedIsEmptyWithIsNotEmpty", "LiftReturnOrAssignment")
-
 package org.jetbrains.intellij.build.devServer
 
 import com.intellij.openapi.util.io.NioFiles
@@ -14,6 +12,7 @@ import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot
 import org.jetbrains.intellij.build.impl.*
+import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.jps.model.artifact.JpsArtifactService
 import org.jetbrains.xxh3.Xx3UnencodedString
 import java.lang.invoke.MethodHandles
@@ -133,7 +132,7 @@ internal suspend fun buildProduct(productConfiguration: ProductConfiguration, re
                                                           layout = plugin,
                                                           moduleNames = modules)
         for (name in modules) {
-          moduleNameToPluginBuildDescriptor.put(name, pluginBuildDescriptor)
+          moduleNameToPluginBuildDescriptor[name] = pluginBuildDescriptor
         }
         pluginBuildDescriptors.add(pluginBuildDescriptor)
       }
@@ -148,6 +147,15 @@ internal suspend fun buildProduct(productConfiguration: ProductConfiguration, re
                    platformLayout = platformLayout.await(),
                    pluginCacheRootDir = pluginCacheRootDir,
                    context = context)
+
+      val additionalPluginPaths = context.productProperties.getAdditionalPluginPaths(context)
+      if (additionalPluginPaths.isNotEmpty()) {
+        withContext(Dispatchers.IO) {
+          for (sourceDir in additionalPluginPaths) {
+            copyDir(sourceDir, pluginRootDir.resolve(sourceDir.fileName))
+          }
+        }
+      }
     }
   }
 }
@@ -228,7 +236,7 @@ private suspend fun createProductProperties(productConfiguration: ProductConfigu
     PathClassLoader(UrlClassLoader.build().files(classPathFiles).parent(BuildRequest::class.java.classLoader))
   }
 
-  val productProperties = spanBuilder("create product properties").useWithScope2 {
+  return spanBuilder("create product properties").useWithScope2 {
     val productPropertiesClass = try {
       classLoader.loadClass(productConfiguration.className)
     }
@@ -239,11 +247,16 @@ private suspend fun createProductProperties(productConfiguration: ProductConfigu
       throw RuntimeException("cannot create product properties (classPath=$classPathString")
     }
 
-    MethodHandles.lookup()
-      .findConstructor(productPropertiesClass, MethodType.methodType(Void.TYPE, Path::class.java))
-      .invoke(if (request.platformPrefix == "Idea") getCommunityHomePath(request.homePath).communityRoot else request.homePath) as ProductProperties
+    val lookup = MethodHandles.lookup()
+    try {
+      lookup.findConstructor(productPropertiesClass, MethodType.methodType(Void.TYPE)).invoke()
+    }
+    catch (e: NoSuchMethodException) {
+      lookup
+        .findConstructor(productPropertiesClass, MethodType.methodType(Void.TYPE, Path::class.java))
+        .invoke(if (request.platformPrefix == "Idea") getCommunityHomePath(request.homePath).communityRoot else request.homePath)
+    } as ProductProperties
   }
-  return productProperties
 }
 
 private fun checkBuildModulesModificationAndMark(productConfiguration: ProductConfiguration, outDir: Path): Boolean {
@@ -312,7 +325,7 @@ fun computeAdditionalModulesFingerprint(additionalModules: List<String>): String
   val string = additionalModules.sorted().joinToString(",")
   val result = Xx3UnencodedString.hashUnencodedString(string, 0).toString(26) +
                Xx3UnencodedString.hashUnencodedString(string, 301236010888646397L).toString(36)
-  // - maybe here due to negative number
+  // - maybe here due to a negative number
   return if (result.startsWith('-')) result else "-$result"
 }
 

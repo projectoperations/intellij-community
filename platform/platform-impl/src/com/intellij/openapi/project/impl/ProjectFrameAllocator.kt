@@ -8,6 +8,7 @@ import com.intellij.configurationStore.saveSettings
 import com.intellij.conversion.CannotConvertException
 import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.diagnostic.dumpCoroutines
+import com.intellij.featureStatistics.fusCollectors.FileEditorCollector.EmptyStateCause
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.RecentProjectMetaInfo
@@ -15,7 +16,6 @@ import com.intellij.ide.RecentProjectsManagerBase
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.util.runOnceForProject
 import com.intellij.idea.getAndUnsetSplashProjectFrame
-import com.intellij.idea.hideSplashBeforeShow
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
@@ -34,6 +34,7 @@ import com.intellij.openapi.fileEditor.impl.text.AsyncEditorLoader
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.*
+import com.intellij.openapi.project.ReadmeShownUsageCollector.README_OPENED_ON_START_TS
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.wm.ToolWindowManager
@@ -351,6 +352,7 @@ private suspend fun restoreEditors(project: Project, deferredProjectFrameHelper:
         // clear empty splitters
         if (window.tabCount == 0) {
           window.removeFromSplitter()
+          window.logEmptyStateIfMainSplitter(cause = EmptyStateCause.PROJECT_OPENED)
         }
       }
 
@@ -432,7 +434,6 @@ internal fun createNewProjectFrameProducer(frameInfo: FrameInfo?): ProjectFrameP
 
       override fun create(): IdeFrameImpl {
         val frame = IdeFrameImpl()
-        hideSplashBeforeShow(frame)
         setDefaultSize(frame)
         frame.setLocationRelativeTo(null)
         return frame
@@ -449,7 +450,6 @@ internal fun createNewProjectFrameProducer(frameInfo: FrameInfo?): ProjectFrameP
 
       override fun create(): IdeFrameImpl {
         val frame = IdeFrameImpl()
-        hideSplashBeforeShow(frame)
         if (isMaximized && frame.extendedState == Frame.NORMAL && boundsAndDevice != null) {
           frame.normalBounds = boundsAndDevice.first
           frame.screenBounds = ScreenUtil.getScreenDevice(boundsAndDevice.first)?.defaultConfiguration?.bounds

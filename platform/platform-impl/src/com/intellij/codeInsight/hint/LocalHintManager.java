@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.hint;
 
 import com.intellij.ide.IdeTooltip;
@@ -42,7 +42,7 @@ import java.awt.event.*;
 import java.util.EventObject;
 import java.util.List;
 
-public class LocalHintManager implements ClientHintManager {
+public final class LocalHintManager implements ClientHintManager {
 
   private static final Logger LOG = Logger.getInstance(LocalHintManager.class);
 
@@ -275,7 +275,7 @@ public class LocalHintManager implements ClientHintManager {
   }
 
   @Override
-  public void showHint(@NotNull final JComponent component, @NotNull RelativePoint p, int flags, int timeout, @Nullable Runnable onHintHidden) {
+  public void showHint(final @NotNull JComponent component, @NotNull RelativePoint p, int flags, int timeout, @Nullable Runnable onHintHidden) {
     EDT.assertIsEdt();
     myHideAlarm.cancelAllRequests();
 
@@ -399,13 +399,13 @@ public class LocalHintManager implements ClientHintManager {
   }
 
   @Override
-  public void showQuestionHint(@NotNull final Editor editor,
-                               @NotNull final Point p,
+  public void showQuestionHint(final @NotNull Editor editor,
+                               final @NotNull Point p,
                                final int offset1,
                                final int offset2,
-                               @NotNull final LightweightHint hint,
+                               final @NotNull LightweightHint hint,
                                int flags,
-                               @NotNull final QuestionAction action,
+                               final @NotNull QuestionAction action,
                                @HintManager.PositionFlags short constraint) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     hideQuestionHint();
@@ -451,7 +451,7 @@ public class LocalHintManager implements ClientHintManager {
     }
   }
 
-  protected void updateLastEditor(final Editor editor) {
+  private void updateLastEditor(final Editor editor) {
     if (myLastEditor != editor) {
       if (myLastEditor != null) {
         myLastEditor.removeEditorMouseListener(myEditorMouseListener);
@@ -472,7 +472,7 @@ public class LocalHintManager implements ClientHintManager {
     }
   }
 
-  private class MyAnActionListener implements AnActionListener {
+  private final class MyAnActionListener implements AnActionListener {
     @Override
     public void beforeActionPerformed(@NotNull AnAction action, @NotNull AnActionEvent event) {
       if (action instanceof HintManagerImpl.ActionToIgnore) return;

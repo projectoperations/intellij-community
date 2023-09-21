@@ -85,10 +85,18 @@ internal class ClassLoaderConfiguratorTest {
 
   @Test
   fun regularPluginClassLoaderIsUsedIfPackageSpecified() {
-    val plugin = loadPlugins(modulePackage = "com.example.extraSupportedFeature")
+    val loadingResult = loadPlugins(modulePackage = "com.example.extraSupportedFeature")
+    val plugin = loadingResult
       .enabledPlugins
       .get(1)
     assertThat(plugin.content.modules.get(0).requireDescriptor().pluginClassLoader).isInstanceOf(PluginAwareClassLoader::class.java)
+
+    val scope = createPluginDependencyAndContentBasedScope(plugin, PluginSetBuilder(
+      loadingResult.enabledPlugins).createPluginSetWithEnabledModulesMap())!!
+    assertThat(scope.isDefinitelyAlienClass(name = "dd", packagePrefix = "dd", force = false)).isNull()
+    assertThat(scope.isDefinitelyAlienClass(name = "com.example.extraSupportedFeature.Foo", packagePrefix = "com.example.extraSupportedFeature.", force = false))
+      .isEqualToIgnoringWhitespace("Class com.example.extraSupportedFeature.Foo must not be requested from main classloader of p_dependent_1baqcnx plugin. " +
+                 "Matches content module (packagePrefix=com.example.extraSupportedFeature., moduleName=com.example.sub).")
   }
 
   @Test
@@ -170,7 +178,7 @@ internal class ClassLoaderConfiguratorTest {
   }
 }
 
-private suspend fun loadDescriptors(dir: Path): PluginLoadingResult {
+private fun loadDescriptors(dir: Path): PluginLoadingResult {
   val result = PluginLoadingResult()
   val context = DescriptorListLoadingContext(disabledPlugins = emptySet(),
                                              brokenPluginVersions = emptyMap(),
@@ -179,7 +187,7 @@ private suspend fun loadDescriptors(dir: Path): PluginLoadingResult {
   // constant order in tests
   val paths = dir.directoryStreamIfExists { it.sorted() }!!
   context.use {
-    result.addAll(descriptors = paths.map { loadDescriptor(file = it, parentContext = context) },
+    result.addAll(descriptors = paths.asSequence().mapNotNull { loadDescriptor(file = it, parentContext = context) },
                   overrideUseIfCompatible = false,
                   productBuildNumber = buildNumber)
   }

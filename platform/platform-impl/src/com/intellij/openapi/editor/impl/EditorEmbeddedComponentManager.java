@@ -1,9 +1,10 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.event.*;
@@ -32,13 +33,11 @@ public final class EditorEmbeddedComponentManager {
   private EditorEmbeddedComponentManager() {
   }
 
-  @NotNull
-  public static EditorEmbeddedComponentManager getInstance() {
+  public static @NotNull EditorEmbeddedComponentManager getInstance() {
     return ourInstance;
   }
 
-  @Nullable
-  public Inlay<?> addComponent(@NotNull EditorEx editor, @NotNull JComponent component, @NotNull Properties properties) {
+  public @Nullable Inlay<?> addComponent(@NotNull EditorEx editor, @NotNull JComponent component, @NotNull Properties properties) {
     ApplicationManager.getApplication().assertIsDispatchThread();
 
     ComponentInlays inlays = getComponentInlaysFor(editor);
@@ -47,8 +46,7 @@ public final class EditorEmbeddedComponentManager {
                       properties.priority, properties.offset);
   }
 
-  @NotNull
-  private static ComponentInlays getComponentInlaysFor(@NotNull EditorEx editor) {
+  private static @NotNull ComponentInlays getComponentInlaysFor(@NotNull EditorEx editor) {
     if (!COMPONENT_INLAYS_KEY.isIn(editor)) COMPONENT_INLAYS_KEY.set(editor, new ComponentInlays(editor));
     return COMPONENT_INLAYS_KEY.get(editor);
   }
@@ -74,8 +72,7 @@ public final class EditorEmbeddedComponentManager {
       return ourAny;
     }
 
-    @NotNull
-    public static ResizePolicy none() {
+    public static @NotNull ResizePolicy none() {
       return ourNone;
     }
 
@@ -88,7 +85,7 @@ public final class EditorEmbeddedComponentManager {
     }
   }
 
-  public static class Properties {
+  public static final class Properties {
     final ResizePolicy resizePolicy;
     final RendererFactory rendererFactory;
     final boolean relatesToPrecedingText;
@@ -151,9 +148,8 @@ public final class EditorEmbeddedComponentManager {
       setOpaque(false);
     }
 
-    @Nullable
     @Override
-    public GutterIconRenderer calcGutterIconRenderer(@NotNull Inlay inlay) {
+    public @Nullable GutterIconRenderer calcGutterIconRenderer(@NotNull Inlay inlay) {
       return myRendererFactory == null ? null : myRendererFactory.createRenderer(inlay);
     }
 
@@ -202,8 +198,10 @@ public final class EditorEmbeddedComponentManager {
 
     @Override
     public void doLayout() {
-      synchronizeBoundsWithInlay();
-      super.doLayout();
+      ReadAction.run(() -> {
+        synchronizeBoundsWithInlay();
+        super.doLayout();
+      });
     }
 
     @Override
@@ -255,7 +253,7 @@ public final class EditorEmbeddedComponentManager {
     }
   }
 
-  public static class FullEditorWidthRenderer extends MyRenderer {
+  public static final class FullEditorWidthRenderer extends MyRenderer {
 
     FullEditorWidthRenderer(@NotNull JComponent component,
                             @NotNull ResizePolicy resizePolicy,
@@ -271,7 +269,7 @@ public final class EditorEmbeddedComponentManager {
     }
   }
 
-  private static class ComponentInlays implements Disposable {
+  private static final class ComponentInlays implements Disposable {
     private static final Logger LOG = Logger.getInstance(ComponentInlays.class);
     private final EditorEx myEditor;
     private final ResizeListener myResizeListener;
@@ -299,6 +297,15 @@ public final class EditorEmbeddedComponentManager {
                                                                          renderer);
       if (inlay == null) return null;
       Disposer.register(this, inlay);
+
+      renderer.addComponentListener(new ComponentAdapter() {
+        @Override
+        public void componentResized(ComponentEvent e) {
+          if (e.getSource() instanceof MyRenderer renderer) {
+            revalidateComponents(renderer.getBounds().y);
+          }
+        }
+      });
 
       renderer.addMouseWheelListener(myEditor.getContentComponent()::dispatchEvent);
 
@@ -399,7 +406,7 @@ public final class EditorEmbeddedComponentManager {
       // All inlays are already registered in the disposable.
     }
 
-    private static class ResizeInfo {
+    private static final class ResizeInfo {
       final Inlay<? extends MyRenderer> inlay;
       final ResizeDirection direction;
       final int startWidth;
@@ -427,7 +434,7 @@ public final class EditorEmbeddedComponentManager {
       }
     }
 
-    private class ResizeListener implements EditorMouseListener, EditorMouseMotionListener {
+    private final class ResizeListener implements EditorMouseListener, EditorMouseMotionListener {
       private ResizeInfo info;
 
       @Override
@@ -511,8 +518,7 @@ public final class EditorEmbeddedComponentManager {
         if (info == null) myEditor.setCustomCursor(ComponentInlays.this, null);
       }
 
-      @Nullable
-      private ResizeInfo getInfoForResizeUnder(@NotNull Point point) {
+      private @Nullable ResizeInfo getInfoForResizeUnder(@NotNull Point point) {
         return ContainerUtil.getFirstItem(ContainerUtil.mapNotNull(myEditor.getContentComponent().getComponents(), component -> {
           if (!(component instanceof MyRenderer)) return null;
           ResizePolicy policy = ((MyRenderer)component).resizePolicy;

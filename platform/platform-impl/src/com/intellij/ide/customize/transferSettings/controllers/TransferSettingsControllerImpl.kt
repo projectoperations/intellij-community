@@ -1,6 +1,7 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.customize.transferSettings.controllers
 
+import com.intellij.ide.customize.transferSettings.fus.TransferSettingsCollector
 import com.intellij.ide.customize.transferSettings.models.BaseIdeVersion
 import com.intellij.ide.customize.transferSettings.models.FailedIdeVersion
 import com.intellij.ide.customize.transferSettings.models.IdeVersion
@@ -15,17 +16,24 @@ class TransferSettingsControllerImpl : TransferSettingsController {
   private val eventDispatcher = EventDispatcher.create(TransferSettingsListener::class.java)
   private var previouslySelected: BaseIdeVersion? = null
 
+  override fun updateCheckboxes(ideVersion: IdeVersion) {
+    eventDispatcher.multicaster.checkboxesUpdated(ideVersion)
+  }
+
   override fun performImport(project: Project?, ideVersion: IdeVersion, withPlugins: Boolean, pi: ProgressIndicator) {
-    eventDispatcher.multicaster.importStarted(ideVersion, ideVersion.settings)
+    TransferSettingsCollector.logImportStarted()
+    eventDispatcher.multicaster.importStarted(ideVersion, ideVersion.settingsCache)
     val performer = getImportPerformer()
 
-    val task = object : TransferSettingsPerformImportTask(project, performer, ideVersion.settings, true) {
+    val task = object : TransferSettingsPerformImportTask(project, performer, ideVersion.settingsCache, true) {
       override fun onSuccess() {
-        eventDispatcher.multicaster.importPerformed(ideVersion, ideVersion.settings)
+        TransferSettingsCollector.logImportSucceeded(ideVersion, ideVersion.settingsCache)
+        eventDispatcher.multicaster.importPerformed(ideVersion, ideVersion.settingsCache)
       }
 
       override fun onThrowable(error: Throwable) {
-        eventDispatcher.multicaster.importFailed(ideVersion, ideVersion.settings, error)
+        TransferSettingsCollector.logImportFailed(ideVersion)
+        eventDispatcher.multicaster.importFailed(ideVersion, ideVersion.settingsCache, error)
       }
     }
 

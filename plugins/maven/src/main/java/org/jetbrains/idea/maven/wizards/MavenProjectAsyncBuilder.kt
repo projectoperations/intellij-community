@@ -3,6 +3,7 @@ package org.jetbrains.idea.maven.wizards
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.externalSystem.model.ExternalSystemDataKeys
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider
@@ -19,18 +20,16 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.idea.maven.importing.MavenImportUtil
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.jetbrains.idea.maven.navigator.MavenProjectsNavigator
 import org.jetbrains.idea.maven.project.*
 import org.jetbrains.idea.maven.project.actions.LookForNestedToggleAction
-import org.jetbrains.idea.maven.server.MavenServerManager
 import org.jetbrains.idea.maven.server.MavenWrapperSupport.Companion.getWrapperDistributionUrl
-import org.jetbrains.idea.maven.utils.FileFinder
-import org.jetbrains.idea.maven.utils.MavenAsyncUtil
-import org.jetbrains.idea.maven.utils.MavenLog
-import org.jetbrains.idea.maven.utils.MavenUtil
+import org.jetbrains.idea.maven.utils.*
+import java.nio.file.Path
 
 internal class MavenProjectAsyncBuilder {
   fun commitSync(project: Project, projectFile: VirtualFile, modelsProvider: IdeModifiableModelsProvider?): List<Module> {
@@ -46,23 +45,47 @@ internal class MavenProjectAsyncBuilder {
     }
   }
 
-  suspend fun commit(project: Project, projectFile: VirtualFile, modelsProvider: IdeModifiableModelsProvider?): List<Module> {
+  suspend fun commit(project: Project, projectFile: VirtualFile, modelsProvider: IdeModifiableModelsProvider?): List<Module> = project.serviceAsync<MavenInProgressService>().trackConfigurationActivity {
+    if (ApplicationManager.getApplication().isDispatchThread) {
+      FileDocumentManager.getInstance().saveAllDocuments()
+    }
+
     val importProjectFile = if (!projectFile.isDirectory) projectFile else null
-    val rootDirectory = if (projectFile.isDirectory) projectFile.toNioPath() else projectFile.parent.toNioPath()
+    val rootDirectory = if (projectFile.isDirectory) projectFile else projectFile.parent
+    val rootDirectoryPath = rootDirectory.toNioPath()
 
     val isVeryNewProject = true == project.getUserData(ExternalSystemDataKeys.NEWLY_CREATED_PROJECT)
-
+    val createDummyModule = isVeryNewProject && Registry.`is`("maven.create.dummy.module.on.first.import")
+    val previewModule = if (createDummyModule) createPreviewModule(project, rootDirectory) else null
     val directProjectsSettings = MavenWorkspaceSettingsComponent.getInstance(project).settings
-
-    val importingSettings = directProjectsSettings.getImportingSettings().clone()
+    val importingSettings = directProjectsSettings.importingSettings.clone()
+    val generalSettings = directProjectsSettings.generalSettings.clone()
 
     if (isVeryNewProject) {
       blockingContext { ExternalProjectsManagerImpl.setupCreatedProject(project) }
       MavenProjectsManager.setupCreatedMavenProject(importingSettings)
     }
-    if (ApplicationManager.getApplication().isDispatchThread) {
-      FileDocumentManager.getInstance().saveAllDocuments()
+
+    if (createDummyModule) {
+      // do not update all modules because it can take a lot of time (freeze at project opening)
+      val cs = MavenCoroutineScopeProvider.getCoroutineScope(project)
+      cs.launch {
+        doCommit(project, importProjectFile, rootDirectoryPath, modelsProvider, previewModule, importingSettings, generalSettings)
+      }
+      //blockingContext { manager.addManagedFilesWithProfiles(MavenUtil.collectFiles(projects), selectedProfiles, previewModule) }
+      return@trackConfigurationActivity if (null == previewModule) emptyList() else listOf(previewModule)
     }
+
+    return@trackConfigurationActivity doCommit(project, importProjectFile, rootDirectoryPath, modelsProvider, null, importingSettings, generalSettings)
+  }
+
+  private suspend fun doCommit(project: Project,
+                               importProjectFile: VirtualFile?,
+                               rootDirectory: Path,
+                               modelsProvider: IdeModifiableModelsProvider?,
+                               previewModule: Module?,
+                               importingSettings: MavenImportingSettings,
+                               generalSettings: MavenGeneralSettings): List<Module> {
     MavenAsyncUtil.setupProjectSdk(project)
     val projectsNavigator = MavenProjectsNavigator.getInstance(project)
     if (projectsNavigator != null) projectsNavigator.groupModules = true
@@ -87,7 +110,6 @@ internal class MavenProjectAsyncBuilder {
     val tree = MavenProjectsTree(project)
     tree.addManagedFilesWithProfiles(files, MavenExplicitProfiles.NONE)
 
-    val generalSettings = directProjectsSettings.getGeneralSettings().clone()
     generalSettings.updateFromMavenConfig(files)
 
     withBackgroundProgress(project, MavenProjectBundle.message("maven.reading"), false) {
@@ -107,15 +129,15 @@ internal class MavenProjectAsyncBuilder {
     }
 
     val settings = MavenWorkspaceSettingsComponent.getInstance(project).settings
-    settings.setGeneralSettings(generalSettings)
-    settings.setImportingSettings(importingSettings)
+    settings.generalSettings = generalSettings
+    settings.importingSettings = importingSettings
     val settingsFile = System.getProperty("idea.maven.import.settings.file")
     if (!settingsFile.isNullOrBlank()) {
-      settings.getGeneralSettings().setUserSettingsFile(settingsFile.trim { it <= ' ' })
+      settings.generalSettings.setUserSettingsFile(settingsFile.trim { it <= ' ' })
     }
     val distributionUrl = getWrapperDistributionUrl(project.guessProjectDir())
     if (distributionUrl != null) {
-      settings.getGeneralSettings().mavenHomeType = MavenWrapper
+      settings.generalSettings.mavenHomeType = MavenWrapper
     }
     val selectedProfiles = MavenExplicitProfiles.NONE.clone()
     val enabledProfilesList = System.getProperty("idea.maven.import.enabled.profiles")
@@ -128,20 +150,11 @@ internal class MavenProjectAsyncBuilder {
     manager.setIgnoredState(projects, false)
     MavenLog.LOG.warn("performImport async: Linear Import is disabled")
 
-    if (isVeryNewProject && Registry.`is`("maven.create.dummy.module.on.first.import")) {
-      // do not update all modules because it can take a lot of time (freeze at project opening)
-      val previewModule = createPreviewModule(project, projects)
-      blockingContext { manager.addManagedFilesWithProfiles(MavenUtil.collectFiles(projects), selectedProfiles, previewModule) }
-      return if (null == previewModule) emptyList() else listOf(previewModule)
-    }
-
-    return manager.addManagedFilesWithProfilesAndUpdate(MavenUtil.collectFiles(projects), selectedProfiles, modelsProvider)
+    return manager.addManagedFilesWithProfilesAndUpdate(MavenUtil.collectFiles(projects), selectedProfiles, modelsProvider, previewModule)
   }
 
-  private suspend fun createPreviewModule(project: Project, selectedProjects: List<MavenProject>): Module? {
+  private suspend fun createPreviewModule(project: Project, contentRoot: VirtualFile): Module? {
     if (ModuleManager.getInstance(project).modules.isEmpty()) {
-      val root = selectedProjects.firstOrNull() ?: return null
-      val contentRoot = root.directoryFile
       return withContext(Dispatchers.EDT) { MavenImportUtil.createPreviewModule(project, contentRoot) }
     }
     return null

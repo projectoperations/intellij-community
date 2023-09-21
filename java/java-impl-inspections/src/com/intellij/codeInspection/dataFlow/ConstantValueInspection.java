@@ -19,6 +19,7 @@ import com.intellij.codeInspection.options.OptPane;
 import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.modcommand.ModCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.DefUseUtil;
@@ -308,6 +309,11 @@ public class ConstantValueInspection extends AbstractBaseJavaLocalInspectionTool
         }
       }
     }
+
+    //it can be done deliberately, because it is expected to throw exception
+    if (expression instanceof PsiSwitchExpression switchExpression && containsImmediateThrowStatement(switchExpression)) {
+      return true;
+    }
     PsiElement parent = PsiUtil.skipParenthesizedExprUp(expression.getParent());
     // Don't report "x" in "x == null" as will be anyway reported as "always true"
     if (parent instanceof PsiBinaryExpression binOp && ExpressionUtils.getValueComparedWithNull(binOp) != null) return true;
@@ -355,6 +361,19 @@ public class ConstantValueInspection extends AbstractBaseJavaLocalInspectionTool
     // Avoid double reporting
     return expression instanceof PsiMethodCallExpression call && EqualsWithItselfInspection.isEqualsWithItself(call) ||
            expression instanceof PsiBinaryExpression binOp && ComparisonToNaNInspection.extractNaNFromComparison(binOp) != null;
+  }
+
+  private static boolean containsImmediateThrowStatement(PsiSwitchExpression expression) {
+    Ref<Boolean> ref = Ref.create();
+    ref.set(false);
+    ControlFlowUtils.processElementsInCurrentScope(expression, element -> {
+      if (element instanceof PsiThrowStatement) {
+        ref.set(true);
+        return false;
+      }
+      return true;
+    });
+    return ref.get();
   }
 
   private static boolean isDereferenceContext(PsiExpression ref) {

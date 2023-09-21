@@ -1,6 +1,6 @@
 # Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
-[ -z "$INTELLIJ_TERMINAL_COMMAND_BLOCKS" ] && return
+[ -z "${INTELLIJ_TERMINAL_COMMAND_BLOCKS-}" ] && return
 
 __jetbrains_intellij_encode_slow() {
   local out=''
@@ -26,13 +26,26 @@ __jetbrains_intellij_encode() {
 }
 
 __jetbrains_intellij_is_generator_command() {
-  [[ "$1" == *"__jetbrains_intellij_get_directory_files"* ]]
+  [[ "$1" == *"__jetbrains_intellij_get_directory_files"* || "$1" == *"__jetbrains_intellij_get_environment"* ]]
 }
 
 __jetbrains_intellij_get_directory_files() {
   __JETBRAINS_INTELLIJ_GENERATOR_COMMAND=1
   builtin local request_id="$1"
   builtin local result="$(ls -1ap "$2")"
+  builtin printf '\e]1341;generator_finished;request_id=%s;result=%s\a' "$request_id" "$(__jetbrains_intellij_encode "${result}")"
+}
+
+__jetbrains_intellij_get_environment() {
+  __JETBRAINS_INTELLIJ_GENERATOR_COMMAND=1
+  builtin local request_id="$1"
+  builtin local env_vars="$(builtin compgen -A export)"
+  builtin local keyword_names="$(builtin compgen -A keyword)"
+  builtin local builtin_names="$(builtin compgen -A builtin)"
+  builtin local function_names="$(builtin compgen -A function)"
+  builtin local command_names="$(builtin compgen -A command)"
+
+  builtin local result="{\"envs\": \"$env_vars\", \"keywords\": \"$keyword_names\", \"builtins\": \"$builtin_names\", \"functions\": \"$function_names\", \"commands\": \"$command_names\"}"
   builtin printf '\e]1341;generator_finished;request_id=%s;result=%s\a' "$request_id" "$(__jetbrains_intellij_encode "${result}")"
 }
 
@@ -48,7 +61,7 @@ __jetbrains_intellij_configure_prompt() {
 }
 
 __jetbrains_intellij_debug_log() {
-  if [ -n "$JETBRAINS_INTELLIJ_TERMINAL_DEBUG_LOG_LEVEL" ]; then
+  if [ -n "${JETBRAINS_INTELLIJ_TERMINAL_DEBUG_LOG_LEVEL-}" ]; then
     builtin printf "$1\n"
   fi
 }
@@ -71,20 +84,12 @@ __jetbrains_intellij_command_started() {
 __jetbrains_intellij_initialized=""
 
 __jetbrains_intellij_command_terminated() {
-  if [ ! -z $__JETBRAINS_INTELLIJ_GENERATOR_COMMAND ]
+  builtin local last_exit_code="$?"
+  if [ -n "${__JETBRAINS_INTELLIJ_GENERATOR_COMMAND-}" ]
   then
     unset __JETBRAINS_INTELLIJ_GENERATOR_COMMAND
     return 0
   fi
-  builtin local last_exit_code="$?"
-
-  # Show completions on first TAB if there are more than one suitable option
-  # (by default Bash show all options only after second TAB in a such case)
-  builtin bind 'set show-all-if-ambiguous on'
-  # Do not show "Display all N possibilities?" question during completion
-  builtin bind 'set completion-query-items 0'
-  # Print all completion items at once instead of pagination
-  builtin bind 'set page-completions off'
 
   __jetbrains_intellij_configure_prompt
 
@@ -104,4 +109,4 @@ __jetbrains_intellij_command_terminated() {
 }
 
 PROMPT_COMMAND='__jetbrains_intellij_command_terminated'
-HISTIGNORE="${HISTIGNORE}:__jetbrains_intellij_get_directory_files*"
+HISTIGNORE="${HISTIGNORE-}:__jetbrains_intellij_get_directory_files*:__jetbrains_intellij_get_environment*"

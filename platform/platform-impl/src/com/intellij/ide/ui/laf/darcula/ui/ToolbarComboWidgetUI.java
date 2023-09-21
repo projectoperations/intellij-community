@@ -5,6 +5,8 @@ import com.intellij.icons.AllIcons;
 import com.intellij.ide.ProjectWindowCustomizerService;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.impl.DefaultCutStrategy;
+import com.intellij.openapi.wm.impl.TextCutStrategy;
 import com.intellij.openapi.wm.impl.ToolbarComboWidget;
 import com.intellij.ui.ClickListener;
 import com.intellij.ui.JBColor;
@@ -355,7 +357,7 @@ public final class ToolbarComboWidgetUI extends ComponentUI implements PropertyC
     return !widget.getPressListeners().isEmpty() && widget.isExpandable();
   }
 
-  private static abstract class MyMouseTracker extends MouseAdapter implements PropertyChangeListener {
+  private abstract static class MyMouseTracker extends MouseAdapter implements PropertyChangeListener {
     protected ToolbarComboWidget comp;
 
     public void installTo(ToolbarComboWidget c) {
@@ -373,7 +375,7 @@ public final class ToolbarComboWidgetUI extends ComponentUI implements PropertyC
     }
   }
 
-  private class HoverAreaTracker extends MyMouseTracker {
+  private final class HoverAreaTracker extends MyMouseTracker {
     private boolean mouseInside = false;
     private Rectangle hoverRect;
 
@@ -435,7 +437,7 @@ public final class ToolbarComboWidgetUI extends ComponentUI implements PropertyC
     }
   }
 
-  private static class ToolbarComboWidgetClickListener extends ClickListener {
+  private static final class ToolbarComboWidgetClickListener extends ClickListener {
     private static void notifyPressListeners(MouseEvent e) {
       ToolbarComboWidget comp = (ToolbarComboWidget)e.getComponent();
       ActionEvent ae = new ActionEvent(comp, 0, null, System.currentTimeMillis(), e.getModifiersEx());
@@ -469,13 +471,12 @@ public final class ToolbarComboWidgetUI extends ComponentUI implements PropertyC
     }
   }
 
-  private static class DefaultCutStrategy implements TextCutStrategy {
+  private static final class DefaultCutStrategy implements TextCutStrategy {
 
     private static final int MIN_TEXT_LENGTH = 5;
 
-    @NotNull
     @Override
-    public String calcShownText(@NotNull String text, @NotNull FontMetrics metrics, int maxWidth) {
+    public @NotNull String calcShownText(@NotNull String text, @NotNull FontMetrics metrics, int maxWidth) {
       int width = metrics.stringWidth(text);
       if (width <= maxWidth) return text;
 

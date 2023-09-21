@@ -19,6 +19,7 @@ import com.intellij.uast.UastHintedVisitorAdapter
 import com.siyeh.InspectionGadgetsBundle
 import com.siyeh.ig.psiutils.MethodMatcher
 import org.jdom.Element
+import org.jetbrains.annotations.TestOnly
 import org.jetbrains.uast.*
 import org.jetbrains.uast.visitor.AbstractUastNonRecursiveVisitor
 
@@ -67,7 +68,10 @@ class SourceToSinkFlowInspection : AbstractBaseUastLocalInspectionTool() {
 
   private val myUntaintedMethodMatcher: MethodMatcher = MethodMatcher().finishDefault()
 
-  private val myTaintedMethodMatcher: MethodMatcher = MethodMatcher(false, "myTaintedMethodMatcher").finishDefault()
+  @TestOnly
+  fun getUntaintedMethodMatcher() = myUntaintedMethodMatcher
+
+    private val myTaintedMethodMatcher: MethodMatcher = MethodMatcher(false, "myTaintedMethodMatcher").finishDefault()
 
   @JvmField
   var myUntaintedFieldClasses: MutableList<String?> = mutableListOf()
@@ -97,6 +101,12 @@ class SourceToSinkFlowInspection : AbstractBaseUastLocalInspectionTool() {
 
   @JvmField
   var depthInside: Int = 5
+
+  @JvmField
+  var depthOutsideMethods: Int = 0
+
+  @JvmField
+  var depthNestedMethods: Int = 1
 
   var checkedTypes: MutableList<String?> = mutableListOf("java.lang.String")
   override fun getOptionsPane(): OptPane {
@@ -216,6 +226,9 @@ class SourceToSinkFlowInspection : AbstractBaseUastLocalInspectionTool() {
     if (firstAnnotation == null && untaintedParameterIndex.size == 0 && untaintedParameterWithPlaceIndex.size == 0) {
       return PsiElementVisitor.EMPTY_VISITOR
     }
+    if (session.file.name.endsWith(".kts") || session.file.name.endsWith(".md")) {
+      return PsiElementVisitor.EMPTY_VISITOR
+    }
 
     val configuration = UntaintedConfiguration(
       taintedAnnotations = taintedAnnotations,
@@ -229,14 +242,16 @@ class SourceToSinkFlowInspection : AbstractBaseUastLocalInspectionTool() {
       processInnerMethodAsQualifierAndArguments = false,
       skipClasses = skipClasses,
       parameterOfPrivateMethodIsUntainted = parameterOfPrivateMethodIsUntainted,
-      depthInside = depthInside
+      depthInside = depthInside,
+      depthOutsideMethods = depthOutsideMethods,
+      depthNestedMethods = depthNestedMethods
     ).copy()
 
     val factory = TaintValueFactory(configuration).also {
 
-      it.add(TaintValueFactory.fromMethodResult(methodNames = myTaintedMethodMatcher.methodNamePatterns,
-                                                methodClass = myTaintedMethodMatcher.classNames,
-                                                targetValue = TaintValue.TAINTED))
+      it.addReturnFactory(TaintValueFactory.fromMethodResult(methodNames = myTaintedMethodMatcher.methodNamePatterns,
+                                                             methodClass = myTaintedMethodMatcher.classNames,
+                                                             targetValue = TaintValue.TAINTED))
 
       it.add(TaintValueFactory.fromParameters(methodNames = untaintedParameterMethodName,
                                               methodClass = untaintedParameterMethodClass,

@@ -1716,6 +1716,11 @@
     <action id="ForceIndexRescanning" internal="true" class="com.intellij.util.indexing.ForceIndexRescanningAction" icon="AllIcons.Actions.Refresh"/>
     <action id="ForceIndexRebuild" internal="true" class="com.intellij.util.indexing.ForceIndexRebuildAction" icon="AllIcons.Actions.Refresh"/>
 
+    <action id="ToggleFileBasedIndexes" internal="true" class="com.intellij.util.indexing.internal.ToggleFileBasedIndexesAction"/>
+    <action id="PauseScanningAndIndexing" internal="true" class="com.intellij.util.indexing.internal.PauseScanningAndIndexingAction"/>
+
+    <action class="com.intellij.internal.ClearFileTemplateNameInternalAction" internal="true"/>
+
     <group id="Internal.Dump" internal="true" popup="true">
       <action id="DumpExtensions" internal="true" class="com.intellij.internal.DumpExtensionsAction"/>
       <action id="DumpInspectionDescriptions" internal="true" class="com.intellij.internal.DumpInspectionDescriptionsAction"/>
@@ -1749,7 +1754,19 @@
     <action id="InsertInlineCompletionAction" class="com.intellij.codeInsight.inline.completion.InsertInlineCompletionAction">
       <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
     </action>
-    <action id="CallInlineCompletionAction" class="com.intellij.codeInsight.inline.completion.CallInlineCompletionAction" />
+
+    <group id="InlineCompletion.Settings" popup="true" internal="true"/>
+    <action id="CallInlineCompletionAction" class="com.intellij.codeInsight.inline.completion.CallInlineCompletionAction"/>
+    <action id="ResetICOnboardingAtFirstShowAction"
+            class="com.intellij.codeInsight.inline.completion.onboarding.ResetICOnboardingAtFirstShowAction"/>
+    <action id="ResetICOnboardingAtFirstAcceptAction"
+            class="com.intellij.codeInsight.inline.completion.onboarding.ResetICOnboardingAtFirstAcceptAction"/>
+    <action id="ResetICOnboardingShowSettingsAction"
+            class="com.intellij.codeInsight.inline.completion.onboarding.ResetICOnboardingShowSettingsAction"/>
+
+    <!--<action id="ShortcutChangeInlineCompletionAction" class="com.intellij.codeInsight.inline.completion.ShortcutChangeInlineCompletionAction"/>-->
+    <!--<action id="ChangeToEnterInlineCompletionAction" class="com.intellij.codeInsight.inline.completion.ChangeToEnterInlineCompletionAction"/>-->
+    <!--<action id="ChangeToCustomInlineCompletionAction" class="com.intellij.codeInsight.inline.completion.ChangeToCustomInlineCompletionAction"/>-->
 
     <!-- copy of CheckVfsSanityInMenu: !internal so could be invoked via 'search everywhere' -->
     <action id="CheckVfsSanity" class="com.intellij.openapi.vfs.newvfs.persistent.CheckVFSHealthAction"/>

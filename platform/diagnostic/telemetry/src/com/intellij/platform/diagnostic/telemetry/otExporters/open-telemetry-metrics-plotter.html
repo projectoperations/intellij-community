@@ -219,12 +219,12 @@ as an example
     /* open/close markers */
     div > div.caption::before {
       content: '-';
-      font-family: monospaced,monospace;
+      font-family: monospaced, monospace;
     }
 
     div.hidden > div.caption::before {
       content: '+';
-      font-family: monospaced,monospace;
+      font-family: monospaced, monospace;
     }
 
     div.plot {
@@ -343,8 +343,8 @@ as an example
       mulScalar(scalar) {
         return new TimeSeries(this.points.map(p => new Point(p.time, p.value * scalar)))
       },
-      cumSum(){
-        let sum = 0;
+      cumSum() {
+        let sum = 0
         return new TimeSeries(this.points.map(p => {
           sum += p.value
           return new Point(p.time, sum)
@@ -467,13 +467,38 @@ as an example
       if (typeof (yaxis) !== 'undefined') {
         layout.yaxis = yaxis
       }
-      domElement.plot = Plotly.newPlot(
+      const plot = Plotly.newPlot(
         domElement,
         plotlyTrace,
         layout,
         PLOTLY_CONFIG
       )
-      document.plots.push(domElement)
+      //'synchronize' plots x-axes so that all plots show the same datetime range:
+      domElement.on('plotly_relayout', (eventData) => {
+        const from = eventData['xaxis.range[0]']
+        const to = eventData['xaxis.range[1]']
+        $(document.body).css('cursor', 'progress')
+        try {
+          if (from && to) {
+            console.log(`${plot.id}: x-axis range: [${from}, ${to}]`)
+            for (otherPlot of document.plots) {
+              if (otherPlot !== plot) {
+                console.log(`\treLayout: ${otherPlot.id}`)
+                Plotly.relayout(otherPlot, {'xaxis.range': [from, to]})
+              }
+            }
+          }
+        }
+        finally {
+          $(document.body).css('cursor', 'default')
+        }
+      })
+
+      domElement.plot = plot
+      if (!document.plots.includes(domElement)) {
+        document.plots.push(domElement)
+      }
+
       return domElement
     }
 
@@ -493,6 +518,7 @@ as an example
 
       const gcCollections = extractTimeSeries("JVM.GC.collections")
       const gcTimesMs = extractTimeSeries("JVM.GC.collectionTimesMs")
+      const totalBytesAllocated = extractTimeSeries("JVM.totalBytesAllocated")
 
       const totalCpuTimesMs = extractTimeSeries("JVM.totalCpuTimeMs")
       const osLoadAverage = extractTimeSeries("OS.loadAverage")
@@ -579,6 +605,19 @@ as an example
       )
 
       plotTimeSeries(
+        'Allocations',
+        'jvmBasics_Allocations_Chart',
+        [{
+          name: 'Allocations',
+          color: 'red',
+          series: totalBytesAllocated.mulScalar(1.0/1024/1024/1024)
+        }],
+        /*yaxis:*/ {
+          title: 'Gb'
+        }
+      )
+
+      plotTimeSeries(
         'OS load average',
         'jvmBasics_OS_LoadAvg_Chart',
         [{
@@ -597,7 +636,7 @@ as an example
         [{
           name: 'JVM CPU time, sec',
           color: 'blue',
-          series: totalCpuTimesMs.mulScalar(1.0/1000)
+          series: totalCpuTimesMs.mulScalar(1.0 / 1000)
         }],
         /*yaxis:*/ {
           title: 'sec'
@@ -951,8 +990,8 @@ as an example
         'DirectBufferAllocator: native memory usage',
         $("#directBufferAllocator_Bytes_Chart"),
         [
-          {name: 'ByteBuffers allocated, Mb', color: 'red', series: totalSizeOfBuffersAllocatedBytes.mulScalar(1/1024/1024)},
-          {name: 'ByteBuffers in cache, Mb', color: 'green', series: totalSizeOfBuffersInCacheBytes.mulScalar(1/1024/1024)}
+          {name: 'ByteBuffers allocated, Mb', color: 'red', series: totalSizeOfBuffersAllocatedBytes.mulScalar(1 / 1024 / 1024)},
+          {name: 'ByteBuffers in cache, Mb', color: 'green', series: totalSizeOfBuffersInCacheBytes.mulScalar(1 / 1024 / 1024)}
         ],
         /*yaxis: */ {
           title: 'Mb',
@@ -1004,7 +1043,7 @@ as an example
         'Page count: requested, allocated, reclaimed...',
         $("#filePageCacheLockFree_PageCounts"),
         [
-          {name: 'Pages requested by app', color: 'green', series: totalPagesRequested},
+          {name: 'Pages requested by app', color: 'green', series: totalPagesRequested, visible: 'legendonly'},
           {name: 'Pages allocated', color: 'red', series: totalPagesAllocated},
           {name: 'Pages reclaimed', color: 'blue', series: totalPagesReclaimed},
           {name: 'Pages reused immediately', color: 'cyan', series: totalPagesHandedOver},
@@ -1035,8 +1074,10 @@ as an example
         'Data flows',
         $("#filePageCacheLockFree_PageBytes"),
         [
-          {name: 'Total bytes requested by app', color: 'blue', series: totalBytesRequested.mulScalar(1e-6),
-            visible: false},//usually not representative
+          {
+            name: 'Total bytes requested by app', color: 'blue', series: totalBytesRequested.mulScalar(1e-6),
+            visible: 'legendonly'
+          },//usually not representative
           {name: 'Total bytes read', color: 'green', series: totalBytesRead.mulScalar(1e-6)},
           {name: 'Total bytes written', color: 'red', series: totalBytesWritten.mulScalar(1e-6)}
         ],
@@ -1047,11 +1088,48 @@ as an example
       )
 
       plotTimeSeries(
+        'Caching efficiency',
+        $("#filePageCacheLockFree_Caching"),
+        [
+          {name: 'Cache hits', color: 'green',
+            series: totalPagesRequested.minus(totalPagesAllocated).div(totalPagesRequested).mulScalar(100)
+          },
+          {name: 'Cache misses', color: 'red',
+            series: totalPagesAllocated.div(totalPagesRequested).mulScalar(100)
+          }
+        ],
+        /*yaxis: */ {
+          title: '%',
+          autorange: false,
+          range: [0, 100]
+        }
+      )
+
+      //MAYBE RC: read/write _speeds_ feel to be more representative (i.e. to detect slow storage). But
+      //          in practice numbers are quite irregular -- likely because since OS-level caching plays
+      //          too big role.
+      // plotTimeSeries(
+      //   'Data flows',
+      //   $("#filePageCacheLockFree_PageBytes"),
+      //   [
+      //     {name: 'Requested by app', color: 'blue',
+      //       series: totalBytesRequested.mulScalar(1e-6).div(totalPagesRequestsMs.mulScalar(1e-3)),
+      //       visible: 'legendonly'},//usually not representative
+      //     {name: 'Read', color: 'green', series: totalBytesRead.mulScalar(1e-6).div(totalPagesReadMs.mulScalar(1e-3))},
+      //     {name: 'Written', color: 'red', series: totalBytesWritten.mulScalar(1e-6).div(totalPagesWriteMs.mulScalar(1e-3))}
+      //   ],
+      //   /*yaxis: */ {
+      //     title: 'Mb/sec',
+      //     autorange: true
+      //   }
+      // )
+
+      plotTimeSeries(
         'Memory used by page buffers: Heap vs Off-heap (Native)',
         $("#filePageCacheLockFree_HeapVsNativeMemoryUsed"),
         [
-          {name: 'Heap memory in use', color: 'red', series: heapBytesInUse.mulScalar(1e-6)},
-          {name: 'Off-heap memory in use', color: 'blue', series: nativeBytesInUse.mulScalar(1e-6)}
+          {name: 'Off-heap memory in use', color: 'blue', series: nativeBytesInUse.mulScalar(1e-6)},
+          {name: 'Heap memory in use', color: 'red', series: heapBytesInUse.mulScalar(1e-6)}
         ],
         /*yaxis: */ {
           title: 'Mb',
@@ -1059,13 +1137,12 @@ as an example
         }
       )
 
-      //MAYBE RC: monitor total _time_ spent by housekeeper thread?
       plotTimeSeries(
         'Housekeeper thread activity',
         $("#filePageCacheLockFree_Housekeeper"),
         [
           {name: 'Turns done', color: 'green', series: housekeeperTurnsDone},
-          {name: 'Turns skipped', color: 'blue', series: housekeeperTurnsSkipped}
+          {name: 'Turns skipped', color: 'blue', series: housekeeperTurnsSkipped, visible: 'legendonly'}
         ],
         /*yaxis: */ {
           title: '',
@@ -1088,7 +1165,7 @@ as an example
 
     //====== 'Custom' plot: =================
 
-    /**namesOfSeriesToPlot: array of strings, names of time series in a document.loadedAndParsedData.parsedCSV */
+    /** namesOfSeriesToPlot: array of strings, names of time series in a document.loadedAndParsedData.parsedCSV */
     function extractAndPlotCustomTimeSeries(namesOfSeriesToPlot) {
       if (!document.loadedAndParsedData.parsedCSV) {
         console.log("Error: .loadedAndParsedData is not loaded")
@@ -1112,6 +1189,7 @@ as an example
       }).filter((dataRow) => {
         return dataRow.series != null
       })
+
       plotTimeSeries(
         title,
         canvasElementToPlotOn,
@@ -1141,15 +1219,7 @@ as an example
       plotReadWriteActionsChart,
       plotIndexesCharts,
       plotFilePageCacheCharts,
-      plotFilePageCacheLockFreeCharts,
-      () => {//Initialize 'custom plot' with something, so it doesn't look empty:
-        const names = document.loadedAndParsedData.names
-        //TODO check #timeSeriesChooser selected options, and if there are options present in names --
-        //     plot them. 
-        if (names && names.length > 0) {
-          extractAndPlotCustomTimeSeries([names[0]])
-        }
-      }
+      plotFilePageCacheLockFreeCharts
     ]
   </script>
 
@@ -1245,32 +1315,6 @@ as an example
         document.progressBar.update(80)
         document.progressBar.hide()
       })
-
-      //'connect' plots x-axes so that all plots show the same datetime range:
-      loadingChain.then(() => {
-        for (const plot of document.plots) {
-          //FIXME RC: 'reset axis' doesn't issue plotly_relayout?
-          plot.on('plotly_relayout', (eventData) => {
-            const from = eventData['xaxis.range[0]']
-            const to = eventData['xaxis.range[1]']
-            $(document.body).css('cursor', 'progress')
-            try {
-              if (from && to) {
-                console.log(`${plot.id}: x-axis range: [${from}, ${to}]`)
-                for (otherPlot of document.plots) {
-                  if (otherPlot !== plot) {
-                    console.log(`\treLayout: ${otherPlot.id}`)
-                    Plotly.relayout(otherPlot, {'xaxis.range': [from, to]})
-                  }
-                }
-              }
-            }
-            finally {
-              $(document.body).css('cursor', 'default')
-            }
-          })
-        }
-      })
     }
 
     /* @param contents: String, multi-lines csv
@@ -1307,20 +1351,30 @@ as an example
 
       //Enhance default html <select multi> with nice UI:
       const timeSeriesChooser = $("#timeSeriesChooser")
-      //TODO: keep 'selected' options if there are some (i.e. if it is not the first file loaded in a session)
+      const previouslySelectedValues = timeSeriesChooser.val()
       timeSeriesChooser.html("")
       for (const name of names.sort()) {
         timeSeriesChooser.append(`<option value="${name}">${name}</option>`)
       }
-      timeSeriesChooser.SumoSelect({
-        placeholder: 'Choose time series to plot...',
-        max: 6,
-        csvDispCount: 6,
 
-        search: true
+      if (timeSeriesChooser[0].sumo) {
+        timeSeriesChooser[0].sumo.reload()
+        for (const valueToSelect of previouslySelectedValues) {
+          timeSeriesChooser[0].sumo.selectItem(valueToSelect)
+        }
+      }
+      else {
+        timeSeriesChooser.SumoSelect({
+          placeholder: 'Choose time series to plot...',
+          max: 6,
+          csvDispCount: 6,
 
-        // clearAll: true -- has some issues
-      })
+          search: true
+
+          // clearAll: true -- has some issues
+        })
+        timeSeriesChooser[0].sumo.selectItem(0)
+      }
 
 
       //TODO RC: Unfinished work: setup _time-range_ chooser -- so user could limit plots to subset
@@ -1428,6 +1482,7 @@ as an example
     <div id="jvmBasics_Threads_Chart" class="plot hideable"></div>
 
     <div id="jvmBasics_GC_Times_Chart" class="plot hideable"></div>
+    <div id="jvmBasics_Allocations_Chart" class="plot hideable"></div>
     <div id="jvmBasics_JVM_CPUTime_Chart" class="plot hideable"></div>
     <div id="jvmBasics_OS_LoadAvg_Chart" class="plot hideable"></div>
   </div>
@@ -1486,6 +1541,8 @@ as an example
 
     <div id="filePageCacheLockFree_PageTimings" class="plot hideable"></div>
     <div id="filePageCacheLockFree_PageBytes" class="plot hideable"></div>
+
+    <div id="filePageCacheLockFree_Caching" class="plot hideable"></div>
 
     <div id="filePageCacheLockFree_HeapVsNativeMemoryUsed" class="plot hideable"></div>
 

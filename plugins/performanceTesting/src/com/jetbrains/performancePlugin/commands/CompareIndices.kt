@@ -5,7 +5,6 @@ import com.intellij.diagnostic.CoreAttachmentFactory
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.diagnostic.Attachment
-import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.RuntimeExceptionWithAttachments
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProgressIndicator
@@ -36,7 +35,6 @@ import com.intellij.util.indexing.diagnostic.dump.paths.hasPresentablePathMatchi
 import com.intellij.util.indexing.impl.storage.DefaultIndexStorageLayout
 import com.intellij.util.indexing.impl.storage.VfsAwareMapReduceIndex
 import com.intellij.util.indexing.impl.storage.VfsAwareMapReduceIndex.IndexerIdHolder
-import com.intellij.util.io.readText
 import com.intellij.util.progress.ConcurrentTasksProgressManager
 import com.jetbrains.performancePlugin.PerformanceTestingBundle
 import com.jetbrains.performancePlugin.utils.ActionCallbackProfilerStopper
@@ -50,6 +48,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.io.path.readText
 
 internal const val PREFIX = AbstractCommand.CMD_PREFIX + "compareIndices"
 private val LOG = logger<CompareIndices>()
@@ -496,7 +495,7 @@ internal class CompareIndices(text: String, line: Int) : AbstractCommand(text, l
     val propertyName = "index_root_path"
     val oldValue = System.setProperty(propertyName, storedIndexDir.toAbsolutePath().toString())
     try {
-      return VfsAwareMapReduceIndex<K, V, IndexerIdHolder>(extension, DefaultIndexStorageLayout.getLayout(extension, true))
+      return VfsAwareMapReduceIndex<K, V, IndexerIdHolder>(extension, DefaultIndexStorageLayout.getLayout(extension))
     }
     finally {
       SystemProperties.setProperty(propertyName, oldValue)

@@ -170,7 +170,7 @@ public abstract class Compressor implements Closeable {
     //</editor-fold>
   }
 
-  public static class Jar extends Zip {
+  public static final class Jar extends Zip {
     public Jar(@NotNull File file) throws IOException {
       this(file.toPath());
     }
@@ -179,7 +179,7 @@ public abstract class Compressor implements Closeable {
       super(new JarOutputStream(new BufferedOutputStream(Files.newOutputStream(file))));
     }
 
-    public final void addManifest(@NotNull Manifest manifest) throws IOException {
+    public void addManifest(@NotNull Manifest manifest) throws IOException {
       ByteArrayOutputStream buffer = new ByteArrayOutputStream();
       manifest.write(buffer);
       addFile(JarFile.MANIFEST_NAME, buffer.toByteArray());

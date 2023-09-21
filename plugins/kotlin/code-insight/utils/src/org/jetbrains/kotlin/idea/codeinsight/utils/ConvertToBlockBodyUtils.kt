@@ -46,10 +46,10 @@ object ConvertToBlockBodyUtils {
 
         return ConvertToBlockBodyContext(
             returnTypeIsUnit = returnType.isUnit,
-            returnTypeIsNothing = returnType.isNothing,
+            returnTypeIsNothing = returnType.isNothing && !returnType.isMarkedNullable,
             returnTypeString = returnType.render(position = Variance.OUT_VARIANCE),
             bodyTypeIsUnit = bodyType.isUnit,
-            bodyTypeIsNothing = bodyType.isNothing,
+            bodyTypeIsNothing = bodyType.isNothing && !bodyType.isMarkedNullable,
             reformat = reformat,
             shortenReferences = shortenReferences
         )
@@ -69,7 +69,7 @@ object ConvertToBlockBodyUtils {
         prevComments.filterIsInstance<PsiComment>().forEach { it.delete() }
         nextComments.forEach { it.delete() }
         val replaced = body.replace(newBody)
-        if (context.reformat) element.containingKtFile.adjustLineIndent(replaced.startOffset, replaced.endOffset)
+        if (context.reformat) element.containingFile.reformat(replaced.startOffset, replaced.endOffset)
     }
 
     private fun KtDeclarationWithBody.setTypeReferenceIfNeeded(context: ConvertToBlockBodyContext) {

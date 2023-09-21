@@ -250,17 +250,17 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
                          """);
 
     importProject(
-      """
-        project(':project1') {
-          apply plugin: 'java'
-          dependencies {
-            compile 'junit:junit:4.11'
-          }
-        }
-
-        project(':project2') {
-          apply plugin: 'java'
-          dependencies.ext.strict = { projectPath ->
+      createBuildScriptBuilder()
+        .subprojects(it -> {
+          it.withJavaPlugin()
+            .withMavenCentral();
+        })
+        .project(":project1", it -> {
+          it.addImplementationDependency("junit:junit:4.11");
+        })
+        .project(":project2", it -> {
+          it.addPostfix("""
+            dependencies.ext.strict = { projectPath ->
             dependencies.compile dependencies.project(path: projectPath, transitive: false)
             dependencies.runtime dependencies.project(path: projectPath, transitive: true)
             dependencies.testRuntime dependencies.project(path: projectPath, transitive: true)
@@ -269,8 +269,8 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
           dependencies {
             strict ':project1'
           }
-        }
-        """
+          """);})
+        .generate()
     );
 
     assertModules("project",
@@ -638,6 +638,7 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
 
     String[] excludedRoots = isNewDependencyResolutionApplicable() ? new String[]{root} : ArrayUtil.EMPTY_STRING_ARRAY;
     assertLibraryExcludedRoots("project.main", depName, excludedRoots);
+    assertLibraryExcludedRoots("project.test", depName, excludedRoots);
 
     VirtualFile depJar = createProjectJarSubFile("lib/dep.jar");
     TestGradleBuildScriptBuilder builder = createBuildScriptBuilder();
@@ -651,6 +652,7 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
     );
 
     assertLibraryExcludedRoots("project.main", depName, excludedRoots);
+    assertLibraryExcludedRoots("project.test", depName, excludedRoots);
     assertLibraryExcludedRoots("project.main", depJar.getPresentableUrl(), ArrayUtil.EMPTY_STRING_ARRAY);
     assertLibraryExcludedRoots("project.main", "Gradle: junit:junit:4.11", ArrayUtil.EMPTY_STRING_ARRAY);
   }
@@ -931,15 +933,9 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
     assertModules("project", "project.main", "project.test");
   }
 
-  /**
-   * At the moment, IDEA does not support depending on an artifact containing output of multiple source sets.
-   * There is only one source set to choose as the module dependency.
-   * "Owning" sourceSet should be preferred for a jar task with name equal to sourceSet.getJarTaskName()
-   */
   @Test
-  public void testProjectDependencyOnArtifactsContainingMultipleSourceSets() throws Exception {
+  public void testProjectDependencyOnArtifactsContainingOnlySourceSetsOutputs() throws Exception {
     createSettingsFile("include 'api', 'impl' ");
-    String archiveBaseName = (isGradleOlderThan("7.0") ? "baseName" : "archiveBaseName") + " = 'my-archive'\n";
 
     importProject(
       createBuildScriptBuilder()
@@ -947,29 +943,57 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
         .project(":api", it -> {
           it
             .addPostfix("""
-                          configurations { myConfig }
-                          sourceSets { mainX }
-                          jar { from sourceSets.mainX.output }
-                          def mainXJarTask = tasks.create(sourceSets.mainX.getJarTaskName(), Jar) {
-                            """ +  archiveBaseName + """
-                            from sourceSets.mainX.output
-                          }
-                          artifacts { myConfig mainXJarTask }
+                          sourceSets { extraSourceSet }
+                          jar { from sourceSets.extraSourceSet.output }
                           """);
         })
         .project(":impl", it -> {
           it.addImplementationDependency(it.project(":api"));
-          it.addTestImplementationDependency(it.project(":api", "myConfig"));
         })
         .generate()
     );
 
     assertModules("project", "project.main", "project.test",
-                  "project.api", "project.api.main", "project.api.test", "project.api.mainX",
+                  "project.api", "project.api.main", "project.api.test", "project.api.extraSourceSet",
                   "project.impl", "project.impl.main", "project.impl.test");
 
-    assertModuleModuleDeps("project.impl.main", "project.api.main"); // does not depend on mainX
-    assertModuleModuleDeps("project.impl.test", "project.impl.main", "project.api.main", "project.api.mainX");
+    assertModuleModuleDeps("project.impl.main",  "project.api.extraSourceSet", "project.api.main");
+    assertModuleLibDeps("project.impl.main");
+    assertModuleModuleDeps("project.impl.test", "project.impl.main", "project.api.extraSourceSet", "project.api.main");
+  }
+
+
+  @Test
+  @TargetVersions("5.0+")
+  public void testProjectDependencyOnShadowedArtifacts() throws Exception {
+    String shadowVersion = isGradleNewerOrSameAs("8.0") ? "8.1.1" : "5.2.0";
+    createSettingsFile("include 'moduleA', 'moduleB' ");
+    createProjectSubFile("moduleA/build.gradle",  script(it -> {
+      it.withPlugin("com.github.johnrengelman.shadow", shadowVersion);
+      it.withJavaLibraryPlugin();
+      it.withMavenCentral();
+      it.addApiDependency("org.apache.commons:commons-lang3:3.12.0");
+      it.addPostfix("""
+                      sourceSets { extraSourceSet }
+                      shadowJar {
+                        from sourceSets.extraSourceSet.output
+                      }
+                      """); }));
+
+    createProjectSubFile("moduleB/build.gradle",
+                         script( it -> {
+                           it.withJavaPlugin();
+                           it.addImplementationDependency(it.project(":moduleA", "shadow")); }));
+
+    importProject("");
+
+    assertModules("project",
+                  "project.moduleA", "project.moduleA.main", "project.moduleA.test", "project.moduleA.extraSourceSet",
+                  "project.moduleB", "project.moduleB.main", "project.moduleB.test");
+
+    assertModuleModuleDeps("project.moduleB.main", "project.moduleA.extraSourceSet", "project.moduleA.main");
+    assertModuleLibDeps((actual, expected) -> actual.endsWith(expected), "project.moduleB.main", "moduleA-all.jar");
+    assertModuleModuleDeps("project.moduleB.test", "project.moduleB.main", "project.moduleA.extraSourceSet", "project.moduleA.main");
   }
 
   @Test

@@ -9,7 +9,6 @@ import com.intellij.diagnostic.COROUTINE_DUMP_HEADER
 import com.intellij.diagnostic.LoadingState
 import com.intellij.diagnostic.dumpCoroutines
 import com.intellij.diagnostic.enableCoroutineDump
-import com.intellij.icons.AllIcons
 import com.intellij.ide.*
 import com.intellij.ide.gdpr.EndUserAgreement
 import com.intellij.ide.plugins.PluginManagerCore
@@ -19,13 +18,13 @@ import com.intellij.ide.plugins.marketplace.statistics.enums.DialogAcceptanceRes
 import com.intellij.ide.ui.IconMapLoader
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.UISettings
-import com.intellij.ide.ui.laf.UiThemeProviderListManager
+import com.intellij.ide.ui.laf.LafManagerImpl
 import com.intellij.idea.*
 import com.intellij.internal.statistic.collectors.fus.actions.persistence.ActionsEventLogGroup
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationEx
 import com.intellij.openapi.application.impl.ApplicationImpl
-import com.intellij.openapi.application.impl.RawSwingDispatcher
+import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.stateStore
 import com.intellij.openapi.diagnostic.Logger
@@ -41,13 +40,13 @@ import com.intellij.openapi.util.io.OSAgnosticPathUtil
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.diagnostic.telemetry.impl.TelemetryManagerImpl
 import com.intellij.platform.diagnostic.telemetry.impl.span
-import com.intellij.ui.AnimatedIcon
+import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.ui.AppIcon
+import com.intellij.ui.ExperimentalUI
 import com.intellij.util.PlatformUtils
 import com.intellij.util.io.URLUtil
 import com.intellij.util.io.createDirectories
 import com.intellij.util.lang.ZipFilePool
-import com.intellij.util.ui.AsyncProcessIcon
 import com.jetbrains.JBR
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -112,14 +111,6 @@ internal suspend fun loadApp(app: ApplicationImpl,
 
     initServiceContainerJob.join()
 
-    val initConfigurationStoreJob = launch {
-      initConfigurationStore(app)
-    }
-
-    val deferredStarter = span("app starter creation") {
-      createAppStarter(args)
-    }
-
     val loadIconMapping = if (app.isHeadlessEnvironment) {
       null
     }
@@ -129,6 +120,14 @@ internal suspend fun loadApp(app: ApplicationImpl,
           app.serviceAsync<IconMapLoader>().preloadIconMapping()
         }.getOrLogException(logDeferred.await())
       }
+    }
+
+    val initConfigurationStoreJob = launch {
+      initConfigurationStore(app)
+    }
+
+    val deferredStarter = span("app starter creation") {
+      createAppStarter(args)
     }
 
     launch(CoroutineName("app pre-initialization")) {
@@ -231,40 +230,34 @@ private suspend fun preInitApp(app: ApplicationImpl,
       initLafJob.join()
     }
 
-    euaTaskDeferred?.await()?.invoke()
-
-    coroutineScope {
+    if (loadIconMapping != null) {
       launch {
-        // used by LafManager
-        app.serviceAsync<UISettings>()
-      }
-      launch(CoroutineName("UiThemeProviderListManager preloading")) {
-        app.serviceAsync<UiThemeProviderListManager>()
+        loadIconMapping.join()
+        ExperimentalUI.getInstance().installIconPatcher()
       }
     }
 
-    loadIconMapping?.join()
-
-    val lafJob = launch(CoroutineName("laf initialization") + RawSwingDispatcher) {
-      app.serviceAsync<LafManager>()
+    launch {
+      // used by LafManager
+      app.serviceAsync<UISettings>()
     }
 
-    if (!app.isHeadlessEnvironment) {
-      asyncScope.launch(CoroutineName("icons preloading") + Dispatchers.IO) {
-        AsyncProcessIcon.createBig(this)
-        AsyncProcessIcon(this)
-        AnimatedIcon.Blinking(AllIcons.Ide.FatalError)
-        AnimatedIcon.FS()
+    span("laf initialization") {
+      val lafManager = app.serviceAsync<LafManager>()
+      if (lafManager is LafManagerImpl) {
+        lafManager.applyInitState()
       }
     }
+  }
 
-    if (!app.isHeadlessEnvironment) {
-      asyncScope.launch {
-        // preload only when LafManager is ready
-        lafJob.join()
-        span("EditorColorsManager preloading") {
-          app.serviceAsync<EditorColorsManager>()
-        }
+  euaTaskDeferred?.await()?.invoke()
+
+  if (!app.isHeadlessEnvironment) {
+    asyncScope.launch {
+      // preload only when LafManager is ready - that's why out of coroutineScope
+
+      launch(CoroutineName("EditorColorsManager preloading")) {
+        app.serviceAsync<EditorColorsManager>()
       }
     }
   }
@@ -391,8 +384,7 @@ private fun addActivateAndWindowsCliListeners() {
   addExternalInstanceListener { rawArgs ->
     LOG.info("External instance command received")
     val (args, currentDirectory) = if (rawArgs.isEmpty()) emptyList<String>() to null else rawArgs.subList(1, rawArgs.size) to rawArgs[0]
-    @Suppress("DEPRECATION")
-    ApplicationManager.getApplication().coroutineScope.async {
+    service<CoreUiCoroutineScopeHolder>().coroutineScope.async {
       handleExternalCommand(args, currentDirectory).future.await()
     }
   }
@@ -423,12 +415,13 @@ private fun addActivateAndWindowsCliListeners() {
 
 private suspend fun handleExternalCommand(args: List<String>, currentDirectory: String?): CommandLineProcessorResult {
   if (args.isNotEmpty() && args[0].contains(URLUtil.SCHEME_SEPARATOR)) {
-    val result = CommandLineProcessorResult(project = null, result = CommandLineProcessor.processProtocolCommand(args[0]))
+    val cliResult = CommandLineProcessor.processProtocolCommand(args[0])
+    val result = CommandLineProcessorResult(project = null, result = cliResult)
     withContext(Dispatchers.EDT) {
       if (result.hasError) {
         result.showError()
       }
-      else {
+      else if (cliResult.exitCode != ProtocolHandler.PLEASE_DO_NOT_FOCUS) {
         CommandLineProcessor.findVisibleFrame()?.let { frame ->
           AppIcon.getInstance().requestFocus(frame)
         }

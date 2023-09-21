@@ -154,6 +154,34 @@ public abstract class PerformanceBasicCompletionHandlerTestGenerated extends Abs
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../completion/testData/handlers/basic/contextReceivers")
+    public static class ContextReceivers extends AbstractPerformanceBasicCompletionHandlerTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doPerfTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("WithoutDeclaration.kt")
+        public void testWithoutDeclaration() throws Exception {
+            runTest("../completion/testData/handlers/basic/contextReceivers/WithoutDeclaration.kt");
+        }
+
+        @TestMetadata("WithoutDeclarationNestedClass.kt")
+        public void testWithoutDeclarationNestedClass() throws Exception {
+            runTest("../completion/testData/handlers/basic/contextReceivers/WithoutDeclarationNestedClass.kt");
+        }
+
+        @TestMetadata("WithoutDeclarationNestedClass2.kt")
+        public void testWithoutDeclarationNestedClass2() throws Exception {
+            runTest("../completion/testData/handlers/basic/contextReceivers/WithoutDeclarationNestedClass2.kt");
+        }
+
+        @TestMetadata("WithoutDeclarationTypeArgument.kt")
+        public void testWithoutDeclarationTypeArgument() throws Exception {
+            runTest("../completion/testData/handlers/basic/contextReceivers/WithoutDeclarationTypeArgument.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../completion/testData/handlers/basic/defaultImports")
     public static class DefaultImports extends AbstractPerformanceBasicCompletionHandlerTest {
         private void runTest(String testDataFilePath) throws Exception {
@@ -1158,6 +1186,16 @@ public abstract class PerformanceBasicCompletionHandlerTestGenerated extends Abs
             runTest("../completion/testData/handlers/basic/AmbiguousSuperMethodWithArgument.kt");
         }
 
+        @TestMetadata("AnonymousFunctionAnnotation.kt")
+        public void testAnonymousFunctionAnnotation() throws Exception {
+            runTest("../completion/testData/handlers/basic/AnonymousFunctionAnnotation.kt");
+        }
+
+        @TestMetadata("AnonymousFunctionReturnType.kt")
+        public void testAnonymousFunctionReturnType() throws Exception {
+            runTest("../completion/testData/handlers/basic/AnonymousFunctionReturnType.kt");
+        }
+
         @TestMetadata("BeforeCallee.kt")
         public void testBeforeCallee() throws Exception {
             runTest("../completion/testData/handlers/basic/BeforeCallee.kt");
@@ -1577,6 +1615,34 @@ public abstract class PerformanceBasicCompletionHandlerTestGenerated extends Abs
         @TestMetadata("TypeInsertionOnLateinit.kt")
         public void testTypeInsertionOnLateinit() throws Exception {
             runTest("../completion/testData/handlers/basic/variableNameAndType/TypeInsertionOnLateinit.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../completion/testData/handlers/basic/withTab")
+    public static class WithTab extends AbstractPerformanceBasicCompletionHandlerTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doPerfTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("InsideBracketsClassifier.kt")
+        public void testInsideBracketsClassifier() throws Exception {
+            runTest("../completion/testData/handlers/basic/withTab/InsideBracketsClassifier.kt");
+        }
+
+        @TestMetadata("InsideBracketsFunction.kt")
+        public void testInsideBracketsFunction() throws Exception {
+            runTest("../completion/testData/handlers/basic/withTab/InsideBracketsFunction.kt");
+        }
+
+        @TestMetadata("InsideBracketsFunction2.kt")
+        public void testInsideBracketsFunction2() throws Exception {
+            runTest("../completion/testData/handlers/basic/withTab/InsideBracketsFunction2.kt");
+        }
+
+        @TestMetadata("InsideBracketsVariable.kt")
+        public void testInsideBracketsVariable() throws Exception {
+            runTest("../completion/testData/handlers/basic/withTab/InsideBracketsVariable.kt");
         }
     }
 }

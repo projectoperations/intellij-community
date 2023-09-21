@@ -1,127 +1,328 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.inline.completion
 
-import com.intellij.codeInsight.CodeInsightActionHandler
-import com.intellij.codeInsight.inline.completion.InlineCompletionContext.Companion.getInlineCompletionContextOrNull
-import com.intellij.codeInsight.inline.completion.InlineCompletionContext.Companion.initOrGetInlineCompletionContext
-import com.intellij.codeInsight.inline.completion.InlineState.Companion.getInlineCompletionState
-import com.intellij.codeInsight.inline.completion.InlineState.Companion.initOrGetInlineCompletionState
+import com.intellij.codeInsight.inline.completion.logs.InlineCompletionEventListener
+import com.intellij.codeInsight.inline.completion.logs.InlineCompletionEventType
+import com.intellij.codeInsight.inline.completion.logs.InlineCompletionUsageTracker
 import com.intellij.codeInsight.lookup.LookupEvent
+import com.intellij.codeInsight.lookup.LookupManager
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.EditorMouseEvent
-import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiFile
+import com.intellij.util.EventDispatcher
+import com.intellij.util.application
+import com.intellij.util.concurrency.annotations.RequiresBlockingContext
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectIndexed
-import kotlinx.coroutines.flow.transformWhile
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEmpty
 import org.jetbrains.annotations.ApiStatus
-import java.util.concurrent.atomic.AtomicBoolean
+import org.jetbrains.annotations.TestOnly
 
 @ApiStatus.Experimental
-class InlineCompletionHandler(private val scope: CoroutineScope) : CodeInsightActionHandler {
-  private var runningJob: Job? = null
+class InlineCompletionHandler(scope: CoroutineScope) {
+  private val executor = SafeInlineCompletionExecutor(scope)
+  private val eventListeners = EventDispatcher.create(InlineCompletionEventListener::class.java)
+
+  init {
+    addEventListener(InlineCompletionUsageTracker.Listener())
+  }
 
   private fun getProvider(event: InlineCompletionEvent): InlineCompletionProvider? {
-    return InlineCompletionProvider.extensions().firstOrNull { it.isEnabled(event) }
+    if (application.isUnitTestMode && testProvider != null) {
+      return testProvider
+    }
+
+    return InlineCompletionProvider.extensions().firstOrNull { it.isEnabled(event) }?.also {
+      LOG.trace("Selected inline provider: $it")
+    }
   }
 
-  override fun invoke(project: Project, editor: Editor, file: PsiFile) {
-    val inlineState = editor.getInlineCompletionState() ?: return
-
-    showInlineSuggestion(editor, inlineState, editor.caretModel.offset)
+  fun addEventListener(listener: InlineCompletionEventListener) {
+    eventListeners.addListener(listener)
   }
 
-  fun invoke(event: DocumentEvent, editor: Editor) = invoke(InlineCompletionEvent.Document(event, editor))
-  fun invoke(event: EditorMouseEvent) = invoke(InlineCompletionEvent.Caret(event))
-  fun invoke(event: LookupEvent) = invoke(InlineCompletionEvent.Lookup(event))
-  fun invoke(editor: Editor, file: PsiFile, caret: Caret) = invoke(InlineCompletionEvent.DirectCall(editor, file, caret))
+  fun addEventListener(listener: InlineCompletionEventListener, parentDisposable: Disposable) {
+    addEventListener(listener)
+    Disposer.register(parentDisposable) { removeEventListener(listener) }
+  }
 
-  private fun invoke(event: InlineCompletionEvent) {
-    if (isMuted.get()) {
+  fun removeEventListener(listener: InlineCompletionEventListener) {
+    eventListeners.removeListener(listener)
+  }
+
+  @RequiresEdt
+  fun invoke(event: InlineCompletionEvent.DocumentChange) = invokeEvent(event)
+
+  @RequiresEdt
+  fun invoke(event: InlineCompletionEvent.CaretMove) = invokeEvent(event)
+
+  @RequiresEdt
+  fun invoke(event: InlineCompletionEvent.LookupChange) = invokeEvent(event)
+
+  @RequiresEdt
+  fun invoke(event: InlineCompletionEvent.DirectCall) = invokeEvent(event)
+
+  private fun invokeEvent(event: InlineCompletionEvent) {
+    if (!application.isDispatchThread) {
+      LOG.error("Cannot run inline completion handler outside of EDT.")
       return
     }
-    // TODO: move to launch
+
+    LOG.trace("Start processing inline event $event")
+
+    val provider = getProvider(event)
+
     val request = event.toRequest() ?: return
-    val provider = getProvider(event) ?: return
+    if (updateContextOrInvalidate(request, provider) || provider == null) {
+      return
+    }
 
-    runningJob?.cancel()
-    runningJob = scope.launch {
-      val modificationStamp = request.document.modificationStamp
-      val resultFlow = withContext(Dispatchers.IO) {
-        provider.getProposals(request)
+    executor.switchJobSafely {
+      val newRequest = actualizeRequestOrNull(request)
+      if (newRequest != null) {
+        withContext(Dispatchers.EDT) {
+          InlineCompletionContext.getOrNull(newRequest.editor)?.let { context ->
+            hide(newRequest.editor, false, context)
+          }
+        }
       }
+      invokeRequest(newRequest ?: request, provider)
+    }
+  }
 
-      val editor = request.editor
-      val offset = request.endOffset
+  private suspend fun invokeRequest(request: InlineCompletionRequest, provider: InlineCompletionProvider) {
+    currentCoroutineContext().ensureActive()
 
-      val inlineState = editor.initOrGetInlineCompletionState()
+    val editor = request.editor
+    val offset = request.endOffset
 
-      withContext(Dispatchers.EDT) {
-        resultFlow.collectIndexed { index, value ->
-          if (index == 0 && modificationStamp != request.document.modificationStamp) {
+    val modificationStamp = request.document.modificationStamp
+    val resultFlow = request(provider, request) // .flowOn(Dispatchers.IO)
+
+    val context = InlineCompletionSession.getOrInit(editor, provider).context
+
+    // If you write a test and observe an infinite hang here, set [UsefulTestCase.runInDispatchThread] to false.
+    withContext(Dispatchers.EDT) {
+      resultFlow
+        .onEmpty {
+          trace(InlineCompletionEventType.Empty)
+          InlineCompletionSession.remove(editor)
+        }
+        .onCompletion {
+          complete(currentCoroutineContext().isActive, editor, it, context)
+        }
+        .collectIndexed { index, it ->
+          ensureActive()
+
+          if (modificationStamp != request.document.modificationStamp) {
             cancel()
             return@collectIndexed
           }
 
-          if (index == 0) {
-            inlineState.suggestions = listOf(InlineCompletionElement(value.text))
-            showInlineSuggestion(editor, inlineState, offset)
-          }
-          else {
-            if (editor.getInlineCompletionContextOrNull() == null) {
-              cancel()
-            }
-            ensureActive()
-            inlineState.suggestions = inlineState.suggestions.map { it.withText(it.text + value.text) }
-            showInlineSuggestion(editor, inlineState, offset)
-          }
+          showInlineElement(it, index, offset, context)
         }
+    }
+  }
+
+  suspend fun request(provider: InlineCompletionProvider, request: InlineCompletionRequest): Flow<InlineCompletionElement> {
+    trace(InlineCompletionEventType.Request(System.currentTimeMillis(), request, provider::class.java))
+    return provider.getProposals(request)
+  }
+
+  @RequiresEdt
+  private fun showInlineElement(
+    element: InlineCompletionElement,
+    index: Int,
+    offset: Int,
+    context: InlineCompletionContext
+  ) {
+    trace(InlineCompletionEventType.Show(element, index))
+    context.renderElement(element, offset)
+  }
+
+  @RequiresEdt
+  private fun InlineCompletionContext.renderElement(element: InlineCompletionElement, startOffset: Int) {
+    element.render(editor, lastOffset ?: startOffset)
+    state.addElement(element)
+  }
+
+  @RequiresEdt
+  fun insert(editor: Editor) {
+    val context = InlineCompletionContext.getOrNull(editor) ?: return
+    trace(InlineCompletionEventType.Insert)
+
+    val offset = context.lastOffset ?: return
+    val currentCompletion = context.lineToInsert
+
+    editor.document.insertString(offset, currentCompletion)
+    editor.caretModel.moveToOffset(offset + currentCompletion.length)
+
+    LookupManager.getActiveLookup(editor)?.hideLookup(false) //TODO: remove this
+    hide(editor, false, context)
+  }
+
+  @RequiresEdt
+  fun hide(editor: Editor, explicit: Boolean, context: InlineCompletionContext) {
+    if (context.isCurrentlyDisplayingInlays) {
+      trace(InlineCompletionEventType.Hide(explicit))
+    }
+
+    InlineCompletionSession.remove(editor)
+  }
+
+  fun cancel(editor: Editor) {
+    executor.cancel()
+    application.invokeAndWait {
+      InlineCompletionContext.getOrNull(editor)?.let { context ->
+        hide(editor, false, context)
       }
     }
   }
 
-  private fun showInlineSuggestion(editor: Editor, inlineContext: InlineState, startOffset: Int) {
-    val suggestions = inlineContext.suggestions
-    if (suggestions.isEmpty()) {
-      return
+  fun complete(isActive: Boolean, editor: Editor, cause: Throwable?, context: InlineCompletionContext) {
+    trace(InlineCompletionEventType.Completion(cause, isActive))
+    if (cause != null) {
+      hide(editor, false, context)
+    }
+  }
+
+  /**
+   * @return `true` if update was successful. Otherwise, [hide] is invoked to invalidate the current context.
+   */
+  @RequiresEdt
+  @RequiresBlockingContext
+  private fun updateContextOrInvalidate(
+    request: InlineCompletionRequest,
+    provider: InlineCompletionProvider?
+  ): Boolean {
+    val session = InlineCompletionSession.getOrNull(request.editor) ?: return false
+    if (provider == null && !session.context.isCurrentlyDisplayingInlays) {
+      return true // Fast fall to not slow down editor
+    }
+    if ((provider != null && session.provider != provider) || session.provider.requiresInvalidation(request.event)) {
+      session.invalidate()
+      return false
     }
 
-    val idOffset = 1 // TODO: replace with 0?
-    val size = suggestions.size
+    val context = session.context
+    val result = updateContext(context, request.event)
+    when (result) {
+      is UpdateContextResult.Changed -> {
+        context.editor.inlayModel.execute(true) {
+          context.clear()
+          trace(InlineCompletionEventType.Change(result.truncateTyping))
+          result.newElements.forEach { context.renderElement(it, request.endOffset) }
+        }
+      }
+      is UpdateContextResult.Same -> Unit
+      is UpdateContextResult.Invalidated -> session.invalidate()
+    }
+    return result != UpdateContextResult.Invalidated
+  }
 
-    val suggestionIndex = (inlineContext.suggestionIndex + idOffset + size) % size
-    if (suggestions.getOrNull(suggestionIndex) == null) {
-      return
+  @RequiresEdt
+  private fun InlineCompletionSession.invalidate() {
+    if (context.isCurrentlyDisplayingInlays) {
+      hide(context.editor, false, context)
+    }
+  }
+
+  /**
+   * IDE inserts a paired quote/bracket and moves a caret without any event. It requires us to update request.
+   *
+   * It cannot be invoked when a request is constructed. It must be called after, in order to get
+   * actualized information about offset from EDT.
+   */
+  private suspend fun actualizeRequestOrNull(request: InlineCompletionRequest): InlineCompletionRequest? {
+    if (request.event !is InlineCompletionEvent.DocumentChange) {
+      return null
     }
 
-    editor.initOrGetInlineCompletionContext().update(suggestions, suggestionIndex, startOffset)
+    // ML-1237, ML-1281, ML-1232
+    // TODO should not go to EDT but it helps us wait for an actual caret position
+    val offsetDelta = withContext(Dispatchers.EDT) { request.editor.caretModel.offset - request.endOffset }
+    if (offsetDelta == 0) {
+      return null
+    }
 
-    inlineContext.suggestionIndex = suggestionIndex
-    inlineContext.lastStartOffset = startOffset
-    inlineContext.lastModificationStamp = editor.document.modificationStamp
+    return request.copy(
+      startOffset = request.startOffset + offsetDelta,
+      endOffset = request.endOffset + offsetDelta
+    )
   }
 
-  private fun Flow<InlineCompletionElement>.takeFirstLine() = takeWhileInclusive {
-    it.text.contains("\n")
+  private fun trace(event: InlineCompletionEventType) {
+    eventListeners.getMulticaster().on(event)
   }
 
-  private fun <T> Flow<T>.takeWhileInclusive(predicate: (T) -> Boolean) = transformWhile { value ->
-    emit(value) // the first not matching value will also be emitted
-
-    predicate(value)
+  @Deprecated(
+    "replaced with direct event call type",
+    ReplaceWith("invoke(InlineCompletionEvent.DocumentChange(event, editor))"),
+    DeprecationLevel.ERROR
+  )
+  fun invoke(event: DocumentEvent, editor: Editor) {
+    return invoke(InlineCompletionEvent.DocumentChange(event, editor))
   }
 
+  @Deprecated(
+    "replaced with direct event call type",
+    ReplaceWith("invoke(InlineCompletionEvent.CaretMove(event))"),
+    DeprecationLevel.ERROR
+  )
+  fun invoke(event: EditorMouseEvent) {
+    return invoke(InlineCompletionEvent.CaretMove(event))
+  }
+
+  @Deprecated(
+    "replaced with direct event call type",
+    ReplaceWith("invoke(InlineCompletionEvent.LookupChange(event))"),
+    DeprecationLevel.ERROR
+  )
+  fun invoke(event: LookupEvent) {
+    return invoke(InlineCompletionEvent.LookupChange(event))
+  }
+
+  @Deprecated(
+    "replaced with direct event call type",
+    ReplaceWith("invoke(InlineCompletionEvent.DirectCall(editor, file, caret, context))"),
+    DeprecationLevel.ERROR
+  )
+  fun invoke(editor: Editor, file: PsiFile, caret: Caret, context: DataContext?) {
+    return invoke(InlineCompletionEvent.DirectCall(editor, file, caret, context))
+  }
+
+  @TestOnly
+  suspend fun awaitExecution() {
+    executor.awaitAll()
+  }
 
   companion object {
+    private val LOG = thisLogger()
     val KEY = Key.create<InlineCompletionHandler>("inline.completion.handler")
 
-    val isMuted: AtomicBoolean = AtomicBoolean(false)
-    fun mute(): Unit = isMuted.set(true)
-    fun unmute(): Unit = isMuted.set(false)
+    fun getOrNull(editor: Editor) = editor.getUserData(KEY)
+
+    private var testProvider: InlineCompletionProvider? = null
+
+    @TestOnly
+    fun registerTestHandler(provider: InlineCompletionProvider) {
+      testProvider = provider
+    }
+
+    @TestOnly
+    fun unRegisterTestHandler() {
+      testProvider = null
+    }
   }
 }

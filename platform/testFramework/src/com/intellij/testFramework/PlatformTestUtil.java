@@ -327,11 +327,16 @@ public final class PlatformTestUtil {
   }
 
   public static void waitWhileBusy(@NotNull JTree tree) {
+    waitWhileBusy(() -> isBusy(tree, tree.getModel()));
+  }
+
+  public static void waitWhileBusy(@NotNull Supplier<Boolean> busyCondition) {
     assertDispatchThreadWithoutWriteAccess();
     long startTimeMillis = System.currentTimeMillis();
-    while (isBusy(tree, tree.getModel())) {
+    while (busyCondition.get()) {
       assertMaxWaitTimeSince(startTimeMillis);
       TimeoutUtil.sleep(5);
+      UIUtil.dispatchAllInvocationEvents();
     }
   }
 
@@ -466,12 +471,14 @@ public final class PlatformTestUtil {
   public static void dispatchAllInvocationEventsInIdeEventQueue() {
     assertDispatchThreadWithoutWriteAccess();
     IdeEventQueue eventQueue = IdeEventQueue.getInstance();
-    while (true) {
-      AWTEvent event = eventQueue.peekEvent();
-      if (event == null) break;
-      event = eventQueue.getNextEvent();
-      if (event instanceof InvocationEvent) {
-        eventQueue.dispatchEvent(event);
+    try (AccessToken ignored = ThreadContext.resetThreadContext()) {
+      while (true) {
+        AWTEvent event = eventQueue.peekEvent();
+        if (event == null) break;
+        event = eventQueue.getNextEvent();
+        if (event instanceof InvocationEvent) {
+          eventQueue.dispatchEvent(event);
+        }
       }
     }
   }
@@ -1065,8 +1072,16 @@ public final class PlatformTestUtil {
     Pair<@NotNull ExecutionEnvironment, RunContentDescriptor> result = executeConfiguration(runConfiguration, executorId, null);
     ProcessHandler processHandler = result.second.getProcessHandler();
     assertNotNull("Process handler must not be null!", processHandler);
-    waitWithEventsDispatching("Process failed to finish in " + timeoutInSeconds + " seconds: " + processHandler,
-                              processHandler::isProcessTerminated, Math.toIntExact(timeoutInSeconds));
+    waitWithEventsDispatching(
+      () -> "Process failed to finish in " + timeoutInSeconds + " seconds: " + processHandler,
+      processHandler::isProcessTerminated, Math.toIntExact(timeoutInSeconds),
+      () -> {
+        if (!processHandler.isProcessTerminated()) {
+          LOG.debug("Destroying process: " + processHandler);
+          processHandler.destroyProcess();
+        }
+      });
+
     return result.first;
   }
 
@@ -1107,33 +1122,43 @@ public final class PlatformTestUtil {
     }
     Ref<RunContentDescriptor> refRunContentDescriptor = new Ref<>();
     ExecutionEnvironment executionEnvironment = new ExecutionEnvironment(executor, runner, runnerAndConfigurationSettings, project);
-    ProgramRunnerUtil.executeConfigurationAsync(executionEnvironment, false, false, descriptor -> {
-      LOG.debug("Process started");
-      if (descriptorProcessor != null) {
-        descriptorProcessor.accept(descriptor);
+    boolean[] failure = {false};
+    ProgramRunnerUtil.executeConfigurationAsync(executionEnvironment, false, false, new ProgramRunner.Callback() {
+      @Override
+      public void processNotStarted() {
+        failure[0] = true;
       }
-      ProcessHandler processHandler = descriptor.getProcessHandler();
-      assertNotNull(processHandler);
-      processHandler.addProcessListener(new ProcessAdapter() {
-        @Override
-        public void startNotified(@NotNull ProcessEvent event) {
-          LOG.debug("Process notified");
-        }
 
-        @Override
-        public void processTerminated(@NotNull ProcessEvent event) {
-          LOG.debug("Process terminated: exitCode: " + event.getExitCode() + "; text: " + event.getText());
+      @Override
+      public void processStarted(RunContentDescriptor descriptor) {
+        LOG.debug("Process started");
+        if (descriptorProcessor != null) {
+          descriptorProcessor.accept(descriptor);
         }
+        ProcessHandler processHandler = descriptor.getProcessHandler();
+        assertNotNull(processHandler);
+        processHandler.addProcessListener(new ProcessAdapter() {
+          @Override
+          public void startNotified(@NotNull ProcessEvent event) {
+            LOG.debug("Process notified");
+          }
 
-        @Override
-        public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
-          LOG.debug(outputType + ": " + event.getText());
-        }
-      });
-      refRunContentDescriptor.set(descriptor);
+          @Override
+          public void processTerminated(@NotNull ProcessEvent event) {
+            LOG.debug("Process terminated: exitCode: " + event.getExitCode() + "; text: " + event.getText());
+          }
+
+          @Override
+          public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
+            LOG.debug(outputType + ": " + event.getText());
+          }
+        });
+        refRunContentDescriptor.set(descriptor);
+      }
     });
     NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
-    waitWithEventsDispatching("Process failed to start in 60 seconds", () -> !refRunContentDescriptor.isNull(), 60);
+    waitWithEventsDispatching("Process failed to start in 60 seconds", () -> !refRunContentDescriptor.isNull() || failure[0], 60);
+    assertFalse("Process could not start for configuration: " + runConfiguration, failure[0]);
     return Pair.create(executionEnvironment, refRunContentDescriptor.get());
   }
 

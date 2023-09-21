@@ -83,7 +83,7 @@ internal class GitLabReviewTabComponentFactory(
   ): JComponent {
     val avatarIconsProvider = projectVm.avatarIconProvider
     return GitLabMergeRequestDetailsComponentFactory.createDetailsComponent(
-      cs, reviewDetailsVm, projectVm.accountVm, avatarIconsProvider
+      project, cs, reviewDetailsVm, projectVm.accountVm, avatarIconsProvider
     ).also {
       DataManager.registerDataProvider(it) { dataId ->
         when {
@@ -97,9 +97,11 @@ internal class GitLabReviewTabComponentFactory(
   private fun createSelectorsComponent(cs: CoroutineScope): JComponent {
     val selectorVm = toolwindowViewModel.selectorVm
 
-    val accountsDetailsProvider = GitLabAccountsDetailsProvider(cs) {
+    val accountsDetailsProvider = GitLabAccountsDetailsProvider(cs) { account ->
       // TODO: separate loader
-      service<GitLabAccountManager>().findCredentials(it)?.let(service<GitLabApiManager>()::getClient)
+      service<GitLabAccountManager>().findCredentials(account)?.let { token ->
+        service<GitLabApiManager>().getClient(account.server, token)
+      }
     }
 
     val selectors = RepositoryAndAccountSelectorComponentFactory(selectorVm).create(

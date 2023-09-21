@@ -25,6 +25,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.components.BorderLayoutPanel;
 import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,6 +37,8 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.List;
+
+import static com.intellij.openapi.vcs.ex.DocumentTrackerKt.countAffectedVisibleChanges;
 
 public class UnifiedLocalChangeListDiffViewer extends UnifiedDiffViewer {
   @NotNull private final LocalChangeListDiffRequest myLocalRequest;
@@ -62,6 +65,10 @@ public class UnifiedLocalChangeListDiffViewer extends UnifiedDiffViewer {
 
     myGutterCheckboxMouseMotionListener = new GutterCheckboxMouseMotionListener();
     myGutterCheckboxMouseMotionListener.install();
+
+    for (AnAction action : LocalTrackerDiffUtil.createTrackerShortcutOnlyActions(myTrackerActionProvider)) {
+      DiffUtil.registerAction(action, myPanel);
+    }
   }
 
   @Nullable
@@ -79,7 +86,7 @@ public class UnifiedLocalChangeListDiffViewer extends UnifiedDiffViewer {
   @Override
   protected List<AnAction> createEditorPopupActions() {
     List<AnAction> group = new ArrayList<>(super.createEditorPopupActions());
-    group.addAll(LocalTrackerDiffUtil.createTrackerActions(myTrackerActionProvider));
+    group.addAll(LocalTrackerDiffUtil.createTrackerEditorPopupActions(myTrackerActionProvider));
     return group;
   }
 
@@ -88,6 +95,39 @@ public class UnifiedLocalChangeListDiffViewer extends UnifiedDiffViewer {
   protected UnifiedDiffChangeUi createUi(@NotNull UnifiedDiffChange change) {
     if (change instanceof MyUnifiedDiffChange) return new MyUnifiedDiffChangeUi(this, (MyUnifiedDiffChange)change);
     return super.createUi(change);
+  }
+
+  @Override
+  @Nullable
+  protected @Nls String getStatusTextMessage() {
+    List<UnifiedDiffChange> allChanges = getDiffChanges();
+    if (myAllowExcludeChangesFromCommit && allChanges != null) {
+      int totalCount = 0;
+      int includedIntoCommitCount = 0;
+      int excludedCount = 0;
+
+      for (UnifiedDiffChange change : allChanges) {
+        RangeExclusionState exclusionState;
+        if (change instanceof MyUnifiedDiffChange myChange) {
+          exclusionState = myChange.getExclusionState();
+        }
+        else {
+          exclusionState = RangeExclusionState.Included.INSTANCE;
+        }
+
+        totalCount += countAffectedVisibleChanges(exclusionState, false);
+        if (change.isSkipped()) {
+          excludedCount += countAffectedVisibleChanges(exclusionState, false);
+        }
+        else {
+          includedIntoCommitCount += countAffectedVisibleChanges(exclusionState, true);
+        }
+      }
+
+      return LocalTrackerDiffUtil.getStatusText(totalCount, includedIntoCommitCount, excludedCount, myModel.isContentsEqual());
+    }
+
+    return super.getStatusTextMessage();
   }
 
   @NotNull
@@ -268,7 +308,7 @@ public class UnifiedLocalChangeListDiffViewer extends UnifiedDiffViewer {
     }
 
     if (LocalTrackerDiffUtil.shouldShowToggleAreaThumb(toggleableLineRange)) {
-      result.add(createToggleAreaThumb(builder, toggleableLineRange));
+      ContainerUtil.addIfNotNull(result, createToggleAreaThumb(builder, toggleableLineRange));
     }
     return result;
   }
@@ -299,12 +339,16 @@ public class UnifiedLocalChangeListDiffViewer extends UnifiedDiffViewer {
     });
   }
 
-  @NotNull
+  @Nullable
   private RangeHighlighter createToggleAreaThumb(@NotNull UnifiedFragmentBuilder builder,
                                                  @NotNull ToggleableLineRange toggleableLineRange) {
     Range lineRange = toggleableLineRange.getLineRange();
     int line1 = builder.getConvertor1().convertApproximateInv(lineRange.start1);
     int line2 = builder.getConvertor2().convertApproximateInv(lineRange.end2);
+    if (line1 < 0 || line2 < 0 || line2 <= line1 || line2 > DiffUtil.getLineCount(myDocument)) {
+      LOG.warn("Failed to show toggle area thumb");
+      return null;
+    }
     boolean isExcludedFromCommit = toggleableLineRange.getFragmentData().getExclusionState() instanceof RangeExclusionState.Excluded;
     return LocalTrackerDiffUtil.createToggleAreaThumb(getEditor(), line1, line2, () -> {
       LocalTrackerDiffUtil.toggleBlockExclusion(myTrackerActionProvider, lineRange.start1, isExcludedFromCommit);
@@ -420,7 +464,8 @@ public class UnifiedLocalChangeListDiffViewer extends UnifiedDiffViewer {
         .select(MyUnifiedDiffChange.class)
         .map(it -> new LocalTrackerDiffUtil.LocalTrackerChange(myViewer.transferLineFromOneside(Side.RIGHT, it.getLine1()),
                                                                myViewer.transferLineFromOneside(Side.RIGHT, it.getLine2()),
-                                                               it.getChangelistId()))
+                                                               it.getChangelistId(),
+                                                               it.getExclusionState()))
         .toList();
     }
 

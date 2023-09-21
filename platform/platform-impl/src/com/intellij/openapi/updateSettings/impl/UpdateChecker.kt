@@ -29,14 +29,13 @@ import com.intellij.openapi.util.*
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
-import com.intellij.util.Urls
+import com.intellij.platform.ide.customization.ExternalProductResourceUrls
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence
 import com.intellij.util.containers.MultiMap
 import com.intellij.util.io.HttpRequests
-import com.intellij.util.io.URLUtil
 import com.intellij.util.ui.UIUtil
 import com.intellij.xml.util.XmlStringUtil
 import kotlinx.coroutines.CoroutineScope
@@ -105,9 +104,6 @@ object UpdateChecker {
   const val MACHINE_ID_DISABLED_PROPERTY: String = "machine.id.disabled"
   const val MACHINE_ID_PARAMETER: String = "mid"
 
-  private val updateUrl: String
-    get() = System.getProperty("idea.updates.url") ?: ApplicationInfoEx.getInstanceEx().updateUrls!!.checkingUrl
-
   private val productDataLock = ReentrantLock()
   private var productDataCache: SoftReference<Result<Product?>>? = null
   private val ourUpdatedPlugins: MutableMap<PluginId, PluginDownloader> = HashMap()
@@ -132,27 +128,23 @@ object UpdateChecker {
   }
 
   @JvmStatic
-  fun getNotificationGroup(): NotificationGroup {
-    return NotificationGroupManager.getInstance().getNotificationGroup("IDE and Plugin Updates")
-  }
+  fun getNotificationGroup(): NotificationGroup =
+    NotificationGroupManager.getInstance().getNotificationGroup("IDE and Plugin Updates")
 
   @JvmStatic
-  fun getNotificationGroupForPluginUpdateResults(): NotificationGroup {
-    return NotificationGroupManager.getInstance().getNotificationGroup("Plugin Update Results")
-  }
+  fun getNotificationGroupForPluginUpdateResults(): NotificationGroup =
+    NotificationGroupManager.getInstance().getNotificationGroup("Plugin Update Results")
 
   @JvmStatic
-  fun getNotificationGroupForIdeUpdateResults(): NotificationGroup {
-    return NotificationGroupManager.getInstance().getNotificationGroup("IDE Update Results")
-  }
+  fun getNotificationGroupForIdeUpdateResults(): NotificationGroup =
+    NotificationGroupManager.getInstance().getNotificationGroup("IDE Update Results")
 
   /**
    * For scheduled update checks.
    */
   @JvmStatic
-  fun updateAndShowResult(): ActionCallback {
-    return service<UpdateCheckerHelper>().updateAndShowResult()
-  }
+  fun updateAndShowResult(): ActionCallback =
+    service<UpdateCheckerHelper>().updateAndShowResult()
 
   /**
    * For manual update checks (Help | Check for Updates, Settings | Updates | Check Now)
@@ -199,11 +191,8 @@ object UpdateChecker {
       }
     }
     catch (e: Exception) {
-      LOG.infoWithDebug(e)
-      return when (e) {
-        is JDOMException -> PlatformUpdates.Empty  // corrupted content, don't bother telling users
-        else -> PlatformUpdates.ConnectionError(e)
-      }
+      LOG.info("failed to load update data (${e.javaClass.name}: ${e.message})", if (e !is IOException || LOG.isDebugEnabled) e else null)
+      return PlatformUpdates.ConnectionError(e)
     }
   }
 
@@ -213,12 +202,9 @@ object UpdateChecker {
     productDataLock.withLock {
       val cached = productDataCache?.get()
       if (cached != null) return@withLock cached.getOrThrow()
+      val url = ExternalProductResourceUrls.getInstance().updateMetadataUrl ?: return@withLock null
 
       val result = runCatching {
-        var url = Urls.newFromEncoded(updateUrl)
-        if (url.scheme != URLUtil.FILE_PROTOCOL) {
-          url = UpdateRequestParameters.amendUpdateRequest(url)
-        }
         LOG.debug { "loading ${url}" }
         HttpRequests.request(url)
           .connect { JDOMUtil.load(it.getReader(indicator)) }
@@ -306,10 +292,7 @@ object UpdateChecker {
         }
       }
       catch (e: Exception) {
-        LOG.info(
-          "failed to load plugins from ${host ?: "default repository"}: ${e.message}",
-          if (LOG.isDebugEnabled) e else null,
-        )
+        LOG.info("failed to load plugins from ${host ?: "default repository"}: ${e.message}", if (LOG.isDebugEnabled) e else null)
         errors[host] = e
       }
     }

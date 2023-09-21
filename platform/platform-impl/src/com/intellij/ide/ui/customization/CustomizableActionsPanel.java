@@ -33,7 +33,6 @@ import javax.swing.*;
 import javax.swing.tree.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
-import java.io.IOException;
 import java.util.List;
 import java.util.*;
 import java.util.function.Function;
@@ -84,8 +83,7 @@ public class CustomizableActionsPanel {
     return toolbar;
   }
 
-  @NotNull
-  protected ActionGroup getRestoreGroup() {
+  protected @NotNull ActionGroup getRestoreGroup() {
     ActionGroup restoreGroup = new DefaultActionGroup(new RestoreSelectionAction(), new RestoreAllAction());
     restoreGroup.setPopup(true);
     restoreGroup.getTemplatePresentation().setText(IdeBundle.message("group.customizations.restore.action.group"));
@@ -267,7 +265,7 @@ public class CustomizableActionsPanel {
     ((DefaultTreeModel)myActionsTree.getModel()).reload();
   }
 
-  private static class TreePathStringFunction implements Function<TreePath, String> {
+  private static final class TreePathStringFunction implements Function<TreePath, String> {
     @Override
     public String apply(TreePath o) {
       Object node = o.getLastPathComponent();
@@ -301,7 +299,7 @@ public class CustomizableActionsPanel {
     return new MyTreeCellRenderer();
   }
 
-  private static class MyTreeCellRenderer extends ColoredTreeCellRenderer {
+  private static final class MyTreeCellRenderer extends ColoredTreeCellRenderer {
     @Override
     public void customizeCellRenderer(@NotNull JTree tree,
                                       Object value,
@@ -328,8 +326,7 @@ public class CustomizableActionsPanel {
     }
   }
 
-  @Nullable
-  static String getActionId(DefaultMutableTreeNode node) {
+  static @Nullable String getActionId(DefaultMutableTreeNode node) {
     Object obj = node.getUserObject();
     if (obj instanceof String actionId) return actionId;
     if (obj instanceof Group group) return group.getId();
@@ -340,8 +337,7 @@ public class CustomizableActionsPanel {
     return null;
   }
 
-  @NotNull
-  static Pair<@Nullable String, @Nullable Icon> getActionIdAndIcon(@NotNull DefaultMutableTreeNode node) {
+  static @NotNull Pair<@Nullable String, @Nullable Icon> getActionIdAndIcon(@NotNull DefaultMutableTreeNode node) {
     Object userObj = node.getUserObject();
     if (userObj instanceof String actionId) {
       AnAction action = ActionManager.getInstance().getAction(actionId);
@@ -417,12 +413,12 @@ public class CustomizableActionsPanel {
     return true;
   }
 
-  private class EditIconDialog extends DialogWrapper {
+  private final class EditIconDialog extends DialogWrapper {
     private final DefaultMutableTreeNode myNode;
     private final boolean isNodeInsideMenu;
     private BrowseIconsComboBox myComboBox;
 
-    protected EditIconDialog(TreePath path) {
+    private EditIconDialog(TreePath path) {
       super(false);
       setTitle(IdeBundle.message("title.choose.action.icon"));
       isNodeInsideMenu = isInsideMenu(path);
@@ -604,7 +600,7 @@ public class CustomizableActionsPanel {
     }
   }
 
-  private class MyActionsTreeModel extends DefaultTreeModel implements EditableModel, RowsDnDSupport.RefinedDropSupport {
+  private final class MyActionsTreeModel extends DefaultTreeModel implements EditableModel, RowsDnDSupport.RefinedDropSupport {
     private MyActionsTreeModel(TreeNode root) {
       super(root);
     }

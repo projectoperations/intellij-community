@@ -1,4 +1,6 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("BlockingMethodInNonBlockingContext")
+
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.SystemInfoRt
@@ -30,6 +32,7 @@ import org.jetbrains.intellij.build.impl.productInfo.generateProductInfoJson
 import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.includedModules
 import org.jetbrains.intellij.build.impl.projectStructureMapping.writeProjectStructureReport
+import org.jetbrains.intellij.build.impl.sbom.SoftwareBillOfMaterialsImpl
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.logFreeDiskSpace
 import org.jetbrains.intellij.build.io.writeNewFile
@@ -138,8 +141,7 @@ class BuildTasksImpl(context: BuildContext) : BuildTasks {
       val propertiesFile = patchIdeaPropertiesFile(context)
       val builder = getOsDistributionBuilder(os = currentOs, ideaProperties = propertiesFile, context = context)!!
       builder.copyFilesForOsDistribution(targetDirectory, arch)
-      context.bundledRuntime.extractTo(prefix = BundledRuntimeImpl.getProductPrefix(context),
-                                       os = currentOs,
+      context.bundledRuntime.extractTo(os = currentOs,
                                        destinationDir = targetDirectory.resolve("jbr"),
                                        arch = arch)
       updateExecutablePermissions(targetDirectory, builder.generateExecutableFilesMatchers(includeRuntime = true, arch).keys)
@@ -195,7 +197,7 @@ private fun patchIdeaPropertiesFile(buildContext: BuildContext): Path {
     builder.append('\n').append(Files.readString(it))
   }
 
-  //todo[nik] introduce special systemSelectorWithoutVersion instead?
+  //todo introduce special systemSelectorWithoutVersion instead?
   val settingsDir = buildContext.systemSelector.replaceFirst("\\d+(\\.\\d+)?".toRegex(), "")
   val temp = builder.toString()
   builder.setLength(0)
@@ -317,9 +319,9 @@ private fun downloadMissingLibrarySources(
     }
 }
 
-private class DistributionForOsTaskResult(@JvmField val builder: OsSpecificDistributionBuilder,
-                                          @JvmField val arch: JvmArchitecture,
-                                          @JvmField val outDir: Path)
+internal class DistributionForOsTaskResult(@JvmField val builder: OsSpecificDistributionBuilder,
+                                           @JvmField val arch: JvmArchitecture,
+                                           @JvmField val outDir: Path)
 
 private suspend fun buildOsSpecificDistributions(context: BuildContext): List<DistributionForOsTaskResult> {
   if (context.isStepSkipped(BuildOptions.OS_SPECIFIC_DISTRIBUTIONS_STEP)) {
@@ -633,22 +635,24 @@ suspend fun buildDistributions(context: BuildContext): Unit = spanBuilder("build
   coroutineScope {
     createMavenArtifactJob(context, distributionState)
 
-    spanBuilder("build platform and plugin JARs").useWithScope2<Unit> {
+    val distEntries = spanBuilder("build platform and plugin JARs").useWithScope2 {
       if (context.shouldBuildDistributions()) {
         val entries = buildDistribution(state = distributionState, context)
         if (context.productProperties.buildSourcesArchive) {
           buildSourcesArchive(entries, context)
         }
+        entries
       }
       else {
         Span.current().addEvent("skip building product distributions because " +
-                                "\"intellij.build.target.os\" property is set to \"${BuildOptions.OS_NONE}\"")
+                                "'intellij.build.target.os' property is set to '${BuildOptions.OS_NONE}'")
         buildSearchableOptions(distributionState.platform, context)
         buildNonBundledPlugins(pluginsToPublish = pluginsToPublish,
                                compressPluginArchive = context.options.compressZipFiles,
                                buildPlatformLibJob = null,
                                state = distributionState,
                                context = context)
+        emptyList()
       }
     }
 
@@ -658,6 +662,11 @@ suspend fun buildDistributions(context: BuildContext): Unit = spanBuilder("build
 
     layoutShared(context)
     val distDirs = buildOsSpecificDistributions(context)
+    launch(Dispatchers.IO) {
+      context.executeStep(spanBuilder("generate software bill of materials"), SoftwareBillOfMaterials.STEP_ID) {
+        SoftwareBillOfMaterialsImpl(context, distDirs, distEntries).generate()
+      }
+    }
     @Suppress("SpellCheckingInspection")
     if (java.lang.Boolean.getBoolean("intellij.build.toolbox.litegen")) {
       @Suppress("SENSELESS_COMPARISON")
@@ -738,7 +747,14 @@ private fun checkProductProperties(context: BuildContextImpl) {
   checkPaths2(properties.additionalDirectoriesWithLicenses, "productProperties.additionalDirectoriesWithLicenses")
   checkModules(properties.additionalModulesToCompile, "productProperties.additionalModulesToCompile", context)
   checkModule(properties.applicationInfoModule, "productProperties.applicationInfoModule", context)
-  checkModule(properties.embeddedJetBrainsClientMainModule, "productProperties.embeddedJetBrainsClientMainModule", context)
+  properties.embeddedJetBrainsClientMainModule?.let { embeddedJetBrainsClientMainModule ->
+    checkModule(embeddedJetBrainsClientMainModule, "productProperties.embeddedJetBrainsClientMainModule", context)
+    if (findProductModulesFile(context, embeddedJetBrainsClientMainModule) == null) {
+      context.messages.error("Cannot find product-modules.xml file in sources of '$embeddedJetBrainsClientMainModule' module specified as " +
+                             "'productProperties.embeddedJetBrainsClientMainModule'.")
+    }
+  }
+  
   checkModules(properties.modulesToCompileTests, "productProperties.modulesToCompileTests", context)
 
   context.windowsDistributionCustomizer?.let { winCustomizer ->
@@ -1030,13 +1046,11 @@ private fun buildCrossPlatformZip(distResults: List<DistributionForOsTaskResult>
 
 private suspend fun checkClassFiles(root: Path, context: BuildContext, isDistAll: Boolean) {
   // version checking patterns are only for dist all (all non-os and non-arch specific files)
-  val versionCheckerConfig = if (context.isStepSkipped(BuildOptions.VERIFY_CLASS_FILE_VERSIONS) || !isDistAll) {
-    emptyMap()
-  }
-  else {
-    context.productProperties.versionCheckerConfig
+  if (context.isStepSkipped(BuildOptions.VERIFY_CLASS_FILE_VERSIONS) || !isDistAll) {
+    return
   }
 
+  val versionCheckerConfig = context.productProperties.versionCheckerConfig
   val forbiddenSubPaths = context.productProperties.forbiddenClassFileSubPaths
   val forbiddenSubPathExceptions = context.productProperties.forbiddenClassFileSubPathExceptions
   if (forbiddenSubPaths.isNotEmpty()) {
@@ -1179,6 +1193,7 @@ private fun crossPlatformZip(macX64DistDir: Path,
         relPath != "bin/idea.properties" &&
         !relPath.startsWith("help/") &&
         relPath != "license/launcher-third-party-libraries.html" &&
+        relPath != MODULE_DESCRIPTORS_JAR_PATH && //todo merge module-descriptors.jar for different OS into a single one instead
         !relPath.startsWith("bin/remote-dev-server") &&
         relPath != "license/remote-dev-server.html"
       }

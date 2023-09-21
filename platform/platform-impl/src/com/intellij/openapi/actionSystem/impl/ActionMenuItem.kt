@@ -48,14 +48,12 @@ internal fun isEnterKeyStroke(keyStroke: KeyStroke): Boolean {
 class ActionMenuItem internal constructor(action: AnAction,
                                           @JvmField val place: String,
                                           private val context: DataContext,
-                                          enableMnemonics: Boolean,
-                                          insideCheckedGroup: Boolean,
-                                          useDarkIcons: Boolean) : JBCheckBoxMenuItem() {
-                                            private val actionRef = createActionRef(action)
-  private val insideCheckedGroup: Boolean
-  private val enableMnemonics: Boolean
-  val isToggleable: Boolean
-  private val useDarkIcons: Boolean
+                                          private val enableMnemonics: Boolean,
+                                          private val insideCheckedGroup: Boolean,
+                                          private val useDarkIcons: Boolean) : JBCheckBoxMenuItem() {
+
+  private val actionRef = createActionRef(action)
+  val isToggleable: Boolean = action is Toggleable
 
   @JvmField
   internal val screenMenuItemPeer: MenuItem?
@@ -67,10 +65,6 @@ class ActionMenuItem internal constructor(action: AnAction,
     private set
 
   init {
-    this.enableMnemonics = enableMnemonics
-    isToggleable = action is Toggleable
-    this.insideCheckedGroup = insideCheckedGroup
-    this.useDarkIcons = useDarkIcons
     addActionListener(ActionListener { e -> performAction(e.modifiers) })
     setBorderPainted(false)
     if (Menu.isJbScreenMenuEnabled() && ActionPlaces.MAIN_MENU == this.place) {
@@ -125,7 +119,8 @@ class ActionMenuItem internal constructor(action: AnAction,
     // all items must be visible at this point
     //setVisible(presentation.isVisible());
     setEnabled(presentation.isEnabled)
-    setText(presentation.getText(enableMnemonics))
+    val text = ActionPresentationDecorator.decorateTextIfNeeded(actionRef.getAction() ,presentation.getText(enableMnemonics))
+    setText(text)
     mnemonic = presentation.getMnemonic()
     displayedMnemonicIndex = presentation.getDisplayedMnemonicIndex()
     updateIcon(presentation)
@@ -134,6 +129,14 @@ class ActionMenuItem internal constructor(action: AnAction,
     if (screenMenuItemPeer != null) {
       screenMenuItemPeer.setLabel(text, accelerator)
       screenMenuItemPeer.setEnabled(isEnabled)
+    }
+    val shortcutSuffix = presentation.getClientProperty(Presentation.PROP_KEYBOARD_SHORTCUT_SUFFIX)
+    val shortcut = defaultFirstShortcutText
+    firstShortcutTextFromPresentation = if (!shortcut.isNullOrEmpty() && !shortcutSuffix.isNullOrEmpty()) {
+      shortcut + shortcutSuffix
+    }
+    else {
+      null
     }
   }
 
@@ -177,8 +180,13 @@ class ActionMenuItem internal constructor(action: AnAction,
     showDescriptionInStatusBar(isIncluded = isIncluded, component = this, description = description)
   }
 
-  val firstShortcutText: @NlsSafe String
+  private var firstShortcutTextFromPresentation: @NlsSafe String? = null
+
+  private val defaultFirstShortcutText: @NlsSafe String
     get() = KeymapUtil.getFirstKeyboardShortcutText(actionRef.getAction())
+
+  val firstShortcutText: @NlsSafe String
+    get() = firstShortcutTextFromPresentation ?: defaultFirstShortcutText
 
   private fun updateIcon(presentation: Presentation) {
     isToggled = isToggleable && Toggleable.isSelected(presentation)

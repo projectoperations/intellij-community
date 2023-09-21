@@ -9,7 +9,7 @@ import com.intellij.cce.util.getAs
 import com.intellij.cce.util.getIfExists
 import com.intellij.cce.workspace.filter.CompareSessionsFilter
 import com.intellij.cce.workspace.filter.SessionsFilter
-import org.apache.commons.lang.text.StrSubstitutor
+import org.apache.commons.lang3.text.StrSubstitutor
 import java.lang.reflect.Type
 import java.nio.file.Files
 import java.nio.file.Path
@@ -19,7 +19,7 @@ object ConfigFactory {
 
   private lateinit var gson: Gson
 
-  fun defaultConfig(projectPath: String = "", language: String = "Java"): Config =
+  private fun defaultConfig(projectPath: String = "", language: String = "Java"): Config =
     Config.build(projectPath, language) {}
 
   fun <T : EvaluationStrategy> load(path: Path, strategySerializer: StrategySerializer<T>): Config {

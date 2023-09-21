@@ -12,11 +12,16 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.settingsSync.SettingsSnapshot.MetaInfo
 import com.intellij.settingsSync.notification.NotificationService
 import com.intellij.settingsSync.plugins.SettingsSyncPluginManager
+import com.intellij.util.io.inputStreamIfExists
 import com.intellij.util.io.systemIndependentPath
 import com.intellij.util.io.write
+import com.intellij.ui.NewUiValue
 import org.jetbrains.annotations.VisibleForTesting
 import java.io.InputStream
-import java.nio.file.*
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import java.util.concurrent.locks.ReadWriteLock
@@ -92,8 +97,21 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
   }
 
   private fun notifyRestartNeeded() {
-    if (restartRequiredReasons.isEmpty()) return
-    NotificationService.getInstance().notifyRestartNeeded(restartRequiredReasons)
+    val mergedReasons = mergeRestartReasons()
+    if (mergedReasons.isEmpty()) return
+    NotificationService.getInstance().notifyRestartNeeded(mergedReasons)
+  }
+
+  private fun mergeRestartReasons(): List<RestartReason> {
+      return restartRequiredReasons.groupBy { it::class.java }.mapNotNull { (clazz, reasons) ->
+        when (clazz) {
+            RestartForPluginInstall::class.java -> RestartForPluginInstall(reasons.flatMap { (it as RestartForPluginInstall).plugins })
+            RestartForPluginEnable::class.java -> RestartForPluginEnable(reasons.flatMap { (it as RestartForPluginEnable).plugins })
+            RestartForPluginDisable::class.java -> RestartForPluginDisable(reasons.flatMap { (it as RestartForPluginDisable).plugins })
+            RestartForNewUI::class.java -> reasons.lastOrNull()
+            else -> null
+        }
+    }
   }
 
   override fun activateStreamProvider() {
@@ -152,11 +170,7 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
     val adjustedSpec = getFileRelativeToRootConfig(fileSpec)
     return readUnderLock(adjustedSpec) {
       try {
-        consumer(path.inputStream())
-        true
-      }
-      catch (e: NoSuchFileException) {
-        consumer(null)
+        consumer(path.inputStreamIfExists())
         true
       }
       catch (e: Throwable) {
@@ -260,7 +274,7 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
           }
           is FileState.Deleted -> {
             writeUnderLock(fileSpec) {
-              file.deleteExisting()
+              file.deleteIfExists()
             }
             deletedFileSpecs.add(fileSpec)
           }
@@ -274,8 +288,9 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
       if (lastChanged.isNotEmpty()) {
         componentStore.reloadComponents(lastChanged, emptyList())
       }
-      if (Registry.getInstance().isRestartNeeded) {
-        SettingsSyncEvents.getInstance().fireRestartRequired(RestartForNewUI)
+      val newUI = Registry.get(NewUiValue.KEY)
+      if (newUI.isChangedSinceAppStart) {
+        SettingsSyncEvents.getInstance().fireRestartRequired(RestartForNewUI(newUI.asBoolean()))
       }
     }
   }
@@ -295,12 +310,12 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
   private fun getOrCreateLock(fileSpec: String) = fileSpecsToLocks.computeIfAbsent(fileSpec) { ReentrantReadWriteLock() }
 
   companion object {
-    private val LOG = logger<SettingsSyncIdeMediatorImpl>()
-
+    val LOG = logger<SettingsSyncIdeMediatorImpl>()
     internal fun <T: Any> findProviderById(id: String, state: T): SettingsProvider<T>? {
       val provider = SettingsProvider.SETTINGS_PROVIDER_EP.findFirstSafe(Predicate { it.id == id })
       if (provider != null) {
         try {
+          @Suppress("UNCHECKED_CAST")
           return provider as SettingsProvider<T>
         }
         catch (e: Exception) {

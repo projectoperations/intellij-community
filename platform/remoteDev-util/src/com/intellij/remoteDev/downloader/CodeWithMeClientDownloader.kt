@@ -12,9 +12,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.progress.EmptyProgressIndicator
-import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.*
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.SystemInfo
@@ -34,7 +32,6 @@ import com.intellij.util.io.BaseOutputReader
 import com.intellij.util.io.DigestUtil
 import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.HttpRequests.HttpStatusException
-import com.intellij.util.io.readText
 import com.intellij.util.system.CpuArch
 import com.intellij.util.text.VersionComparatorUtil
 import com.intellij.util.withFragment
@@ -334,11 +331,25 @@ object CodeWithMeClientDownloader {
     return ExtractedJetBrainsClientData(clientDir = guestData.targetPath, jreDir = null, version = clientBuildVersion)
   }
 
+
+  suspend fun downloadClientAndJdk(sessionInfoResponse: JetbrainsClientDownloadInfo): ExtractedJetBrainsClientData {
+    return progressStep(1.0, RemoteDevUtilBundle.message("launcher.get.client.info")) {
+      withRawProgressReporter {
+        blockingContext {
+          blockingContextToIndicator {
+            downloadClientAndJdk(sessionInfoResponse, ProgressManager.getInstance().progressIndicator)
+          }
+        }
+      }
+    }
+  }
+
+
   /**
    * @returns Pair(path/to/thin/client, path/to/jre)
    */
   fun downloadClientAndJdk(sessionInfoResponse: JetbrainsClientDownloadInfo,
-                           progressIndicator: ProgressIndicator): ExtractedJetBrainsClientData? {
+                           progressIndicator: ProgressIndicator): ExtractedJetBrainsClientData {
     ApplicationManager.getApplication().assertIsNonDispatchThread()
 
     val tempDir = FileUtil.createTempDirectory("jb-cwm-dl", null).toPath()
@@ -521,7 +532,7 @@ object CodeWithMeClientDownloader {
     }
     catch(e: ProcessCanceledException) {
       LOG.info("Download was canceled")
-      return null
+      throw e
     }
     catch (e: Throwable) {
       RemoteDevStatisticsCollector.onGuestDownloadFinished(activity, isSucceeded = false)
@@ -559,7 +570,12 @@ object CodeWithMeClientDownloader {
             progressIndicator.text2 = ""
           }
           "file" -> {
-            Files.copy(url.toPath(), path, StandardCopyOption.REPLACE_EXISTING)
+            val source = url.toPath()
+            if (source.isDirectory()) {
+              error("Downloading a directory is not supported. Source: $url, destination: ${path.absolutePathString()}")
+            }
+
+            Files.copy(source, path, StandardCopyOption.REPLACE_EXISTING)
           }
           else -> {
             error("scheme ${url.scheme} is not supported")

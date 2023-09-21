@@ -2,7 +2,6 @@
 package com.intellij.debugger.engine;
 
 import com.intellij.Patches;
-import com.intellij.ProjectTopics;
 import com.intellij.ReviseWhenPortedToJDK;
 import com.intellij.debugger.*;
 import com.intellij.debugger.actions.DebuggerAction;
@@ -21,6 +20,10 @@ import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.debugger.settings.NodeRendererSettings;
+import com.intellij.debugger.statistics.DebuggerStatistics;
+import com.intellij.debugger.statistics.Engine;
+import com.intellij.debugger.statistics.StatisticsStorage;
+import com.intellij.debugger.statistics.SteppingAction;
 import com.intellij.debugger.ui.breakpoints.*;
 import com.intellij.debugger.ui.tree.render.*;
 import com.intellij.execution.CantRunException;
@@ -130,7 +133,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private final Semaphore myWaitFor = new Semaphore();
   private final AtomicBoolean myIsFailed = new AtomicBoolean(false);
   private final AtomicBoolean myIsStopped = new AtomicBoolean(false);
-  protected DebuggerSession mySession;
+  protected volatile DebuggerSession mySession;
   @Nullable protected MethodReturnValueWatcher myReturnValueWatcher;
   protected final Disposable myDisposable = Disposer.newDisposable();
   private final Alarm myStatusUpdateAlarm = new Alarm();
@@ -155,6 +158,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       public void paused(@NotNull SuspendContext suspendContext) {
         myThreadBlockedMonitor.stopWatching(
           suspendContext.getSuspendPolicy() != EventRequest.SUSPEND_ALL ? suspendContext.getThread() : null);
+      }
+    });
+    myDebugProcessDispatcher.addListener(new DebugProcessListener() {
+      @Override
+      public void processDetached(@NotNull DebugProcess process, boolean closedByUser) {
+        DebuggerStatistics.logProcessStatistics(process);
       }
     });
   }
@@ -329,13 +338,16 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
     DebuggerManagerThreadImpl.assertIsManagerThread();
     myPositionManager = new CompoundPositionManager(new PositionManagerImpl(this));
-    myProject.getMessageBus().connect(myDisposable).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
+    myProject.getMessageBus().connect(myDisposable).subscribe(ModuleRootListener.TOPIC, new ModuleRootListener() {
       @Override
       public void rootsChanged(@NotNull final ModuleRootEvent event) {
         DumbService.getInstance(myProject).runWhenSmart(
           () -> getManagerThread().schedule(PrioritizedTask.Priority.HIGH, () -> {
             myPositionManager.clearCache();
-            DebuggerUIUtil.invokeLater(() -> mySession.refresh(true));
+            DebuggerSession session = mySession;
+            if (session != null && session.isAttached()) {
+              DebuggerUIUtil.invokeLater(() -> session.refresh(true));
+            }
           }));
       }
     });
@@ -394,7 +406,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
    * @param hint may be null
    */
   protected void doStep(final SuspendContextImpl suspendContext, final ThreadReferenceProxyImpl stepThread, int size, int depth,
-                        RequestHint hint) {
+                        RequestHint hint, Object commandToken) {
     if (stepThread == null) {
       return;
     }
@@ -421,6 +433,9 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
       if (hint != null) {
         stepRequest.putProperty("hint", hint);
+      }
+      if (commandToken != null) {
+        stepRequest.putProperty("commandToken", commandToken);
       }
       DebuggerUtilsAsync.setEnabled(stepRequest, true).whenComplete((__, e) -> {
         if (DebuggerUtilsAsync.unwrap(e) instanceof IllegalThreadStateException) {
@@ -595,7 +610,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       portArg.setValue(address);
 
       // to allow connector to listen on several auto generated addresses
-      if (address.length() == 0 || address.equals("0")) {
+      if (address.isEmpty() || address.equals("0")) {
         EmptyConnectorArgument uniqueArg = new EmptyConnectorArgument("argForUniqueness");
         myArguments.put(uniqueArg.name(), uniqueArg);
       }
@@ -1662,7 +1677,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       RequestHint hint = getHint(suspendContext, thread, null);
       applyThreadFilter(thread);
       startWatchingMethodReturn(thread);
-      step(suspendContext, thread, hint);
+      step(suspendContext, thread, hint, createCommandToken());
       super.contextAction(suspendContext);
     }
 
@@ -1675,8 +1690,13 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     @Override
-    public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint) {
-      doStep(suspendContext, stepThread, myStepSize, StepRequest.STEP_OUT, hint);
+    public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
+      doStep(suspendContext, stepThread, myStepSize, StepRequest.STEP_OUT, hint, commandToken);
+    }
+
+    @Override
+    public Object createCommandToken() {
+      return StatisticsStorage.createSteppingToken(SteppingAction.STEP_OUT, Engine.JAVA);
     }
   }
 
@@ -1709,7 +1729,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       if (myBreakpoint != null) {
         prepareAndSetSteppingBreakpoint(suspendContext, myBreakpoint, hint, false);
       }
-      step(suspendContext, stepThread, hint);
+      step(suspendContext, stepThread, hint, createCommandToken());
       super.contextAction(suspendContext);
     }
 
@@ -1722,8 +1742,13 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     @Override
-    public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint) {
-      doStep(suspendContext, stepThread, myStepSize, StepRequest.STEP_INTO, hint);
+    public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
+      doStep(suspendContext, stepThread, myStepSize, StepRequest.STEP_INTO, hint, commandToken);
+    }
+
+    @Override
+    public Object createCommandToken() {
+      return StatisticsStorage.createSteppingToken(SteppingAction.STEP_INTO, Engine.JAVA);
     }
   }
 
@@ -1777,7 +1802,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
       startWatchingMethodReturn(stepThread);
 
-      step(suspendContext, stepThread, hint);
+      step(suspendContext, stepThread, hint, createCommandToken());
 
       if (myIsIgnoreBreakpoints) {
         DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager().disableBreakpoints(DebugProcessImpl.this);
@@ -1786,8 +1811,13 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     @Override
-    public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint) {
-      doStep(suspendContext, stepThread, myStepSize, getStepDepth(), hint);
+    public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
+      doStep(suspendContext, stepThread, myStepSize, getStepDepth(), hint, commandToken);
+    }
+
+    @Override
+    public Object createCommandToken() {
+      return StatisticsStorage.createSteppingToken(SteppingAction.STEP_OVER, Engine.JAVA);
     }
   }
 
@@ -1861,7 +1891,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       }
     }
 
-    public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint) {
+    public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
+    }
+
+    public Object createCommandToken() {
+      return null;
     }
 
     @Nullable
@@ -2112,8 +2146,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   @Nullable
-  public ExecutionResult attachVirtualMachine(final DebugEnvironment environment,
-                                              final DebuggerSession session) throws ExecutionException {
+  public ExecutionResult attachVirtualMachine(@NotNull DebugEnvironment environment,
+                                              @NotNull DebuggerSession session) throws ExecutionException {
     mySession = session;
     myWaitFor.down();
 
@@ -2145,7 +2179,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           executionResult.getProcessHandler().addProcessListener(processListener);
         }
         myProcessListeners.clear();
-        if (myTextBeforeStart.length() > 0) {
+        if (!myTextBeforeStart.isEmpty()) {
           printToConsoleImpl(myTextBeforeStart.toString());
           myTextBeforeStart.setLength(0);
         }

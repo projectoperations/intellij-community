@@ -64,7 +64,7 @@ open class PsiAwareTextEditorProvider : TextEditorProvider(), AsyncFileEditorPro
           val initializer = item.instance ?: continue
           launch(CoroutineName(item.implementationClassName)) {
             catchingExceptionsAsync {
-              initializer.init(project = project, file = file, document = document, editorSupplier = editorSupplier)
+              initializer.initializeEditor(project = project, file = file, document = document, editorSupplier = editorSupplier)
             }
           }
         }
@@ -86,17 +86,6 @@ open class PsiAwareTextEditorProvider : TextEditorProvider(), AsyncFileEditorPro
         editorDeferred.complete(textEditor.editor)
         asyncLoader.start(textEditor = textEditor, tasks = listOf(task))
         return textEditor
-      }
-    }
-  }
-
-  override fun createEditorAsync(project: Project, file: VirtualFile): AsyncFileEditorProvider.Builder {
-    val document = FileDocumentManager.getInstance().getDocument(file, project)!!
-    val factory = EditorFactory.getInstance() as EditorFactoryImpl
-    return object : AsyncFileEditorProvider.Builder() {
-      override fun build(): FileEditor {
-        val editor = factory.createMainEditor(document, project, file)
-        return PsiAwareTextEditorImpl(project = project, file = file, provider = this@PsiAwareTextEditorProvider, editor = editor)
       }
     }
   }
@@ -188,11 +177,7 @@ open class PsiAwareTextEditorProvider : TextEditorProvider(), AsyncFileEditorPro
 private class MyDelayedFoldingState(private val project: Project,
                                     private val file: VirtualFile,
                                     state: Element) : Supplier<CodeFoldingState?> {
-  private val _serializedState: Element
-
-  init {
-    _serializedState = JDOMUtil.internElement(state)
-  }
+  private val _serializedState: Element = JDOMUtil.internElement(state)
 
   override fun get(): CodeFoldingState? {
     val document = FileDocumentManager.getInstance().getCachedDocument(file) ?: return null

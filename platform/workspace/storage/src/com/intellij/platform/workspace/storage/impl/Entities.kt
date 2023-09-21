@@ -7,19 +7,20 @@ import com.intellij.platform.workspace.storage.impl.indices.VirtualFileIndex
 import com.intellij.platform.workspace.storage.impl.indices.WorkspaceMutableIndex
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 
-abstract class WorkspaceEntityBase : WorkspaceEntity, Any() {
+public abstract class WorkspaceEntityBase(private var currentEntityData: WorkspaceEntityData<out WorkspaceEntity>? = null) : WorkspaceEntity {
   //override lateinit var entitySource: EntitySource
   //  internal set
 
-  var id: EntityId = invalidEntityId
+  public var id: EntityId = invalidEntityId
 
-  lateinit var snapshot: EntityStorage
+  public lateinit var snapshot: EntityStorage
 
-  abstract fun connectionIdList(): List<ConnectionId>
+  public abstract fun connectionIdList(): List<ConnectionId>
 
-  open fun <R : WorkspaceEntity> referrers(entityClass: Class<R>): Sequence<R> {
+  public open fun <R : WorkspaceEntity> referrers(entityClass: Class<R>): Sequence<R> {
     val mySnapshot = snapshot as AbstractEntityStorage
     return getReferences(mySnapshot, entityClass)
   }
@@ -29,19 +30,16 @@ abstract class WorkspaceEntityBase : WorkspaceEntity, Any() {
     var connectionId = mySnapshot.refs.findConnectionId(getEntityInterface(), entityClass)
     if (connectionId != null) {
       val entitiesSequence = when (connectionId.connectionType) {
-        ConnectionId.ConnectionType.ONE_TO_MANY -> mySnapshot.extractOneToManyChildren(connectionId, this)
-        ConnectionId.ConnectionType.ONE_TO_ONE -> mySnapshot.extractOneToOneChild<R>(connectionId, id)
+        ConnectionId.ConnectionType.ONE_TO_MANY -> mySnapshot.getManyChildren(connectionId, this)
+        ConnectionId.ConnectionType.ONE_TO_ONE -> mySnapshot.getOneChild(connectionId, this)
           ?.let { sequenceOf(it) }
           ?: emptySequence()
-        ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> mySnapshot.extractOneToAbstractManyChildren(
-          connectionId,
-          id.asParent()
-        )
-        ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> /*mySnapshot.extractAbstractOneToOneChild<R>(connectionId, id.asParent())?.let {
+        ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> mySnapshot.getManyChildren(connectionId, this)
+        ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> mySnapshot.getOneChild(connectionId, this)?.let {
           sequenceOf(it)
-        } ?: */emptySequence()
-      }
-      // If resulting sequence is empty, and it's connection between two entities of the same type we should continue search
+        } ?: emptySequence()
+      } as Sequence<R>
+      // If the resulting sequence is empty, and its connection between two entities of the same type, we should continue search
       if (!checkReversedConnection || entitiesSequence.any() || getEntityInterface() != entityClass) {
         return entitiesSequence
       }
@@ -49,20 +47,17 @@ abstract class WorkspaceEntityBase : WorkspaceEntity, Any() {
     connectionId = mySnapshot.refs.findConnectionId(entityClass, getEntityInterface())
     if (connectionId != null) {
       return when (connectionId.connectionType) {
-        ConnectionId.ConnectionType.ONE_TO_MANY -> mySnapshot.extractOneToManyParent<R>(connectionId, id)?.let { sequenceOf(it) } ?: emptySequence()
-        ConnectionId.ConnectionType.ONE_TO_ONE -> mySnapshot.extractOneToOneParent<R>(connectionId, id)
+        ConnectionId.ConnectionType.ONE_TO_MANY -> mySnapshot.getParent(connectionId, this)?.let { sequenceOf(it) } ?: emptySequence()
+        ConnectionId.ConnectionType.ONE_TO_ONE -> mySnapshot.getParent(connectionId, this)
           ?.let { sequenceOf(it) }
           ?: emptySequence()
-        ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> mySnapshot.extractOneToAbstractManyParent<R>(
-          connectionId,
-          id.asChild()
-        )
+        ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> mySnapshot.getParent(connectionId, this)
           ?.let { sequenceOf(it) }
           ?: emptySequence()
-        ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> /*mySnapshot.extractAbstractOneToOneChild<R>(connectionId, id.asParent())?.let {
+        ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> mySnapshot.getParent(connectionId, this)?.let {
           sequenceOf(it)
-        } ?: */emptySequence()
-      }
+        } ?: emptySequence()
+      } as Sequence<R>
     }
     return emptySequence()
   }
@@ -72,6 +67,13 @@ abstract class WorkspaceEntityBase : WorkspaceEntity, Any() {
   }
 
   override fun getEntityInterface(): Class<out WorkspaceEntity> = id.clazz.findWorkspaceEntity()
+
+
+  internal open fun getData(): WorkspaceEntityData<out WorkspaceEntity> =
+    currentEntityData ?: throw IllegalStateException("Entity data is not initialized")
+
+  internal fun getMetadata(): EntityMetadata = getData().getMetadata()
+
 
   override fun toString(): String = id.asString()
 
@@ -91,27 +93,27 @@ abstract class WorkspaceEntityBase : WorkspaceEntity, Any() {
   override fun hashCode(): Int = id.hashCode()
 }
 
-data class EntityLink(
+public data class EntityLink(
   val isThisFieldChild: Boolean,
   val connectionId: ConnectionId,
 )
 
-val EntityLink.remote: EntityLink
+internal val EntityLink.remote: EntityLink
   get() = EntityLink(!this.isThisFieldChild, connectionId)
 
-abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEntityData<T>>(protected var currentEntityData: E?) : WorkspaceEntityBase(), WorkspaceEntity.Builder<T> {
+public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEntityData<T>>(protected var currentEntityData: E?) : WorkspaceEntityBase(currentEntityData), WorkspaceEntity.Builder<T> {
   /**
    * In case any of two referred entities is not added to diff, the reference between entities will be stored in this field
    */
-  val entityLinks: MutableMap<EntityLink, Any?> = HashMap()
+  public val entityLinks: MutableMap<EntityLink, Any?> = HashMap()
 
   internal lateinit var original: WorkspaceEntityData<T>
-  var diff: MutableEntityStorage? = null
+  public var diff: MutableEntityStorage? = null
 
-  val modifiable: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
-  val changedProperty: MutableSet<String> = mutableSetOf()
+  public val modifiable: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
+  public val changedProperty: MutableSet<String> = mutableSetOf()
 
-  fun updateChildToParentReferences(parents: Set<WorkspaceEntity>?) {
+  public fun updateChildToParentReferences(parents: Set<WorkspaceEntity>?) {
     if (diff == null) return
     val childId = getEntityData().createEntityId().asChild()
     val entityInterfaceToEntity = parents?.associateBy { it.getEntityInterface() } ?: emptyMap()
@@ -129,7 +131,7 @@ abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEn
     }
   }
 
-  fun updateReferenceToEntity(entityClass: Class<out WorkspaceEntity>, isThisFieldChild: Boolean, entities: List<WorkspaceEntity?>) {
+  public fun updateReferenceToEntity(entityClass: Class<out WorkspaceEntity>, isThisFieldChild: Boolean, entities: List<WorkspaceEntity?>) {
     val foundConnectionId = findConnectionId(entityClass, entities)
     if (foundConnectionId == null) return
 
@@ -310,7 +312,7 @@ abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEn
     }
   }
 
-  inline fun allowModifications(action: () -> Unit) {
+  internal inline fun allowModifications(action: () -> Unit) {
     modifiable.set(true)
     try {
       action()
@@ -326,15 +328,15 @@ abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEn
     }
   }
 
-  abstract fun getEntityClass(): Class<T>
+  public abstract fun getEntityClass(): Class<T>
 
-  open fun applyToBuilder(builder: MutableEntityStorage) {
+  public open fun applyToBuilder(builder: MutableEntityStorage) {
     throw NotImplementedError()
   }
 
-  open fun afterModification() { }
+  public open fun afterModification() { }
 
-  fun processLinkedEntities(builder: MutableEntityStorage) {
+  public fun processLinkedEntities(builder: MutableEntityStorage) {
     val parentKeysToRemove = ArrayList<EntityLink>()
     for ((key, entity) in HashMap(entityLinks)) {
       if (key.isThisFieldChild) {
@@ -402,7 +404,9 @@ abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEn
     }
   }
 
-  fun getEntityData(supposedModification: Boolean = false): E {
+  override fun getData(): WorkspaceEntityData<out WorkspaceEntity> = this.getEntityData()
+
+  public fun getEntityData(supposedModification: Boolean = false): E {
     if (currentEntityData != null) return currentEntityData!!
     val actualEntityData = if (supposedModification) {
       (diff as MutableEntityStorageImpl).entitiesByType.getEntityDataForModificationOrNull(id)
@@ -415,7 +419,7 @@ abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEn
   }
 
   // For generated entities
-  fun addToBuilder() {
+  public fun addToBuilder() {
     val builder = diff as MutableEntityStorageImpl
     builder.putEntity(this)
   }
@@ -449,27 +453,27 @@ abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEn
     }
   }
 
-  fun existsInBuilder(builder: MutableEntityStorage): Boolean {
+  public fun existsInBuilder(builder: MutableEntityStorage): Boolean {
     builder as MutableEntityStorageImpl
     val entityData = getEntityData()
     return builder.entityDataById(entityData.createEntityId()) != null
   }
 
   // For generated entities
-  fun index(entity: WorkspaceEntity, propertyName: String, virtualFileUrl: VirtualFileUrl?) {
+  public fun index(entity: WorkspaceEntity, propertyName: String, virtualFileUrl: VirtualFileUrl?) {
     val builder = diff as MutableEntityStorageImpl
     builder.getMutableVirtualFileUrlIndex().index(entity, propertyName, virtualFileUrl)
   }
 
   // For generated entities
-  fun index(entity: WorkspaceEntity, propertyName: String, virtualFileUrls: Collection<VirtualFileUrl>) {
+  public fun index(entity: WorkspaceEntity, propertyName: String, virtualFileUrls: Collection<VirtualFileUrl>) {
     val builder = diff as MutableEntityStorageImpl
     (builder.getMutableVirtualFileUrlIndex() as VirtualFileIndex.MutableVirtualFileIndex).index((entity as WorkspaceEntityBase).id,
                                                                                                 propertyName, virtualFileUrls)
   }
 
   // For generated entities
-  fun indexJarDirectories(entity: WorkspaceEntity, virtualFileUrls: Set<VirtualFileUrl>) {
+  public fun indexJarDirectories(entity: WorkspaceEntity, virtualFileUrls: Set<VirtualFileUrl>) {
     val builder = diff as MutableEntityStorageImpl
     (builder.getMutableVirtualFileUrlIndex() as VirtualFileIndex.MutableVirtualFileIndex).indexJarDirectories(
       (entity as WorkspaceEntityBase).id, virtualFileUrls)
@@ -480,31 +484,33 @@ abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: WorkspaceEn
    * Pull information from [dataSource] and puts into the current builder.
    * Only non-reference fields are moved from [dataSource]
    */
-  open fun relabel(dataSource: WorkspaceEntity, parents: Set<WorkspaceEntity>?) {
+  public open fun relabel(dataSource: WorkspaceEntity, parents: Set<WorkspaceEntity>?) {
     throw NotImplementedError()
   }
 }
 
-interface SoftLinkable {
-  fun getLinks(): Set<SymbolicEntityId<*>>
-  fun index(index: WorkspaceMutableIndex<SymbolicEntityId<*>>)
-  fun updateLinksIndex(prev: Set<SymbolicEntityId<*>>, index: WorkspaceMutableIndex<SymbolicEntityId<*>>)
-  fun updateLink(oldLink: SymbolicEntityId<*>, newLink: SymbolicEntityId<*>): Boolean
+public interface SoftLinkable {
+  public fun getLinks(): Set<SymbolicEntityId<*>>
+  public fun index(index: WorkspaceMutableIndex<SymbolicEntityId<*>>)
+  public fun updateLinksIndex(prev: Set<SymbolicEntityId<*>>, index: WorkspaceMutableIndex<SymbolicEntityId<*>>)
+  public fun updateLink(oldLink: SymbolicEntityId<*>, newLink: SymbolicEntityId<*>): Boolean
 }
 
-abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, SerializableEntityData {
-  lateinit var entitySource: EntitySource
-  var id: Int = -1
+public abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, SerializableEntityData {
+  public lateinit var entitySource: EntitySource
+  public var id: Int = -1
 
-  fun isEntitySourceInitialized(): Boolean = ::entitySource.isInitialized
+  public fun isEntitySourceInitialized(): Boolean = ::entitySource.isInitialized
 
-  fun createEntityId(): EntityId = createEntityId(id, getEntityInterface().toClassId())
+  public fun createEntityId(): EntityId = createEntityId(id, getEntityInterface().toClassId())
 
-  abstract fun createEntity(snapshot: EntityStorage): E
+  public abstract fun createEntity(snapshot: EntityStorage): E
 
-  abstract fun wrapAsModifiable(diff: MutableEntityStorage): WorkspaceEntity.Builder<E>
+  public abstract fun wrapAsModifiable(diff: MutableEntityStorage): WorkspaceEntity.Builder<E>
 
-  abstract fun getEntityInterface(): Class<out WorkspaceEntity>
+  public abstract fun getEntityInterface(): Class<out WorkspaceEntity>
+
+  public abstract fun getMetadata(): EntityMetadata
 
   @Suppress("UNCHECKED_CAST")
   public override fun clone(): WorkspaceEntityData<E> = super.clone() as WorkspaceEntityData<E>
@@ -518,7 +524,7 @@ abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, Serializabl
       .all { it.get(this) == it.get(other) }
   }
 
-  open fun equalsIgnoringEntitySource(other: Any?): Boolean {
+  public open fun equalsIgnoringEntitySource(other: Any?): Boolean {
     if (other == null) return false
     if (this.javaClass != other.javaClass) return false
 
@@ -529,11 +535,11 @@ abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, Serializabl
       .all { it.get(this) == it.get(other) }
   }
 
-  open fun equalsByKey(other: Any?): Boolean {
+  public open fun equalsByKey(other: Any?): Boolean {
     return equalsIgnoringEntitySource(other)
   }
 
-  open fun hashCodeByKey(): Int {
+  public open fun hashCodeByKey(): Int {
     return hashCodeIgnoringEntitySource()
   }
 
@@ -544,7 +550,7 @@ abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, Serializabl
       .fold(31) { acc, i -> acc * 17 + i }
   }
 
-  open fun hashCodeIgnoringEntitySource(): Int {
+  public open fun hashCodeIgnoringEntitySource(): Int {
     return ReflectionUtil.collectFields(this.javaClass)
       .filterNot { it.name == WorkspaceEntityData<*>::id.name }
       .filterNot { it.name == WorkspaceEntityData<*>::entitySource.name }
@@ -559,16 +565,12 @@ abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, Serializabl
     return "${this::class.simpleName}($fields, id=${this.id})"
   }
 
-  open fun createDetachedEntity(parents: List<WorkspaceEntity>): WorkspaceEntity {
+  public open fun createDetachedEntity(parents: List<WorkspaceEntity>): WorkspaceEntity {
     throw NotImplementedError()
   }
 
-  open fun getRequiredParents(): List<Class<out WorkspaceEntity>> {
+  public open fun getRequiredParents(): List<Class<out WorkspaceEntity>> {
     throw NotImplementedError()
-  }
-
-  open fun collectClassUsagesData(collector: UsedClassesCollector) {
-    throw NotGeneratedMethodRuntimeException("collectClassUsagesData")
   }
 
   /**
@@ -576,8 +578,8 @@ abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, Serializabl
    * Get symbolic Id without creating of TypedEntity. Should be in sync with TypedEntityWithSymbolicId.
    * But it doesn't everywhere. E.g. FacetEntity where we should resolve module before creating symbolic id.
    */
-  abstract class WithCalculableSymbolicId<E : WorkspaceEntity> : WorkspaceEntityData<E>() {
-    abstract fun symbolicId(): SymbolicEntityId<*>
+  public abstract class WithCalculableSymbolicId<E : WorkspaceEntity> : WorkspaceEntityData<E>() {
+    public abstract fun symbolicId(): SymbolicEntityId<*>
   }
 
   @OptIn(EntityStorageInstrumentationApi::class)
@@ -589,40 +591,7 @@ abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, Serializabl
   }
 }
 
-fun WorkspaceEntityData<*>.symbolicId(): SymbolicEntityId<*>? = when (this) {
+internal fun WorkspaceEntityData<*>.symbolicId(): SymbolicEntityId<*>? = when (this) {
   is WorkspaceEntityData.WithCalculableSymbolicId -> this.symbolicId()
   else -> null
-}
-
-/**
- * This interface is a solution for checking consistency of some entities that can't be checked automatically
- *
- * For example, we can mark LibraryPropertiesEntityData with this interface and check that entity source of properties is the same as
- *  entity source of the library itself.
- *
- * Interface should be applied to *entity data*.
- *
- * [assertConsistency] method is called during [MutableEntityStorageImpl.assertConsistency].
- */
-interface WithAssertableConsistency {
-  fun assertConsistency(storage: EntityStorage)
-}
-
-class UsedClassesCollector(
-  var sameForAllEntities: Boolean = false,
-  var collection: MutableSet<Class<out Any>> = HashSet(),
-  var collectionObjects: MutableSet<Class<out Any>> = HashSet(),
-  var collectionToInspection: MutableSet<Any> = HashSet(),
-) {
-  fun add(clazz: Class<out Any>) {
-    collection.add(clazz)
-  }
-
-  fun addObject(clazz: Class<out Any>) {
-    collectionObjects.add(clazz)
-  }
-
-  fun addDataToInspect(data: Any) {
-    collectionToInspection.add(data)
-  }
 }

@@ -162,12 +162,20 @@ private fun readRootAttributes(reader: XMLStreamReader2, descriptor: RawPluginDe
 /**
  * Keep in sync with KotlinPluginUtil.KNOWN_KOTLIN_PLUGIN_IDS
  */
-@Suppress("ReplaceJavaStaticMethodWithKotlinAnalog", "SSBasedInspection")
-private val KNOWN_KOTLIN_PLUGIN_IDS = HashSet(Arrays.asList(
+private val KNOWN_KOTLIN_PLUGIN_IDS = hashSetOf(
   "org.jetbrains.kotlin",
   "com.intellij.appcode.kmm",
   "org.jetbrains.kotlin.native.appcode"
-))
+)
+
+private val K2_ALLOWED_PLUGIN_IDS = hashSetOf(
+  *KNOWN_KOTLIN_PLUGIN_IDS.toTypedArray(),
+  "fleet.backend.mercury",
+  "fleet.backend.mercury.kotlin",
+  "org.jetbrains.android",
+  "androidx.compose.plugins.idea",
+  "org.jetbrains.compose.desktop.ide",
+)
 
 private fun readRootElementChild(reader: XMLStreamReader2,
                                  descriptor: RawPluginDescriptor,
@@ -835,9 +843,9 @@ private fun findAttributeValue(reader: XMLStreamReader2, name: String): String? 
   return null
 }
 
-private fun getNullifiedContent(reader: XMLStreamReader2): String? = reader.elementText.takeIf { !it.isEmpty() }
+private fun getNullifiedContent(reader: XMLStreamReader2): String? = reader.elementText.trim().takeIf { !it.isEmpty() }
 
-private fun getNullifiedAttributeValue(reader: XMLStreamReader2, i: Int) = reader.getAttributeValue(i).takeIf { !it.isEmpty() }
+private fun getNullifiedAttributeValue(reader: XMLStreamReader2, i: Int) = reader.getAttributeValue(i).trim().takeIf { !it.isEmpty() }
 
 interface ReadModuleContext {
   val interner: XmlInterner
@@ -922,7 +930,7 @@ private fun readInclude(reader: XMLStreamReader2,
 }
 
 private fun checkConditionalIncludeIsSupported(attribute: String, pluginDescriptor: RawPluginDescriptor) {
-  if (pluginDescriptor.id !in KNOWN_KOTLIN_PLUGIN_IDS) {
+  if (pluginDescriptor.id !in K2_ALLOWED_PLUGIN_IDS) {
     throw IllegalArgumentException("$attribute of 'include' is not supported")
   }
 }

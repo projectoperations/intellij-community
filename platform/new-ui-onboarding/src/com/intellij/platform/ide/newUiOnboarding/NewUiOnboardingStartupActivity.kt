@@ -2,6 +2,7 @@
 package com.intellij.platform.ide.newUiOnboarding
 
 import com.intellij.ide.util.PropertiesComponent
+import com.intellij.ide.util.TipAndTrickManager
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.project.Project
@@ -22,12 +23,15 @@ class NewUiOnboardingStartupActivity : ProjectActivity {
     }
 
     if (NewUiOnboardingUtil.isOnboardingEnabled
+        && ExperimentalUI.isNewUI()
         && propertiesComponent.getBoolean(ExperimentalUI.NEW_UI_SWITCH)
         && !propertiesComponent.getBoolean(NEW_UI_ON_FIRST_STARTUP)
         && !propertiesComponent.isValueSet(ONBOARDING_PROPOSED_VERSION)) {
       propertiesComponent.unsetValue(ExperimentalUI.NEW_UI_SWITCH)
       val version = ApplicationInfo.getInstance().build.asStringWithoutProductCodeAndSnapshot()
       propertiesComponent.setValue(ONBOARDING_PROPOSED_VERSION, version)
+
+      project.putUserData(TipAndTrickManager.DISABLE_TIPS_FOR_PROJECT, true)
       withContext(Dispatchers.EDT) {
         NewUiOnboardingService.getInstance(project).showOnboardingDialog()
       }

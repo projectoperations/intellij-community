@@ -11,7 +11,6 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ContentIteratorEx
-import com.intellij.openapi.roots.impl.CustomEntityProjectModelInfoProvider
 import com.intellij.openapi.roots.impl.DirectoryIndexImpl
 import com.intellij.openapi.roots.impl.RootFileSupplier
 import com.intellij.openapi.util.Computable
@@ -55,7 +54,6 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
     LowMemoryWatcher.register({ indexData.onLowMemory() }, project)
     val clearData = Runnable { indexData = EmptyWorkspaceFileIndexData.RESET }
     EP_NAME.addChangeListener(clearData, this)
-    CustomEntityProjectModelInfoProvider.EP.addChangeListener(clearData, this)
   }
 
   override fun isInWorkspace(file: VirtualFile): Boolean {
@@ -63,7 +61,8 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                        honorExclusion = true,
                        includeContentSets = true,
                        includeExternalSets = true,
-                       includeExternalSourceSets = true) != null
+                       includeExternalSourceSets = true,
+                       includeCustomKindSets = true) != null
   }
 
   override fun isInContent(file: VirtualFile): Boolean {
@@ -71,11 +70,12 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                        honorExclusion = true,
                        includeContentSets = true,
                        includeExternalSets = false,
-                       includeExternalSourceSets = false) != null
+                       includeExternalSourceSets = false,
+                       includeCustomKindSets = false) != null
   }
 
   override fun getContentFileSetRoot(file: VirtualFile, honorExclusion: Boolean): VirtualFile? {
-    return findFileSet(file, honorExclusion, true, false, false)?.root
+    return findFileSet(file, honorExclusion, true, false, false, false)?.root
   }
 
   override fun isUrlInContent(url: String): ThreeState {
@@ -124,7 +124,8 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                       honorExclusion = true,
                       includeContentSets = true,
                       includeExternalSets = false,
-                      includeExternalSourceSets = false)
+                      includeExternalSourceSets = false,
+                      includeCustomKindSets = false)
         })
         if (file.isDirectory && fileInfo is NonWorkspace) {
           return when (fileInfo) {
@@ -197,8 +198,10 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                            honorExclusion: Boolean,
                            includeContentSets: Boolean,
                            includeExternalSets: Boolean,
-                           includeExternalSourceSets: Boolean): WorkspaceFileSet? {
-    return when (val info = getFileInfo(file, honorExclusion, includeContentSets, includeExternalSets, includeExternalSourceSets)) {
+                           includeExternalSourceSets: Boolean,
+                           includeCustomKindSets: Boolean): WorkspaceFileSet? {
+    return when (val info = getFileInfo(file, honorExclusion, includeContentSets,
+                                        includeExternalSets, includeExternalSourceSets, includeCustomKindSets)) {
       is WorkspaceFileSetImpl -> info
       is MultipleWorkspaceFileSets -> info.find(null)
       else -> null
@@ -213,7 +216,7 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
 
   override fun initializeBlocking() {
     if (indexData is EmptyWorkspaceFileIndexData) {
-      indexData = WorkspaceFileIndexDataImpl(contributors, project, RootFileSupplier.INSTANCE)
+      indexData = WorkspaceFileIndexDataImpl(EP_NAME.extensionList, project, RootFileSupplier.INSTANCE)
     }
   }
 
@@ -222,8 +225,10 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                                                                     includeContentSets: Boolean,
                                                                     includeExternalSets: Boolean,
                                                                     includeExternalSourceSets: Boolean,
+                                                                    includeCustomKindSets: Boolean,
                                                                     customDataClass: Class<out D>): WorkspaceFileSetWithCustomData<D>? {
-    val result = when (val info = getFileInfo(file, honorExclusion, includeContentSets, includeExternalSets, includeExternalSourceSets)) {
+    val result = when (val info = getFileInfo(file, honorExclusion, includeContentSets,
+                                              includeExternalSets, includeExternalSourceSets, includeCustomKindSets)) {
       is WorkspaceFileSetWithCustomData<*> -> info.takeIf { customDataClass.isInstance(it.data) }
       is MultipleWorkspaceFileSets -> info.find(customDataClass)
       else -> null
@@ -236,9 +241,11 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
                            honorExclusion: Boolean,
                            includeContentSets: Boolean,
                            includeExternalSets: Boolean,
-                           includeExternalSourceSets: Boolean): WorkspaceFileInternalInfo {
+                           includeExternalSourceSets: Boolean,
+                           includeCustomKindSets: Boolean): WorkspaceFileInternalInfo {
     val unwrappedFile = BackedVirtualFile.getOriginFileIfBacked((file as? VirtualFileWindow)?.delegate ?: file)
-    return getMainIndexData().getFileInfo(unwrappedFile, honorExclusion, includeContentSets, includeExternalSets, includeExternalSourceSets)
+    return getMainIndexData().getFileInfo(unwrappedFile, honorExclusion, includeContentSets,
+                                          includeExternalSets, includeExternalSourceSets, includeCustomKindSets)
   }
 
   override fun visitFileSets(visitor: WorkspaceFileSetVisitor) {
@@ -269,15 +276,12 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
         }
       }
       EmptyWorkspaceFileIndexData.RESET -> {
-        data = WorkspaceFileIndexDataImpl(contributors, project, RootFileSupplier.INSTANCE)
+        data = WorkspaceFileIndexDataImpl(EP_NAME.extensionList, project, RootFileSupplier.INSTANCE)
         indexData = data
       }
     }
     return data
   }
-
-  val contributors: List<WorkspaceFileIndexContributor<*>>
-    get() = EP_NAME.extensionList + CustomEntityProjectModelInfoProvider.EP.extensionList.map { CustomEntityProjectModelInfoProviderBridge(it) }
 
   override fun reset() {
     indexData = EmptyWorkspaceFileIndexData.RESET

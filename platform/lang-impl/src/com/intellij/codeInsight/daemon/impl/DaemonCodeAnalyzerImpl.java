@@ -71,6 +71,7 @@ import com.intellij.util.gist.GistManager;
 import com.intellij.util.gist.GistManagerImpl;
 import com.intellij.util.io.storage.HeavyProcessLatch;
 import com.intellij.util.ui.EDT;
+import io.opentelemetry.context.Context;
 import org.jdom.Element;
 import org.jetbrains.annotations.*;
 
@@ -672,7 +673,9 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
       .collect(Collectors.toList());
   }
 
-  boolean isAllAnalysisFinished(@NotNull PsiFile psiFile) {
+  @ApiStatus.Internal
+  @VisibleForTesting
+  public boolean isAllAnalysisFinished(@NotNull PsiFile psiFile) {
     if (myDisposed) return false;
     assertMyFile(psiFile.getProject(), psiFile);
     Document document = psiFile.getViewProvider().getDocument();
@@ -739,17 +742,12 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
   // return true if the progress really was canceled
   synchronized void cancelAllUpdateProgresses(boolean toRestartAlarm, @NotNull @NonNls String reason) {
     if (myDisposed || myProject.isDisposed() || myProject.getMessageBus().isDisposed()) return;
-    boolean canceled = false;
     for (DaemonProgressIndicator updateProgress : myUpdateProgress.values()) {
       if (!updateProgress.isCanceled()) {
         PassExecutorService.log(updateProgress, null, "Cancel", reason, toRestartAlarm);
-        updateProgress.cancel();
+        updateProgress.cancel(reason);
         myPassExecutorService.cancelAll(false);
-        canceled = true;
       }
-    }
-    if (canceled) {
-      myDaemonListenerPublisher.daemonCancelEventOccurred(reason);
     }
     daemonCancelEventCount.incrementAndGet();
   }
@@ -830,7 +828,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
     UnresolvedReferenceQuickFixUpdater.getInstance(project).waitQuickFixesSynchronously(file, editor, relevantInfos);
   }
 
-  static class HighlightByOffsetProcessor implements Processor<HighlightInfo> {
+  static final class HighlightByOffsetProcessor implements Processor<HighlightInfo> {
     private final List<HighlightInfo> foundInfoList = new SmartList<>();
     private final boolean highestPriorityOnly;
 
@@ -1081,8 +1079,8 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
     try (AccessToken ignored = ClientId.withClientId(ClientFileEditorManager.getClientId(fileEditor))) {
       session = HighlightingSessionImpl.createHighlightingSession(psiFile, editor, scheme, progress, daemonCancelEventCount);
     }
-    JobLauncher.getInstance().submitToJobThread(() ->
-      submitInBackground(fileEditor, document, virtualFile, psiFile, highlighter, passesToIgnore, progress, session),
+    JobLauncher.getInstance().submitToJobThread(Context.current().wrap(() ->
+                                                  submitInBackground(fileEditor, document, virtualFile, psiFile, highlighter, passesToIgnore, progress, session)),
       // manifest exceptions in EDT to avoid storing them in the Future and abandoning
       task -> ApplicationManager.getApplication().invokeLater(() -> ConcurrencyUtil.manifestExceptionsIn(task)));
     return session;
@@ -1117,7 +1115,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
       return;
     }
     try {
-      ProgressManager.getInstance().executeProcessUnderProgress(() -> {
+      ProgressManager.getInstance().executeProcessUnderProgress(Context.current().wrap(() -> {
         // wait for heavy processing to stop, re-schedule daemon but not too soon
         boolean heavyProcessIsRunning = heavyProcessIsRunning();
         HighlightingPass[] passes = ReadAction.compute(() -> {
@@ -1148,7 +1146,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
         synchronized (TextEditorHighlightingPassRegistrar.getInstance(myProject)) {
           myPassExecutorService.submitPasses(document, virtualFile, psiFile, fileEditor, passes, progress);
         }
-      }, progress);
+      }), progress);
     }
     catch (ProcessCanceledException e) {
       stopProcess(true, "PCE in queuePassesCreation");
@@ -1194,16 +1192,19 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
     }
 
     @Override
-    boolean stopIfRunning() {
-      boolean wasStopped = super.stopIfRunning();
-      if (wasStopped) {
-        DaemonCodeAnalyzerImpl daemon = (DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(myProject);
-        daemon.myDaemonListenerPublisher.daemonFinished(List.of(myFileEditor));
-        myFileEditor = null;
-        HighlightingSessionImpl.clearProgressIndicator(this);
-        daemon.completeEssentialHighlightingRequested = false;
-      }
-      return wasStopped;
+    public void onCancelled(@NotNull String reason) {
+      DaemonCodeAnalyzerImpl daemon = (DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(myProject);
+      daemon.myDaemonListenerPublisher.daemonCanceled(reason, List.of(myFileEditor));
+      myFileEditor = null;
+    }
+
+    @Override
+    public void onStop() {
+      DaemonCodeAnalyzerImpl daemon = (DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(myProject);
+      daemon.myDaemonListenerPublisher.daemonFinished(List.of(myFileEditor));
+      myFileEditor = null;
+      HighlightingSessionImpl.clearProgressIndicator(this);
+      daemon.completeEssentialHighlightingRequested = false;
     }
   }
 

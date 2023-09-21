@@ -5,7 +5,6 @@ import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.ide.DataManager
 import com.intellij.ide.ui.UISettingsListener
 import com.intellij.ide.ui.customization.CustomActionsSchema
-import com.intellij.idea.AppMode
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.actionSystem.impl.ActionMenu
@@ -20,7 +19,6 @@ import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.openapi.wm.impl.IdeMenuBarState
 import com.intellij.platform.diagnostic.telemetry.impl.rootTask
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
@@ -74,7 +72,6 @@ internal sealed class IdeMenuBarHelper(@JvmField val flavor: IdeMenuFlavor,
     val frame: JFrame
 
     val coroutineScope: CoroutineScope
-    val isDarkMenu: Boolean
     val component: JComponent
 
     fun updateGlobalMenuRoots()
@@ -171,10 +168,6 @@ internal suspend fun expandMainActionGroup(mainActionGroup: ActionGroup,
                                            presentationFactory: PresentationFactory,
                                            isFirstUpdate: Boolean): List<ActionGroup>? {
   try {
-    if (AppMode.isLightEdit()) {
-      return mainActionGroup.getChildren(null).filterIsInstance<ActionGroup>()
-    }
-
     val windowManager = serviceAsync<WindowManager>()
     return withContext(CoroutineName("expandMainActionGroup") + Dispatchers.EDT) {
       val targetComponent = windowManager.getFocusedComponent(frame) ?: menuBar
@@ -189,7 +182,7 @@ internal suspend fun expandMainActionGroup(mainActionGroup: ActionGroup,
   }
   catch (e: ProcessCanceledException) {
     if (isFirstUpdate) {
-      logger<IdeMenuBarHelper>().warn("Cannot expand action group", e)
+      logger<IdeMenuBarHelper>().warn("Cannot expand action group")
     }
 
     // don't repeat - will do on next timer event

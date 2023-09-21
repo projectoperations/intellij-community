@@ -1,7 +1,6 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module
 
-import com.intellij.ProjectTopics
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.Disposable
@@ -23,15 +22,13 @@ import com.intellij.openapi.module.impl.createGrouper
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.progress.impl.CoreProgressManager
+import com.intellij.openapi.project.ModuleListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.RootsChangeRescanningInfo
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ex.ProjectRootManagerEx
 import com.intellij.openapi.util.Disposer
-import com.intellij.platform.backend.workspace.BridgeInitializer
-import com.intellij.platform.backend.workspace.WorkspaceModel
-import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
-import com.intellij.platform.backend.workspace.WorkspaceModelTopics
+import com.intellij.platform.backend.workspace.*
 import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMs
 import com.intellij.platform.workspace.jps.CustomModuleEntitySource
 import com.intellij.platform.workspace.jps.JpsFileDependentEntitySource
@@ -48,6 +45,8 @@ import com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots.ModuleLibr
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots.ModuleRootComponentBridge
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import com.intellij.platform.workspace.storage.*
+import com.intellij.platform.workspace.storage.query.entities
+import com.intellij.platform.workspace.storage.query.map
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.workspaceModel.ide.*
 import io.opentelemetry.api.metrics.Meter
@@ -93,7 +92,7 @@ abstract class ModuleManagerBridgeImpl(private val project: Project,
                                                                                               moduleModificationTracker = this,
                                                                                               moduleRootListenerBridge = moduleRootListenerBridge))
       busConnection.subscribe(WorkspaceModelTopics.CHANGED, LoadedModulesListUpdater())
-      busConnection.subscribe(WorkspaceModelTopics.UNLOADED_ENTITIES_CHANGED, object : WorkspaceModelChangeListener {
+      busConnection.subscribe(WorkspaceModelTopics.UNLOADED_ENTITIES_CHANGED, object : WorkspaceModelUnloadedStorageChangeListener {
         override fun changed(event: VersionedStorageChange) {
           for (change in event.getChanges(ModuleEntity::class.java).orderToRemoveReplaceAdd()) {
             change.oldEntity?.name?.let { unloadedModules.remove(it) }
@@ -211,7 +210,8 @@ abstract class ModuleManagerBridgeImpl(private val project: Project,
   }
 
   override fun getModifiableModel(): ModifiableModuleModel {
-    return ModifiableModuleModelBridgeImpl(project = project, moduleManager = this, diff = MutableEntityStorage.from(entityStore.current))
+    return ModifiableModuleModelBridgeImpl(project = project, moduleManager = this,
+                                           diff = MutableEntityStorage.from(entityStore.current.toSnapshot()))
   }
 
   fun getModifiableModel(diff: MutableEntityStorage): ModifiableModuleModel {
@@ -283,6 +283,8 @@ abstract class ModuleManagerBridgeImpl(private val project: Project,
     modules(storage).toList().toTypedArray()
   }
 
+  private val moduleNamesQuery = entities<ModuleEntity>().map { it.name }
+
   override val modules: Array<Module>
     get() = entityStore.cachedValue(modulesArrayValue)
 
@@ -325,7 +327,13 @@ abstract class ModuleManagerBridgeImpl(private val project: Project,
       .toList()
 
     if (unloadedModuleNames.isNotEmpty()) {
-      val loadedModules = modules.asSequence().map { it.name }.filter { it !in unloadedModuleNames }.toMutableList()
+      val moduleNames = if (useNewWorkspaceModelApi()) {
+        project.workspaceModel.currentSnapshot.cached(moduleNamesQuery).asSequence()
+      }
+      else {
+        modules.asSequence().map { it.name }
+      }
+      val loadedModules = moduleNames.filter { it !in unloadedModuleNames }.toMutableList()
       moduleEntitiesToLoad.mapTo(loadedModules) { it.name }
       AutomaticModuleUnloader.getInstance(project).setLoadedModules(loadedModules)
     }
@@ -481,7 +489,13 @@ abstract class ModuleManagerBridgeImpl(private val project: Project,
   private inner class LoadedModulesListUpdater : WorkspaceModelChangeListener {
     override fun changed(event: VersionedStorageChange) {
       if (event.getChanges(ModuleEntity::class.java).isNotEmpty() && unloadedModules.isNotEmpty()) {
-        AutomaticModuleUnloader.getInstance(project).setLoadedModules(modules.map { it.name })
+        val moduleNames = if (useNewWorkspaceModelApi()) {
+          event.storageAfter.cached(moduleNamesQuery).toList()
+        }
+        else {
+          modules.map { it.name }
+        }
+        AutomaticModuleUnloader.getInstance(project).setLoadedModules(moduleNames)
       }
     }
   }
@@ -501,7 +515,7 @@ abstract class ModuleManagerBridgeImpl(private val project: Project,
       get() = getMutableExternalMapping(MODULE_BRIDGE_MAPPING_ID)
 
     fun fireModulesAdded(project: Project, modules: List<Module>) {
-      project.messageBus.syncPublisher(ProjectTopics.MODULES).modulesAdded(project, modules)
+      project.messageBus.syncPublisher(ModuleListener.TOPIC).modulesAdded(project, modules)
     }
 
     internal fun getModuleGroupPath(module: Module, entityStorage: VersionedEntityStorage): Array<String>? {

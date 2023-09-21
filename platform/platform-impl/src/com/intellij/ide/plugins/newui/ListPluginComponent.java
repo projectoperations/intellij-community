@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins.newui;
 
+import com.intellij.accessibility.AccessibilityUtils;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.plugins.*;
@@ -29,12 +30,14 @@ import com.intellij.ui.RelativeFont;
 import com.intellij.ui.components.labels.LinkListener;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.scale.JBUIScale;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.*;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 import javax.swing.plaf.ButtonUI;
 import java.awt.*;
@@ -87,7 +90,7 @@ public final class ListPluginComponent extends JPanel {
   private ErrorComponent myErrorComponent;
   private ProgressIndicatorEx myIndicator;
   private EventHandler myEventHandler;
-  @NotNull private EventHandler.SelectionType mySelection = EventHandler.SelectionType.NONE;
+  private @NotNull EventHandler.SelectionType mySelection = EventHandler.SelectionType.NONE;
 
   public ListPluginComponent(@NotNull MyPluginModel pluginModel,
                              @NotNull IdeaPluginDescriptor plugin,
@@ -329,6 +332,8 @@ public final class ListPluginComponent extends JPanel {
 
     myLayout.addButtonComponent(myEnableDisableButton);
     myEnableDisableButton.setOpaque(false);
+    myEnableDisableButton.getAccessibleContext()
+      .setAccessibleName(IdeBundle.message("plugins.configurable.enable.checkbox.accessible.name"));
   }
 
   private static @NotNull JCheckBox createEnableDisableButton(@NotNull ActionListener listener) {
@@ -465,6 +470,8 @@ public final class ListPluginComponent extends JPanel {
 
     myLayout.setCheckBoxComponent(myChooseUpdateButton = new JCheckBox((String)null, true));
     myChooseUpdateButton.setOpaque(false);
+    myChooseUpdateButton.getAccessibleContext()
+      .setAccessibleName(IdeBundle.message("plugins.configurable.choose.update.checkbox.accessible.name"));
 
     IdeaPluginDescriptor descriptor = PluginManagerCore.getPlugin(myPlugin.getPluginId());
     if (descriptor != null) {
@@ -1106,18 +1113,16 @@ public final class ListPluginComponent extends JPanel {
     return new SelectionBasedPluginModelAction.UninstallAction<>(myPluginModel, true, this, selection, function);
   }
 
-  @NotNull
-  static JLabel createRatingLabel(@NotNull JPanel panel, @NotNull @Nls String text, @Nullable Icon icon) {
+  static @NotNull JLabel createRatingLabel(@NotNull JPanel panel, @NotNull @Nls String text, @Nullable Icon icon) {
     return createRatingLabel(panel, null, text, icon, null, true);
   }
 
-  @NotNull
-  static JLabel createRatingLabel(@NotNull JPanel panel,
-                                  @Nullable Object constraints,
-                                  @NotNull @Nls String text,
-                                  @Nullable Icon icon,
-                                  @Nullable Color color,
-                                  boolean tiny) {
+  static @NotNull JLabel createRatingLabel(@NotNull JPanel panel,
+                                           @Nullable Object constraints,
+                                           @NotNull @Nls String text,
+                                           @Nullable Icon icon,
+                                           @Nullable Color color,
+                                           boolean tiny) {
     JLabel label = new JLabel(text, icon, SwingConstants.CENTER);
     label.setOpaque(false);
     label.setIconTextGap(2);
@@ -1128,7 +1133,16 @@ public final class ListPluginComponent extends JPanel {
     return label;
   }
 
-  public static class ButtonAnAction extends DumbAwareAction {
+  @NotNull List<JComponent> getFocusableComponents() {
+    List<JComponent> components = new ArrayList<>();
+    if (UIUtil.isFocusable(myLayout.myCheckBoxComponent)) {
+      components.add(myLayout.myCheckBoxComponent);
+    }
+    components.addAll(ContainerUtil.filter(myLayout.myButtonComponents, UIUtil::isFocusable));
+    return components;
+  }
+
+  public static final class ButtonAnAction extends DumbAwareAction {
     private final JButton[] myButtons;
 
     ButtonAnAction(JButton @NotNull ... buttons) {
@@ -1145,7 +1159,7 @@ public final class ListPluginComponent extends JPanel {
     }
   }
 
-  private class PluginIdUiInspectorContextProvider implements UiInspectorContextProvider {
+  private final class PluginIdUiInspectorContextProvider implements UiInspectorContextProvider {
     @Override
     public @NotNull List<PropertyBean> getUiInspectorContext() {
       ArrayList<PropertyBean> result = new ArrayList<>();
@@ -1157,7 +1171,7 @@ public final class ListPluginComponent extends JPanel {
     }
   }
 
-  private class BaselineLayout extends AbstractLayoutManager {
+  private final class BaselineLayout extends AbstractLayoutManager {
     private final JBValue myHGap = new JBValue.Float(10);
     private final JBValue myHOffset = new JBValue.Float(8);
     private final JBValue myButtonOffset = new JBValue.Float(6);
@@ -1465,5 +1479,20 @@ public final class ListPluginComponent extends JPanel {
 
   private boolean isInstalledAndEnabled() {
     return PluginManagerCore.getPlugin(myPlugin.getPluginId()) != null && !myPluginModel.getState(myPlugin).isDisabled();
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleListPluginComponent();
+    }
+    return accessibleContext;
+  }
+
+  protected class AccessibleListPluginComponent extends AccessibleJComponent {
+    @Override
+    public AccessibleRole getAccessibleRole() {
+      return AccessibilityUtils.GROUPED_ELEMENTS;
+    }
   }
 }

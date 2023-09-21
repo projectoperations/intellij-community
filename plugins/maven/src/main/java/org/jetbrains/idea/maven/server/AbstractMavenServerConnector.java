@@ -143,8 +143,15 @@ public abstract class AbstractMavenServerConnector implements MavenServerConnect
   }
 
   @Override
+  public MavenServerStatus getDebugStatus(boolean clean) {
+    return perform( ()-> {
+      return getServer().getDebugStatus(clean);
+    });
+  }
+
+  @Override
   public String toString() {
-    return "MavenServerConnector{" +
+    return getClass().getSimpleName() + "{" +
            Integer.toHexString(this.hashCode()) +
            ", myDistribution=" + myDistribution.getMavenHome() +
            ", myJdk=" + myJdk.getName() +

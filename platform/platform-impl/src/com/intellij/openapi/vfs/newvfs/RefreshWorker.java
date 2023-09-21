@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -11,11 +11,11 @@ import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.io.FileAttributes;
-import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl;
 import com.intellij.openapi.vfs.newvfs.events.*;
@@ -29,12 +29,13 @@ import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
 import com.intellij.util.MathUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.TimeoutUtil;
-import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Stack;
 import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
+import kotlinx.coroutines.Dispatchers;
+import kotlinx.coroutines.ExecutorsKt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,10 +43,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -56,9 +54,8 @@ final class RefreshWorker {
   private static final Logger LOG = Logger.getInstance(RefreshWorker.class);
 
   private static final int ourParallelism =
-    MathUtil.clamp(Registry.intValue("vfs.refresh.worker.parallelism", 4), 1, Runtime.getRuntime().availableProcessors());
-  private static final ExecutorService ourExecutor =
-    AppExecutorUtil.createBoundedApplicationPoolExecutor("VFS Refresh", ourParallelism);
+    MathUtil.clamp(Registry.intValue("vfs.refresh.worker.parallelism", 6), 1, Runtime.getRuntime().availableProcessors());
+  private static final Executor ourExecutor = ExecutorsKt.asExecutor(Dispatchers.getIO().limitedParallelism(ourParallelism));
 
   private final boolean myIsRecursive;
   private final boolean myParallel;
@@ -122,7 +119,7 @@ final class RefreshWorker {
           processQueue(threadEvents);
         }
         catch (RefreshCancelledException ignored) { }
-        catch (ProcessCanceledException e) {
+        catch (ProcessCanceledException | CancellationException e) {
           myCancelled = true;
         }
         catch (Throwable t) {
@@ -407,7 +404,7 @@ final class RefreshWorker {
       VirtualFileSystemEntry child = dir.findChild(name);
       if (child != null) {
         if (checkAndScheduleFileNameChange(events, actualNames, child)) {
-          newKids.removeIf(newKidCandidate -> StringUtil.equalsIgnoreCase(newKidCandidate.getName(), child.getName()));
+          newKids.removeIf(newKidCandidate -> StringUtilRt.equal(newKidCandidate.getName(), child.getName(), true));
         }
         else {
           scheduleDeletion(events, child);
@@ -446,7 +443,7 @@ final class RefreshWorker {
     }
   }
 
-  private static class RefreshCancelledException extends RuntimeException {
+  private static final class RefreshCancelledException extends RuntimeException {
     @Override
     public synchronized Throwable fillInStackTrace() {
       return this;
@@ -555,7 +552,7 @@ final class RefreshWorker {
         if (!dir.equals(root)) {
           visitFile(dir, attrs);
         }
-        if (SystemInfo.isWindows && attrs.isOther()) {
+        if (SystemInfoRt.isWindows && attrs.isOther()) {
           return FileVisitResult.SKIP_SUBTREE;  // bypassing NTFS reparse points
         }
         // on average, this "excluded" array is very small for any particular root, so linear search it is.
@@ -574,7 +571,7 @@ final class RefreshWorker {
           checkCancelled(currentDir);
         }
         FileAttributes attributes = FileAttributes.fromNio(file, attrs);
-        String symLinkTarget = attrs.isSymbolicLink() ? FileUtil.toSystemIndependentName(file.toRealPath().toString()) : null;
+        String symLinkTarget = attrs.isSymbolicLink() ? FileUtilRt.toSystemIndependentName(file.toRealPath().toString()) : null;
         int nameId = ((PersistentFSImpl)myPersistence).peer().getNameId(file.getFileName().toString());
         ChildInfo info = new ChildInfoImpl(nameId, attributes, null, symLinkTarget);
         stack.peek().add(info);
@@ -629,7 +626,7 @@ final class RefreshWorker {
 
     checkWritableAttributeChange(events, child, myPersistence.isWritable(child), childAttributes.isWritable());
 
-    if (SystemInfo.isWindows) {
+    if (SystemInfoRt.isWindows) {
       checkHiddenAttributeChange(events, child, child.is(VFileProperty.HIDDEN), childAttributes.isHidden());
     }
 
@@ -718,7 +715,7 @@ final class RefreshWorker {
   }
 
   private static void checkSymbolicLinkChange(List<VFileEvent> events, VirtualFile child, String oldTarget, String currentTarget) {
-    String currentVfsTarget = currentTarget != null ? FileUtil.toSystemIndependentName(currentTarget) : null;
+    String currentVfsTarget = currentTarget != null ? FileUtilRt.toSystemIndependentName(currentTarget) : null;
     if (!Objects.equals(oldTarget, currentVfsTarget)) {
       scheduleAttributeChange(events, child, VirtualFile.PROP_SYMLINK_TARGET, oldTarget, currentVfsTarget);
     }

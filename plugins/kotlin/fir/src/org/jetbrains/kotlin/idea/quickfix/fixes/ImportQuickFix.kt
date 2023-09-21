@@ -7,6 +7,7 @@ import com.intellij.codeInsight.daemon.QuickFixBundle
 import com.intellij.codeInsight.daemon.impl.ShowAutoImportPass
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.codeInsight.hint.QuestionAction
+import com.intellij.codeInsight.intention.HighPriorityAction
 import com.intellij.codeInspection.HintAction
 import com.intellij.codeInspection.util.IntentionName
 import com.intellij.lang.jvm.JvmModifier
@@ -17,6 +18,7 @@ import com.intellij.psi.*
 import com.intellij.psi.statistics.StatisticsInfo
 import com.intellij.psi.statistics.StatisticsManager
 import com.intellij.psi.util.PsiModificationTracker
+import com.intellij.psi.util.parentOfType
 import com.intellij.psi.util.parentsOfType
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KtFirDiagnostic
@@ -29,7 +31,7 @@ import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtNamedSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithVisibility
 import org.jetbrains.kotlin.analysis.utils.printer.prettyPrint
-import org.jetbrains.kotlin.idea.actions.KotlinAddImportActionInfo
+import org.jetbrains.kotlin.idea.actions.KotlinAddImportActionInfo.executeListener
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.KtSymbolFromIndexProvider
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinIconProvider.getIconFor
 import org.jetbrains.kotlin.idea.base.facet.platform.platform
@@ -42,7 +44,7 @@ import org.jetbrains.kotlin.idea.codeInsight.K2StatisticsInfoProvider
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.diagnosticFixFactory
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.quickfixes.QuickFixActionBase
 import org.jetbrains.kotlin.idea.codeinsight.utils.getFqNameIfPackageOrNonLocal
-import org.jetbrains.kotlin.idea.parameterInfo.collectReceiverTypesForElement
+import org.jetbrains.kotlin.idea.base.analysis.api.utils.collectReceiverTypesForElement
 import org.jetbrains.kotlin.idea.quickfix.AutoImportVariant
 import org.jetbrains.kotlin.idea.quickfix.ImportFixHelper
 import org.jetbrains.kotlin.idea.quickfix.ImportPrioritizer
@@ -52,9 +54,9 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
+import org.jetbrains.kotlin.psi.psiUtil.findDescendantOfType
 import org.jetbrains.kotlin.psi.psiUtil.getReceiverExpression
 import org.jetbrains.kotlin.psi.psiUtil.isExtensionDeclaration
-import org.jetbrains.kotlin.psi.psiUtil.unwrapNullability
 import org.jetbrains.kotlin.resolve.ImportPath
 import javax.swing.Icon
 
@@ -62,7 +64,7 @@ class ImportQuickFix(
     element: KtElement,
     @IntentionName private val text: String,
     private val importVariants: List<AutoImportVariant>
-) : QuickFixActionBase<KtElement>(element), HintAction {
+) : QuickFixActionBase<KtElement>(element), HintAction, HighPriorityAction {
     private data class SymbolBasedAutoImportVariant(
         override val fqName: FqName,
         override val declarationToImport: PsiElement?,
@@ -159,7 +161,7 @@ class ImportQuickFix(
         }
 
         override fun execute(): Boolean {
-            KotlinAddImportActionInfo.executeListener?.onExecute(importVariants)
+            file.executeListener?.onExecute(importVariants)
             when (importVariants.size) {
                 1 -> {
                     addImport(importVariants.single())
@@ -194,19 +196,22 @@ class ImportQuickFix(
     }
 
     companion object {
-        val FACTORY = diagnosticFixFactory(KtFirDiagnostic.UnresolvedReference::class) { diagnostic ->
-            val element = diagnostic.psi
+        val invisibleReferenceFactory = diagnosticFixFactory(KtFirDiagnostic.InvisibleReference::class) { getFixes(it.psi) }
 
-            val project = element.project
-            val indexProvider = KtSymbolFromIndexProvider.create(project)
+        context(KtAnalysisSession)
+        fun getFixes(diagnosticPsi: PsiElement): List<ImportQuickFix> {
+            val position = diagnosticPsi.findDescendantOfType<KtSimpleNameExpression> { it.textRange == diagnosticPsi.textRange }
+                ?: return emptyList()
 
-            val quickFix = when (element) {
-                is KtTypeReference -> createImportTypeFix(indexProvider, element)
-                is KtSimpleNameExpression -> createImportNameFix(indexProvider, element, element.getReferencedNameAsName())
-                else -> null
+            val indexProvider = KtSymbolFromIndexProvider.createForElement(position)
+
+            val quickFix = if (position.parentOfType<KtTypeReference>() != null) {
+                createImportTypeFix(indexProvider, position)
+            } else {
+                createImportNameFix(indexProvider, position, position.getReferencedNameAsName())
             }
 
-            listOfNotNull(quickFix)
+            return listOfNotNull(quickFix)
         }
 
         private val renderer: KtDeclarationRenderer = KtDeclarationRendererForSource.WITH_QUALIFIED_NAMES.with {
@@ -241,18 +246,18 @@ class ImportQuickFix(
 
         context(KtAnalysisSession)
         private fun createImportFix(
-            element: KtElement,
+            position: KtElement,
             importCandidateSymbols: List<KtDeclarationSymbol>,
         ): ImportQuickFix? {
             if (importCandidateSymbols.isEmpty()) return null
 
-            val analyzerServices = element.containingKtFile.platform.findAnalyzerServices(element.project)
-            val defaultImports = analyzerServices.getDefaultImports(element.languageVersionSettings, includeLowPriorityImports = true)
+            val analyzerServices = position.containingKtFile.platform.findAnalyzerServices(position.project)
+            val defaultImports = analyzerServices.getDefaultImports(position.languageVersionSettings, includeLowPriorityImports = true)
             val excludedImports = analyzerServices.excludedImports
 
             val isImported = { fqName: FqName -> ImportPath(fqName, isAllUnder = false).isImported(defaultImports, excludedImports) }
-            val importPrioritizer = ImportPrioritizer(element.containingKtFile, isImported)
-            val expressionImportWeigher = ExpressionImportWeigher.createWeigher(element)
+            val importPrioritizer = ImportPrioritizer(position.containingKtFile, isImported)
+            val expressionImportWeigher = ExpressionImportWeigher.createWeigher(position)
 
             val sortedImportCandidateSymbolsWithPriorities = importCandidateSymbols
                 .map { it to createPriorityForImportableSymbol(importPrioritizer, expressionImportWeigher, it) }
@@ -280,13 +285,14 @@ class ImportQuickFix(
                     )
                 }
 
-            return ImportQuickFix(element, text, sortedImportVariants)
+            return ImportQuickFix(position, text, sortedImportVariants)
         }
 
         context(KtAnalysisSession)
         private fun KtDeclarationSymbol.getImportKind(): ImportFixHelper.ImportKind? = when {
             this is KtPropertySymbol && isExtension -> ImportFixHelper.ImportKind.EXTENSION_PROPERTY
             this is KtPropertySymbol -> ImportFixHelper.ImportKind.PROPERTY
+            this is KtJavaFieldSymbol -> ImportFixHelper.ImportKind.PROPERTY
 
             this is KtFunctionSymbol && isOperator -> ImportFixHelper.ImportKind.OPERATOR
             this is KtFunctionSymbol && isExtension -> ImportFixHelper.ImportKind.EXTENSION_FUNCTION
@@ -332,46 +338,44 @@ class ImportQuickFix(
         context(KtAnalysisSession)
         fun createImportNameFix(
             indexProvider: KtSymbolFromIndexProvider,
-            element: KtSimpleNameExpression,
+            position: KtSimpleNameExpression,
             unresolvedName: Name
         ): ImportQuickFix? {
-            val firFile = element.containingKtFile.getFileSymbol()
+            val firFile = position.containingKtFile.getFileSymbol()
 
             val isVisible: (KtSymbol) -> Boolean =
-                { it !is KtSymbolWithVisibility || isVisible(it, firFile, null, element) }
+                { it !is KtSymbolWithVisibility || isVisible(it, firFile, receiverExpression = null, position) }
 
             val candidateSymbols = buildList {
-                addAll(collectCallableCandidates(indexProvider, element, unresolvedName, isVisible))
-                if (element.getReceiverExpression() == null) {
-                    addAll(collectTypesCandidates(indexProvider, unresolvedName, isVisible))
-                }
+                addAll(collectCallableCandidates(indexProvider, position, unresolvedName, isVisible))
+                addAll(collectTypesCandidates(indexProvider, position, unresolvedName, isVisible))
             }
 
-            return createImportFix(element, candidateSymbols)
+            return createImportFix(position, candidateSymbols)
         }
 
         context(KtAnalysisSession)
         private fun createImportTypeFix(
             indexProvider: KtSymbolFromIndexProvider,
-            element: KtTypeReference
+            position: KtSimpleNameExpression,
         ): ImportQuickFix? {
-            val firFile = element.containingKtFile.getFileSymbol()
-            val unresolvedName = element.typeName ?: return null
+            val firFile = position.containingKtFile.getFileSymbol()
+            val unresolvedName = position.getReferencedNameAsName()
 
-            val isVisible: (KtNamedClassOrObjectSymbol) -> Boolean =
-                { isVisible(it, firFile, null, element) }
+            val isVisible: (KtClassLikeSymbol) -> Boolean =
+                { it is KtSymbolWithVisibility && isVisible(it, firFile, receiverExpression = null, position) }
 
-            return createImportFix(element, collectTypesCandidates(indexProvider, unresolvedName, isVisible))
+            return createImportFix(position, collectTypesCandidates(indexProvider, position, unresolvedName, isVisible))
         }
 
         context(KtAnalysisSession)
         private fun collectCallableCandidates(
             indexProvider: KtSymbolFromIndexProvider,
-            element: KtSimpleNameExpression,
+            position: KtSimpleNameExpression,
             unresolvedName: Name,
             isVisible: (KtCallableSymbol) -> Boolean
         ): List<KtDeclarationSymbol> {
-            val explicitReceiver = element.getReceiverExpression()
+            val explicitReceiver = position.getReceiverExpression()
 
             val callablesCandidates = buildList {
                 if (explicitReceiver == null) {
@@ -382,8 +386,8 @@ class ImportQuickFix(
                     addAll(indexProvider.getJavaCallableSymbolsByName(unresolvedName) { it.canBeImported() })
                 }
 
-                val receiverTypes = collectReceiverTypesForElement(element, explicitReceiver)
-                val isInfixFunctionExpected = (element.parent as? KtBinaryExpression)?.operationReference == element
+                val receiverTypes = collectReceiverTypesForElement(position, explicitReceiver)
+                val isInfixFunctionExpected = (position.parent as? KtBinaryExpression)?.operationReference == position
 
                 addAll(indexProvider.getTopLevelExtensionCallableSymbolsByName(unresolvedName, receiverTypes) { declaration ->
                     declaration.canBeImported() && (!isInfixFunctionExpected || declaration.hasModifier(KtTokens.INFIX_KEYWORD))
@@ -398,17 +402,33 @@ class ImportQuickFix(
         context(KtAnalysisSession)
         private fun collectTypesCandidates(
             indexProvider: KtSymbolFromIndexProvider,
+            position: KtSimpleNameExpression,
             unresolvedName: Name,
-            isVisible: (KtNamedClassOrObjectSymbol) -> Boolean
-        ): List<KtNamedClassOrObjectSymbol> {
-            val classesCandidates =
-                indexProvider.getKotlinClassesByName(unresolvedName) { it.canBeImported() } +
-                        indexProvider.getJavaClassesByName(unresolvedName) { it.canBeImported() }
+            isVisible: (KtClassLikeSymbol) -> Boolean
+        ): List<KtClassLikeSymbol> {
+            if (position.getReceiverExpression() != null) return emptyList()
+
+            val isAnnotationClassExpected = position.isNameReferenceInAnnotationEntry()
+
+            val classesCandidates = sequence {
+                yieldAll(indexProvider.getKotlinClassesByName(unresolvedName) { ktClassLikeDeclaration ->
+                    ktClassLikeDeclaration.canBeImported() && (!isAnnotationClassExpected || ktClassLikeDeclaration.isAnnotation())
+                })
+                yieldAll(indexProvider.getJavaClassesByName(unresolvedName) { psiClass ->
+                    psiClass.canBeImported() && (!isAnnotationClassExpected || psiClass.isAnnotationType)
+                })
+            }
 
             return classesCandidates
                 .filter { isVisible(it) && it.classIdIfNonLocal != null }
                 .toList()
         }
+
+        private fun KtElement.isNameReferenceInAnnotationEntry(): Boolean =
+            ((this as? KtNameReferenceExpression)?.parent?.parent?.parent as? KtConstructorCalleeExpression)?.parent is KtAnnotationEntry
+
+        private fun KtClassLikeDeclaration.isAnnotation(): Boolean =
+            this is KtClassOrObject && isAnnotation()
     }
 }
 
@@ -424,15 +444,9 @@ private fun KtDeclaration.canBeImported(): Boolean {
     return when (this) {
         is KtProperty -> isTopLevel || containingClassOrObject is KtObjectDeclaration
         is KtNamedFunction -> isTopLevel || containingClassOrObject is KtObjectDeclaration
-        is KtClassOrObject ->
-            getClassId() != null && parentsOfType<KtClassOrObject>(withSelf = true).none { it.hasModifier(KtTokens.INNER_KEYWORD) }
+        is KtClassLikeDeclaration ->
+            getClassId() != null && parentsOfType<KtClassLikeDeclaration>(withSelf = true).none { it.hasModifier(KtTokens.INNER_KEYWORD) }
 
         else -> false
     }
 }
-
-private val KtTypeReference.typeName: Name?
-    get() {
-        val userType = typeElement?.unwrapNullability() as? KtUserType
-        return userType?.referencedName?.let(Name::identifier)
-    }

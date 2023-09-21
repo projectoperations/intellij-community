@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.customize.transferSettings.models
 
 enum class SettingsPreferencesKind {
@@ -40,7 +40,7 @@ data class SettingsPreferences(
     }
   }
 
-  fun toList(settings: Settings): List<Pair<SettingsPreferencesKind, Boolean>> {
+  private fun toAssociatedList(settings: Settings): List<Pair<SettingsPreferencesKind, Boolean>> {
     return listOf(
       SettingsPreferencesKind.Laf to laf,
       SettingsPreferencesKind.SyntaxScheme to syntaxScheme,
@@ -50,5 +50,13 @@ data class SettingsPreferences(
     )
   }
 
-  fun toListOfTrue(settings: Settings): List<SettingsPreferencesKind> = toList(settings).filter { it.second }.map { it.first }
+  fun toAssociatedListUi(settings: Settings): List<Pair<SettingsPreferencesKind, Boolean>> {
+    return listOf(
+      SettingsPreferencesKind.Keymap to keymap,
+      SettingsPreferencesKind.RecentProjects to (recentProjects && settings.recentProjects.isNotEmpty()),
+      SettingsPreferencesKind.Plugins to (plugins && settings.plugins.any { !it.isHidden })
+    )
+  }
+
+  fun toListOfTrue(settings: Settings): List<SettingsPreferencesKind> = toAssociatedList(settings).filter { it.second }.map { it.first }
 }

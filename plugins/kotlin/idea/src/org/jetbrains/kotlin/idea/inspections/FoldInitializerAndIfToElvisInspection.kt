@@ -21,6 +21,7 @@ import org.jetbrains.kotlin.idea.intentions.branchedTransformations.elvisPattern
 import org.jetbrains.kotlin.idea.intentions.branchedTransformations.expressionComparedToNull
 import org.jetbrains.kotlin.idea.intentions.branchedTransformations.fromIfKeywordToRightParenthesisTextRangeInThis
 import org.jetbrains.kotlin.idea.intentions.branchedTransformations.shouldBeTransformed
+import org.jetbrains.kotlin.idea.intentions.isComplexInitializer
 import org.jetbrains.kotlin.idea.util.CommentSaver
 import org.jetbrains.kotlin.idea.util.application.runWriteActionIfPhysical
 import org.jetbrains.kotlin.idea.util.hasComments
@@ -51,16 +52,16 @@ class FoldInitializerAndIfToElvisInspection : AbstractApplicabilityBasedInspecti
     override fun inspectionHighlightType(element: KtIfExpression): ProblemHighlightType =
         if (element.shouldBeTransformed()) ProblemHighlightType.GENERIC_ERROR_OR_WARNING else ProblemHighlightType.INFORMATION
 
-    override fun isApplicable(element: KtIfExpression): Boolean = Companion.isApplicable(element)
+    override fun isApplicable(element: KtIfExpression): Boolean = Util.isApplicable(element)
 
     override fun applyTo(element: KtIfExpression, project: Project, editor: Editor?) {
-        Companion.applyTo(element).right?.textOffset?.let { editor?.caretModel?.moveToOffset(it) }
+        Util.applyTo(element).right?.textOffset?.let { editor?.caretModel?.moveToOffset(it) }
     }
 
-    companion object {
+    object Util {
         private fun applicabilityRange(element: KtIfExpression): TextRange? {
             val data = calcData(element) ?: return null
-            if (data.initializer.isComplex()) return null
+            if (data.initializer.isComplexInitializer()) return null
             val type = data.ifNullExpression.analyze().getType(data.ifNullExpression) ?: return null
             if (!type.isNothing()) return null
 

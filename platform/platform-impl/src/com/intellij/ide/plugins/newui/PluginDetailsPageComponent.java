@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins.newui;
 
+import com.intellij.accessibility.AccessibilityUtils;
 import com.intellij.execution.process.ProcessIOExecutorService;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
@@ -39,6 +40,8 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.plaf.TabbedPaneUI;
@@ -68,8 +71,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
   private final boolean myMarketplace;
   private final boolean myMultiTabs;
 
-  @NotNull
-  private final AsyncProcessIcon myLoadingIcon = new AsyncProcessIcon.BigCentered(IdeBundle.message("progress.text.loading"));
+  private final @NotNull AsyncProcessIcon myLoadingIcon = new AsyncProcessIcon.BigCentered(IdeBundle.message("progress.text.loading"));
 
   private JBPanelWithEmptyText myEmptyPanel;
 
@@ -219,8 +221,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     createBottomPanel();
   }
 
-  @NotNull
-  private static CustomLineBorder createMainBorder() {
+  private static @NotNull CustomLineBorder createMainBorder() {
     return new CustomLineBorder(JBColor.border(), JBUI.insetsTop(1)) {
       @Override
       public Insets getBorderInsets(Component c) {
@@ -262,8 +263,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     createTabs(myPanel);
   }
 
-  @NotNull
-  private static BorderLayoutPanel createNotificationPanel(@NotNull Icon icon, @NotNull @Nls String message) {
+  private static @NotNull BorderLayoutPanel createNotificationPanel(@NotNull Icon icon, @NotNull @Nls String message) {
     BorderLayoutPanel panel = new BorderLayoutPanel();
     Border customLine = JBUI.Borders.customLine(JBColor.border(), 1, 0, 1, 0);
     panel.setBorder(JBUI.Borders.merge(JBUI.Borders.empty(10), customLine, true));
@@ -279,8 +279,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     return panel;
   }
 
-  @NotNull
-  private JPanel createHeaderPanel() {
+  private @NotNull JPanel createHeaderPanel() {
     JPanel header = new NonOpaquePanel(new BorderLayout(JBUIScale.scale(15), 0));
     header.setBorder(JBUI.Borders.emptyRight(20));
     myPanel.add(header, BorderLayout.NORTH);
@@ -294,8 +293,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     return header;
   }
 
-  @NotNull
-  private JPanel createCenterPanel() {
+  private @NotNull JPanel createCenterPanel() {
     int offset = PluginManagerConfigurable.offset5();
     JPanel centerPanel = new NonOpaquePanel(new VerticalLayout(offset));
 
@@ -312,8 +310,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     return centerPanel;
   }
 
-  @NotNull
-  private static JEditorPane createNameComponent() {
+  private static @NotNull JEditorPane createNameComponent() {
     JEditorPane editorPane = new JEditorPane() {
       JLabel myBaselineComponent;
 
@@ -531,8 +528,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     }
   }
 
-  @NotNull
-  private Consumer<View> createHtmlImageViewHandler() {
+  private @NotNull Consumer<View> createHtmlImageViewHandler() {
     return view -> {
       float width = view.getPreferredSpan(View.X_AXIS);
       if (width < 0 || width > myBottomScrollPane.getWidth()) {
@@ -545,7 +541,6 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     JBTabbedPane pane = new JBTabbedPane() {
       @Override
       public void setUI(TabbedPaneUI ui) {
-        putClientProperty("TabbedPane.tabBackgroundOnlyForHover", Boolean.TRUE);
         putClientProperty("TabbedPane.hoverColor", ListPluginComponent.HOVER_COLOR);
 
         boolean contentOpaque = UIManager.getBoolean("TabbedPane.contentOpaque");
@@ -567,6 +562,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     };
     pane.setOpaque(false);
     pane.setBorder(JBUI.Borders.emptyTop(6));
+    pane.setBackground(PluginManagerConfigurable.MAIN_BG_COLOR);
     parent.add(pane);
     myTabbedPane = pane;
 
@@ -731,8 +727,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     }
   }
 
-  @NotNull
-  public static JEditorPane createDescriptionComponent(@Nullable Consumer<? super View> imageViewHandler) {
+  public static @NotNull JEditorPane createDescriptionComponent(@Nullable Consumer<? super View> imageViewHandler) {
     HTMLEditorKit kit = new HTMLEditorKitBuilder().withViewFactoryExtensions((e, view) -> {
       if (view instanceof ParagraphView) {
         return new ParagraphView(e) {
@@ -1580,8 +1575,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     }
   }
 
-  @Nullable
-  private @Nls String getDescription() {
+  private @Nullable @Nls String getDescription() {
     PluginNode node = getInstalledPluginMarketplaceNode();
     if (node != null) {
       String description = node.getDescription();
@@ -1593,9 +1587,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     return Strings.isEmptyOrSpaces(description) ? null : description;
   }
 
-  @Nullable
-  @NlsSafe
-  private String getChangeNotes() {
+  private @Nullable @NlsSafe String getChangeNotes() {
     if (myUpdateDescriptor != null) {
       String notes = myUpdateDescriptor.getChangeNotes();
       if (!Strings.isEmptyOrSpaces(notes)) {
@@ -1621,5 +1613,30 @@ public final class PluginDetailsPageComponent extends MultiPanel {
   private @NotNull SelectionBasedPluginModelAction.UninstallAction<PluginDetailsPageComponent> createUninstallAction() {
     return new SelectionBasedPluginModelAction.UninstallAction<>(myPluginModel, false, this, List.of(this),
                                                                  PluginDetailsPageComponent::getDescriptorForActions);
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessiblePluginDetailsPageComponent();
+    }
+    return accessibleContext;
+  }
+
+  protected class AccessiblePluginDetailsPageComponent extends AccessibleJComponent {
+    @Override
+    public String getAccessibleName() {
+      if (myPlugin == null) {
+        return IdeBundle.message("plugins.configurable.plugin.details.page.accessible.name");
+      }
+      else {
+        return IdeBundle.message("plugins.configurable.plugin.details.page.accessible.name.0", myPlugin.getName());
+      }
+    }
+
+    @Override
+    public AccessibleRole getAccessibleRole() {
+      return AccessibilityUtils.GROUPED_ELEMENTS;
+    }
   }
 }

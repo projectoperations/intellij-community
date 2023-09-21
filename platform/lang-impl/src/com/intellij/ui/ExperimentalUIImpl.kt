@@ -3,14 +3,11 @@
 
 package com.intellij.ui
 
-import com.intellij.feedback.new_ui.state.NewUIInfoService
 import com.intellij.icons.AllIcons
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.DistractionFreeModeController
-import com.intellij.ide.ui.IconMapLoader
-import com.intellij.ide.ui.LafManager
-import com.intellij.ide.ui.UISettings
+import com.intellij.ide.ui.*
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
@@ -19,10 +16,22 @@ import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.IconLoader
+import com.intellij.openapi.util.IconPathPatcher
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.registry.EarlyAccessRegistryManager
+import com.intellij.openapi.util.registry.RegistryValue
+import com.intellij.openapi.util.registry.RegistryValueListener
+import com.intellij.platform.feedback.newUi.NewUIInfoService
 import com.intellij.util.PlatformUtils
+import com.intellij.util.application
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.UIDefaults
+import javax.swing.UIManager
 
 private val LOG: Logger
   get() = logger<ExperimentalUI>()
@@ -34,7 +43,47 @@ private class ExperimentalUIImpl : ExperimentalUI() {
   private var shouldApplyOnClose: Boolean? = null
   private var shouldUnsetNewUiSwitchKey: Boolean = true
 
-  override fun getIconMappings(): Map<ClassLoader, Map<String, String>> = service<IconMapLoader>().loadIconMapping()
+  private val isIconPatcherSet = AtomicBoolean()
+  private var iconPathPatcher: IconPathPatcher? = null
+
+  override fun lookAndFeelChanged() {
+    if (isNewUI()) {
+      installIconPatcher()
+      patchUiDefaultsForNewUi()
+    }
+  }
+
+  fun onRegistryValueChange(isEnabled: Boolean) {
+    if (isEnabled) {
+      installIconPatcher()
+      patchUiDefaultsForNewUi()
+      onValueChanged(isEnabled = true)
+    }
+    else if (isIconPatcherSet.compareAndSet(true, false)) {
+      iconPathPatcher?.let {
+        iconPathPatcher = null
+        IconLoader.removePathPatcher(it)
+      }
+      onValueChanged(isEnabled = false)
+    }
+  }
+
+  override fun installIconPatcher() {
+    if (!isNewUI()) {
+      return
+    }
+
+    val iconMapping = service<IconMapLoader>().loadIconMapping() ?: return
+    if (!isIconPatcherSet.compareAndSet(false, true)) {
+      return
+    }
+
+    val patcher = iconMapping.takeIf { it.isNotEmpty() }?.let { createPathPatcher(it) }
+    iconPathPatcher = patcher
+    if (patcher != null) {
+      IconLoader.installPostPathPatcher(patcher)
+    }
+  }
 
   /**
    * For RD session, we take the newUI preference from the join link of IDE backend,
@@ -68,14 +117,6 @@ private class ExperimentalUIImpl : ExperimentalUI() {
         saveNewValue(newUI)
       }
     }
-  }
-
-  override fun onExpUIEnabled(suggestRestart: Boolean) {
-    onValueChanged(isEnabled = true)
-  }
-
-  override fun onExpUIDisabled(suggestRestart: Boolean) {
-    onValueChanged(isEnabled = false)
   }
 
   fun appStarted() {
@@ -141,7 +182,7 @@ private class ExperimentalUIImpl : ExperimentalUI() {
 
   private fun setNewUiUsed() {
     val propertyComponent = PropertiesComponent.getInstance()
-    if (isNewUiUsedOnce()) {
+    if (isNewUiUsedOnce) {
       propertyComponent.unsetValue(NEW_UI_FIRST_SWITCH)
     }
     else {
@@ -152,18 +193,30 @@ private class ExperimentalUIImpl : ExperimentalUI() {
   }
 
   private fun changeUiWithDelegate(isEnabled: Boolean) {
-    val shouldRestart = MessageDialogBuilder.yesNo(
+    val restartNow = MessageDialogBuilder.yesNo(
       title = IdeBundle.message("dialog.newui.title.user.interface"),
       message = IdeBundle.message("dialog.newui.message.need.restart.client.and.backend.to.apply.settings"),
       icon = AllIcons.General.QuestionDialog,
-    ).yesText(IdeBundle.message("dialog.newui.message.new.ui.restart"))
-      .noText(IdeBundle.message("dialog.newui.message.new.ui.revert"))
+    ).yesText(IdeBundle.message("dialog.newui.message.new.ui.restart.now"))
+      .noText(IdeBundle.message("dialog.newui.message.new.ui.restart.later"))
       .guessWindowAndAsk()
-    if (shouldRestart) {
+    fun changeUI() {
       val delegate = ExperimentalUIJetBrainsClientDelegate.getInstance()
       delegate.changeUi(isEnabled, updateLocally = {
         onValueChanged(isEnabled)
         saveNewValue(isEnabled)
+      })
+    }
+    if (restartNow) {
+      changeUI()
+    }
+    else {
+      val disposable = Disposer.newDisposable("NewUI change")
+      application.messageBus.connect(disposable).subscribe(AppLifecycleListener.TOPIC, object : AppLifecycleListener {
+        override fun appClosing() {
+          Disposer.dispose(disposable)
+          changeUI()
+        }
       })
     }
   }
@@ -175,6 +228,7 @@ private class ExperimentalUIImpl : ExperimentalUI() {
     else {
       IdeBundle.message("ide.shutdown.action")
     }
+    @Suppress("SpellCheckingInspection")
     val result = Messages.showYesNoDialog(
       /* message = */ IdeBundle.message("dialog.message.must.be.restarted.for.changes.to.take.effect",
                                         ApplicationNamesInfo.getInstance().fullProductName),
@@ -195,7 +249,7 @@ private fun resetLafSettingsToDefault() {
   val defaultLightLaf = lafManager.defaultLightLaf ?: return
   val defaultDarkLaf = lafManager.defaultDarkLaf ?: return
   val laf = if (JBColor.isBright()) defaultLightLaf else defaultDarkLaf
-  lafManager.currentLookAndFeel = laf
+  lafManager.currentUIThemeLookAndFeel = laf
   if (lafManager.autodetect) {
     lafManager.setPreferredLightLaf(defaultLightLaf)
     lafManager.setPreferredDarkLaf(defaultDarkLaf)
@@ -208,13 +262,11 @@ private fun resetLafSettingsToDefault() {
  */
 private class ExperimentalUiAppLifecycleListener : AppLifecycleListener {
   override fun appStarted() {
-    (ExperimentalUI.getInstance() as? ExperimentalUIImpl)
-      ?.appStarted()
+    (ExperimentalUI.getInstance() as? ExperimentalUIImpl)?.appStarted()
   }
 
   override fun appClosing() {
-    (ExperimentalUI.getInstance() as? ExperimentalUIImpl)
-      ?.appClosing()
+    (ExperimentalUI.getInstance() as? ExperimentalUIImpl)?.appClosing()
   }
 }
 
@@ -224,4 +276,54 @@ interface ExperimentalUIJetBrainsClientDelegate {
   }
 
   fun changeUi(isEnabled: Boolean, updateLocally: (Boolean) -> Unit)
+}
+
+private fun patchUiDefaultsForNewUi() {
+  val defaults = UIManager.getDefaults()
+  if (defaults.getColor("EditorTabs.hoverInactiveBackground") == null) {
+    // avoid getting EditorColorsManager too early
+    setUIProperty("EditorTabs.hoverInactiveBackground", UIDefaults.LazyValue {
+      val editorColorScheme = EditorColorsManager.getInstance().getGlobalScheme()
+      ColorUtil.mix(JBColor.PanelBackground, editorColorScheme.getDefaultBackground(), 0.5)
+    }, defaults)
+  }
+  if (SystemInfo.isJetBrainsJvm && EarlyAccessRegistryManager.getBoolean("ide.experimental.ui.inter.font")) {
+    if (UISettings.getInstance().overrideLafFonts) {
+      //todo[kb] add RunOnce
+      NotRoamableUiSettings.getInstance().overrideLafFonts = false
+    }
+  }
+}
+
+private fun setUIProperty(@Suppress("SameParameterValue") key: String, value: Any, defaults: UIDefaults) {
+  defaults.remove(key)
+  defaults.put(key, value)
+}
+
+internal class NewUiRegistryListener : RegistryValueListener {
+  override fun afterValueChanged(value: RegistryValue) {
+    // JetBrains Client has custom listener
+    if (PlatformUtils.isJetBrainsClient() || value.key != ExperimentalUI.KEY) {
+      return
+    }
+
+    (ExperimentalUI.getInstance() as? ExperimentalUIImpl)?.onRegistryValueChange(value.asBoolean())
+  }
+}
+
+private fun createPathPatcher(paths: Map<ClassLoader, Map<String, String>>): IconPathPatcher {
+  return object : IconPathPatcher() {
+    private val dumpNotPatchedIcons = System.getProperty("ide.experimental.ui.dump.not.patched.icons").toBoolean()
+
+    override fun patchPath(path: String, classLoader: ClassLoader?): String? {
+      val mappings = paths.get(classLoader) ?: return null
+      val patchedPath = mappings.get(path.trimStart('/'))
+      if (patchedPath == null && dumpNotPatchedIcons) {
+        NotPatchedIconRegistry.registerNotPatchedIcon(path, classLoader)
+      }
+      return patchedPath
+    }
+
+    override fun getContextClassLoader(path: String, originalClassLoader: ClassLoader?) = originalClassLoader
+  }
 }

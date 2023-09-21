@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.jsonSchema.impl.fixes;
 
 import com.fasterxml.jackson.core.JsonFactory;
@@ -45,7 +45,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class AddMissingPropertyFix implements LocalQuickFix, BatchQuickFix {
+public final class AddMissingPropertyFix implements LocalQuickFix, BatchQuickFix {
   private final JsonValidationError.MissingMultiplePropsIssueData myData;
   private final JsonLikeSyntaxAdapter myQuickFixAdapter;
 
@@ -55,17 +55,13 @@ public class AddMissingPropertyFix implements LocalQuickFix, BatchQuickFix {
     myQuickFixAdapter = quickFixAdapter;
   }
 
-  @Nls(capitalization = Nls.Capitalization.Sentence)
-  @NotNull
   @Override
-  public String getFamilyName() {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) @NotNull String getFamilyName() {
     return JsonBundle.message("add.missing.properties");
   }
 
-  @Nls(capitalization = Nls.Capitalization.Sentence)
-  @NotNull
   @Override
-  public String getName() {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) @NotNull String getName() {
     return JsonBundle.message("add.missing.0", myData.getMessage(true));
   }
 
@@ -111,54 +107,52 @@ public class AddMissingPropertyFix implements LocalQuickFix, BatchQuickFix {
           });
   }
 
-  @Nullable
-  public PsiElement performFix(@Nullable PsiElement node, @NotNull Ref<Boolean> hadComma) {
+  public @Nullable PsiElement performFix(@Nullable PsiElement node, @NotNull Ref<Boolean> hadComma) {
     if (node == null) return null;
     PsiElement element = node instanceof PsiFile ? node.getFirstChild() : node;
     Ref<PsiElement> newElementRef = Ref.create(null);
-
-    WriteAction.run(() -> {
-      boolean isSingle = myData.myMissingPropertyIssues.size() == 1;
-      PsiElement processedElement = element;
-      List<JsonValidationError.MissingPropertyIssueData> reverseOrder
-        = ContainerUtil.reverse(new ArrayList<>(myData.myMissingPropertyIssues));
-      for (JsonValidationError.MissingPropertyIssueData issue: reverseOrder) {
-        Object defaultValueObject = issue.defaultValue;
-        String defaultValue = formatDefaultValue(defaultValueObject, element.getLanguage());
-        PsiElement property = myQuickFixAdapter.createProperty(issue.propertyName, defaultValue == null
-                                                                                   ? myQuickFixAdapter
-                                                                                     .getDefaultValueFromType(issue.propertyType)
-                                                                                   : defaultValue, element);
-        PsiElement newElement;
-        if (processedElement instanceof LeafPsiElement) {
-          newElement = myQuickFixAdapter.adjustPropertyAnchor((LeafPsiElement)processedElement).addBefore(property, null);
-        }
-        else {
-          if (processedElement == element) {
-            newElement = processedElement.addBefore(property, processedElement.getLastChild());
-          }
-          else {
-            newElement = processedElement.getParent().addBefore(property, processedElement);
-          }
-        }
-        PsiElement adjusted = myQuickFixAdapter.adjustNewProperty(newElement);
-        hadComma.set(myQuickFixAdapter.ensureComma(adjusted, PsiTreeUtil.skipWhitespacesAndCommentsForward(newElement)));
-        if (!hadComma.get()) {
-          hadComma.set(processedElement == element && myQuickFixAdapter.ensureComma(PsiTreeUtil.skipWhitespacesAndCommentsBackward(newElement), adjusted));
-        }
-        processedElement = adjusted;
-        if (isSingle) {
-          newElementRef.set(adjusted);
-        }
-      }
-     });
-
+    WriteAction.run(() -> { performFixInner(hadComma, element, newElementRef); });
     return newElementRef.get();
   }
 
-  @Nullable
+  public void performFixInner(@NotNull Ref<Boolean> hadComma, PsiElement element, Ref<PsiElement> newElementRef) {
+    boolean isSingle = myData.myMissingPropertyIssues.size() == 1;
+    PsiElement processedElement = element;
+    List<JsonValidationError.MissingPropertyIssueData> reverseOrder
+      = ContainerUtil.reverse(new ArrayList<>(myData.myMissingPropertyIssues));
+    for (JsonValidationError.MissingPropertyIssueData issue: reverseOrder) {
+      Object defaultValueObject = issue.defaultValue;
+      String defaultValue = formatDefaultValue(defaultValueObject, element.getLanguage());
+      PsiElement property = myQuickFixAdapter.createProperty(issue.propertyName, defaultValue == null
+                                                                                 ? myQuickFixAdapter
+                                                                                   .getDefaultValueFromType(issue.propertyType)
+                                                                                 : defaultValue, element);
+      PsiElement newElement;
+      if (processedElement instanceof LeafPsiElement) {
+        newElement = myQuickFixAdapter.adjustPropertyAnchor((LeafPsiElement)processedElement).addBefore(property, null);
+      }
+      else {
+        if (processedElement == element) {
+          newElement = processedElement.addBefore(property, processedElement.getLastChild());
+        }
+        else {
+          newElement = processedElement.getParent().addBefore(property, processedElement);
+        }
+      }
+      PsiElement adjusted = myQuickFixAdapter.adjustNewProperty(newElement);
+      hadComma.set(myQuickFixAdapter.ensureComma(adjusted, PsiTreeUtil.skipWhitespacesAndCommentsForward(newElement)));
+      if (!hadComma.get()) {
+        hadComma.set(processedElement == element && myQuickFixAdapter.ensureComma(PsiTreeUtil.skipWhitespacesAndCommentsBackward(newElement), adjusted));
+      }
+      processedElement = adjusted;
+      if (isSingle) {
+        newElementRef.set(adjusted);
+      }
+    }
+  }
+
   @Contract("null, _ -> null")
-  public String formatDefaultValue(@Nullable Object defaultValueObject, @NotNull Language targetLanguage) {
+  public @Nullable String formatDefaultValue(@Nullable Object defaultValueObject, @NotNull Language targetLanguage) {
     if (defaultValueObject instanceof JsonNode jsonNode) {
       return convertToYamlIfNeeded(targetLanguage, jsonNode);
     }
@@ -177,8 +171,7 @@ public class AddMissingPropertyFix implements LocalQuickFix, BatchQuickFix {
     return null;
   }
 
-  @Nullable
-  private static String convertToYamlIfNeeded(@NotNull Language language, JsonNode jsonNode) {
+  private static @Nullable String convertToYamlIfNeeded(@NotNull Language language, JsonNode jsonNode) {
     JsonFactory jacksonFactory;
     if (language.is(JsonLanguage.INSTANCE))
       jacksonFactory = new JsonFactory();
@@ -224,8 +217,7 @@ public class AddMissingPropertyFix implements LocalQuickFix, BatchQuickFix {
                                                    fix.first.performFix(fix.second, Ref.create(false))));
   }
 
-  @Nullable
-  private static AddMissingPropertyFix getWorkingQuickFix(QuickFix @NotNull [] fixes) {
+  private static @Nullable AddMissingPropertyFix getWorkingQuickFix(QuickFix @NotNull [] fixes) {
     for (QuickFix fix : fixes) {
       if (fix instanceof AddMissingPropertyFix) {
         return (AddMissingPropertyFix)fix;

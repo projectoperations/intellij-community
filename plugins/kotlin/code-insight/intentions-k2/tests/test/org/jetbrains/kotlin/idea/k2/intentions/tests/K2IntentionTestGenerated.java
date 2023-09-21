@@ -898,6 +898,11 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
             runTest("../../../idea/tests/testData/intentions/specifyTypeExplicitly/overrideNotNullProperty.kt");
         }
 
+        @TestMetadata("overrideNotNullProperty2.kt")
+        public void testOverrideNotNullProperty2() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/specifyTypeExplicitly/overrideNotNullProperty2.kt");
+        }
+
         @TestMetadata("overrideNullableFunction.kt")
         public void testOverrideNullableFunction() throws Exception {
             runTest("../../../idea/tests/testData/intentions/specifyTypeExplicitly/overrideNullableFunction.kt");
@@ -1586,6 +1591,11 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
         @TestMetadata("nothingFun.kt")
         public void testNothingFun() throws Exception {
             runTest("../../../idea/tests/testData/intentions/convertToBlockBody/nothingFun.kt");
+        }
+
+        @TestMetadata("nullableNothing.kt")
+        public void testNullableNothing() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/convertToBlockBody/nullableNothing.kt");
         }
 
         @TestMetadata("overrideWithPlatformType.kt")

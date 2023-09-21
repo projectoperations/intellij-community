@@ -18,12 +18,13 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.diagnostic.telemetry.impl.getOtlpEndPoint
 import com.intellij.util.SystemProperties
-import com.intellij.util.io.write
+import com.intellij.util.io.createParentDirectories
 import com.intellij.util.lang.ClassPath
 import it.unimi.dsi.fastutil.objects.Object2IntMap
 import it.unimi.dsi.fastutil.objects.Object2LongMap
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,15 +32,19 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.concurrent.TimeUnit
 
 private val LOG: Logger
   get() = logger<StartUpMeasurer>()
 
+@Internal
 open class StartUpPerformanceReporter(private val coroutineScope: CoroutineScope) : StartUpPerformanceService {
   private var pluginCostMap: Map<String, Object2LongMap<String>>? = null
 
@@ -120,13 +125,6 @@ private suspend fun logAndClearStats(projectName: String, perfFilePath: String?)
     }
   }
 
-  //System.getProperty("idea.perf.trace.file")?.takeIf(String::isNotEmpty)?.let {
-  //  val file = Path.of(FileUtil.expandUserHome(it))
-  //  Files.createDirectories(file.parent)
-  //  Files.newBufferedWriter(file).use { writer ->
-  //    writeInJaegerJsonFormat(activities.get(ActivityCategory.DEFAULT.jsonName) ?: emptyList(), output = writer)
-  //  }
-  //}
   getOtlpEndPoint()?.let {
     sendStartupTraceUsingOtlp(activities.get(ActivityCategory.DEFAULT.jsonName) ?: emptyList(), endpoint = it)
   }
@@ -151,13 +149,13 @@ private suspend fun logAndClearStats(projectName: String, perfFilePath: String?)
 
   val currentReport = w.toByteBuffer()
 
-  if (System.getProperty("idea.log.perf.stats", "false").toBoolean()) {
-    w.writeToLog(LOG)
-  }
-
   if (perfFilePath != null) {
     LOG.info("StartUp Measurement report was written to: $perfFilePath")
-    Path.of(perfFilePath).write(currentReport)
+    withContext(Dispatchers.IO) {
+      Files.newByteChannel(Path.of(perfFilePath).createParentDirectories(), StandardOpenOption.WRITE, StandardOpenOption.CREATE).use {
+        it.write(currentReport)
+      }
+    }
     currentReport.flip()
   }
 

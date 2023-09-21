@@ -8,7 +8,7 @@ import org.jetbrains.plugins.gitlab.mergerequest.api.dto.GitLabMergeRequestDTO
 import java.util.*
 
 data class GitLabMergeRequestFullDetails(
-  override val iid: String,
+  val iid: String,
   val title: @NlsSafe String,
   val createdAt: Date,
   val author: GitLabUserDTO,
@@ -28,21 +28,25 @@ data class GitLabMergeRequestFullDetails(
   val sourceBranch: String,
   val isApproved: Boolean,
   val conflicts: Boolean,
-  val commits: List<GitLabCommitDTO>,
+  val commits: List<GitLabCommit>,
   val diffRefs: GitLabDiffRefs,
   val headPipeline: GitLabPipelineDTO?,
   val userPermissions: GitLabMergeRequestPermissionsDTO,
   val shouldBeRebased: Boolean,
   val rebaseInProgress: Boolean
-) : GitLabMergeRequestId {
+) {
 
   companion object {
-    fun fromGraphQL(dto: GitLabMergeRequestDTO) = GitLabMergeRequestFullDetails(
+    /**
+     * @param backupCommits The list of commits in case the DTO contains no such list
+     * (solution for compatibility issues with GitLab <=14.7
+     */
+    fun fromGraphQL(dto: GitLabMergeRequestDTO, backupCommits: List<GitLabCommitRestDTO>) = GitLabMergeRequestFullDetails(
       iid = dto.iid,
       title = dto.title,
       createdAt = dto.createdAt,
       author = dto.author,
-      mergeStatus = dto.mergeStatusEnum,
+      mergeStatus = dto.mergeStatusEnum ?: GitLabMergeStatus.UNCHECKED,
       isMergeable = dto.mergeable,
       state = dto.state,
       draft = dto.draft,
@@ -51,13 +55,14 @@ data class GitLabMergeRequestFullDetails(
       webUrl = dto.webUrl,
       targetProject = dto.targetProject,
       sourceProject = dto.sourceProject,
-      description = dto.description,
+      description = dto.description.orEmpty(),
       approvedBy = dto.approvedBy,
       targetBranch = dto.targetBranch,
       sourceBranch = dto.sourceBranch,
       isApproved = dto.approved ?: true,
       conflicts = dto.conflicts,
-      commits = dto.commits,
+      commits = dto.commits?.map(GitLabCommit.Companion::fromGraphQLDTO)
+                ?: backupCommits.map(GitLabCommit.Companion::fromRestDTO),
       diffRefs = dto.diffRefs,
       headPipeline = dto.headPipeline,
       userPermissions = dto.userPermissions,

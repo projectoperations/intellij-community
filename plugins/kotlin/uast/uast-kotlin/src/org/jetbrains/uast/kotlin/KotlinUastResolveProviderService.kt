@@ -136,17 +136,6 @@ interface KotlinUastResolveProviderService : BaseKotlinUastResolveProviderServic
         return baseKotlinConverter.createVarargsHolder(arguments, parent)
     }
 
-    override fun getImplicitReturn(ktLambdaExpression: KtLambdaExpression, parent: UElement): KotlinUImplicitReturnExpression? {
-        val lastExpression = ktLambdaExpression.bodyExpression?.statements?.lastOrNull() ?: return null
-        val context = lastExpression.analyze()
-        if (context[BindingContext.USED_AS_RESULT_OF_LAMBDA, lastExpression] == true) {
-            return KotlinUImplicitReturnExpression(parent).apply {
-                returnExpression = baseKotlinConverter.convertOrEmpty(lastExpression, this)
-            }
-        }
-        return null
-    }
-
     override fun getImplicitParameters(
         ktLambdaExpression: KtLambdaExpression,
         parent: UElement,
@@ -434,6 +423,22 @@ interface KotlinUastResolveProviderService : BaseKotlinUastResolveProviderServic
                 isBoxed = returnType.isMarkedNullable,
                 isForFake = isForFake,
             )
+        )
+    }
+
+    override fun getSuspendContinuationType(
+        suspendFunction: KtFunction,
+        containingLightDeclaration: PsiModifierListOwner?,
+    ): PsiType? {
+        val descriptor = suspendFunction.analyze()[BindingContext.FUNCTION, suspendFunction] ?: return null
+        if (!descriptor.isSuspend) return null
+        val returnType = descriptor.returnType ?: return null
+        val moduleDescriptor = DescriptorUtils.getContainingModule(descriptor)
+        val continuationType = moduleDescriptor.getContinuationOfTypeOrAny(returnType)
+        return continuationType.toPsiType(
+            containingLightDeclaration,
+            suspendFunction,
+            PsiTypeConversionConfiguration.create(suspendFunction)
         )
     }
 

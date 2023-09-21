@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.keymap.impl.ui;
 
 import com.intellij.openapi.actionSystem.*;
@@ -15,7 +15,7 @@ import java.util.Set;
 
 import static com.intellij.ide.ui.search.SearchableOptionsRegistrar.SETTINGS_GROUP_SEPARATOR;
 
-public class Group implements KeymapGroup {
+public final class Group implements KeymapGroup {
   private Group myParent;
   private final @NlsActions.ActionText String myName;
   private final String myId;
@@ -48,8 +48,7 @@ public class Group implements KeymapGroup {
     return myIcon;
   }
 
-  @Nullable
-  public String getId() {
+  public @Nullable String getId() {
     return myId;
   }
 
@@ -183,8 +182,7 @@ public class Group implements KeymapGroup {
     return null;
   }
 
-  @Nullable
-  private String getName(boolean presentable) {
+  private @Nullable String getName(boolean presentable) {
     return presentable ? getName() : getId();
   }
 

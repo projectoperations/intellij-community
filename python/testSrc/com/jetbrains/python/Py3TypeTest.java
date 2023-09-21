@@ -1983,6 +1983,22 @@ public class Py3TypeTest extends PyTestCase {
              """);
   }
 
+  public void testTypeGuardBool() {
+    doTest("bool",
+           """
+             from typing import List
+             from typing import TypeGuard
+
+
+             def is_str_list(val: List[object]) -> TypeGuard[List[str]]:
+                 return all(isinstance(x, str) for x in val)
+
+
+             def func1(val: List[object]):
+                 expr = is_str_list(val)
+             """);
+  }
+
   public void testTypeGuardListInStringLiteral() {
     doTest("list[str]",
            """
@@ -2162,6 +2178,15 @@ public class Py3TypeTest extends PyTestCase {
              def test(x: Set[Callable[[Any], Any]]):
                  y = {k for k in x}
                  expr = y
+             """);
+  }
+
+  public void testEnumerateType() {
+    doTest("tuple[int, int]",
+           """
+             a: list[int] = [1, 2, 3]
+             for expr in enumerate(a):
+                 pass
              """);
   }
   

@@ -895,6 +895,7 @@ final class ControlFlowAnalyzer extends JavaElementVisitor {
   public void visitSwitchLabelStatement(@NotNull PsiSwitchLabelStatement statement) {
     startElement(statement);
     generateCaseValueInstructions(statement.getCaseLabelElementList());
+    generateExpressionInstructions(statement.getGuardExpression());
     finishElement(statement);
   }
 
@@ -903,6 +904,7 @@ final class ControlFlowAnalyzer extends JavaElementVisitor {
     startElement(statement);
 
     generateCaseValueInstructions(statement.getCaseLabelElementList());
+    generateExpressionInstructions(statement.getGuardExpression());
 
     PsiStatement body = statement.getBody();
     if (body != null) {
@@ -926,11 +928,6 @@ final class ControlFlowAnalyzer extends JavaElementVisitor {
         ProgressManager.checkCanceled();
         if (caseValue instanceof PsiExpression) {
           generateExpressionInstructions((PsiExpression)caseValue);
-        }
-        else if (caseValue instanceof PsiPatternGuard) {
-          PsiPatternGuard patternGuard = (PsiPatternGuard)caseValue;
-          processPattern(patternGuard.getPattern());
-          generateExpressionInstructions(patternGuard.getGuardingExpression());
         }
         else if (caseValue instanceof PsiPattern) {
           processPattern((PsiPattern)caseValue);
@@ -1704,6 +1701,25 @@ final class ControlFlowAnalyzer extends JavaElementVisitor {
 
       finishElement(call);
     }
+  }
+
+  @Override
+  public void visitTemplateExpression(@NotNull PsiTemplateExpression expression) {
+    startElement(expression);
+    PsiExpression processor = expression.getProcessor();
+    if (processor != null) processor.accept(this);
+
+    PsiTemplate template = expression.getTemplate();
+    if (template != null) {
+      List<@NotNull PsiExpression> expressions = template.getEmbeddedExpressions();
+      for (PsiExpression embeddedExpression : expressions) {
+        ProgressManager.checkCanceled();
+        embeddedExpression.accept(this);
+      }
+    }
+    generateExceptionJumps(expression, ExceptionUtil.getUnhandledProcessorExceptions(expression, expression.getParent()));
+
+    finishElement(expression);
   }
 
   @Override

@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.openapi.util.IntRef;
@@ -9,9 +9,9 @@ import com.intellij.openapi.vfs.newvfs.AttributeInputStream;
 import com.intellij.openapi.vfs.newvfs.AttributeOutputStream;
 import com.intellij.openapi.vfs.newvfs.AttributeOutputStreamBase;
 import com.intellij.openapi.vfs.newvfs.FileAttribute;
-import com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.ByteBufferReader;
+import com.intellij.util.io.blobstorage.ByteBufferReader;
 import com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.RecordAlreadyDeletedException;
-import com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.StreamlinedBlobStorage;
+import com.intellij.util.io.blobstorage.StreamlinedBlobStorage;
 import com.intellij.util.io.DataOutputStream;
 import com.intellij.util.io.IOUtil;
 import com.intellij.util.io.RepresentableAsByteArraySequence;
@@ -36,7 +36,7 @@ import static com.intellij.util.SystemProperties.getBooleanProperty;
  * Attribute storage implemented on the top of {@link StreamlinedBlobStorage}
  */
 @ApiStatus.Internal
-public class AttributesStorageOverBlobStorage implements AbstractAttributesStorage {
+public final class AttributesStorageOverBlobStorage implements AbstractAttributesStorage {
   public static final int MAX_SUPPORTED_ATTRIBUTE_ID = 1 << AttributeEntry.BIG_ENTRY_ATTR_ID_BITS;
 
   /**
@@ -69,8 +69,7 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
   //               from directory record)
   //      data[...]: attribute value, size = record.length-header.size(8)
 
-  @NotNull
-  private final StreamlinedBlobStorage storage;
+  private final @NotNull StreamlinedBlobStorage storage;
 
   private final AtomicInteger modCount = new AtomicInteger();
 
@@ -311,7 +310,7 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
    * by calling code)
    */
   @VisibleForTesting
-  protected static class AttributesRecord {
+  protected static final class AttributesRecord {
 
     public static final int RECORD_FILE_ID_OFFSET = 0;
     public static final int RECORD_HEADER_SIZE = Integer.BYTES;
@@ -354,7 +353,7 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
       }
     }
 
-    protected int fileId() {
+    int fileId() {
       return backRefFileId;
     }
 
@@ -387,7 +386,7 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
     /**
      * Valid for dedicated attribute record, -1 otherwise
      */
-    protected int dedicatedRecordAttributeId() {
+    private int dedicatedRecordAttributeId() {
       return dedicatedAttributeId;
     }
 
@@ -416,7 +415,7 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
   }
 
   @VisibleForTesting
-  protected static class AttributeEntry {
+  protected static final class AttributeEntry {
     //Entry binary format:
     //    We try hard to be as compact as possible. This is because we have really a lot of very small attributes:
     //    2-10 bytes attributes are very common (and they are the most frequently queried/updated), and >97% of
@@ -694,10 +693,8 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
   }
 
   private final class AttributeOutputStreamImpl extends DataOutputStream implements RepresentableAsByteArraySequence {
-    @NotNull
-    private final PersistentFSConnection connection;
-    @NotNull
-    private final FileAttribute attribute;
+    private final @NotNull PersistentFSConnection connection;
+    private final @NotNull FileAttribute attribute;
     private final int fileId;
 
     private AttributeOutputStreamImpl(final @NotNull PersistentFSConnection connection,
@@ -742,20 +739,19 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
       }
     }
 
-    @NotNull
     @Override
-    public ByteArraySequence asByteArraySequence() {
+    public @NotNull ByteArraySequence asByteArraySequence() {
       return ((BufferExposingByteArrayOutputStream)out).asByteArraySequence();
     }
   }
 
   @VisibleForTesting
   //@GuardedBy("lock")
-  protected int updateAttribute(final int attributesRecordId,
-                                final int fileId,
-                                final int attributeId,
-                                final byte[] newValueBytes,
-                                final int newValueSize) throws IOException {
+  int updateAttribute(final int attributesRecordId,
+                      final int fileId,
+                      final int attributeId,
+                      final byte[] newValueBytes,
+                      final int newValueSize) throws IOException {
     checkAttributeId(attributeId);
     final int updatedAttributesRecordId;
     if (newValueSize < INLINE_ATTRIBUTE_SMALLER_THAN) {
@@ -930,9 +926,9 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
 
   @VisibleForTesting
   //@GuardedBy("lock")
-  protected byte[] readAttributeValue(final int attributesRecordId,
-                                      final int fileId,
-                                      final int attributeId) throws IOException {
+  byte[] readAttributeValue(final int attributesRecordId,
+                            final int fileId,
+                            final int attributeId) throws IOException {
     return storage.readRecord(attributesRecordId, buffer -> {
       final AttributesRecord attributesRecord = new AttributesRecord(buffer);
       assert attributesRecord.backRefFileId == fileId : "record(" + attributesRecordId + ").fileId(" + fileId + ")" +
@@ -960,10 +956,10 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
 
   @VisibleForTesting
   //@GuardedBy("lock")
-  protected <R> R readAttributeValue(final int attributesRecordId,
-                                     final int fileId,
-                                     final int attributeId,
-                                     final ByteBufferReader<R> reader) throws IOException {
+  <R> R readAttributeValue(final int attributesRecordId,
+                           final int fileId,
+                           final int attributeId,
+                           final ByteBufferReader<R> reader) throws IOException {
     return storage.readRecord(attributesRecordId, buffer -> {
       final AttributesRecord attributesRecord = new AttributesRecord(buffer);
       assert attributesRecord.backRefFileId == fileId : "record(" + attributesRecordId + ").fileId(" + fileId + ")" +
@@ -994,9 +990,9 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
 
   @VisibleForTesting
   //@GuardedBy("lock")
-  protected boolean hasAttribute(final int attributesRecordId,
-                                 final int fileId,
-                                 final int attributeId) throws IOException {
+  boolean hasAttribute(final int attributesRecordId,
+                       final int fileId,
+                       final int attributeId) throws IOException {
     if (!storage.hasRecord(attributesRecordId)) {
       return false;
     }
@@ -1025,8 +1021,8 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
 
   @VisibleForTesting
   //@GuardedBy("lock")
-  protected boolean deleteAttributes(final int attributesRecordId,
-                                     final int fileId) throws IOException {
+  boolean deleteAttributes(final int attributesRecordId,
+                           final int fileId) throws IOException {
     if (attributesRecordId == NON_EXISTENT_ATTR_RECORD_ID) {
       return false;
     }
@@ -1052,7 +1048,7 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
     }
     catch (RecordAlreadyDeletedException ex) {
       if (IGNORE_ALREADY_DELETED_ERRORS) {
-        LOG.warn("Record [" + attributesRecordId + "] is already deleted -> likely");
+        LOG.warn("Record [" + attributesRecordId + "] is already deleted -> likely improper app shutdown?");
       }
       else {
         throw ex;
@@ -1069,7 +1065,7 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
     }
     catch (RecordAlreadyDeletedException ex) {
       if (IGNORE_ALREADY_DELETED_ERRORS) {
-        LOG.warn("Record [" + recordId + "] is already deleted -> likely");
+        LOG.warn("Record [" + recordId + "] is already deleted -> likely improper app shutdown?");
         return false;
       }
       else {
@@ -1131,8 +1127,7 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
    * and set position to buffer.position, and limit to requiredLimit. Data from buffer is not copied,
    * use {@link #ensureLimitAndData(ByteBuffer, int)} for that.
    */
-  @NotNull
-  private static ByteBuffer ensureLimit(final ByteBuffer buffer,
+  private static @NotNull ByteBuffer ensureLimit(final ByteBuffer buffer,
                                         final int requiredLimit) {
     if (buffer.capacity() >= requiredLimit) {
       return buffer.limit(Math.max(buffer.limit(), requiredLimit));
@@ -1170,10 +1165,10 @@ public class AttributesStorageOverBlobStorage implements AbstractAttributesStora
    * into buffer[...offset..(offset+newGapSize)...] keeping data before & after the gap intact.
    */
   @VisibleForTesting
-  protected static ByteBuffer resizeGap(final ByteBuffer buffer,
-                                        final int offset,
-                                        final int oldGapSize,
-                                        final int newGapSize) {
+  static ByteBuffer resizeGap(final ByteBuffer buffer,
+                              final int offset,
+                              final int oldGapSize,
+                              final int newGapSize) {
     final int oldGapEndOffset = offset + oldGapSize;
     final int newGapEndOffset = offset + newGapSize;
     final int limitBefore = buffer.limit();

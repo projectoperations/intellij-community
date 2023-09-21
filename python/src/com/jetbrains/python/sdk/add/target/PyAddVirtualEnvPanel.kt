@@ -26,7 +26,7 @@ import com.jetbrains.python.PySdkBundle
 import com.jetbrains.python.packaging.PyPackageManager
 import com.jetbrains.python.packaging.PyPackageManagers
 import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory
-import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory.Companion.projectSyncRows
+import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory.Companion.extendWithTargetSpecificFields
 import com.jetbrains.python.sdk.*
 import com.jetbrains.python.sdk.add.ExistingPySdkComboBoxItem
 import com.jetbrains.python.sdk.add.PySdkPathChoosingComboBox
@@ -44,13 +44,13 @@ import java.util.function.Supplier
 /**
  * Panel with a control that allows to add either new or selecting existing virtualenv.
  */
-class PyAddVirtualEnvPanel constructor(project: Project?,
-                                       module: Module?,
-                                       private val existingSdks: List<Sdk> = emptyList(),
-                                       allowAddNewVirtualenv: Boolean = false,
-                                       private val context: UserDataHolder,
-                                       targetSupplier: Supplier<TargetEnvironmentConfiguration>?,
-                                       config: PythonLanguageRuntimeConfiguration)
+class PyAddVirtualEnvPanel(project: Project?,
+                           module: Module?,
+                           private val existingSdks: List<Sdk> = emptyList(),
+                           allowAddNewVirtualenv: Boolean = false,
+                           private val context: UserDataHolder,
+                           targetSupplier: Supplier<TargetEnvironmentConfiguration>?,
+                           config: PythonLanguageRuntimeConfiguration)
   : PyAddSdkPanelBase(project, module, targetSupplier) {
 
   override val panelName = PyBundle.message("python.add.sdk.panel.name.virtualenv.environment")
@@ -68,9 +68,9 @@ class PyAddVirtualEnvPanel constructor(project: Project?,
   private var isInheritSitePackages: Boolean = false
 
   /**
-   * Encapsulates the work with the files synchronization options.
+   * Encapsulates the work with the optional target-specific fields, e.g., synchronization options and sudo permission.
    */
-  private var projectSync: ProjectSync? = null
+  private var targetPanelExtension: TargetPanelExtension? = null
 
   private val contentPanel: DialogPanel
 
@@ -136,7 +136,7 @@ class PyAddVirtualEnvPanel constructor(project: Project?,
           .bindSelected(::isInheritSitePackages)
       }.visibleIf(newEnvironmentModeSelected)
 
-      projectSync = projectSyncRows(project, targetEnvironmentConfiguration)
+      targetPanelExtension = extendWithTargetSpecificFields(project, targetEnvironmentConfiguration)
     }
 
     add(contentPanel, BorderLayout.NORTH)
@@ -176,14 +176,12 @@ class PyAddVirtualEnvPanel constructor(project: Project?,
     }
   }
 
-  override fun getOrCreateSdk(): Sdk? = getOrCreateSdk(targetEnvironmentConfiguration = null)
-
-  override fun getOrCreateSdk(targetEnvironmentConfiguration: TargetEnvironmentConfiguration?): Sdk? {
+  override fun getOrCreateSdk(): Sdk? {
     // applies components' states for bound properties (e.g. selected radio button to `isCreateNewVirtualenv` field)
     contentPanel.apply()
 
     // TODO [targets] Refactor this workaround
-    applyOptionalProjectSyncConfiguration(targetEnvironmentConfiguration)
+    targetPanelExtension?.applyToTargetConfiguration()
 
     if (isCreateNewVirtualenv) return createNewVirtualenvSdk(targetEnvironmentConfiguration)
 
@@ -238,7 +236,7 @@ class PyAddVirtualEnvPanel constructor(project: Project?,
       else {
         // TODO [targets] Utilize smth like `createSdkFromExistingServerConfiguration` method in `SshSdkCreationUtil.kt`
         val homePath = ProgressManager.getInstance().run(task)
-        createSdkForTarget(project, it, homePath, existingSdks)
+        createSdkForTarget(project, it, homePath, existingSdks, targetPanelExtension)
       }
     }
     if (!shared) {
@@ -267,12 +265,8 @@ class PyAddVirtualEnvPanel constructor(project: Project?,
     else {
       // TODO get rid of `!!`
       val homePath = selectedSdk.homePath!!
-      return createSdkForTarget(project, targetEnvironmentConfiguration, homePath, existingSdks)
+      return createSdkForTarget(project, targetEnvironmentConfiguration, homePath, existingSdks, targetPanelExtension)
     }
-  }
-
-  private fun applyOptionalProjectSyncConfiguration(targetConfiguration: TargetEnvironmentConfiguration?) {
-    if (targetConfiguration != null) projectSync?.apply(targetConfiguration)
   }
 
   companion object {

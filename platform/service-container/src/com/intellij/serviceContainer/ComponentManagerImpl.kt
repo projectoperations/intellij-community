@@ -882,7 +882,7 @@ abstract class ComponentManagerImpl(
     }
   }
 
-  protected open fun <T : Any> findConstrictorAndInstantiateClass(lookup: MethodHandles.Lookup, aClass: Class<T>): T {
+  protected open fun <T : Any> findConstructorAndInstantiateClass(lookup: MethodHandles.Lookup, aClass: Class<T>): T {
     @Suppress("UNCHECKED_CAST")
     return (lookup.findConstructorOrNull(aClass, emptyConstructorMethodType)?.invoke()
             ?: lookup.findConstructorOrNull(aClass, coroutineScopeMethodType)?.invoke(instanceCoroutineScope(aClass))
@@ -893,7 +893,7 @@ abstract class ComponentManagerImpl(
 
   private fun <T : Any> doInstantiateClass(aClass: Class<T>, pluginId: PluginId): T {
     try {
-      return findConstrictorAndInstantiateClass(MethodHandles.privateLookupIn(aClass, methodLookup), aClass)
+      return findConstructorAndInstantiateClass(MethodHandles.privateLookupIn(aClass, methodLookup), aClass)
     }
     catch (e: CancellationException) {
       throw e
@@ -970,6 +970,13 @@ abstract class ComponentManagerImpl(
   open fun unloadServices(services: List<ServiceDescriptor>, pluginId: PluginId) {
     checkState()
 
+    /**
+     * FIXME: possible race with concurrent service construction:
+     *  1. com.intellij.serviceContainer.BaseComponentAdapter.getInstance @ checkContainerIsActive
+     *  2. com.intellij.ide.plugins.DynamicPlugins.unloadPluginWithoutProgress @ forbidGettingServices & unload
+     *  3. com.intellij.serviceContainer.BaseComponentAdapter.getInstance @ deferred.join
+     */
+
     if (!services.isEmpty()) {
       val store = componentStore
       for (service in services) {
@@ -980,6 +987,23 @@ abstract class ComponentManagerImpl(
           Disposer.dispose(instance)
         }
         store.unloadComponent(instance)
+      }
+    }
+
+    if (isLightServiceSupported) {
+      val store = componentStore
+      val iterator = componentKeyToAdapter.values.iterator()
+      while (iterator.hasNext()) {
+        val adapter = iterator.next() as? LightServiceComponentAdapter ?: continue
+        if (adapter.pluginId == pluginId) {
+          adapter.getInitializedInstance()?.let { instance ->
+            if (instance is Disposable) {
+              Disposer.dispose(instance)
+            }
+            store.unloadComponent(instance)
+          }
+          iterator.remove()
+        }
       }
     }
   }

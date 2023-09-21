@@ -4,9 +4,10 @@ package com.intellij.openapi.vfs.newvfs.persistent;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileWithId;
 import com.intellij.openapi.vfs.newvfs.FileAttribute;
-import com.intellij.openapi.vfs.newvfs.persistent.dev.MappedFileStorageHelper;
+import com.intellij.openapi.vfs.newvfs.persistent.mapped.MappedFileStorageHelper;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Range;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -261,11 +262,11 @@ public final class SpecializedFileAttributes {
       update(extractFileId(vFile), updater);
     }
 
-    int read(int fileId, int defaultValue) throws IOException;
+    int read(@Range(from = 1, to = Integer.MAX_VALUE) int fileId, int defaultValue) throws IOException;
 
-    void write(int fileId, int value) throws IOException;
+    void write(@Range(from = 1, to = Integer.MAX_VALUE) int fileId, int value) throws IOException;
 
-    void update(int fileId,
+    void update(@Range(from = 1, to = Integer.MAX_VALUE) int fileId,
                 @NotNull IntUnaryOperator updater) throws IOException;
   }
 
@@ -326,10 +327,10 @@ public final class SpecializedFileAttributes {
     return ((VirtualFileWithId)vFile).getId();
   }
 
-  private static class FileAttributeAccessorHelper implements FileAttributeExAccessor, Closeable {
-    protected final @NotNull MappedFileStorageHelper storageHelper;
+  private static final class FileAttributeAccessorHelper implements FileAttributeExAccessor, Closeable {
+    private final @NotNull MappedFileStorageHelper storageHelper;
 
-    protected FileAttributeAccessorHelper(@NotNull MappedFileStorageHelper helper) { storageHelper = helper; }
+    private FileAttributeAccessorHelper(@NotNull MappedFileStorageHelper helper) { storageHelper = helper; }
 
     @Override
     public void clear() throws IOException {

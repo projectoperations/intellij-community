@@ -22,7 +22,7 @@ import com.intellij.openapi.progress.blockingContextScope
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.toNioPath
-import com.intellij.util.io.createFile
+import com.intellij.util.io.createParentDirectories
 import org.jetbrains.plugins.gradle.service.notification.ExternalAnnotationsProgressNotificationListener
 import org.jetbrains.plugins.gradle.service.notification.ExternalAnnotationsProgressNotificationManager
 import org.jetbrains.plugins.gradle.service.notification.ExternalAnnotationsTaskId
@@ -37,6 +37,7 @@ import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
 import kotlin.io.path.appendText
+import kotlin.io.path.createFile
 import kotlin.io.path.div
 
 
@@ -146,7 +147,7 @@ class GradleWarmupConfigurator : WarmupConfigurator {
     return false
   }
 
-  private class StateExternalAnnotationNotificationListener : ExternalAnnotationsProgressNotificationListener {
+  class StateExternalAnnotationNotificationListener : ExternalAnnotationsProgressNotificationListener {
 
     override fun onStartResolve(id: ExternalAnnotationsTaskId) {
       LOG.info("Gradle resolving external annotations started ${id.projectId}")
@@ -208,8 +209,9 @@ class GradleWarmupConfigurator : WarmupConfigurator {
   class LoggingNotificationListener(val logger: CommandLineInspectionProgressReporter?) : ExternalSystemTaskNotificationListenerAdapter() {
 
     private val logPath = try {
-      gradleLogWriterPath.createFile()
-    } catch (e : java.nio.file.FileAlreadyExistsException) {
+      gradleLogWriterPath.createParentDirectories().createFile()
+    }
+    catch (e: java.nio.file.FileAlreadyExistsException) {
       gradleLogWriterPath
     }
 

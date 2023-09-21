@@ -63,7 +63,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-@State(name = "MavenProjectNavigator", storages = @Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE))
+@State(name = "MavenProjectNavigator", storages = @Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE), getStateRequiresEdt = true)
 public final class MavenProjectsNavigator extends MavenSimpleProjectComponent
   implements PersistentStateComponent<MavenProjectsNavigatorState>, Disposable {
   public static final String TOOL_WINDOW_ID = "Maven";
@@ -85,7 +85,7 @@ public final class MavenProjectsNavigator extends MavenSimpleProjectComponent
       .subscribe(MavenImportListener.TOPIC, new MavenImportListener() {
 
         @Override
-        public void importFinished(@NotNull Collection<MavenProject> importedProjects, @NotNull List<Module> newModules) {
+        public void importFinished(@NotNull Collection<MavenProject> importedProjects, @NotNull List<@NotNull Module> newModules) {
           scheduleStructureUpdate();
         }
       });
@@ -179,32 +179,6 @@ public final class MavenProjectsNavigator extends MavenSimpleProjectComponent
     doInit();
     initTree();
     initStructure();
-  }
-
-  //tests and server entities
-  public void headlessInit() {
-    listenForProjectsChanges();
-    boolean hasMavenProjects = !MavenProjectsManager.getInstance(myProject).getProjects().isEmpty();
-
-    ToolWindow toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(TOOL_WINDOW_ID);
-    if (toolWindow == null) return;
-
-    if (toolWindow.isAvailable() != hasMavenProjects) {
-      toolWindow.setAvailable(hasMavenProjects);
-
-      if (hasMavenProjects) {
-        toolWindow.activate(null);
-      }
-    }
-
-    boolean shouldCreate = myStructure == null;
-    if (shouldCreate) {
-      initStructure();
-    }
-
-    myStructure.update();
-
-    TreeState.createFrom(myState.treeState).applyTo(myTree);
   }
 
   private void doInit() {
@@ -419,6 +393,17 @@ public final class MavenProjectsNavigator extends MavenSimpleProjectComponent
   }
 
   private void scheduleStructureRequest(final Runnable r) {
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      if (null != myStructure) {
+        r.run();
+      }
+    }
+    else {
+      doScheduleStructureRequest(r);
+    }
+  }
+
+  private void doScheduleStructureRequest(final Runnable r) {
     ToolWindow toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(TOOL_WINDOW_ID);
     if (toolWindow == null) return;
 

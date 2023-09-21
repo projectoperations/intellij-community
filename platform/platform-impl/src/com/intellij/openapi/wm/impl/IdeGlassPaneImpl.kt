@@ -7,13 +7,17 @@ import com.intellij.ide.IdeEventQueue
 import com.intellij.ide.IdeTooltipManager
 import com.intellij.ide.dnd.DnDAware
 import com.intellij.idea.AppMode
+import com.intellij.idea.hasSplash
+import com.intellij.idea.hideSplash
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.application.impl.LaterInvocator
+import com.intellij.openapi.application.impl.RawSwingDispatcher
 import com.intellij.openapi.editor.impl.EditorComponentImpl
+import com.intellij.openapi.project.impl.ProjectLoadingCancelled
 import com.intellij.openapi.ui.AbstractPainter
 import com.intellij.openapi.ui.Divider
 import com.intellij.openapi.ui.Painter
@@ -76,14 +80,23 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.EventDispatch
 
     // workaround to fix cursor when some semi-transparent 'highlighting area' overrides it to default
     isEnabled = false
-    if (AppMode.isHeadless() ||
-        loadingState == null ||
-        loadingState.done.isCompleted ||
-        ApplicationManager.getApplication().isHeadlessEnvironment) {
+
+    if (AppMode.isHeadless() || ApplicationManager.getApplication().isHeadlessEnvironment) {
       isVisible = false
-      installPainters()
+    }
+    else if (loadingState == null || loadingState.done.isCompleted) {
+      isVisible = false
+      hideSplash()
+    }
+    else if (hasSplash()) {
+      loadingState.done.invokeOnCompletion {
+        coroutineScope.launch(RawSwingDispatcher) {
+          hideSplash()
+        }
+      }
     }
     else {
+      hideSplash()
       loadingIndicator = IdePaneLoadingLayer(pane = this, loadingState, coroutineScope = coroutineScope) {
         loadingIndicator = null
         applyActivationState()
@@ -93,67 +106,7 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.EventDispatch
   }
 
   companion object {
-    private const val PREPROCESSED_CURSOR_KEY = "SuperCursor"
-
-    private fun isContextMenu(window: Window?): Boolean {
-      if (window is JWindow) {
-        for (component in window.layeredPane.components) {
-          if (component is JPanel && component.components.any { it is JPopupMenu }) {
-            return true
-          }
-        }
-      }
-      return false
-    }
-
-    private fun setCursor(target: Component, cursor: Cursor) {
-      if (target is EditorComponentImpl) {
-        target.editor.setCustomCursor(IdeGlassPaneImpl::class.java, cursor)
-      }
-      else {
-        if (target is JComponent) {
-          savePreProcessedCursor(target, target.getCursor())
-        }
-        UIUtil.setCursor(target, cursor)
-      }
-    }
-
-    private fun resetCursor(target: Component, lastCursor: Cursor?) {
-      if (target is EditorComponentImpl) {
-        target.editor.setCustomCursor(IdeGlassPaneImpl::class.java, null)
-      }
-      else {
-        var cursor: Cursor? = null
-        if (target is JComponent) {
-          cursor = target.getClientProperty(PREPROCESSED_CURSOR_KEY) as Cursor?
-          target.putClientProperty(PREPROCESSED_CURSOR_KEY, null)
-        }
-        UIUtil.setCursor(target, cursor ?: lastCursor)
-      }
-    }
-
-    private fun canProcessCursorFor(target: Component?): Boolean {
-      return target !is JMenuItem &&
-             target !is Divider &&
-             target !is JSeparator &&
-             !(target is JEditorPane && target.editorKit is HTMLEditorKit)
-    }
-
-    private fun getCompWithCursor(c: Component?): Component? {
-      var eachParentWithCursor = c
-      while (eachParentWithCursor != null) {
-        if (eachParentWithCursor.isCursorSet) {
-          return eachParentWithCursor
-        }
-        eachParentWithCursor = eachParentWithCursor.parent
-      }
-      return null
-    }
-
-    @JvmStatic
-    fun hasPreProcessedCursor(component: JComponent): Boolean {
-      return component.getClientProperty(PREPROCESSED_CURSOR_KEY) != null
-    }
+    fun hasPreProcessedCursor(component: JComponent): Boolean = component.getClientProperty(PREPROCESSED_CURSOR_KEY) != null
 
     @JvmStatic
     fun savePreProcessedCursor(component: JComponent, cursor: Cursor): Boolean {
@@ -167,31 +120,6 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.EventDispatch
     fun forgetPreProcessedCursor(component: JComponent) {
       component.putClientProperty(PREPROCESSED_CURSOR_KEY, null)
     }
-
-    private fun fireMouseEvent(listener: MouseListener, event: MouseEvent) {
-      when (event.id) {
-        MouseEvent.MOUSE_PRESSED -> listener.mousePressed(event)
-        MouseEvent.MOUSE_RELEASED -> listener.mouseReleased(event)
-        MouseEvent.MOUSE_ENTERED -> listener.mouseEntered(event)
-        MouseEvent.MOUSE_EXITED -> listener.mouseExited(event)
-        MouseEvent.MOUSE_CLICKED -> listener.mouseClicked(event)
-      }
-    }
-
-    private fun fireMouseMotion(listener: MouseMotionListener, event: MouseEvent) {
-      when (event.id) {
-        MouseEvent.MOUSE_DRAGGED -> {
-          listener.mouseDragged(event)
-          listener.mouseMoved(event)
-        }
-        MouseEvent.MOUSE_MOVED -> listener.mouseMoved(event)
-      }
-    }
-
-    private fun findComponent(e: MouseEvent, container: Container): Component? {
-      val lpPoint = SwingUtilities.convertPoint(e.component, e.point, container)
-      return SwingUtilities.getDeepestComponentAt(container, lpPoint.x, lpPoint.y)
-    }
   }
 
   override fun doLayout() {
@@ -201,7 +129,7 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.EventDispatch
     }
   }
 
-  fun installPainters() {
+  internal fun installPainters() {
     if (paintersInstalled) {
       return
     }
@@ -460,7 +388,7 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.EventDispatch
     doAddListener(listener, parent)
   }
 
-  override fun addMousePreprocessor(listener: MouseListener, coroutineScope: CoroutineScope) {
+  override fun addMouseListener(listener: MouseListener, coroutineScope: CoroutineScope) {
     mouseListeners.add(listener)
     executeOnCancelInEdt(coroutineScope) { removeListener(listener) }
     updateSortedList()
@@ -588,7 +516,7 @@ private class IdePaneLoadingLayer(pane: JComponent,
     pane.add(icon)
 
     loadingState.done.invokeOnCompletion {
-      coroutineScope.launch(Dispatchers.EDT) {
+      coroutineScope.launch(RawSwingDispatcher) {
         try {
           removeIcon(pane)
         }
@@ -620,7 +548,7 @@ private class IdePaneLoadingLayer(pane: JComponent,
       is KeyEvent -> {
         @Suppress("DEPRECATION")
         if (event.getID() == KeyEvent.KEY_PRESSED && event.keyCode == KeyEvent.VK_ESCAPE && event.modifiers == 0) {
-          loadingJob.cancel(FrameLoadingState.PROJECT_LOADING_CANCELLED_BY_USER)
+          loadingJob.cancel(ProjectLoadingCancelled("ESC key pressed"))
         }
 
         event.consume()
@@ -632,10 +560,6 @@ private class IdePaneLoadingLayer(pane: JComponent,
 }
 
 interface FrameLoadingState {
-  companion object {
-    internal const val PROJECT_LOADING_CANCELLED_BY_USER: String = "PROJECT_LOADING_CANCELLED_BY_USER"
-  }
-
   val done: Job
 }
 
@@ -647,4 +571,86 @@ internal fun executeOnCancelInEdt(coroutineScope: CoroutineScope, task: () -> Un
       }
     }
   }
+}
+
+private const val PREPROCESSED_CURSOR_KEY = "SuperCursor"
+
+private fun isContextMenu(window: Window?): Boolean {
+  if (window is JWindow) {
+    for (component in window.layeredPane.components) {
+      if (component is JPanel && component.components.any { it is JPopupMenu }) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+private fun setCursor(target: Component, cursor: Cursor) {
+  if (target is EditorComponentImpl) {
+    target.editor.setCustomCursor(IdeGlassPaneImpl::class.java, cursor)
+  }
+  else {
+    if (target is JComponent) {
+      IdeGlassPaneImpl.savePreProcessedCursor(target, target.getCursor())
+    }
+    UIUtil.setCursor(target, cursor)
+  }
+}
+
+private fun resetCursor(target: Component, lastCursor: Cursor?) {
+  if (target is EditorComponentImpl) {
+    target.editor.setCustomCursor(IdeGlassPaneImpl::class.java, null)
+  }
+  else {
+    var cursor: Cursor? = null
+    if (target is JComponent) {
+      cursor = target.getClientProperty(PREPROCESSED_CURSOR_KEY) as Cursor?
+      target.putClientProperty(PREPROCESSED_CURSOR_KEY, null)
+    }
+    UIUtil.setCursor(target, cursor ?: lastCursor)
+  }
+}
+
+private fun canProcessCursorFor(target: Component?): Boolean {
+  return target !is JMenuItem &&
+         target !is Divider &&
+         target !is JSeparator &&
+         !(target is JEditorPane && target.editorKit is HTMLEditorKit)
+}
+
+private fun getCompWithCursor(c: Component?): Component? {
+  var eachParentWithCursor = c
+  while (eachParentWithCursor != null) {
+    if (eachParentWithCursor.isCursorSet) {
+      return eachParentWithCursor
+    }
+    eachParentWithCursor = eachParentWithCursor.parent
+  }
+  return null
+}
+
+private fun fireMouseEvent(listener: MouseListener, event: MouseEvent) {
+  when (event.id) {
+    MouseEvent.MOUSE_PRESSED -> listener.mousePressed(event)
+    MouseEvent.MOUSE_RELEASED -> listener.mouseReleased(event)
+    MouseEvent.MOUSE_ENTERED -> listener.mouseEntered(event)
+    MouseEvent.MOUSE_EXITED -> listener.mouseExited(event)
+    MouseEvent.MOUSE_CLICKED -> listener.mouseClicked(event)
+  }
+}
+
+private fun fireMouseMotion(listener: MouseMotionListener, event: MouseEvent) {
+  when (event.id) {
+    MouseEvent.MOUSE_DRAGGED -> {
+      listener.mouseDragged(event)
+      listener.mouseMoved(event)
+    }
+    MouseEvent.MOUSE_MOVED -> listener.mouseMoved(event)
+  }
+}
+
+private fun findComponent(e: MouseEvent, container: Container): Component? {
+  val lpPoint = SwingUtilities.convertPoint(e.component, e.point, container)
+  return SwingUtilities.getDeepestComponentAt(container, lpPoint.x, lpPoint.y)
 }

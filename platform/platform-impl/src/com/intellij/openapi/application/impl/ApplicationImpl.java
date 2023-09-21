@@ -50,6 +50,7 @@ import kotlin.jvm.functions.Function0;
 import kotlinx.coroutines.CoroutineScope;
 import kotlinx.coroutines.GlobalScope;
 import org.jetbrains.annotations.*;
+import sun.awt.SunToolkit;
 
 import javax.swing.*;
 import java.awt.*;
@@ -66,7 +67,7 @@ import static com.intellij.ide.ShutdownKt.cancelAndJoinBlocking;
 import static com.intellij.util.concurrency.AppExecutorUtil.propagateContextOrCancellation;
 
 @ApiStatus.Internal
-public class ApplicationImpl extends ClientAwareComponentManager implements ApplicationEx {
+public final class ApplicationImpl extends ClientAwareComponentManager implements ApplicationEx {
   private static @NotNull Logger getLogger() {
     return Logger.getInstance(ApplicationImpl.class);
   }
@@ -122,7 +123,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
           CoroutineScopeKt.namedChildScope(GlobalScope.INSTANCE, ApplicationImpl.class.getName(), EmptyCoroutineContext.INSTANCE, true),
           true);
 
-    myLock = IdeEventQueue.getInstance().rwLockHolder.lock;
+    myLock = IdeEventQueue.getInstance().getRwLockHolder().lock;
 
     registerFakeServices(this);
 
@@ -165,7 +166,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   }
 
   @TestOnly
-  final ReadMostlyRWLock getRwLock() {
+  ReadMostlyRWLock getRwLock() {
     return myLock;
   }
 
@@ -187,7 +188,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
 
   @Override
   public boolean isInImpatientReader() {
-    return myLock.isInImpatientReader();
+    return myLock != null && myLock.isInImpatientReader();
   }
 
   @TestOnly
@@ -231,7 +232,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   }
 
   @Override
-  public final boolean isLightEditMode() {
+  public boolean isLightEditMode() {
     return AppMode.isLightEdit();
   }
 
@@ -307,7 +308,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   public boolean isWriteIntentLockAcquired() {
     // Write lock is good too
     ReadMostlyRWLock lock = myLock;
-    return lock != null && lock.isWriteThread() && (lock.isWriteIntentLocked() || lock.isWriteAcquired());
+    return lock == null || lock.isWriteThread() && (lock.isWriteIntentLocked() || lock.isWriteAcquired());
   }
 
   @Deprecated
@@ -513,12 +514,12 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   }
 
   @Override
-  public final void restart(boolean exitConfirmed) {
+  public void restart(boolean exitConfirmed) {
     restart(exitConfirmed, false);
   }
 
   @Override
-  public final void restart(boolean exitConfirmed, boolean elevate) {
+  public void restart(boolean exitConfirmed, boolean elevate) {
     int flags = SAVE;
     if (exitConfirmed) {
       flags |= EXIT_CONFIRMED;
@@ -539,7 +540,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
    * quit message is shown. In that case, showing multiple messages sounds contra-intuitive as well
    */
   @Override
-  public final void exit(boolean force, boolean exitConfirmed, boolean restart, int exitCode) {
+  public void exit(boolean force, boolean exitConfirmed, boolean restart, int exitCode) {
     int flags = SAVE;
     if (force) {
       flags |= FORCE_EXIT;
@@ -551,7 +552,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   }
 
   @Override
-  public final void exit(boolean force, boolean exitConfirmed, boolean restart) {
+  public void exit(boolean force, boolean exitConfirmed, boolean restart) {
     exit(force, exitConfirmed, restart, 0);
   }
 
@@ -560,12 +561,12 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   }
 
   @Override
-  public final void exit(int flags, int exitCode) {
+  public void exit(int flags, int exitCode) {
     exit(flags, false, ArrayUtil.EMPTY_STRING_ARRAY, exitCode);
   }
 
   @Override
-  public final void exit(int flags) {
+  public void exit(int flags) {
     exit(flags, false, ArrayUtil.EMPTY_STRING_ARRAY, 0);
   }
 
@@ -585,7 +586,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   }
 
   @Override
-  public final boolean isExitInProgress() {
+  public boolean isExitInProgress() {
     return myExitInProgress;
   }
 
@@ -628,27 +629,30 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
 
       LifecycleUsageTriggerCollector.onIdeClose(restart);
 
-      boolean success = TraceUtil.computeWithSpanThrows(tracer, "disposeProjects", (span) -> {
-        ProjectManagerEx manager = ProjectManagerEx.getInstanceExIfCreated();
-        if (manager != null) {
-          try {
-            if (!manager.closeAndDisposeAllProjects(!force)) {
-              return false;
-            }
-          }
-          catch (Throwable e) {
-            getLogger().error(e);
-          }
-        }
+      boolean success = true;
+      ProjectManagerEx manager = ProjectManagerEx.getInstanceExIfCreated();
+      if (manager != null) {
         try {
-          //noinspection TestOnlyProblems
-          disposeContainer();
+          boolean projectsClosedSuccessfully = TraceUtil.computeWithSpanThrows(tracer, "disposeProjects", (span) -> {
+            return manager.closeAndDisposeAllProjects(!force);
+          });
+          if (!projectsClosedSuccessfully) {
+            success = false;
+          }
         }
-        catch (Throwable t) {
-          getLogger().error(t);
+        catch (Throwable e) {
+          getLogger().error(e);
         }
-        return true;
-      });
+      }
+      try {
+        scope.close();
+        exitSpan.end();
+        //noinspection TestOnlyProblems
+        disposeContainer();
+      }
+      catch (Throwable t) {
+        getLogger().error(t);
+      }
 
       //noinspection SpellCheckingInspection
       if (!success || isUnitTestMode() || Boolean.getBoolean("idea.test.guimode")) {
@@ -672,8 +676,6 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
           }
         }
       }
-      scope.close();
-      exitSpan.end();
       System.exit(exitCode);
     }
     finally {
@@ -918,12 +920,12 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
 
   @Override
   public boolean acquireWriteIntentLock(@Nullable String ignored) {
-    return IdeEventQueue.getInstance().rwLockHolder.acquireWriteIntentLock(ignored);
+    return IdeEventQueue.getInstance().getRwLockHolder().acquireWriteIntentLock(ignored);
   }
 
   @Override
   public void releaseWriteIntentLock() {
-    IdeEventQueue.getInstance().rwLockHolder.releaseWriteIntentLock();
+    IdeEventQueue.getInstance().getRwLockHolder().releaseWriteIntentLock();
   }
 
   @Override
@@ -1003,7 +1005,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
 
   @Override
   public <T, E extends Throwable> T runWriteIntentReadAction(@NotNull ThrowableComputable<T, E> computation) throws E {
-    return IdeEventQueue.getInstance().rwLockHolder.runWriteIntentReadAction(computation);
+    return IdeEventQueue.getInstance().getRwLockHolder().runWriteIntentReadAction(computation);
   }
 
   @Override
@@ -1018,7 +1020,8 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
 
   @Override
   public boolean isReadAccessAllowed() {
-    return myLock.isReadAllowed();
+    ReadMostlyRWLock lock = myLock;
+    return lock == null || myLock.isReadAllowed();
   }
 
   @Override
@@ -1133,10 +1136,10 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
 
     Window activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
     if (activeWindow != null) {
-      ApplicationActivationStateManager.updateState(this, activeWindow);
+      ApplicationActivationStateManager.INSTANCE.updateState(this, activeWindow);
     }
 
-    return ApplicationActivationStateManager.isActive();
+    return ApplicationActivationStateManager.INSTANCE.isActive();
   }
 
   @Override
@@ -1155,7 +1158,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   @Override
   public boolean isWriteAccessAllowed() {
     ReadMostlyRWLock lock = myLock;
-    return lock.isWriteThread() && lock.isWriteAcquired();
+    return lock == null || lock.isWriteThread() && lock.isWriteAcquired();
   }
 
   private void assertNotInsideListener() {
@@ -1189,7 +1192,7 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
     return new WriteAccessToken(clazz);
   }
 
-  private class WriteAccessToken extends AccessToken {
+  private final class WriteAccessToken extends AccessToken {
     private final @NotNull Class<?> clazz;
 
     WriteAccessToken(@NotNull Class<?> clazz) {
@@ -1208,35 +1211,24 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
       }
     }
 
-    private void markThreadNameInStackTrace() {
+    private static void markThreadNameInStackTrace() {
       String id = id();
 
-      if (id != null) {
-        Thread thread = Thread.currentThread();
-        thread.setName(thread.getName() + id);
-      }
+      Thread thread = Thread.currentThread();
+      thread.setName(thread.getName() + id);
     }
 
-    private void unmarkThreadNameInStackTrace() {
+    private static void unmarkThreadNameInStackTrace() {
       String id = id();
 
-      if (id != null) {
-        Thread thread = Thread.currentThread();
-        String name = thread.getName();
-        name = StringUtil.replace(name, id, "");
-        thread.setName(name);
-      }
+      Thread thread = Thread.currentThread();
+      String name = thread.getName();
+      name = StringUtil.replace(name, id, "");
+      thread.setName(name);
     }
 
-    private @Nullable String id() {
-      Class<?> aClass = getClass();
-      String name = aClass.getName();
-      name = name.substring(name.lastIndexOf('.') + 1);
-      name = name.substring(name.lastIndexOf('$') + 1);
-      if (!name.equals("AccessToken")) {
-        return " [" + name + "]";
-      }
-      return null;
+    private static @NotNull String id() {
+      return " [WriteAccessToken]";
     }
   }
 
@@ -1294,19 +1286,6 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
   @Override
   public boolean isWriteActionInProgress() {
     return myLock.isWriteAcquired();
-  }
-
-  private void runWithDisabledImplicitRead(@NotNull Runnable runnable) {
-    // This method is used to allow easily finding stack traces which violate disabled ImplicitRead
-    ReadMostlyRWLock lock = myLock;
-    boolean oldVal = lock.isImplicitReadAllowed();
-    try {
-      lock.setAllowImplicitRead(false);
-      runnable.run();
-    }
-    finally {
-      lock.setAllowImplicitRead(oldVal);
-    }
   }
 
   private static void runModalProgress(@Nullable Project project,
@@ -1380,20 +1359,24 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
 
   @Override
   public String toString() {
-    boolean writeActionPending = isWriteActionPending();
-    boolean writeActionInProgress = isWriteActionInProgress();
-    boolean writeAccessAllowed = isWriteAccessAllowed();
+    boolean hasLock = myLock != null;
+    boolean writeActionPending = hasLock && isWriteActionPending();
+    boolean writeActionInProgress = hasLock && isWriteActionInProgress();
+    boolean writeAccessAllowed = hasLock && isWriteAccessAllowed();
     return "Application"
-           +(getContainerState().get() == ContainerState.COMPONENT_CREATED ? "" : " (containerState " + getContainerStateName() + ") ")
+           + (getContainerState().get() == ContainerState.COMPONENT_CREATED ? "" : " (containerState " + getContainerStateName() + ") ")
            + (isUnitTestMode() ? " (unit test)" : "")
            + (isInternal() ? " (internal)" : "")
            + (isHeadlessEnvironment() ? " (headless)" : "")
            + (isCommandLine() ? " (command line)" : "")
-           + (writeActionPending || writeActionInProgress || writeAccessAllowed ? " (WA" +
-                                                                                  (writeActionPending ? " pending" : "") +
-                                                                                  (writeActionInProgress ? " inProgress" : "") +
-                                                                                  (writeAccessAllowed ? " allowed" : "") +
-                                                                                  ")" : "")
+           + (hasLock ?
+               (writeActionPending || writeActionInProgress || writeAccessAllowed ? " (WA" +
+                                                                                    (writeActionPending ? " pending" : "") +
+                                                                                    (writeActionInProgress ? " inProgress" : "") +
+                                                                                    (writeAccessAllowed ? " allowed" : "") +
+                                                                                    ")" : "")
+               : " (lock is not ready)"
+           )
            + (isReadAccessAllowed() ? " (RA allowed)" : "")
            + (StartupUtil.isImplicitReadOnEDTDisabled() ? " (IR on EDT disabled)" : "")
            + (isInImpatientReader() ? " (impatient reader)" : "")
@@ -1440,16 +1423,17 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
 
   @Override
   public void runWithoutImplicitRead(@NotNull Runnable runnable) {
-    if (!StartupUtil.isImplicitReadOnEDTDisabled()) {
-      runnable.run();
-      return;
-    }
-    runWithDisabledImplicitRead(runnable);
+    IdeEventQueue.getInstance().getRwLockHolder().runWithoutImplicitRead(runnable);
+  }
+
+  @Override
+  public void runWithImplicitRead(@NotNull Runnable runnable) {
+    IdeEventQueue.getInstance().getRwLockHolder().runWithImplicitRead(runnable);
   }
 
   @ApiStatus.Internal
   public static void postInit(@NotNull ApplicationImpl app) {
-    app.myLock = IdeEventQueue.getInstance().rwLockHolder.lock;
+    app.myLock = IdeEventQueue.getInstance().getRwLockHolder().lock;
 
     AtomicBoolean reported = new AtomicBoolean();
     IdeEventQueue.getInstance().addPostprocessor(e -> {
@@ -1465,5 +1449,10 @@ public class ApplicationImpl extends ClientAwareComponentManager implements Appl
         reported.set(false);
       }
     }, app);
+  }
+
+  @Override
+  public void flushNativeEventQueue() {
+    SunToolkit.flushPendingEvents();
   }
 }

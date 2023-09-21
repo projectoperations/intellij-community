@@ -21,7 +21,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collection;
 import java.util.HashSet;
 
-class OriginClassifier {
+final class OriginClassifier {
   private static final Logger LOG = Logger.getInstance(OriginClassifier.class);
   public final EntityStorage entityStorage;
   public final Collection<EntityReference<?>> entityReferences = new HashSet<>();
@@ -47,7 +47,7 @@ class OriginClassifier {
 
   private void doClassify(@NotNull WorkspaceFileIndexEx workspaceFileIndex, @NotNull VirtualFile file) {
     WorkspaceFileInternalInfo fileInfo =
-      workspaceFileIndex.getFileInfo(file, true, true, true, true);
+      workspaceFileIndex.getFileInfo(file, true, true, true, true, true);
     if (fileInfo == WorkspaceFileInternalInfo.NonWorkspace.IGNORED || fileInfo == WorkspaceFileInternalInfo.NonWorkspace.EXCLUDED) {
       //excluded files should be ignored by indexableSetContributors
       return;

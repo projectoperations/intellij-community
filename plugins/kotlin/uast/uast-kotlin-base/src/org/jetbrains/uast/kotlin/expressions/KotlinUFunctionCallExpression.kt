@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.uast.kotlin
 
@@ -217,54 +217,43 @@ class KotlinUFunctionCallExpression(
     }
 
     override fun isMethodNameOneOf(names: Collection<String>): Boolean {
-        if (methodNameCanBeOneOf(names)) {
+        if (methodNameCanBeOneOf(sourcePsi, names)) {
             // canMethodNameBeOneOf can return false-positive results, additional resolve is needed
             val methodName = methodName ?: return false
             return methodName in names
         }
+
         return false
     }
 
-    fun methodNameCanBeOneOf(names: Collection<String>): Boolean {
-        if (isMethodNameOneOfWithoutConsideringImportAliases(names)) return true
-        val ktFile = sourcePsi.containingKtFile
-        val aliasedNames = collectAliasedNamesForName(ktFile, names)
-        return isMethodNameOneOfWithoutConsideringImportAliases(aliasedNames)
-    }
-
-    /**
-     * For the [actualNames], returns the possible import alias name it might be expanded to
-     *
-     * E.g., for the file with imports
-     * ```
-     * import a.b.c as foo
-     * ```
-     * The call `collectAliasedNamesForName(ktFile, listOf("c")` will return `["foo"]`
-     */
-    private fun collectAliasedNamesForName(
-        ktFile: KtFile,
-        actualNames: Collection<String>,
-    ): Set<String> = buildSet {
-        for (importDirective in ktFile.importDirectives) {
-            val importedName = importDirective.importedFqName?.pathSegments()?.lastOrNull()?.asString() ?: continue
-            if (importedName in actualNames) {
-                importDirective.aliasName?.let(::add)
-            }
-        }
-    }
-
-
-    private fun isMethodNameOneOfWithoutConsideringImportAliases(names: Collection<String>): Boolean {
-        if (names.isEmpty()) return false
-        if (names.any { it in methodNamesForWhichResolveIsNeeded }) {
-            // we need an additional resolve to say if the method name is one of expected
-            return true
-        }
-        val referencedName = sourcePsi.getCallNameExpression()?.getReferencedName() ?: return false
-        return referencedName in names
-    }
-
     companion object {
+        /**
+         * Can return false-positive results, additional resolve is needed
+         */
+        internal fun methodNameCanBeOneOf(call: KtCallElement, names: Collection<String>): Boolean {
+            if (names.isEmpty()) return false
+            if (names.any { it in methodNamesForWhichResolveIsNeeded }) {
+                // we need an additional resolve to say if the method name is one of expected
+                return true
+            }
+
+            val referencedName = call.getCallNameExpression()?.getReferencedName() ?: return false
+            if (referencedName in names) return true
+
+            val ktFile = call.containingKtFile
+            if (!ktFile.hasImportAlias()) return false
+
+            for (directive in ktFile.importDirectives) {
+                val aliasName = directive.aliasName ?: continue
+                if (referencedName != aliasName) continue
+
+                val importedName = directive.importedFqName?.shortName()?.asString() ?: continue
+                if (importedName in names) return true
+            }
+
+            return false
+        }
+
         private val methodNamesForWhichResolveIsNeeded = buildSet {
             /*
                 operator fun Int.invoke() {}

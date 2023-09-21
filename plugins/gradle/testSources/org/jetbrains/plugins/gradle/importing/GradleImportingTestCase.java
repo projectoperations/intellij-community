@@ -18,7 +18,6 @@ import com.intellij.openapi.externalSystem.test.JavaExternalSystemImportingTestC
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.environment.Environment;
 import com.intellij.openapi.projectRoots.*;
-import com.intellij.openapi.projectRoots.impl.JavaHomeFinder;
 import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil;
 import com.intellij.openapi.roots.DependencyScope;
 import com.intellij.openapi.roots.ui.configuration.UnknownSdkResolver;
@@ -28,6 +27,7 @@ import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -39,7 +39,6 @@ import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.util.PathUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.io.PathKt;
 import com.intellij.util.lang.JavaVersion;
 import org.gradle.StartParameter;
 import org.gradle.initialization.BuildLayoutParameters;
@@ -51,7 +50,6 @@ import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.model.java.JdkVersionDetector;
 import org.jetbrains.plugins.gradle.frameworkSupport.buildscript.GradleBuildScriptBuilderUtil;
 import org.jetbrains.plugins.gradle.frameworkSupport.settingsScript.GradleSettingScriptBuilder;
 import org.jetbrains.plugins.gradle.frameworkSupport.settingsScript.GroovyDslGradleSettingScriptBuilder;
@@ -62,6 +60,7 @@ import org.jetbrains.plugins.gradle.settings.DistributionType;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
 import org.jetbrains.plugins.gradle.settings.GradleSettings;
 import org.jetbrains.plugins.gradle.settings.GradleSystemSettings;
+import org.jetbrains.plugins.gradle.testFramework.fixtures.impl.graldeJvm.GradleJvmResolver;
 import org.jetbrains.plugins.gradle.tooling.VersionMatcherRule;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 import org.jetbrains.plugins.gradle.util.GradleUtil;
@@ -74,11 +73,11 @@ import org.junit.runners.Parameterized;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.zip.ZipException;
@@ -163,31 +162,42 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
     myDistribution = configureWrapper();
   }
 
+  protected Path getGradleUserHome() {
+    String serviceDirectory = GradleSettings.getInstance(myProject).getServiceDirectoryPath();
+    return serviceDirectory != null ? Path.of(serviceDirectory) : new BuildLayoutParameters().getGradleUserHomeDir().toPath();
+  }
+
   /**
    * This is a workaround for the following issue on windows:
    * "C:\Users\builduser\.gradle\caches\jars-1\cache.properties (The system cannot find the file specified)"
    */
   private void cleanScriptsCacheIfNeeded() {
     if (SystemInfo.isWindows && isGradleOlderThan("3.5")) {
-      String serviceDirectory = GradleSettings.getInstance(myProject).getServiceDirectoryPath();
-      File gradleUserHome = serviceDirectory != null ? new File(serviceDirectory) : new BuildLayoutParameters().getGradleUserHomeDir();
-      Path cacheFile = Paths.get(gradleUserHome.getPath(), "caches", "jars-1", "cache.properties");
+      Path gradleUserHome = getGradleUserHome();
+      Path cacheFile = gradleUserHome.resolve("caches/jars-1/cache.properties");
       if (Files.notExists(cacheFile)) {
-        PathKt.createFile(cacheFile);
+        try {
+          Files.createFile(NioFiles.createParentDirectories(cacheFile));
+        }
+        catch (IOException e) {
+          throw new UncheckedIOException(e);
+        }
       }
-      File scriptsCacheFolder = Paths.get(gradleUserHome.getPath(), "caches", gradleVersion, "scripts").toFile();
-      if (FileUtil.delete(scriptsCacheFolder)) {
-        LOG.debug("Gradle scripts cache folder has been successfully removed at " + scriptsCacheFolder.getPath());
+      Path scriptsCacheFolder = gradleUserHome.resolve("caches").resolve(gradleVersion).resolve("scripts");
+      try {
+        NioFiles.deleteRecursively(scriptsCacheFolder);
+        LOG.debug("Gradle scripts cache folder has been successfully removed at " + scriptsCacheFolder);
       }
-      else {
-        LOG.debug("Gradle scripts cache folder has not been removed at " + scriptsCacheFolder.getPath());
+      catch (IOException e) {
+        LOG.debug("Gradle scripts cache folder has not been removed at " + scriptsCacheFolder);
       }
-      File scriptsRemappedCacheFolder = Paths.get(gradleUserHome.getPath(), "caches", gradleVersion, "scripts-remapped").toFile();
-      if (FileUtil.delete(scriptsRemappedCacheFolder)) {
-        LOG.debug("Gradle scripts-remapped cache folder has been successfully removed at " + scriptsRemappedCacheFolder.getPath());
+      Path scriptsRemappedCacheFolder = gradleUserHome.resolve("caches").resolve(gradleVersion).resolve("scripts-remapped");
+      try {
+        NioFiles.deleteRecursively(scriptsRemappedCacheFolder);
+        LOG.debug("Gradle scripts-remapped cache folder has been successfully removed at " + scriptsRemappedCacheFolder);
       }
-      else {
-        LOG.debug("Gradle scripts-remapped cache folder has not been removed at " + scriptsRemappedCacheFolder.getPath());
+      catch (IOException e) {
+        LOG.debug("Gradle scripts-remapped cache folder has not been removed at " + scriptsRemappedCacheFolder);
       }
     }
   }
@@ -237,24 +247,12 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
   }
 
   public static @NotNull String requireJdkHome(@NotNull GradleVersion gradleVersion) {
-    JavaVersion javaRuntimeVersion = JavaVersion.current();
-    if (GradleJvmSupportMatrix.isSupported(gradleVersion, javaRuntimeVersion)) {
+    if (GradleJvmSupportMatrix.isSupported(gradleVersion, JavaVersion.current())) {
       return IdeaTestUtil.requireRealJdkHome();
     }
     // fix exception of FJP at JavaHomeFinder.suggestHomePaths => ... => EnvironmentUtil.getEnvironmentMap => CompletableFuture.<clinit>
     IdeaForkJoinWorkerThreadFactory.setupForkJoinCommonPool(true);
-    List<String> paths = JavaHomeFinder.suggestHomePaths(true);
-    for (String path : paths) {
-      if (JdkUtil.checkForJdk(path)) {
-        JdkVersionDetector.JdkVersionInfo jdkVersionInfo = JdkVersionDetector.getInstance().detectJdkVersionInfo(path);
-        if (jdkVersionInfo == null) continue;
-        if (GradleJvmSupportMatrix.isSupported(gradleVersion, jdkVersionInfo.version)) {
-          return path;
-        }
-      }
-    }
-    fail("Cannot find JDK for Gradle " + gradleVersion.getVersion() + ", checked paths: " + paths);
-    return null;
+    return GradleJvmResolver.resolveGradleJvmHomePath(gradleVersion);
   }
 
   public String findJdkPath() {
@@ -520,14 +518,15 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
     File zip = localDistribution.getZipFile();
     try {
       if (zip.exists()) {
-        ZipFile zipFile = new ZipFile(zip);
-        zipFile.close();
+        try {
+          new ZipFile(zip).close();
+        }
+        catch (ZipException e) {
+          e.printStackTrace();
+          System.out.println("Corrupted file will be removed: " + zip);
+          Files.delete(zip.toPath());
+        }
       }
-    }
-    catch (ZipException e) {
-      e.printStackTrace();
-      System.out.println("Corrupted file will be removed: " + zip.getPath());
-      FileUtil.delete(zip);
     }
     catch (IOException e) {
       e.printStackTrace();

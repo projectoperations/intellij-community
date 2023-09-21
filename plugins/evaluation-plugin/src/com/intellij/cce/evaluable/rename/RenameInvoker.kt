@@ -38,6 +38,10 @@ class RenameInvoker(private val project: Project,
     return@readActionInSmartMode createSession(offset, expectedText, properties, lookup)
   }
 
+  override fun comparator(generated: String, expected: String, ): Boolean {
+    return expected == generated
+  }
+
   private fun callRename(expectedText: String, editor: Editor): Lookup {
     val start = System.currentTimeMillis()
 
@@ -59,7 +63,7 @@ class RenameInvoker(private val project: Project,
     }
     val latency = System.currentTimeMillis() - start
     finishSession(expectedText, editor)
-    return Lookup.fromExpectedText(expectedText, "", suggestions, latency, resultFeatures)
+    return Lookup.fromExpectedText(expectedText, "", suggestions, latency, resultFeatures, comparator = this::comparator)
   }
 
   private fun buildDataContext(editor: Editor): DataContext {
@@ -91,7 +95,7 @@ class RenameInvoker(private val project: Project,
                ?: throw IllegalStateException("Can't find language \"${language.ideaLanguageId}\"")
     val provider = SuggestionsProvider.find(project, strategy.suggestionsProvider)
                    ?: throw IllegalStateException("Can't find suggestions provider \"${strategy.suggestionsProvider}\"")
-    return provider.getSuggestions(expectedLine, editor, lang)
+    return provider.getSuggestions(expectedLine, editor, lang, this::comparator)
   }
 
   private fun createSession(position: Int, expectedText: String, nodeProperties: TokenProperties, lookup: Lookup): Session {

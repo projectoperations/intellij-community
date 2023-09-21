@@ -21,8 +21,8 @@ class MetricsEvaluator private constructor(private val evaluationType: String) {
   private val metrics = mutableListOf<Metric>()
 
   fun registerDefaultMetrics() {
-    registerMetric(RecallAtMetric(1))
-    registerMetric(RecallAtMetric(5))
+    registerMetric(RecallAtMetric(true, 1))
+    registerMetric(RecallAtMetric(true, 5))
     registerMetric(RecallMetric())
     registerMetric(MeanLatencyMetric())
     registerMetric(MaxLatencyMetric())
@@ -34,12 +34,12 @@ class MetricsEvaluator private constructor(private val evaluationType: String) {
 
   private fun registerMetrics(metrics: Collection<Metric>) = this.metrics.addAll(metrics)
 
-  fun evaluate(sessions: List<Session>, comparator: SuggestionsComparator = SuggestionsComparator.DEFAULT): List<MetricInfo> {
+  fun evaluate(sessions: List<Session>): List<MetricInfo> {
     val result = metrics.map {
       MetricInfo(
         name = it.name,
         description = it.description,
-        value = it.evaluate(sessions, comparator).toDouble(),
+        value = it.evaluate(sessions).toDouble(),
         confidenceInterval = null,
         evaluationType = evaluationType,
         valueType = it.valueType,
@@ -51,7 +51,15 @@ class MetricsEvaluator private constructor(private val evaluationType: String) {
 
   fun result(): List<MetricInfo> {
     return metrics.map {
-      MetricInfo(it.name, it.description, it.value, it.confidenceInterval(), evaluationType, it.valueType, it.showByDefault)
+      MetricInfo(
+        name = it.name,
+        description = it.description,
+        value = it.value,
+        confidenceInterval = if (it.shouldComputeIntervals) it.confidenceInterval() else null,
+        evaluationType = evaluationType,
+        valueType = it.valueType,
+        showByDefault = it.showByDefault
+      )
     }
   }
 }

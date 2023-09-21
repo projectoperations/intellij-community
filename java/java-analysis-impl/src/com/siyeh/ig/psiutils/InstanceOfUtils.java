@@ -360,45 +360,63 @@ public final class InstanceOfUtils {
     if (identifier == null) {
       return false;
     }
-    if (instanceOf.getPattern() != null) return true;
-    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(variable.getProject());
-    PsiElement newExpression = factory.createExpressionFromText(instanceOf.getText() + " " + identifier.getText(), instanceOf);
 
-    PsiFile file = variable.getContainingFile();
-    if (file != instanceOf.getContainingFile()) {
-      return true;
-    }
-    PsiFile copyFile = (PsiFile)file.copy();
-    PsiInstanceOfExpression copyInstanceOf = PsiTreeUtil.findSameElementInCopy(instanceOf, copyFile);
-    PsiLocalVariable copyVariable = PsiTreeUtil.findSameElementInCopy(variable, copyFile);
-    copyVariable.delete();
-    newExpression = copyInstanceOf.replace(newExpression);
-    if (!(newExpression instanceof PsiInstanceOfExpression newInstanceOfExpression)) {
-      return true;
-    }
-    if (!(newInstanceOfExpression.getPattern() instanceof PsiTypeTestPattern typeTestPattern)) {
-      return true;
-    }
-    PsiPatternVariable patternVariable = typeTestPattern.getPatternVariable();
-    if (patternVariable == null) {
-      return true;
-    }
-    PsiElement scope = JavaSharedImplUtil.getPatternVariableDeclarationScope(newInstanceOfExpression);
+    PsiElement scope = JavaSharedImplUtil.getPatternVariableDeclarationScope(instanceOf);
     if (scope == null) {
       return false;
     }
-    return isConflictingNameDeclaredInside(patternVariable, scope);
+    boolean hasConflict = isConflictingNameDeclaredInside(variable, scope, false);
+    if (hasConflict) {
+      if (instanceOf.getPattern() != null) return true;
+      final PsiElementFactory factory = JavaPsiFacade.getElementFactory(variable.getProject());
+      PsiElement newExpression = factory.createExpressionFromText(instanceOf.getText() + " " + identifier.getText(), instanceOf);
+
+      PsiFile file = variable.getContainingFile();
+      if (file != instanceOf.getContainingFile()) {
+        return true;
+      }
+      PsiFile copyFile = (PsiFile)file.copy();
+      PsiInstanceOfExpression copyInstanceOf = PsiTreeUtil.findSameElementInCopy(instanceOf, copyFile);
+      PsiLocalVariable copyVariable = PsiTreeUtil.findSameElementInCopy(variable, copyFile);
+      copyVariable.delete();
+      newExpression = copyInstanceOf.replace(newExpression);
+      if (!(newExpression instanceof PsiInstanceOfExpression newInstanceOfExpression)) {
+        return true;
+      }
+      if (!(newInstanceOfExpression.getPattern() instanceof PsiTypeTestPattern typeTestPattern)) {
+        return true;
+      }
+      PsiPatternVariable patternVariable = typeTestPattern.getPatternVariable();
+      if (patternVariable == null) {
+        return true;
+      }
+      scope = JavaSharedImplUtil.getPatternVariableDeclarationScope(newInstanceOfExpression);
+      if (scope == null) {
+        return false;
+      }
+      return isConflictingNameDeclaredInside(patternVariable, scope, true);
+    }
+    return false;
   }
 
-  private static boolean isConflictingNameDeclaredInside(@Nullable PsiVariable myVariable,
-                                                         @Nullable PsiElement statement) {
-    if (myVariable == null || statement == null) return false;
+  /**
+   * Checks if there are other variables declared with the same name inside a given element.
+   *
+   * @param myVariable        the variable to check for conflicts
+   * @param element         the statement where to search for conflicts
+   * @param checkRedeclared   true if re-declaration of the variable should be counted as conflict
+   * @return true if other variables with the same name are found inside the statement, false otherwise
+   */
+  public static boolean isConflictingNameDeclaredInside(@Nullable PsiVariable myVariable,
+                                                         @Nullable PsiElement element,
+                                                         boolean checkRedeclared) {
+    if (myVariable == null || element == null) return false;
     PsiIdentifier identifier = myVariable.getNameIdentifier();
     if (identifier == null) {
       return false;
     }
-    HasDeclaredVariableWithTheSameNameVisitor visitor = new HasDeclaredVariableWithTheSameNameVisitor(myVariable);
-    statement.accept(visitor);
+    HasDeclaredVariableWithTheSameNameVisitor visitor = new HasDeclaredVariableWithTheSameNameVisitor(myVariable, checkRedeclared);
+    element.accept(visitor);
     return visitor.hasConflict;
   }
 
@@ -407,10 +425,12 @@ public final class InstanceOfUtils {
 
     private final PsiVariable myVariable;
     private final PsiIdentifier myIdentifier;
+    private final boolean myCheckRedeclared;
 
-    private HasDeclaredVariableWithTheSameNameVisitor(@NotNull PsiVariable variable) {
+    private HasDeclaredVariableWithTheSameNameVisitor(@NotNull PsiVariable variable, boolean checkRedeclared) {
       myVariable = variable;
       myIdentifier = variable.getNameIdentifier();
+      myCheckRedeclared = checkRedeclared;
       if (myIdentifier == null) {
         stopWalking();
       }
@@ -422,8 +442,10 @@ public final class InstanceOfUtils {
     @Override
     public void visitVariable(@NotNull PsiVariable variable) {
       String name = variable.getName();
-      if (name != null && myVariable != variable && myIdentifier.textMatches(name) &&
-          HighlightUtil.checkVariableAlreadyDefined(variable) != null) {
+      if (name != null &&
+          myVariable != variable &&
+          myIdentifier.textMatches(name) &&
+          (!myCheckRedeclared || HighlightUtil.checkVariableAlreadyDefined(variable) != null)) {
         hasConflict = true;
         stopWalking();
       }

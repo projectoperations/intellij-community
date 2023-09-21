@@ -12,7 +12,7 @@ import java.awt.Graphics
 import java.awt.Rectangle
 
 @ApiStatus.Experimental
-class InlineBlockElementRenderer(private val editor: Editor, val lines: List<String>) : EditorCustomElementRenderer {
+class InlineBlockElementRenderer(private val editor: Editor, val lines: List<String>) : EditorCustomElementRenderer, InlineCompletionElementRenderer {
 
   private val width = editor.contentComponent.getFontMetrics(InlineFontUtils.font(editor)).stringWidth(lines.maxBy { it.length })
 
@@ -21,18 +21,21 @@ class InlineBlockElementRenderer(private val editor: Editor, val lines: List<Str
   }
 
   override fun calcHeightInPixels(inlay: Inlay<*>): Int {
-    return editor.contentComponent.getFontMetrics(InlineFontUtils.font(editor)).height * lines.size
+    val lineSpacing = editor.getColorsScheme().getLineSpacing()
+    val fontHeight = editor.contentComponent.getFontMetrics(InlineFontUtils.font(editor)).height
+    return (fontHeight * lineSpacing * lines.size).toInt()
   }
 
   override fun paint(inlay: Inlay<*>, g: Graphics, targetRegion: Rectangle, textAttributes: TextAttributes) {
-    g.color = InlineFontUtils.color
+    g.color = InlineFontUtils.color(editor)
     g.font = InlineFontUtils.font(editor)
+    val lineSpacing = editor.getColorsScheme().getLineSpacing()
     val fontMetrics: FontMetrics = g.fontMetrics
     val lineHeight: Int = fontMetrics.height
     var y: Int = targetRegion.y + editor.ascent
     lines.forEach { line ->
       g.drawString(line, 0, y)
-      y += lineHeight
+      y += (lineHeight * lineSpacing).toInt()
     }
   }
 }

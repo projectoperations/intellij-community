@@ -5,6 +5,7 @@ import com.intellij.codeWithMe.ClientId
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.components.ComponentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.util.messages.MessageBus
 import org.jetbrains.annotations.ApiStatus
 
@@ -34,6 +35,7 @@ import org.jetbrains.annotations.ApiStatus
 interface ClientSession : ComponentManager {
   val clientId: ClientId
   val type: ClientType
+  val name: @NlsSafe String
 
   @Deprecated("sessions don't have their own message bus", level = DeprecationLevel.ERROR)
   override fun getMessageBus(): MessageBus {
@@ -60,6 +62,10 @@ interface ClientAppSession : ClientSession {
    * For remote-dev having several projects, or not having one open is natural same as in a local setup
    */
   val projectSessions: List<ClientProjectSession>
+
+  fun getProjectSession(project: Project): ClientProjectSession? {
+    return projectSessions.find { it.project == project }
+  }
 }
 
 /**

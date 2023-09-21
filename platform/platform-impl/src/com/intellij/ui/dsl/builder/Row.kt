@@ -126,10 +126,6 @@ interface Row {
                  maxLineLength: Int = DEFAULT_COMMENT_WIDTH,
                  action: HyperlinkEventAction = HyperlinkEventAction.HTML_HYPERLINK_INSTANCE): Row
 
-  @Deprecated("Use cell(component: T) and scrollCell(component: T) instead", level = DeprecationLevel.HIDDEN)
-  @ApiStatus.ScheduledForRemoval
-  fun <T : JComponent> cell(component: T, viewComponent: JComponent = component): Cell<T>
-
   /**
    * Adds [component]. Use this method only for custom specific components, all standard components like label, button,
    * checkbox etc are covered by dedicated [Row] factory methods
@@ -220,14 +216,27 @@ interface Row {
 
   fun button(@NlsContexts.Button text: String, action: AnAction, @NonNls actionPlace: String = ActionPlaces.UNKNOWN): Cell<JButton>
 
-  fun actionButton(action: AnAction, @NonNls actionPlace: String = ActionPlaces.UNKNOWN): Cell<ActionButton>
+  /**
+   * This method is moved into extension because Kotlin UI DSL is going to be moved into public API, but [ActionButton] is a part of impl API
+   * To fix compilation issue add `import com.intellij.ui.dsl.builder.actionButton`
+   */
+  @Deprecated("Use extension function com.intellij.ui.dsl.builder.ExtensionsKt.actionButton instead", level = DeprecationLevel.HIDDEN)
+  @ApiStatus.ScheduledForRemoval
+  fun actionButton(action: AnAction, @NonNls actionPlace: String = ActionPlaces.UNKNOWN): Cell<ActionButton> {
+    return actionButton(action, actionPlace)
+  }
 
   /**
-   * Creates an [ActionButton] with [icon] and menu with provided [actions]
+   * This method is moved into extension because Kotlin UI DSL is going to be moved into public API, but [ActionButton] is a part of impl API.
+   * To fix compilation issue add `import com.intellij.ui.dsl.builder.actionsButton`
    */
+  @Deprecated("Use extension function com.intellij.ui.dsl.builder.ExtensionsKt.actionButton instead", level = DeprecationLevel.HIDDEN)
+  @ApiStatus.ScheduledForRemoval
   fun actionsButton(vararg actions: AnAction,
                     @NonNls actionPlace: String = ActionPlaces.UNKNOWN,
-                    icon: Icon = AllIcons.General.GearPlain): Cell<ActionButton>
+                    icon: Icon = AllIcons.General.GearPlain): Cell<ActionButton> {
+    return actionsButton(*actions, actionPlace = actionPlace, icon = icon)
+  }
 
   @Deprecated("Use overloaded method", level = DeprecationLevel.HIDDEN)
   @ApiStatus.ScheduledForRemoval
@@ -376,10 +385,6 @@ interface Row {
    * @see listCellRenderer
    */
   fun <T> comboBox(items: Collection<T>, renderer: ListCellRenderer<in T?>? = null): Cell<ComboBox<T>>
-
-  @Deprecated("Use overloaded comboBox(...) with Collection", level = DeprecationLevel.HIDDEN)
-  @ApiStatus.ScheduledForRemoval
-  fun <T> comboBox(items: Array<T>, renderer: ListCellRenderer<T?>? = null): Cell<ComboBox<T>>
 
   /**
    * Overrides all gaps around row by [customRowGaps]. Should be used for very specific cases

@@ -1,18 +1,14 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions;
 
 import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.FeedbackDescriptionProvider;
 import com.intellij.ide.IdeBundle;
-import com.intellij.ide.feedback.FeedbackForm;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
-import com.intellij.openapi.application.impl.ZenDeskForm;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -20,7 +16,8 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.registry.Registry;
+import com.intellij.platform.ide.customization.ExternalProductResourceUrls;
+import com.intellij.platform.ide.customization.FeedbackReporter;
 import com.intellij.ui.LicensingFacade;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.io.URLUtil;
@@ -30,16 +27,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-public class SendFeedbackAction extends AnAction implements DumbAware {
+public final class SendFeedbackAction extends AnAction implements DumbAware {
   @Override
   public void update(@NotNull AnActionEvent e) {
-    ApplicationInfoEx info = ApplicationInfoEx.getInstanceEx();
     boolean isSupportedOS = SystemInfo.isMac || SystemInfo.isLinux || SystemInfo.isWindows;
-    if (info != null && info.getFeedbackUrl() != null && isSupportedOS) {
-      String feedbackSite = getFeedbackHost(info.getFeedbackUrl(), info.getCompanyName());
+    FeedbackReporter feedbackReporter = ExternalProductResourceUrls.getInstance().getFeedbackReporter();
+    if (feedbackReporter != null && isSupportedOS) {
+      String feedbackSite = feedbackReporter.getDestinationDescription();
       e.getPresentation().setDescription(ActionsBundle.messagePointer("action.SendFeedback.detailed.description", feedbackSite));
       e.getPresentation().setEnabledAndVisible(true);
     }
@@ -53,20 +48,14 @@ public class SendFeedbackAction extends AnAction implements DumbAware {
     return ActionUpdateThread.BGT;
   }
 
-  private static String getFeedbackHost(String feedbackUrl, String companyName) {
-    Pattern uriPattern = Pattern.compile("[^:/?#]+://(?:www\\.)?([^/?#]*).*", Pattern.DOTALL);
-    Matcher matcher = uriPattern.matcher(feedbackUrl);
-    return matcher.matches() ? matcher.group(1) : companyName;
-  }
-
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
-    ZenDeskForm feedbackForm = ((ApplicationInfoImpl)ApplicationInfo.getInstance()).getFeedbackForm();
-    if (Registry.is("ide.in.product.feedback") && feedbackForm != null) {
-      new FeedbackForm(e.getProject(), feedbackForm, false).show();
-    }
-    else {
-      submit(e.getProject());
+    FeedbackReporter feedbackReporter = ExternalProductResourceUrls.getInstance().getFeedbackReporter();
+    if (feedbackReporter != null) {
+      boolean formShown = feedbackReporter.showFeedbackForm(e.getProject(), false);
+      if (!formShown) {
+        submit(e.getProject());
+      }
     }
   }
 
@@ -75,15 +64,31 @@ public class SendFeedbackAction extends AnAction implements DumbAware {
 
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
-        submit(project, ApplicationInfoEx.getInstanceEx().getFeedbackUrl(), getDescription(project));
+        openFeedbackPageInBrowser(project, getDescription(project));
       }
     });
   }
 
+  /**
+   * @deprecated use {@link FeedbackDescriptionProvider} extension point to provide additional data to description used by the default
+   * 'Send Feedback' action instead of implementing your own action and calling this method.
+   */
+  @Deprecated(forRemoval = true)
   public static void submit(@Nullable Project project, @NotNull String description) {
-    submit(project, ApplicationInfoEx.getInstanceEx().getFeedbackUrl(), description);
+    openFeedbackPageInBrowser(project, description);
   }
 
+  private static void openFeedbackPageInBrowser(@Nullable Project project, @NotNull String description) {
+    FeedbackReporter feedbackReporter = ExternalProductResourceUrls.getInstance().getFeedbackReporter();
+    if (feedbackReporter == null) return;
+    BrowserUtil.browse(feedbackReporter.feedbackFormUrl(description).toExternalForm(), project);
+  }
+
+  /**
+   * @deprecated use {@link FeedbackDescriptionProvider} extension point to provide additional data to description used by the default 
+   * 'Send Feedback' action instead of implementing your own action and calling this method.
+   */
+  @Deprecated
   public static void submit(@Nullable Project project, @NotNull String urlTemplate, @NotNull String description) {
     ApplicationInfoEx appInfo = ApplicationInfoEx.getInstanceEx();
     boolean eap = appInfo.isEAP();

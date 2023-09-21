@@ -2,7 +2,6 @@
 
 package org.jetbrains.kotlin.idea.caches.project
 
-import com.intellij.ProjectTopics
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.components.service
@@ -67,8 +66,8 @@ interface IdeaModelInfosCache {
 }
 
 class FineGrainedIdeaModelInfosCache(private val project: Project) : IdeaModelInfosCache, Disposable {
-    private val moduleCache: ModuleCache
-    private val sdkCache: SdkCache
+    private val moduleCache = ModuleCache()
+    private val sdkCache = SdkCache()
 
     private val resultByPlatform: CachedValue<MutableMap<TargetPlatform, List<IdeaModuleInfo>>>
     private val modulesAndSdk: CachedValue<List<IdeaModuleInfo>>
@@ -76,9 +75,6 @@ class FineGrainedIdeaModelInfosCache(private val project: Project) : IdeaModelIn
     private val modificationTracker = SimpleModificationTracker()
 
     init {
-        moduleCache = ModuleCache()
-        sdkCache = SdkCache()
-
         val cachedValuesManager = CachedValuesManager.getManager(project)
         resultByPlatform = cachedValuesManager.createCachedValue {
             CachedValueProvider.Result.create(
@@ -256,7 +252,7 @@ class FineGrainedIdeaModelInfosCache(private val project: Project) : IdeaModelIn
 
         override fun subscribe(connection: MessageBusConnection) {
             connection.subscribe(ProjectJdkTable.JDK_TABLE_TOPIC, this)
-            connection.subscribe(ProjectTopics.PROJECT_ROOTS, this)
+            connection.subscribe(ModuleRootListener.TOPIC, this)
         }
 
         override fun checkKeyValidity(key: Sdk) = Unit

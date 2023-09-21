@@ -3,9 +3,11 @@ package com.intellij.cce.metric
 
 import com.intellij.cce.core.Lookup
 import com.intellij.cce.core.Session
-import com.intellij.cce.core.SuggestionKind
 import com.intellij.cce.metric.util.Bootstrap
-import org.apache.commons.lang.StringUtils
+import org.apache.commons.lang3.StringUtils
+import org.apache.commons.text.similarity.LevenshteinDistance
+import kotlin.math.max
+import kotlin.math.min
 
 abstract class SimilarityMetric(override val showByDefault: Boolean) : Metric {
   private var totalMatched: Double = 0.0
@@ -20,7 +22,7 @@ abstract class SimilarityMetric(override val showByDefault: Boolean) : Metric {
     values.sumOf { it.first } / values.sumOf { it.second }
   }
 
-  override fun evaluate(sessions: List<Session>, comparator: SuggestionsComparator): Double {
+  override fun evaluate(sessions: List<Session>): Double {
     var matched = 0.0
     var expected = 0.0
     for (session in sessions) {
@@ -51,9 +53,24 @@ class MatchedRatio(showByDefault: Boolean = false) : SimilarityMetric(showByDefa
     if (lookup.selectedPosition == -1)
       return null
     val selected = lookup.suggestions[lookup.selectedPosition]
-    if (selected.kind == SuggestionKind.TOKEN)
-      return null
     return selected.text.length.toDouble() - lookup.prefix.length
+  }
+}
+
+class MatchedRatioAt(showByDefault: Boolean = false, val n: Int) : SimilarityMetric(showByDefault) {
+  override val name = "Matched Ratio At $n"
+  override val description: String = "Length of the longest matching proposal among top-$n normalized by expected text (avg by invocations)"
+
+  override fun computeSimilarity(lookup: Lookup, expectedText: String): Double {
+    val numConsideredSuggestions = min(n, lookup.suggestions.size)
+    var maxMatchedLen = 0
+    for (i in 0 until numConsideredSuggestions) {
+      if (lookup.suggestions[i].isRelevant) {
+        val selected = lookup.suggestions[i]
+        maxMatchedLen = max(maxMatchedLen, selected.text.length - lookup.prefix.length)
+      }
+    }
+    return maxMatchedLen.toDouble()
   }
 }
 
@@ -63,7 +80,7 @@ class PrefixSimilarity(showByDefault: Boolean = false) : SimilarityMetric(showBy
 
   override fun computeSimilarity(lookup: Lookup, expectedText: String): Double? =
     lookup.suggestions.maxOfOrNull {
-      StringUtils.getCommonPrefix(arrayOf(it.text.drop(lookup.prefix.length), expectedText)).length
+      StringUtils.getCommonPrefix(it.text.drop(lookup.prefix.length), expectedText).length
     }?.toDouble()
 }
 
@@ -71,8 +88,9 @@ class EditSimilarity(showByDefault: Boolean = false) : SimilarityMetric(showByDe
   override val name = "Edit Similarity"
   override val description: String = "The minimum edit similarity among proposals normalized by expected text (avg by invocations)"
 
-  override fun computeSimilarity(lookup: Lookup, expectedText: String): Double? =
-    lookup.suggestions.maxOfOrNull {
-      expectedText.length - StringUtils.getLevenshteinDistance(it.text.drop(lookup.prefix.length), expectedText)
+  override fun computeSimilarity(lookup: Lookup, expectedText: String): Double? {
+    return lookup.suggestions.maxOfOrNull {
+      expectedText.length - LevenshteinDistance.getDefaultInstance().apply(it.text.drop(lookup.prefix.length), expectedText)
     }?.toDouble()
+  }
 }

@@ -1,7 +1,8 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.diagnostic.telemetry.impl
 
-import com.intellij.diagnostic.*
+import com.intellij.diagnostic.ActivityImpl
+import com.intellij.diagnostic.PluginException
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
@@ -12,17 +13,21 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.util.Ref
 import com.intellij.platform.diagnostic.telemetry.*
+import com.intellij.platform.diagnostic.telemetry.exporters.JaegerJsonSpanExporter
+import com.intellij.platform.diagnostic.telemetry.exporters.OtlpSpanExporter
 import com.intellij.platform.diagnostic.telemetry.impl.otExporters.OpenTelemetryExporterProvider
 import com.intellij.util.childScope
-import io.opentelemetry.api.OpenTelemetry
+import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.metrics.Meter
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator
+import io.opentelemetry.context.propagation.ContextPropagators
 import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.resources.Resource
-import io.opentelemetry.semconv.resource.attributes.ResourceAttributes
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -32,7 +37,7 @@ import kotlin.coroutines.CoroutineContext
 @ApiStatus.Experimental
 @ApiStatus.Internal
 class TelemetryManagerImpl(app: Application) : TelemetryManager {
-  private val sdk: OpenTelemetry
+  private val sdk: OpenTelemetrySdk
 
   private val otlpService by lazy {
     ApplicationManager.getApplication().service<OtlpService>()
@@ -54,7 +59,10 @@ class TelemetryManagerImpl(app: Application) : TelemetryManager {
     val spanExporters = createSpanExporters(configurator.resource)
     hasSpanExporters = !spanExporters.isEmpty()
     configurator.registerSpanExporters(spanExporters = spanExporters)
+
+    // W3CTraceContextPropagator is needed to make backend/client spans properly synced, issue: RDCT-408
     sdk = configurator.getConfiguredSdkBuilder()
+      .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance()))
       .buildAndRegisterGlobal()
   }
 
@@ -75,6 +83,19 @@ class TelemetryManagerImpl(app: Application) : TelemetryManager {
 
   override fun getSimpleTracer(scope: Scope): IntelliJTracer {
     return if (hasSpanExporters) IntelliJTracerImpl(scope, otlpService) else NoopIntelliJTracer
+  }
+
+  override fun forceFlushMetrics() {
+    logger<TelemetryManagerImpl>().info("Forcing flushing OpenTelemetry metrics ...")
+
+    listOf(
+      sdk.sdkMeterProvider.forceFlush(),
+      sdk.sdkTracerProvider.forceFlush()
+    ).forEach { it.join(10, TimeUnit.SECONDS) }
+
+    aggregatedMetricExporter.flush().join(10, TimeUnit.SECONDS)
+
+    logger<TelemetryManagerImpl>().info("OpenTelemetry metrics were flushed")
   }
 }
 
@@ -121,9 +142,9 @@ private fun createSpanExporters(resource: Resource): List<AsyncSpanExporter> {
   System.getProperty("idea.diagnostic.opentelemetry.file")?.let { traceFile ->
     spanExporters.add(JaegerJsonSpanExporter(
       file = Path.of(traceFile),
-      serviceName = resource.getAttribute(ResourceAttributes.SERVICE_NAME)!!,
-      serviceVersion = resource.getAttribute(ResourceAttributes.SERVICE_VERSION),
-      serviceNamespace = resource.getAttribute(ResourceAttributes.SERVICE_NAMESPACE),
+      serviceName = resource.getAttribute(AttributeKey.stringKey("service.name"))!!,
+      serviceVersion = resource.getAttribute(AttributeKey.stringKey("service.version")),
+      serviceNamespace = resource.getAttribute(AttributeKey.stringKey("service.namespace")),
     ))
   }
 
@@ -156,7 +177,7 @@ private fun createOpenTelemetryConfigurator(mainScope: CoroutineScope, appInfo: 
     customResourceBuilder = {
       // don't write username to file - it maybe private information
       if (getOtlpEndPoint() != null) {
-        it.put(ResourceAttributes.PROCESS_OWNER, System.getProperty("user.name") ?: "unknown")
+        it.put(AttributeKey.stringKey("process.owner"), System.getProperty("user.name") ?: "unknown")
       }
     },
   )

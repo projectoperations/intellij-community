@@ -5,12 +5,12 @@
 package com.intellij.util.concurrency
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.util.childScope
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
-import org.jetbrains.annotations.VisibleForTesting
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
@@ -32,15 +32,20 @@ fun createSingleTaskApplicationPoolExecutor(name: String, coroutineScope: Corout
                                            context = Dispatchers.IO.limitedParallelism(1) + CoroutineName(name))
 }
 
-@VisibleForTesting
-class CoroutineDispatcherBackedExecutor(coroutineScope: CoroutineScope,
-                                        private val context: CoroutineContext) : Executor {
+@Internal
+class CoroutineDispatcherBackedExecutor(coroutineScope: CoroutineScope, private val context: CoroutineContext) : Executor {
   private val childScope = coroutineScope.childScope()
+
+  fun isEmpty(): Boolean = childScope.coroutineContext.job.children.none()
 
   override fun execute(it: Runnable) {
     childScope.launch(context) {
       // blockingContext not used by intention - low-level tasks are expected in a such executors
-      it.run()
+      try {
+        it.run()
+      }
+      catch (_: ProcessCanceledException) {
+      }
     }
   }
 

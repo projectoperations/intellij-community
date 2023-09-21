@@ -71,10 +71,6 @@ object ExpectedCompletionUtils {
             return expectedProposal.map.entries.none { expected ->
                 val actualValues = when (expected.key) {
                     in ignoreProperties -> return@none false
-                    "lookupString" -> {
-                        // FIR IDE adds `.` after package names in completion
-                        listOf(map[expected.key]?.removeSuffix("."), map[expected.key])
-                    }
                     else -> listOf(map[expected.key])
                 }
                 expected.value !in actualValues
@@ -155,9 +151,10 @@ object ExpectedCompletionUtils {
         BLOCK_CODE_FRAGMENT,
         AstAccessControl.ALLOW_AST_ACCESS_DIRECTIVE,
         IgnoreTests.DIRECTIVES.FIR_COMPARISON,
+        IgnoreTests.DIRECTIVES.IGNORE_K2,
         IgnoreTests.DIRECTIVES.FIR_IDENTICAL,
         IgnoreTests.DIRECTIVES.FIR_COMPARISON_MULTILINE_COMMENT,
-        IgnoreTests.DIRECTIVES.IGNORE_FE10,
+        IgnoreTests.DIRECTIVES.IGNORE_K1,
     )
 
     fun itemsShouldExist(fileText: String, platform: TargetPlatform?): Array<CompletionProposal> = when {

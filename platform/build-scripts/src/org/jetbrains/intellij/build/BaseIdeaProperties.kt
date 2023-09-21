@@ -8,15 +8,12 @@ import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.PlatformJarNames.TEST_FRAMEWORK_JAR
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.kotlin.KotlinPluginBuilder
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 
 private val BASE_CLASS_VERSIONS = persistentHashMapOf(
   "" to "17",
   "lib/idea_rt.jar" to "1.7",
   "lib/forms_rt.jar" to "1.7",
-  "lib/annotations.jar" to "1.7",
+  "lib/annotations.jar" to "1.8",
   "lib/util_rt.jar" to "1.7",
   "lib/util-8.jar" to "1.8",
   "lib/external-system-rt.jar" to "1.7",
@@ -151,9 +148,9 @@ abstract class BaseIdeaProperties : JetBrainsProductProperties() {
       }
       //todo currently intellij.platform.testFramework included into idea.jar depends on this jar so it cannot be moved to java plugin
       layout.withModule("intellij.java.rt", "idea_rt.jar")
-      // for compatibility with users' projects which take these libraries from IDEA installation
-      layout.withProjectLibrary("jetbrains-annotations", LibraryPackMode.STANDALONE_SEPARATE_WITHOUT_VERSION_NAME)
-      // for compatibility with users projects which refer to IDEA_HOME/lib/junit.jar
+      // for compatibility with user projects which refer to IDEA_HOME/lib/annotations.jar
+      layout.withProjectLibrary("jetbrains-annotations", "annotations.jar")
+      // for compatibility with user projects which refer to IDEA_HOME/lib/junit.jar
       layout.withProjectLibrary("JUnit3", LibraryPackMode.STANDALONE_SEPARATE_WITHOUT_VERSION_NAME)
 
       layout.withoutProjectLibrary("Ant")
@@ -181,12 +178,5 @@ abstract class BaseIdeaProperties : JetBrainsProductProperties() {
     modulesToCompileTests = persistentListOf("intellij.platform.jps.build.tests")
 
     isAntRequired = true
-  }
-
-  override suspend fun copyAdditionalFiles(context: BuildContext, targetDirectory: String) {
-    val targetDir = Path.of(targetDirectory)
-    // for compatibility with user projects which refer to IDEA_HOME/lib/annotations.jar
-    Files.move(targetDir.resolve("lib/annotations-java5.jar"), targetDir.resolve("lib/annotations.jar"),
-               StandardCopyOption.REPLACE_EXISTING)
   }
 }

@@ -11,6 +11,7 @@ import com.intellij.codeInsight.intention.impl.ShowIntentionActionsHandler
 import com.intellij.codeInspection.SuppressableProblemGroup
 import com.intellij.codeInspection.ex.QuickFixWrapper
 import com.intellij.internal.statistic.eventLog.StatisticsEventLoggerProvider
+import com.intellij.modcommand.ModCommandAction
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.extensions.LoadingOrder
@@ -34,9 +35,11 @@ import org.jetbrains.kotlin.idea.facet.KotlinFacet
 import org.jetbrains.kotlin.idea.statistic.FilterableTestStatisticsEventLoggerProvider
 import org.jetbrains.kotlin.idea.test.*
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.test.utils.IgnoreTests
 import org.junit.Assert
 import org.junit.ComparisonFailure
 import java.io.File
+import java.nio.file.Paths
 
 abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), QuickFixTest {
     companion object {
@@ -93,6 +96,10 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
         )
     }
 
+    protected open val disableTestDirective: String
+        get() = if (isFirPlugin) IgnoreTests.DIRECTIVES.IGNORE_K2 else IgnoreTests.DIRECTIVES.IGNORE_K1
+
+
     protected open fun doTest(beforeFileName: String) {
         val beforeFile = File(beforeFileName)
         val beforeFileText = FileUtil.loadFile(beforeFile)
@@ -100,16 +107,23 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
         withCustomCompilerOptions(beforeFileText, project, module) {
             loadScriptConfiguration()
 
-            val inspections = parseInspectionsToEnable(beforeFileName, beforeFileText).toTypedArray()
-            try {
-                myFixture.enableInspections(*inspections)
+            IgnoreTests.runTestIfNotDisabledByFileDirective(Paths.get(beforeFileName), disableTestDirective) {
+                val inspections = parseInspectionsToEnable(beforeFileName, beforeFileText).toTypedArray()
 
-                doKotlinQuickFixTest(beforeFileName)
-                checkForUnexpectedErrors()
+                try {
+                    myFixture.enableInspections(*inspections)
+
+                    doKotlinQuickFixTest(beforeFileName)
+                    checkForUnexpectedErrors()
+                } finally {
+                    myFixture.disableInspections(*inspections)
+                }
+            }
+            // if `disableTestDirective` is present in the file and `runTestIfNotDisabledByFileDirective` doesn't throw an exception
+            // (meaning that the test indeed doesn't pass), don't run other checks
+            if (beforeFileText.lines().none { it.startsWith(disableTestDirective) }) {
                 checkFusEvents(beforeFile, beforeFileText)
                 PsiTestUtil.checkPsiStructureWithCommit(file, PsiTestUtil::checkPsiMatchesTextIgnoringNonCode)
-            } finally {
-                myFixture.disableInspections(*inspections)
             }
         }
     }
@@ -264,7 +278,9 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
 
             val unwrappedIntention = unwrapIntention(intention)
             if (shouldCheckIntentionActionType) {
-                assertInstanceOf(unwrappedIntention, QuickFixActionBase::class.java)
+                if (intention.asModCommandAction() == null) {
+                    assertInstanceOf(unwrappedIntention, QuickFixActionBase::class.java)
+                }
             }
             val priorityName = InTextDirectivesUtils.findStringWithPrefixes(contents, "// $PRIORITY_DIRECTIVE: ")
             if (priorityName != null) {
@@ -349,7 +365,9 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
         if (actionHint.expectedText.startsWith(prefix)) {
             val className = actionHint.expectedText.substring(prefix.length)
             val aClass = Class.forName(className)
-            assert(IntentionAction::class.java.isAssignableFrom(aClass)) { "$className should be inheritor of IntentionAction" }
+            assert(IntentionAction::class.java.isAssignableFrom(aClass) || ModCommandAction::class.java.isAssignableFrom(aClass)) {
+                "$className should be inheritor of IntentionAction or ModCommandAction"
+            }
 
             val validActions = HashSet(InTextDirectivesUtils.findLinesWithPrefixesRemoved(text, DirectiveBasedActionUtils.ACTION_DIRECTIVE))
 

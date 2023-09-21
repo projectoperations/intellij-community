@@ -3,6 +3,7 @@ package com.intellij.openapi.actionSystem.impl
 
 import com.intellij.CommonBundle
 import com.intellij.concurrency.SensitiveProgressWrapper
+import com.intellij.concurrency.resetThreadContext
 import com.intellij.diagnostic.PluginException
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeEventQueue
@@ -34,8 +35,8 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtilRt
-import com.intellij.openapi.wm.impl.IdeMenuBar
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
+import com.intellij.platform.ide.menu.IdeJMenuBar
 import com.intellij.platform.ide.menu.MacNativeActionMenuItem
 import com.intellij.platform.ide.menu.createMacNativeActionMenu
 import com.intellij.ui.AnimatedIcon
@@ -281,12 +282,14 @@ object Utils {
       val queue = IdeEventQueue.getInstance()
       val contextComponent = PlatformCoreDataKeys.CONTEXT_COMPONENT.getData(wrapped)
       try {
-        cancelOnUserActivityInside(promise, contextComponent, menuItem).use {
-          ourExpandActionGroupImplEDTLoopLevel++
-          list = runLoopAndWaitForFuture(promise, emptyList(), true) {
-            val event = queue.getNextEvent()
-            queue.dispatchEvent(event)
-            true
+        resetThreadContext().use {
+          cancelOnUserActivityInside(promise, contextComponent, menuItem).use {
+            ourExpandActionGroupImplEDTLoopLevel++
+            list = runLoopAndWaitForFuture(promise, emptyList(), true) {
+              val event = queue.getNextEvent()
+              queue.dispatchEvent(event)
+              true
+            }
           }
         }
       }
@@ -443,12 +446,13 @@ object Utils {
     val rootPane = if (point == null) null else UIUtil.getRootPane(point.component)
     val glassPane = (if (rootPane == null) null else rootPane.glassPane as JComponent?) ?: return null
     val comp = point!!.originalComponent
-    if ((comp is ActionMenu && comp.getParent() is IdeMenuBar) ||
+    if ((comp is ActionMenu && comp.getParent() is IdeJMenuBar) ||
         (ActionPlaces.EDITOR_GUTTER_POPUP == place &&
          comp is EditorGutterComponentEx &&
          comp.getGutterRenderer(point.originalPoint) != null)) {
       return null
     }
+
     val isMenuItem = comp is ActionMenu
     val icon = JLabel(if (isMenuItem) AnimatedIcon.Default.INSTANCE else AnimatedIcon.Big.INSTANCE)
     val size = icon.getPreferredSize()
@@ -909,7 +913,7 @@ object Utils {
       cancelAllUpdates("'$place' invoked")
       val promise = newPromise<T>(place)
       val parentIndicator = ProgressIndicatorProvider.getGlobalProgressIndicator()
-      ourBeforePerformedExecutor.execute {
+      beforePerformedExecutor.execute {
         try {
           var ref: T? = null
           val computable = ThrowableComputable<Void?, RuntimeException> {

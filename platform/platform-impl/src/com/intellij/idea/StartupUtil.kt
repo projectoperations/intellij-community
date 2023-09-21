@@ -6,13 +6,13 @@ package com.intellij.idea
 
 import com.intellij.BundleBase
 import com.intellij.accessibility.AccessibilityUtils
+import com.intellij.concurrency.ConcurrentCollectionFactory
 import com.intellij.diagnostic.*
 import com.intellij.ide.*
 import com.intellij.ide.bootstrap.*
 import com.intellij.ide.gdpr.EndUserAgreement
 import com.intellij.ide.instrument.WriteIntentLockInstrumenter
 import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.ide.ui.laf.IntelliJLaf
 import com.intellij.idea.DirectoryLock.CannotActivateException
 import com.intellij.jna.JnaLoader
 import com.intellij.openapi.application.*
@@ -34,9 +34,11 @@ import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.ui.*
 import com.intellij.ui.mac.initMacApplication
 import com.intellij.ui.mac.screenmenu.Menu
-import com.intellij.ui.svg.createSvgCacheManager
-import com.intellij.ui.svg.svgCache
+import com.intellij.ui.svg.SvgCacheManager
 import com.intellij.util.*
+import com.intellij.util.containers.ConcurrentLongObjectMap
+import com.intellij.util.containers.SLRUMap
+import com.intellij.util.io.*
 import com.intellij.util.lang.ZipFilePool
 import com.jetbrains.JBR
 import io.opentelemetry.sdk.OpenTelemetrySdkBuilder
@@ -48,16 +50,14 @@ import java.io.IOException
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
 import java.lang.management.ManagementFactory
-import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
-import java.nio.file.attribute.PosixFileAttributeView
-import java.nio.file.attribute.PosixFilePermission
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.*
+import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicReference
 import java.util.function.BiConsumer
 import java.util.function.BiFunction
@@ -65,6 +65,7 @@ import java.util.logging.ConsoleHandler
 import java.util.logging.Level
 import javax.swing.*
 import kotlin.coroutines.CoroutineContext
+import kotlin.io.path.deleteIfExists
 import kotlin.system.exitProcess
 
 internal const val IDE_STARTED: String = "------------------------------------------------------ IDE STARTED ------------------------------------------------------"
@@ -94,8 +95,9 @@ private val commandProcessor: AtomicReference<(List<String>) -> Deferred<CliResu
 internal var shellEnvDeferred: Deferred<Boolean?>? = null
   private set
 
-// the main thread's dispatcher is sequential - use it with care
+  // the main thread's dispatcher is sequential - use it with care
 fun CoroutineScope.startApplication(args: List<String>,
+                                    mainClassLoaderDeferred: Deferred<ClassLoader>,
                                     appStarterDeferred: Deferred<AppStarter>,
                                     mainScope: CoroutineScope,
                                     busyThread: Thread) {
@@ -108,9 +110,12 @@ fun CoroutineScope.startApplication(args: List<String>,
     }
   }
 
-  val appInfoDeferred = async(CoroutineName("app info")) {
-    // required for DisabledPluginsState and EUA
-    ApplicationInfoImpl.getShadowInstance()
+  val appInfoDeferred = async {
+    mainClassLoaderDeferred.await()
+    span("app info") {
+      // required for DisabledPluginsState and EUA
+      ApplicationInfoImpl.getShadowInstance()
+    }
   }
 
   val isHeadless = AppMode.isHeadless()
@@ -137,13 +142,14 @@ fun CoroutineScope.startApplication(args: List<String>,
     }
   }
 
-  val initAwtToolkitAndEventQueueJob = scheduleInitAwtToolkitAndEventQueue(lockSystemDirsJob, busyThread, isHeadless)
-
-  val initLafJob = launch {
-    initAwtToolkitAndEventQueueJob.join()
-    // SwingDispatcher must be used after Toolkit init
-    span("initUi", RawSwingDispatcher) {
-      initUi(isHeadless)
+  val initAwtToolkitJob = scheduleInitAwtToolkit(lockSystemDirsJob, busyThread)
+  val initEventQueueJob = scheduleInitIdeEventQueue(initAwtToolkitJob, isHeadless)
+  val initLafJob = scheduleInitUi(initAwtToolkitJob, isHeadless)
+  if (!isHeadless) {
+    showSplashIfNeeded(initUiDeferred = initLafJob, appInfoDeferred = appInfoDeferred, args = args)
+    updateFrameClassAndWindowIconAndPreloadSystemFonts(initLafJob)
+    launch {
+      patchHtmlStyle(initLafJob)
     }
   }
 
@@ -178,25 +184,35 @@ fun CoroutineScope.startApplication(args: List<String>,
   // log initialization must happen only after locking the system directory
   val logDeferred = setupLogger(consoleLoggerJob, checkSystemDirJob)
 
+  launch {
+    // PHM wants logger
+    logDeferred.join()
+
+    span("PHM classes preloading", Dispatchers.IO) {
+      val classLoader = AppStarter::class.java.classLoader
+      Class.forName(PersistentMapBuilder::class.java.name, true, classLoader)
+      Class.forName(PersistentMapImpl::class.java.name, true, classLoader)
+      Class.forName(PersistentEnumerator::class.java.name, true, classLoader)
+      Class.forName(ResizeableMappedFile::class.java.name, true, classLoader)
+      Class.forName(PagedFileStorage::class.java.name, true, classLoader)
+      Class.forName(PageCacheUtils::class.java.name, true, classLoader)
+      Class.forName(PersistentHashMapValueStorage::class.java.name, true, classLoader)
+      Class.forName(SLRUMap::class.java.name, true, classLoader)
+    }
+
+    if (!isHeadless) {
+      span("SvgCache creation") {
+        SvgCacheManager.svgCache = SvgCacheManager.createSvgCacheManager()
+      }
+    }
+  }
+
   shellEnvDeferred = async {
     // EnvironmentUtil wants logger
     logDeferred.join()
     span("environment loading", Dispatchers.IO) {
       EnvironmentUtil.loadEnvironment(coroutineContext.job)
     }
-  }
-
-  if (!isHeadless) {
-    showSplashIfNeeded(initUiDeferred = initLafJob, appInfoDeferred = appInfoDeferred, args = args)
-
-    launch {
-      lockSystemDirsJob.join()
-      span("SvgCache creation") {
-        svgCache = createSvgCacheManager(cacheFile = getSvgIconCacheFile())
-      }
-    }
-
-    updateFrameClassAndWindowIconAndPreloadSystemFonts(initLafJob)
   }
 
   loadSystemLibsAndLogInfoAndInitMacApp(logDeferred, appInfoDeferred, initLafJob, args, mainScope)
@@ -224,7 +240,10 @@ fun CoroutineScope.startApplication(args: List<String>,
       }
     }
 
-    PluginManagerCore.scheduleDescriptorLoading(coroutineScope = asyncScope, zipFilePoolDeferred = zipFilePoolDeferred)
+    PluginManagerCore.scheduleDescriptorLoading(coroutineScope = asyncScope,
+                                                zipFilePoolDeferred = zipFilePoolDeferred,
+                                                mainClassLoaderDeferred = mainClassLoaderDeferred,
+                                                logDeferred = logDeferred)
   }
 
   val isInternal = java.lang.Boolean.getBoolean(ApplicationManagerEx.IS_INTERNAL_PROPERTY)
@@ -257,13 +276,14 @@ fun CoroutineScope.startApplication(args: List<String>,
       runPreAppClass(args = args, classBeforeAppProperty = classBeforeAppProperty)
     }
 
+    appInfoDeferred.join() //used in ApplicationImpl::registerFakeServices
     val app = span("app instantiation") {
       // we don't want to inherit mainScope Dispatcher and CoroutineTimeMeasurer, we only want the job
       ApplicationImpl(CoroutineScope(mainScope.coroutineContext.job).namedChildScope("Application"), isInternal)
     }
 
     loadApp(app = app,
-            initAwtToolkitAndEventQueueJob = initAwtToolkitAndEventQueueJob,
+            initAwtToolkitAndEventQueueJob = initEventQueueJob,
             pluginSetDeferred = pluginSetDeferred,
             euaDocumentDeferred = euaDocumentDeferred,
             asyncScope = asyncScope,
@@ -306,7 +326,8 @@ fun isConfigImportNeeded(configPath: Path): Boolean {
  * This property is used to override the default target directory ([PathManager.getConfigPath]) when a custom way to read and write
  * configuration files is implemented.
  */
-@get:Internal @set:Internal
+@get:Internal
+@set:Internal
 var customTargetDirectoryToImportConfig: Path? = null
 
 @Suppress("SpellCheckingInspection")
@@ -348,14 +369,22 @@ private fun CoroutineScope.loadSystemLibsAndLogInfoAndInitMacApp(logDeferred: De
   }
 }
 
-private fun CoroutineScope.showSplashIfNeeded(initUiDeferred: Job, appInfoDeferred: Deferred<ApplicationInfoEx>, args: List<String>) {
+private fun CoroutineScope.showSplashIfNeeded(initUiDeferred: Job, appInfoDeferred: Deferred<ApplicationInfo>, args: List<String>) {
   if (AppMode.isLightEdit()) {
     return
   }
 
   launch(CoroutineName("showSplashIfNeeded")) {
     if (CommandLineArgs.isSplashNeeded(args)) {
-      showSplashIfNeeded(initUiDeferred = initUiDeferred, appInfoDeferred = appInfoDeferred)
+      try {
+        showSplashIfNeeded(initUiDeferred = initUiDeferred, appInfoDeferred = appInfoDeferred)
+      }
+      catch (e: CancellationException) {
+        throw e
+      }
+      catch (e: Throwable) {
+        logger<AppStarter>().warn("Cannot show splash", e)
+      }
     }
   }
 }
@@ -366,10 +395,10 @@ fun processWindowsLauncherCommandLine(currentDirectory: String, args: Array<Stri
 
 @get:Internal
 val isImplicitReadOnEDTDisabled: Boolean
-  get() = java.lang.Boolean.getBoolean(DISABLE_IMPLICIT_READ_ON_EDT_PROPERTY)
+  get() = "false" != System.getProperty(DISABLE_IMPLICIT_READ_ON_EDT_PROPERTY)
 
 internal val isAutomaticIWLOnDirtyUIDisabled: Boolean
-  get() = java.lang.Boolean.getBoolean(DISABLE_AUTOMATIC_WIL_ON_DIRTY_UI_PROPERTY)
+  get() = "false" !=  System.getProperty(DISABLE_AUTOMATIC_WIL_ON_DIRTY_UI_PROPERTY)
 
 @Internal
 // called by the app after startup
@@ -404,10 +433,6 @@ private suspend fun importConfig(args: List<String>,
   span("config importing") {
     appStarter.beforeImportConfigs()
     val newConfigDir = customTargetDirectoryToImportConfig ?: PathManager.getConfigDir()
-
-    withContext(RawSwingDispatcher) {
-      UIManager.setLookAndFeel(IntelliJLaf())
-    }
 
     val veryFirstStartOnThisComputer = euaDocumentDeferred.await() != null
     withContext(RawSwingDispatcher) {
@@ -459,48 +484,22 @@ private suspend fun doCheckSystemDirs(configPath: Path, systemPath: Path): Boole
 
     listOf(
       async {
-        checkDirectory(directory = configPath,
-                       kind = "Config",
-                       property = PathManager.PROPERTY_CONFIG_PATH,
-                       checkWrite = true,
-                       checkLock = true,
-                       checkExec = false)
+        checkDirectory(configPath, kind = "Config", property = PathManager.PROPERTY_CONFIG_PATH, checkWrite = true)
       },
       async {
-        checkDirectory(directory = systemPath,
-                       kind = "System",
-                       property = PathManager.PROPERTY_SYSTEM_PATH,
-                       checkWrite = true,
-                       checkLock = true,
-                       checkExec = false)
+        checkDirectory(systemPath, kind = "System", property = PathManager.PROPERTY_SYSTEM_PATH, checkWrite = true)
       },
       async {
-        checkDirectory(directory = logPath,
-                       kind = "Log",
-                       property = PathManager.PROPERTY_LOG_PATH,
-                       checkWrite = !logPath.startsWith(systemPath),
-                       checkLock = false,
-                       checkExec = false)
+        checkDirectory(logPath, kind = "Log", property = PathManager.PROPERTY_LOG_PATH, checkWrite = true)
       },
       async {
-        checkDirectory(directory = tempPath,
-                       kind = "Temp",
-                       property = PathManager.PROPERTY_SYSTEM_PATH,
-                       checkWrite = !tempPath.startsWith(systemPath),
-                       checkLock = false,
-                       checkExec = SystemInfoRt.isUnix && !SystemInfoRt.isMac)
-
+        checkDirectory(tempPath, kind = "Temp", property = PathManager.PROPERTY_SYSTEM_PATH, checkWrite = !tempPath.startsWith(systemPath))
       }
     ).awaitAll().all { it }
   }
 }
 
-private fun checkDirectory(directory: Path,
-                           kind: String,
-                           property: String,
-                           checkWrite: Boolean,
-                           checkLock: Boolean,
-                           checkExec: Boolean): Boolean {
+private fun checkDirectory(directory: Path, kind: String, property: String, checkWrite: Boolean): Boolean {
   var problem = "bootstrap.error.message.check.ide.directory.problem.cannot.create.the.directory"
   var reason = "bootstrap.error.message.check.ide.directory.possible.reason.path.is.incorrect"
   var tempFile: Path? = null
@@ -510,33 +509,11 @@ private fun checkDirectory(directory: Path,
       reason = "bootstrap.error.message.check.ide.directory.possible.reason.directory.is.read.only.or.the.user.lacks.necessary.permissions"
       Files.createDirectories(directory)
     }
-
-    if (checkWrite || checkLock || checkExec) {
+    if (checkWrite) {
       problem = "bootstrap.error.message.check.ide.directory.problem.the.ide.cannot.create.a.temporary.file.in.the.directory"
       reason = "bootstrap.error.message.check.ide.directory.possible.reason.directory.is.read.only.or.the.user.lacks.necessary.permissions"
       tempFile = directory.resolve("ij${Random().nextInt(Int.MAX_VALUE)}.tmp")
       Files.writeString(tempFile, "#!/bin/sh\nexit 0", StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-      if (checkLock) {
-        problem = "bootstrap.error.message.check.ide.directory.problem.the.ide.cannot.create.a.lock.in.directory"
-        reason = "bootstrap.error.message.check.ide.directory.possible.reason.the.directory.is.located.on.a.network.disk"
-        FileChannel.open(tempFile, EnumSet.of(StandardOpenOption.WRITE)).use { channel ->
-          channel.tryLock().use { lock ->
-            if (lock == null) {
-              throw IOException("File is locked")
-            }
-          }
-        }
-      }
-      else if (checkExec) {
-        problem = "bootstrap.error.message.check.ide.directory.problem.the.ide.cannot.execute.test.script"
-        reason = "bootstrap.error.message.check.ide.directory.possible.reason.partition.is.mounted.with.no.exec.option"
-        Files.getFileAttributeView(tempFile!!, PosixFileAttributeView::class.java)
-          .setPermissions(EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE))
-        val exitCode = ProcessBuilder(tempFile.toAbsolutePath().toString()).start().waitFor()
-        if (exitCode != 0) {
-          throw IOException("Unexpected exit value: $exitCode")
-        }
-      }
     }
     return true
   }
@@ -555,13 +532,8 @@ private fun checkDirectory(directory: Path,
     return false
   }
   finally {
-    if (tempFile != null) {
-      try {
-        Files.deleteIfExists(tempFile)
-      }
-      catch (ignored: Exception) {
-      }
-    }
+    try { tempFile?.deleteIfExists() }
+    catch (_: Exception) { }
   }
 }
 
@@ -679,8 +651,10 @@ private fun logPath(path: String): String {
     val real = configured.toRealPath()
     return if (configured == real) path else "${path} -> ${real}"
   }
-  catch (_: IOException) { }
-  catch (_: InvalidPathException) { }
+  catch (_: IOException) {
+  }
+  catch (_: InvalidPathException) {
+  }
   return "${path} -> ?"
 }
 
@@ -703,6 +677,9 @@ class Java11ShimImpl : Java11Shim {
   override fun <E> copyOf(collection: Collection<E>): Set<E> = java.util.Set.copyOf(collection)
 
   override fun <E> copyOfCollection(collection: Collection<E>): List<E> = java.util.List.copyOf(collection)
+  override fun <V : Any> createConcurrentLongObjectMap(): ConcurrentLongObjectMap<V> {
+    return ConcurrentCollectionFactory.createConcurrentLongObjectMap()
+  }
 
   override fun <E> setOf(collection: Array<E>): Set<E> = java.util.Set.of(*collection)
 }
@@ -714,5 +691,14 @@ fun getServer(): BuiltInServer? {
   instance.waitForStart()
   val candidate = instance.serverDisposable
   return if (candidate is BuiltInServer) candidate else null
+}
+
+@Deprecated("Use 'startApplication' with 'mainClassLoaderDeferred' parameter instead",
+            ReplaceWith(
+              "startApplication(args, CompletableDeferred(AppStarter::class.java.classLoader), appStarterDeferred, mainScope, busyThread)",
+              "kotlinx.coroutines.CompletableDeferred"))
+fun CoroutineScope.startApplication(args: List<String>, appStarterDeferred: Deferred<AppStarter>, mainScope: CoroutineScope,
+                                    busyThread: Thread) {
+  startApplication(args, CompletableDeferred(AppStarter::class.java.classLoader), appStarterDeferred, mainScope, busyThread)
 }
 //</editor-fold>

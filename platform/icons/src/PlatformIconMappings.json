@@ -95,10 +95,12 @@
       "cwmDisableCall.svg": "codeWithMe/cwmDisableCall.svg",
       "cwmEnableCall.svg": "codeWithMe/cwmEnableCall.svg",
       "cwmIconModificator.svg": "codeWithMe/cwmIconModificator.svg",
+      "cwmIconModificatorMenu.svg": "codeWithMe/cwmIconModificatorMenu.svg",
       "cwmInvite.svg": "codeWithMe/cwmInvite.svg",
       "cwmUsers.svg": "users.svg"
     },
     "debugger": {
+      "addToWatch.svg": "debugger/addToWatch.svg",
       "dbPrimitive.svg": "debugger/db_primitive.svg",
       "frame.svg": "debugger/frame.svg",
       "threads.svg": "debugger/threads.svg",
@@ -745,8 +747,10 @@
         "toolwindows/toolWindowProblemsEmpty.svg"
       ],
       "profiler.svg": "toolwindows/toolWindowProfiler.svg",
+      "profilerAndroid.svg": "toolwindows/toolWindowProfilerAndroid.svg",
       "project.svg": "toolwindows/toolWindowProject.svg",
       "run.svg": "toolwindows/toolWindowRun.svg",
+      "toolWindowRunWithCoverage.svg": "toolwindows/toolWindowRunWithCoverage.svg",
       "services.svg": "toolwindows/toolWindowServices.svg",
       "settingSync.svg": "toolwindows/settingSync.svg",
       "structure.svg": "toolwindows/toolWindowStructure.svg",
@@ -786,7 +790,10 @@
         "vcs/unshelveSilent.svg"
       ],
       "update.svg": "actions/checkOut.svg",
-      "vcs.svg": "vcs/branchNode.svg"
+      "vcs.svg": [
+        "vcs/branchNode.svg",
+        "vcs/branch.svg"
+      ]
     },
     "webReferences": {
       "server.svg": "webreferences/server.svg"

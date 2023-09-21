@@ -34,19 +34,19 @@ interface ClientContext : AgentContext
 @ApiStatus.Internal
 internal class HostAgentContextImpl(
   override val agentId: RdAgentInfo,
-  override val protocol: IProtocol
+  override val protocol: IProtocol,
 ) : HostContext
 
 @ApiStatus.Internal
 internal class ClientAgentContextImpl(
   override val agentId: RdAgentInfo,
-  override val protocol: IProtocol
+  override val protocol: IProtocol,
 ) : ClientContext
 
 @ApiStatus.Internal
 internal class GatewayAgentContextImpl(
   override val agentId: RdAgentInfo,
-  override val protocol: IProtocol
+  override val protocol: IProtocol,
 ) : GatewayContext {
   override val project: Project
     get() = error("Project shouldn't be requested for gateway")

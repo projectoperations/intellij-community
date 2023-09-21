@@ -8332,6 +8332,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             runTest("testData/intentions/convertToBlockBody/nothingFun.kt");
         }
 
+        @TestMetadata("nullableNothing.kt")
+        public void testNullableNothing() throws Exception {
+            runTest("testData/intentions/convertToBlockBody/nullableNothing.kt");
+        }
+
         @TestMetadata("overrideWithPlatformType.kt")
         public void testOverrideWithPlatformType() throws Exception {
             runTest("testData/intentions/convertToBlockBody/overrideWithPlatformType.kt");
@@ -12431,6 +12436,26 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             runTest("testData/intentions/joinDeclarationAndAssignment/comment.kt");
         }
 
+        @TestMetadata("comment2.kt")
+        public void testComment2() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/comment2.kt");
+        }
+
+        @TestMetadata("comment3.kt")
+        public void testComment3() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/comment3.kt");
+        }
+
+        @TestMetadata("comment4.kt")
+        public void testComment4() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/comment4.kt");
+        }
+
+        @TestMetadata("comment5.kt")
+        public void testComment5() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/comment5.kt");
+        }
+
         @TestMetadata("correctConditionalAssignment.kt")
         public void testCorrectConditionalAssignment() throws Exception {
             runTest("testData/intentions/joinDeclarationAndAssignment/correctConditionalAssignment.kt");
@@ -12481,19 +12506,39 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             runTest("testData/intentions/joinDeclarationAndAssignment/notFirstSecondaryConstructorLine.kt");
         }
 
-        @TestMetadata("propertyAssignmentWithConstructorParameter.kt")
-        public void testPropertyAssignmentWithConstructorParameter() throws Exception {
-            runTest("testData/intentions/joinDeclarationAndAssignment/propertyAssignmentWithConstructorParameter.kt");
+        @TestMetadata("propertyAssignmentWithCtorParam.kt")
+        public void testPropertyAssignmentWithCtorParam() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/propertyAssignmentWithCtorParam.kt");
         }
 
-        @TestMetadata("propertyAssignmentWithConstructorParameter2.kt")
-        public void testPropertyAssignmentWithConstructorParameter2() throws Exception {
-            runTest("testData/intentions/joinDeclarationAndAssignment/propertyAssignmentWithConstructorParameter2.kt");
+        @TestMetadata("propertyAssignmentWithCtorParam2.kt")
+        public void testPropertyAssignmentWithCtorParam2() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/propertyAssignmentWithCtorParam2.kt");
+        }
+
+        @TestMetadata("propertyAssignmentWithSecondaryCtorParam.kt")
+        public void testPropertyAssignmentWithSecondaryCtorParam() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/propertyAssignmentWithSecondaryCtorParam.kt");
+        }
+
+        @TestMetadata("propertyAssignmentWithSecondaryCtorParam2.kt")
+        public void testPropertyAssignmentWithSecondaryCtorParam2() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/propertyAssignmentWithSecondaryCtorParam2.kt");
         }
 
         @TestMetadata("propertyReassignment.kt")
         public void testPropertyReassignment() throws Exception {
             runTest("testData/intentions/joinDeclarationAndAssignment/propertyReassignment.kt");
+        }
+
+        @TestMetadata("qualifiedName.kt")
+        public void testQualifiedName() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/qualifiedName.kt");
+        }
+
+        @TestMetadata("qualifiedName2.kt")
+        public void testQualifiedName2() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/qualifiedName2.kt");
         }
 
         @TestMetadata("simple.kt")
@@ -12509,6 +12554,31 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("singleConstructor.kt")
         public void testSingleConstructor() throws Exception {
             runTest("testData/intentions/joinDeclarationAndAssignment/singleConstructor.kt");
+        }
+
+        @TestMetadata("subtypeAssignment.kt")
+        public void testSubtypeAssignment() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/subtypeAssignment.kt");
+        }
+
+        @TestMetadata("subtypeAssignment2.kt")
+        public void testSubtypeAssignment2() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/subtypeAssignment2.kt");
+        }
+
+        @TestMetadata("subtypeAssignment3.kt")
+        public void testSubtypeAssignment3() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/subtypeAssignment3.kt");
+        }
+
+        @TestMetadata("subtypeAssignment4.kt")
+        public void testSubtypeAssignment4() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/subtypeAssignment4.kt");
+        }
+
+        @TestMetadata("usedBeforeAssignment.kt")
+        public void testUsedBeforeAssignment() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/usedBeforeAssignment.kt");
         }
 
         @TestMetadata("usedInAssignment.kt")
@@ -12534,6 +12604,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("usedLocal4.kt")
         public void testUsedLocal4() throws Exception {
             runTest("testData/intentions/joinDeclarationAndAssignment/usedLocal4.kt");
+        }
+
+        @TestMetadata("usedMember.kt")
+        public void testUsedMember() throws Exception {
+            runTest("testData/intentions/joinDeclarationAndAssignment/usedMember.kt");
         }
 
         @TestMetadata("varReassignment.kt")
@@ -17553,6 +17628,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("overrideNotNullProperty.kt")
         public void testOverrideNotNullProperty() throws Exception {
             runTest("testData/intentions/specifyTypeExplicitly/overrideNotNullProperty.kt");
+        }
+
+        @TestMetadata("overrideNotNullProperty2.kt")
+        public void testOverrideNotNullProperty2() throws Exception {
+            runTest("testData/intentions/specifyTypeExplicitly/overrideNotNullProperty2.kt");
         }
 
         @TestMetadata("overrideNullableFunction.kt")

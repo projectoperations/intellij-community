@@ -67,6 +67,12 @@ object IconLoader {
   }
 
   @JvmStatic
+  @Internal
+  fun installPostPathPatcher(patcher: IconPathPatcher) {
+    updateTransform { it.withPostPathPatcher(patcher) }
+  }
+
+  @JvmStatic
   fun removePathPatcher(patcher: IconPathPatcher) {
     updateTransform { it.withoutPathPatcher(patcher) }
   }
@@ -83,8 +89,8 @@ object IconLoader {
 
   @JvmStatic
   fun clearCache() {
-    // copy the transform to trigger update of cached icons
-    updateTransform(IconTransform::copy)
+    pathTransformGlobalModCount.incrementAndGet()
+    clearCacheOnUpdateTransform()
   }
 
   @TestOnly
@@ -380,10 +386,16 @@ object IconLoader {
    */
   @JvmStatic
   fun getDarkIcon(icon: Icon, dark: Boolean): Icon {
-    // Cannot `inline` this call, because we need an object to propagate the needed replacer recursively to the parts of compound icon
+    if (icon is DarkIconProvider) {
+      return icon.getDarkIcon(dark)
+    }
+
+    // cannot `inline` this call, because we need an object to propagate the needed replacer recursively to the parts of compound icon
     return object : IconReplacer {
       override fun replaceIcon(icon: Icon): Icon {
-        if (icon is DarkIconProvider) return icon.getDarkIcon(dark)
+        if (icon is DarkIconProvider) {
+          return icon.getDarkIcon(dark)
+        }
         return super.replaceIcon(icon)
       }
     }.replaceIcon(icon)
@@ -449,6 +461,10 @@ private fun updateTransform(updater: (IconTransform) -> IconTransform) {
     return
   }
 
+  clearCacheOnUpdateTransform()
+}
+
+private fun clearCacheOnUpdateTransform() {
   iconToDisabledIcon.clear()
   colorPatchCache.clear()
   iconToStrokeIcon.clear()

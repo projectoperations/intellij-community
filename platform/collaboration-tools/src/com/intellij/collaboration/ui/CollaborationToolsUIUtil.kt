@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.collaboration.ui
 
 import com.intellij.application.subscribe
@@ -12,6 +12,7 @@ import com.intellij.ide.ui.LafManagerListener
 import com.intellij.ide.ui.laf.darcula.DarculaUIUtil
 import com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.observable.properties.AbstractObservableProperty
 import com.intellij.openapi.progress.util.ProgressWindow
 import com.intellij.openapi.ui.ComponentValidator
 import com.intellij.openapi.ui.ValidationInfo
@@ -33,6 +34,8 @@ import com.intellij.util.ui.update.UiNotifyConnector
 import com.intellij.vcs.log.ui.frame.ProgressStripe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import java.awt.*
@@ -44,9 +47,9 @@ import javax.swing.event.DocumentEvent
 import kotlin.properties.Delegates
 
 object CollaborationToolsUIUtil {
-  val COMPONENT_SCOPE_KEY = Key.create<CoroutineScope>("Collaboration.Component.Coroutine.Scope")
+  val COMPONENT_SCOPE_KEY: Key<CoroutineScope> = Key.create("Collaboration.Component.Coroutine.Scope")
 
-  val animatedLoadingIcon = AnimatedIcon.Default.INSTANCE
+  val animatedLoadingIcon: Icon = AnimatedIcon.Default.INSTANCE
 
   /**
    * Connects [searchTextField] to a [list] to be used as a filter
@@ -83,7 +86,6 @@ object CollaborationToolsUIUtil {
   /**
    * Show an error on [component] if there's one in [errorValue]
    */
-  @Internal
   fun installValidator(component: JComponent, errorValue: SingleValueModel<@Nls String?>) {
     UiNotifyConnector.installOn(component, ValidatorActivatable(errorValue, component), false)
   }
@@ -118,7 +120,6 @@ object CollaborationToolsUIUtil {
   /**
    * Show progress label over [component]
    */
-  @Internal
   fun wrapWithProgressOverlay(component: JComponent, inProgressValue: SingleValueModel<Boolean>): JComponent {
     val busyLabel = JLabel(AnimatedIcon.Default())
     inProgressValue.addAndInvokeListener {
@@ -131,7 +132,6 @@ object CollaborationToolsUIUtil {
   /**
    * Show progress stripe above [component]
    */
-  @Internal
   fun wrapWithProgressStripe(scope: CoroutineScope, loadingFlow: Flow<Boolean>, component: JComponent): JComponent {
     return ProgressStripe(component, scope.nestedDisposable(), ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS).apply {
       bindProgressIn(scope, loadingFlow)
@@ -141,7 +141,6 @@ object CollaborationToolsUIUtil {
   /**
    * Wrap component with [SingleComponentCenteringLayout] to show component in a center
    */
-  @Internal
   fun moveToCenter(component: JComponent): JComponent {
     return JPanel(SingleComponentCenteringLayout()).apply {
       isOpaque = false
@@ -220,6 +219,8 @@ object CollaborationToolsUIUtil {
   /**
    * Checks if focus is somewhere down the hierarchy from [component]
    */
+  // used externally
+  @Suppress("MemberVisibilityCanBePrivate")
   fun isFocusParent(component: JComponent): Boolean {
     val focusOwner = IdeFocusManager.findInstanceByComponent(component).focusOwner ?: return false
     return SwingUtilities.isDescendingFrom(focusOwner, component)
@@ -299,6 +300,26 @@ object CollaborationToolsUIUtil {
         border = JBUI.Borders.empty()
         background = UIUtil.getPanelBackground()
         add(it)
+      }
+    }
+
+  /**
+   * Turns the flow into an observable property collected under the given scope.
+   *
+   * Note: this collects the state flow which will never complete. The passed scope
+   * thus needs to be cancelled manually or through a disposing scope for example
+   * for collecting to stop.
+   */
+  fun <T> StateFlow<T>.asObservableIn(scope: CoroutineScope): AbstractObservableProperty<T> =
+    object : AbstractObservableProperty<T>() {
+      override fun get() = value
+
+      init {
+        scope.launch {
+          collect { state ->
+            fireChangeEvent(state)
+          }
+        }
       }
     }
 }

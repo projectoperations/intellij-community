@@ -2,34 +2,25 @@
 
 package org.jetbrains.kotlin.idea.base.analysis
 
-import com.intellij.ProjectTopics
-import com.intellij.java.library.JavaLibraryModificationTracker
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.progress.ProgressManager.checkCanceled
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.roots.impl.libraries.LibraryEx
-import com.intellij.openapi.roots.libraries.Library
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
 import com.intellij.platform.backend.workspace.WorkspaceModelTopics
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.VersionedStorageChange
-import com.intellij.psi.util.CachedValueProvider
-import com.intellij.psi.util.CachedValuesManager
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresReadLock
-import com.intellij.util.containers.MultiMap
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.findModule
 import org.jetbrains.kotlin.idea.base.analysis.libraries.LibraryDependencyCandidate
-import org.jetbrains.kotlin.idea.base.facet.isHMPPEnabled
 import org.jetbrains.kotlin.idea.base.projectStructure.*
 import org.jetbrains.kotlin.idea.base.projectStructure.LibraryDependenciesCache.LibraryDependencies
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.LibraryInfo
@@ -39,7 +30,6 @@ import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.checkValidity
 import org.jetbrains.kotlin.idea.base.util.caching.ModuleEntityChangeListener
 import org.jetbrains.kotlin.idea.base.util.caching.SynchronizedFineGrainedEntityCache
 import org.jetbrains.kotlin.idea.caches.project.*
-import org.jetbrains.kotlin.idea.caches.trackers.ModuleModificationTracker
 import org.jetbrains.kotlin.idea.configuration.isMavenized
 import org.jetbrains.kotlin.platform.jvm.isJvm
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
@@ -90,6 +80,13 @@ private class LibraryDependencyCandidatesAndSdkInfosBuilder(
 class LibraryDependenciesCacheImpl(private val project: Project) : LibraryDependenciesCache, Disposable {
     companion object {
         fun getInstance(project: Project): LibraryDependenciesCache = project.service()
+
+        /**
+         * @see filterForBuiltins
+         */
+        internal fun LibraryInfo.isSpecialKotlinCoreLibrary(project: Project): Boolean {
+            return !IdeBuiltInsLoadingState.isFromClassLoader && isCoreKotlinLibrary(project)
+        }
     }
 
     private val cache = LibraryDependenciesInnerCache()
@@ -161,8 +158,7 @@ class LibraryDependenciesCacheImpl(private val project: Project) : LibraryDepend
     private fun computeLibrariesAndSdksUsedWithNoFilter(libraryInfo: LibraryInfo): LibraryDependencyCandidatesAndSdkInfos {
         val libraryDependencyCandidatesAndSdkInfos = LibraryDependencyCandidatesAndSdkInfosBuilder()
 
-        val modulesLibraryIsUsedIn =
-            getLibraryUsageIndex().getModulesLibraryIsUsedIn(libraryInfo)
+        val modulesLibraryIsUsedIn = project.service<LibraryUsageIndex>().getDependentModules(libraryInfo)
 
         for (module in modulesLibraryIsUsedIn) {
             checkCanceled()
@@ -191,7 +187,7 @@ class LibraryDependenciesCacheImpl(private val project: Project) : LibraryDepend
         libraryInfo: LibraryInfo,
         dependencyLibraries: MutableSet<LibraryDependencyCandidate>
     ): MutableSet<LibraryDependencyCandidate> {
-        return if (!IdeBuiltInsLoadingState.isFromClassLoader && libraryInfo.isCoreKotlinLibrary(project)) {
+        return if (libraryInfo.isSpecialKotlinCoreLibrary(project)) {
             dependencyLibraries.filterTo(mutableSetOf()) { dep ->
                 dep.libraries.any { it.isCoreKotlinLibrary(project) }
             }
@@ -199,15 +195,6 @@ class LibraryDependenciesCacheImpl(private val project: Project) : LibraryDepend
             dependencyLibraries
         }
     }
-
-    private fun getLibraryUsageIndex(): LibraryUsageIndex =
-        CachedValuesManager.getManager(project).getCachedValue(project) {
-            CachedValueProvider.Result(
-              LibraryUsageIndex(),
-              ModuleModificationTracker.getInstance(project),
-              JavaLibraryModificationTracker.getInstance(project)
-            )
-        }!!
 
     private inner class LibraryDependenciesInnerCache :
         SynchronizedFineGrainedEntityCache<LibraryInfo, LibraryDependencies>(project, doSelfInitialization = false, cleanOnLowMemory = true),
@@ -218,7 +205,7 @@ class LibraryDependenciesCacheImpl(private val project: Project) : LibraryDepend
         override fun subscribe() {
             val connection = project.messageBus.connect(this)
             connection.subscribe(LibraryInfoListener.TOPIC, this)
-            connection.subscribe(ProjectTopics.PROJECT_ROOTS, this)
+            connection.subscribe(ModuleRootListener.TOPIC, this)
             connection.subscribe(WorkspaceModelTopics.CHANGED, ModelChangeListener())
             connection.subscribe(ProjectJdkTable.JDK_TABLE_TOPIC, this)
         }
@@ -281,7 +268,7 @@ class LibraryDependenciesCacheImpl(private val project: Project) : LibraryDepend
         connection.subscribe(WorkspaceModelTopics.CHANGED, this)
         connection.subscribe(LibraryInfoListener.TOPIC, this)
         connection.subscribe(ProjectJdkTable.JDK_TABLE_TOPIC, this)
-        connection.subscribe(ProjectTopics.PROJECT_ROOTS, this)
+        connection.subscribe(ModuleRootListener.TOPIC, this)
       }
 
       @RequiresReadLock
@@ -542,33 +529,5 @@ class LibraryDependenciesCacheImpl(private val project: Project) : LibraryDepend
           validityCondition = null
         )
       }
-    }
-
-    private inner class LibraryUsageIndex {
-        private val modulesLibraryIsUsedIn: MultiMap<Library, Module> = runReadAction {
-            val map: MultiMap<Library, Module> = MultiMap.createSet()
-            val libraryCache = LibraryInfoCache.getInstance(project)
-            for (module in ModuleManager.getInstance(project).modules) {
-                checkCanceled()
-                for (entry in ModuleRootManager.getInstance(module).orderEntries) {
-                    if (entry !is LibraryOrderEntry) continue
-                    val library = entry.library ?: continue
-                    val keyLibrary = libraryCache.deduplicatedLibrary(library)
-                    map.putValue(keyLibrary, module)
-                }
-            }
-
-            map
-        }
-
-        fun getModulesLibraryIsUsedIn(libraryInfo: LibraryInfo) = sequence<Module> {
-            val ideaModelInfosCache = getIdeaModelInfosCache(project)
-            for (module in modulesLibraryIsUsedIn[libraryInfo.library]) {
-                val mappedModuleInfos = ideaModelInfosCache.getModuleInfosForModule(module)
-                if (mappedModuleInfos.any { it.platform.canDependOn(libraryInfo, module.isHMPPEnabled) }) {
-                    yield(module)
-                }
-            }
-        }
     }
 }

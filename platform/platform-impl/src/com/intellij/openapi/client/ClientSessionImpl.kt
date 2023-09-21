@@ -6,11 +6,13 @@ import com.intellij.codeWithMe.asContextElement2
 import com.intellij.ide.plugins.ContainerDescriptor
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.users.LocalUserSettings
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.components.ComponentConfig
 import com.intellij.openapi.components.ServiceDescriptor
 import com.intellij.openapi.components.impl.stores.IComponentStore
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
@@ -49,10 +51,10 @@ abstract class ClientSessionImpl(
     registerServiceInstance(ClientSession::class.java, this, fakeCorePluginDescriptor)
   }
 
-  override fun <T : Any> findConstrictorAndInstantiateClass(lookup: MethodHandles.Lookup, aClass: Class<T>): T {
+  override fun <T : Any> findConstructorAndInstantiateClass(lookup: MethodHandles.Lookup, aClass: Class<T>): T {
     @Suppress("UNCHECKED_CAST")
     return (lookup.findConstructorOrNull(aClass, sessionConstructorMethodType)?.invoke(this) as T?)
-           ?: super.findConstrictorAndInstantiateClass(lookup, aClass)
+           ?: super.findConstructorAndInstantiateClass(lookup, aClass)
   }
 
   fun registerServices() {
@@ -153,7 +155,7 @@ abstract class ClientSessionImpl(
 }
 
 @ApiStatus.Internal
-open class ClientAppSessionImpl(
+abstract class ClientAppSessionImpl(
   clientId: ClientId,
   clientType: ClientType,
   application: ApplicationImpl
@@ -163,7 +165,11 @@ open class ClientAppSessionImpl(
   }
 
   override val projectSessions: List<ClientProjectSession>
-    get() = ProjectManager.getInstance().openProjects.mapNotNull { ClientSessionsManager.getProjectSession(it, this) }
+    get() {
+      return ProjectManager.getInstance().openProjects.mapNotNull {
+        it.service<ClientSessionsManager<*>>().getSession(clientId) as? ClientProjectSession
+      }
+    }
 
   init {
     @Suppress("LeakingThis")
@@ -174,6 +180,7 @@ open class ClientAppSessionImpl(
 private val sessionConstructorMethodType: MethodType = MethodType.methodType(Void.TYPE, ClientAppSession::class.java)
 private val projectSessionConstructorMethodType: MethodType = MethodType.methodType(Void.TYPE, ClientProjectSession::class.java)
 
+@Suppress("LeakingThis")
 @ApiStatus.Internal
 open class ClientProjectSessionImpl(
   clientId: ClientId,
@@ -186,11 +193,11 @@ open class ClientProjectSessionImpl(
                                                                                        componentManager = project,
                                                                                        project = project)
 
-  override fun <T : Any> findConstrictorAndInstantiateClass(lookup: MethodHandles.Lookup, aClass: Class<T>): T {
+  override fun <T : Any> findConstructorAndInstantiateClass(lookup: MethodHandles.Lookup, aClass: Class<T>): T {
     @Suppress("UNCHECKED_CAST")
     return ((lookup.findConstructorOrNull(aClass, projectMethodType)?.invoke(project)
             ?: lookup.findConstructorOrNull(aClass, projectSessionConstructorMethodType)?.invoke(this) ) as T?)
-           ?: super.findConstrictorAndInstantiateClass(lookup, aClass)
+           ?: super.findConstructorAndInstantiateClass(lookup, aClass)
   }
 
 
@@ -205,4 +212,23 @@ open class ClientProjectSessionImpl(
 
   override val appSession: ClientAppSession
     get() = ClientSessionsManager.getAppSession(clientId)!!
+
+  override val name: String
+    get() = appSession.name
+}
+
+@ApiStatus.Experimental
+@ApiStatus.Internal
+open class LocalAppSessionImpl(application: ApplicationImpl) : ClientAppSessionImpl(ClientId.localId, ClientType.LOCAL, application) {
+  override val name: String
+    get() = LocalUserSettings.userName
+}
+
+@ApiStatus.Experimental
+@ApiStatus.Internal
+open class LocalProjectSessionImpl(
+  componentManager: ClientAwareComponentManager,
+  project: Project
+) : ClientProjectSessionImpl(ClientId.localId, ClientType.LOCAL, componentManager, project) {
+  constructor(project: ProjectImpl) : this(componentManager = project, project = project)
 }

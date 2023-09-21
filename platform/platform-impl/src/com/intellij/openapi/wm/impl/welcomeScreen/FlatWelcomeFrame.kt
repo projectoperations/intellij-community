@@ -16,6 +16,7 @@ import com.intellij.openapi.MnemonicHelper
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
@@ -28,11 +29,13 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.impl.IdeFrameDecorator
 import com.intellij.openapi.wm.impl.IdeGlassPaneImpl
-import com.intellij.openapi.wm.impl.IdeMenuBar
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomFrameDialogContent.Companion.getCustomContentHolder
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomHeader
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.DefaultFrameHeader
+import com.intellij.openapi.wm.impl.executeOnCancelInEdt
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeScreenComponentFactory.JActionLinkPanel
+import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
+import com.intellij.platform.ide.menu.IdeJMenuBar
 import com.intellij.platform.ide.menu.createMacMenuBar
 import com.intellij.ui.*
 import com.intellij.ui.components.JBList
@@ -53,7 +56,10 @@ import com.intellij.util.ui.StartupUiUtil
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.accessibility.AccessibleContextAccessor
 import com.intellij.util.ui.update.UiNotifyConnector
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import net.miginfocom.swing.MigLayout
 import java.awt.*
 import java.awt.dnd.*
@@ -76,7 +82,7 @@ open class FlatWelcomeFrame @JvmOverloads constructor(
   private var isDisposed = false
   private var header: DefaultFrameHeader? = null
 
-  private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+  private val coroutineScope = service<CoreUiCoroutineScopeHolder>().coroutineScope.childScope()
 
   companion object {
     @JvmField
@@ -108,8 +114,13 @@ open class FlatWelcomeFrame @JvmOverloads constructor(
 
   init {
     val rootPane = getRootPane()
-    balloonLayout = WelcomeBalloonLayoutImpl(rootPane, JBUI.insets(8))
+    balloonLayout = createBalloonLayout()
+
     screen = suggestedScreen ?: FlatWelcomeScreen(frame = this)
+    executeOnCancelInEdt(coroutineScope) {
+      Disposer.dispose(screen)
+    }
+
     content = Wrapper()
     contentPane = content
     if (IdeFrameDecorator.isCustomDecorationActive()) {
@@ -147,7 +158,7 @@ open class FlatWelcomeFrame @JvmOverloads constructor(
     })
     connection.subscribe(LafManagerListener.TOPIC, LafManagerListener {
       balloonLayout?.dispose()
-      balloonLayout = WelcomeBalloonLayoutImpl(rootPane, JBUI.insets(8))
+      balloonLayout = createBalloonLayout()
       updateComponentsAndResize()
       repaint()
     })
@@ -175,10 +186,20 @@ open class FlatWelcomeFrame @JvmOverloads constructor(
                     ModalityState.nonModal())
   }
 
+  private fun createBalloonLayout(): WelcomeBalloonLayoutImpl {
+    val insets = JBUI.insets(8)
+    if (ExperimentalUI.isNewUI()) {
+      return WelcomeSeparateBalloonLayoutImpl(rootPane, insets)
+    }
+    return WelcomeBalloonLayoutImpl(rootPane, insets)
+  }
+
   override fun removeNotify() {
     super.removeNotify()
 
-    coroutineScope.cancel()
+    if (ScreenUtil.isStandardAddRemoveNotify(this)) {
+      coroutineScope.cancel()
+    }
   }
 
   protected open fun setupCloseAction() {
@@ -335,7 +356,7 @@ open class FlatWelcomeFrame @JvmOverloads constructor(
           val transferable = e.transferable
           val list = FileCopyPasteUtil.getFiles(transferable)
           if (list != null && list.size > 0) {
-            ApplicationManager.getApplication().coroutineScope.launch {
+            frame.coroutineScope.launch {
               ProjectUtil.openOrImportFilesAsync(list, "WelcomeFrame")
             }
             e.dropComplete(true)
@@ -500,7 +521,7 @@ private fun createWelcomeMenuBar(frame: JFrame, parentCoroutineScope: CoroutineS
                      mainMenuActionGroupProvider = mainMenuActionGroupProvider)
   }
   else {
-    frame.rootPane.jMenuBar = object : IdeMenuBar(parentCoroutineScope.childScope(), frame) {
+    frame.rootPane.jMenuBar = object : IdeJMenuBar(parentCoroutineScope.childScope(), frame) {
       override suspend fun getMainMenuActionGroup(): ActionGroup = mainMenuActionGroupProvider()
     }
   }

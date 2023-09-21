@@ -10,6 +10,7 @@ import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.dom.converters.MavenConsumerPomUtil;
+import org.jetbrains.idea.maven.internal.ReadStatisticsCollector;
 import org.jetbrains.idea.maven.model.*;
 import org.jetbrains.idea.maven.server.MavenEmbedderWrapper;
 import org.jetbrains.idea.maven.server.MavenServerManager;
@@ -29,12 +30,14 @@ import static org.jetbrains.idea.maven.utils.MavenUtil.getBaseDir;
 public final class MavenProjectReader {
   private static final String UNKNOWN = MavenId.UNKNOWN_VALUE;
 
-  private final Map<VirtualFile, RawModelReadResult> myRawModelsCache = new HashMap<>();
+  private MavenReadProjectCache myCache = new MavenReadProjectCache();
   private final Project myProject;
+  private final MavenProjectModelReadHelper myReadHelper;
   private SettingsProfilesCache mySettingsProfilesCache;
 
   public MavenProjectReader(@NotNull Project project) {
     myProject = project;
+    myReadHelper = MavenUtil.createModelReadHelper(project);
   }
 
   public MavenProjectReaderResult readProject(MavenGeneralSettings generalSettings,
@@ -46,8 +49,7 @@ public final class MavenProjectReader {
     Pair<RawModelReadResult, MavenExplicitProfiles> readResult =
       doReadProjectModel(generalSettings, basedir, file, explicitProfiles, new HashSet<>(), locator);
 
-    MavenModel model = MavenServerManager.getInstance().getConnector(myProject, basedir.toString())
-      .interpolateAndAlignModel(readResult.first.model, basedir);
+    MavenModel model = myReadHelper.interpolate(basedir, file, readResult.first.model);
 
     Map<String, String> modelMap = new HashMap<>();
     modelMap.put("groupId", model.getMavenId().getGroupId());
@@ -72,10 +74,10 @@ public final class MavenProjectReader {
                                                                              MavenExplicitProfiles explicitProfiles,
                                                                              Set<VirtualFile> recursionGuard,
                                                                              MavenProjectReaderProjectLocator locator) {
-    RawModelReadResult cachedModel = myRawModelsCache.get(file);
+    RawModelReadResult cachedModel = myCache.get(file);
     if (cachedModel == null) {
-      cachedModel = doReadProjectModel(file, false);
-      myRawModelsCache.put(file, cachedModel);
+      cachedModel = doReadProjectModel(myProject, file, false);
+      myCache.put(file, cachedModel);
     }
 
     // todo modifying cached model and problems here??????
@@ -95,32 +97,51 @@ public final class MavenProjectReader {
                        applied.getActivatedProfiles());
   }
 
-  private RawModelReadResult doReadProjectModel(VirtualFile file, boolean headerOnly) {
+  private static RawModelReadResult doReadProjectModel(Project project, VirtualFile file, boolean headerOnly) {
     MavenModel result = null;
     Collection<MavenProjectProblem> problems = MavenProjectProblem.createProblemsList();
     Set<String> alwaysOnProfiles = new HashSet<>();
 
     String fileExtension = file.getExtension();
     if (!"pom".equalsIgnoreCase(fileExtension) && !"xml".equalsIgnoreCase(fileExtension)) {
-      String basedir = getBaseDir(file).toString();
-      MavenEmbeddersManager manager = MavenProjectsManager.getInstance(myProject).getEmbeddersManager();
-      MavenEmbedderWrapper embedder = manager.getEmbedder(MavenEmbeddersManager.FOR_MODEL_READ, basedir);
-      try {
-        result = embedder.readModel(VfsUtilCore.virtualToIoFile(file));
-      }
-      catch (MavenProcessCanceledException ignore) {
-      }
-      finally {
-        manager.release(embedder);
-      }
-
-      if (result == null) {
-        result = new MavenModel();
-        result.setPackaging(MavenConstants.TYPE_JAR);
-      }
-      return new RawModelReadResult(result, problems, alwaysOnProfiles);
+      return readProjectModelUsingMavenServer(project, file, result, problems, alwaysOnProfiles);
     }
 
+    return readMavenProjectModel(file, headerOnly, problems, alwaysOnProfiles, MavenConsumerPomUtil.isAutomaticVersionFeatureEnabled(file, project));
+  }
+
+  @NotNull
+  private static RawModelReadResult readProjectModelUsingMavenServer(Project project,
+                                              VirtualFile file,
+                                              MavenModel result,
+                                              Collection<MavenProjectProblem> problems,
+                                              Set<String> alwaysOnProfiles) {
+    String basedir = getBaseDir(file).toString();
+    MavenEmbeddersManager manager = MavenProjectsManager.getInstance(project).getEmbeddersManager();
+    MavenEmbedderWrapper embedder = manager.getEmbedder(MavenEmbeddersManager.FOR_MODEL_READ, basedir);
+    try {
+      result = embedder.readModel(VfsUtilCore.virtualToIoFile(file));
+    }
+    catch (MavenProcessCanceledException ignore) {
+    }
+    finally {
+      manager.release(embedder);
+    }
+
+    if (result == null) {
+      result = new MavenModel();
+      result.setPackaging(MavenConstants.TYPE_JAR);
+    }
+    return new RawModelReadResult(result, problems, alwaysOnProfiles);
+  }
+
+  @NotNull
+  private static RawModelReadResult readMavenProjectModel(VirtualFile file,
+                                                          boolean headerOnly,
+                                                          Collection<MavenProjectProblem> problems,
+                                                          Set<String> alwaysOnProfiles,
+                                                          boolean isAutomaticVersionFeatureEnabled) {
+    MavenModel result;
     result = new MavenModel();
     Element xmlProject = readXml(file, problems, MavenProjectProblem.ProblemType.SYNTAX);
     if (xmlProject == null || !"project".equals(xmlProject.getName())) {
@@ -132,7 +153,7 @@ public final class MavenProjectReader {
     if (MavenJDOMUtil.hasChildByPath(xmlProject, "parent")) {
       parent = new MavenParent(new MavenId(MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.groupId", UNKNOWN),
                                            MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.artifactId", UNKNOWN),
-                                           calculateParentVersion(xmlProject, problems, file)),
+                                           calculateParentVersion(xmlProject, problems, file, isAutomaticVersionFeatureEnabled)),
                                MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.relativePath", "../pom.xml"));
       result.setParent(parent);
     }
@@ -156,11 +177,13 @@ public final class MavenProjectReader {
   }
 
   @NotNull
-  private String calculateParentVersion(Element xmlProject,
+  private static String calculateParentVersion(
+    Element xmlProject,
                                         Collection<MavenProjectProblem> problems,
-                                        VirtualFile file) {
+    VirtualFile file,
+    boolean isAutomaticVersionFeatureEnabled) {
     String version = MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.version");
-    if (version != null || !MavenConsumerPomUtil.isAutomaticVersionFeatureEnabled(file, myProject)) {
+    if (version != null || !isAutomaticVersionFeatureEnabled) {
       return StringUtil.notNullize(version, UNKNOWN);
     }
     String parentGroupId = MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.groupId");
@@ -185,7 +208,7 @@ public final class MavenProjectReader {
     if (version != null) {
       return version;
     }
-    return calculateParentVersion(parentXmlProject, problems, parentFile);
+    return calculateParentVersion(parentXmlProject, problems, parentFile, isAutomaticVersionFeatureEnabled);
   }
 
   private void repairModelBody(MavenModel model) {
@@ -226,7 +249,7 @@ public final class MavenProjectReader {
     return new MavenResource(directory, false, null, Collections.emptyList(), Collections.emptyList());
   }
 
-  private List<MavenProfile> collectProfiles(VirtualFile projectFile,
+  private static List<MavenProfile> collectProfiles(VirtualFile projectFile,
                                              Element xmlProject,
                                              Collection<MavenProjectProblem> problems,
                                              Set<String> alwaysOnProfiles) {
@@ -279,7 +302,7 @@ public final class MavenProjectReader {
     alwaysOnProfiles.addAll(mySettingsProfilesCache.alwaysOnProfiles);
   }
 
-  private void collectProfilesFromSettingsXmlOrProfilesXml(VirtualFile profilesFile,
+  private static void collectProfilesFromSettingsXmlOrProfilesXml(VirtualFile profilesFile,
                                                            String rootElementName,
                                                            boolean wrapRootIfNecessary,
                                                            String profilesSource,
@@ -301,7 +324,7 @@ public final class MavenProjectReader {
     alwaysOnProfiles.addAll(MavenJDOMUtil.findChildrenValuesByPath(rootElement, "activeProfiles", "activeProfile"));
   }
 
-  private void collectProfiles(List<Element> xmlProfiles, List<MavenProfile> result, String source) {
+  private static void collectProfiles(List<Element> xmlProfiles, List<MavenProfile> result, String source) {
     for (Element each : xmlProfiles) {
       String id = MavenJDOMUtil.findChildValueByPath(each, "id");
       if (isEmptyOrSpaces(id)) continue;
@@ -346,7 +369,7 @@ public final class MavenProjectReader {
     }
   }
 
-  private boolean addProfileIfDoesNotExist(MavenProfile profile, List<MavenProfile> result) {
+  private static boolean addProfileIfDoesNotExist(MavenProfile profile, List<MavenProfile> result) {
     for (MavenProfile each : result) {
       if (Objects.equals(each.getId(), profile.getId())) return false;
     }
@@ -404,7 +427,7 @@ public final class MavenProjectReader {
           @Override
           @Nullable
           protected Pair<VirtualFile, RawModelReadResult> processRelativeParent(VirtualFile parentFile) {
-            MavenModel parentModel = doReadProjectModel(parentFile, true).model;
+            MavenModel parentModel = doReadProjectModel(myProject, parentFile, true).model;
             MavenId parentId = parentDesc[0].getParentId();
             if (!parentId.equals(parentModel.getMavenId())) return null;
 
@@ -434,8 +457,7 @@ public final class MavenProjectReader {
                                                        MavenProjectProblem.ProblemType.PARENT, false));
       }
 
-      model = MavenServerManager.getInstance().getConnector(myProject, projectPomDir.toAbsolutePath().toString())
-        .assembleInheritance(model, parentModel);
+      model = myReadHelper.assembleInheritance(projectPomDir, parentModel, model);
 
       // todo: it is a quick-hack here - we add inherited dummy profiles to correctly collect activated profiles in 'applyProfiles'.
       List<MavenProfile> profiles = model.getProfiles();
@@ -537,6 +559,9 @@ public final class MavenProjectReader {
   private static Element readXml(final VirtualFile file,
                                  final Collection<MavenProjectProblem> problems,
                                  final MavenProjectProblem.ProblemType type) {
+
+    ReadStatisticsCollector.getInstance().fileRead(file);
+
     return MavenJDOMUtil.read(file, new MavenJDOMUtil.ErrorHandler() {
       @Override
       public void onReadError(IOException e) {
@@ -563,7 +588,7 @@ public final class MavenProjectReader {
     }
   }
 
-  private static final class RawModelReadResult {
+  public static final class RawModelReadResult {
     public MavenModel model;
     public Collection<MavenProjectProblem> problems;
     public Set<String> alwaysOnProfiles;

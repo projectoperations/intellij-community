@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -250,8 +250,7 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
   }
 
   //@GuardedBy("myData")
-  @NotNull
-  private VirtualFileSystemEntry createChildImpl(int id,
+  private @NotNull VirtualFileSystemEntry createChildImpl(int id,
                                                  int nameId,
                                                  @PersistentFS.Attributes int attributes,
                                                  boolean isEmptyDirectory) {
@@ -646,8 +645,8 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
           return oldIds.length;
         }
       };
-      ContainerUtil.processSortedListsInOrder(existingChildren, added, byName, true, (nextInfo, isFileExistsAlready) -> {
-        if (!isFileExistsAlready) {
+      ContainerUtil.processSortedListsInOrder(existingChildren, added, byName, true, (nextInfo, mergeResult) -> {
+        if (mergeResult != ContainerUtil.MergeResult.COPIED_FROM_LIST1) {
           assert nextInfo.getId() > 0 : nextInfo;
           @PersistentFS.Attributes
           int attributes = nextInfo.getFileAttributeFlags();

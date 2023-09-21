@@ -39,9 +39,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.openapi.progress.util.ProgressWindow;
 import com.intellij.openapi.progress.util.TooManyUsagesStatus;
-import com.intellij.openapi.project.DumbAwareAction;
-import com.intellij.openapi.project.DumbService;
-import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.*;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
@@ -672,6 +670,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     if (myProject != null) {
       contributors = DumbService.getInstance(myProject).filterByDumbAwareness(contributorsMap.keySet());
       if (contributors.isEmpty() && DumbService.isDumb(myProject)) {
+        DumbModeBlockedFunctionalityCollector.INSTANCE.logFunctionalityBlocked(myProject, DumbModeBlockedFunctionality.SearchEverywhere);
         myResultsList.setEmptyText(IdeBundle.message("searcheverywhere.indexing.mode.not.supported",
                                                      myHeader.getSelectedTab().getName(),
                                                      ApplicationNamesInfo.getInstance().getFullProductName()));
@@ -824,7 +823,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
       showDescriptionForIndex(myResultsList.getSelectedIndex());
       if (isExtendedInfoEnabled()) {
         if (selectedValue != null && myExtendedInfoComponent != null) {
-          myExtendedInfoComponent.updateElement(selectedValue);
+          myExtendedInfoComponent.updateElement(selectedValue, this);
         }
       }
     });
@@ -1187,7 +1186,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     }
   };
 
-  private class ShowInFindToolWindowAction extends DumbAwareAction {
+  private final class ShowInFindToolWindowAction extends DumbAwareAction {
 
     ShowInFindToolWindowAction() {
       super(IdeBundle.messagePointer("show.in.find.window.button.name"),
@@ -1355,7 +1354,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     }
   }
 
-  private class CompleteCommandAction extends DumbAwareAction {
+  private final class CompleteCommandAction extends DumbAwareAction {
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
       if (completeCommand()) {
@@ -1408,7 +1407,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     return IdeBundle.message("searcheverywhere.nothing.found.for.contributor.anywhere", groupName.toLowerCase(Locale.ROOT));
   }
 
-  private class MySearchListener implements SearchListener {
+  private final class MySearchListener implements SearchListener {
 
     @Override
     public void elementsAdded(@NotNull List<? extends SearchEverywhereFoundElementInfo> list) {
@@ -1594,7 +1593,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     }
   }
 
-  private static class SearchFieldTypingListener extends KeyAdapter {
+  private static final class SearchFieldTypingListener extends KeyAdapter {
     private int mySymbolKeysTyped;
     private int myBackspacesTyped;
 
@@ -1660,7 +1659,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     }
   };
 
-  private static class HintHelper {
+  private static final class HintHelper {
 
     private final ExtendableTextField myTextField;
 

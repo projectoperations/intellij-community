@@ -79,7 +79,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
         val previousStorage: MutableEntityStorage?
         val previousStorageForUnloaded: EntityStorageSnapshot
         val loadingCacheTime = measureTimeMillis {
-          previousStorage = cache.loadCache()?.toBuilder()
+          previousStorage = cache.loadCache()
           previousStorageForUnloaded = cache.loadUnloadedEntitiesCache()?.toSnapshot() ?: EntityStorageSnapshot.empty()
         }
         val storage = if (previousStorage == null) {
@@ -144,7 +144,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
 
       val changes: Map<Class<*>, List<EntityChange<*>>>
       collectChangesTimeMillis = measureTimeMillis {
-        changes = builder.collectChanges(before)
+        changes = builder.collectChanges()
       }
       initializingTimeMillis = measureTimeMillis {
         this.initializeBridges(changes, builder)
@@ -219,7 +219,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
 
       // We don't send changes to the WorkspaceModelChangeListener during the silent update.
       // But the concept of silent update is getting deprecated, and the list of changes will be sent to the new async listeners
-      val changes = builder.collectChanges(before)
+      val changes = builder.collectChanges()
 
       toSnapshotTimeMillis = measureTimeMillis {
         newStorage = builder.toSnapshot()
@@ -274,9 +274,9 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
       val builder = MutableEntityStorage.from(before)
       updater(builder)
       startPreUpdateHandlers(before, builder)
-      val changes = builder.collectChanges(before)
+      val changes = builder.collectChanges()
       val newStorage = builder.toSnapshot()
-      unloadedEntitiesStorage.replace(newStorage, changes, ::onBeforeUnloadedEntitiesChanged, ::onUnloadedEntitiesChanged)
+      unloadedEntitiesStorage.replace(newStorage, changes, {}, ::onUnloadedEntitiesChanged)
     }.apply { updateUnloadedEntitiesTimeMs.addAndGet(this) }
 
     log.info("Unloaded entity storage updated in $time ms: $description")
@@ -345,12 +345,6 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
 
     logErrorOnEventHandling {
       project.messageBus.syncPublisher(WorkspaceModelTopics.CHANGED).changed(change)
-    }
-  }
-
-  private fun onBeforeUnloadedEntitiesChanged(change: VersionedStorageChange) {
-    logErrorOnEventHandling {
-      project.messageBus.syncPublisher(WorkspaceModelTopics.UNLOADED_ENTITIES_CHANGED).beforeChanged(change)
     }
   }
 
@@ -427,7 +421,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     private val initializeBridgesTimeMs: AtomicLong = AtomicLong()
 
     /**
-     * This setup is in static part because meters will not be collected if the same instrument (gauge, counter ...) are registered more then once.
+     * This setup is in static part because meters will not be collected if the same instrument (gauge, counter ...) are registered more than once.
      * In that case WARN by OpenTelemetry will be logged 'Instrument XYZ has recorded multiple values for the same attributes.'
      * https://github.com/airbytehq/airbyte-platform/pull/213/files
      */

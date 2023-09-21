@@ -61,7 +61,6 @@ public final class BaseCommandProvider implements CommandProvider {
       Map.entry(ReloadFilesCommand.PREFIX, ReloadFilesCommand::new),
       Map.entry(AddFileCommand.PREFIX, AddFileCommand::new),
       Map.entry(DeleteFileCommand.PREFIX, DeleteFileCommand::new),
-      Map.entry(TestTipsAndFeaturesIntegrationCommand.PREFIX, TestTipsAndFeaturesIntegrationCommand::new),
       Map.entry(ExpandMainMenuCommand.PREFIX, ExpandMainMenuCommand::new),
       Map.entry(ExpandEditorMenuCommand.PREFIX, ExpandEditorMenuCommand::new),
       Map.entry(OpenRandomFileCommand.PREFIX, OpenRandomFileCommand::new),
@@ -92,7 +91,11 @@ public final class BaseCommandProvider implements CommandProvider {
       Map.entry(ShowEvaluateExpressionCommand.PREFIX, ShowEvaluateExpressionCommand::new),
       Map.entry(EvaluateExpressionCompletionCommand.PREFIX, EvaluateExpressionCompletionCommand::new),
       Map.entry(CollectFilesNotMarkedAsIndex.PREFIX, CollectFilesNotMarkedAsIndex::new),
-      Map.entry(RemoveBreakpointCommand.PREFIX, RemoveBreakpointCommand::new)
+      Map.entry(RemoveBreakpointCommand.PREFIX, RemoveBreakpointCommand::new),
+      Map.entry(DropErrorCommand.PREFIX, DropErrorCommand::new),
+      Map.entry(SaveDocumentsAndSettingsCommand.PREFIX, SaveDocumentsAndSettingsCommand::new),
+      Map.entry(FreezeUICommand.PREFIX, FreezeUICommand::new),
+      Map.entry(MoveCaretCommand.PREFIX, MoveCaretCommand::new)
     );
   }
 }

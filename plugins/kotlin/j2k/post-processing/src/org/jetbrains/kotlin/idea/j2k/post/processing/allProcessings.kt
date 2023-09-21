@@ -10,13 +10,11 @@ import org.jetbrains.kotlin.idea.inspections.branchedTransformations.IfThenToElv
 import org.jetbrains.kotlin.idea.inspections.branchedTransformations.IfThenToSafeAccessInspection
 import org.jetbrains.kotlin.idea.inspections.conventionNameCalls.ReplaceGetOrSetInspection
 import org.jetbrains.kotlin.idea.intentions.*
-import org.jetbrains.kotlin.idea.intentions.branchedTransformations.intentions.FoldIfToReturnAsymmetricallyIntention
-import org.jetbrains.kotlin.idea.intentions.branchedTransformations.intentions.FoldIfToReturnIntention
-import org.jetbrains.kotlin.idea.intentions.branchedTransformations.isTrivialStatementBody
 import org.jetbrains.kotlin.idea.intentions.branchedTransformations.shouldBeTransformed
 import org.jetbrains.kotlin.idea.j2k.post.processing.processings.*
 import org.jetbrains.kotlin.idea.quickfix.*
 import org.jetbrains.kotlin.idea.quickfix.ChangeCallableReturnTypeFix.ReturnTypeMismatchOnOverrideFactory
+import org.jetbrains.kotlin.idea.quickfix.ChangeVisibilityFix.SetExplicitVisibilityFactory
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.parents
@@ -26,7 +24,6 @@ private val errorsFixingDiagnosticBasedPostProcessingGroup = DiagnosticBasedPost
     diagnosticBasedProcessing(SmartCastImpossibleExclExclFixFactory, Errors.SMARTCAST_IMPOSSIBLE),
     diagnosticBasedProcessing(ReplacePrimitiveCastWithNumberConversionFix, Errors.CAST_NEVER_SUCCEEDS),
     diagnosticBasedProcessing(ReturnTypeMismatchOnOverrideFactory, Errors.RETURN_TYPE_MISMATCH_ON_OVERRIDE),
-    diagnosticBasedProcessing(RemoveModifierFixBase.createRemoveProjectionFactory(isRedundant = true), Errors.REDUNDANT_PROJECTION),
     diagnosticBasedProcessing(AddModifierFixFE10.createFactory(KtTokens.OVERRIDE_KEYWORD), Errors.VIRTUAL_MEMBER_HIDDEN),
     invisibleMemberDiagnosticBasedProcessing(MakeVisibleFactory, Errors.INVISIBLE_MEMBER),
     diagnosticBasedProcessing(RemoveModifierFixBase.removeNonRedundantModifier, Errors.WRONG_MODIFIER_TARGET),
@@ -59,6 +56,15 @@ private val errorsFixingDiagnosticBasedPostProcessingGroup = DiagnosticBasedPost
         Errors.EXPOSED_SUPER_CLASS,
         Errors.EXPOSED_SUPER_INTERFACE,
         Errors.EXPOSED_TYPE_PARAMETER_BOUND
+    ),
+    diagnosticBasedProcessing(
+        SetExplicitVisibilityFactory,
+        Errors.NO_EXPLICIT_VISIBILITY_IN_API_MODE,
+        Errors.NO_EXPLICIT_VISIBILITY_IN_API_MODE_WARNING,
+    ),
+    diagnosticBasedProcessing(
+        ConvertToIsArrayOfCallFix,
+        Errors.CANNOT_CHECK_FOR_ERASED,
     ),
     fixValToVarDiagnosticBasedProcessing,
     fixTypeMismatchDiagnosticBasedProcessing
@@ -97,12 +103,6 @@ private val inspectionLikePostProcessingGroup = InspectionLikeProcessingGroup(
     RemoveRedundantNullabilityProcessing(),
     inspectionBasedProcessing(FoldInitializerAndIfToElvisInspection(), writeActionNeeded = false),
     inspectionBasedProcessing(JavaMapForEachInspection()),
-    intentionBasedProcessing(FoldIfToReturnIntention()) { it.then.isTrivialStatementBody() && it.`else`.isTrivialStatementBody() },
-    intentionBasedProcessing(FoldIfToReturnAsymmetricallyIntention()) {
-        it.then.isTrivialStatementBody() && (KtPsiUtil.skipTrailingWhitespacesAndComments(
-            it
-        ) as KtReturnExpression).returnedExpression.isTrivialStatementBody()
-    },
     inspectionBasedProcessing(IfThenToSafeAccessInspection(inlineWithPrompt = false), writeActionNeeded = false) {
         it.shouldBeTransformed()
     },
@@ -114,7 +114,10 @@ private val inspectionLikePostProcessingGroup = InspectionLikeProcessingGroup(
     },
     inspectionBasedProcessing(ReplaceGetOrSetInspection()),
     intentionBasedProcessing(ObjectLiteralToLambdaIntention(), writeActionNeeded = true),
-    intentionBasedProcessing(RemoveUnnecessaryParenthesesIntention()),
+    intentionBasedProcessing(RemoveUnnecessaryParenthesesIntention()) {
+        // skip parentheses that were originally present in Java code
+        it.getExplicitLabelComment() == null
+    },
     DestructureForLoopParameterProcessing(),
     inspectionBasedProcessing(SimplifyAssertNotNullInspection()),
     LiftReturnInspectionBasedProcessing(),
@@ -125,7 +128,9 @@ private val inspectionLikePostProcessingGroup = InspectionLikeProcessingGroup(
     inspectionBasedProcessing(ReplaceGuardClauseWithFunctionCallInspection()),
     inspectionBasedProcessing(KotlinInspectionFacade.instance.sortModifiers),
     intentionBasedProcessing(ConvertToRawStringTemplateIntention(), additionalChecker = ::shouldConvertToRawString),
-    intentionBasedProcessing(IndentRawStringIntention())
+    intentionBasedProcessing(IndentRawStringIntention()),
+    intentionBasedProcessing(JoinDeclarationAndAssignmentIntention()),
+    inspectionBasedProcessing(NullChecksToSafeCallInspection())
 )
 
 private val cleaningUpDiagnosticBasedPostProcessingGroup = DiagnosticBasedPostProcessingGroup(
@@ -146,13 +151,18 @@ private val inferringTypesPostProcessingGroup = NamedPostProcessingGroup(
         ),
         NullabilityInferenceProcessing(),
         MutabilityInferenceProcessing(),
-        ClearUnknownLabelsProcessing()
+        ClearUnknownInferenceLabelsProcessing()
     )
 )
 
 private val cleaningUpCodePostProcessingGroup = NamedPostProcessingGroup(
     KotlinNJ2KServicesBundle.message("processing.step.cleaning.up.code"),
     listOf(
+        DiagnosticBasedPostProcessingGroup(
+            // We need to remove the redundant projection before `ConvertGettersAndSettersToPropertyProcessing`,
+            // so that the property and accessor types wouldn't differ in projections.
+            diagnosticBasedProcessing(RemoveModifierFixBase.createRemoveProjectionFactory(isRedundant = true), Errors.REDUNDANT_PROJECTION),
+        ),
         ConvertGettersAndSettersToPropertyProcessing(),
         InspectionLikeProcessingGroup(RemoveExplicitAccessorInspectionBasedProcessing()),
         MergePropertyWithConstructorParameterProcessing(),
@@ -160,7 +170,8 @@ private val cleaningUpCodePostProcessingGroup = NamedPostProcessingGroup(
         addOrRemoveModifiersProcessingGroup,
         inspectionLikePostProcessingGroup,
         removeRedundantElementsProcessingGroup,
-        cleaningUpDiagnosticBasedPostProcessingGroup
+        ClearExplicitLabelsProcessing(),
+        cleaningUpDiagnosticBasedPostProcessingGroup,
     )
 )
 
@@ -169,6 +180,7 @@ private val optimizingImportsAndFormattingCodePostProcessingGroup = NamedPostPro
     listOf(
         ShortenReferenceProcessing(),
         OptimizeImportsProcessing(),
+        RemoveRedundantEmptyLinesProcessing(),
         FormatCodeProcessing()
     )
 )

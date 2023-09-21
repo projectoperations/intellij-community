@@ -8,7 +8,7 @@
   <xi:include href="refactorings.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="file-types.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="resolution-fe10.xml" xpointer="xpointer(/idea-plugin/*)"/>
-  <xi:include href="highlighting.xml" xpointer="xpointer(/idea-plugin/*)"/>
+  <xi:include href="kotlin.highlighting-shared.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="highlighting-fe10.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="language.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="light-classes.xml" xpointer="xpointer(/idea-plugin/*)"/>
@@ -32,20 +32,21 @@
   <xi:include href="scripting-base.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="facets-base.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="platform-kind-resolution-fe10.xml" xpointer="xpointer(/idea-plugin/*)"/>
+  <xi:include href="jvm.xml" xpointer="xpointer(/idea-plugin/*)"/>
+  <xi:include href="jvm-k1.xml" xpointer="xpointer(/idea-plugin/*)"/>
 
   <!--suppress XmlPathReference -->
   <xi:include href="ultimate-plugin.xml" xpointer="xpointer(/idea-plugin/*)">
     <xi:fallback/>
   </xi:include>
 
-  <xi:include href="jvm-common.xml" xpointer="xpointer(/idea-plugin/*)"/>
-  <xi:include href="jvm.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="parcelize.k1.xml" xpointer="xpointer(/idea-plugin/*)"/>
 
   <content>
     <module name="kotlin.base.analysis-api-providers"/>
     <module name="kotlin.base.fe10.plugin"/>
     <module name="kotlin.base.fe10.analysis-api-providers"/>
+    <module name="kotlin.base.fe10.project-structure"/>
     <module name="kotlin.gradle.gradle-tooling"/>
     <module name="kotlin.gradle.gradle"/>
     <module name="kotlin.gradle.code-insight-common"/>
@@ -95,10 +96,12 @@
 
     <module name="kotlin.code-insight.intentions-shared"/>
     <module name="kotlin.code-insight.inspections-shared"/>
+    <module name="kotlin.code-insight.inspections-k1"/>
     <module name="kotlin.code-insight.live-templates-shared"/>
     <module name="kotlin.code-insight.live-templates-k1"/>
     <module name="kotlin.code-insight.postfix-templates-k1"/>
     <module name="kotlin.code-insight.structural-search-k1"/>
+    <module name="kotlin.code-insight.k1"/>
 
     <module name="kotlin.compiler-reference-index"/>
   </content>

@@ -10,6 +10,7 @@ import de.plushnikov.intellij.plugin.processor.handler.EqualsAndHashCodeToString
 import de.plushnikov.intellij.plugin.processor.handler.EqualsAndHashCodeToStringHandler.MemberInfo;
 import de.plushnikov.intellij.plugin.psi.LombokLightMethodBuilder;
 import de.plushnikov.intellij.plugin.quickfix.PsiQuickFixFactory;
+import de.plushnikov.intellij.plugin.thirdparty.LombokAddNullAnnotations;
 import de.plushnikov.intellij.plugin.util.PsiAnnotationUtil;
 import de.plushnikov.intellij.plugin.util.PsiClassUtil;
 import de.plushnikov.intellij.plugin.util.PsiMethodUtil;
@@ -18,6 +19,9 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+
+import static de.plushnikov.intellij.plugin.LombokClassNames.TO_STRING_EXCLUDE;
+import static de.plushnikov.intellij.plugin.LombokClassNames.TO_STRING_INCLUDE;
 
 /**
  * Inspect and validate @ToString lombok annotation on a class
@@ -31,8 +35,6 @@ public final class ToStringProcessor extends AbstractClassProcessor {
   private static final String INCLUDE_ANNOTATION_METHOD = "name";
   private static final String INCLUDE_ANNOTATION_RANK = "rank";
   private static final String INCLUDE_ANNOTATION_SKIP_NULL = "skipNull";
-  private static final String TOSTRING_INCLUDE = LombokClassNames.TO_STRING_INCLUDE;
-  private static final String TOSTRING_EXCLUDE = LombokClassNames.TO_STRING_EXCLUDE;
 
   public ToStringProcessor() {
     super(PsiMethod.class, LombokClassNames.TO_STRING);
@@ -101,7 +103,8 @@ public final class ToStringProcessor extends AbstractClassProcessor {
 
     final Collection<MemberInfo> memberInfos = EqualsAndHashCodeToStringHandler.filterMembers(psiClass, psiAnnotation, false,
                                                                                               INCLUDE_ANNOTATION_METHOD,
-                                                                                              ConfigKey.TOSTRING_ONLY_EXPLICITLY_INCLUDED);
+                                                                                              ConfigKey.TOSTRING_ONLY_EXPLICITLY_INCLUDED,
+                                                                                              TO_STRING_INCLUDE, TO_STRING_EXCLUDE);
     final PsiMethod stringMethod = createToStringMethod(psiClass, memberInfos, psiAnnotation, false);
     return Collections.singletonList(stringMethod);
   }
@@ -114,12 +117,16 @@ public final class ToStringProcessor extends AbstractClassProcessor {
     final String paramString = createParamString(psiClass, memberInfos, psiAnnotation, forceCallSuper);
     final String blockText = String.format("return \"%s(%s)\";", getSimpleClassName(psiClass), paramString);
 
-    return new LombokLightMethodBuilder(psiManager, TO_STRING_METHOD_NAME)
+    final LombokLightMethodBuilder methodBuilder = new LombokLightMethodBuilder(psiManager, TO_STRING_METHOD_NAME)
       .withMethodReturnType(PsiType.getJavaLangString(psiManager, GlobalSearchScope.allScope(psiClass.getProject())))
       .withContainingClass(psiClass)
       .withNavigationElement(psiAnnotation)
       .withModifier(PsiModifier.PUBLIC)
       .withBodyText(blockText);
+
+    LombokAddNullAnnotations.createRelevantNonNullAnnotation(psiClass, methodBuilder);
+
+    return methodBuilder;
   }
 
   private static String getSimpleClassName(@NotNull PsiClass psiClass) {
@@ -127,7 +134,7 @@ public final class ToStringProcessor extends AbstractClassProcessor {
 
     PsiClass containingClass = psiClass;
     do {
-      if (psiClassName.length() > 0) {
+      if (!psiClassName.isEmpty()) {
         psiClassName.insert(0, '.');
       }
       psiClassName.insert(0, containingClass.getName());
@@ -190,7 +197,7 @@ public final class ToStringProcessor extends AbstractClassProcessor {
   @Override
   public Collection<PsiAnnotation> collectProcessedAnnotations(@NotNull PsiClass psiClass) {
     final Collection<PsiAnnotation> result = super.collectProcessedAnnotations(psiClass);
-    addFieldsAnnotation(result, psiClass, TOSTRING_INCLUDE, TOSTRING_EXCLUDE);
+    addFieldsAnnotation(result, psiClass, TO_STRING_INCLUDE, TO_STRING_EXCLUDE);
     return result;
   }
 
@@ -201,7 +208,8 @@ public final class ToStringProcessor extends AbstractClassProcessor {
       final String psiFieldName = psiField.getName();
       final Collection<MemberInfo> memberInfos =
         EqualsAndHashCodeToStringHandler.filterMembers(containingClass, psiAnnotation, false,
-                                                       INCLUDE_ANNOTATION_METHOD, ConfigKey.TOSTRING_ONLY_EXPLICITLY_INCLUDED);
+                                                       INCLUDE_ANNOTATION_METHOD, ConfigKey.TOSTRING_ONLY_EXPLICITLY_INCLUDED,
+                                                       TO_STRING_INCLUDE, TO_STRING_EXCLUDE);
       if (memberInfos.stream().filter(MemberInfo::isField).map(MemberInfo::getName).anyMatch(psiFieldName::equals)) {
         return LombokPsiElementUsage.READ;
       }

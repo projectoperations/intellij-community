@@ -9,6 +9,8 @@ import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.project.DumbModeBlockedFunctionality;
+import com.intellij.openapi.project.DumbModeBlockedFunctionalityCollector;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -152,6 +154,7 @@ public abstract class RefactoringDialog extends DialogWrapper {
     if (!DumbService.isDumbAware(this) && DumbService.isDumb(myProject)) {
       Messages.showMessageDialog(myProject, RefactoringBundle.message("refactoring.not.available.indexing"),
                                  RefactoringBundle.message("refactoring.indexing.warning.title"), null);
+      DumbModeBlockedFunctionalityCollector.INSTANCE.logFunctionalityBlocked(myProject, DumbModeBlockedFunctionality.RefactoringDialog);
       return;
     }
 
@@ -239,7 +242,7 @@ public abstract class RefactoringDialog extends DialogWrapper {
     return myProject;
   }
 
-  private class RefactorAction extends AbstractAction {
+  private final class RefactorAction extends AbstractAction {
     RefactorAction() {
       super(RefactoringBundle.message("refactor.button"));
       putValue(DEFAULT_ACTION, Boolean.TRUE);
@@ -253,7 +256,7 @@ public abstract class RefactoringDialog extends DialogWrapper {
     }
   }
 
-  private class PreviewAction extends AbstractAction {
+  private final class PreviewAction extends AbstractAction {
     PreviewAction() {
       super(RefactoringBundle.message("preview.button"));
       if (SystemInfo.isMac) {

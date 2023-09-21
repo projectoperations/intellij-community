@@ -54,6 +54,9 @@ class SetupCompletionStep(private val language: Language,
         return null
       }
     }
+    else {
+      Registry.get(MODEL_ZIP_PATH_REGISTRY).resetToDefault()
+    }
     LOG.runAndLogException { dumpMlModelInfo(workspace, ideaLanguage) }
     return workspace
   }
@@ -85,7 +88,7 @@ class SetupCompletionStep(private val language: Language,
   }
 
   private fun setMLCompletion(rankingValue: Boolean, languageValue: Boolean = rankingValue) {
-    settings.setLanguageEnabled(language.name, languageValue)
+    settings.setLanguageEnabled(language.displayName, languageValue)
     settings.isRankingEnabled = rankingValue
   }
 }

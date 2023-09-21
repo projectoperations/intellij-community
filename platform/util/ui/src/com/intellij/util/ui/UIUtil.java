@@ -41,7 +41,6 @@ import javax.swing.border.LineBorder;
 import javax.swing.plaf.ButtonUI;
 import javax.swing.plaf.ComboBoxUI;
 import javax.swing.plaf.FontUIResource;
-import javax.swing.plaf.UIResource;
 import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.plaf.basic.BasicRadioButtonUI;
 import javax.swing.plaf.basic.ComboPopup;
@@ -79,10 +78,6 @@ public final class UIUtil {
   public static final @NlsSafe String BR = "<br/>";
   public static final @NlsSafe String HR = "<hr/>";
   public static final @NlsSafe String LINE_SEPARATOR = "\n";
-
-  public static final Key<Boolean> LAF_WITH_THEME_KEY = Key.create("Laf.with.ui.theme");
-  public static final Key<String> PLUGGABLE_LAF_KEY = Key.create("Pluggable.laf.name");
-
   private static final Key<WeakReference<Component>> FOSTER_PARENT = Key.create("Component.fosterParent");
   private static final Key<Boolean> HAS_FOCUS = Key.create("Component.hasFocus");
 
@@ -182,102 +177,6 @@ public final class UIUtil {
 
   public static @NotNull RGBImageFilter getTextGrayFilter() {
     return GrayFilter.namedFilter("text.grayFilter", new GrayFilter(20, 0, 100));
-  }
-
-  public static class GrayFilter extends RGBImageFilter {
-    private float brightness;
-    private float contrast;
-    private int alpha;
-
-    private int origContrast;
-    private int origBrightness;
-
-    /**
-     * @param brightness in range [-100..100] where 0 has no effect
-     * @param contrast in range [-100..100] where 0 has no effect
-     * @param alpha in range [0..100] where 0 is transparent, 100 has no effect
-     */
-    public GrayFilter(int brightness, int contrast, int alpha) {
-      setBrightness(brightness);
-      setContrast(contrast);
-      setAlpha(alpha);
-    }
-
-    public GrayFilter() {
-      this(0, 0, 100);
-    }
-
-    private void setBrightness(int brightness) {
-      origBrightness = Math.max(-100, Math.min(100, brightness));
-      this.brightness = (float)(Math.pow(origBrightness, 3) / (100f * 100f)); // cubic in [0..100]
-    }
-
-    public int getBrightness() {
-      return origBrightness;
-    }
-
-    private void setContrast(int contrast) {
-      origContrast = Math.max(-100, Math.min(100, contrast));
-      this.contrast = origContrast / 100f;
-    }
-
-    public int getContrast() {
-      return origContrast;
-    }
-
-    private void setAlpha(int alpha) {
-      this.alpha = Math.max(0, Math.min(100, alpha));
-    }
-
-    public int getAlpha() {
-      return alpha;
-    }
-
-    @Override
-    @SuppressWarnings("AssignmentReplaceableWithOperatorAssignment")
-    public int filterRGB(int x, int y, int rgb) {
-      // Use NTSC conversion formula.
-      int gray = (int)(0.30 * (rgb >> 16 & 0xff) +
-                       0.59 * (rgb >> 8 & 0xff) +
-                       0.11 * (rgb & 0xff));
-
-      if (brightness >= 0) {
-        gray = (int)((gray + brightness * 255) / (1 + brightness));
-      }
-      else {
-        gray = (int)(gray / (1 - brightness));
-      }
-
-      if (contrast >= 0) {
-        if (gray >= 127) {
-          gray = (int)(gray + (255 - gray) * contrast);
-        }
-        else {
-          gray = (int)(gray - gray * contrast);
-        }
-      }
-      else {
-        gray = (int)(127 + (gray - 127) * (contrast + 1));
-      }
-
-      int a = ((rgb >> 24) & 0xff) * alpha / 100;
-
-      return (a << 24) | (gray << 16) | (gray << 8) | gray;
-    }
-
-    public @NotNull GrayFilterUIResource asUIResource() {
-      return new GrayFilterUIResource(this);
-    }
-
-    public static class GrayFilterUIResource extends GrayFilter implements UIResource {
-      public GrayFilterUIResource(@NotNull GrayFilter filter) {
-        super(filter.origBrightness, filter.origContrast, filter.alpha);
-      }
-    }
-
-    public static @NotNull GrayFilter namedFilter(@NotNull String resourceName, @NotNull GrayFilter defaultFilter) {
-      return Objects.requireNonNullElse((GrayFilter)UIManager.get(resourceName), defaultFilter);
-    }
   }
 
   public static @NotNull Couple<Color> getCellColors(@NotNull JTable table, boolean isSel, int row, int column) {
@@ -1058,16 +957,28 @@ public final class UIUtil {
     return SystemInfoRt.isMac && (StartupUiUtil.isUnderDarcula() || isUnderIntelliJLaF());
   }
 
+  /**
+   * Do not use it. Use theme properties instead of it.
+   */
+  @Deprecated(forRemoval = true)
   public static boolean isUnderDefaultMacTheme() {
-    return StartupUiUtil.isUnderDefaultMacTheme();
+    return false;
   }
 
+  /**
+   * Do not use it. Use theme properties instead of it.
+   */
+  @Deprecated(forRemoval = true)
   public static boolean isUnderWin10LookAndFeel() {
-    return StartupUiUtil.isUnderWin10LookAndFeel();
+    return false;
   }
 
+  /**
+   * @deprecated Do not use it. Use {@link JBColor}.
+   */
+  @Deprecated(forRemoval = true)
   public static boolean isUnderDarcula() {
-    return StartupUiUtil.isUnderDarcula();
+    return StartupUiUtil.INSTANCE.isDarkTheme();
   }
 
   public static boolean isUnderIntelliJLaF() {
@@ -1935,6 +1846,15 @@ public final class UIUtil {
     }
   }
 
+  public static @NotNull Font getFontWithFallbackIfNeeded(@NotNull Font font, @NotNull char[] text) {
+    if (!SystemInfoRt.isMac /* 'getFontWithFallback' does nothing on macOS */ && font.canDisplayUpTo(text, 0, text.length) != -1) {
+      return getFontWithFallback(font);
+    }
+    else {
+      return font;
+    }
+  }
+
   public static @NotNull FontUIResource getFontWithFallback(@NotNull Font font) {
     // On macOS font fallback is implemented in JDK by default
     // (except for explicitly registered fonts, e.g. the fonts we bundle with IDE, for them we don't have a solution now)
@@ -1945,21 +1865,17 @@ public final class UIUtil {
         }
       }
       catch (Throwable e) {
-        // this might happen e.g. if we're running under newer runtime, forbidding access to sun.font package
+        // this might happen e.g., if we're running under newer runtime, forbidding access to sun.font package
         getLogger().warn(e);
         // this might not give the same result, but we have no choice here
-        return StartupUiUtil.getFontWithFallback(font.getFamily(), font.getStyle(), font.getSize());
+        return StartupUiUtilKt.getFontWithFallback(font.getFamily(), font.getStyle(), font.getSize());
       }
     }
     return font instanceof FontUIResource ? (FontUIResource)font : new FontUIResource(font);
   }
 
   public static @NotNull FontUIResource getFontWithFallback(@Nullable String familyName, @JdkConstants.FontStyle int style, int size) {
-    return StartupUiUtil.getFontWithFallback(familyName, style, size);
-  }
-
-  public static @NotNull FontUIResource getFontWithFallback(@Nullable String familyName, @JdkConstants.FontStyle int style, float size) {
-    return StartupUiUtil.getFontWithFallback(familyName, style, size);
+    return StartupUiUtilKt.getFontWithFallback(familyName, style, size);
   }
 
   //Escape error-prone HTML data (if any) when we use it in renderers, see IDEA-170768
@@ -2228,11 +2144,11 @@ public final class UIUtil {
     return null;
   }
 
-  public static @NotNull <T extends JComponent> List<T> findComponentsOfType(JComponent parent, @NotNull Class<? extends T> cls) {
+  public static @NotNull <T extends JComponent> List<T> findComponentsOfType(@Nullable JComponent parent, @NotNull Class<? extends T> cls) {
     return ComponentUtil.findComponentsOfType(parent, cls);
   }
 
-  public static class TextPainter {
+  public static final class TextPainter {
     private final List<String> myLines = new ArrayList<>();
     private boolean myDrawShadow;
     private Color myShadowColor;

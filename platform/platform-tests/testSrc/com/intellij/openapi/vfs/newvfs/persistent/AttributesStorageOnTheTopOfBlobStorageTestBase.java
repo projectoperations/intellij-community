@@ -1,8 +1,8 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.RecordAlreadyDeletedException;
-import com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.StreamlinedBlobStorage;
+import com.intellij.util.io.blobstorage.StreamlinedBlobStorage;
 import com.intellij.util.IntPair;
 import com.intellij.util.indexing.impl.IndexDebugProperties;
 import com.intellij.util.io.StorageLockContext;
@@ -269,7 +269,7 @@ public abstract class AttributesStorageOnTheTopOfBlobStorageTestBase {
   }
 
   @Test
-  public void singleAttributeInserted_CouldBeAndDeletedTwice() throws IOException {
+  public void singleAttributeInserted_CouldBeDeletedTwice_If_IGNORE_ALREADY_DELETED_ERRORS_Enabled() throws IOException {
     final AttributeRecord record = newAttributeRecord(ARBITRARY_FILE_ID, ARBITRARY_ATTRIBUTE_ID)
       .withRandomAttributeBytes(INLINE_ATTRIBUTE_SMALLER_THAN + 1);
 
@@ -301,7 +301,7 @@ public abstract class AttributesStorageOnTheTopOfBlobStorageTestBase {
         fail("IGNORE_ALREADY_DELETED_ERRORS=false => must throw error on second attempt to delete already deleted record");
       }
       catch (RecordAlreadyDeletedException e) {
-        //OK, it is expected get error if IGNORE_ALREADY_DELETED_ERRORS=false
+        //OK, it is expected to get an error if IGNORE_ALREADY_DELETED_ERRORS=false
       }
     }
   }
@@ -565,7 +565,7 @@ public abstract class AttributesStorageOnTheTopOfBlobStorageTestBase {
   //TODO RC: make AttributeRecord inner class of Attributes, hence methods .store() and .delete()
   //         could be invoked through AttributeRecord itself
   //@Immutable
-  public static class AttributeRecord {
+  protected static class AttributeRecord {
     private final int attributesRecordId;
     private final int fileId;
     private final int attributeId;
@@ -680,12 +680,12 @@ public abstract class AttributesStorageOnTheTopOfBlobStorageTestBase {
 
   /**
    * AttributeRecords are logically not independent: in real use-cases attributeRecordId is tiered
-   * to fileId (via FSRecords), hence AttributeRecords with same fileId can't have different attributeRecordIds.
+   * to fileId (via FSRecords), hence AttributeRecords with the same fileId can't have different attributeRecordIds.
    * This class emulates (very small subset of) FSRecords: it keeps fileId -> attributeRecordId mapping,
    * and maintains it during insertions/updates/deletions -- this is why all modifications should go
    * through it
    */
-  public static class Attributes {
+  protected static class Attributes {
     private final Int2IntMap fileIdToAttributeRecordId = new Int2IntOpenHashMap();
 
     public AttributeRecord insertOrUpdateRecord(final AttributeRecord record,

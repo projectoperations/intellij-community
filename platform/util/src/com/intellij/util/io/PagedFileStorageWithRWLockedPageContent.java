@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.io;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -29,7 +29,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import static com.intellij.util.SystemProperties.getIntProperty;
 import static java.nio.ByteOrder.BIG_ENDIAN;
 
-public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
+public final class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
   private static final Logger LOG = Logger.getInstance(PagedFileStorageWithRWLockedPageContent.class);
 
   public static final int DEFAULT_PAGE_SIZE = PageCacheUtils.DEFAULT_PAGE_SIZE;
@@ -55,8 +55,11 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
   private final PageContentLockingStrategy pageContentLockingStrategy;
 
   private final @NotNull FilePageCacheLockFree pageCache;
+  /** Cached value of {@link FilePageCacheLockFree#getStatistics()} */
+  private final transient FilePageCacheStatistics pageCacheStatistics;
 
   private final PagesTable pages;
+
   /**
    * Assigned in {@link #closeAsync()}, tracks the closing process happening in housekeeper thread
    * in the {@link #pageCache}.
@@ -109,8 +112,6 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
                                                                            boolean nativeBytesOrder,
                                                                            @NotNull PageContentLockingStrategy strategy)
     throws IOException {
-    //TODO RC: remove all that crazyness from ctor. Just plain non-null storageContext, and boolean readOnly.
-    //         It is responsibility of a caller to prepare params!
     // TODO read-only flag should be extracted from PersistentHashMapValueStorage.CreationTimeOptions
     boolean readOnly = PersistentHashMapValueStorage.CreationTimeOptions.READONLY.get() == Boolean.TRUE;
 
@@ -129,7 +130,7 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
                                                  @NotNull StorageLockContext storageLockContext,
                                                  int pageSize,
                                                  @NotNull PageContentLockingStrategy strategy) throws IOException {
-    this(file, storageLockContext, pageSize, /*nativeBytesOrder: */true , /*readOnly: */false, strategy);
+    this(file, storageLockContext, pageSize, /*nativeBytesOrder: */true, /*readOnly: */false, strategy);
   }
 
   public PagedFileStorageWithRWLockedPageContent(@NotNull Path file,
@@ -169,13 +170,9 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
     }
     catch (IOException ignored) {
     }
+    pageCacheStatistics = pageCache.getStatistics();
   }
 
-
-  @Override
-  public @NotNull StorageLockContext getStorageLockContext() {
-    return storageLockContext;
-  }
 
   @Override
   public @NotNull Path getFile() {
@@ -324,7 +321,7 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
   }
 
   @Override
-  public final long length() {
+  public long length() {
     return actualSize.get();
   }
 
@@ -359,8 +356,7 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
       throw new AssertionError("Page " + pageIndex + " must be >=0");
     }
 
-    final FilePageCacheStatistics statistics = pageCache.getStatistics();
-    final long startedAtNs = statistics.startTimestampNs();
+    final long startedAtNs = pageCacheStatistics.startTimestampNs();
 
     for (int attempt = 0; ; attempt++) {
       if (isClosed()) {
@@ -388,7 +384,7 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
           }
           Thread.yield();//MAYBE RC: Thread.onSpinWait(); (java9+)
         }
-        statistics.pageRequested(page.pageSize(), startedAtNs);
+        pageCacheStatistics.pageRequested(page.pageSize(), startedAtNs);
         return page;
       }
       catch (IOException e) {
@@ -413,7 +409,13 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
           }
         }
         else {
-          Thread.yield();
+          if (attempt < 10) {
+            Thread.yield();
+          }
+          else {
+            //instead of blind yield -- better to wait for housekeeper to make a turn
+            pageCache.waitForHousekeepingTurn(1 /*ms*/);
+          }
         }
       }
     }
@@ -505,9 +507,9 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
     return "PagedFileStorage[" + file + "]" +
            "{size: " + actualSize.get() + ", dirtyPages: " + dirtyPagesCount.get() + "}" +
            "{pageSize: " + pageSize + ", "
-           + (isClosed() ? "closed " : " ")
-           + (isReadOnly() ? "readOnly " : " ")
-           + (isNativeBytesOrder() ? "nativeByteOrder " : " ")
+           + (isClosed() ? "closed " : "")
+           + (isReadOnly() ? "readOnly " : "")
+           + (isNativeBytesOrder() ? "nativeByteOrder" : "")
            + "}";
   }
 
@@ -539,7 +541,7 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
     }
   }
 
-  protected PagesTable pages() {
+  PagesTable pages() {
     return pages;
   }
 
@@ -565,23 +567,22 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
     if (!pageToLoad.isLoading()) {
       throw new AssertionError("Bug: page must be in LOADING, but " + pageToLoad);
     }
-    final FilePageCacheStatistics statistics = pageCache.getStatistics();
-    final long startedAtNs = statistics.startTimestampNs();
+    final long startedAtNs = pageCacheStatistics.startTimestampNs();
     final ByteBuffer pageBuffer = pageCache.allocatePageBuffer(pageSize);
     pageBuffer.order(nativeBytesOrder ? ByteOrder.nativeOrder() : BIG_ENDIAN);
     try {
       executeIdempotentOp(ch -> {
         final int readBytes = ch.read(pageBuffer, pageToLoad.offsetInFile());
+        final int bytesActuallyRead = Math.max(0, readBytes);
         if (readBytes < pageSize) {
-          final int startFrom = Math.max(0, readBytes);
-          fillWithZeroes(pageBuffer, startFrom, pageSize);
+          fillWithZeroes(pageBuffer, bytesActuallyRead, pageSize);
         }
-        statistics.pageRead(readBytes, startedAtNs);
+        pageCacheStatistics.pageRead(bytesActuallyRead, startedAtNs);
         return pageBuffer;
       }, isReadOnly());
     }
     catch (Throwable t) {
-      pageCache.reclaimPageBuffer(pageBuffer);
+      pageCache.reclaimPageBuffer(pageSize, pageBuffer);
       throw t;
     }
     return pageBuffer;
@@ -589,15 +590,14 @@ public class PagedFileStorageWithRWLockedPageContent implements PagedStorage {
 
   private void flushPage(final @NotNull ByteBuffer bufferToSave,
                          final long offsetInFile) throws IOException {
-    final FilePageCacheStatistics statistics = pageCache.getStatistics();
-    final long startedAtNs = statistics.startTimestampNs();
+    final long startedAtNs = pageCacheStatistics.startTimestampNs();
     final int bytesToStore = bufferToSave.remaining();
     executeIdempotentOp(ch -> {
       ch.write(bufferToSave, offsetInFile);
       return null;
     }, isReadOnly());
 
-    statistics.pageWritten(bytesToStore, startedAtNs);
+    pageCacheStatistics.pageWritten(bytesToStore, startedAtNs);
   }
 
   private static final int MAX_FILLER_SIZE = 8192;

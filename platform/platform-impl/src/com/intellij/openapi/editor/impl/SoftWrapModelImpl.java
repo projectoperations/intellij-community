@@ -72,8 +72,7 @@ public final class SoftWrapModelImpl extends InlayModel.SimpleAdapter
   private       SoftWrapPainter                    myPainter;
   private final SoftWrapApplianceManager           myApplianceManager;
 
-  @NotNull
-  private final EditorImpl myEditor;
+  private final @NotNull EditorImpl myEditor;
 
   private boolean myUseSoftWraps;
   private int myTabWidth = -1;
@@ -137,7 +136,16 @@ public final class SoftWrapModelImpl extends InlayModel.SimpleAdapter
   }
 
   private void forceSoftWraps() {
-    ((SettingsImpl)myEditor.getSettings()).setUseSoftWrapsQuiet();
+    EditorSettings editorSettings = myEditor.getSettings();
+
+    if (editorSettings instanceof SettingsImpl) {
+      ((SettingsImpl)editorSettings).setUseSoftWrapsQuiet();
+    }
+    else {
+      LOG.error(new IllegalStateException("Unexpected implementation class of editor settings: " +
+                                          "class=" + editorSettings.getClass() + "editor=" + myEditor));
+    }
+
     myEditor.putUserData(EditorImpl.FORCED_SOFT_WRAPS, Boolean.TRUE);
     myUseSoftWraps = areSoftWrapsEnabledInEditor();
     Project project = myEditor.getProject();
@@ -222,8 +230,7 @@ public final class SoftWrapModelImpl extends InlayModel.SimpleAdapter
   }
 
   @Override
-  @Nullable
-  public SoftWrap getSoftWrap(int offset) {
+  public @Nullable SoftWrap getSoftWrap(int offset) {
     if (!isSoftWrappingEnabled()) {
       return null;
     }
@@ -238,9 +245,8 @@ public final class SoftWrapModelImpl extends InlayModel.SimpleAdapter
     return myStorage.getSoftWrapIndex(offset);
   }
 
-  @NotNull
   @Override
-  public List<? extends SoftWrap> getSoftWrapsForRange(int start, int end) {
+  public @NotNull List<? extends SoftWrap> getSoftWrapsForRange(int start, int end) {
     if (!isSoftWrappingEnabled() || end < start) {
       return Collections.emptyList();
     }
@@ -266,8 +272,7 @@ public final class SoftWrapModelImpl extends InlayModel.SimpleAdapter
   }
 
   @Override
-  @NotNull
-  public List<? extends SoftWrap> getSoftWrapsForLine(int documentLine) {
+  public @NotNull List<? extends SoftWrap> getSoftWrapsForLine(int documentLine) {
     if (!isSoftWrappingEnabled() || documentLine < 0) {
       return Collections.emptyList();
     }
@@ -609,10 +614,8 @@ public final class SoftWrapModelImpl extends InlayModel.SimpleAdapter
     myApplianceManager.setSoftWrapPainter(painter);
   }
 
-  @NotNull
-  @NonNls
   @Override
-  public String dumpState() {
+  public @NotNull @NonNls String dumpState() {
     return String.format("""
 
                            use soft wraps: %b, tab width: %d, additional columns: %b, update in progress: %b, bulk update in progress: %b, dirty: %b, deferred regions: %s

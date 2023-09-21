@@ -6,7 +6,7 @@ package com.intellij.configurationStore.schemeManager
 import com.intellij.concurrency.ConcurrentCollectionFactory
 import com.intellij.configurationStore.*
 import com.intellij.ide.ui.UITheme
-import com.intellij.ide.ui.laf.TempUIThemeBasedLookAndFeelInfo
+import com.intellij.ide.ui.laf.TempUIThemeLookAndFeelInfo
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.SettingsCategory
@@ -27,7 +27,9 @@ import com.intellij.openapi.vfs.SafeWriteRequestor
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile
 import com.intellij.util.*
-import com.intellij.util.io.*
+import com.intellij.util.io.directoryStreamIfExists
+import com.intellij.util.io.systemIndependentPath
+import com.intellij.util.io.write
 import com.intellij.util.text.UniqueNameGenerator
 import org.jdom.Document
 import org.jdom.Element
@@ -116,15 +118,11 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
 
   override fun loadBundledScheme(resourceName: String, requestor: Any?, pluginDescriptor: PluginDescriptor?): T? {
     try {
-      val bytes = loadBytes(pluginDescriptor, requestor, resourceName)
-      if (bytes == null) {
-        return null
-      }
-
-      lazyPreloadScheme(bytes, isOldSchemeNaming) { name, parser ->
+      val bytes = loadBytes(pluginDescriptor = pluginDescriptor, requestor = requestor, resourceName = resourceName) ?: return null
+      lazyPreloadScheme(bytes = bytes, isOldSchemeNaming = isOldSchemeNaming) { name, parser ->
         val attributeProvider: (String) -> String? = { parser.getAttributeValue(null, it) }
         val fileName = PathUtilRt.getFileName(resourceName)
-        val extension = getFileExtension(fileName, true)
+        val extension = getFileExtension(fileName = fileName, isAllowAny = true)
         val externalInfo = ExternalInfo(fileNameWithoutExtension = fileName.substring(0, fileName.length - extension.length),
                                         fileExtension = extension)
 
@@ -150,7 +148,7 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
         if (requestor is UITheme) {
           requestor.editorSchemeName = schemeKey
         }
-        if (requestor is TempUIThemeBasedLookAndFeelInfo) {
+        if (requestor is TempUIThemeLookAndFeelInfo) {
           requestor.theme.editorSchemeName = schemeKey
         }
         return scheme
@@ -174,7 +172,7 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
     val bytes: ByteArray?
     if (pluginDescriptor == null) {
       when (requestor) {
-        is TempUIThemeBasedLookAndFeelInfo -> {
+        is TempUIThemeLookAndFeelInfo -> {
           bytes = Files.readAllBytes(Path.of(resourceName))
         }
         is UITheme -> {
@@ -295,7 +293,7 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
 
   override fun reload() {
     processor.beforeReloaded(this)
-    // we must not remove non-persistent (e.g. predefined) schemes, because we cannot load it (obviously)
+    // we must not remove non-persistent (e.g., predefined) schemes, because we cannot load it (obviously)
     // do not schedule scheme file removing because we just need to update our runtime state, not state on disk
     removeExternalizableSchemesFromRuntimeState()
     processor.reloaded(this, loadSchemes())

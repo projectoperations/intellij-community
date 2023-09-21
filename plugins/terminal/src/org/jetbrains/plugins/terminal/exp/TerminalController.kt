@@ -26,8 +26,7 @@ import kotlin.math.min
 
 /**
  * Mostly duplicates the logic of [com.jediterm.terminal.model.JediTerminal],
- * but do not modify the view directly. All changes are reflected on [TerminalModel]
- * and propagated to the [TerminalPanel].
+ * but do not modify the view directly.
  */
 class TerminalController(private val model: TerminalModel,
                          private val settings: JBTerminalSystemSettingsProviderBase) : Terminal {
@@ -728,10 +727,9 @@ class TerminalController(private val model: TerminalModel,
 
   private class DefaultTabulator(private var myWidth: Int,
                                  private val myTabLength: Int = TAB_LENGTH) : Tabulator {
-    private val myTabStops: SortedSet<Int>
+    private val myTabStops: SortedSet<Int> = TreeSet()
 
     init {
-      myTabStops = TreeSet()
       initTabStops(myWidth, myTabLength)
     }
 

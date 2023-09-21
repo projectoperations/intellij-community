@@ -10,9 +10,9 @@ import com.intellij.openapi.progress.util.PingProgress
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.util.indexing.dependencies.IndexingRequestToken
 import com.intellij.util.indexing.diagnostic.IndexDiagnosticDumper
 import com.intellij.util.indexing.diagnostic.ProjectDumbIndexingHistoryImpl
-import com.intellij.util.indexing.diagnostic.ProjectIndexingHistoryImpl
 import com.intellij.util.indexing.roots.IndexableFilesIterator
 import it.unimi.dsi.fastutil.longs.LongArraySet
 import it.unimi.dsi.fastutil.longs.LongSet
@@ -161,7 +161,7 @@ class PerProjectIndexingQueue(private val project: Project) {
   private var scanningIds: LongSet = createSetForScanningIds()
 
   // Code under read lock still runs in parallel, so all the counters (e.g. [cntFilesSoFar]) and collections (e.g. [filesSoFar]) still have
-  // to be thread-safe. It is only required that the state must be consistent under write lock (e.g. [cntFilesSoFar] corresponds to total
+  // to be thread-safe. It is only required that the state must be consistent under the write lock (e.g. [cntFilesSoFar] corresponds to total
   // count of files in [filesSoFar])
   private val lock = ReentrantReadWriteLock()
 
@@ -184,25 +184,25 @@ class PerProjectIndexingQueue(private val project: Project) {
     estimatedFilesCount.value = newValue
   }
 
-  fun flushNow(reason: String) {
+  fun flushNow(reason: String, indexingRequest: IndexingRequestToken) {
     val (filesInQueue, totalFiles, scanningIds) = getAndResetQueuedFiles()
     if (totalFiles > 0) {
       // note that DumbModeWhileScanningTrigger will not finish dumb mode until scanning is finished
-      UnindexedFilesIndexer(project, filesInQueue, reason, scanningIds).queue(project)
+      UnindexedFilesIndexer(project, filesInQueue, reason, scanningIds, indexingRequest).queue(project)
     }
     else {
       LOG.info("Finished for " + project.name + ". No files to index with loading content.")
     }
   }
 
-  fun flushNowSync(projectIndexingHistory: ProjectIndexingHistoryImpl, indicator: ProgressIndicator) {
+  fun flushNowSync(indexingReason: String?, indicator: ProgressIndicator, indexingRequest: IndexingRequestToken) {
     val (filesInQueue, totalFiles, scanningIds) = getAndResetQueuedFiles()
     if (totalFiles > 0) {
-      val indexingReason = projectIndexingHistory.indexingReason ?: "Flushing queue of project ${project.name}"
       val projectDumbIndexingHistory = ProjectDumbIndexingHistoryImpl(project)
       try {
-        UnindexedFilesIndexer(project, filesInQueue, indexingReason, scanningIds).indexFiles(projectIndexingHistory,
-                                                                                             projectDumbIndexingHistory, indicator)
+        UnindexedFilesIndexer(project, filesInQueue, indexingReason ?: "Flushing queue of project ${project.name}",
+                              scanningIds, indexingRequest).indexFiles(
+          projectDumbIndexingHistory, indicator)
       }
       catch (e: Throwable) {
         projectDumbIndexingHistory.setWasInterrupted()

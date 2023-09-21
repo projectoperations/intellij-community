@@ -32,7 +32,7 @@ public final class ApplicationNamesInfo {
     if (Boolean.getBoolean("idea.use.dev.build.server")) {
       String module = null;
       if (prefix.isEmpty() || prefix.equals(PlatformUtils.IDEA_PREFIX)) {
-        module = "intellij.idea.ultimate.resources";
+        module = "intellij.idea.ultimate.customization";
       }
       else if (prefix.equals(PlatformUtils.WEB_PREFIX)) {
         module = "intellij.webstorm";
@@ -52,7 +52,7 @@ public final class ApplicationNamesInfo {
     }
     else {
       // Gateway started from another IntelliJ-based IDE; same for Qodana
-      if (prefix.equals(PlatformUtils.GATEWAY_PREFIX) || prefix.equals(PlatformUtils.QODANA_PREFIX) || prefix.equals(PlatformUtils.JETBRAINS_CLIENT_PREFIX)) {
+      if (prefix.equals(PlatformUtils.GATEWAY_PREFIX) || prefix.equals(PlatformUtils.QODANA_PREFIX)) {
         String customAppInfo = System.getProperty("idea.application.info.value");
         if (customAppInfo != null) {
           try {
@@ -65,14 +65,18 @@ public final class ApplicationNamesInfo {
         }
       }
 
-      // production
-      String appInfoData = getAppInfoData();
-      if (!appInfoData.isEmpty()) {
-        return XmlDomReader.readXmlAsModel(appInfoData.getBytes(StandardCharsets.UTF_8));
+      //this property is used when a product is started from distribution of another product
+      boolean forceLoadingFromResources = "true".equals(System.getProperty("intellij.platform.load.app.info.from.resources"));
+      if (!forceLoadingFromResources) {
+        // production
+        String appInfoData = getAppInfoData();
+        if (!appInfoData.isEmpty()) {
+          return XmlDomReader.readXmlAsModel(appInfoData.getBytes(StandardCharsets.UTF_8));
+        }
       }
     }
 
-    // from sources
+    // from sources or from another product
     String resource = "idea/" + (prefix.equals("idea") ? "" : prefix) + "ApplicationInfo.xml";
     InputStream stream = ApplicationNamesInfo.class.getClassLoader().getResourceAsStream(resource);
     if (stream == null) {
@@ -197,7 +201,7 @@ public final class ApplicationNamesInfo {
   }
 
   /**
-   * Returns motto of the product. Used as a comment for the command-line launcher.
+   * Returns motto of the product. Used as a comment for a desktop entry on XDG-compliant systems (read "Linux").
    */
   public @NotNull String getMotto() {
     return myMotto;

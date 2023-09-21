@@ -4,7 +4,7 @@ package org.jetbrains.kotlin.idea.fir.resolve
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VfsUtilCore.loadText
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.psi.PsiClassOwner
 import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiNamedElement
@@ -65,7 +65,7 @@ abstract class AbstractK2MultiModuleHighlightingTest : AbstractMultiModuleTest()
         target as PsiNamedElement
 
         val testFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("$filePath/sourceModule/test.txt")!!
-        val text = loadText(testFile)
+        val text = VfsUtilCore.loadText(testFile)
 
         assertEquals(findStringWithPrefixes(text, "// expected class:"), target.name)
 
@@ -74,8 +74,10 @@ abstract class AbstractK2MultiModuleHighlightingTest : AbstractMultiModuleTest()
         val dep = ModuleManager.getInstance(project).findModuleByName(moduleName)!!
         val targetFileInTemp = dep.sourceRoots[0].findFileByRelativePath(relativePath)!!
         WriteCommandAction.writeCommandAction(project).run<RuntimeException> {
-            //this should trigger cache invalidation
-            (PsiManager.getInstance(project).findFile(targetFileInTemp) as PsiClassOwner).classes[0].unwrapped!!.delete()
+            // This should trigger cache invalidation.
+            val psiFile = (PsiManager.getInstance(project).findFile(targetFileInTemp) as PsiClassOwner)
+            val psiClassOrKtClass = psiFile.classes[0].unwrapped!! as PsiNamedElement
+            psiClassOrKtClass.setName("Element2")
         }
         assertNull(psiReference.resolve())
     }

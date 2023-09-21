@@ -44,12 +44,12 @@ HTML-reports contain examples of source code with the results of invocation, so 
   "mode": "TOKENS", // call completion only in meaningful tokens or everywhere; possible values: TOKENS, ALL
   "invokeOnEachChar": true, // close popup after unsuccessful completion and invoke again (only for line-completion-golf feature)
   "topN": 5, // take only N top proposals, applying after filtering by source
-  "checkToken": true, // accept first word of the proposal if it matches and there is no full match in the session
   "checkLine": true, // accept multi token proposals
   "source": "INTELLIJ", // take suggestions, with specific source; possible values: INTELLIJ (full-line), TAB_NINE, CODOTA
   "suggestionsProvider": "DEFAULT" // provider of proposals (DEFAULT - completion engine), can be extended
 }
 ```
+  - you can use `pathToModelZip` to use custom ranking model for the completions (do not pass `source` in this case to use the suggestions from all contributors)
 - **line-completion-golf**:
   - also takes into account full line proposals but tries to write the entire file from the beginning using completion (instead of calling at fixed positions).
   - strategy the same as for line-completion

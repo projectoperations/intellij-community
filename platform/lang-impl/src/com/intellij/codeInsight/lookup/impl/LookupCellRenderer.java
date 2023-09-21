@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.codeInsight.lookup.impl;
 
@@ -455,19 +455,8 @@ public final class LookupCellRenderer implements ListCellRenderer<LookupElement>
 
         //must be last
         if (decoration == LookupElementPresentation.LookupItemDecoration.HIGHLIGHT_MATCHED) {
-          final String prefix = item instanceof EmptyLookupItem ? "" : myLookup.itemPattern(item);
-          String fragment = iterator.getFragment();
-          Iterable<TextRange> ranges = getMatchingFragments(prefix, fragment);
-          if (ranges != null) {
-            SimpleTextAttributes highlighted = new SimpleTextAttributes(iterator.getTextAttributes().getStyle(), MATCHED_FOREGROUND_COLOR);
-            int nextStartPoint = 0;
-            for (TextRange nextHighlightedRange : ranges) {
-              iterator.split(nextHighlightedRange.getStartOffset() - nextStartPoint, iterator.getTextAttributes());
-              nextStartPoint = nextHighlightedRange.getStartOffset();
-              iterator.split(nextHighlightedRange.getEndOffset() - nextStartPoint, highlighted);
-              nextStartPoint = nextHighlightedRange.getEndOffset();
-            }
-          }
+          SimpleTextAttributes highlighted = new SimpleTextAttributes(iterator.getTextAttributes().getStyle(), MATCHED_FOREGROUND_COLOR);
+          iterator.setTextAttributes(highlighted);
         }
       }
     }
@@ -709,7 +698,7 @@ public final class LookupCellRenderer implements ListCellRenderer<LookupElement>
     }
   }
 
-  private class LookupPanel extends SelectablePanel {
+  private final class LookupPanel extends SelectablePanel {
     boolean myUpdateExtender;
     LookupPanel() {
       setLayout(new BorderLayout());

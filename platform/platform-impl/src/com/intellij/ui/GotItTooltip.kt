@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui
 
 import com.intellij.ide.HelpTooltip
@@ -31,6 +31,7 @@ import java.awt.event.KeyEvent
 import java.net.URL
 import javax.swing.Icon
 import javax.swing.JComponent
+import javax.swing.SwingUtilities
 import javax.swing.event.AncestorEvent
 
 @Service(Service.Level.APP)
@@ -113,7 +114,7 @@ class GotItTooltip internal constructor(@NonNls val id: String,
   /**
    * Add an optional image above the header or description
    */
-  fun withImage(image: Icon, withBorder: Boolean = true): GotItTooltip {
+  private fun withImage(image: Icon, withBorder: Boolean = true): GotItTooltip {
     gotItBuilder.withImage(image, withBorder)
     return this
   }
@@ -172,7 +173,7 @@ class GotItTooltip internal constructor(@NonNls val id: String,
    * @throws IllegalStateException if icon already specified using [withIcon].
    * @throws IllegalArgumentException if [step] is not in a range [1, 99].
    */
-  fun withStepNumber(step: Int): GotItTooltip {
+  private fun withStepNumber(step: Int): GotItTooltip {
     gotItBuilder.withStepNumber(step)
     return this
   }
@@ -310,11 +311,13 @@ class GotItTooltip internal constructor(@NonNls val id: String,
         }
 
         override fun ancestorRemoved(ancestorEvent: AncestorEvent) {
-          balloon?.let {
-            it.hide(true)
-            GotItUsageCollector.instance.logClose(id, GotItUsageCollectorGroup.CloseType.AncestorRemoved)
+          SwingUtilities.invokeLater {
+            balloon?.let {
+              it.hide(true)
+              GotItUsageCollector.instance.logClose(id, GotItUsageCollectorGroup.CloseType.AncestorRemoved)
+            }
+            balloon = null
           }
-          balloon = null
         }
       }.also { Disposer.register(this, Disposable { component.removeAncestorListener(it) }) })
     }
@@ -349,8 +352,10 @@ class GotItTooltip internal constructor(@NonNls val id: String,
         if (getComponent().isShowing)
           RelativePoint(component, pointProvider(component, balloon))
         else {
-          balloon.hide(true)
-          GotItUsageCollector.instance.logClose(id, GotItUsageCollectorGroup.CloseType.AncestorRemoved)
+          SwingUtilities.invokeLater {
+            balloon.hide(true)
+            GotItUsageCollector.instance.logClose(id, GotItUsageCollectorGroup.CloseType.AncestorRemoved)
+          }
           null
         }
     }

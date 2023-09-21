@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeHighlighting.Pass;
@@ -29,7 +29,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class DefaultHighlightInfoProcessor extends HighlightInfoProcessor {
+public final class DefaultHighlightInfoProcessor extends HighlightInfoProcessor {
   private volatile TextEditorHighlightingPass myCachedShowAutoImportPass; // cache to avoid re-creating it multiple times
   @Override
   public void highlightsInsideVisiblePartAreProduced(@NotNull HighlightingSession session,
@@ -43,11 +43,10 @@ public class DefaultHighlightInfoProcessor extends HighlightInfoProcessor {
     Document document = session.getDocument();
     long modificationStamp = document.getModificationStamp();
     TextRange priorityIntersection = priorityRange.intersection(restrictRange);
-    List<HighlightInfo> infoCopy = new ArrayList<>(infos);
     TextEditorHighlightingPass showAutoImportPass = editor == null ? null : getOrCreateShowAutoImportPass(editor, psiFile, session.getProgressIndicator());
     MarkupModelEx markupModel = (MarkupModelEx)DocumentMarkupModel.forDocument(document, project, true);
     if (priorityIntersection != null) {
-      BackgroundUpdateHighlightersUtil.setHighlightersInRange(priorityIntersection, infoCopy, markupModel, groupId, session);
+      BackgroundUpdateHighlightersUtil.setHighlightersInRange(priorityIntersection, new ArrayList<HighlightInfo>(infos), markupModel, groupId, session);
     }
     ApplicationManager.getApplication().invokeLater(() -> {
       if (editor != null && !editor.isDisposed() && modificationStamp == document.getModificationStamp()) {
@@ -61,7 +60,8 @@ public class DefaultHighlightInfoProcessor extends HighlightInfoProcessor {
     });
   }
 
-  private void showAutoImportHints(@NotNull ProgressIndicator progressIndicator, @Nullable TextEditorHighlightingPass showAutoImportPass) {
+  private static void showAutoImportHints(@NotNull ProgressIndicator progressIndicator,
+                                          @Nullable TextEditorHighlightingPass showAutoImportPass) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     if (showAutoImportPass != null) {
       ProgressManager.getInstance().executeProcessUnderProgress(() -> showAutoImportPass.doApplyInformationToEditor(), progressIndicator);

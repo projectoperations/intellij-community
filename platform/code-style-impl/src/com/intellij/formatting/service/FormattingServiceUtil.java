@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.formatting.service;
 
 import com.intellij.formatting.FormatTextRanges;
@@ -17,7 +17,7 @@ import java.util.List;
 
 @ApiStatus.Internal
 public final class FormattingServiceUtil {
-  private final static Logger LOG = Logger.getInstance(FormattingServiceUtil.class);
+  private static final Logger LOG = Logger.getInstance(FormattingServiceUtil.class);
 
   private FormattingServiceUtil() {
   }
@@ -70,18 +70,43 @@ public final class FormattingServiceUtil {
   }
 
   public static @NotNull PsiElement formatElement(@NotNull PsiElement element, @NotNull TextRange range, boolean canChangeWhiteSpacesOnly) {
+    return formatElement(element, range, canChangeWhiteSpacesOnly, false);
+  }
+
+  public static void asyncFormatElement(@NotNull PsiElement element, @NotNull TextRange range, boolean canChangeWhitespaceOnly) {
+     formatElement(element, range, canChangeWhitespaceOnly, true);
+  }
+  
+  private static @NotNull PsiElement formatElement(@NotNull PsiElement element,
+                                                  @NotNull TextRange range,
+                                                  boolean canChangeWhiteSpacesOnly,
+                                                  boolean forceAsync) {
     PsiFile file = element.getContainingFile();
     boolean isFullRange = range.equals(file.getTextRange());
     PsiElement contextElement = element;
     FormattingService mainService = findService(element.getContainingFile(), true, isFullRange);
     if (isFullRange) {
       for (FormattingService service : getChainedServices(mainService)) {
-        contextElement = service.formatElement(contextElement, range, canChangeWhiteSpacesOnly);
+        contextElement = formatElement(service, contextElement, range, canChangeWhiteSpacesOnly, forceAsync);
       }
       return contextElement;
     }
     else {
-      return mainService.formatElement(element, range, canChangeWhiteSpacesOnly);
+      return formatElement(mainService, element, range, canChangeWhiteSpacesOnly, forceAsync);
+    }
+  }
+
+  private static PsiElement formatElement(@NotNull FormattingService service,
+                                          @NotNull PsiElement element,
+                                          @NotNull TextRange range,
+                                          boolean canChangeWhiteSpacesOnly,
+                                          boolean forceAsync) {
+    if (forceAsync && (service instanceof CoreFormattingService)) {
+      ((CoreFormattingService)service).asyncFormatElement(element, range, canChangeWhiteSpacesOnly);
+      return element;
+    }
+    else {
+      return service.formatElement(element, range, canChangeWhiteSpacesOnly);
     }
   }
 

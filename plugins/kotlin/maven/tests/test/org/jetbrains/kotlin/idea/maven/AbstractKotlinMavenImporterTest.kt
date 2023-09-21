@@ -25,7 +25,7 @@ import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.kotlin.caches.resolve.KotlinCacheService
 import org.jetbrains.kotlin.cli.common.arguments.K2JSCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
-import org.jetbrains.kotlin.config.KotlinFacetSettings
+import org.jetbrains.kotlin.config.IKotlinFacetSettings
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.config.LanguageVersion
 import org.jetbrains.kotlin.config.additionalArgumentsAsList
@@ -86,7 +86,7 @@ abstract class AbstractKotlinMavenImporterTest(private val createStdProjectFolde
 
     protected fun facetSettings(moduleName: String) = KotlinFacet.get(getModule(moduleName))!!.configuration.settings
 
-    protected val facetSettings: KotlinFacetSettings
+    protected val facetSettings: IKotlinFacetSettings
         get() = facetSettings("project")
 
     protected fun assertImporterStatePresent() {
@@ -957,7 +957,7 @@ abstract class AbstractKotlinMavenImporterTest(private val createStdProjectFolde
             assertModules("project")
             assertImporterStatePresent()
 
-            val projectBasePath = myProjectsManager.projects.first().file.parent.path
+            val projectBasePath = projectsManager.projects.first().file.parent.path
 
             with(facetSettings) {
                 Assert.assertEquals(
@@ -3534,7 +3534,7 @@ abstract class AbstractKotlinMavenImporterTest(private val createStdProjectFolde
         }
     }
 
-    protected fun doJvmTarget6Test(version: String?): Pair<KotlinFacetSettings, List<Notification>> {
+    protected fun doJvmTarget6Test(version: String?): Pair<IKotlinFacetSettings, List<Notification>> {
         createProjectSubDirs("src/main/kotlin", "src/main/kotlin.jvm", "src/test/kotlin", "src/test/kotlin.jvm")
 
         val notifications = catchNotifications(myProject, "Kotlin Maven project import") {

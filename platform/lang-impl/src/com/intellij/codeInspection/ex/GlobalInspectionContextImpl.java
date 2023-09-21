@@ -357,7 +357,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
           updateProfile(virtualFile, System.currentTimeMillis() - start);
         }
         return true;
-      }, LangBundle.message("popup.content.inspect.code.not.available.until.indices.are.ready"));
+      }, LangBundle.message("popup.content.inspect.code.not.available.until.indices.are.ready"), DumbModeBlockedFunctionality.GlobalInspectionContext);
       if (readActionSuccess == null || !readActionSuccess) {
         throw new ProcessCanceledException();
       }
@@ -1330,7 +1330,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     });
   }
 
-  public static class Wrappers {
+  public static final class Wrappers {
     @NotNull
     private final List<LocalInspectionToolWrapper> localWrappers;
     @NotNull
@@ -1366,7 +1366,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     }
   }
 
-  static class InspectionPerformanceCollector extends CounterUsagesCollector {
+  static final class InspectionPerformanceCollector extends CounterUsagesCollector {
     private static final EventLogGroup GROUP = new EventLogGroup("inspection.performance", 3);
 
     static final LongEventField TOTAL_DURATION = new LongEventField("total_duration_ms");

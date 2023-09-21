@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins;
 
 import com.intellij.execution.process.ProcessIOExecutorService;
@@ -14,12 +14,11 @@ import com.intellij.ide.plugins.marketplace.MarketplaceRequests;
 import com.intellij.ide.plugins.newui.*;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.ide.CopyPasteManager;
@@ -63,6 +62,8 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
@@ -113,8 +114,8 @@ public final class PluginManagerConfigurable
   private SearchResultPanel myMarketplaceSearchPanel;
   private SearchResultPanel myInstalledSearchPanel;
 
-  private final LinkLabel<Object> myUpdateAll = new LinkLabel<>(IdeBundle.message("plugin.manager.update.all"), null);
-  private final LinkLabel<Object> myUpdateAllBundled = new LinkLabel<>(IdeBundle.message("plugin.manager.update.all"), null);
+  private final LinkLabel<Object> myUpdateAll = new LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null);
+  private final LinkLabel<Object> myUpdateAllBundled = new LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null);
   private final JLabel myUpdateCounter = new CountComponent();
   private final JLabel myUpdateCounterBundled = new CountComponent();
   private final CountIcon myCountIcon = new CountIcon();
@@ -150,9 +151,8 @@ public final class PluginManagerConfigurable
     myPluginModel = new MyPluginModel(null);
   }
 
-  @NotNull
   @Override
-  public String getId() {
+  public @NotNull String getId() {
     return ID;
   }
 
@@ -171,9 +171,8 @@ public final class PluginManagerConfigurable
     return getCenterComponent(TopComponentController.EMPTY);
   }
 
-  @Nullable
   @Override
-  public JComponent createComponent() {
+  public @Nullable JComponent createComponent() {
     myTabHeaderComponent = new TabbedPaneHeaderComponent(createGearActions(), index -> {
       myCardPanel.select(index, true);
       storeSelectionTab(index);
@@ -253,8 +252,7 @@ public final class PluginManagerConfigurable
     return myCardPanel;
   }
 
-  @NotNull
-  private DefaultActionGroup createGearActions() {
+  private @NotNull DefaultActionGroup createGearActions() {
     DefaultActionGroup actions = new DefaultActionGroup();
     actions.add(new DumbAwareAction(IdeBundle.message("plugin.manager.repositories")) {
       @Override
@@ -358,17 +356,15 @@ public final class PluginManagerConfigurable
         mySearchTextField.setHistoryPropertyName("MarketplacePluginsSearchHistory");
       }
 
-      @NotNull
       @Override
-      protected PluginDetailsPageComponent createDetailsPanel(@NotNull LinkListener<Object> searchListener) {
+      protected @NotNull PluginDetailsPageComponent createDetailsPanel(@NotNull LinkListener<Object> searchListener) {
         PluginDetailsPageComponent detailPanel = new PluginDetailsPageComponent(myPluginModel, searchListener, true);
         myPluginModel.addDetailPanel(detailPanel);
         return detailPanel;
       }
 
-      @NotNull
       @Override
-      protected JComponent createPluginsPanel(@NotNull Consumer<? super PluginsGroupComponent> selectionListener) {
+      protected @NotNull JComponent createPluginsPanel(@NotNull Consumer<? super PluginsGroupComponent> selectionListener) {
         MultiSelectionEventHandler eventHandler = new MultiSelectionEventHandler();
         myMarketplacePanel = new PluginsGroupComponentWithProgress(eventHandler) {
           @Override
@@ -378,6 +374,7 @@ public final class PluginManagerConfigurable
         };
 
         myMarketplacePanel.setSelectionListener(selectionListener);
+        myMarketplacePanel.getAccessibleContext().setAccessibleName(IdeBundle.message("plugin.manager.marketplace.panel.accessible.name"));
         registerCopyProvider(myMarketplacePanel);
 
         //noinspection ConstantConditions
@@ -498,13 +495,11 @@ public final class PluginManagerConfigurable
         selectionListener.accept(myMarketplacePanel);
       }
 
-      @NotNull
       @Override
-      protected SearchResultPanel createSearchPanel(@NotNull Consumer<? super PluginsGroupComponent> selectionListener) {
+      protected @NotNull SearchResultPanel createSearchPanel(@NotNull Consumer<? super PluginsGroupComponent> selectionListener) {
         SearchUpDownPopupController marketplaceController = new SearchUpDownPopupController(mySearchTextField) {
-          @NotNull
           @Override
-          protected List<String> getAttributes() {
+          protected @NotNull List<String> getAttributes() {
             List<String> attributes = new ArrayList<>();
             attributes.add(SearchWords.TAG.getValue());
             attributes.add(SearchWords.SORT_BY.getValue());
@@ -516,9 +511,8 @@ public final class PluginManagerConfigurable
             return attributes;
           }
 
-          @Nullable
           @Override
-          protected List<String> getValues(@NotNull String attribute) {
+          protected @Nullable List<String> getValues(@NotNull String attribute) {
             SearchWords word = SearchWords.find(attribute);
             if (word == null) return null;
             return switch (word) {
@@ -599,6 +593,21 @@ public final class PluginManagerConfigurable
           protected boolean isInClickableArea(Point pt) {
             return true;
           }
+
+          @Override
+          public AccessibleContext getAccessibleContext() {
+            if (accessibleContext == null) {
+              accessibleContext = new AccessibleLinkComponent();
+            }
+            return accessibleContext;
+          }
+
+          protected class AccessibleLinkComponent extends AccessibleLinkLabel {
+            @Override
+            public AccessibleRole getAccessibleRole() {
+              return AccessibleRole.COMBO_BOX;
+            }
+          }
         };
         myMarketplaceSortByAction.setIcon(new Icon() {
           @Override
@@ -616,8 +625,7 @@ public final class PluginManagerConfigurable
             return getIcon().getIconHeight();
           }
 
-          @NotNull
-          private Icon getIcon() {
+          private @NotNull Icon getIcon() {
             return AllIcons.General.ButtonDropTriangle;
           }
         }); // TODO: icon
@@ -833,17 +841,15 @@ public final class PluginManagerConfigurable
         mySearchTextField.setHistoryPropertyName("InstalledPluginsSearchHistory");
       }
 
-      @NotNull
       @Override
-      protected PluginDetailsPageComponent createDetailsPanel(@NotNull LinkListener<Object> searchListener) {
+      protected @NotNull PluginDetailsPageComponent createDetailsPanel(@NotNull LinkListener<Object> searchListener) {
         PluginDetailsPageComponent detailPanel = new PluginDetailsPageComponent(myPluginModel, searchListener, false);
         myPluginModel.addDetailPanel(detailPanel);
         return detailPanel;
       }
 
-      @NotNull
       @Override
-      protected JComponent createPluginsPanel(@NotNull Consumer<? super PluginsGroupComponent> selectionListener) {
+      protected @NotNull JComponent createPluginsPanel(@NotNull Consumer<? super PluginsGroupComponent> selectionListener) {
         MultiSelectionEventHandler eventHandler = new MultiSelectionEventHandler();
         myInstalledPanel = new PluginsGroupComponent(eventHandler) {
           @Override
@@ -853,6 +859,7 @@ public final class PluginManagerConfigurable
         };
 
         myInstalledPanel.setSelectionListener(selectionListener);
+        myInstalledPanel.getAccessibleContext().setAccessibleName(IdeBundle.message("plugin.manager.installed.panel.accessible.name"));
         registerCopyProvider(myInstalledPanel);
 
         //noinspection ConstantConditions
@@ -968,14 +975,11 @@ public final class PluginManagerConfigurable
         myPluginModel.setInvalidFixCallback(null);
       }
 
-      @NotNull
       @Override
-      protected SearchResultPanel createSearchPanel(@NotNull Consumer<? super PluginsGroupComponent> selectionListener) {
+      protected @NotNull SearchResultPanel createSearchPanel(@NotNull Consumer<? super PluginsGroupComponent> selectionListener) {
         SearchUpDownPopupController installedController = new SearchUpDownPopupController(mySearchTextField) {
-          @NotNull
           @Override
-          @NonNls
-          protected List<String> getAttributes() {
+          protected @NotNull @NonNls List<String> getAttributes() {
             return Arrays
               .asList(
                 "/downloaded",
@@ -1167,7 +1171,7 @@ public final class PluginManagerConfigurable
                 });
               }
               else if (parser.needUpdate) {
-                result.rightAction = new LinkLabel<>(IdeBundle.message("plugin.manager.update.all"), null, (__, ___) -> {
+                result.rightAction = new LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null, (__, ___) -> {
                   result.rightAction.setEnabled(false);
 
                   for (ListPluginComponent plugin : result.ui.plugins) {
@@ -1231,9 +1235,9 @@ public final class PluginManagerConfigurable
       this.descriptors.addAll(descriptors);
       sortByName();
 
-      rightAction = new LinkLabel<>("",
-                                    null,
-                                    (__, ___) -> setEnabledState());
+      rightAction = new LinkLabelButton<>("",
+                                          null,
+                                          (__, ___) -> setEnabledState());
 
       titleWithEnabled(myPluginModel);
     }
@@ -1623,8 +1627,7 @@ public final class PluginManagerConfigurable
       }
     }
 
-    @Nullable
-    public String getQuery() {
+    public @Nullable String getQuery() {
       return switch (myOption) {
         case Downloads -> "/sortBy:downloads";
         case Name -> "/sortBy:name";
@@ -1689,13 +1692,12 @@ public final class PluginManagerConfigurable
       };
     }
 
-    @NotNull
-    public String getQuery() {
+    public @NotNull String getQuery() {
       return myOption == InstalledSearchOption.NeedUpdate ? "/outdated" : "/" + StringUtil.decapitalize(myOption.name());
     }
   }
 
-  private static class GroupByActionGroup extends DefaultActionGroup implements CheckedActionGroup {
+  private static final class GroupByActionGroup extends DefaultActionGroup implements CheckedActionGroup {
   }
 
   private final class ChangePluginStateAction extends DumbAwareAction {
@@ -1713,7 +1715,7 @@ public final class PluginManagerConfigurable
       PluginsGroup group = myPluginModel.getDownloadedGroup();
 
       if (group == null || group.ui == null) {
-        ApplicationInfoImpl appInfo = (ApplicationInfoImpl)ApplicationInfo.getInstance();
+        ApplicationInfoEx appInfo = ApplicationInfoEx.getInstanceEx();
 
         for (IdeaPluginDescriptor descriptor : PluginManagerCore.getPlugins()) {
           if (!appInfo.isEssentialPlugin(descriptor.getPluginId()) &&
@@ -1742,8 +1744,7 @@ public final class PluginManagerConfigurable
     }
   }
 
-  @NotNull
-  public static JComponent createScrollPane(@NotNull PluginsGroupComponent panel, boolean initSelection) {
+  public static @NotNull JComponent createScrollPane(@NotNull PluginsGroupComponent panel, boolean initSelection) {
     JBScrollPane pane =
       new JBScrollPane(panel, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
     pane.setBorder(JBUI.Borders.empty());
@@ -1767,10 +1768,10 @@ public final class PluginManagerConfigurable
     }
 
     if (showAllPredicate.test(group)) {
-      group.rightAction = new LinkLabel<>(IdeBundle.message("plugins.configurable.show.all"),
-                                          null,
-                                          myMarketplaceTab.mySearchListener,
-                                          showAllQuery);
+      group.rightAction = new LinkLabelButton<>(IdeBundle.message("plugins.configurable.show.all"),
+                                                null,
+                                                myMarketplaceTab.mySearchListener,
+                                                showAllQuery);
       group.rightAction.setBorder(JBUI.Borders.emptyRight(5));
     }
 
@@ -1796,8 +1797,7 @@ public final class PluginManagerConfigurable
   }
 
   @Override
-  @NotNull
-  public String getHelpTopic() {
+  public @NotNull String getHelpTopic() {
     return ID;
   }
 
@@ -1882,14 +1882,12 @@ public final class PluginManagerConfigurable
     }
   }
 
-  @Nullable
   @Override
-  public Runnable enableSearch(String option) {
+  public @Nullable Runnable enableSearch(String option) {
     return enableSearch(option, false);
   }
 
-  @Nullable
-  public Runnable enableSearch(String option, boolean ignoreTagMarketplaceTab) {
+  public @Nullable Runnable enableSearch(String option, boolean ignoreTagMarketplaceTab) {
     if (myTabHeaderComponent == null) {
       myLaterSearchQuery = option;
       return () -> {};
@@ -1971,5 +1969,37 @@ public final class PluginManagerConfigurable
       }
     }
     return null;
+  }
+
+  private static class LinkLabelButton<T> extends LinkLabel<T> {
+    private LinkLabelButton(@NlsContexts.LinkLabel String text, @Nullable Icon icon) {
+      super(text, icon);
+    }
+
+    private LinkLabelButton(@NlsContexts.LinkLabel String text, @Nullable Icon icon, @Nullable LinkListener<T> aListener) {
+      super(text, icon, aListener);
+    }
+
+    private LinkLabelButton(@NlsContexts.LinkLabel String text,
+                            @Nullable Icon icon,
+                            @Nullable LinkListener<T> aListener,
+                            @Nullable T aLinkData) {
+      super(text, icon, aListener, aLinkData);
+    }
+
+    @Override
+    public AccessibleContext getAccessibleContext() {
+      if (accessibleContext == null) {
+        accessibleContext = new AccessibleLinkLabelButton();
+      }
+      return accessibleContext;
+    }
+
+    protected class AccessibleLinkLabelButton extends AccessibleLinkLabel {
+      @Override
+      public AccessibleRole getAccessibleRole() {
+        return AccessibleRole.PUSH_BUTTON;
+      }
+    }
   }
 }

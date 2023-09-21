@@ -4,6 +4,7 @@ package com.intellij.ide.actions;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.ui.NewUiUtilKt;
 import com.intellij.ide.ui.ToolbarSettings;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.UISettingsListener;
@@ -81,8 +82,7 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
     return templateGroup == null ? EMPTY_ARRAY : templateGroup.getChildren(null);
   }
 
-  @NotNull
-  private static ListPopup createMainPopup(@NotNull DataContext context) {
+  private static @NotNull ListPopup createMainPopup(@NotNull DataContext context) {
     List<AnAction> appActions = new ArrayList<>();
     List<AnAction> pluginActions = new ArrayList<>();
 
@@ -172,8 +172,7 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
   }
 
   private static boolean calculateOurNewUiIcon() {
-    return !ExperimentalUI.isNewUI() && !ExperimentalUI.isNewUiUsedOnce()
-           && ExperimentalUI.getPromotionDaysCount() < 14;
+    return !ExperimentalUI.isNewUI() && !ExperimentalUI.Companion.isNewUiUsedOnce() && NewUiUtilKt.getNewUiPromotionDaysCount() < 14;
   }
 
   private static @NotNull @Nls String getActionTooltip() {
@@ -363,7 +362,7 @@ public final class SettingsEntryPointAction extends DumbAwareAction implements R
     @NotNull Collection<UpdateAction> getUpdateActions(@NotNull DataContext context);
   }
 
-  public static abstract class UpdateAction extends DumbAwareAction {
+  public abstract static class UpdateAction extends DumbAwareAction {
     private boolean myNewAction = true;
 
     protected UpdateAction() {

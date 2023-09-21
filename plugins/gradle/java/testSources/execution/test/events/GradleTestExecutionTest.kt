@@ -4,8 +4,10 @@ package org.jetbrains.plugins.gradle.execution.test.events
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.use
 import org.gradle.tooling.LongRunningOperation
 import org.gradle.tooling.events.ProgressListener
+import org.gradle.tooling.model.build.BuildEnvironment
 import org.gradle.util.GradleVersion
 import org.jetbrains.plugins.gradle.service.project.GradleOperationHelperExtension
 import org.jetbrains.plugins.gradle.service.project.ProjectResolverContext
@@ -75,7 +77,12 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
                 }
               }
             }
-            assertNode("There were failing tests. See the report at: .*".toRegex())
+            if (!isTestLauncherUsed()) {
+              assertNode("There were failing tests. See the report at: .*".toRegex())
+            }
+          }
+          if (isTestLauncherUsed()) {
+            assertNode("Test failed.")
           }
         }
       }
@@ -602,12 +609,11 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       override fun prepareForSync(operation: LongRunningOperation, resolverCtx: ProjectResolverContext) = Unit
       override fun prepareForExecution(id: ExternalSystemTaskId,
                                        operation: LongRunningOperation,
-                                       gradleExecutionSettings: GradleExecutionSettings) {
+                                       gradleExecutionSettings: GradleExecutionSettings,
+                                       buildEnvironment: BuildEnvironment?) {
         operation.addProgressListener(ProgressListener {})
       }
     }
-    val testDisposable = Disposer.newDisposable()
-    GradleOperationHelperExtension.EP_NAME.point.registerExtension(extension, testDisposable)
     testJunit5Project(gradleVersion) {
       writeText("src/test/java/org/example/AppTest.java", """
         |package org.example;
@@ -616,7 +622,10 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
         |   @Test public void test1() {}
         |}
       """.trimMargin())
-      executeTasks(":test", isRunAsTest = true)
+      Disposer.newDisposable().use { testDisposable ->
+        GradleOperationHelperExtension.EP_NAME.point.registerExtension(extension, testDisposable)
+        executeTasks(":test", isRunAsTest = true)
+      }
       assertTestTreeView {
         assertNode("AppTest") {
           assertNode("test1")
@@ -640,6 +649,5 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
         }
       }
     }
-    Disposer.dispose(testDisposable)
   }
 }

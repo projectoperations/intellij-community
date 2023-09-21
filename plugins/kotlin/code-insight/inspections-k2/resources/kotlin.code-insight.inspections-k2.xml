@@ -1,8 +1,9 @@
 <idea-plugin package="org.jetbrains.kotlin.idea.k2.codeinsight.inspections">
   <dependencies>
     <module name="kotlin.code-insight.intentions-k2"/>
+    <module name="kotlin.code-insight.inspections-shared"/>
     <module name="kotlin.searching.k2"/>
-    <module name="kotlin.highlighting"/>
+    <module name="kotlin.highlighting.k2"/>
   </dependencies>
   <extensions defaultExtensionNs="com.intellij">
     <localInspection
@@ -41,17 +42,6 @@
                      level="WARNING" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
                      language="kotlin"
                      key="inspection.redundant.modality.modifier.display.name" bundle="messages.KotlinBundle"/>
-
-    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.KotlinUnusedImportInspection"
-                     groupPath="Kotlin"
-                     groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
-                     enabledByDefault="true"
-                     cleanupTool="true"
-                     level="WARNING" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
-                     runForWholeFile="true"
-                     language="kotlin"
-                     suppressId="UnusedImport"
-                     key="inspection.kotlin.unused.import.display.name" bundle="messages.KotlinBundle"/>
 
     <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.diagnosticBased.UnusedVariableInspection"
                      groupPath="Kotlin"
@@ -264,6 +254,13 @@
                      language="kotlin"
                      suppressId="unused" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
                      key="inspection.unused.symbol.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.FunctionNameInspection"
+                     language="kotlin"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.naming.conventions"
+                     enabledByDefault="true"
+                     level="WEAK WARNING" key="inspection.function.name.display.name" bundle="messages.KotlinBundle"/>
 
   </extensions>
 </idea-plugin>

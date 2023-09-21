@@ -8,6 +8,7 @@ import com.intellij.concurrency.IdeaForkJoinWorkerThreadFactory
 import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.ide.BootstrapBundle
 import com.intellij.ide.BytecodeTransformer
+import com.intellij.ide.plugins.ProductLoadingStrategy
 import com.intellij.ide.plugins.StartupAbortedException
 import com.intellij.ide.startup.StartupActionScriptManager
 import com.intellij.openapi.application.ApplicationNamesInfo
@@ -23,7 +24,6 @@ import com.intellij.util.lang.UrlClassLoader
 import com.jetbrains.JBR
 import kotlinx.coroutines.*
 import sun.font.FontManagerFactory
-import java.awt.GraphicsEnvironment
 import java.awt.Toolkit
 import java.io.IOException
 import java.lang.invoke.MethodHandles
@@ -43,7 +43,10 @@ fun main(rawArgs: Array<String>) {
   val startTimeUnixNano = System.currentTimeMillis() * 1000000
   startupTimings.add("startup begin")
   startupTimings.add(startTimeNano)
+  mainImpl(rawArgs, startupTimings, startTimeUnixNano)
+}
 
+internal fun mainImpl(rawArgs: Array<String>, startupTimings: ArrayList<Any>, startTimeUnixNano: Long) {
   val args = preprocessArgs(rawArgs)
   AppMode.setFlags(args)
   addBootstrapTiming("AppMode.setFlags", startupTimings)
@@ -56,9 +59,15 @@ fun main(rawArgs: Array<String>) {
         addBootstrapTiming("init scope creating", startupTimings)
         StartUpMeasurer.addTimings(startupTimings, "bootstrap", startTimeUnixNano)
         span("startApplication") {
+          val mainClassLoaderDeferred = async(CoroutineName("main class loader initializing")) {
+            val classLoader = AppStarter::class.java.classLoader
+            ProductLoadingStrategy.strategy.addMainModuleGroupToClassPath(classLoader)
+            return@async classLoader
+          }
+          
           // not IO-, but CPU-bound due to descrambling, don't use here IO dispatcher
           val appStarterDeferred = async(CoroutineName("main class loading")) {
-            val aClass = AppStarter::class.java.classLoader.loadClass("com.intellij.idea.MainImpl")
+            val aClass = mainClassLoaderDeferred.await().loadClass("com.intellij.idea.MainImpl")
             MethodHandles.lookup().findConstructor(aClass, MethodType.methodType(Void.TYPE)).invoke() as AppStarter
           }
 
@@ -72,7 +81,7 @@ fun main(rawArgs: Array<String>) {
             }
           }
 
-          startApplication(args = args, appStarterDeferred = appStarterDeferred, mainScope = this@runBlocking, busyThread = busyThread)
+          startApplication(args = args, mainClassLoaderDeferred = mainClassLoaderDeferred, appStarterDeferred = appStarterDeferred, mainScope = this@runBlocking, busyThread = busyThread)
         }
       }
 
@@ -91,34 +100,13 @@ private fun initRemoteDev() {
   }
 
   initRemoteDevGraphicsEnvironment()
-  if (isLuxEnabled()) {
-    initLux()
-  }
-  else {
-    initProjector()
-  }
+  initLux()
 }
 
 private fun isLuxEnabled() = System.getProperty("lux.enabled", "true").toBoolean()
 
-private fun initProjector() {
-  val projectorMainClass = AppStarter::class.java.classLoader.loadClass("org.jetbrains.projector.server.ProjectorLauncher\$Starter")
-  MethodHandles.privateLookupIn(projectorMainClass, MethodHandles.lookup()).findStatic(
-    projectorMainClass, "runProjectorServer", MethodType.methodType(Boolean::class.javaPrimitiveType)
-  ).invoke()
-}
-
 private fun initRemoteDevGraphicsEnvironment() {
-  JBR.getProjectorUtils().setLocalGraphicsEnvironmentProvider {
-    if (isLuxEnabled()) {
-      IdeGraphicsEnvironment.instance
-    }
-    else {
-      AppStarter::class.java.classLoader.loadClass("org.jetbrains.projector.awt.image.PGraphicsEnvironment")
-        .getDeclaredMethod("getInstance")
-        .invoke(null) as GraphicsEnvironment
-    }
-  }
+  JBR.getProjectorUtils().setLocalGraphicsEnvironmentProvider { IdeGraphicsEnvironment.instance }
 }
 
 private fun setStaticField(clazz: Class<out Any>, fieldName: String, value: Any) {
@@ -171,11 +159,11 @@ private fun bootstrap(startupTimings: MutableList<Any>) {
     addBootstrapTiming("plugin updates installation", startupTimings)
   }
 
-  initClassLoader(AppMode.isRemoteDevHost() && !isLuxEnabled())
+  initClassLoader()
   addBootstrapTiming("classloader init", startupTimings)
 }
 
-fun initClassLoader(addCwmLibs: Boolean) {
+fun initClassLoader() {
   val distDir = Path.of(PathManager.getHomePath())
   val classLoader = AppMode::class.java.classLoader as? PathClassLoader
                     ?: throw RuntimeException("You must run JVM with -Djava.system.class.loader=com.intellij.util.lang.PathClassLoader")
@@ -205,34 +193,6 @@ fun initClassLoader(addCwmLibs: Boolean) {
     }
   }
 
-  var updateSystemClassLoader = false
-  if (addCwmLibs) {
-    // Remote dev requires Projector libraries in system classloader due to AWT internals (see below)
-    // At the same time, we don't want to ship them with a base (non-remote) IDE due to possible unwanted interference with plugins
-    // See also: com.jetbrains.codeWithMe.projector.PluginClassPathRuntimeCustomizer
-    val relativeLibPath = "cwm-plugin-projector/lib/projector"
-    var remoteDevPluginLibs = preinstalledPluginDir.resolve(relativeLibPath)
-    var exists = Files.exists(remoteDevPluginLibs)
-    if (!exists) {
-      remoteDevPluginLibs = Path.of(PathManager.getPluginsPath(), relativeLibPath)
-      exists = Files.exists(remoteDevPluginLibs)
-    }
-    if (exists) {
-      Files.newDirectoryStream(remoteDevPluginLibs).use { dirStream ->
-        // add all files in that dir except for plugin jar
-        for (f in dirStream) {
-          if (f.toString().endsWith(".jar")) {
-            classpath.add(f)
-          }
-        }
-      }
-    }
-
-    // AWT can only use builtin and system class loaders to load classes,
-    // so set the system loader to something that can find projector libs
-    updateSystemClassLoader = true
-  }
-
   if (!classpath.isEmpty()) {
     classLoader.classPath.addFiles(classpath)
   }
@@ -252,10 +212,6 @@ fun initClassLoader(addCwmLibs: Boolean) {
       StartupErrorReporter.showMessage(BootstrapBundle.message("bootstrap.error.title.jetbrains.marketplace.boot.failure"),
                                        Exception(message, e))
     }
-  }
-  if (updateSystemClassLoader) {
-    val aClass = ClassLoader::class.java
-    MethodHandles.privateLookupIn(aClass, MethodHandles.lookup()).findStaticSetter(aClass, "scl", aClass).invoke(classLoader)
   }
 }
 
@@ -349,7 +305,7 @@ private class BytecodeTransformerAdapter(private val impl: BytecodeTransformer) 
     return impl.isApplicable(className, loader, null)
   }
 
-  override fun transform(loader: ClassLoader, className: String, classBytes: ByteArray): ByteArray {
+  override fun transform(loader: ClassLoader, className: String, classBytes: ByteArray): ByteArray? {
     return impl.transform(loader, className, null, classBytes)
   }
 }

@@ -36,7 +36,6 @@ import com.intellij.util.indexing.roots.builders.IndexableSetContributorFilesIte
 import com.intellij.util.indexing.roots.builders.SyntheticLibraryIteratorBuilder;
 import com.intellij.workspaceModel.core.fileIndex.DependencyDescription;
 import com.intellij.workspaceModel.core.fileIndex.EntityStorageKind;
-import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndex;
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndexContributor;
 import com.intellij.workspaceModel.core.fileIndex.impl.PlatformInternalWorkspaceFileIndexContributor;
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexImpl;
@@ -50,7 +49,7 @@ import org.jetbrains.annotations.TestOnly;
 import java.util.*;
 import java.util.stream.Collectors;
 
-class EntityIndexingServiceImpl implements EntityIndexingServiceEx {
+final class EntityIndexingServiceImpl implements EntityIndexingServiceEx {
   private static final Logger LOG = Logger.getInstance(EntityIndexingServiceImpl.class);
   private static final RootChangesLogger ROOT_CHANGES_LOGGER = new RootChangesLogger();
   @NotNull
@@ -274,8 +273,7 @@ class EntityIndexingServiceImpl implements EntityIndexingServiceEx {
     LOG.assertTrue(newEntity != null || change == Change.Removed, "New entity " + newEntity + ", change " + change);
     LOG.assertTrue(oldEntity != null || change == Change.Added, "Old entity " + oldEntity + ", change " + change);
 
-    List<WorkspaceFileIndexContributor<?>> contributors =
-      ((WorkspaceFileIndexImpl)WorkspaceFileIndex.getInstance(project)).getContributors();
+    List<WorkspaceFileIndexContributor<?>> contributors = WorkspaceFileIndexImpl.Companion.getEP_NAME().getExtensionList();
     for (WorkspaceFileIndexContributor<?> uncheckedContributor : contributors) {
       if (uncheckedContributor.getStorageKind() != EntityStorageKind.MAIN) {
         continue;
@@ -422,7 +420,7 @@ class EntityIndexingServiceImpl implements EntityIndexingServiceEx {
     return tracker.shouldRescan(oldEntity, newEntity, project);
   }
 
-  private static class WorkspaceEventRescanningInfo implements RootsChangeRescanningInfo {
+  private static final class WorkspaceEventRescanningInfo implements RootsChangeRescanningInfo {
     @NotNull
     private final List<EntityChange<?>> events;
 
@@ -431,7 +429,7 @@ class EntityIndexingServiceImpl implements EntityIndexingServiceEx {
     }
   }
 
-  private static class WorkspaceEntitiesRootsChangedRescanningInfo implements RootsChangeRescanningInfo {
+  private static final class WorkspaceEntitiesRootsChangedRescanningInfo implements RootsChangeRescanningInfo {
     @NotNull
     private final List<EntityReference<WorkspaceEntity>> references;
 

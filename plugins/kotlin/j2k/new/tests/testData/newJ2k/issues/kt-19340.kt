@@ -3,6 +3,7 @@ package test.nullabilityOnClassBoundaries
 class Item {
     private var s1: String? = null
     private var s2: String? = null
+
     fun set(s1: String?, s2: String?) {
         this.s1 = s1
         this.s2 = s2
@@ -17,6 +18,7 @@ class Reader {
     }
 
     fun readString(n: Int): String? {
-        return if (n <= 0) null else n.toString()
+        if (n <= 0) return null
+        return n.toString()
     }
 }

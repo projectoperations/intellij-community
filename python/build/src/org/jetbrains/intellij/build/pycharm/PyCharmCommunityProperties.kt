@@ -45,6 +45,7 @@ class PyCharmCommunityProperties(communityHome: Path) : PyCharmPropertiesBase() 
       )
       ))
     productLayout.pluginModulesToPublish = persistentSetOf("intellij.python.community.plugin")
+    baseDownloadUrl = "https://download.jetbrains.com/python/"
   }
 
   override fun copyAdditionalFilesBlocking(context: BuildContext, targetDirectory: String) {
@@ -109,8 +110,6 @@ private class PyCharmCommunityMacDistributionCustomizer(projectHome: Path) : PyC
   init {
     icnsPath = "$projectHome/python/build/resources/PyCharmCore.icns"
     icnsPathForEAP = "$projectHome/python/build/resources/PyCharmCore_EAP.icns"
-    icnsPathForAlternativeIcon = "$projectHome/python/build/resources/PyCharmCore_bigsur.icns"
-    icnsPathForAlternativeIconForEAP = "$projectHome/python/build/resources/PyCharmCore_EAP_bigsur.icns"
     bundleIdentifier = "com.jetbrains.pycharm.ce"
     dmgImagePath = "$projectHome/python/build/resources/dmg_background.tiff"
   }

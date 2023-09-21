@@ -5,6 +5,7 @@ import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.codeInsight.completion.CompletionType;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.analysis.XmlPathReferenceInspection;
+import com.intellij.codeInsight.hints.declarative.InlayHintsProviderExtensionBean;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementPresentation;
@@ -114,6 +115,8 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
     moduleBuilder.addLibrary("platform-editor", platformEditorJar);
     String platformUiUtilJar = PathUtil.getJarPathForClass(AllIcons.class);
     moduleBuilder.addLibrary("platform-util-ui", platformUiUtilJar);
+    String langApiJar = PathUtil.getJarPathForClass(InlayHintsProviderExtensionBean.class);
+    moduleBuilder.addLibrary("lang-api", langApiJar);
   }
 
   // Gradle-like setup, but JBList not in Library
@@ -338,9 +341,10 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
             <extensionPoint name="myService" beanClass="foo.MyServiceDescriptor"/>
         </extensionPoints>
     """);
-    myFixture.addClass("package foo;\n" +
-                       "import com.intellij.util.xmlb.annotations.Attribute;\n" +
-                       "public class MyServiceDescriptor { @Attribute public String serviceImplementation; }");
+    myFixture.addClass("""
+                         package foo;
+                         import com.intellij.util.xmlb.annotations.Attribute;
+                         public class MyServiceDescriptor { @Attribute public String serviceImplementation; }""");
     myFixture.addClass("package foo; public class Foo { public static class Fubar {} }");
     myFixture.configureByFile(getTestName(false) + ".xml");
     myFixture.completeBasic();

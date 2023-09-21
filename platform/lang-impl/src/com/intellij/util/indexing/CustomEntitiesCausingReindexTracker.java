@@ -4,7 +4,6 @@ package com.intellij.util.indexing;
 import com.intellij.openapi.extensions.ExtensionPointListener;
 import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.impl.CustomEntityProjectModelInfoProvider;
 import com.intellij.platform.workspace.jps.entities.*;
 import com.intellij.platform.workspace.storage.WorkspaceEntity;
 import com.intellij.util.containers.ContainerUtil;
@@ -22,7 +21,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-class CustomEntitiesCausingReindexTracker {
+final class CustomEntitiesCausingReindexTracker {
   private final boolean useWorkspaceFileIndexContributors = IndexableFilesIndex.isEnabled();
   @NotNull
   private Set<Class<? extends WorkspaceEntity>> customEntitiesToRescan;
@@ -46,9 +45,6 @@ class CustomEntitiesCausingReindexTracker {
     IndexableEntityProvider.EP_NAME.addExtensionPointListener(
       (ExtensionPointListener<IndexableEntityProvider<? extends WorkspaceEntity>>)listener);
     //noinspection unchecked
-    CustomEntityProjectModelInfoProvider.EP.addExtensionPointListener(
-      (ExtensionPointListener<CustomEntityProjectModelInfoProvider<?>>)listener);
-    //noinspection unchecked
     WorkspaceFileIndexImpl.Companion.getEP_NAME().addExtensionPointListener(
       (ExtensionPointListener<WorkspaceFileIndexContributor<?>>)listener);
 
@@ -61,13 +57,10 @@ class CustomEntitiesCausingReindexTracker {
   }
 
   private Set<Class<? extends WorkspaceEntity>> listCustomEntitiesCausingRescan() {
-    Stream<Class<? extends WorkspaceEntity>> allClasses =
-      CustomEntityProjectModelInfoProvider.EP.getExtensionList().stream().map(provider -> provider.getEntityClass());
-    allClasses = Stream.concat(allClasses,
-                               WorkspaceFileIndexImpl.Companion.getEP_NAME().getExtensionList().stream()
-                                 .filter(contributor -> useWorkspaceFileIndexContributors ||
+    Stream<Class<? extends WorkspaceEntity>> allClasses = WorkspaceFileIndexImpl.Companion.getEP_NAME().getExtensionList().stream()
+      .filter(contributor -> useWorkspaceFileIndexContributors ||
                                                         !(contributor instanceof PlatformInternalWorkspaceFileIndexContributor))
-                                 .flatMap(contributor -> getEntityClassesToCauseReindexing(contributor)));
+      .flatMap(contributor -> getEntityClassesToCauseReindexing(contributor));
     allClasses = Stream.concat(allClasses,
                                IndexableEntityProvider.EP_NAME.getExtensionList().stream()
                                  .filter(provider -> !useWorkspaceFileIndexContributors ||
@@ -88,8 +81,7 @@ class CustomEntitiesCausingReindexTracker {
 
   private static boolean isEntityReindexingCustomised(Class<? extends WorkspaceEntity> entityClass) {
     return LibraryEntity.class.isAssignableFrom(entityClass) ||
-           LibraryPropertiesEntity.class.isAssignableFrom(entityClass) ||
-           ModuleEntity.class.isAssignableFrom(entityClass);
+           LibraryPropertiesEntity.class.isAssignableFrom(entityClass);
   }
 
   /**
@@ -123,9 +115,6 @@ class CustomEntitiesCausingReindexTracker {
         return isEntityToRescan(contentRoot);
       }
       return false;
-    }
-    else if (entity instanceof ModuleEntity) {
-      return true;
     }
     return isEntityToRescan(entity);
   }

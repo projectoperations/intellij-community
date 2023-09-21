@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.ui.laf;
 
 import com.intellij.ide.ui.LafManager;
@@ -11,7 +11,6 @@ import com.intellij.ui.components.DarculaSearchFieldWithExtensionUI;
 import com.intellij.ui.components.DefaultLinkButtonUI;
 import com.intellij.ui.tree.ui.DefaultTreeUI;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
@@ -36,6 +35,11 @@ final class HeadlessLafManagerImpl extends LafManager {
   }
 
   @Override
+  public UIThemeLookAndFeelInfo getCurrentUIThemeLookAndFeel() {
+    return null;
+  }
+
+  @Override
   public LafReference getLookAndFeelReference() {
     return null;
   }
@@ -46,13 +50,12 @@ final class HeadlessLafManagerImpl extends LafManager {
   }
 
   @Override
-  @NotNull
-  public JComponent getSettingsToolbar() {
+  public @NotNull JComponent getSettingsToolbar() {
     return new JComponent() {};
   }
 
   @Override
-  public void setCurrentLookAndFeel(UIManager.@NotNull LookAndFeelInfo lookAndFeelInfo, boolean lockEditorScheme) { }
+  public void setCurrentLookAndFeel(@NotNull UIThemeLookAndFeelInfo lookAndFeelInfo, boolean lockEditorScheme) { }
 
   @Override
   public @NotNull CollectionComboBoxModel<LafReference> getLafComboBoxModel() {
@@ -60,7 +63,7 @@ final class HeadlessLafManagerImpl extends LafManager {
   }
 
   @Override
-  public UIManager.LookAndFeelInfo findLaf(LafReference reference) {
+  public UIThemeLookAndFeelInfo findLaf(LafReference reference) {
     return null;
   }
 
@@ -84,15 +87,10 @@ final class HeadlessLafManagerImpl extends LafManager {
   }
 
   @Override
-  public void setPreferredDarkLaf(UIManager.@NotNull LookAndFeelInfo value) { }
+  public void setPreferredDarkLaf(@NotNull UIThemeLookAndFeelInfo value) { }
 
   @Override
-  public void setPreferredLightLaf(UIManager.@NotNull LookAndFeelInfo value) { }
-
-  @Override
-  public @Nullable EditorColorsScheme getPreviousSchemeForLaf(UIManager.@NotNull LookAndFeelInfo lookAndFeelInfo) {
-    return null;
-  }
+  public void setPreferredLightLaf(@NotNull UIThemeLookAndFeelInfo value) { }
 
   @Override
   public void setRememberSchemeForLaf(boolean rememberSchemeForLaf) { }
@@ -107,8 +105,8 @@ final class HeadlessLafManagerImpl extends LafManager {
   public void removeLafManagerListener(@NotNull LafManagerListener listener) { }
 
   @Override
-  public UIManager.LookAndFeelInfo getDefaultLightLaf() { return null; }
+  public UIThemeLookAndFeelInfo getDefaultLightLaf() { return null; }
 
   @Override
-  public UIManager.LookAndFeelInfo getDefaultDarkLaf() { return null; }
+  public UIThemeLookAndFeelInfo getDefaultDarkLaf() { return null; }
 }

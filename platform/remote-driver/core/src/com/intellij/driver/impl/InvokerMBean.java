@@ -14,6 +14,8 @@ import java.util.function.Supplier;
 public interface InvokerMBean {
   ProductVersion getProductVersion();
 
+  boolean isApplicationInitialized();
+
   void exit();
 
   RemoteCallResult invoke(RemoteCall call);
@@ -22,9 +24,9 @@ public interface InvokerMBean {
 
   void cleanup(int sessionId);
 
-  static void register(IJTracer tracer, Supplier<? extends Context> timedContextSupplier) throws JMException {
+  static void register(Supplier<? extends IJTracer> tracerSupplier, Supplier<? extends Context> timedContextSupplier) throws JMException {
     ObjectName objectName = new ObjectName("com.intellij.driver:type=Invoker");
     MBeanServer server = ManagementFactory.getPlatformMBeanServer();
-    server.registerMBean(new Invoker(tracer, timedContextSupplier), objectName);
+    server.registerMBean(new Invoker(tracerSupplier, timedContextSupplier), objectName);
   }
 }

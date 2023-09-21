@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.core
 
@@ -10,6 +10,7 @@ import com.intellij.psi.tree.IElementType
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.elementType
 import com.intellij.psi.util.parentOfType
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.builtins.isFunctionOrSuspendFunctionType
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.descriptors.*
@@ -21,6 +22,7 @@ import org.jetbrains.kotlin.idea.base.psi.*
 import org.jetbrains.kotlin.idea.base.psi.addTypeParameter
 import org.jetbrains.kotlin.idea.base.psi.appendDeclaration
 import org.jetbrains.kotlin.idea.base.psi.getOrCreateCompanionObject
+import org.jetbrains.kotlin.idea.base.psi.moveInsideParenthesesAndReplaceWith
 import org.jetbrains.kotlin.idea.base.psi.setDefaultValue
 import org.jetbrains.kotlin.idea.caches.resolve.getResolutionFacade
 import org.jetbrains.kotlin.idea.caches.resolve.resolveToDescriptorIfAny
@@ -64,17 +66,49 @@ fun KtLambdaArgument.moveInsideParentheses(bindingContext: BindingContext): KtCa
     return moveInsideParenthesesAndReplaceWith(ktExpression, bindingContext)
 }
 
+/**
+ * Moves the lambda argument inside parentheses and replaces it with the specified replacement expression.
+ * If the lambda argument should be named, it retrieves the lambda argument name from the binding context.
+ *
+ * @param replacement The replacement expression to be used.
+ * @param bindingContext The binding context used to retrieve the lambda argument name if necessary.
+ * @return The modified `KtCallExpression` with the lambda argument moved inside parentheses and replaced with
+ * the specified replacement expression.
+ */
 fun KtLambdaArgument.moveInsideParenthesesAndReplaceWith(
     replacement: KtExpression,
     bindingContext: BindingContext
-): KtCallExpression = moveInsideParenthesesAndReplaceWith(replacement, getLambdaArgumentName(bindingContext))
-
+): KtCallExpression {
+    val lambdaArgumentName = if (shouldLambdaParameterBeNamed(this)) {
+        this.getLambdaArgumentName(bindingContext)
+    } else null
+    return this.moveInsideParenthesesAndReplaceWith(replacement, lambdaArgumentName)
+}
 
 fun KtLambdaArgument.getLambdaArgumentName(bindingContext: BindingContext): Name? {
     val callExpression = parent as KtCallExpression
     val resolvedCall = callExpression.getResolvedCall(bindingContext)
     return (resolvedCall?.getArgumentMapping(this) as? ArgumentMatch)?.valueParameter?.name
 }
+
+@ApiStatus.ScheduledForRemoval
+@Deprecated(
+    "Use 'org.jetbrains.kotlin.idea.base.psi.KotlinPsiModificationUtils' instead",
+    ReplaceWith(
+        expression = "this.moveInsideParenthesesAndReplaceWith(replacement, if (lambdaArgumentName != null && shouldLambdaParameterBeNamed(this)) lambdaArgumentName else null)",
+        imports = [
+            "org.jetbrains.kotlin.idea.base.psi.moveInsideParenthesesAndReplaceWith",
+            "org.jetbrains.kotlin.idea.base.psi.shouldLambdaParameterBeNamed"
+        ]
+    ), level = DeprecationLevel.ERROR
+)
+fun KtLambdaArgument.moveInsideParenthesesAndReplaceWith(
+    replacement: KtExpression,
+    lambdaArgumentName: Name?,
+    withNameCheck: Boolean = true,
+): KtCallExpression = this.moveInsideParenthesesAndReplaceWith(
+    replacement, if (lambdaArgumentName != null && shouldLambdaParameterBeNamed(this)) lambdaArgumentName else null
+)
 
 fun KtLambdaExpression.moveFunctionLiteralOutsideParenthesesIfPossible() {
     val valueArgument = parentOfType<KtValueArgument>()?.takeIf {

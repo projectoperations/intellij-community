@@ -10,7 +10,7 @@
 
   <properties>
     <maven.compiler.release>11</maven.compiler.release>
-    <bootstrap.intellij.version>233.2684</bootstrap.intellij.version>
+    <bootstrap.intellij.version>233.4644</bootstrap.intellij.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
@@ -28,12 +28,12 @@
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>32.1.1-jre</version>
+      <version>32.1.2-jre</version>
     </dependency>
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java</artifactId>
-      <version>3.23.4</version>
+      <version>3.24.2</version>
     </dependency>
     <dependency>
       <groupId>commons-cli</groupId>
@@ -43,7 +43,7 @@
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-compress</artifactId>
-      <version>1.23.0</version>
+      <version>1.24.0</version>
     </dependency>
     <dependency>
       <groupId>com.google.code.gson</groupId>
@@ -73,7 +73,7 @@
     <dependency>
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-extension-kotlin</artifactId>
-      <version>1.28.0</version>
+      <version>1.30.1</version>
     </dependency>
     <dependency>
       <groupId>com.jetbrains.intellij.platform</groupId>
@@ -113,7 +113,7 @@
     <dependency>
       <groupId>org.jetbrains.teamcity</groupId>
       <artifactId>serviceMessages</artifactId>
-      <version>2019.1.4</version>
+      <version>2023.07</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>

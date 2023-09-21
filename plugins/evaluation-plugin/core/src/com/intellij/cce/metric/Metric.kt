@@ -4,7 +4,7 @@ package com.intellij.cce.metric
 import com.intellij.cce.core.Session
 
 interface Metric {
-  fun evaluate(sessions: List<Session>, comparator: SuggestionsComparator = SuggestionsComparator.DEFAULT): Number
+  fun evaluate(sessions: List<Session>): Number
 
   fun confidenceInterval(): Pair<Double, Double>? = null
 
@@ -18,4 +18,7 @@ interface Metric {
 
   val showByDefault: Boolean
     get() = true
+
+  val shouldComputeIntervals: Boolean
+    get() = false
 }

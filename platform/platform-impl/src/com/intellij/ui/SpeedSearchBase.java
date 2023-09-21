@@ -176,8 +176,6 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
       }
     }.registerCustomShortcutSet(CustomShortcutSet.fromString(SystemInfo.isMac ? "meta BACK_SPACE" : "control BACK_SPACE"), myComponent);
 
-    new MySearchAction().registerCustomShortcutSet(CommonShortcuts.getFind(), myComponent);
-
     installSupplyTo(myComponent);
   }
 
@@ -189,8 +187,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     return false;
   }
 
-  @Nullable
-  public JTextField getSearchField() {
+  public @Nullable JTextField getSearchField() {
     if (mySearchPopup != null) {
       return mySearchPopup.mySearchField;
     }
@@ -233,8 +230,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     throw new UnsupportedOperationException("See `SpeedSearchBase.getElementIterator(int)` javadoc");
   }
 
-  @Nullable
-  protected abstract String getElementText(Object element);
+  protected abstract @Nullable String getElementText(Object element);
 
   protected int getElementCount() {
     LOG.warn("Please implement getElementCount() and getElementAt(int) in " + getClass().getName());
@@ -265,8 +261,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
    * <p>
    * The old and now deprecated API uses {@link #getAllElements()} and {@link #convertIndexToModel(int)} methods.
    */
-  @NotNull
-  protected ListIterator<Object> getElementIterator(int startingViewIndex) {
+  protected @NotNull ListIterator<Object> getElementIterator(int startingViewIndex) {
     return new MyListIterator(this, startingViewIndex);
   }
 
@@ -304,8 +299,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     myComparator = comparator;
   }
 
-  @Nullable
-  protected Object findNextElement(String s) {
+  protected @Nullable Object findNextElement(String s) {
     final int selectedIndex = getSelectedIndex();
     final ListIterator<?> it = getElementIterator(selectedIndex + 1);
     final Object current;
@@ -333,8 +327,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     return current != null && isMatchingElement(current, _s) ? current : null;
   }
 
-  @Nullable
-  protected Object findPreviousElement(@NotNull String s) {
+  protected @Nullable Object findPreviousElement(@NotNull String s) {
     final int selectedIndex = getSelectedIndex();
     if (selectedIndex < 0) return null;
     final ListIterator<?> it = getElementIterator(selectedIndex);
@@ -363,8 +356,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     return isMatchingElement(current, _s) ? current : null;
   }
 
-  @Nullable
-  protected Object findElement(@NotNull String s) {
+  protected @Nullable Object findElement(@NotNull String s) {
     int selectedIndex = getSelectedIndex();
     if (selectedIndex < 0) {
       selectedIndex = 0;
@@ -385,8 +377,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     return null;
   }
 
-  @Nullable
-  private Object findFirstElement(String s) {
+  private @Nullable Object findFirstElement(String s) {
     final String _s = s.trim();
     for (ListIterator<?> it = getElementIterator(0); it.hasNext(); ) {
       final Object element = it.next();
@@ -395,8 +386,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     return null;
   }
 
-  @Nullable
-  private Object findLastElement(String s) {
+  private @Nullable Object findLastElement(String s) {
     final String _s = s.trim();
     for (ListIterator<?> it = getElementIterator(getElementCount()); it.hasPrevious(); ) {
       final Object element = it.previous();
@@ -441,8 +431,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     }
   }
 
-  @NotNull
-  protected SpeedSearchBase<Comp>.SearchPopup createPopup(String s) {
+  protected @NotNull SpeedSearchBase<Comp>.SearchPopup createPopup(String s) {
     return new SearchPopup(s);
   }
 
@@ -454,10 +443,13 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     return true;
   }
 
+  @ApiStatus.Internal
+  public boolean isAvailable() {
+    return isSpeedSearchEnabled();
+  }
+
   @Override
-  @Nullable
-  @NlsSafe
-  public String getEnteredPrefix() {
+  public @Nullable @NlsSafe String getEnteredPrefix() {
     return mySearchPopup != null ? mySearchPopup.mySearchField.getText() : null;
   }
 
@@ -483,8 +475,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     return false;
   }
 
-  @Nullable
-  private Object findTargetElement(int keyCode, @NotNull String searchPrefix) {
+  private @Nullable Object findTargetElement(int keyCode, @NotNull String searchPrefix) {
     if (keyCode == KeyEvent.VK_UP) {
       return findPreviousElement(searchPrefix);
     }
@@ -641,7 +632,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     }
   }
 
-  protected class SearchField extends ExtendableTextField {
+  protected final class SearchField extends ExtendableTextField {
     SearchField() {
       setFocusable(false);
       ExtendableTextField.Extension leftExtension = new Extension() {
@@ -730,8 +721,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
    *
    * @return an extension, or null.
    */
-  @Nullable
-  protected ExtendableTextComponent.Extension createSearchFieldExtension() {
+  protected @Nullable ExtendableTextComponent.Extension createSearchFieldExtension() {
     return null;
   }
 
@@ -955,30 +945,6 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     @Override
     public void add(Object o) {
       throw new UnsupportedOperationException("Not implemented in: " + getClass().getCanonicalName());
-    }
-  }
-
-  private class MySearchAction extends DumbAwareAction {
-    @Override
-    public void actionPerformed(@NotNull AnActionEvent e) {
-      showPopup();
-    }
-
-    @Override
-    public void update(@NotNull AnActionEvent e) {
-      e.getPresentation().setEnabled(isSpeedSearchEnabled() && !isPopupActive());
-    }
-
-    @Override
-    public @NotNull ActionUpdateThread getActionUpdateThread() {
-      return ActionUpdateThread.EDT;
-    }
-  }
-
-  static class SpeedSearchActionPromoter implements ActionPromoter {
-    @Override
-    public @Nullable List<AnAction> promote(@NotNull List<? extends AnAction> actions, @NotNull DataContext context) {
-      return ContainerUtil.sorted(actions, Comparator.comparing(it -> it instanceof SpeedSearchBase<?>.MySearchAction ? 1 : 0));
     }
   }
 }

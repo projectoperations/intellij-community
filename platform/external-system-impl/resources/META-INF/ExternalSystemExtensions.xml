@@ -61,6 +61,7 @@
     <projectService serviceInterface="com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManager"
                     serviceImplementation="com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl"/>
     <externalSystemSettingsListener
+      id="external-system"
       implementation="com.intellij.openapi.externalSystem.service.project.autoimport.ExternalProjectsSettingsWatcher"/>
     <projectService serviceInterface="com.intellij.openapi.project.ExternalStorageConfigurationManager"
                     serviceImplementation="com.intellij.openapi.project.ExternalStorageConfigurationManagerImpl"/>
@@ -72,7 +73,7 @@
                  description="Set binding address for server socket listening incoming requests for debugger clients. 0 means address of the first found remote network interface will be used."/>
     <registryKey key="external.system.map.jps.to.gav" defaultValue="false"
                  description="Provide assignment of groupId/artifactId/version for JPS modules"/>
-    <registryKey key="external.system.pause.indexing.during.sync" defaultValue="true"
+    <registryKey key="external.system.pause.indexing.during.sync" defaultValue="false"
                  description="Suspend indexing and scanning during sync with external build system"/>
 
     <projectService serviceImplementation="com.intellij.openapi.externalSystem.service.project.ExternalProjectsWorkspaceImpl"/>
@@ -106,6 +107,7 @@
     <externalSystemViewContributor id="default" order="last"
                                    implementation="com.intellij.openapi.externalSystem.view.ExternalSystemViewDefaultContributor"/>
 
+    <environmentKeyProvider implementation="com.intellij.openapi.externalSystem.importing.ExternalSystemKeyProvider"/>
     <!--Execution-->
     <programRunner implementation="com.intellij.openapi.externalSystem.service.execution.ExternalSystemTaskRunner"/>
 
@@ -135,6 +137,8 @@
     <notificationGroup id="Gradle Wrapper Update" displayType="BALLOON" bundle="messages.ExternalSystemBundle" key="notification.group.gradle.wrapper.update"/>
 
     <externalSystemSettingsListener implementation="com.intellij.openapi.externalSystem.service.ui.ExternalToolWindowManager"/>
+
+    <activityInProgressPredicate implementation="com.intellij.openapi.externalSystem.service.ExternalSystemInProgressPredicate"/>
 
     <trustedProjectsLocator implementation="com.intellij.openapi.externalSystem.service.project.trusted.ExternalSystemTrustedProjectsLocator"/>
   </extensions>

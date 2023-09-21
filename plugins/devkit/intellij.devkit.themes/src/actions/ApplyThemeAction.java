@@ -1,10 +1,10 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.themes.actions;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.ui.UITheme;
-import com.intellij.ide.ui.laf.TempUIThemeBasedLookAndFeelInfo;
+import com.intellij.ide.ui.laf.TempUIThemeLookAndFeelInfo;
 import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -37,7 +37,7 @@ import java.util.Map;
 /**
  * @author Konstantin Bulenkov
  */
-public final class ApplyThemeAction extends DumbAwareAction {
+final class ApplyThemeAction extends DumbAwareAction {
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     applyTempTheme(e);
@@ -82,14 +82,10 @@ public final class ApplyThemeAction extends DumbAwareAction {
       FileDocumentManager.getInstance().saveAllDocuments();
 
       Module module = ModuleUtilCore.findModuleForFile(json, project);
-      UITheme theme = TempUIThemeBasedLookAndFeelInfo.loadTempTheme(json.getInputStream(), new IconPathPatcher() {
-
+      UITheme theme = TempUIThemeLookAndFeelInfo.loadTempTheme(json.getInputStream(), new IconPathPatcher() {
         @Override
-        public @NotNull String patchPath(@NotNull String path,
-                                         @Nullable ClassLoader classLoader) {
-          String result = module != null ?
-                          findAbsoluteFilePathByRelativePath(module, path) :
-                          null;
+        public @NotNull String patchPath(@NotNull String path, @Nullable ClassLoader classLoader) {
+          String result = module == null ? null : findAbsoluteFilePathByRelativePath(module, path);
           return result != null ? result : path;
         }
       });
@@ -97,7 +93,7 @@ public final class ApplyThemeAction extends DumbAwareAction {
       VirtualFile editorSchemeFile;
       if (module != null) {
         ModuleRootManager moduleRootManager = ModuleRootManager.getInstance(module);
-        editorSchemeFile = findThemeFile(moduleRootManager, theme.getEditorScheme());
+        editorSchemeFile = findThemeFile(moduleRootManager, theme.getEditorSchemePath());
 
         patchBackgroundImagePath(moduleRootManager, theme.getBackground());
         patchBackgroundImagePath(moduleRootManager, theme.getEmptyFrameBackground());
@@ -107,9 +103,9 @@ public final class ApplyThemeAction extends DumbAwareAction {
       }
 
       LafManager lafManager = LafManager.getInstance();
-      lafManager.setCurrentLookAndFeel(new TempUIThemeBasedLookAndFeelInfo(theme,
+      lafManager.setCurrentUIThemeLookAndFeel(new TempUIThemeLookAndFeelInfo(theme,
                                                                            editorSchemeFile,
-                                                                           lafManager.getCurrentLookAndFeel()));
+                                                                           lafManager.getCurrentUIThemeLookAndFeel()));
       IconLoader.clearCache();
       lafManager.updateUI();
       return true;
@@ -119,8 +115,8 @@ public final class ApplyThemeAction extends DumbAwareAction {
   }
 
   private static void patchBackgroundImagePath(@NotNull ModuleRootManager moduleRootManager,
-                                               @Nullable Map<String, Object> background) {
-    if (background != null) {
+                                               @NotNull Map<String, Object> background) {
+    if (!background.isEmpty()) {
       VirtualFile pathToBg = findThemeFile(moduleRootManager, background.get("image").toString());
       if (pathToBg != null) {
         background.put("image", pathToBg.getPath());
@@ -158,7 +154,7 @@ public final class ApplyThemeAction extends DumbAwareAction {
 
   @Override
   public void update(@NotNull AnActionEvent e) {
-    if (LafManager.getInstance().getCurrentLookAndFeel() instanceof TempUIThemeBasedLookAndFeelInfo) {
+    if (LafManager.getInstance().getCurrentUIThemeLookAndFeel() instanceof TempUIThemeLookAndFeelInfo) {
       e.getPresentation().setIcon(AllIcons.Actions.Rerun);
     }
   }

@@ -38,7 +38,6 @@ import io.opentelemetry.context.Scope;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.sqlite.AlreadyClosedException;
 
@@ -54,7 +53,6 @@ import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 import static com.intellij.openapi.vcs.VcsScopeKt.VcsScope;
-import static com.intellij.vcs.log.util.PersistentUtil.calcLogId;
 
 public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Disposable {
   static final Logger LOG = Logger.getInstance(VcsLogPersistentIndex.class);
@@ -89,15 +87,14 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
 
   private final @NotNull IdleVcsLogIndexer myIdleIndexer;
 
-  private VcsLogPersistentIndex(@NotNull Project project,
-                                @NotNull Map<VirtualFile, VcsLogProvider> providers,
-                                @NotNull Map<VirtualFile, VcsLogIndexer> indexers,
-                                @NotNull LinkedHashSet<VirtualFile> roots,
-                                @NotNull VcsLogStorage storage,
-                                @NotNull VcsLogStorageBackend backend,
-                                @NotNull VcsLogProgress progress,
-                                @NotNull VcsLogErrorHandler errorHandler,
-                                @NotNull Disposable disposableParent) {
+  public VcsLogPersistentIndex(@NotNull Project project,
+                               @NotNull Map<VirtualFile, VcsLogProvider> providers,
+                               @NotNull Map<VirtualFile, VcsLogIndexer> indexers,
+                               @NotNull VcsLogStorage storage,
+                               @NotNull VcsLogStorageBackend backend,
+                               @NotNull VcsLogProgress progress,
+                               @NotNull VcsLogErrorHandler errorHandler,
+                               @NotNull Disposable disposableParent) {
     myStorage = storage;
     myProject = project;
     myProgress = progress;
@@ -106,7 +103,7 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
     myIndexCollector = VcsLogIndexCollector.getInstance(myProject);
 
     myIndexers = indexers;
-    myRoots = roots;
+    myRoots = new LinkedHashSet<>(indexers.keySet());
 
     myBackend = backend;
     myDataGetter = new IndexDataGetter(myProject, ContainerUtil.filter(providers, root -> myRoots.contains(root)),
@@ -162,13 +159,13 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
     if (myDisposableFlag.isDisposed()) return;
     if (myCommitsToIndex.isEmpty()) return;
     // for fresh index, wait for complete log to load and index everything in one command
-    if (myBackend.isFresh() && !full) return;
+    if (isFreshOrEmpty() && !full) return;
 
     Map<VirtualFile, IntSet> commitsToIndex = myCommitsToIndex;
     myCommitsToIndex = new HashMap<>();
 
-    boolean isFull = full && myBackend.isFresh();
-    if (isFull) LOG.debug("Index storage for project " + myProject.getName() + " is fresh, scheduling full reindex");
+    boolean isFull = full && isFreshOrEmpty();
+    if (isFull) LOG.debug("Index storage for project " + myProject.getName() + " is fresh or empty, scheduling full reindex");
     for (VirtualFile root : commitsToIndex.keySet()) {
       IntSet commits = commitsToIndex.get(root);
       if (commits.isEmpty()) continue;
@@ -186,6 +183,11 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
       myIndexCollector.reportFreshIndex();
       myBackend.setFresh(false);
     }
+  }
+
+  private boolean isFreshOrEmpty() {
+    if (myBackend.isFresh()) return true;
+    return myBackend.isEmpty() && !ContainerUtil.exists(myRoots, root -> isIndexingIsProgress(root));
   }
 
   private void storeDetail(@NotNull VcsLogIndexer.CompressedDetails detail, @NotNull VcsLogWriter mutator) {
@@ -216,7 +218,11 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
   @Override
   public synchronized boolean isIndexed(@NotNull VirtualFile root) {
     return isIndexingEnabled(root) &&
-           (!myCommitsToIndex.containsKey(root) && myNumberOfTasks.get(root).get() == 0);
+           (!myCommitsToIndex.containsKey(root) && !isIndexingIsProgress(root));
+  }
+
+  private boolean isIndexingIsProgress(@NotNull VirtualFile root) {
+    return myNumberOfTasks.get(root).get() != 0;
   }
 
   @Override
@@ -264,7 +270,7 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
     return myRoots;
   }
 
-  private static @NotNull Map<VirtualFile, VcsLogIndexer> getAvailableIndexers(@NotNull Map<VirtualFile, VcsLogProvider> providers) {
+  public static @NotNull Map<VirtualFile, VcsLogIndexer> getAvailableIndexers(@NotNull Map<VirtualFile, VcsLogProvider> providers) {
     Map<VirtualFile, VcsLogIndexer> indexers = new LinkedHashMap<>();
     for (Map.Entry<VirtualFile, VcsLogProvider> entry : providers.entrySet()) {
       VirtualFile root = entry.getKey();
@@ -274,31 +280,6 @@ public final class VcsLogPersistentIndex implements VcsLogModifiableIndex, Dispo
       }
     }
     return indexers;
-  }
-
-  public static @NotNull Set<VirtualFile> getRootsForIndexing(@NotNull Map<VirtualFile, VcsLogProvider> providers) {
-    return getAvailableIndexers(providers).keySet();
-  }
-
-  public static @Nullable VcsLogPersistentIndex create(@NotNull Project project,
-                                                       @NotNull VcsLogStorage storage,
-                                                       @NotNull Map<VirtualFile, VcsLogProvider> providers,
-                                                       @NotNull VcsLogProgress progress,
-                                                       @NotNull VcsLogErrorHandler errorHandler,
-                                                       @NotNull Disposable disposableParent) {
-    Map<VirtualFile, VcsLogIndexer> indexers = getAvailableIndexers(providers);
-    LinkedHashSet<VirtualFile> roots = new LinkedHashSet<>(indexers.keySet());
-
-    VcsLogStorageBackend backend;
-    if (storage instanceof VcsLogStorageBackend) {
-      backend = (VcsLogStorageBackend)storage;
-    }
-    else {
-      backend = PhmVcsLogStorageBackend.create(project, storage, roots, calcLogId(project, providers), errorHandler, disposableParent);
-    }
-    if (backend == null) return null;
-
-    return new VcsLogPersistentIndex(project, providers, indexers, roots, storage, backend, progress, errorHandler, disposableParent);
   }
 
   private final class MyHeavyAwareListener extends HeavyAwareListener {

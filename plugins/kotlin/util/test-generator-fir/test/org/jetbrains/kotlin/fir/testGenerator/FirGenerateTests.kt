@@ -5,8 +5,11 @@ package org.jetbrains.kotlin.fir.testGenerator
 import org.jetbrains.fir.uast.test.*
 import org.jetbrains.kotlin.fir.testGenerator.codeinsight.generateK2CodeInsightTests
 import org.jetbrains.kotlin.idea.fir.actions.AbstractK2AddImportActionTest
+import org.jetbrains.kotlin.idea.fir.actions.AbstractK2BytecodeToolWindowTest
 import org.jetbrains.kotlin.idea.fir.analysis.providers.AbstractIdeKotlinAnnotationsResolverTest
-import org.jetbrains.kotlin.idea.fir.analysis.providers.sessions.AbstractSessionsInvalidationTest
+import org.jetbrains.kotlin.idea.fir.analysis.providers.dependents.AbstractModuleDependentsTest
+import org.jetbrains.kotlin.idea.fir.analysis.providers.sessions.AbstractGlobalSessionInvalidationTest
+import org.jetbrains.kotlin.idea.fir.analysis.providers.sessions.AbstractLocalSessionInvalidationTest
 import org.jetbrains.kotlin.idea.fir.analysis.providers.trackers.AbstractProjectWideOutOfBlockKotlinModificationTrackerTest
 import org.jetbrains.kotlin.idea.fir.codeInsight.AbstractK2MultiModuleLineMarkerTest
 import org.jetbrains.kotlin.idea.fir.completion.*
@@ -34,7 +37,9 @@ import org.jetbrains.kotlin.idea.fir.quickfix.AbstractHighLevelQuickFixTest
 import org.jetbrains.kotlin.idea.fir.resolve.*
 import org.jetbrains.kotlin.idea.fir.search.AbstractHLImplementationSearcherTest
 import org.jetbrains.kotlin.idea.fir.shortenRefs.AbstractFirShortenRefsTest
+import org.jetbrains.kotlin.idea.k2.copyright.AbstractFirUpdateKotlinCopyrightTest
 import org.jetbrains.kotlin.idea.k2.refactoring.rename.AbstractFirRenameTest
+import org.jetbrains.kotlin.idea.k2.refactoring.rename.AbstractK2InplaceRenameTest
 import org.jetbrains.kotlin.parcelize.ide.test.AbstractParcelizeK2QuickFixTest
 import org.jetbrains.kotlin.testGenerator.generator.TestGenerator
 import org.jetbrains.kotlin.testGenerator.model.*
@@ -73,12 +78,20 @@ private fun assembleWorkspace(): TWorkspace = workspace {
             model("outOfBlockProjectWide", pattern = KT_WITHOUT_DOTS or Patterns.JAVA)
         }
 
-        testClass<AbstractSessionsInvalidationTest> {
+        testClass<AbstractLocalSessionInvalidationTest> {
+            model("sessionInvalidation", pattern = DIRECTORY, isRecursive = false)
+        }
+
+        testClass<AbstractGlobalSessionInvalidationTest> {
             model("sessionInvalidation", pattern = DIRECTORY, isRecursive = false)
         }
 
         testClass<AbstractIdeKotlinAnnotationsResolverTest> {
             model("annotationsResolver", pattern = KT_WITHOUT_DOTS)
+        }
+
+        testClass<AbstractModuleDependentsTest> {
+            model("moduleDependents", pattern = DIRECTORY, isRecursive = false)
         }
     }
 
@@ -146,6 +159,7 @@ private fun assembleWorkspace(): TWorkspace = workspace {
             model("quickfix/addExclExclCall", pattern = pattern)
             model("quickfix/addInitializer", pattern = pattern)
             model("quickfix/addPropertyAccessors", pattern = pattern)
+            model("quickfix/autoImports", pattern = KT_WITHOUT_DOTS, isRecursive = true)
             model("quickfix/checkArguments", pattern = pattern, isRecursive = false)
             model("quickfix/conflictingImports", pattern = pattern)
             model("quickfix/expressions", pattern = pattern)
@@ -204,16 +218,20 @@ private fun assembleWorkspace(): TWorkspace = workspace {
             model("editor/optimizeImports/jvm", pattern = KT_WITHOUT_DOTS)
             model("editor/optimizeImports/common", pattern = KT_WITHOUT_DOTS)
         }
+
+        testClass<AbstractK2BytecodeToolWindowTest> {
+            model("internal/toolWindow", isRecursive = false, pattern = DIRECTORY, testMethodName = "doTestWithIr")
+        }
     }
 
     testGroup("fir", testDataPath = "../completion/testData") {
-        testClass<AbstractHighLevelJvmBasicCompletionTest> {
+        testClass<AbstractK2JvmBasicCompletionTest> {
             model("basic/common", pattern = KT_WITHOUT_FIR_PREFIX)
             model("basic/java", pattern = KT_WITHOUT_FIR_PREFIX)
             model("../../idea-fir/testData/completion/basic/common", testClassName = "CommonFir")
         }
 
-        testClass<AbstractHighLevelJvmBasicCompletionTest>("org.jetbrains.kotlin.idea.fir.completion.HighLevelKDocCompletionTestGenerated") {
+        testClass<AbstractK2JvmBasicCompletionTest>("org.jetbrains.kotlin.idea.fir.completion.K2KDocCompletionTestGenerated") {
             model("kdoc", pattern = KT_WITHOUT_FIR_PREFIX)
         }
 
@@ -272,7 +290,10 @@ private fun assembleWorkspace(): TWorkspace = workspace {
 
     testGroup("refactorings/rename.k2", testDataPath = "../../idea/tests/testData") {
         testClass<AbstractFirRenameTest> {
-            model("refactoring/rename", pattern = Patterns.TEST, flatten = true)
+            model("refactoring/rename", pattern = TEST, flatten = true)
+        }
+        testClass<AbstractK2InplaceRenameTest> {
+            model("refactoring/rename/inplace", pattern = KT, flatten = true)
         }
     }
 
@@ -363,6 +384,12 @@ private fun assembleWorkspace(): TWorkspace = workspace {
 
         testClass<AbstractFirLegacyUastValuesTest> {
             model("")
+        }
+    }
+
+    testGroup("copyright/fir-tests", testDataPath = "../../copyright/tests/testData") {
+        testClass<AbstractFirUpdateKotlinCopyrightTest> {
+            model("update", pattern = KT_OR_KTS, testMethodName = "doTest")
         }
     }
 }

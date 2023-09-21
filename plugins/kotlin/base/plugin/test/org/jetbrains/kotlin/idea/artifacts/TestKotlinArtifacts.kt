@@ -57,10 +57,23 @@ object TestKotlinArtifacts {
     @JvmStatic val kotlinStdlibJdk7Sources: File by lazy { getSourcesJar("kotlin-stdlib-jdk7") }
     @JvmStatic val kotlinStdlibJdk8: File by lazy { getJar("kotlin-stdlib-jdk8") }
     @JvmStatic val kotlinStdlibJdk8Sources: File by lazy { getSourcesJar("kotlin-stdlib-jdk8") }
-    @JvmStatic val kotlinStdlibJs: File by lazy { getJar("kotlin-stdlib-js") }
-    @JvmStatic val kotlinStdlibWasm: File by lazy {
+    @JvmStatic val kotlinStdlibJs: File by lazy {
         downloadOrReportUnavailability(
-            "kotlin-stdlib-wasm",
+            "kotlin-stdlib-js",
+            KotlinMavenUtils.findLibraryVersion(kotlincStdlibFileName),
+            ".klib"
+        )
+    }
+    @JvmStatic val kotlinDomApiCompat: File by lazy {
+        downloadOrReportUnavailability(
+            "kotlin-dom-api-compat",
+            KotlinMavenUtils.findLibraryVersion(kotlincStdlibFileName),
+            ".klib"
+        )
+    }
+    @JvmStatic val kotlinStdlibWasmJs: File by lazy {
+        downloadOrReportUnavailability(
+            "kotlin-stdlib-wasm-js",
             KotlinMavenUtils.findLibraryVersion(kotlincStdlibFileName),
             ".klib"
         )

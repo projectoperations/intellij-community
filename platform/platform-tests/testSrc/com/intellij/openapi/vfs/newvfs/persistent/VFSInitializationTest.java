@@ -209,8 +209,8 @@ public class VFSInitializationTest {
 
 
     //skip IN_MEMORY impl, since it is not really persistent
-    //skip OVER_LOCK_FREE_FILE_CACHE impl if !LOCK_FREE_VFS_ENABLED (fails otherwise)
-    List<RecordsStorageKind> allStorageKinds = PageCacheUtils.LOCK_FREE_VFS_ENABLED ?
+    //skip OVER_LOCK_FREE_FILE_CACHE impl if !LOCK_FREE_PAGE_CACHE_ENABLED (fails otherwise)
+    List<RecordsStorageKind> allStorageKinds = PageCacheUtils.LOCK_FREE_PAGE_CACHE_ENABLED ?
                                                List.of(REGULAR, OVER_LOCK_FREE_FILE_CACHE, OVER_MMAPPED_FILE) :
                                                List.of(REGULAR, OVER_MMAPPED_FILE);
 
@@ -278,8 +278,8 @@ public class VFSInitializationTest {
   @Test
   public void VFS_isRebuilt_OnlyIf_ImplementationVersionChanged() throws Exception {
     //skip IN_MEMORY impl, since it is not really persistent
-    //skip OVER_LOCK_FREE_FILE_CACHE impl if !LOCK_FREE_VFS_ENABLED (will fail)
-    final List<RecordsStorageKind> allKinds = PageCacheUtils.LOCK_FREE_VFS_ENABLED ?
+    //skip OVER_LOCK_FREE_FILE_CACHE impl if !LOCK_FREE_PAGE_CACHE_ENABLED (will fail)
+    final List<RecordsStorageKind> allKinds = PageCacheUtils.LOCK_FREE_PAGE_CACHE_ENABLED ?
                                               List.of(REGULAR, OVER_LOCK_FREE_FILE_CACHE, OVER_MMAPPED_FILE) :
                                               List.of(REGULAR, OVER_MMAPPED_FILE);
 
@@ -409,7 +409,7 @@ public class VFSInitializationTest {
   @Test
   public void benchmarkVfsInitializationTime() throws Exception {
     PlatformTestUtil.startPerformanceTest(
-        "create VFS from scratch", 100,
+        "create VFS from scratch", 200,
         () -> {
           Path cachesDir = temporaryDirectory.createDir();
           int version = 1;

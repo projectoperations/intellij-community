@@ -24,7 +24,9 @@ fun Path.getResolvedPath(relativePath: String): Path {
 }
 
 /**
- * Returns normalised base and relative paths. These paths can be simply joined to
+ * Returns normalised base and relative paths. Result of this function should satisfy for condition:
+ * `resultBasePath.resolve(resultRelativePath) == basePath.resolve(relativePath).normalize()` where
+ * resultBasePath is path with maximum length of all possible.
  *
  * For example:
  *  * for [this] = `/1/2/3/4/5` and [relativePath] = `../../a/b`,
@@ -34,20 +36,14 @@ fun Path.getResolvedPath(relativePath: String): Path {
  *  * for [this] = `/1/2/3/4/5` and [relativePath] = `a/b`,
  *    returns pair with base path = `/1/2/3/4/5` and relative path = `a/b`.
  */
-fun Path.getNormalizedBaseAndRelativePaths(relativePath: String): Pair<Path, Path> {
+fun Path.relativizeToClosestAncestor(relativePath: String): Pair<Path, Path> {
   val normalizedPath = getResolvedPath(relativePath)
-  var normalizedBasePath = normalize()
-  var normalizedBasePathNameCount = 0
-  for ((baseName, name) in normalizedBasePath.zip(normalizedPath)) {
-    if (baseName != name) {
-      break
-    }
-    normalizedBasePathNameCount++
-  }
-  for (i in normalizedBasePathNameCount until nameCount) {
-    normalizedBasePath = checkNotNull(normalizedBasePath.parent) {
-      "Cannot resolve normalized base path for: $this/$relativePath"
-    }
+  val normalizedBasePath = checkNotNull(FileUtil.findAncestor(this, normalizedPath)) {
+    """
+      |Cannot resolve normalized base path for: $normalizedPath
+      |  basePath = $this
+      |  relativePath = $relativePath
+    """.trimMargin()
   }
   val normalizedRelativePath = normalizedBasePath.relativize(normalizedPath)
   return normalizedBasePath to normalizedRelativePath

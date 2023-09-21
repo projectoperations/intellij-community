@@ -27,7 +27,7 @@ import static java.util.stream.Collectors.joining;
  * @see com.intellij.util.io.FilePageCacheLockFree
  */
 @ApiStatus.Internal
-public class PagesTable {
+public final class PagesTable {
   private static final double GROWTH_FACTOR = 1.5;
   private static final double SHRINK_FACTOR = 2;
 
@@ -82,7 +82,7 @@ public class PagesTable {
     //    But I see no simple way to fix it, apart from returning to global lock protecting all
     //    writes -- which is exactly what we're escaping from by moving to concurrent implementation.
     for (int i = 0; i < pages.length(); i++) {
-      final Page page = pages.get(i);
+      final PageImpl page = pages.get(i);
       if (page != null && page.isDirty()) {
         page.flush();
       }
@@ -103,7 +103,7 @@ public class PagesTable {
           //RC: table content could change between alivePagesCount calculation, and actual rehash under
           //    the lock: more pages could be inserted into a table, so alivePagesCount is an underestimation.
           //    It could be so huge an underestimation that shrinking is not appropriate at all -- e.g.
-          //    there will be not enough slots in a table, if shrinked. We deal with it speculatively: try
+          //    there will be not enough slots in a table, if shrunk. We deal with it speculatively: try
           //    to rehashToSize(), and cancel resize if NoFreeSpaceException is thrown:
           return false;
         }
@@ -382,7 +382,7 @@ public class PagesTable {
     return pages.length();
   }
 
-  private static class NoFreeSpaceException extends IllegalStateException {
+  private static final class NoFreeSpaceException extends IllegalStateException {
     private NoFreeSpaceException(final String message) { super(message); }
   }
 }

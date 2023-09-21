@@ -16,6 +16,7 @@ import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.Alarm
 import com.intellij.util.TimeoutUtil
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -32,13 +33,15 @@ import javax.swing.JScrollPane
 import kotlin.math.max
 
 object TerminalUiUtils {
-  fun createEditor(document: Document, project: Project, settings: JBTerminalSystemSettingsProviderBase): EditorImpl {
+  fun createOutputEditor(document: Document, project: Project, settings: JBTerminalSystemSettingsProviderBase): EditorImpl {
     val editor = EditorFactory.getInstance().createEditor(document, project, EditorKind.CONSOLE) as EditorImpl
     editor.isScrollToCaret = false
+    editor.isRendererMode = true
     editor.setCustomCursor(this, Cursor.getDefaultCursor())
     editor.scrollPane.border = JBUI.Borders.empty()
     editor.scrollPane.horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
     editor.gutterComponentEx.isPaintBackground = false
+    editor.gutterComponentEx.setRightFreePaintersAreaWidth(0)
 
     editor.colorsScheme.apply {
       editorFontName = settings.terminalFont.fontName
@@ -115,6 +118,8 @@ object TerminalUiUtils {
 
     return result
   }
+
+  fun toFloatAndScale(value: Int): Float = JBUIScale.scale(value.toFloat())
 
   private val LOG = logger<TerminalUiUtils>()
   private const val TIMEOUT = 2000

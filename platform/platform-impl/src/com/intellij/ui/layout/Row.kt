@@ -6,24 +6,13 @@ import com.intellij.ui.components.Label
 import com.intellij.ui.components.noteComponent
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
-import javax.swing.ButtonGroup
 import javax.swing.JComponent
 import javax.swing.JLabel
 
 @JvmDefaultWithCompatibility
 @ApiStatus.ScheduledForRemoval
 @Deprecated("Use Kotlin UI DSL Version 2")
-interface BaseBuilder {
-  @ApiStatus.ScheduledForRemoval
-  @Deprecated("Use Kotlin UI DSL Version 2")
-  fun withButtonGroup(title: @NlsContexts.BorderTitle String?, buttonGroup: ButtonGroup, body: () -> Unit)
-
-  @ApiStatus.ScheduledForRemoval
-  @Deprecated("Use Kotlin UI DSL Version 2", level = DeprecationLevel.HIDDEN)
-  fun buttonGroup(init: () -> Unit) {
-    withButtonGroup(null, ButtonGroup(), init)
-  }
-}
+interface BaseBuilder
 
 @JvmDefaultWithCompatibility
 @ApiStatus.ScheduledForRemoval

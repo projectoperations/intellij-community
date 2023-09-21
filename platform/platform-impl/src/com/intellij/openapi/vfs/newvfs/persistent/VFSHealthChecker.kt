@@ -14,7 +14,6 @@ import com.intellij.openapi.vfs.newvfs.persistent.VFSHealthCheckerConstants.CHEC
 import com.intellij.openapi.vfs.newvfs.persistent.VFSHealthCheckerConstants.HEALTH_CHECKING_ENABLED
 import com.intellij.openapi.vfs.newvfs.persistent.VFSHealthCheckerConstants.HEALTH_CHECKING_PERIOD_MS
 import com.intellij.openapi.vfs.newvfs.persistent.VFSHealthCheckerConstants.HEALTH_CHECKING_START_DELAY_MS
-import com.intellij.openapi.vfs.newvfs.persistent.VFSHealthCheckerConstants.LOG
 import com.intellij.openapi.vfs.newvfs.persistent.VFSHealthCheckerConstants.MAX_CHILDREN_TO_LOG
 import com.intellij.openapi.vfs.newvfs.persistent.VFSHealthCheckerConstants.MAX_SINGLE_ERROR_LOGS_BEFORE_THROTTLE
 import com.intellij.serviceContainer.AlreadyDisposedException
@@ -37,20 +36,19 @@ import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit.MILLISECONDS
 import kotlin.time.toDuration
 
+private val LOG: Logger
+  get() = FSRecords.LOG
 
-object VFSHealthCheckerConstants {
-  @JvmStatic
+private object VFSHealthCheckerConstants {
   val HEALTH_CHECKING_ENABLED = getBooleanProperty("vfs.health-check.enabled",
                                                    ApplicationManager.getApplication().isEAP && !ApplicationManager.getApplication().isUnitTestMode)
 
-  @JvmStatic
   val HEALTH_CHECKING_PERIOD_MS = getIntProperty("vfs.health-check.checking-period-ms",
                                                  1.hours.inWholeMilliseconds.toInt())
 
   /** 10min in most cases enough for the initial storm of requests to VFS (scanning/indexing/etc)
    *  to finish, so VFS _likely_ +/- settles down after that.
    */
-  @JvmStatic
   val HEALTH_CHECKING_START_DELAY_MS = getIntProperty("vfs.health-check.checking-start-delay-ms",
                                                       10.minutes.inWholeMilliseconds.toInt())
 
@@ -59,22 +57,15 @@ object VFSHealthCheckerConstants {
    * May slow down scanning significantly, hence dedicated property to control.
    * Default: false, since orphan records appear to be quite common so far.
    */
-  @JvmStatic
   val CHECK_ORPHAN_RECORDS = getBooleanProperty("vfs.health-check.check-orphan-records", false)
 
   /** How many children to log at max with orphan records reporting */
-  @JvmStatic
   val MAX_CHILDREN_TO_LOG = getIntProperty("vfs.health-check.max-children-to-log", 16)
 
-  @JvmStatic
   val MAX_SINGLE_ERROR_LOGS_BEFORE_THROTTLE = getIntProperty("vfs.health-check.max-single-error-logs", 128)
-
-  @JvmStatic
-  val LOG: Logger = FSRecords.LOG
 }
 
-
-class VFSHealthCheckServiceStarter : ApplicationInitializedListener {
+private class VFSHealthCheckServiceStarter : ApplicationInitializedListener {
   override suspend fun execute(asyncScope: CoroutineScope) {
     if (HEALTH_CHECKING_ENABLED) {
       if (HEALTH_CHECKING_PERIOD_MS < 1.minutes.inWholeMilliseconds) {
@@ -416,20 +407,20 @@ class VFSHealthChecker(private val impl: FSRecordsImpl,
     val namesEnumerator = impl.connection().names
     val report = VFSHealthCheckReport.NamesEnumeratorReport()
     try {
-      namesEnumerator.processAllDataObjects { name ->
+      namesEnumerator.forEach{ id, name ->
         try {
           report.namesChecked++
           val nameId = namesEnumerator.tryEnumerate(name)
           if (nameId == DataEnumeratorEx.NULL_ID) {
             report.namesResolvedToNull++.alsoLogThrottled(
               "name[$name] enumerated to NULL -> namesEnumerator is corrupted")
-            return@processAllDataObjects true
+            return@forEach true
           }
           val nameResolved = namesEnumerator.valueOf(nameId)
           if (nameResolved == null) {
             report.idsResolvedToNull++.alsoLogThrottled(
               "name[$name]: enumerated to nameId(=$nameId), resolved back to null -> namesEnumerator is corrupted")
-            return@processAllDataObjects true
+            return@forEach true
           }
           if (name != nameResolved) {
             report.inconsistentNames++.alsoLogThrottled(
@@ -440,7 +431,7 @@ class VFSHealthChecker(private val impl: FSRecordsImpl,
         catch (e: Throwable) {
           report.generalErrors++.alsoLogThrottled("name[$name]: exception while checking -> namesEnumerator is corrupted: ${e.message}")
         }
-        return@processAllDataObjects true
+        return@forEach true
       }
     }
     catch (e: Throwable) {
@@ -455,13 +446,10 @@ class VFSHealthChecker(private val impl: FSRecordsImpl,
     val connection = impl.connection()
     val contentHashesEnumerator = connection.contentHashesEnumerator
     val contentsStorage = connection.contents
-    val largestContentId = contentHashesEnumerator.largestId
-
-    for (contentId in (DataEnumeratorEx.NULL_ID + 1)..largestContentId) {
-      val contentHash = contentHashesEnumerator.valueOf(contentId)
+    contentHashesEnumerator.forEach{ contentId, contentHash ->
       if (contentHash == null) {
         report.generalErrors++.alsoLogThrottled(
-          "contentId[#$contentId]: id is absent in contentHashes -> contentHashEnumerator is corrupted?")
+          "contentId[#$contentId]: contentHash is absent in contentHashes -> contentHashEnumerator is corrupted?")
       }
       try {
         contentsStorage.readStream(contentId).use { stream -> stream.readAllBytes() }
@@ -472,7 +460,9 @@ class VFSHealthChecker(private val impl: FSRecordsImpl,
           "contentId[#$contentId]: present in contentHashesEnumerator, but can't be read from content storage: ${e.message}")
       }
       report.contentRecordsChecked = contentId
+      return@forEach true
     }
+
     return report
   }
 

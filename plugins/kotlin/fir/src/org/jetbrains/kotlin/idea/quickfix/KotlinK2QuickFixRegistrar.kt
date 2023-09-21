@@ -121,7 +121,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
     }
 
     private val imports = KtQuickFixesListBuilder.registerPsiQuickFix {
-        registerApplicator(ImportQuickFix.FACTORY)
+        registerApplicator(ImportQuickFix.invisibleReferenceFactory)
         registerPsiQuickFixes(KtFirDiagnostic.ConflictingImport::class, RemovePsiElementSimpleFix.RemoveImportFactory)
     }
 
@@ -270,6 +270,9 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerApplicators(OptInFixFactories.optInFixFactories)
     }
 
+    private val multiplatform = KtQuickFixesListBuilder.registerPsiQuickFix {
+        registerApplicator(ActualAnnotationsNotMatchExpectFixFactory.factory)
+    }
 
     override val list: KotlinQuickFixesList = KotlinQuickFixesList.createCombined(
         keywords,
@@ -287,6 +290,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         vararg,
         visibility,
         other,
-        optIn
+        optIn,
+        multiplatform,
     )
 }

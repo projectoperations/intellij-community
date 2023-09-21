@@ -63,7 +63,6 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
 
   private Calendar myBuildDate;
   private Calendar myMajorReleaseBuildDate;
-  private String myWelcomeScreenDialog;
   private String myProductUrl;
   private UpdateUrls myUpdateUrls;
   private String myDocumentationUrl;
@@ -84,16 +83,10 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
   private boolean myHasContextHelp = true;
   private String myWebHelpUrl = "https://www.jetbrains.com/idea/webhelp/";
   private final List<PluginId> essentialPluginsIds = new ArrayList<>();
-  private String myEventLogSettingsUrl = "https://resources.jetbrains.com/storage/fus/config/v4/%s/%s.json";
   private String myJetBrainsTvUrl;
 
   private String mySubscriptionFormId;
-  private String mySubscriptionNewsKey;
-  private String mySubscriptionNewsValue;
-  private String mySubscriptionTipsKey;
   private boolean mySubscriptionTipsAvailable;
-  private String mySubscriptionAdditionalFormData;
-  private XmlElement myFeedbackForm;
 
   private String myDefaultLightLaf;
   private String myDefaultClassicLightLaf;
@@ -165,11 +158,6 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
         }
         break;
 
-        case "welcome-wizard": {
-          myWelcomeScreenDialog = getAttributeValue(child, "dialog");
-        }
-        break;
-
         case "productUrl": {
           myProductUrl = child.getAttributeValue("url");
         }
@@ -211,9 +199,6 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
 
         case "feedback": {
           myFeedbackUrl = child.getAttributeValue("url");
-          if (child.getAttributeValue("zendesk-form-id") != null) {
-            myFeedbackForm = child;
-          }
         }
         break;
 
@@ -243,11 +228,6 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
         }
         break;
 
-        case "statistics": {
-          myEventLogSettingsUrl = child.getAttributeValue("event-log-settings");
-        }
-        break;
-
         case "jetbrains-tv": {
           myJetBrainsTvUrl = child.getAttributeValue("url");
         }
@@ -256,11 +236,7 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
         case "subscriptions": {
           //noinspection SpellCheckingInspection
           mySubscriptionFormId = child.getAttributeValue("formid");
-          mySubscriptionNewsKey = child.getAttributeValue("news-key");
-          mySubscriptionNewsValue = child.getAttributeValue("news-value", "yes");
-          mySubscriptionTipsKey = child.getAttributeValue("tips-key");
           mySubscriptionTipsAvailable = Boolean.parseBoolean(child.getAttributeValue("tips-available"));
-          mySubscriptionAdditionalFormData = child.getAttributeValue("additional-form-data");
         }
         break;
 
@@ -290,6 +266,10 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
       }
     }
 
+    if (myPluginManagerUrl == null) {
+      readPluginInfo(null);
+    }
+    
     requireNonNull(mySvgIconUrl, "Missing attribute: //icon@svg");
     requireNonNull(mySmallSvgIconUrl, "Missing attribute: //icon@svg-small");
 
@@ -450,7 +430,12 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
 
   @Override
   public @NotNull String getApplicationSvgIconUrl() {
-    return isEAP() && mySvgEapIconUrl != null ? mySvgEapIconUrl : mySvgIconUrl;
+    return getApplicationSvgIconUrl(isEAP());
+  }
+
+  @ApiStatus.Internal
+  public @NotNull String getApplicationSvgIconUrl(boolean isEap) {
+    return isEap && mySvgEapIconUrl != null ? mySvgEapIconUrl : mySvgIconUrl;
   }
 
   @Override
@@ -458,6 +443,7 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
     return getSmallApplicationSvgIconUrl(isEAP());
   }
 
+  @ApiStatus.Internal
   public @NotNull String getSmallApplicationSvgIconUrl(boolean isEap) {
     return isEap && mySmallSvgEapIconUrl != null ? mySmallSvgEapIconUrl : mySmallSvgIconUrl;
   }
@@ -466,9 +452,6 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
   public @Nullable String getWelcomeScreenLogoUrl() {
     return myWelcomeScreenLogoUrl;
   }
-
-  @Override
-  public @Nullable String getWelcomeWizardDialog() { return myWelcomeScreenDialog; }
 
   @Override
   public boolean isEAP() {
@@ -516,7 +499,7 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
   }
 
   @Override
-  public String getPluginManagerUrl() {
+  public @NotNull String getPluginManagerUrl() {
     return myPluginManagerUrl;
   }
 
@@ -526,7 +509,7 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
   }
 
   @Override
-  public String getPluginsListUrl() {
+  public @NotNull String getPluginsListUrl() {
     return myPluginsListUrl;
   }
 
@@ -536,7 +519,7 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
   }
 
   @Override
-  public String getPluginsDownloadUrl() {
+  public @NotNull String getPluginsDownloadUrl() {
     return myPluginsDownloadUrl;
   }
 
@@ -590,10 +573,6 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
     return myCopyrightStart;
   }
 
-  public String getEventLogSettingsUrl() {
-    return myEventLogSettingsUrl;
-  }
-
   @Override
   public String getJetBrainsTvUrl() {
     return myJetBrainsTvUrl;
@@ -605,28 +584,8 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
   }
 
   @Override
-  public String getSubscriptionNewsKey() {
-    return mySubscriptionNewsKey;
-  }
-
-  @Override
-  public String getSubscriptionNewsValue() {
-    return mySubscriptionNewsValue;
-  }
-
-  @Override
-  public String getSubscriptionTipsKey() {
-    return mySubscriptionTipsKey;
-  }
-
-  @Override
   public boolean areSubscriptionTipsAvailable() {
     return mySubscriptionTipsAvailable;
-  }
-
-  @Override
-  public @Nullable String getSubscriptionAdditionalFormData() {
-    return mySubscriptionAdditionalFormData;
   }
 
   public @NotNull @NlsSafe String getPluginsCompatibleBuild() {
@@ -783,11 +742,6 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
   public @Nullable String getDefaultClassicDarkLaf() {
     String override = System.getProperty(IDEA_APPLICATION_INFO_DEFAULT_CLASSIC_DARK_LAF);
     return override != null ? override : myDefaultClassicDarkLaf;
-  }
-
-  public @Nullable ZenDeskForm getFeedbackForm() {
-    XmlElement v = myFeedbackForm;
-    return v == null ? null : ZenDeskForm.parse(v);
   }
 
   private static final class UpdateUrlsImpl implements UpdateUrls {

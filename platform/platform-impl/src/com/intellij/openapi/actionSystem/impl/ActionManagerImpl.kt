@@ -58,8 +58,8 @@ import com.intellij.util.DefaultBundleService
 import com.intellij.util.ReflectionUtil
 import com.intellij.util.childScope
 import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.concurrency.ChildContext
 import com.intellij.util.concurrency.createChildContext
-import com.intellij.util.concurrency.runAsCoroutine
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.StartupUiUtil.addAwtListener
 import com.intellij.util.xml.dom.XmlElement
@@ -89,7 +89,6 @@ import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
-import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -193,7 +192,7 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
 
   override fun removeTimerListener(listener: TimerListener) {
     if (listener is CapturingListener) {
-      listener.job?.cancel(null)
+      listener.childContext.continuation?.context?.job?.cancel()
     }
 
     if (ApplicationManager.getApplication().isUnitTestMode) {
@@ -201,7 +200,9 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
     }
 
     if (LOG.assertTrue(timer != null)) {
-      timer!!.listeners.removeIf { it == listener || (it is CapturingListener && it.timerListener == listener)  }
+      timer!!.listeners.removeIf {
+        it == listener || (it is CapturingListener && it.timerListener == listener)
+      }
     }
   }
 
@@ -404,15 +405,10 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
     @Suppress("HardCodedStringLiteral")
     val descriptionValue = element.attributes.get(DESCRIPTION)
     val stub = ActionStub(className, id, module, iconPath, ProjectType.create(projectType)) {
-      val text = Supplier {
-        computeActionText(bundle = bundle, id = id, elementType = ACTION_ELEMENT_NAME, textValue = textValue, classLoader = classLoader)
-      }
-      if (text.get() == null) {
-        LOG.error(PluginException("'text' attribute is mandatory (actionId=$id, module= $module)", module.pluginId))
-      }
-
       val presentation = Presentation.newTemplatePresentation()
-      presentation.setText(text)
+      presentation.setText(Supplier {
+        computeActionText(bundle = bundle, id = id, elementType = ACTION_ELEMENT_NAME, textValue = textValue, classLoader = classLoader)
+      })
       if (bundle == null) {
         presentation.description = descriptionValue
       }
@@ -557,47 +553,16 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
 
       registerOrReplaceActionInner(element = element, id = id, action = group, plugin = module)
 
-      val presentation = group.templatePresentation
-      val finalId: String = id
-
-      // text
-      val text = Supplier {
-        computeActionText(bundle = bundle,
-                          id = finalId,
-                          elementType = GROUP_ELEMENT_NAME,
-                          textValue = element.attributes.get(TEXT_ATTR_NAME),
-                          classLoader = classLoader)
-      }
-      // don't override value which was set in API with empty value from xml descriptor
-      if (!presentation.hasText() || !text.get().isNullOrEmpty()) {
-        presentation.setText(text)
-      }
-
-      // description
-      val description = element.attributes.get(DESCRIPTION) //NON-NLS
-      if (bundle == null) {
-        // don't override value which was set in API with empty value from xml descriptor
-        if (!description.isNullOrEmpty() || presentation.description == null) {
-          presentation.description = description
-        }
-      }
-      else {
-        val descriptionSupplier = Supplier {
-          computeDescription(bundle = bundle,
-                             id = finalId,
-                             elementType = GROUP_ELEMENT_NAME,
-                             descriptionValue = description,
-                             classLoader = classLoader)
-        }
-        // don't override value which was set in API with empty value from xml descriptor
-        if (!descriptionSupplier.get().isNullOrEmpty() || presentation.description == null) {
-          presentation.setDescription(descriptionSupplier)
-        }
-      }
-
-      if (iconPath != null && group !is ActionGroupStub) {
-        presentation.icon = loadIcon(module = module, iconPath = iconPath, requestor = className)
-      }
+      configureGroupDescriptionAndIcon(presentation = group.templatePresentation,
+                                       description = element.attributes.get(DESCRIPTION),
+                                       textValue = element.attributes.get(TEXT_ATTR_NAME),
+                                       group = group,
+                                       bundle = bundle,
+                                       id = id,
+                                       classLoader = classLoader,
+                                       iconPath = iconPath,
+                                       module = module,
+                                       className = className)
 
       val searchable = element.attributes.get("searchable")
       if (searchable != null) {
@@ -651,7 +616,7 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
               reportActionError(module, "ID of the group cannot be an empty string")
             }
             else {
-              val action = processGroupElement(className = childClassName!!,
+              val action = processGroupElement(className = childClassName,
                                                id = childId,
                                                element = child,
                                                module = module,
@@ -777,16 +742,16 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
       return null
     }
 
-    var parentGroup = getActionImpl(id = groupId, canReturnStub = true)
+    val parentGroup = getActionImpl(id = groupId, canReturnStub = true)
     if (parentGroup == null) {
       reportActionError(module = module,
-                        message = "$actionName: group with id \"$groupId\" isn't registered; action will be added to the \"Other\" group",
+                        message = "$actionName: group with id \"$groupId\" isn't registered so the action won't be added to it; the action can be invoked via \"Find Action\"",
                         cause = null)
-      parentGroup = getActionImpl(id = IdeActions.GROUP_OTHER_MENU, canReturnStub = true)
+      return null
     }
     if (parentGroup !is DefaultActionGroup) {
       reportActionError(module, "$actionName: group with id \"$groupId\" should be instance of ${DefaultActionGroup::class.java.name}" +
-                                " but was ${parentGroup?.javaClass ?: "[null]"}")
+                                " but was ${parentGroup.javaClass}")
       return null
     }
     return parentGroup
@@ -1306,25 +1271,12 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
 
 
   private class CapturingListener(@JvmField val timerListener: TimerListener) : TimerListener by timerListener {
-    private val context: CoroutineContext
-
-    val job: CompletableJob?
-
-    init {
-      val (context, job) = createChildContext()
-      this.context = context
-      this.job = job
-    }
+    val childContext: ChildContext = createChildContext()
 
     override fun run() {
-      installThreadContext(context).use {
-        if (job == null) {
-          timerListener.run()
-        }
-        else {
-          // this is periodic runnable that is invoked on timer; it should not complete a parent job
-          runAsCoroutine(job = job, completeOnFinish = false, action = timerListener::run)
-        }
+      installThreadContext(childContext.context).use {
+        // this is periodic runnable that is invoked on timer; it should not complete a parent job
+        childContext.runAsCoroutine(completeOnFinish = false, timerListener::run)
       }
     }
   }
@@ -1545,15 +1497,16 @@ private fun computeActionText(bundle: ResourceBundle?,
                               textValue: String?,
                               classLoader: ClassLoader): @NlsActions.ActionText String? {
   var effectiveBundle = bundle
-  val defaultValue = textValue ?: ""
   if (effectiveBundle != null && DefaultBundleService.isDefaultBundle()) {
     effectiveBundle = DynamicBundle.getResourceBundle(classLoader, effectiveBundle.baseBundleName)
   }
   if (effectiveBundle == null) {
-    return defaultValue
+    return textValue
   }
   else {
-    return AbstractBundle.messageOrDefault(effectiveBundle, "$elementType.$id.$TEXT_ATTR_NAME", defaultValue)
+    // messageOrDefault doesn't like default value as null
+    // (it counts it as a lack of default value, that's why we use empty string instead of null)
+    return AbstractBundle.messageOrDefault(effectiveBundle, "$elementType.$id.$TEXT_ATTR_NAME", textValue ?: "")?.takeIf { it.isNotEmpty() }
   }
 }
 
@@ -1783,4 +1736,45 @@ internal fun convertStub(stub: ActionStub): AnAction? {
   stub.initAction(anAction)
   updateIconFromStub(stub = stub, anAction = anAction, componentManager = componentManager)
   return anAction
+}
+
+private fun configureGroupDescriptionAndIcon(presentation: Presentation,
+                                             @NlsSafe description: String?,
+                                             textValue: String?,
+                                             group: ActionGroup,
+                                             bundle: ResourceBundle?,
+                                             id: String,
+                                             classLoader: ClassLoader,
+                                             iconPath: String?,
+                                             module: IdeaPluginDescriptorImpl,
+                                             className: String?) {
+  // don't override value which was set in API with empty value from xml descriptor
+  presentation.setFallbackPresentationText {
+    computeActionText(bundle = bundle, id = id, elementType = GROUP_ELEMENT_NAME, textValue = textValue, classLoader = classLoader)
+  }
+
+  // description
+  if (bundle == null) {
+    // don't override value which was set in API with empty value from xml descriptor
+    if (!description.isNullOrEmpty() || presentation.description == null) {
+      presentation.description = description
+    }
+  }
+  else {
+    val descriptionSupplier = Supplier {
+      computeDescription(bundle = bundle,
+                         id = id,
+                         elementType = GROUP_ELEMENT_NAME,
+                         descriptionValue = description,
+                         classLoader = classLoader)
+    }
+    // don't override value which was set in API with empty value from xml descriptor
+    if (!descriptionSupplier.get().isNullOrEmpty() || presentation.description == null) {
+      presentation.setDescription(descriptionSupplier)
+    }
+  }
+
+  if (iconPath != null && group !is ActionGroupStub) {
+    presentation.icon = loadIcon(module = module, iconPath = iconPath, requestor = className)
+  }
 }

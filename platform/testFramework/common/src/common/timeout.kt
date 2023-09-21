@@ -2,10 +2,8 @@
 package com.intellij.testFramework.common
 
 import com.intellij.diagnostic.dumpCoroutines
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import com.intellij.util.io.blockingDispatcher
+import kotlinx.coroutines.*
 import org.jetbrains.annotations.TestOnly
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -15,14 +13,23 @@ val DEFAULT_TEST_TIMEOUT: Duration = 10.seconds
 
 @TestOnly
 fun timeoutRunBlocking(timeout: Duration = DEFAULT_TEST_TIMEOUT, action: suspend CoroutineScope.() -> Unit) {
+  var error: Throwable? = null
   @Suppress("RAW_RUN_BLOCKING")
   runBlocking {
-    try {
-      withTimeout(timeout, action)
-    }
-    catch (e: TimeoutCancellationException) {
-      println(dumpCoroutines())
-      throw e
+    val job = launch(block = action)
+    @OptIn(DelicateCoroutinesApi::class)
+    launch(blockingDispatcher) {
+      try {
+        withTimeout(timeout) {
+          job.join()
+        }
+      }
+      catch (e: TimeoutCancellationException) {
+        job.cancel(e)
+        println(dumpCoroutines())
+        error = e
+      }
     }
   }
+  error?.let { throw AssertionError(it) }
 }

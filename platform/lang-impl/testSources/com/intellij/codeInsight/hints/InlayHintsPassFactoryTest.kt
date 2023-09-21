@@ -7,9 +7,9 @@ import com.intellij.codeInsight.hints.presentation.SpacePresentation
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileTypes.PlainTextLanguage
 import com.intellij.openapi.project.DumbAware
-import com.intellij.openapi.project.DumbServiceImpl
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
@@ -40,13 +40,13 @@ class InlayHintsPassFactoryTest : BasePlatformTestCase() {
     }), testRootDisposable)
 
     (DaemonCodeAnalyzer.getInstance(project) as DaemonCodeAnalyzerImpl).mustWaitForSmartMode(false, testRootDisposable)
-    DumbServiceImpl.getInstance(myFixture.project).isDumb = true
+    DumbModeTestUtils.runInDumbModeSynchronously(myFixture.project) {
 
-    myFixture.doHighlighting()
-    assertEquals(1, myFixture.editor.inlayModel.getInlineElementsInRange(0, 1).size)
+      myFixture.doHighlighting()
+      assertEquals(1, myFixture.editor.inlayModel.getInlineElementsInRange(0, 1).size)
 
-    (DaemonCodeAnalyzer.getInstance(project) as DaemonCodeAnalyzerImpl).mustWaitForSmartMode(true, testRootDisposable)
-    DumbServiceImpl.getInstance(myFixture.project).isDumb = false
+      (DaemonCodeAnalyzer.getInstance(project) as DaemonCodeAnalyzerImpl).mustWaitForSmartMode(true, testRootDisposable)
+    }
 
     myFixture.doHighlighting()
     assertEquals(2, myFixture.editor.inlayModel.getInlineElementsInRange(0, 1).size)
