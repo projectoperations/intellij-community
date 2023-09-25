@@ -4,13 +4,15 @@ package com.intellij.util.indexing.dependencies
 import com.google.common.hash.HashCode
 import com.google.common.hash.Hashing
 import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.util.lang.UrlClassLoader
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.ExperimentalPathApi
-import kotlin.io.path.fileSize
-import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.walk
 
 @Internal
@@ -43,6 +45,7 @@ class PluginHasher {
       classLoader.files // TODO: parallel stream
         .sorted() // not sure if we really want to sort, because order may change class resolution.
         .forEach { path ->
+          ProgressManager.checkCanceled()
           // if path is not a directory, only "this" file will be visited
           // if path is a directory, all the regular files will be visited
           // note, that symlinks are not followed
@@ -51,7 +54,8 @@ class PluginHasher {
             // see also https://youtrack.jetbrains.com/issue/IJPL-166
             val absolutePathString = f.toAbsolutePath().toString()
             if (!absolutePathString.startsWith("/tmp/byteBuddyAgent")) {
-              hasher.putBytes("$absolutePathString:${f.fileSize()}:${f.getLastModifiedTime()}".toByteArray(charset))
+              val attributes = Files.readAttributes(f, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+              hasher.putBytes("$absolutePathString:${attributes.size()}:${attributes.lastModifiedTime()}".toByteArray(charset))
             }
           }
         }

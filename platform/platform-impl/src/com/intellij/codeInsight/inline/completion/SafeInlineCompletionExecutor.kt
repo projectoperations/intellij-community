@@ -9,6 +9,14 @@ import kotlinx.coroutines.channels.Channel
 import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.atomic.AtomicLong
 
+
+@JvmInline
+internal value class InlineCompletionJob(private val job: Job) {
+  fun cancel() {
+    job.cancel()
+  }
+}
+
 internal class SafeInlineCompletionExecutor(private val scope: CoroutineScope) {
 
   // Timestamps of jobs are required to understand whether we waited for all requests by some moment
@@ -32,13 +40,14 @@ internal class SafeInlineCompletionExecutor(private val scope: CoroutineScope) {
   }
 
   @RequiresEdt
-  fun switchJobSafely(block: suspend CoroutineScope.() -> Unit) {
+  fun switchJobSafely(onJob: (InlineCompletionJob) -> Unit, block: suspend CoroutineScope.() -> Unit) {
     if (checkNotCancelled()) {
       return
     }
 
     // create a new lazy job
     val nextJob = scope.launch(start = CoroutineStart.LAZY, block = block)
+    onJob(InlineCompletionJob(nextJob))
     val jobWithTimestamp = JobWithTimestamp(nextJob, lastRequestedJobTimestamp.incrementAndGet())
     val sendResult = nextTask.trySend(jobWithTimestamp)
     if (!sendResult.isSuccess) {
@@ -47,7 +56,7 @@ internal class SafeInlineCompletionExecutor(private val scope: CoroutineScope) {
   }
 
   fun cancel() {
-    if (checkNotCancelled()) {
+    if (!scope.isActive) {
       return
     }
     nextTask.cancel()
@@ -59,7 +68,6 @@ internal class SafeInlineCompletionExecutor(private val scope: CoroutineScope) {
     val currentTimestamp = lastRequestedJobTimestamp.get()
     while (lastExecutedJobTimestamp.get() < currentTimestamp) {
       yield()
-      assert(scope.isActive) { "Do not call awaitAll when finishing executor." }
     }
   }
 

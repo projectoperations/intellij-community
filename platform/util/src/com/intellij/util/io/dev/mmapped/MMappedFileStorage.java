@@ -17,6 +17,8 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -51,16 +53,20 @@ public final class MMappedFileStorage implements Closeable {
 
 
   //Keep track of mapped buffers allocated & their total size, numbers are reported to OTel.Metrics.
-  //Why: mapped buffers are limited resources (~4096 per app by default), so it is worth to monitor
+  //Why: mapped buffers are limited resources (~16k on linux by default?), so it is worth to monitor
   //     how we use them, and issue the alarm early on as we start to use too many
-  private static final AtomicInteger storages = new AtomicInteger();
+  private static volatile int openedStoragesCount = 0;
   private static final AtomicInteger totalPagesMapped = new AtomicInteger();
   private static final AtomicLong totalBytesMapped = new AtomicLong();
   /** total time (nanos) spent inside {@link Page#map(FileChannel, int)} call */
   private static final AtomicLong totalTimeForPageMapNs = new AtomicLong();
 
+  //@GuardedBy(storagesRegistry)
+  private static final Map<Path, MMappedFileStorage> openedStorages = new HashMap<>();
+
   /** Log warn if > PAGES_TO_WARN_THRESHOLD pages were mapped */
   private static final int PAGES_TO_WARN_THRESHOLD = getIntProperty("vfs.memory-mapped-storage.pages-to-warn-threshold", 256);
+
 
   private final Path storagePath;
 
@@ -74,8 +80,6 @@ public final class MMappedFileStorage implements Closeable {
   /** see comments in {@link #pageByIndex(int)} */
   @SuppressWarnings("FieldAccessedSynchronizedAndUnsynchronized")
   private Page[] pages;
-
-  private final long maxFileSize;
 
   public MMappedFileStorage(Path path,
                             int pageSize) throws IOException {
@@ -95,23 +99,32 @@ public final class MMappedFileStorage implements Closeable {
       throw new IllegalArgumentException("pagesCountToMapInitially(=" + pagesCountToMapInitially + ") must be >= 0");
     }
 
-
     pageSizeBits = Integer.numberOfTrailingZeros(pageSize);
     pageSizeMask = pageSize - 1;
     this.pageSize = pageSize;
-    this.maxFileSize = pagesCountToMapInitially;
 
-    this.storagePath = path;
+    Path absolutePath = path.toAbsolutePath();
+    this.storagePath = absolutePath;
 
-    channel = FileChannel.open(storagePath, READ, WRITE, CREATE);
+    synchronized (openedStorages) {
+      MMappedFileStorage alreadyExistingStorage = openedStorages.get(absolutePath);
+      if (alreadyExistingStorage != null) {
+        throw new IllegalStateException("Storage[" + absolutePath + "] is already opened (and not yet closed)" +
+                                        " -- can't open same file more than once");
+      }
 
-    //map initial pages:
-    pages = new Page[pagesCountToMapInitially];
-    for (int i = 0; i < pagesCountToMapInitially; i++) {
-      pageByIndex(i);
+      channel = FileChannel.open(storagePath, READ, WRITE, CREATE);
+
+      //map initial pages:
+      pages = new Page[pagesCountToMapInitially];
+      for (int i = 0; i < pagesCountToMapInitially; i++) {
+        pageByIndex(i);
+      }
+
+      openedStorages.put(absolutePath, this);
+      //noinspection AssignmentToStaticFieldFromInstanceMethod
+      openedStoragesCount++;
     }
-
-    storages.incrementAndGet();
   }
 
 
@@ -157,6 +170,25 @@ public final class MMappedFileStorage implements Closeable {
     }
   }
 
+  /**
+   * Truncates the file so that it has size=0, and all previous content is lost.
+   * This method is unsafe and should be used with caution: it should be no chance storage is used by other
+   * threads concurrently, nobody should keep any {@link Page} reference. This is because writing to a buffer
+   * mapped over a non-existing file region (e.g. after truncation) is 'undefined behavior', and could lead
+   * to all sorts of weird behaviors -- immediate/delayed JVM crash (#SIGBUS), immediate/delayed data loss, etc.
+   * <p/>
+   * Basically, the main safe use-case for this method is to call it immediately after the storage instance
+   * is opened -- and no reference to it is ever leaked. E.g., one opens the file, reads the header, and
+   * finds out file content is corrupted -- so .truncate() the storage, and use as-if it was a new file
+   * just created.
+   */
+  public void truncate() throws IOException {
+    synchronized (pagesLock) {
+      channel.truncate(0L);
+      pages = new Page[0];
+    }
+  }
+
 
   private static @Nullable Page pageOrNull(Page[] pages,
                                            int pageIndex) {
@@ -179,19 +211,27 @@ public final class MMappedFileStorage implements Closeable {
 
   @Override
   public void close() throws IOException {
-    synchronized (pagesLock) {
-      if (channel.isOpen()) {
-        channel.close();
-        for (Page page : pages) {
-          if (page != null) {
-            unregisterMappedPage(pageSize);
+    try {
+      synchronized (pagesLock) {
+        if (channel.isOpen()) {
+          channel.close();
+          for (Page page : pages) {
+            if (page != null) {
+              unregisterMappedPage(pageSize);
+            }
           }
+          //actual buffer unmap()-ing is done later, by GC
+          // let's not delay it by keeping references:
+          Arrays.fill(pages, null);
         }
-        //actual buffer unmap()-ing is done later, by GC
-        // let's not delay it by keeping references:
-        Arrays.fill(pages, null);
-
-        storages.decrementAndGet();
+      }
+    }
+    finally {
+      synchronized (openedStorages) {
+        //noinspection resource
+        openedStorages.remove(storagePath);
+        //noinspection AssignmentToStaticFieldFromInstanceMethod
+        openedStoragesCount--;
       }
     }
   }
@@ -287,7 +327,6 @@ public final class MMappedFileStorage implements Closeable {
   public String toString() {
     return "MMappedFileStorage[" + storagePath + "]" +
            "[pageSize: " + pageSize +
-           ", maxFileSize: " + maxFileSize +
            ", pages: " + pages.length +
            ']';
   }
@@ -347,8 +386,8 @@ public final class MMappedFileStorage implements Closeable {
 
   // ============ statistics accessors ======================================================================
 
-  public static int storages() {
-    return storages.get();
+  public static int openedStoragesCount() {
+    return openedStoragesCount;
   }
 
   public static int totalPagesMapped() {
@@ -372,7 +411,7 @@ public final class MMappedFileStorage implements Closeable {
 
     if (pagesMapped > PAGES_TO_WARN_THRESHOLD) {
       THROTTLED_LOG.warn("Too many pages were mapped: " + pagesMapped + " > " + PAGES_TO_WARN_THRESHOLD + " threshold. " +
-                         "Total mapped size: " + totalBytesMapped.get() + " bytes, storages: " + storages.get());
+                         "Total mapped size: " + totalBytesMapped.get() + " bytes, storages: " + openedStoragesCount);
     }
   }
 

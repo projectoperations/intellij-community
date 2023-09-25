@@ -13,6 +13,7 @@ import com.intellij.openapi.editor.ClientEditorManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.*
 import com.intellij.openapi.editor.impl.EditorImpl
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.annotations.ApiStatus
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
@@ -111,21 +112,24 @@ class InlineEditorMouseListener : EditorMouseListener {
   }
 }
 
-@ApiStatus.Experimental
-class InlineCaretListener : CaretListener {
+/**
+ * Cancels inline completion (via [cancel]) as soon as one of the following happens:
+ * * A caret added/removed.
+ * * A new caret offset doesn't correspond to [expectedOffset].
+ */
+class InlineSessionWiseCaretListener(
+  @RequiresEdt private val expectedOffset: () -> Int,
+  @RequiresEdt private val cancel: () -> Unit
+) : CaretListener {
+
+  override fun caretAdded(event: CaretEvent) = cancel()
+
+  override fun caretRemoved(event: CaretEvent) = cancel()
+
   override fun caretPositionChanged(event: CaretEvent) {
-    if (isSimple(event)) return
-
-    LOG.trace("Valuable caret position event $event")
-    val context = InlineCompletionContext.getOrNull(event.editor) ?: return
-    InlineCompletionHandler.getOrNull(event.editor)?.hide(event.editor, false, context)
-  }
-
-  private fun isSimple(event: CaretEvent): Boolean {
-    return event.oldPosition.line == event.newPosition.line && event.oldPosition.column + 1 == event.newPosition.column
-  }
-
-  companion object {
-    private val LOG = thisLogger()
+    val newOffset = event.editor.logicalPositionToOffset(event.newPosition)
+    if (newOffset != expectedOffset()) {
+      cancel()
+    }
   }
 }

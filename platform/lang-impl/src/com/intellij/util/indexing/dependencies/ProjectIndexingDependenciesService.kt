@@ -8,16 +8,18 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.getProjectDataPath
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileWithId
 import com.intellij.openapi.vfs.newvfs.persistent.FSRecords
+import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS
 import com.intellij.serviceContainer.NonInjectable
 import com.intellij.util.application
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import org.jetbrains.annotations.VisibleForTesting
 import java.io.IOException
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.IntConsumer
 import kotlin.io.path.deleteIfExists
-import kotlin.math.max
 
 /**
  * Service that tracks FileIndexingStamp.
@@ -80,29 +82,26 @@ class ProjectIndexingDependenciesService @NonInjectable @VisibleForTesting const
     }
   }
 
-  private data class IndexingRequestTokenImpl(val requestId: Int,
+  @VisibleForTesting
+  data class IndexingRequestTokenImpl(val requestId: Int,
                                               val appIndexingRequest: AppIndexingDependenciesToken) : IndexingRequestToken {
     private val appIndexingRequestId = appIndexingRequest.toInt()
     override fun getFileIndexingStamp(file: VirtualFile): FileIndexingStamp {
-      val fileStamp = file.modificationStamp
-      if (fileStamp == -1L) {
-        return NULL_STAMP
-      }
-      else {
-        // we assume that stamp and file.modificationStamp never decrease => their sum only grow up
-        // in the case of overflow we hope that new value does not match any previously used value
-        // (which is hopefully true in most cases, because (new value)==(old value) was used veeeery long time ago)
-        return FileIndexingStampImpl(fileStamp.toInt() + requestId + appIndexingRequestId)
-      }
+      if (file !is VirtualFileWithId) return NULL_STAMP
+      val fileStamp = PersistentFS.getInstance().getModificationCount(file)
+      return getFileIndexingStamp(fileStamp)
     }
 
-    override fun mergeWith(other: IndexingRequestToken): IndexingRequestToken {
-      return IndexingRequestTokenImpl(max(requestId, (other as IndexingRequestTokenImpl).requestId),
-                                      appIndexingRequest.mergeWith(other.appIndexingRequest))
+    @VisibleForTesting
+    fun getFileIndexingStamp(fileStamp: Int): FileIndexingStamp {
+      // we assume that stamp and file.modificationStamp never decrease => their sum only grow up
+      // in the case of overflow we hope that new value does not match any previously used value
+      // (which is hopefully true in most cases, because (new value)==(old value) was used veeeery long time ago)
+      return FileIndexingStampImpl(fileStamp + requestId + appIndexingRequestId)
     }
   }
 
-  private val current = AtomicReference(IndexingRequestTokenImpl(0, appIndexingDependenciesService.getCurrent()))
+  private val currentRequestId = AtomicInteger(0)
 
   private val storage: ProjectIndexingDependenciesStorage = openOrInitStorage(storagePath)
 
@@ -116,8 +115,7 @@ class ProjectIndexingDependenciesService @NonInjectable @VisibleForTesting const
                                                      "$actualVersion to $expectedVersion"))
       }
 
-      val requestId = storage.readRequestId()
-      current.set(IndexingRequestTokenImpl(requestId, appIndexingDependenciesService.getCurrent()))
+      currentRequestId.set(storage.readRequestId())
     }
     catch (e: IOException) {
       requestVfsRebuildAndResetStorage(e)
@@ -127,32 +125,32 @@ class ProjectIndexingDependenciesService @NonInjectable @VisibleForTesting const
 
   private fun requestVfsRebuildAndResetStorage(reason: IOException) {
     try {
+      // TODO-ank: we don't need VFS rebuild. It's enough to rebuild indexing stamp attribute storage
       requestVfsRebuildDueToError(reason)
     }
     finally {
       storage.resetStorage()
+      currentRequestId.set(0)
     }
   }
 
+  @RequiresBackgroundThread
   fun getLatestIndexingRequestToken(): IndexingRequestToken {
-    val projectCurrent = current.get()
     val appCurrent = appIndexingDependenciesService.getCurrent()
-    return if (appCurrent == projectCurrent.appIndexingRequest) {
-      projectCurrent
+    return IndexingRequestTokenImpl(currentRequestId.get(), appCurrent)
+  }
+
+  fun invalidateAllStamps() {
+    val next = currentRequestId.incrementAndGet()
+
+    // Assumption is that projectStamp >=0 and appStamp >=0. Their sum can be negative and this is fine (think of it as of unsigned int).
+    if (next < 0) {
+      requestVfsRebuildAndResetStorage(IOException("Project indexing stamp overflow"))
     }
     else {
-      current.updateAndGet { IndexingRequestTokenImpl(it.requestId, appCurrent) }
-    }
-  }
-
-  fun invalidateAllStamps(): IndexingRequestToken {
-    val appCurrent = appIndexingDependenciesService.getCurrent()
-    return current.updateAndGet { current ->
-      val next = current.requestId + 1
-      IndexingRequestTokenImpl(if (next + appCurrent.toInt() != NULL_INDEXING_STAMP) next else next + 1, appCurrent)
-    }.also {
-      // don't use `it`: current.get() will return just updated value or more up-to-date value
-      storage.writeRequestId(current.get().requestId)
+      // don't use `next`: currentRequestId.get() will return just updated value or more up-to-date value which might has already
+      // been persisted by another thread
+      storage.writeRequestId(currentRequestId.get())
     }
   }
 

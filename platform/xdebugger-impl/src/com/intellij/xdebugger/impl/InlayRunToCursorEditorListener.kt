@@ -2,10 +2,7 @@
 package com.intellij.xdebugger.impl
 
 import com.intellij.codeInsight.daemon.impl.IntentionsUIImpl
-import com.intellij.codeInsight.hint.HintManager
-import com.intellij.codeInsight.hint.HintManagerImpl
-import com.intellij.codeInsight.hint.PriorityQuestionAction
-import com.intellij.codeInsight.hint.QuestionAction
+import com.intellij.codeInsight.hint.*
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
@@ -14,11 +11,13 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.editor.LogicalPosition
-import com.intellij.openapi.editor.event.EditorMouseEvent
-import com.intellij.openapi.editor.event.EditorMouseListener
-import com.intellij.openapi.editor.event.EditorMouseMotionListener
+import com.intellij.openapi.editor.event.*
+import com.intellij.openapi.editor.ex.EditorEventMulticasterEx
+import com.intellij.openapi.editor.ex.FocusChangeListener
+import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
@@ -36,6 +35,7 @@ import com.intellij.xdebugger.impl.breakpoints.XBreakpointUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.awt.MouseInfo
 import java.awt.Point
 import java.lang.ref.WeakReference
 import javax.swing.JComponent
@@ -58,6 +58,18 @@ internal class InlayRunToCursorEditorListener(private val project: Project, priv
   private var currentHint = WeakReference<RunToCursorHint?>(null)
   private var currentEditor = WeakReference<Editor?>(null)
   private var currentLineNumber = -1
+
+  fun installScrollListeners(debuggerManagerImpl: XDebuggerManagerImpl) {
+    EditorFactory.getInstance().addEditorFactoryListener(object : EditorFactoryListener {
+      override fun editorCreated(event: EditorFactoryEvent) {
+        val editor = event.editor
+        editor.getScrollingModel().addVisibleAreaListener(VisibleAreaListener {
+          val session: XDebugSessionImpl = debuggerManagerImpl.currentSession ?: return@VisibleAreaListener
+          scheduleInlayRunToCursor(editor, session)
+        }, debuggerManagerImpl)
+      }
+    }, debuggerManagerImpl)
+  }
 
   override fun mouseMoved(e: EditorMouseEvent) {
     if (!isInlayRunToCursorEnabled) {
@@ -98,7 +110,18 @@ internal class InlayRunToCursorEditorListener(private val project: Project, priv
     return true
   }
 
-  fun scheduleInlayRunToCursor(editor: Editor, lineNumber: Int, session: XDebugSessionImpl) {
+  fun scheduleInlayRunToCursor(editor: Editor, session: XDebugSessionImpl) {
+    val location = MouseInfo.getPointerInfo().location
+    SwingUtilities.convertPointFromScreen(location, editor.getContentComponent())
+
+    val logicalPosition: LogicalPosition = editor.xyToLogicalPosition(location)
+    if (logicalPosition.line >= (editor as EditorImpl).document.getLineCount()) {
+      return
+    }
+    scheduleInlayRunToCursor(editor, logicalPosition.line, session)
+  }
+
+  private fun scheduleInlayRunToCursor(editor: Editor, lineNumber: Int, session: XDebugSessionImpl) {
     var firstNonSpaceSymbol = editor.getDocument().getLineStartOffset(lineNumber)
     val charsSequence = editor.getDocument().charsSequence
     while (true) {
@@ -129,7 +152,7 @@ internal class InlayRunToCursorEditorListener(private val project: Project, priv
       }
     }
     else {
-      val hoverPosition = XSourcePositionImpl.create(FileDocumentManager.getInstance().getFile(editor.getDocument()), lineNumber)
+      val hoverPosition = XSourcePositionImpl.create(FileDocumentManager.getInstance().getFile(editor.getDocument()), lineNumber) ?: return
       coroutineScope.launch(Dispatchers.EDT) {
         val hasGeneralBreakpoint = readAction {
           val types = XBreakpointUtil.getAvailableLineBreakpointTypes(project, hoverPosition, editor)
@@ -150,6 +173,12 @@ internal class InlayRunToCursorEditorListener(private val project: Project, priv
 
   @RequiresEdt
   private fun showHint(editor: Editor, lineNumber: Int, firstNonSpacePos: Point, group: DefaultActionGroup, lineY: Int) {
+    val rootPane = editor.getComponent().rootPane
+    if (rootPane == null) {
+      currentEditor.clear()
+      currentLineNumber = -1
+      return
+    }
     currentEditor = WeakReference(editor)
     currentLineNumber = lineNumber
     val caretLine = editor.getCaretModel().logicalPosition.line
@@ -162,7 +191,7 @@ internal class InlayRunToCursorEditorListener(private val project: Project, priv
     val position = SwingUtilities.convertPoint(
       editor.getContentComponent(),
       Point(JBUI.scale(NEGATIVE_INLAY_PANEL_SHIFT)/* - (group.childrenCount - 1) * JBUI.scale(ACTION_BUTTON_SIZE)*/, lineY + (editor.lineHeight - JBUI.scale(ACTION_BUTTON_SIZE))/2),
-      editor.getComponent().rootPane.layeredPane
+      rootPane.layeredPane
     )
 
     val toolbarImpl = createImmediatelyUpdatedToolbar(group, ActionPlaces.EDITOR_HINT, editor.getComponent(), true) {} as ActionToolbarImpl
@@ -181,7 +210,6 @@ internal class InlayRunToCursorEditorListener(private val project: Project, priv
     justPanel.preferredSize = JBDimension((2 * ACTION_BUTTON_GAP + ACTION_BUTTON_SIZE) * group.childrenCount, ACTION_BUTTON_SIZE)
     justPanel.add(toolbarImpl.component)
     val hint = RunToCursorHint(justPanel, this)
-    currentHint = WeakReference(hint)
     val questionAction: QuestionAction = object : PriorityQuestionAction {
       override fun execute(): Boolean {
         return true
@@ -197,6 +225,7 @@ internal class InlayRunToCursorEditorListener(private val project: Project, priv
 
   private class RunToCursorHint(component: JComponent, private val listener: InlayRunToCursorEditorListener) : LightweightHint(component) {
     override fun show(parentComponent: JComponent, x: Int, y: Int, focusBackComponent: JComponent, hintHint: HintHint) {
+      listener.currentHint = WeakReference(this)
       super.show(parentComponent, x, y, focusBackComponent, HintHint(parentComponent, Point(x, y)))
     }
 

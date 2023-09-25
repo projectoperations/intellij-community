@@ -641,18 +641,18 @@ public final class NotificationsManagerImpl extends NotificationsManager {
     }
 
     Icon icon = NotificationsUtil.getIcon(notification);
-    int iconOffset = icon.getIconWidth() > 16 ? 5 : layoutData.configuration.iconOffset.width;
     JComponent iconComponent = new JComponent() {
       @Override
       protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        icon.paintIcon(this, g, iconOffset, layoutData.configuration.iconOffset.height);
+        icon.paintIcon(this, g, layoutData.configuration.iconOffset.width, layoutData.configuration.iconOffset.height);
       }
     };
     iconComponent.setOpaque(false);
 
     Runnable iconSizeRunnable = () -> iconComponent.setPreferredSize(
-      new Dimension(Math.max(layoutData.configuration.iconPanelWidth, icon.getIconWidth() + iconOffset * 2), 2 * layoutData.configuration.iconOffset.height + icon.getIconHeight()));
+      new Dimension(Math.max(layoutData.configuration.iconPanelWidth, icon.getIconWidth() + layoutData.configuration.iconOffset.width + JBUIScale.scale(5)),
+                    2 * layoutData.configuration.iconOffset.height + icon.getIconHeight()));
     iconSizeRunnable.run();
 
     content.add(iconComponent, BorderLayout.WEST);

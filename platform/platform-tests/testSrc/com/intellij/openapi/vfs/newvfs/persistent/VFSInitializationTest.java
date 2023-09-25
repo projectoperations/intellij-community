@@ -154,11 +154,9 @@ public class VFSInitializationTest {
     final String corruptionReason = "VFS corrupted because I said so";
     final String corruptionCauseMessage = "Something happens here";
 
-    final VFSInitializationResult initializationResult = PersistentFSConnector.connect(
+    final VFSInitializationResult initializationResult = PersistentFSConnector.connectWithoutVfsLog(
       cachesDir,
-      /*version: */ 1,
-      false,
-      Collections.emptyList()
+      /*version: */ 1
     );
     PersistentFSConnection connection = initializationResult.connection;
     final Path corruptionMarkerFile = connection.getPersistentFSPaths().getCorruptionMarkerFile();
@@ -235,14 +233,16 @@ public class VFSInitializationTest {
 
         fsRecords.dispose();
 
-        Path[] vfsFiles = Files.list(cachesDir)
+        Path[] vfsFilesToTryDeleting = Files.list(cachesDir)
           .filter(path -> Files.isRegularFile(path))
-          //ResizableMappedFile _is_ able to recover .len file, so don't waste time deleting it
+          //ResizableMappedFile recovers .len file, so don't waste time deleting it:
           .filter(path -> !path.getFileName().toString().endsWith(".len"))
+          //DurableEnumerator recovers hashToId mapping from valuesLog content:
+          .filter(path -> !path.getFileName().toString().endsWith(".hashToId"))
           .sorted()
           .toArray(Path[]::new);
-        vfsFilesCount = vfsFiles.length;
-        Path fileToDelete = vfsFiles[i];
+        vfsFilesCount = vfsFilesToTryDeleting.length;
+        Path fileToDelete = vfsFilesToTryDeleting[i];
 
         FileUtil.delete(fileToDelete);
 
@@ -409,16 +409,14 @@ public class VFSInitializationTest {
   @Test
   public void benchmarkVfsInitializationTime() throws Exception {
     PlatformTestUtil.startPerformanceTest(
-        "create VFS from scratch", 200,
+        "create VFS from scratch", 300,
         () -> {
           Path cachesDir = temporaryDirectory.createDir();
           int version = 1;
 
-          PersistentFSConnector.connect(
+          PersistentFSConnector.connectWithoutVfsLog(
             cachesDir,
-            version,
-            false,
-            Collections.emptyList()
+            version
           );
           //PersistentFSConnector.disconnect(initResult.connection);
           //System.out.println(initResult.totalInitializationDurationNs / 1000_000);

@@ -51,14 +51,22 @@ class LogLevelConfigurationManager : SerializablePersistentStateComponent<LogLev
       }
 
       val trimmed = logCategory.category.trimStart('#')
-      val logger = java.util.logging.Logger.getLogger(trimmed)
-      logger.level = loggerLevel
-      synchronized(lock) {
-        customizedLoggers.add(logger)
-      }
-      LOG.info("Level ${level.name} is set for the following category: $trimmed")
+
+      // IDEA-297747 Convention for categories naming is not clear, so set logging for both with '#' and without '#'
+      addLogger(logCategory.category, loggerLevel, level)
+      addLogger("#$trimmed", loggerLevel, level)
+      addLogger(trimmed, loggerLevel, level)
     }
     return filteredCategories
+  }
+
+  private fun addLogger(trimmed: String, loggerLevel: Level?, level: DebugLogLevel) {
+    val logger = java.util.logging.Logger.getLogger(trimmed)
+    logger.level = loggerLevel
+    synchronized(lock) {
+      customizedLoggers.add(logger)
+    }
+    LOG.info("Level ${level.name} is set for the following category: $trimmed")
   }
 
   private fun filteredCategories(categories: List<LogCategory>): List<LogCategory> {
@@ -67,7 +75,7 @@ class LogLevelConfigurationManager : SerializablePersistentStateComponent<LogLev
       val found = currentCategories.find { curCat ->
         if (curCat.category == newCat.category) {
           val verbose = maxOf(curCat.level.ordinal, newCat.level.ordinal)
-          curCat.level = DebugLogLevel.values()[verbose]
+          curCat.level = DebugLogLevel.entries.toTypedArray()[verbose]
           return@find true
         }
         else false
@@ -97,5 +105,10 @@ class LogLevelConfigurationManager : SerializablePersistentStateComponent<LogLev
 
   @Serializable
   data class State(@JvmField val categories: List<LogCategory> = listOf())
+
+  override fun loadState(state: State) {
+    super.loadState(state)
+    applyCategories(state.categories)
+  }
 }
 

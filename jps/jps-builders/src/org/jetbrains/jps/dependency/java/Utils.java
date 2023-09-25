@@ -16,14 +16,12 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-public class Utils {
+public final class Utils {
   public static final String OBJECT_CLASS_NAME = "java/lang/Object";
 
-  @NotNull
-  private final Graph myGraph;
+  private final @NotNull Graph myGraph;
   
-  @Nullable
-  private final Graph myDelta;
+  private final @Nullable Graph myDelta;
 
   private final @NotNull BackDependencyIndex myDirectSubclasses;
   private final Set<NodeSource> myCompiledSources;

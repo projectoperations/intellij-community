@@ -14,6 +14,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.rt.coverage.data.ProjectData;
 import com.intellij.util.TimeoutUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,6 +39,7 @@ public class JavaCoverageAnnotator extends BaseCoverageAnnotator implements Disp
     super(project);
   }
 
+  @Nullable
   public CoverageClassStructure getStructure() {
     return myStructure;
   }
@@ -126,11 +128,8 @@ public class JavaCoverageAnnotator extends BaseCoverageAnnotator implements Disp
     final Project project = getProject();
 
     return () -> {
-      Annotator annotator = new JavaPackageAnnotator();
-
       long timeMs = TimeoutUtil.measureExecutionTime(() -> {
-        final int totalRoots = new JavaCoverageClassesEnumerator.RootsCounter(suite, project).getRoots();
-        new JavaCoverageClassesAnnotator(suite, project, annotator, totalRoots).visitSuite();
+        collectSummaryInfo(suite, project);
         myStructure = new CoverageClassStructure(project);
         Disposer.register(this, myStructure);
         dataManager.triggerPresentationUpdate();
@@ -271,6 +270,20 @@ public class JavaCoverageAnnotator extends BaseCoverageAnnotator implements Disp
 
   public final Map<String, PackageAnnotator.ClassCoverageInfo> getClassesCoverage() {
     return myClassCoverageInfos;
+  }
+
+  private void collectSummaryInfo(@NotNull CoverageSuitesBundle suite, Project project) {
+    var annotator = new JavaPackageAnnotator();
+    if (shouldSkipUnloadedClassesAnalysis(suite)) {
+      JavaCoverageReportEnumerator.collectSummaryInReport(suite, project, annotator);
+    }
+    else {
+      new JavaCoverageClassesAnnotator(suite, project, annotator).visitSuite();
+    }
+  }
+
+  private static boolean shouldSkipUnloadedClassesAnalysis(CoverageSuitesBundle bundle) {
+    return ContainerUtil.and(bundle.getSuites(), suite -> suite instanceof JavaCoverageSuite javaSuite && javaSuite.isSkipUnloadedClassesAnalysis());
   }
 
   @Nullable

@@ -35,6 +35,8 @@ public final class ClassPath {
   static final boolean recordLoadingTime = recordLoadingInfo || Boolean.getBoolean("idea.record.classloading.stats");
   static final boolean logLoadingInfo = Boolean.getBoolean("idea.log.classpath.info");
 
+  private static final boolean enableCoroutineDump = Boolean.parseBoolean(System.getProperty("idea.enable.coroutine.dump", "false"));
+
   // DCEVM support
   private static final boolean isNewClassLoadingEnabled = false;
 
@@ -178,10 +180,26 @@ public final class ClassPath {
                                       String fileName,
                                       long packageNameHash,
                                       ClassDataConsumer classDataConsumer) throws IOException {
+    if (packageNameHash == -3930079881136890558L &&
+        enableCoroutineDump &&
+        className.equals("kotlin.coroutines.jvm.internal.DebugProbesKt")) {
+      String resourceName = "DebugProbesKt.bin";
+      Resource resource = findResource(resourceName);
+      if (resource == null) {
+        //noinspection UseOfSystemOutOrSystemErr
+        System.err.println("Cannot find " + resourceName);
+      }
+      else {
+        return classDataConsumer.consumeClassData(className, resource.getByteBuffer());
+      }
+    }
+
     long start = classLoading.startTiming();
     try {
       int i;
       if (useCache) {
+        boolean allUrlsWereProcessedBeforeAccessingCache = allUrlsWereProcessed;
+        int lastLoaderProcessedBeforeAccessingCache = lastLoaderProcessed.get();
         Loader[] loaders = cache.getClassLoadersByPackageNameHash(packageNameHash);
         if (loaders != null) {
           for (Loader loader : loaders) {
@@ -192,7 +210,7 @@ public final class ClassPath {
           }
         }
 
-        if (allUrlsWereProcessed) {
+        if (allUrlsWereProcessedBeforeAccessingCache) {
           if (isNewClassLoadingEnabled) {
             i = 0;
           }
@@ -201,7 +219,7 @@ public final class ClassPath {
           }
         }
         else {
-          i = lastLoaderProcessed.get();
+          i = lastLoaderProcessedBeforeAccessingCache;
         }
       }
       else {
@@ -250,6 +268,8 @@ public final class ClassPath {
     try {
       int i;
       if (useCache) {
+        boolean allUrlsWereProcessedBeforeAccessingCache = allUrlsWereProcessed;
+        i = lastLoaderProcessed.get();
         Loader[] loaders = cache.getLoadersByName(resourceName);
         if (loaders != null) {
           for (Loader loader : loaders) {
@@ -263,11 +283,9 @@ public final class ClassPath {
           }
         }
 
-        if (allUrlsWereProcessed) {
+        if (allUrlsWereProcessedBeforeAccessingCache) {
           return null;
         }
-
-        i = lastLoaderProcessed.get();
       }
       else {
         i = 0;

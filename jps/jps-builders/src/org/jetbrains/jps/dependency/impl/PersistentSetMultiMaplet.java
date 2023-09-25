@@ -3,7 +3,10 @@ package org.jetbrains.jps.dependency.impl;
 
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.containers.SLRUCache;
-import com.intellij.util.io.*;
+import com.intellij.util.io.AppendablePersistentMap;
+import com.intellij.util.io.DataExternalizer;
+import com.intellij.util.io.KeyDescriptor;
+import com.intellij.util.io.PersistentHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.builders.storage.BuildDataCorruptedException;
@@ -13,10 +16,12 @@ import org.jetbrains.jps.dependency.SerializableGraphElement;
 import org.jetbrains.jps.javac.Iterators;
 
 import java.io.*;
-import java.util.*;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.function.Supplier;
 
-public class PersistentSetMultiMaplet<K extends SerializableGraphElement, V extends SerializableGraphElement> implements MultiMaplet<K, V> {
+public final class PersistentSetMultiMaplet<K extends SerializableGraphElement, V extends SerializableGraphElement> implements MultiMaplet<K, V> {
   private final NodeSerializerRegistry mySerializerRegistry;
 
   private static final Collection<?> NULL_COLLECTION = Collections.emptyList();
@@ -43,9 +48,8 @@ public class PersistentSetMultiMaplet<K extends SerializableGraphElement, V exte
     }
 
     myCache = new SLRUCache<>(CACHE_SIZE, CACHE_SIZE) {
-      @NotNull
       @Override
-      public Collection<V> createValue(K key) {
+      public @NotNull Collection<V> createValue(K key) {
         try {
           final Collection<V> collection = myMap.get(key);
           //noinspection unchecked
@@ -101,7 +105,7 @@ public class PersistentSetMultiMaplet<K extends SerializableGraphElement, V exte
     try {
       myMap.appendData(key, new AppendablePersistentMap.ValueDataAppender() {
         @Override
-        public void append(@NotNull final DataOutput out) throws IOException {
+        public void append(final @NotNull DataOutput out) throws IOException {
           NodeKeyDescriptorImpl.getInstance().save(out, value);
         }
       });
@@ -142,7 +146,7 @@ public class PersistentSetMultiMaplet<K extends SerializableGraphElement, V exte
     }
   }
 
-  private static class CollectionDataExternalizer<V extends SerializableGraphElement> implements DataExternalizer<Collection<V>> {
+  private static final class CollectionDataExternalizer<V extends SerializableGraphElement> implements DataExternalizer<Collection<V>> {
     private final DataExternalizer<V> myElementExternalizer;
     private final Supplier<? extends Collection<V>> myCollectionFactory;
 
@@ -152,14 +156,14 @@ public class PersistentSetMultiMaplet<K extends SerializableGraphElement, V exte
     }
 
     @Override
-    public void save(@NotNull final DataOutput out, final Collection<V> value) throws IOException {
+    public void save(final @NotNull DataOutput out, final Collection<V> value) throws IOException {
       for (V x : value) {
         myElementExternalizer.save(out, x);
       }
     }
 
     @Override
-    public Collection<V> read(@NotNull final DataInput in) throws IOException {
+    public Collection<V> read(final @NotNull DataInput in) throws IOException {
       final Collection<V> result = myCollectionFactory.get();
       final DataInputStream stream = (DataInputStream)in;
       while (stream.available() > 0) {

@@ -13,7 +13,7 @@ import java.util.*;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 
-public class DependencyGraphImpl extends GraphImpl implements DependencyGraph {
+public final class DependencyGraphImpl extends GraphImpl implements DependencyGraph {
   private List<DifferentiateStrategy> myDifferentiateStrategies = List.of(
     new JavaDifferentiateStrategy()
   );
@@ -31,7 +31,7 @@ public class DependencyGraphImpl extends GraphImpl implements DependencyGraph {
   @Override
   public DifferentiateResult differentiate(Delta delta) {
 
-    Set<Node<?, ?>> nodesBefore = Iterators.collect(Iterators.flat(Iterators.map(Iterators.flat(delta.getBaseSources(), delta.getDeletedSources()), s -> getNodes(s))), Containers.createCustomPolicySet(DiffCapable::isSame, DiffCapable::diffHashCode));
+    Set<Node<?, ?>> nodesBefore = Iterators.collect(Iterators.flat(Iterators.map(Iterators.unique(Iterators.flat(Arrays.asList(delta.getBaseSources(), delta.getSources(), delta.getDeletedSources()))), s -> getNodes(s))), Containers.createCustomPolicySet(DiffCapable::isSame, DiffCapable::diffHashCode));
     Set<Node<?, ?>> nodesAfter = Iterators.collect(Iterators.flat(Iterators.map(delta.getSources(), s -> delta.getNodes(s))), Containers.createCustomPolicySet(DiffCapable::isSame, DiffCapable::diffHashCode));
 
     var diffContext = new DifferentiateContext() {
