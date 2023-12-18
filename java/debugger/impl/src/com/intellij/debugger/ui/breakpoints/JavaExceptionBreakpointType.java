@@ -7,7 +7,6 @@ import com.intellij.debugger.engine.JVMNameUtil;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
-import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.JavaPsiFacade;
@@ -26,7 +25,7 @@ import javax.swing.*;
 /**
  * @author Eugene Zhuravlev
  */
-public class JavaExceptionBreakpointType extends JavaBreakpointTypeBase<JavaExceptionBreakpointProperties> {
+public final class JavaExceptionBreakpointType extends JavaBreakpointTypeBase<JavaExceptionBreakpointProperties> {
   public JavaExceptionBreakpointType() {
     super("java-exception", JavaDebuggerBundle.message("exception.breakpoints.tab.title"));
   }
@@ -56,7 +55,7 @@ public class JavaExceptionBreakpointType extends JavaBreakpointTypeBase<JavaExce
   }
 
   //@Override
-  protected String getHelpID() {
+  private static String getHelpID() {
     return HelpID.EXCEPTION_BREAKPOINTS;
   }
 
@@ -111,8 +110,8 @@ public class JavaExceptionBreakpointType extends JavaBreakpointTypeBase<JavaExce
     final String qName = selectedClass == null ? null : JVMNameUtil.getNonAnonymousClassName(selectedClass);
 
     if (qName != null && !qName.isEmpty()) {
-      return WriteAction.compute(() -> XDebuggerManager.getInstance(project).getBreakpointManager()
-        .addBreakpoint(this, new JavaExceptionBreakpointProperties(qName, ((PsiClassOwner)selectedClass.getContainingFile()).getPackageName())));
+      return XDebuggerManager.getInstance(project).getBreakpointManager()
+        .addBreakpoint(this, new JavaExceptionBreakpointProperties(qName, ((PsiClassOwner)selectedClass.getContainingFile()).getPackageName()));
     }
     return null;
   }

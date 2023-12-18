@@ -5,7 +5,7 @@ import org.jetbrains.tools.model.updater.GeneratorPreferences.ArtifactMode
 import org.jetbrains.tools.model.updater.impl.*
 
 private const val ktGroup = "org.jetbrains.kotlin"
-private const val BOOTSTRAP_VERSION = "2.0.255"
+private const val BOOTSTRAP_VERSION = "2.0.255-dev-255"
 
 // see .idea/jarRepositories.xml
 private val KOTLIN_IDE_DEPS_REPOSITORY = JpsRemoteRepository(
@@ -23,16 +23,6 @@ private class ArtifactCoordinates(private val originalVersion: String, val mode:
 
 private val GeneratorPreferences.kotlincArtifactCoordinates: ArtifactCoordinates
     get() = ArtifactCoordinates(kotlincVersion, kotlincArtifactsMode)
-
-private val GeneratorPreferences.nativeArtifactCoordinates: ArtifactCoordinates
-    get() = when (kotlincArtifactsMode) {
-        ArtifactMode.MAVEN -> kotlincArtifactCoordinates
-        ArtifactMode.BOOTSTRAP ->
-            if (bootstrapWithNative)
-                kotlincArtifactCoordinates
-            else
-                ArtifactCoordinates(originalVersion = kotlincVersion, mode = ArtifactMode.MAVEN)
-    }
 
 private val GeneratorPreferences.jpsArtifactCoordinates: ArtifactCoordinates
     get() = ArtifactCoordinates(jpsPluginVersion, jpsPluginArtifactsMode)
@@ -62,7 +52,6 @@ internal fun generateKotlincLibraries(preferences: GeneratorPreferences, isCommu
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-compiler-fir", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-compiler-ir", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-gradle-statistics", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.kotlin-stdlib-minimal-for-test", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.kotlinx-serialization-compiler-plugin", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.lombok-compiler-plugin", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.low-level-api-fir", kotlincCoordinates)
@@ -74,7 +63,7 @@ internal fun generateKotlincLibraries(preferences: GeneratorPreferences, isCommu
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-jps-common", kotlincCoordinates)
 
         if (!isCommunity) {
-            kotlincForIdeWithStandardNaming("kotlinc.kotlin-backend-native", preferences.nativeArtifactCoordinates)
+            kotlincForIdeWithStandardNaming("kotlinc.kotlin-objcexport-header-generator", kotlincCoordinates)
         }
 
         kotlincWithStandardNaming("kotlinc.kotlin-scripting-common", kotlincCoordinates)
@@ -85,33 +74,6 @@ internal fun generateKotlincLibraries(preferences: GeneratorPreferences, isCommu
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-jps-plugin-tests", jpsPluginCoordinates)
         kotlincWithStandardNaming("kotlinc.kotlin-dist", jpsPluginCoordinates, postfix = "-for-ide")
         kotlincWithStandardNaming("kotlinc.kotlin-jps-plugin-classpath", jpsPluginCoordinates)
-
-        run {
-            // jdk8 and jdk7 artifacts are redundant and should be dropped, but we can't do it right now due to KTIJ-26637.
-            // We will be able to remove them only after fixing KTIJ-26657, and when all developers receive this fix.
-            val stdlibMavenId = MavenId.parse("$ktGroup:kotlin-stdlib:${kotlincCoordinates.version}")
-            val mavenIds = listOf(
-                MavenId.parse("$ktGroup:kotlin-stdlib-jdk8:${kotlincCoordinates.version}"),
-                stdlibMavenId,
-            )
-
-            val annotationLibrary = JpsLibrary(
-                "kotlinc.kotlin-stdlib",
-                JpsLibrary.LibraryType.Repository(
-                    mavenIds.first(),
-                    excludes = listOf(
-                        MavenId("org.jetbrains", "annotations"),
-                        MavenId(ktGroup, "kotlin-stdlib-jdk7"),
-                    ),
-                    remoteRepository = KOTLIN_IDE_DEPS_REPOSITORY
-                ),
-                annotations = listOf(JpsUrl.File(JpsPath.ProjectDir("lib/annotations/kotlin", isCommunity))),
-                classes = mavenIds.map { JpsUrl.Jar(JpsPath.MavenRepository(it)) },
-                sources = mavenIds.map { JpsUrl.Jar(JpsPath.MavenRepository(it, "sources")) },
-            )
-
-            addLibrary(annotationLibrary.convertMavenUrlToCooperativeIfNeeded(kotlincCoordinates.mode, isCommunity))
-        }
     }
 }
 

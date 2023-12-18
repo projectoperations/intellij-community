@@ -10,11 +10,15 @@ import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.PluginLayout
 import org.jetbrains.intellij.build.impl.PluginLayout.Companion.plugin
 import org.jetbrains.intellij.build.impl.PluginLayout.Companion.pluginAuto
+import org.jetbrains.intellij.build.impl.SupportedDistribution
 import org.jetbrains.intellij.build.io.copyDir
+import org.jetbrains.intellij.build.io.copyFileToDir
 import org.jetbrains.intellij.build.kotlin.KotlinPluginBuilder
 import org.jetbrains.intellij.build.python.PythonCommunityPluginModules
+import org.jetbrains.jps.model.library.JpsOrderRootType
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.*
 
 object CommunityRepositoryModules {
   /**
@@ -30,19 +34,10 @@ object CommunityRepositoryModules {
       spec.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.MACOS)
     },
     plugin("intellij.webp") { spec ->
-      spec.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.LINUX)
-      spec.withResource("lib/libwebp/linux", "lib/libwebp/linux")
-    },
-    plugin("intellij.webp") { spec ->
-      spec.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.MACOS)
-      spec.withResource("lib/libwebp/mac", "lib/libwebp/mac")
-    },
-    plugin("intellij.webp") { spec ->
-      spec.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.WINDOWS)
-      spec.withResource("lib/libwebp/win", "lib/libwebp/win")
-    },
-    plugin("intellij.webp") { spec ->
-      spec.bundlingRestrictions.ephemeral = true
+      spec.withPlatformBin(OsFamily.WINDOWS, JvmArchitecture.x64, "plugins/webp/lib/libwebp/win", "lib/libwebp/win")
+      spec.withPlatformBin(OsFamily.MACOS, JvmArchitecture.x64, "plugins/webp/lib/libwebp/mac", "lib/libwebp/mac")
+      spec.withPlatformBin(OsFamily.MACOS, JvmArchitecture.aarch64, "plugins/webp/lib/libwebp/mac", "lib/libwebp/mac")
+      spec.withPlatformBin(OsFamily.LINUX, JvmArchitecture.x64, "plugins/webp/lib/libwebp/linux", "lib/libwebp/linux")
     },
     plugin("intellij.webp") { spec ->
       spec.bundlingRestrictions.marketplace = true
@@ -175,13 +170,15 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.testng.rt", "testng-rt.jar")
       spec.withProjectLibrary("TestNG")
     },
-    plugin(listOf(
-      "intellij.dev",
-      "intellij.dev.psiViewer",
-      "intellij.dev.codeInsight",
-      "intellij.platform.statistics.devkit",
-    )),
-    pluginAuto(listOf("intellij.devkit")) { spec ->
+    plugin("intellij.dev") { spec ->
+      spec.withModule("intellij.dev.psiViewer")
+      spec.withModule("intellij.dev.codeInsight")
+      spec.withModule("intellij.java.dev")
+      spec.withModule("intellij.groovy.dev")
+      spec.withModule("intellij.kotlin.dev")
+      spec.withModule("intellij.platform.statistics.devkit")
+    },
+    plugin("intellij.devkit") { spec ->
       spec.withModule("intellij.devkit.core")
       spec.withModule("intellij.devkit.git")
       spec.withModule("intellij.devkit.themes")
@@ -191,11 +188,13 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.devkit.intelliLang")
       spec.withModule("intellij.devkit.uiDesigner")
       spec.withModule("intellij.devkit.workspaceModel")
-      spec.withModule("intellij.java.devkit")
-      spec.withModule("intellij.groovy.devkit")
       spec.withModule("intellij.kotlin.devkit")
       spec.withModule("intellij.devkit.jps")
       spec.withModule("intellij.devkit.runtimeModuleRepository.jps")
+
+      spec.withProjectLibrary("workspace-model-codegen")
+
+      spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_PUBLIC_BUILDS
     },
     plugin("intellij.eclipse") { spec ->
       spec.withModule("intellij.eclipse.jps", "eclipse-jps.jar")
@@ -227,10 +226,10 @@ object CommunityRepositoryModules {
     PythonCommunityPluginModules.pythonCommunityPluginLayout(),
     androidDesignPlugin(),
     plugin("intellij.completionMlRankingModels") { spec ->
-      spec.bundlingRestrictions.includeInEapOnly = true
+      spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_RELEASE
     },
     plugin("intellij.statsCollector") { spec ->
-      spec.bundlingRestrictions.includeInEapOnly = true
+      spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_RELEASE
     },
     plugin(listOf("intellij.lombok", "intellij.lombok.generated")),
     plugin(listOf(
@@ -243,7 +242,12 @@ object CommunityRepositoryModules {
       "intellij.grazie.xml",
       "intellij.grazie.yaml",
     )),
-    plugin(listOf("intellij.toml", "intellij.toml.core", "intellij.toml.json")),
+    plugin(listOf(
+      "intellij.toml",
+      "intellij.toml.core",
+      "intellij.toml.json",
+      "intellij.toml.grazie",
+    )),
     plugin(listOf(
       "intellij.markdown",
       "intellij.markdown.core",
@@ -251,6 +255,10 @@ object CommunityRepositoryModules {
       "intellij.markdown.frontmatter",
       "intellij.markdown.frontmatter.yaml",
       "intellij.markdown.frontmatter.toml",
+      "intellij.markdown.images",
+      "intellij.markdown.xml",
+      "intellij.markdown.model",
+      "intellij.markdown.spellchecker"
     )),
     plugin(listOf("intellij.settingsSync", "intellij.settingsSync.git")),
     plugin(listOf(
@@ -290,9 +298,10 @@ object CommunityRepositoryModules {
     plugin(
       "intellij.turboComplete",
     ) { spec ->
-      spec.bundlingRestrictions.includeInEapOnly = true
       spec.withModule("intellij.turboComplete.languages.kotlin")
-    }
+    },
+    plugin("intellij.ae.database"),
+    plugin("intellij.ae.database.counters.community")
   )
 
   @Suppress("SpellCheckingInspection")
@@ -320,16 +329,16 @@ object CommunityRepositoryModules {
     }
   )
 
-  private fun androidDesignPlugin(mainModuleName: String = "intellij.android.design-plugin"): PluginLayout {
-    return plugin(mainModuleName) { spec ->
+  private fun androidDesignPlugin(mainModuleName: String = "intellij.android.design-plugin.descriptor"): PluginLayout {
+    return plugin (mainModuleName) { spec ->
       spec.directoryName = "design-tools"
       spec.mainJarName = "design-tools.jar"
 
       // modules:
       // design-tools.jar
       spec.withModule("intellij.android.compose-designer")
-      if (mainModuleName != "intellij.android.design-plugin") {
-        spec.withModule("intellij.android.design-plugin")
+      if (mainModuleName != "intellij.android.design-plugin.descriptor") {
+        spec.withModule("intellij.android.design-plugin.descriptor")
       }
       @Suppress("SpellCheckingInspection")
       spec.withModule("intellij.android.designer.customview")
@@ -337,6 +346,7 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.android.glance-designer")
       spec.withModule("intellij.android.layoutlib")
       spec.withModule("intellij.android.nav.editor")
+      spec.withModule("intellij.android.nav.editor.gradle")
       spec.withModule("intellij.android.preview-designer")
       spec.withModule("intellij.android.wear-designer")
 
@@ -354,12 +364,26 @@ object CommunityRepositoryModules {
     }
   }
 
-  @Suppress("SpellCheckingInspection")
   fun androidPlugin(additionalModulesToJars: Map<String, String> = emptyMap(),
-                    mainModuleName: String = "intellij.android.plugin",
-                    addition: ((PluginLayout.PluginLayoutSpec) -> Unit)? = null): PluginLayout {
-    // the following is adapted from https://android.googlesource.com/platform/tools/adt/idea/+/refs/heads/studio-main/studio/BUILD
-    return plugin(mainModuleName) { spec ->
+                    mainModuleName: String = "intellij.android.plugin.descriptor",
+                    allPlatforms: Boolean = false,
+                    addition: ((PluginLayout.PluginLayoutSpec) -> Unit)? = null,): PluginLayout {
+    return createAndroidPluginLayout(mainModuleName, additionalModulesToJars, allPlatforms, addition)
+  }
+
+  val supportedFfmpegPresets: PersistentList<SupportedDistribution> = persistentListOf(
+    // todo notarization
+    //SupportedDistribution(os = OsFamily.MACOS, arch = JvmArchitecture.x64),
+    //SupportedDistribution(os = OsFamily.MACOS, arch = JvmArchitecture.aarch64),
+    SupportedDistribution(os = OsFamily.WINDOWS, arch = JvmArchitecture.x64),
+    SupportedDistribution(os = OsFamily.LINUX, arch = JvmArchitecture.x64),
+  )
+
+  private fun createAndroidPluginLayout(mainModuleName: String,
+                                        additionalModulesToJars: Map<String, String> = emptyMap(),
+                                        allPlatforms: Boolean,
+                                        addition: ((PluginLayout.PluginLayoutSpec) -> Unit)?): PluginLayout =
+    plugin(mainModuleName) { spec ->
       spec.directoryName = "android"
       spec.mainJarName = "android.jar"
       spec.withCustomVersion(object : PluginLayout.VersionEvaluator {
@@ -389,30 +413,32 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.android.jps.model", "android-common.jar")
 
       // android-extensions-ide.jar
-      spec.withModule("intellij.android.kotlin.extensions.common", "android-extensions-ide.jar") // <= ADDED
-      spec.withModule("intellij.android.kotlin.extensions", "android-extensions-ide.jar")
+      spec.withModule("intellij.android.kotlin.extensions.common", "android-extensions-ide.jar")
 
       // android-kotlin-extensions-tooling.jar
       spec.withModule("intellij.android.kotlin.extensions.tooling", "android-kotlin-extensions-tooling.jar")
 
+      //android-gradle-tooling.jar
+      spec.withModule("intellij.android.gradle-tooling.api", "android-gradle.jar")
+      spec.withModule("intellij.android.gradle-tooling.impl", "android-gradle.jar")
+      spec.withModule("intellij.android.projectSystem.gradle.sync", "android-gradle.jar")
+
       // android-kotlin.jar
-      //TODO decide if should be moved from android-extensions-ide.jar
-      //spec.withModule("intellij.android.kotlin.extensions", "android-kotlin.jar")
+      spec.withModule("intellij.android.kotlin.extensions", "android-kotlin.jar")
       spec.withModule("intellij.android.kotlin.idea", "android-kotlin.jar")
       spec.withModule("intellij.android.kotlin.output.parser", "android-kotlin.jar")
 
       // android-profilers.jar
-      spec.withModule("intellij.android.profilers.atrace", "android-profilers.jar")
-      spec.withModule("intellij.android.profilers.ui", "android-profilers.jar")
-      spec.withModule("intellij.android.profilers", "android-profilers.jar")
-      spec.withModule("intellij.android.transportDatabase", "android-profilers.jar")
+      spec. withModule("intellij.android.profilers.atrace", "android-profilers.jar")
+      spec. withModule("intellij.android.profilers.ui", "android-profilers.jar")
+      spec. withModule("intellij.android.profilers", "android-profilers.jar")
+      spec. withModule("intellij.android.transportDatabase", "android-profilers.jar")
 
       // android-rt.jar
       //tools/adt/idea/rt:intellij.android.rt <= REMOVED
 
       // android-project-system-gradle-models.jar
-      //TODO decide if should be bundled here or with android.jar
-      //spec.withModule("intellij.android.projectSystem.gradle.models", "android-project-system-gradle-models.jar")
+      spec.withModule("intellij.android.projectSystem.gradle.models", "android-project-system-gradle-models.jar")
 
       // android.jar
       spec.withModule("intellij.android.analytics", "android.jar")
@@ -450,18 +476,18 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.android.debuggers", "android.jar")
       spec.withModule("intellij.android.deploy", "android.jar")
       spec.withModule("intellij.android.device-file-explorer-toolwindow", "android.jar")
-      spec.withModule("intellij.android.device-explorer-common", "android.jar")
       spec.withModule("intellij.android.device-explorer", "android.jar")
       spec.withModule("intellij.android.device-explorer-files", "android.jar")
       spec.withModule("intellij.android.device-explorer-monitor", "android.jar")
+      spec.withModule("intellij.android.device-explorer-common", "android.jar")
       spec.withModule("intellij.android.device-manager", "android.jar")
       spec.withModule("intellij.android.device-manager-v2", "android.jar")
-      spec.withModule("intellij.android.streaming", "android.jar")
       //tools/adt/idea/gradle-dsl:intellij.android.gradle.dsl <= REMOVED
       //tools/adt/idea/gradle-dsl-kotlin:intellij.android.gradle.dsl.kotlin <= REMOVED
       spec.withModule("intellij.android.lang-databinding", "android.jar")
       spec.withModule("intellij.android.lang", "android.jar")
       spec.withModule("intellij.android.layout-inspector", "android.jar")
+      spec.withModule("intellij.android.layout-inspector.gradle", "android.jar")
       spec.withModule("intellij.android.layout-ui", "android.jar")
       spec.withModule("intellij.android.logcat", "android.jar")
       spec.withModule("intellij.android.mlkit", "android.jar")
@@ -470,12 +496,10 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.android.android-material", "android.jar")
       spec.withModule("intellij.android.observable.ui", "android.jar")
       spec.withModule("intellij.android.observable", "android.jar")
-      if (mainModuleName != "intellij.android.plugin") {
-        spec.withModule("intellij.android.plugin", "android.jar")
+      if (mainModuleName != "intellij.android.plugin.descriptor") {
+        spec.withModule("intellij.android.plugin.descriptor", "android.jar")
       }
       spec.withModule("intellij.android.profilersAndroid", "android.jar")
-      //TODO decide if this should be moved to android-project-system-gradle-models
-      spec.withModule("intellij.android.projectSystem.gradle.models", "android.jar")
       spec.withModule("intellij.android.projectSystem.gradle.psd", "android.jar")
       spec.withModule("intellij.android.projectSystem.gradle.repositorySearch", "android.jar")
       spec.withModule("intellij.android.projectSystem.gradle.upgrade", "android.jar")
@@ -493,19 +517,16 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.android.wizard", "android.jar")
       spec.withModule("intellij.android.native-symbolizer", "android.jar")
       //tools/adt/idea/whats-new-assistant:whats-new-assistant <= REMOVED
-      spec.withModuleLibrary("precompiled-dynamic-layout-inspector.common", "android.sdktools.dynamic-layout-inspector.common",
-                             "android.jar")
+      spec.withModuleLibrary("precompiled-dynamic-layout-inspector.common", "android.sdktools.dynamic-layout-inspector.common", "android.jar")
       spec.withModule("intellij.android.app-inspection.inspectors.network.ide", "android.jar")
       spec.withModule("intellij.android.app-inspection.inspectors.network.model", "android.jar")
       spec.withModule("intellij.android.app-inspection.inspectors.network.view", "android.jar")
       spec.withModule("intellij.android.server-flags", "android.jar")
       spec.withModule("intellij.android.codenavigation", "android.jar")
       spec.withModule("intellij.android.execution.common", "android.jar")
+      spec.withModule("intellij.android.explainer", "android.jar")
+      spec.withModuleLibrary("precompiled-kotlin-multiplatform-models", "android.sdktools.android.kotlin-multiplatform-models", "android.jar")
 
-      //android-gradle-tooling.jar
-      spec.withModule("intellij.android.gradle-tooling.api", "android-gradle-tooling.jar")
-      spec.withModule("intellij.android.gradle-tooling.impl", "android-gradle-tooling.jar")
-      spec.withModule("intellij.android.projectSystem.gradle.sync", "android-gradle-tooling.jar")
 
       // artwork.jar
       spec.withModule("intellij.android.artwork", "artwork.jar")
@@ -527,6 +548,11 @@ object CommunityRepositoryModules {
       spec.withModuleLibrary("precompiled-analytics-tracker", "android.sdktools.analytics-tracker", "google-analytics-library.jar")
       //tools/analytics-library/publisher:analytics-publisher <= REMOVED
       spec.withModuleLibrary("precompiled-analytics-crash", "android.sdktools.analytics-crash", "google-analytics-library.jar")
+
+      // google-login.jar
+      // We don't bundle Google Login with IDEA
+      //spec.withModuleLibrary("precompiled-google-login-as", "google-login-as", "google-login.jar")
+
 
       // inspectors-common.jar
       spec.withModule("intellij.android.inspectors-common.api", "inspectors-common.jar")
@@ -557,18 +583,20 @@ object CommunityRepositoryModules {
 
       // sdk-common.jar
       spec.withModuleLibrary("precompiled-sdk-common", "android.sdktools.sdk-common", "sdk-common.jar")
+      spec.withModuleLibrary("precompiled-sdk-common.gradle", "android.sdktools.sdk-common.gradle.rt", "sdk-common.jar")
 
       // sdk-tools.jar
       spec.withModuleLibrary("precompiled-android-annotations", "android.sdktools.android-annotations", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-analyzer", "android.sdktools.analyzer", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-binary-resources", "android.sdktools.binary-resources", "sdk-tools.jar")
-      spec.withModuleLibrary("precompiled-build-analyzer-common", "android.sdktools.android.build-analyzer.common", "sdk-tools.jar")
+      spec.withModuleLibrary("precompiled-build-analyzer.common", "android.sdktools.android.build-analyzer.common", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-builder-model", "android.sdktools.builder-model", "sdk-tools.jar")
       //tools/base/build-system/builder-test-api:studio.android.sdktools.builder-test-api <= API for testing. Nice to have in IDEA.
       spec.withModuleLibrary("precompiled-adblib", "android.sdktools.adblib", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-adblib.ddmlibcompatibility", "android.sdktools.adblib.ddmlibcompatibility", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-adblib.tools", "android.sdktools.adblib.tools", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-ddmlib", "android.sdktools.ddmlib", "sdk-tools.jar")
+      spec.withModuleLibrary("precompiled-jdwpscache", "android.sdktools.jdwpscache", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-device-provisioner", "android.sdktools.device-provisioner", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-deployer", "android.sdktools.deployer", "sdk-tools.jar")
       spec.withModuleLibrary("precompiled-dvlib", "android.sdktools.dvlib", "sdk-tools.jar")
@@ -599,7 +627,6 @@ object CommunityRepositoryModules {
       spec.withModuleLibrary("precompiled-wizardTemplate.impl", "android.sdktools.wizardTemplate.impl", "wizard-template.jar")
       spec.withModuleLibrary("precompiled-wizardTemplate.plugin", "android.sdktools.wizardTemplate.plugin", "wizard-template.jar")
 
-
       // libs:
       spec.withModuleLibrary("jb-r8", "intellij.android.kotlin.idea", "")
       spec.withModuleLibrary("explainer", "android.sdktools.analyzer", "")
@@ -610,6 +637,12 @@ object CommunityRepositoryModules {
       spec.withModuleLibrary("javapoet", "android.sdktools.db-compiler", "")
       spec.withModuleLibrary("auto-common", "android.sdktools.db-compiler", "")
       spec.withModuleLibrary("jetifier-core", "android.sdktools.db-compilerCommon", "")
+
+      // We do not bundle Google Login API
+      //spec.withModuleLibrary("javax-servlet", "google-login-as", "")
+      //spec.withModuleLibrary("jsr305-2.0.1", "google-login-as", "")
+      //spec.withModuleLibrary("oauth2", "google-login-as", "")
+
       spec.withModuleLibrary("flatbuffers-java", "android.sdktools.mlkit-common", "")
       spec.withModuleLibrary("tensorflow-lite-metadata", "android.sdktools.mlkit-common", "")
       spec.withModuleLibrary("trace-perfetto-library", "intellij.android.profilersAndroid", "")
@@ -623,19 +656,64 @@ object CommunityRepositoryModules {
       //spec.withModuleLibrary("skiko", "intellij.android.adt.ui.compose", "")
 
       spec.withProjectLibrary("aapt-proto")
-      spec.withProjectLibrary("aia-proto")
       spec.withProjectLibrary("android-test-plugin-host-device-info-proto")
       spec.withProjectLibrary("asm-tools")
-      spec.withProjectLibrary("baksmali")
       spec.withProjectLibrary("emulator-proto")
-      spec.withProjectLibrary("ffmpeg")
-      spec.withProjectLibrary("ffmpeg-javacpp")
+
+      val ffmpegVersion = "6.0-1.5.9"
+      val javacppVersion = "1.5.9"
+
+      // Add ffmpeg and javacpp
+      spec.withModuleLibrary("ffmpeg", "intellij.android.streaming",  "ffmpeg-$ffmpegVersion.jar")
+      spec.withModuleLibrary("ffmpeg-javacpp", "intellij.android.streaming", "javacpp-$javacppVersion.jar")
+
+      // todo notarization
+      spec.excludeModuleLibrary("ffmpeg-macos-aarch64", "intellij.android.streaming")
+      spec.excludeModuleLibrary("ffmpeg-macos-x64", "intellij.android.streaming")
+      spec.excludeModuleLibrary("javacpp-macos-aarch64", "intellij.android.streaming")
+      spec.excludeModuleLibrary("javacpp-macos-x64", "intellij.android.streaming")
+
+      // include only required as platform-dependent binaries
+      for ((supportedOs, supportedArch) in supportedFfmpegPresets) {
+        val osName = supportedOs.osName.lowercase(Locale.ENGLISH)
+        val ffmpegLibraryName = "ffmpeg-$osName-$supportedArch"
+        val javacppLibraryName = "javacpp-$osName-$supportedArch"
+
+        if (allPlatforms) {
+          // for the Marketplace we include all binaries
+          spec.withModuleLibrary(ffmpegLibraryName, "intellij.android.streaming", "${ffmpegLibraryName}-$ffmpegVersion.jar")
+          spec.withModuleLibrary(javacppLibraryName, "intellij.android.streaming", "${javacppLibraryName}-$javacppVersion.jar")
+        }
+        else {
+          spec.withGeneratedPlatformResources(supportedOs, supportedArch) { targetDir, context ->
+            val streamingModule = context.projectModel.project.modules.find { it.name == "intellij.android.streaming" }!!
+            val ffmpegLibrary = streamingModule.libraryCollection.findLibrary(ffmpegLibraryName)!!
+            val javacppLibrary = streamingModule.libraryCollection.findLibrary(javacppLibraryName)!!
+            val libDir = targetDir.resolve("lib")
+
+            copyFileToDir(ffmpegLibrary.getFiles(JpsOrderRootType.COMPILED)[0].toPath(), libDir)
+            copyFileToDir(javacppLibrary.getFiles(JpsOrderRootType.COMPILED)[0].toPath(), libDir)
+          }
+
+          spec.excludeModuleLibrary(ffmpegLibraryName, "intellij.android.streaming")
+          spec.excludeModuleLibrary(javacppLibraryName, "intellij.android.streaming")
+        }
+      }
+
+      spec.withModule("intellij.android.streaming")
+
       //tools/adt/idea/.idea/libraries:ffmpeg-platform <= FIXME
       //tools/adt/idea/.idea/libraries:firebase_java_proto <= REMOVED
+      // We do not bundle Google API client in IJ
+      //spec.withProjectLibrary("google-api-client")
+      spec.withProjectLibrary("google-baksmali")
       spec.withProjectLibrary("google-dexlib2")
+      //spec.withProjectLibrary("gradle-shared-proto")
       spec.withProjectLibrary("HdrHistogram")
       spec.withProjectLibrary("javax-inject")
+      //spec.withProjectLibrary("jetty")
       spec.withProjectLibrary("kotlinx-coroutines-guava")
+      spec.withProjectLibrary("kotlin-multiplatform-android-models-proto")
       spec.withProjectLibrary("kxml2")
       spec.withProjectLibrary("layoutinspector-skia-proto")
       spec.withProjectLibrary("layoutinspector-view-proto")
@@ -653,30 +731,31 @@ object CommunityRepositoryModules {
       spec.withProjectLibrary("utp-core-proto-jarjar")
       spec.withProjectLibrary("zxing-core")
       spec.withModuleLibrary("libandroid-core-proto", "intellij.android.core", "")
+      spec.withModuleLibrary("libandroid-core-proto", "intellij.android.projectSystem.gradle", "")
       spec.withModuleLibrary("libstudio.android-test-plugin-host-retention-proto", "intellij.android.core", "")
       //tools/adt/idea/android/lib:android-sdk-tools-jps <= this is jarutils.jar
       spec.withModuleLibrary("instantapps-api", "intellij.android.core", "")
-      spec.withModuleLibrary("spantable", "intellij.android.core", "")
       spec.withModuleLibrary("background-inspector-proto", "intellij.android.app-inspection.inspectors.backgroundtask.model", "")
       spec.withModuleLibrary("workmanager-inspector-proto", "intellij.android.app-inspection.inspectors.backgroundtask.model", "")
       spec.withModuleLibrary("background-inspector-proto", "intellij.android.app-inspection.inspectors.backgroundtask.view", "")
       spec.withModuleLibrary("workmanager-inspector-proto", "intellij.android.app-inspection.inspectors.backgroundtask.view", "")
       //spec.withModuleLibrary("play_vitals_java_proto", "intellij.android.app-quality-insights.play-vitals.model", "")
       //tools/adt/idea/compose-designer:ui-animation-tooling-internal <= not recognized
-      spec.withModuleLibrary("traceprocessor-proto", "intellij.android.profilersAndroid", "")
-      spec.withModuleLibrary("traceprocessor-proto", "intellij.android.profilers", "")
+      spec.withModuleLibrary("traceprocessor-protos", "intellij.android.profilersAndroid", "")
+      spec.withModuleLibrary("traceprocessor-protos", "intellij.android.profilers", "")
       spec.withModuleLibrary("pepk", "intellij.android.projectSystem.gradle", "")
       spec.withModuleLibrary("libstudio.android-test-plugin-result-listener-gradle-proto", "intellij.android.utp", "")
       spec.withModuleLibrary("deploy_java_proto", "android.sdktools.deployer", "")
       spec.withModuleLibrary("libjava_sites", "android.sdktools.deployer", "")
       spec.withModuleLibrary("liblint-checks-proto", "android.sdktools.lint-checks", "")
+      spec.withModuleLibrary("aia-proto", "android.sdktools.sdk-common", "")
       spec.withModuleLibrary("libjava_sites", "intellij.android.debuggers", "")
       spec.withModuleLibrary("libjava_version", "android.sdktools.deployer", "")
       //tools/vendor/google/game-tools/main:game-tools-protos <= not recognized
       spec.withModuleLibrary("compilerCommon.antlr_runtime.shaded", "android.sdktools.db-compiler", "")
       spec.withModuleLibrary("compilerCommon.antlr.shaded", "android.sdktools.db-compiler", "")
       spec.withModuleLibrary("build-analysis-results-proto", "intellij.android.build-attribution", "")
-      spec.withModuleLibrary("android-libversion", "android.sdktools.common", "")
+      spec.withModuleLibrary("libversion", "android.sdktools.common", "")
       // :libs
 
 
@@ -704,6 +783,7 @@ object CommunityRepositoryModules {
       //  "//tools/base/app-inspection/inspectors/backgroundtask:bundle",
       //  "//tools/base/app-inspection/inspectors/network:bundle",
       //  "//tools/base/dynamic-layout-inspector/agent/appinspection:bundle",
+      //  "tools/base/process-monitor/process-tracker-agent:bundle",
       //  "//tools/base/profiler/transform:profilers-transform",
       //  "//tools/base/profiler/app:perfa",
       //  "//tools/base/profiler/app:perfa_okhttp",
@@ -731,7 +811,6 @@ object CommunityRepositoryModules {
 
       addition?.invoke(spec)
     }
-  }
 
   fun javaFXPlugin(mainModuleName: String): PluginLayout {
     return plugin(mainModuleName) { spec ->

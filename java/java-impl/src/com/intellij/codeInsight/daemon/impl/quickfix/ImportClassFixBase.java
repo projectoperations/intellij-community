@@ -16,6 +16,7 @@ import com.intellij.codeInsight.hint.QuestionAction;
 import com.intellij.codeInsight.intention.PriorityAction;
 import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.codeInspection.HintAction;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
@@ -31,6 +32,7 @@ import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ThreeState;
@@ -194,7 +196,9 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
     JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
     classList.removeIf(aClass -> (anyAccessibleFound ||
                                   !BaseIntentionAction.canModify(aClass) ||
-                                  facade.arePackagesTheSame(aClass, myReferenceElement)) && !isAccessible(aClass, myReferenceElement));
+                                  facade.arePackagesTheSame(aClass, myReferenceElement) ||
+                                  PsiTreeUtil.getParentOfType(aClass, PsiImplicitClass.class) != null) &&
+                                 !isAccessible(aClass, myReferenceElement));
 
     filterByRequiredMemberName(classList);
 
@@ -373,7 +377,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
 
     if (allowPopup && canImportHere) {
       if (!ApplicationManager.getApplication().isUnitTestMode() && !HintManager.getInstance().hasShownHintsThatWillHideByOtherHint(true)) {
-        String hintText = ShowAutoImportPass.getMessage(classes.length > 1, classes[0].getQualifiedName());
+        String hintText = ShowAutoImportPass.getMessage(classes.length > 1, IdeBundle.message("go.to.class.kind.text"), classes[0].getQualifiedName());
         HintManager.getInstance().showQuestionHint(editor, hintText, getStartOffset(myReferenceElement, myReference),
                                                    getEndOffset(myReferenceElement, myReference), action);
       }

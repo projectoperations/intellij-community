@@ -121,9 +121,8 @@ public class ActionPopupStep implements ListPopupStepEx<PopupFactoryImpl.ActionI
       LOG.error("isPopupOrMainMenuPlace(" + actionPlace + ")==false. Use ActionPlaces.getPopupPlace.");
       actionPlace = getPopupOrMainMenuPlace(actionPlace);
     }
-    DataContext wrappedContext = Utils.wrapDataContext(dataContext);
     ActionStepBuilder builder = new ActionStepBuilder(
-      wrappedContext, showNumbers, useAlphaAsNumbers, showDisabledActions, honorActionMnemonics, actionPlace, presentationFactory);
+      dataContext, showNumbers, useAlphaAsNumbers, showDisabledActions, honorActionMnemonics, actionPlace, presentationFactory);
     builder.buildGroup(actionGroup);
     return builder.getItems();
   }
@@ -256,7 +255,15 @@ public class ActionPopupStep implements ListPopupStepEx<PopupFactoryImpl.ActionI
   }
 
   public void performAction(@NotNull AnAction action, @Nullable InputEvent inputEvent) {
-    ActionUtil.invokeAction(action, myContext.get(), myActionPlace, inputEvent, null);
+    DataContext dataContext = myContext.get();
+    Presentation presentation = action.getTemplatePresentation().clone();
+    // perform is called for perform-only groups, set performGroup to true
+    if (action instanceof ActionGroup) presentation.setPerformGroup(true);
+    AnActionEvent event = AnActionEvent.createFromInputEvent(inputEvent, myActionPlace, presentation, dataContext);
+    event.setInjectedContext(action.isInInjectedContext());
+    if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
+      ActionUtil.performActionDumbAwareWithCallbacks(action, event);
+    }
   }
 
   public @NotNull AnActionEvent createAnActionEvent(@NotNull AnAction action, @Nullable InputEvent inputEvent) {
@@ -265,7 +272,7 @@ public class ActionPopupStep implements ListPopupStepEx<PopupFactoryImpl.ActionI
   }
 
   public void updateStepItems(@NotNull JComponent component) {
-    DataContext dataContext = Utils.wrapDataContext(myContext.get());
+    DataContext dataContext = myContext.get();
     PresentationFactory presentationFactory = myPresentationFactory != null ? myPresentationFactory : new PresentationFactory();
     List<PopupFactoryImpl.ActionItem> values = getValues();
     Utils.updateComponentActions(

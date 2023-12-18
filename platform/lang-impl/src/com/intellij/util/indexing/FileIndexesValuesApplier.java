@@ -1,12 +1,15 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.impl.VfsData;
 import com.intellij.util.indexing.contentQueue.IndexUpdateRunner;
 import com.intellij.util.indexing.dependencies.FileIndexingStamp;
 import com.intellij.util.indexing.diagnostic.FileIndexingStatistics;
+import com.intellij.util.indexing.diagnostic.IndexesEvaluated;
 import com.intellij.util.indexing.events.VfsEventsMerger;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -35,7 +38,7 @@ public final class FileIndexesValuesApplier {
   private final @NotNull List<? extends SingleIndexValueApplier<?>> appliers;
   private final @NotNull List<SingleIndexValueRemover> removers;
   private final boolean removeDataFromIndicesForFile;
-  private volatile boolean shouldMarkFileAsIndexed;
+  private final boolean shouldMarkFileAsIndexed;
   private final long fileStatusLockObject;
   @NotNull
   public final FileIndexingStatistics stats;
@@ -62,7 +65,7 @@ public final class FileIndexesValuesApplier {
     this.removers = removers;
     this.removeDataFromIndicesForFile = removeDataFromIndicesForFile;
     this.shouldMarkFileAsIndexed = shouldMarkFileAsIndexed;
-    fileStatusLockObject = shouldMarkFileAsIndexed && !VfsData.isIsIndexedFlagDisabled()
+    fileStatusLockObject = shouldMarkFileAsIndexed && !VfsData.isIndexedFlagDisabled()
                            ? IndexingFlag.getOrCreateHash(file)
                            : IndexingFlag.getNonExistentHash();
     this._initialApplicationMode = applicationMode;
@@ -92,7 +95,7 @@ public final class FileIndexesValuesApplier {
         indexesProvidedByExtensions.add(applier.indexId);
       }
       else {
-        if (myIndex.doTraceSharedIndexUpdates()) {
+        if (FileBasedIndexEx.doTraceSharedIndexUpdates()) {
           FileBasedIndexImpl.LOG.info("shared index " + applier.indexId + " is not provided for file " + file.getName());
         }
         wasFullyIndexedByInfrastructureExtension = false;
@@ -106,11 +109,23 @@ public final class FileIndexesValuesApplier {
     if (logEmptyProvidedIndexes && indexesProvidedByExtensions.isEmpty()) {
       FileBasedIndexImpl.LOG.info("no shared indexes were provided for file " + file.getName());
     }
+
+    final IndexesEvaluated indexesEvaluated;
+    if (wasFullyIndexedByInfrastructureExtension && !indexesProvidedByExtensions.isEmpty()) {
+      indexesEvaluated = IndexesEvaluated.BY_EXTENSIONS;
+    }
+    else if (appliers.isEmpty() && removers.isEmpty() && !removeDataFromIndicesForFile) {
+      indexesEvaluated = IndexesEvaluated.NOTHING_TO_WRITE;
+    }
+    else {
+      indexesEvaluated = IndexesEvaluated.BY_USUAL_INDEXES;
+    }
+
     return new FileIndexingStatistics(fileType,
                                       indexesProvidedByExtensions,
-                                      !indexesProvidedByExtensions.isEmpty() && wasFullyIndexedByInfrastructureExtension,
                                       perIndexerEvaluatingIndexValueAppliersTimes,
-                                      perIndexerEvaluatingIndexValueRemoversTimes);
+                                      perIndexerEvaluatingIndexValueRemoversTimes,
+                                      indexesEvaluated);
   }
 
   /**
@@ -124,7 +139,7 @@ public final class FileIndexesValuesApplier {
     }
 
     if (appliers.isEmpty() && removers.isEmpty()) {
-      doPostModificationJob(file);
+      doPostModificationJob(file, true, "empty appliers");
       separateApplicationTimeNanos.set(System.nanoTime() - startTime);
       if (callback != null) {
         callback.run();
@@ -134,7 +149,7 @@ public final class FileIndexesValuesApplier {
 
     if (getApplicationMode() == ApplicationMode.SameThreadOutsideReadLock) {
       separateApplicationTimeNanos.set(System.nanoTime() - startTime);
-      applyModifications(file, -1, null, callback);
+      applyModifications(file, -1, null, callback, "same thread");
       return;
     }
 
@@ -155,18 +170,35 @@ public final class FileIndexesValuesApplier {
     for (int i = 0; i < TOTAL_WRITERS_NUMBER; i++) {
       if (executorsToSchedule.get(i)) {
         var executorIndex = i;
-        scheduleIndexWriting(executorIndex, () -> applyModifications(file, executorIndex, syncCounter, callback));
+        scheduleIndexWriting(executorIndex,
+                             () -> applyModifications(file, executorIndex, syncCounter, callback, "executor " + executorIndex));
       }
     }
 
     separateApplicationTimeNanos.addAndGet(System.nanoTime() - startTime);
   }
 
-  private void doPostModificationJob(@NotNull VirtualFile file) {
-    VfsEventsMerger.tryLog("INDEX_UPDATED", file,
-                           () -> " updated_indexes=" + stats.getPerIndexerEvaluateIndexValueTimes().keySet() +
-                                 " deleted_indexes=" + stats.getPerIndexerEvaluatingIndexValueRemoversTimes().keySet());
-    myIndex.getChangedFilesCollector().removeFileIdFromFilesScheduledForUpdate(fileId);
+  private void doPostModificationJob(@NotNull VirtualFile file, boolean allModificationsSuccessful, @NotNull String debugString) {
+    if (allModificationsSuccessful) {
+      VfsEventsMerger.tryLog("INDEX_UPDATED", file,
+                             () -> " updated_indexes=" + stats.getPerIndexerEvaluateIndexValueTimes().keySet() +
+                                   " deleted_indexes=" + stats.getPerIndexerEvaluatingIndexValueRemoversTimes().keySet() +
+                                   " " + debugString);
+      myIndex.getChangedFilesCollector().removeFileIdFromFilesScheduledForUpdate(fileId);
+
+      if (shouldMarkFileAsIndexed) {
+        IndexingFlag.setIndexedIfFileWithSameLock(file, fileStatusLockObject, indexingStamp);
+      }
+      else if (fileStatusLockObject != IndexingFlag.getNonExistentHash()) {
+        IndexingFlag.unlockFile(file);
+      }
+    }
+    else {
+      VfsEventsMerger.tryLog("INDEX_PARTIAL_UPDATE", file, () -> debugString);
+      if (fileStatusLockObject != IndexingFlag.getNonExistentHash()) {
+        IndexingFlag.unlockFile(file);
+      }
+    }
   }
 
   /**
@@ -178,14 +210,17 @@ public final class FileIndexesValuesApplier {
   private void applyModifications(@NotNull VirtualFile file,
                                   int indexerFilter,
                                   @Nullable AtomicInteger syncCounter,
-                                  @Nullable Runnable finishCallback) {
+                                  @Nullable Runnable finishCallback,
+                                  @NotNull String debugThreadString) {
     var startTime = System.nanoTime();
+    boolean allModificationsSuccessful = true;
     try {
       for (SingleIndexValueApplier<?> applier : appliers) {
         if (indexerFilter < 0 || indexerFilter == getExecutorIndex(applier.indexId)) {
           boolean applied = applier.apply();
           if (!applied) {
-            shouldMarkFileAsIndexed = false;
+            allModificationsSuccessful = false;
+            VfsEventsMerger.tryLog("NOT_APPLIED", file, () -> applier.toString());
           }
         }
       }
@@ -194,21 +229,34 @@ public final class FileIndexesValuesApplier {
         if (indexerFilter < 0 || indexerFilter == getExecutorIndex(remover.indexId)) {
           boolean removed = remover.remove();
           if (!removed) {
-            shouldMarkFileAsIndexed = false;
+            allModificationsSuccessful = false;
+            VfsEventsMerger.tryLog("NOT_REMOVED", file, () -> remover.toString());
           }
         }
       }
     }
+    catch (ProcessCanceledException pce) {
+      allModificationsSuccessful = false;
+      if (FileBasedIndexEx.TRACE_STUB_INDEX_UPDATES) {
+        Logger.getInstance(FileIndexesValuesApplier.class)
+          .infoWithDebug("applyModifications interrupted,fileId=" + fileId + "," + pce, new RuntimeException(pce));
+      }
+      throw pce;
+    }
+    catch (Throwable t) {
+      allModificationsSuccessful = false;
+      Logger.getInstance(FileIndexesValuesApplier.class)
+        .warn("applyModifications interrupted,fileId=" + fileId + "," + t, FileBasedIndexEx.TRACE_STUB_INDEX_UPDATES ? t : null);
+      throw t;
+    }
     finally {
       var lastOrOnlyInvocationForFile = syncCounter == null || syncCounter.decrementAndGet() == 0;
+      String debugString = "applied: appliers=" + appliers + " removers=" + removers + "," + debugThreadString;
       if (lastOrOnlyInvocationForFile) {
-        if (shouldMarkFileAsIndexed) {
-          IndexingFlag.setIndexedIfFileWithSameLock(file, fileStatusLockObject, indexingStamp);
-        }
-        else if (fileStatusLockObject != IndexingFlag.getNonExistentHash()) {
-          IndexingFlag.unlockFile(file);
-        }
-        doPostModificationJob(file);
+        doPostModificationJob(file, allModificationsSuccessful, debugString);
+      }
+      else {
+        VfsEventsMerger.tryLog("HAS_MORE_MODIFICATIONS", file, () -> debugString);
       }
       separateApplicationTimeNanos.addAndGet(System.nanoTime() - startTime);
       if (lastOrOnlyInvocationForFile && finishCallback != null) {

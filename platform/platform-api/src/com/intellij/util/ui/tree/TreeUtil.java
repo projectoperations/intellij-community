@@ -2,7 +2,6 @@
 package com.intellij.util.ui.tree;
 
 import com.intellij.ide.ui.UISettings;
-import com.intellij.ide.util.treeView.AbstractTreeBuilder;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
@@ -117,7 +116,7 @@ public final class TreeUtil {
     return hasManyNodes(treeTraverser(tree), threshold);
   }
 
-  public static boolean hasManyChildren(@NotNull TreeNode node, int threshold) {
+  public static boolean hasManyNodes(@NotNull TreeNode node, int threshold) {
     return hasManyNodes(treeNodeTraverser(node), threshold);
   }
 
@@ -153,8 +152,7 @@ public final class TreeUtil {
    */
   public static void repaintPath(@NotNull JTree tree, @Nullable TreePath path) {
     assert EventQueue.isDispatchThread();
-    Rectangle bounds = tree.getPathBounds(path);
-    if (bounds != null) tree.repaint(0, bounds.y, tree.getWidth(), bounds.height);
+    repaintBounds(tree, tree.getPathBounds(path));
   }
 
   /**
@@ -163,8 +161,12 @@ public final class TreeUtil {
    */
   public static void repaintRow(@NotNull JTree tree, int row) {
     assert EventQueue.isDispatchThread();
-    Rectangle bounds = tree.getRowBounds(row);
-    if (bounds != null) tree.repaint(0, bounds.y, tree.getWidth(), bounds.height);
+    repaintBounds(tree, tree.getRowBounds(row));
+  }
+
+  private static void repaintBounds(@NotNull JTree tree, @Nullable Rectangle bounds) {
+    // repaint extra below and above to avoid artifacts when using fractional scaling on Windows
+    if (bounds != null) tree.repaint(0, bounds.y - 1, tree.getWidth(), bounds.height + 2);
   }
 
   /**
@@ -705,14 +707,12 @@ public final class TreeUtil {
     // store relative offset because the row can be moved during the tree updating
     int offset = rowBounds.y - bounds.y;
 
-    AbstractTreeBuilder builder = AbstractTreeBuilder.getBuilderFor(tree);
-    scrollToVisible(tree, path, bounds, offset, stamp, callback::setDone, builder, 3);
+    scrollToVisible(tree, path, bounds, offset, stamp, callback::setDone, 3);
 
     return callback;
   }
 
-  private static void scrollToVisible(JTree tree, TreePath path, Rectangle bounds, int offset, long expected, Runnable done,
-                                      AbstractTreeBuilder builder, int attempt) {
+  private static void scrollToVisible(JTree tree, TreePath path, Rectangle bounds, int offset, long expected, Runnable done, int attempt) {
     Runnable scroll = () -> {
       Rectangle pathBounds = attempt <= 0 ? null : tree.getPathBounds(path);
       if (pathBounds != null) {
@@ -724,14 +724,14 @@ public final class TreeUtil {
           Rectangle visible = tree.getVisibleRect();
           if (bounds.y < visible.y || bounds.y > visible.y + Math.max(0, visible.height - bounds.height)) {
             tree.scrollRectToVisible(bounds);
-            scrollToVisible(tree, path, bounds, offset, expected, done, builder, attempt - 1);
+            scrollToVisible(tree, path, bounds, offset, expected, done, attempt - 1);
             return; // try to scroll again
           }
         }
       }
       done.run();
     };
-    SwingUtilities.invokeLater(builder == null ? scroll : () -> builder.getReady(TreeUtil.class).doWhenDone(scroll));
+    SwingUtilities.invokeLater(scroll);
   }
 
   // this method returns FIRST selected row but not LEAD
@@ -2022,5 +2022,13 @@ public final class TreeUtil {
     TreePath path = tree.getPathForRow(row);
     if (path == null) throw new NullPointerException("path is not found at row " + row);
     return path;
+  }
+
+  /**
+   * @deprecated Use {@link #hasManyNodes} instead
+   */
+  @Deprecated(forRemoval = true)
+  public static boolean hasManyChildren(@NotNull TreeNode node, int threshold) {
+    return hasManyNodes(node, threshold);
   }
 }

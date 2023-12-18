@@ -756,6 +756,11 @@ public abstract class MasterDetailsComponent implements Configurable, DetailsCom
       SimpleTextAttributes attributes = node.isDisplayInBold() ? SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES :
                                         SimpleTextAttributes.REGULAR_ATTRIBUTES;
       append(node.getDisplayName(), SimpleTextAttributes.merge(getAdditionalAttributes(node), attributes));
+      String locationString = node.getLocationString();
+      if (locationString != null) {
+        append(" ");
+        append(locationString, SimpleTextAttributes.GRAYED_ATTRIBUTES);
+      }
     }
 
     protected @NotNull SimpleTextAttributes getAdditionalAttributes(@NotNull MyNode node) {
@@ -767,15 +772,7 @@ public abstract class MasterDetailsComponent implements Configurable, DetailsCom
     private final @Nullable Predicate<Object[]> myCondition;
 
     public MyDeleteAction() {
-      this((Predicate<Object[]>)null);
-    }
-
-    /**
-     * @deprecated Use {@link #MyDeleteAction(Predicate)}
-     */
-    @Deprecated(forRemoval = true)
-    public MyDeleteAction(@Nullable Condition<Object[]> availableCondition) {
-      this(availableCondition == null ? null : (Predicate<Object[]>)availableCondition::value);
+      this(null);
     }
 
     public MyDeleteAction(@Nullable Predicate<Object[]> availableCondition) {
@@ -844,6 +841,10 @@ public abstract class MasterDetailsComponent implements Configurable, DetailsCom
       if (configurable != null) return configurable.getDisplayName();
       LOG.debug("Tree was already disposed"); // workaround for IDEA-206547
       return "DISPOSED";
+    }
+
+    public @Nullable @NlsContexts.PopupTitle String getLocationString() {
+      return null;
     }
 
     public NamedConfigurable getConfigurable() {

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.LongStream;
 
 public abstract class IntToMultiIntMapTestBase<M extends DurableIntToMultiIntMap> {
 
@@ -19,25 +20,21 @@ public abstract class IntToMultiIntMapTestBase<M extends DurableIntToMultiIntMap
 
   protected M multimap;
 
-  public IntToMultiIntMapTestBase() {
-    this(500_000);
-  }
-
-  public IntToMultiIntMapTestBase(int entriesCountToTest) { this.entriesCountToTest = entriesCountToTest; }
+  protected IntToMultiIntMapTestBase(int entriesCountToTest) { this.entriesCountToTest = entriesCountToTest; }
 
   @BeforeEach
   void setUp(@TempDir Path tempDir) throws IOException {
-    multimap = create(tempDir);
+    multimap = openInDir(tempDir);
   }
 
   @AfterEach
   void tearDown() throws IOException {
     if (multimap != null) {
-      multimap.close();
+      multimap.closeAndClean();
     }
   }
 
-  protected abstract M create(@NotNull Path tempDir) throws IOException;
+  protected abstract M openInDir(@NotNull Path tempDir) throws IOException;
 
   @Test
   public void ZERO_IS_PROHIBITED_KEY() throws IOException {
@@ -130,22 +127,22 @@ public abstract class IntToMultiIntMapTestBase<M extends DurableIntToMultiIntMap
 
 
   @Test
-  public void withManyKeyValuesPut_SizeIsCountOfTruthReturned() throws IOException {
+  public void withManyKeyValuesPut_SizeIsEqualToNumberOfTruthReturned() throws IOException {
     long[] packedKeysValues = generateUniqueKeyValues(entriesCountToTest);
 
-    int entriesPut = 0;
+    int truthsReturnedFromPut = 0;
     for (long packedKeyValue : packedKeysValues) {
       int key = key(packedKeyValue);
       int value = value(packedKeyValue);
 
       if (multimap.put(key, value)) {
-        entriesPut++;
+        truthsReturnedFromPut++;
       }
 
       assertEquals(
-        entriesPut,
+        truthsReturnedFromPut,
         multimap.size(),
-        entriesPut + " entries were really put to multimap"
+        truthsReturnedFromPut + " entries were really put to multimap"
       );
     }
   }
@@ -175,26 +172,18 @@ public abstract class IntToMultiIntMapTestBase<M extends DurableIntToMultiIntMap
   }
 
 
+  @Test
+  public void closeIsSafeToCallTwice() throws IOException {
+    multimap.close();
+    multimap.close();
+  }
+
   //TODO RC: test modification of records
   //TODO RC: test many multi-mapping (>1 value for the same key)
 
 
   /* ======================== infrastructure: ================================================================ */
 
-
-  //private static void assertInvariant_ValuesForEachKeysAreUnique(final DurableIntToMultiIntMap multimap) throws IOException {
-  //  IntOpenHashSet keys = new IntOpenHashSet();
-  //  multimap.forEach((key, value) -> keys.add(key));
-  //  for (int key : keys) {
-  //    IntOpenHashSet values = new IntOpenHashSet();
-  //    multimap.lookup(key, value -> {
-  //      if (!values.add(value)) {
-  //        fail("get(" + key + ") values are non-unique: value[" + value + "] was already reported " + values);
-  //      }
-  //      return true;
-  //    });
-  //  }
-  //}
 
   private int lookupSingleValue(int key,
                                 int value) throws IOException {
@@ -223,6 +212,12 @@ public abstract class IntToMultiIntMapTestBase<M extends DurableIntToMultiIntMap
     return ThreadLocalRandom.current().longs()
       .filter(v -> key(v) != NO_VALUE
                    && value(v) != NO_VALUE)
+      //generate more multi-keys, to better check apt branches
+      .flatMap(v -> switch ((int)(v % 14)) {
+        case 13 -> LongStream.of(v, v + 1, v - 1, v + 42, v - 42);
+        case 10, 11, 12 -> LongStream.of(v, v + 1);
+        default -> LongStream.of(v);
+      })
       .distinct()
       .limit(size)
       .toArray();

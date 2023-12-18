@@ -43,7 +43,7 @@ envs {
   String python39version = "3.9.13"
   String python310version = "3.10.8"
   String python311version = "3.11.0"
-  String python312version = "3.12.0rc2"
+  String python312version = "3.12.0"
 
   bootstrapDirectory = new File(System.getenv().getOrDefault("PYCHARM_PYTHONS", new File(buildDir, 'pythons').path))
   envsDirectory = new File(System.getenv().getOrDefault("PYCHARM_PYTHON_VIRTUAL_ENVS", new File(buildDir, 'envs').path))
@@ -54,13 +54,13 @@ envs {
   if (isWindows) {
     // On Windows you almost always want to use cache server except you are outside of JB
     def zipRepositoryURL = new URL(
-      System.getenv().getOrDefault("PYCHARM_ZIP_REPOSITORY", "https://repo.labs.intellij.net/pycharm/python-archives-windows/"))
+      System.getenv().getOrDefault("PYCHARM_ZIP_REPOSITORY", "https://packages.jetbrains.team/files/p/py/python-archives-windows/"))
     try {
       zipRepositoryURL.getContent()
     }
     catch (Exception ignored) {
       zipRepositoryURL = null
-      System.err.println("Cache server is only accessible from JB network. Will try to build python from scratch. Use cache if possible")
+      System.err.println("Cache server is unavailable. Will try to build python from scratch.")
     }
     if (zipRepositoryURL != null) {
       zipRepository = zipRepositoryURL
@@ -184,8 +184,8 @@ envs {
 
   createPython("python3.12",
                python312version,
-               [],
-               "python3\npython3.12")
+               ["teamcity-messages"],
+               "python3\npython3.12\nmessages")
 
   createPython("py27",
                python27version,

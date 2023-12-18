@@ -27,17 +27,23 @@
       "playBack.svg": "actions/play_back.svg",
       "playForward.svg": "actions/play_forward.svg",
       "playLast.svg": "actions/play_last.svg",
+      "preview.svg": "actions/preview.svg",
       "profileCPU.svg": "actions/profileCPU.svg",
+      "profileMemory.svg": "actions/profileMemory.svg",
+      "profileRed.svg": "actions/profileRed.svg",
       "projectDirectory.svg": "actions/projectDirectory.svg",
       "runAll.svg": "actions/runAll.svg",
       "reformatCode.svg": "actions/reformatCode.svg",
+      "report.svg": "actions/report.svg",
       "rerunAutomatically.svg": "actions/rerunAutomatically.svg",
       "showReadAccess.svg": "actions/showReadAccess.svg",
       "showWriteAccess.svg": "actions/showWriteAccess.svg",
       "split.svg": "modules/split.svg",
+      "startMemoryProfile.svg": "actions/startMemoryProfile.svg",
       "swapPanels.svg": "actions/swapPanels.svg",
       "synchronizeScrolling.svg": "actions/synchronizeScrolling.svg",
       "showImportStatements.svg": "actions/showImportStatements.svg",
+      "suggestedRefactoringBulb.svg": "actions/suggestedRefactoringBulb.svg",
       "toggleVisibility.svg": "actions/toggleVisibility.svg",
       "undeploy.svg": "nodes/undeploy.svg"
     },
@@ -92,12 +98,31 @@
     },
     "codeWithMe": {
       "cwmAccess.svg": "codeWithMe/cwmAccess.svg",
+      "cwmCamAvatarOff.svg": "codeWithMe/cwmCamAvatarOff.svg",
+      "cwmCamAvatarOn.svg": "codeWithMe/cwmCamAvatarOn.svg",
+      "cwmCamOff.svg": "codeWithMe/cwmCamOff.svg",
+      "cwmCamOn.svg": "codeWithMe/cwmCamOn.svg",
       "cwmDisableCall.svg": "codeWithMe/cwmDisableCall.svg",
       "cwmEnableCall.svg": "codeWithMe/cwmEnableCall.svg",
       "cwmIconModificator.svg": "codeWithMe/cwmIconModificator.svg",
       "cwmIconModificatorMenu.svg": "codeWithMe/cwmIconModificatorMenu.svg",
       "cwmInvite.svg": "codeWithMe/cwmInvite.svg",
-      "cwmUsers.svg": "users.svg"
+      "cwmMicAvatarOff.svg": "codeWithMe/cwmMicAvatarOff.svg",
+      "cwmMicAvatarOn.svg": "codeWithMe/cwmMicAvatarOn.svg",
+      "cwmMicOff.svg": "codeWithMe/cwmMicOff.svg",
+      "cwmMicOn.svg": "codeWithMe/cwmMicOn.svg",
+      "cwmPermissionEdit.svg": "codeWithMe/cwmPermissionEdit.svg",
+      "cwmPermissionFull.svg": "codeWithMe/cwmPermissionFull.svg",
+      "cwmPermissions.svg": "codeWithMe/cwmPermissions.svg",
+      "cwmPermissionsDenied.svg": "codeWithMe/cwmPermissionsDenied.svg",
+      "cwmPermissionsGranted.svg": "codeWithMe/cwmPermissionsGranted.svg",
+      "cwmPermissionView.svg": "codeWithMe/cwmPermissionView.svg",
+      "cwmScreenInBrowserOff.svg": "codeWithMe/cwmScreenInBrowserOff.svg",
+      "cwmScreenInBrowserOn.svg": "codeWithMe/cwmScreenInBrowserOn.svg",
+      "cwmScreenOff.svg": "codeWithMe/cwmScreenOff.svg",
+      "cwmScreenOn.svg": "codeWithMe/cwmScreenOn.svg",
+      "cwmUsers.svg": "users.svg",
+      "cwmVerified.svg": "codeWithMe/cwmVerified.svg"
     },
     "debugger": {
       "addToWatch.svg": "debugger/addToWatch.svg",
@@ -191,9 +216,8 @@
       "jsp.svg": "fileTypes/jsp.svg",
       "jspx.svg": "fileTypes/jspx.svg",
       "less.svg": "icons/less.svg",
-      "lombok.svg": "icons/lombok.svg",
-      "lombokConfig.svg": "icons/config.svg",
       "manifest.svg": "fileTypes/manifest.svg",
+      "microsoftWindows.svg": "fileTypes/microsoftWindows.svg",
       "modified.svg": "general/modified.svg",
       "patch.svg": "vcs/patch_file.svg",
       "properties.svg": "fileTypes/properties.svg",
@@ -289,9 +313,11 @@
       "collapseAll.svg": "actions/collapseall.svg",
       "copy.svg": "actions/copy.svg",
       "cut.svg": "actions/menu-cut.svg",
+      "debugDisabled.svg": "general/debugDisabled.svg",
       "delete.svg": "actions/gc.svg",
       "down.svg": "actions/nextOccurence.svg",
       "download.svg": "actions/download.svg",
+      "drag.svg": "general/drag.svg",
       "dropdown.svg": "general/dropdown.svg",
       "dropdownGutter.svg": "general/dropdownGutter.svg",
       "edit.svg": [
@@ -366,10 +392,12 @@
       "unlocked.svg": "ide/readwrite.svg",
       "up.svg": "actions/previousOccurence.svg",
       "upload.svg": "actions/upload.svg",
+      "readerMode.svg": "general/readerMode.svg",
       "redo.svg": "actions/redo.svg",
       "undo.svg": "actions/undo.svg",
       "save.svg": "actions/menu-saveall.svg",
       "print.svg": "general/print.svg",
+      "projectConfigurable.svg": "general/projectConfigurable.svg",
       "projectWideAnalysisOff.svg": "actions/projectWideAnalysisOff.svg",
       "projectWideAnalysisOn.svg": "actions/projectWideAnalysisOn.svg",
       "softWrap.svg": "actions/toggleSoftWrap.svg",
@@ -410,6 +438,7 @@
       "writeAccess.svg": "gutter/writeAccess.svg"
     },
     "hierarchy": {
+      "classHierarchy.svg": "hierarchy/class.svg",
       "subtypes.svg": "hierarchy/subtypes.svg",
       "supertypes.svg": "hierarchy/supertypes.svg"
     },
@@ -420,7 +449,10 @@
       "feedbackRatingFocused.svg": "ide/feedbackRatingFocused.svg",
       "feedbackRatingFocusedOn.svg": "ide/feedbackRatingFocusedOn.svg",
       "feedbackRatingOn.svg": "ide/feedbackRatingOn.svg",
-      "localScope.svg": ["ide/localScope.svg", "ide/localScopeAction.svg"]
+      "localScope.svg": [
+        "ide/localScope.svg",
+        "ide/localScopeAction.svg"
+      ]
     },
     "image": {
       "actualZoom.svg": "graph/actualZoom.svg",
@@ -702,22 +734,34 @@
       ],
       "applicationRemote.svg": "runConfigurations/remote.svg",
       "compound.svg": "runConfigurations/compound.svg",
+      "ignoredTest.svg": "runConfigurations/ignoredTest.svg",
       "invalidConfigurationLayer.svg": "runConfigurations/invalidConfigurationLayer.svg",
       "junit.svg": "runConfigurations/junit.svg",
       "junitTestMark.svg": "runConfigurations/testMark.svg",
+      "multiLaunch.svg": "runConfigurations/multiLaunch.svg",
       "sortByDuration.svg": "runConfigurations/sortbyDuration.svg",
       "webApp.svg": "runConfigurations/web_app.svg"
     },
     "status": {
       "error.svg": [
         "general/balloonError.svg",
-        "ide/fatalError.svg"
+        "ide/fatalError.svg",
+        "general/error.svg"
       ],
       "errorOutline.svg": "ide/fatalError-read.svg",
       "failedInProgress.svg": "status/failedInProgress.svg",
-      "info.svg": "general/balloonInformation.svg",
-      "infoOutline.svg": "general/showInfos.svg",
-      "warning.svg": "general/balloonWarning.svg",
+      "info.svg": [
+        "general/balloonInformation.svg",
+        "general/information.svg"
+      ],
+      "infoOutline.svg": [
+        "general/showInfos.svg",
+        "general/note.svg"
+      ],
+      "warning.svg": [
+        "general/balloonWarning.svg",
+        "general/warning.svg"
+      ],
       "warningOutline.svg": "general/showWarning.svg"
     },
     "table": {
@@ -802,6 +846,9 @@
       "createNewProjectTab.svg": "welcome/createNewProjectTab.svg",
       "fromVCSTab.svg": "welcome/fromVCSTab.svg",
       "open.svg": "welcome/open.svg"
+    },
+    "ultimate": {
+      "lock.svg": "ultimate/lock.svg"
     }
   }
 }

@@ -8,7 +8,6 @@ import com.intellij.ide.projectView.ProjectViewPsiTreeChangeListener;
 import com.intellij.ide.projectView.impl.ProjectViewPaneSelectionHelper.SelectionDescriptor;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
-import com.intellij.ide.util.treeView.AbstractTreeUpdater;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
@@ -48,6 +47,7 @@ public final class AsyncProjectViewSupport {
   private final ProjectFileNodeUpdater myNodeUpdater;
   private final StructureTreeModel myStructureTreeModel;
   private final AsyncTreeModel myAsyncTreeModel;
+  private boolean myMultiSelectionEnabled = true;
 
   public AsyncProjectViewSupport(@NotNull Disposable parent,
                           @NotNull Project project,
@@ -81,11 +81,6 @@ public final class AsyncProjectViewSupport {
       @Override
       protected boolean isFlattenPackages() {
         return structure instanceof AbstractProjectTreeStructure && ((AbstractProjectTreeStructure)structure).isFlattenPackages();
-      }
-
-      @Override
-      protected AbstractTreeUpdater getUpdater() {
-        return null;
       }
 
       @Override
@@ -219,18 +214,25 @@ public final class AsyncProjectViewSupport {
     myAsyncTreeModel.accept(visitor).onProcessed(path -> myAsyncTreeModel.onValidThread(task));
   }
 
-  private static boolean selectPaths(@NotNull JTree tree, @NotNull List<TreePath> paths, @NotNull TreeVisitor visitor) {
+  public void setMultiSelectionEnabled(boolean enabled) {
+    myMultiSelectionEnabled = enabled;
+  }
+
+  private boolean selectPaths(@NotNull JTree tree, @NotNull List<TreePath> paths, @NotNull TreeVisitor visitor) {
     if (paths.isEmpty()) {
       SelectInProjectViewImplKt.getLOG().debug("Nothing to select");
       return false;
     }
-    if (paths.size() > 1) {
+    if (paths.size() > 1 && myMultiSelectionEnabled) {
       if (visitor instanceof ProjectViewNodeVisitor nodeVisitor) {
         return selectPaths(tree, new SelectionDescriptor(nodeVisitor.getElement(), nodeVisitor.getFile(), paths));
       }
       if (visitor instanceof ProjectViewFileVisitor fileVisitor) {
         return selectPaths(tree, new SelectionDescriptor(null, fileVisitor.getElement(), paths));
       }
+    }
+    if (!myMultiSelectionEnabled) {
+      SelectInProjectViewImplKt.getLOG().debug("Selecting only the first path because multi-selection is disabled");
     }
     TreePath path = paths.get(0);
     tree.expandPath(path); // request to expand found path

@@ -3,7 +3,12 @@ package com.intellij.platform.workspace.storage.impl
 
 import com.github.benmanes.caffeine.cache.Cache
 import com.github.benmanes.caffeine.cache.Caffeine
+import com.intellij.platform.diagnostic.telemetry.TelemetryManager
+import com.intellij.platform.diagnostic.telemetry.WorkspaceModel
+import com.intellij.platform.diagnostic.telemetry.helpers.*
 import com.intellij.platform.workspace.storage.*
+import io.opentelemetry.api.metrics.Meter
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 private class ValuesCache {
@@ -12,39 +17,104 @@ private class ValuesCache {
     Caffeine.newBuilder().build()
 
   fun <R> cachedValue(value: CachedValue<R>, storage: EntityStorageSnapshot): R {
-    val o = cachedValues.getIfPresent(value)
+    val start = System.nanoTime()
+    val o: Any? = cachedValues.getIfPresent(value)
+    var valueToReturn: R? = null
+
     // recursive update - loading get cannot be used
     if (o != null) {
       @Suppress("UNCHECKED_CAST")
-      return o as R
+      valueToReturn = o as R
+      cachedValueFromCacheNanosec.addElapsedTimeNanosec(start)
     }
     else {
-      val newValue = value.source(storage)!!
-      cachedValues.put(value, newValue)
-      return newValue
+      cachedValueCalculatedNanosec.addMeasuredTimeNanosec {
+        valueToReturn = value.source(storage)!!
+        cachedValues.put(value, valueToReturn)
+      }
     }
+
+    return requireNotNull(valueToReturn) { "Cached value must not be null" }
   }
 
   fun <P, R> cachedValue(value: CachedValueWithParameter<P, R>, parameter: P, storage: EntityStorageSnapshot): R {
+    val start = System.nanoTime()
     // recursive update - loading get cannot be used
     val o = cachedValuesWithParameter.getIfPresent(value to parameter)
+    var valueToReturn: R? = null
+
     if (o != null) {
       @Suppress("UNCHECKED_CAST")
-      return o as R
+      valueToReturn = o as R
+      cachedValueWithParametersFromCacheNanosec.addElapsedTimeNanosec(start)
     }
     else {
-      val newValue = value.source(storage, parameter)!!
-      cachedValuesWithParameter.put(value to parameter, newValue)
-      return newValue
+      cachedValueWithParametersCalculatedNanosec.addMeasuredTimeNanosec {
+        valueToReturn = value.source(storage, parameter)!!
+        cachedValuesWithParameter.put(value to parameter, valueToReturn)
+      }
     }
+
+    return requireNotNull(valueToReturn) { "Cached value with parameter must not be null" }
   }
 
   fun <R> clearCachedValue(value: CachedValue<R>) {
-    cachedValues.invalidate(value)
+    cachedValueClearNanosec.addMeasuredTimeNanosec { cachedValues.invalidate(value) }
   }
 
   fun <P, R> clearCachedValue(value: CachedValueWithParameter<P, R>, parameter: P) {
-    cachedValuesWithParameter.invalidate(value to parameter)
+    cachedValueWithParametersClearNanosec.addMeasuredTimeNanosec { cachedValuesWithParameter.invalidate(value to parameter) }
+  }
+
+  companion object {
+    private val cachedValueFromCacheNanosec: AtomicLong = AtomicLong()
+    private val cachedValueCalculatedNanosec: AtomicLong = AtomicLong()
+
+    private val cachedValueWithParametersFromCacheNanosec: AtomicLong = AtomicLong()
+    private val cachedValueWithParametersCalculatedNanosec: AtomicLong = AtomicLong()
+
+    private val cachedValueClearNanosec: AtomicLong = AtomicLong()
+    private val cachedValueWithParametersClearNanosec: AtomicLong = AtomicLong()
+
+    private fun setupOpenTelemetryReporting(meter: Meter): Unit {
+      val cachedValueFromCacheCounter = meter.counterBuilder("workspaceModel.cachedValue.from.cache.ms").buildObserver()
+      val cachedValueCalculatedCounter = meter.counterBuilder("workspaceModel.cachedValue.calculated.ms").buildObserver()
+      val cachedValueTotalCounter = meter.counterBuilder("workspaceModel.cachedValue.total.get.ms").buildObserver()
+
+      val cachedValueWithParametersFromCacheCounter = meter.counterBuilder("workspaceModel.cachedValueWithParameters.from.cache.ms").buildObserver()
+      val cachedValueWithParametersCalculatedCounter = meter.counterBuilder("workspaceModel.cachedValueWithParameters.calculated.ms").buildObserver()
+      val cachedValueWithParametersTotalCounter = meter.counterBuilder("workspaceModel.cachedValueWithParameters.total.get.ms").buildObserver()
+
+      val cachedValueClearCounter = meter.counterBuilder("workspaceModel.cachedValue.clear.ms").buildObserver()
+      val cachedValueWithParametersClearCounter = meter.counterBuilder("workspaceModel.cachedValueWithParameters.clear.ms").buildObserver()
+
+      meter.batchCallback(
+        {
+          cachedValueFromCacheCounter.record(cachedValueFromCacheNanosec.fromNanosecToMillis())
+          cachedValueCalculatedCounter.record(cachedValueCalculatedNanosec.fromNanosecToMillis())
+          cachedValueTotalCounter.record(cachedValueFromCacheNanosec.fromNanosecToMillis().plus(cachedValueCalculatedNanosec.fromNanosecToMillis()))
+
+          cachedValueWithParametersFromCacheCounter.record(cachedValueWithParametersFromCacheNanosec.fromNanosecToMillis())
+          cachedValueWithParametersCalculatedCounter.record(cachedValueWithParametersCalculatedNanosec.fromNanosecToMillis())
+          cachedValueWithParametersTotalCounter.record(
+            cachedValueWithParametersFromCacheNanosec.fromNanosecToMillis().plus(cachedValueWithParametersCalculatedNanosec.fromNanosecToMillis())
+          )
+
+          cachedValueClearCounter.record(cachedValueClearNanosec.fromNanosecToMillis())
+          cachedValueWithParametersClearCounter.record(cachedValueWithParametersClearNanosec.fromNanosecToMillis())
+        },
+        cachedValueFromCacheCounter, cachedValueCalculatedCounter, cachedValueTotalCounter,
+
+        cachedValueWithParametersFromCacheCounter, cachedValueWithParametersCalculatedCounter,
+        cachedValueWithParametersTotalCounter,
+
+        cachedValueClearCounter, cachedValueWithParametersClearCounter
+      )
+    }
+
+    init {
+      setupOpenTelemetryReporting(TelemetryManager.getMeter(WorkspaceModel))
+    }
   }
 }
 
@@ -116,7 +186,7 @@ public class DummyVersionedEntityStorage(private val builder: MutableEntityStora
 
   override fun <R> cachedValue(value: CachedValue<R>): R = value.source(current)
   override fun <P, R> cachedValue(value: CachedValueWithParameter<P, R>, parameter: P): R = value.source(current, parameter)
-  override fun <R> clearCachedValue(value: CachedValue<R>) { }
+  override fun <R> clearCachedValue(value: CachedValue<R>) {}
   override fun <P, R> clearCachedValue(value: CachedValueWithParameter<P, R>, parameter: P) {}
 }
 

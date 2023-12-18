@@ -25,6 +25,7 @@ public final class PluginNode implements IdeaPluginDescriptor {
 
   private @NotNull PluginId id;
   private String name;
+  private boolean isPaid = false;
   private String productCode;
   private Date releaseDate;
   private int releaseVersion;
@@ -32,6 +33,9 @@ public final class PluginNode implements IdeaPluginDescriptor {
   private String version;
   private String vendor;
   private String organization;
+  private String verifiedName;
+  private boolean verified;
+  private boolean trader;
   private @NlsSafe String description;
   private String sinceBuild;
   private String untilBuild;
@@ -67,7 +71,6 @@ public final class PluginNode implements IdeaPluginDescriptor {
   private String mySuggestedCommercialIde = null;
   private Collection<String> mySuggestedFeatures;
   private boolean myConverted;
-
   private Collection<String> dependencyNames;
 
   /**
@@ -102,6 +105,14 @@ public final class PluginNode implements IdeaPluginDescriptor {
 
   public void setId(@NotNull String id) {
     this.id = PluginId.getId(id);
+  }
+
+  public boolean getIsPaid() {
+    return isPaid;
+  }
+
+  public void setIsPaid(boolean isPaid) {
+    this.isPaid = isPaid;
   }
 
   @Override
@@ -200,6 +211,30 @@ public final class PluginNode implements IdeaPluginDescriptor {
 
   public void setOrganization(@Nullable String organization) {
     this.organization = organization;
+  }
+
+  public String getVerifiedName() {
+    return verifiedName;
+  }
+
+  public void setVerifiedName(String verifiedName) {
+    this.verifiedName = verifiedName;
+  }
+
+  public boolean isVerified() {
+    return verified;
+  }
+
+  public void setVerified(boolean verified) {
+    this.verified = verified;
+  }
+
+  public boolean isTrader() {
+    return trader;
+  }
+
+  public void setTrader(boolean trader) {
+    this.trader = trader;
   }
 
   @Override

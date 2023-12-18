@@ -5,6 +5,7 @@ import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
 import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.lang.jvm.actions.JvmElementActionsFactory;
+import com.intellij.modcommand.ModCommandAction;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
@@ -517,7 +518,7 @@ public abstract class QuickFixFactory {
 
   /**
    * @deprecated error elements are not provided anymore for members declared out of class.
-   * Now they are members of an unnamed class and can be moved as usual members.
+   * Now they are members of an implicitly declared class and can be moved as usual members.
    */
   @Deprecated
   public abstract @NotNull IntentionAction createMoveMemberIntoClassFix(@NotNull PsiErrorElement errorElement);
@@ -630,7 +631,14 @@ public abstract class QuickFixFactory {
   @NotNull
   public abstract IntentionAction createDeleteFix(@NotNull PsiElement @NotNull [] elements, @NotNull @Nls String text);
 
+  @NotNull
+  public abstract ModCommandAction createReplaceCaseDefaultWithDefaultFix(@NotNull PsiCaseLabelElementList list);
+
+
+  @NotNull
+  public abstract ModCommandAction createReverseCaseDefaultNullFixFix(@NotNull PsiCaseLabelElementList list);
+
   @ApiStatus.Experimental
   @NotNull
-  public abstract IntentionAction createAddMainMethodFix(@NotNull PsiUnnamedClass unnamedClass);
+  public abstract IntentionAction createAddMainMethodFix(@NotNull PsiImplicitClass implicitClass);
 }

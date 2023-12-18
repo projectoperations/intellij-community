@@ -3,13 +3,16 @@
 
 package org.jetbrains.intellij.build
 
-import kotlinx.collections.immutable.*
+import com.intellij.util.containers.withAll
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.plus
 import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.PlatformJarNames.TEST_FRAMEWORK_JAR
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.kotlin.KotlinPluginBuilder
 
-private val BASE_CLASS_VERSIONS = persistentHashMapOf(
+private val BASE_CLASS_VERSIONS: Map<String, String> = java.util.Map.copyOf(hashMapOf(
   "" to "17",
   "lib/idea_rt.jar" to "1.7",
   "lib/forms_rt.jar" to "1.7",
@@ -27,8 +30,7 @@ private val BASE_CLASS_VERSIONS = persistentHashMapOf(
   "plugins/maven/lib/maven3-server-common.jar" to "1.8",
   "plugins/maven/lib/maven3-server.jar" to "1.8",
   "plugins/maven/lib/artifact-resolver-m31.jar" to "1.7",
-  "plugins/xpath/lib/rt/xslt-rt.jar" to "1.7",
-)
+))
 
 /**
  * Default bundled plugins for all editions of IntelliJ IDEA.
@@ -36,7 +38,7 @@ private val BASE_CLASS_VERSIONS = persistentHashMapOf(
  */
 @Suppress("SpellCheckingInspection")
 val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + persistentListOf(
-  "intellij.java.plugin",
+  JavaPluginLayout.MAIN_MODULE_NAME,
   "intellij.java.ide.customization",
   "intellij.copyright",
   "intellij.properties",
@@ -67,16 +69,11 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + per
   "intellij.groovy",
   "intellij.junit",
   "intellij.testng",
-  "intellij.xpath",
-  "intellij.android.plugin",
-  "intellij.android.design-plugin",
   "intellij.java.i18n",
-  "intellij.ant",
   "intellij.java.guiForms.designer",
   "intellij.java.byteCodeViewer",
   "intellij.java.coverage",
   "intellij.java.decompiler",
-  "intellij.devkit",
   "intellij.eclipse",
   "intellij.platform.langInjection",
   "intellij.java.debugger.streams",
@@ -99,7 +96,7 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + per
   "intellij.turboComplete",
 )
 
-val CE_CLASS_VERSIONS: PersistentMap<String, String> = BASE_CLASS_VERSIONS.putAll(persistentHashMapOf(
+val CE_CLASS_VERSIONS: Map<String, String> = BASE_CLASS_VERSIONS.withAll(hashMapOf(
   "plugins/java/lib/jshell-frontend.jar" to "9",
   "plugins/java/lib/sa-jdwp" to "",  // ignored
   "plugins/java/lib/rt/debugger-agent.jar" to "1.7",
@@ -118,7 +115,6 @@ val TEST_FRAMEWORK_WITH_JAVA_RT: (PlatformLayout, BuildContext) -> Unit = { layo
     layout.withModule(name, "testFramework.jar")
   }
 }
-
 
 /**
  * Base class for all editions of IntelliJ IDEA
@@ -172,7 +168,7 @@ abstract class BaseIdeaProperties : JetBrainsProductProperties() {
     }
 
     productLayout.compatiblePluginsToIgnore = persistentListOf(
-      "intellij.java.plugin",
+      JavaPluginLayout.MAIN_MODULE_NAME,
     )
     additionalModulesToCompile = persistentListOf("intellij.tools.jps.build.standalone")
     modulesToCompileTests = persistentListOf("intellij.platform.jps.build.tests")

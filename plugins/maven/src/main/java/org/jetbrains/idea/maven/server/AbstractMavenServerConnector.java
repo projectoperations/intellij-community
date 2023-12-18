@@ -25,6 +25,7 @@ public abstract class AbstractMavenServerConnector implements MavenServerConnect
   protected final Sdk myJdk;
   protected final Set<String> myMultimoduleDirectories = ConcurrentHashMap.newKeySet();
   private final Object embedderLock = new Object();
+  private final Exception myCreationTrace = new Exception();
 
   protected final String myVmOptions;
 
@@ -76,11 +77,12 @@ public abstract class AbstractMavenServerConnector implements MavenServerConnect
 
   @Override
   @NotNull
-  public MavenModel interpolateAndAlignModel(final MavenModel model, final Path basedir) {
+  public MavenModel interpolateAndAlignModel(@NotNull MavenModel model, @NotNull Path basedir, @NotNull Path pomDir) {
     return perform(() -> {
       RemotePathTransformerFactory.Transformer transformer = RemotePathTransformerFactory.createForProject(myProject);
       File targetBasedir = new File(transformer.toRemotePathOrSelf(basedir.toString()));
-      MavenModel m = getServer().interpolateAndAlignModel(model, targetBasedir, MavenRemoteObjectWrapper.ourToken);
+      File targetPomDir = new File(transformer.toRemotePathOrSelf(pomDir.toString()));
+      MavenModel m = getServer().interpolateAndAlignModel(model, targetBasedir, targetPomDir, MavenRemoteObjectWrapper.ourToken);
       if (transformer != RemotePathTransformerFactory.Transformer.ID) {
         new MavenBuildPathsChange((String s) -> transformer.toIdePath(s), s -> transformer.canBeRemotePath(s)).perform(m);
       }
@@ -107,7 +109,7 @@ public abstract class AbstractMavenServerConnector implements MavenServerConnect
       });
   }
 
-  protected abstract  <R, E extends Exception> R perform(Retriable<R, E> r) throws E;
+  protected abstract <R, E extends Exception> R perform(Retriable<R, E> r) throws E;
 
   @Override
   public void dispose() {
@@ -144,7 +146,7 @@ public abstract class AbstractMavenServerConnector implements MavenServerConnect
 
   @Override
   public MavenServerStatus getDebugStatus(boolean clean) {
-    return perform( ()-> {
+    return perform(() -> {
       return getServer().getDebugStatus(clean);
     });
   }
@@ -156,6 +158,7 @@ public abstract class AbstractMavenServerConnector implements MavenServerConnect
            ", myDistribution=" + myDistribution.getMavenHome() +
            ", myJdk=" + myJdk.getName() +
            ", myMultimoduleDirectories=" + myMultimoduleDirectories +
+           ", myCreationTrace = " + ExceptionUtil.getThrowableText(myCreationTrace) +
            '}';
   }
 

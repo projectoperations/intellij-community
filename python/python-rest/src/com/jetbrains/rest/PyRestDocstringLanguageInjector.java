@@ -26,7 +26,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-public class PyRestDocstringLanguageInjector implements LanguageInjector {
+public final class PyRestDocstringLanguageInjector implements LanguageInjector {
   @Override
   public void getLanguagesToInject(@NotNull final PsiLanguageInjectionHost host, @NotNull final InjectedLanguagePlaces injectionPlacesRegistrar) {
     if (host instanceof RestLine) {
@@ -75,7 +75,7 @@ public class PyRestDocstringLanguageInjector implements LanguageInjector {
     }
   }
 
-  private int getEndOffset(int start, String s) {
+  private static int getEndOffset(int start, String s) {
     int length = s.length();
     int end = start + length;
     if (s.endsWith("\n"))

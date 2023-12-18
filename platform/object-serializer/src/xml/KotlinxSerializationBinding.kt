@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.serialization.xml
 
 import com.intellij.util.xml.dom.XmlElement
@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import org.jdom.CDATA
 import org.jdom.Element
 import org.jdom.Text
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
 
@@ -23,27 +24,29 @@ private val json = Json {
 private val lookup = MethodHandles.lookup()
 private val kotlinMethodType = MethodType.methodType(KSerializer::class.java)
 
-internal class KotlinxSerializationBinding(aClass: Class<*>) : NotNullDeserializeBinding() {
+@Internal
+class KotlinxSerializationBinding(aClass: Class<*>) : NotNullDeserializeBinding() {
   private val serializer: KSerializer<Any>
 
   init {
-    // don't use official `::kotlin.get().serializer()` API — avoid kotlin refection wrapper creation
-    // findStaticGetter cannot be used because type of Companion not used
-    val field = aClass.getDeclaredField("Companion")
-    field.isAccessible = true
-    val companion = lookup.unreflectGetter(field).invoke()
+    val findStaticGetter = lookup.findStaticGetter(aClass, "Companion", aClass.classLoader.loadClass(aClass.name + "\$Companion"))
+    val companion = findStaticGetter.invoke()
     @Suppress("UNCHECKED_CAST")
     serializer = lookup.findVirtual(companion.javaClass, "serializer", kotlinMethodType).invoke(companion) as KSerializer<Any>
   }
 
   override fun serialize(o: Any, context: Any?, filter: SerializationFilter?): Any {
     val element = Element("state")
-    val json = json.encodeToString(serializer, o)
+    val json = encodeToJson(o)
     if (!json.isEmpty() && json != "{\n}") {
       element.addContent(CDATA(json))
     }
     return element
   }
+
+  fun encodeToJson(o: Any): String = json.encodeToString(serializer, o)
+
+  fun decodeFromJson(data: String): Any = json.decodeFromString(serializer, data)
 
   override fun isBoundTo(element: Element): Boolean {
     throw UnsupportedOperationException("Only root object is supported")
@@ -59,7 +62,7 @@ internal class KotlinxSerializationBinding(aClass: Class<*>) : NotNullDeserializ
       LOG.debug("incorrect data (old format?) for $serializer")
       return json.decodeFromString(serializer, "{}")
     }
-    return json.decodeFromString(serializer, cdata.text)
+    return decodeFromJson(cdata.text)
   }
 
   override fun deserialize(context: Any?, element: XmlElement): Any {

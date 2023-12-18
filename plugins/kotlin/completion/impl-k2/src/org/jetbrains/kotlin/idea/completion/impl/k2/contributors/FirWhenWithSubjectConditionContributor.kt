@@ -14,8 +14,10 @@ import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtNamedSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithTypeParameters
-import org.jetbrains.kotlin.analysis.api.types.*
+import org.jetbrains.kotlin.analysis.api.types.KtNonErrorClassType
+import org.jetbrains.kotlin.analysis.api.types.KtType
 import org.jetbrains.kotlin.descriptors.Modality
+import org.jetbrains.kotlin.idea.base.analysis.api.utils.resolveToExpandedSymbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferencesInRange
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinIconProvider.getIconFor
 import org.jetbrains.kotlin.idea.base.util.letIf
@@ -23,19 +25,15 @@ import org.jetbrains.kotlin.idea.completion.FirCompletionSessionParameters
 import org.jetbrains.kotlin.idea.completion.InsertionHandlerBase
 import org.jetbrains.kotlin.idea.completion.checkers.CompletionVisibilityChecker
 import org.jetbrains.kotlin.idea.completion.context.FirBasicCompletionContext
-import org.jetbrains.kotlin.idea.completion.context.FirWithSubjectEntryPositionContext
-import org.jetbrains.kotlin.idea.completion.contributors.helpers.CompletionSymbolOrigin
+import org.jetbrains.kotlin.idea.completion.contributors.helpers.*
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.FirClassifierProvider.getAvailableClassifiersCurrentScope
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.FirClassifierProvider.getAvailableClassifiersFromIndex
-import org.jetbrains.kotlin.idea.completion.contributors.helpers.KtSymbolWithOrigin
-import org.jetbrains.kotlin.idea.completion.contributors.helpers.addTypeArguments
-import org.jetbrains.kotlin.idea.completion.contributors.helpers.createStarTypeArgumentsList
-import org.jetbrains.kotlin.idea.completion.contributors.helpers.insertString
-import org.jetbrains.kotlin.idea.completion.contributors.helpers.resolveToExpandedSymbol
 import org.jetbrains.kotlin.idea.completion.createKeywordElement
 import org.jetbrains.kotlin.idea.completion.lookups.KotlinLookupObject
+import org.jetbrains.kotlin.idea.completion.reference
 import org.jetbrains.kotlin.idea.completion.weighers.Weighers.applyWeighsToLookupElement
 import org.jetbrains.kotlin.idea.completion.weighers.WeighingContext
+import org.jetbrains.kotlin.idea.util.positionContext.KotlinWithSubjectEntryPositionContext
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -46,7 +44,7 @@ import org.jetbrains.kotlin.renderer.render
 internal class FirWhenWithSubjectConditionContributor(
     basicContext: FirBasicCompletionContext,
     priority: Int,
-) : FirCompletionContributorBase<FirWithSubjectEntryPositionContext>(basicContext, priority) {
+) : FirCompletionContributorBase<KotlinWithSubjectEntryPositionContext>(basicContext, priority) {
     private val prefix: String get() = basicContext.prefixMatcher.prefix
     private val onTypingIsKeyword: Boolean = prefix.isNotEmpty() && KtTokens.IS_KEYWORD.value.startsWith(prefix)
 
@@ -54,7 +52,7 @@ internal class FirWhenWithSubjectConditionContributor(
 
     context(KtAnalysisSession)
     override fun complete(
-        positionContext: FirWithSubjectEntryPositionContext,
+        positionContext: KotlinWithSubjectEntryPositionContext,
         weighingContext: WeighingContext,
         sessionParameters: FirCompletionSessionParameters,
     ) {

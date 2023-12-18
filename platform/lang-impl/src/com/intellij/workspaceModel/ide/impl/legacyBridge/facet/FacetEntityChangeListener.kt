@@ -12,22 +12,23 @@ import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.JDOMUtil
-import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMs
-import com.intellij.platform.workspace.jps.JpsMetrics
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
+import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
+import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
+import com.intellij.platform.workspace.jps.JpsMetrics
+import com.intellij.platform.workspace.jps.entities.FacetEntity
+import com.intellij.platform.workspace.jps.entities.ModuleEntity
+import com.intellij.platform.workspace.jps.entities.ModuleId
+import com.intellij.platform.workspace.jps.entities.ModuleSettingsBase
+import com.intellij.platform.workspace.storage.EntityChange
+import com.intellij.platform.workspace.storage.MutableEntityStorage
+import com.intellij.platform.workspace.storage.VersionedStorageChange
+import com.intellij.platform.workspace.storage.orderToRemoveReplaceAdd
 import com.intellij.workspaceModel.ide.impl.jps.serialization.BaseIdeSerializationContext
 import com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetModelBridge.Companion.facetMapping
 import com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetModelBridge.Companion.mutableFacetMapping
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.ModuleManagerBridgeImpl.Companion.moduleMap
 import com.intellij.workspaceModel.ide.legacyBridge.WorkspaceFacetContributor
-import com.intellij.platform.workspace.storage.EntityChange
-import com.intellij.platform.workspace.storage.MutableEntityStorage
-import com.intellij.platform.workspace.storage.VersionedStorageChange
-import com.intellij.platform.workspace.jps.entities.FacetEntity
-import com.intellij.platform.workspace.jps.entities.ModuleEntity
-import com.intellij.platform.workspace.jps.entities.ModuleId
-import com.intellij.platform.workspace.jps.entities.ModuleSettingsBase
-import com.intellij.platform.workspace.storage.orderToRemoveReplaceAdd
 import io.opentelemetry.api.metrics.Meter
 import kotlinx.coroutines.CoroutineScope
 import java.util.concurrent.atomic.AtomicLong
@@ -37,10 +38,8 @@ internal class FacetEntityChangeListener(private val project: Project, coroutine
   private val publisher: FacetEventsPublisher
     get() = FacetEventsPublisher.getInstance(project)
 
-  fun initializeFacetBridge(changes: Map<Class<*>, List<EntityChange<*>>>, builder: MutableEntityStorage) {
-    val start = System.currentTimeMillis()
-
-    for (facetBridgeContributor in WorkspaceFacetContributor.EP_NAME.extensions) {
+  fun initializeFacetBridge(changes: Map<Class<*>, List<EntityChange<*>>>, builder: MutableEntityStorage) = initializeFacetBridgeTimeMs.addMeasuredTimeMillis {
+    for (facetBridgeContributor in WorkspaceFacetContributor.EP_NAME.extensionList) {
       val facetType = facetBridgeContributor.rootEntityType
       changes[facetType]?.asSequence()?.filterIsInstance<EntityChange.Added<*>>()?.forEach perFacet@{ facetChange ->
         fun createBridge(entity: ModuleSettingsBase): Facet<*> {
@@ -63,30 +62,28 @@ internal class FacetEntityChangeListener(private val project: Project, coroutine
         createBridge(facetChange.newEntity as ModuleSettingsBase)
       }
     }
-
-    initializeFacetBridgeTimeMs.addElapsedTimeMs(start)
   }
 
   class WorkspaceModelListener(project: Project) : WorkspaceModelChangeListener {
     private val facetEntityChangeListener = getInstance(project)
 
     override fun beforeChanged(event: VersionedStorageChange) {
-      WorkspaceFacetContributor.EP_NAME.extensions.forEach { facetBridgeContributor ->
+      for (facetBridgeContributor in WorkspaceFacetContributor.EP_NAME.extensionList) {
         facetEntityChangeListener.processBeforeChangeEvents(event, facetBridgeContributor)
       }
     }
 
     override fun changed(event: VersionedStorageChange) {
-      WorkspaceFacetContributor.EP_NAME.extensions.forEach { facetBridgeContributor ->
+      for (facetBridgeContributor in WorkspaceFacetContributor.EP_NAME.extensionList) {
         facetEntityChangeListener.processChangeEvents(event, facetBridgeContributor)
       }
     }
   }
 
-  private fun processBeforeChangeEvents(event: VersionedStorageChange,
-                                        workspaceFacetContributor: WorkspaceFacetContributor<ModuleSettingsBase>) {
-    val start = System.currentTimeMillis()
-
+  private fun processBeforeChangeEvents(
+    event: VersionedStorageChange,
+    workspaceFacetContributor: WorkspaceFacetContributor<ModuleSettingsBase>
+  ) = processBeforeChangeEventsMs.addMeasuredTimeMillis {
     event
       .getChanges(workspaceFacetContributor.rootEntityType)
       // There are no actual implementations of the facet listener that care about the order of fireFacet* events,
@@ -111,12 +108,12 @@ internal class FacetEntityChangeListener(private val project: Project, coroutine
           }
         }
       }
-
-    processBeforeChangeEventsMs.addElapsedTimeMs(start)
   }
 
-  private fun processChangeEvents(event: VersionedStorageChange, workspaceFacetContributor: WorkspaceFacetContributor<ModuleSettingsBase>) {
-    val start = System.currentTimeMillis()
+  private fun processChangeEvents(
+    event: VersionedStorageChange,
+    workspaceFacetContributor: WorkspaceFacetContributor<ModuleSettingsBase>
+  ) = processChangeEventsMs.addMeasuredTimeMillis {
     val changedFacets = mutableMapOf<Facet<*>, ModuleSettingsBase>()
 
     val addedModulesNames by lazy {
@@ -213,8 +210,8 @@ internal class FacetEntityChangeListener(private val project: Project, coroutine
       }
     }
 
-    val entityTypeToSerializer = BaseIdeSerializationContext.CUSTOM_FACET_RELATED_ENTITY_SERIALIZER_EP.extensions.associateBy { it.rootEntityType }
-    changedFacets.forEach { (facet, rootEntity) ->
+    val entityTypeToSerializer = BaseIdeSerializationContext.CUSTOM_FACET_RELATED_ENTITY_SERIALIZER_EP.extensionList.associateBy { it.rootEntityType }
+    for ((facet, rootEntity) in changedFacets) {
       val serializer = entityTypeToSerializer[rootEntity.getEntityInterface()]
                        ?: error("Unavailable XML serializer for ${rootEntity.getEntityInterface()}")
       val rootElement = serializer.serializeIntoXml(rootEntity)
@@ -234,8 +231,6 @@ internal class FacetEntityChangeListener(private val project: Project, coroutine
         publisher.fireFacetConfigurationChanged(facet)
       }
     }
-
-    processChangeEventsMs.addElapsedTimeMs(start)
   }
 
   private fun getFacetManager(entity: ModuleEntity): FacetManagerBridge? {
@@ -252,22 +247,17 @@ internal class FacetEntityChangeListener(private val project: Project, coroutine
     private val processChangeEventsMs = AtomicLong()
 
     private fun setupOpenTelemetryReporting(meter: Meter) {
-      val initializeFacetBridgeTimeGauge = meter.gaugeBuilder("jps.facet.change.listener.init.bridge.ms")
-        .ofLongs().buildObserver()
-
-      val processBeforeChangeEventsTimeGauge = meter.gaugeBuilder("jps.facet.change.listener.before.change.events.ms")
-        .ofLongs().buildObserver()
-
-      val processChangeEventsTimeGauge = meter.gaugeBuilder("jps.facet.change.listener.process.change.events.ms")
-        .ofLongs().buildObserver()
+      val initializeFacetBridgeTimeCounter = meter.counterBuilder("jps.facet.change.listener.init.bridge.ms").buildObserver()
+      val processBeforeChangeEventsTimeCounter = meter.counterBuilder("jps.facet.change.listener.before.change.events.ms").buildObserver()
+      val processChangeEventsTimeCounter = meter.counterBuilder("jps.facet.change.listener.process.change.events.ms").buildObserver()
 
       meter.batchCallback(
         {
-          initializeFacetBridgeTimeGauge.record(initializeFacetBridgeTimeMs.get())
-          processBeforeChangeEventsTimeGauge.record(processBeforeChangeEventsMs.get())
-          processChangeEventsTimeGauge.record(processChangeEventsMs.get())
+          initializeFacetBridgeTimeCounter.record(initializeFacetBridgeTimeMs.get())
+          processBeforeChangeEventsTimeCounter.record(processBeforeChangeEventsMs.get())
+          processChangeEventsTimeCounter.record(processChangeEventsMs.get())
         },
-        initializeFacetBridgeTimeGauge, processBeforeChangeEventsTimeGauge, processChangeEventsTimeGauge
+        initializeFacetBridgeTimeCounter, processBeforeChangeEventsTimeCounter, processChangeEventsTimeCounter
       )
     }
 

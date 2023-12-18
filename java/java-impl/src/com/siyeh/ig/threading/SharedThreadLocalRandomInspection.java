@@ -22,9 +22,9 @@ import org.jetbrains.annotations.NotNull;
 /**
  * @author Bas Leijdekkers
  */
-public class SharedThreadLocalRandomInspection extends BaseInspection {
+public final class SharedThreadLocalRandomInspection extends BaseInspection {
 
-  protected final MethodMatcher myMethodMatcher;
+  private final MethodMatcher myMethodMatcher;
 
   public SharedThreadLocalRandomInspection() {
     myMethodMatcher = new MethodMatcher(false, "ignoreArgumentToMethods")
@@ -114,7 +114,7 @@ public class SharedThreadLocalRandomInspection extends BaseInspection {
       return !myMethodMatcher.matches(methodCallExpression);
     }
 
-    private PsiVariable assignedToVariable(PsiMethodCallExpression expression) {
+    private static PsiVariable assignedToVariable(PsiMethodCallExpression expression) {
       final PsiElement parent = PsiTreeUtil.skipParentsOfType(expression, PsiParenthesizedExpression.class);
       if (parent instanceof PsiVariable) {
         return (PsiVariable)parent;

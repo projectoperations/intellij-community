@@ -5,7 +5,6 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.EntityInformation
 import com.intellij.platform.workspace.storage.EntitySource
-import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.EntityType
 import com.intellij.platform.workspace.storage.GeneratedCodeApiVersion
 import com.intellij.platform.workspace.storage.GeneratedCodeImplVersion
@@ -20,6 +19,8 @@ import com.intellij.platform.workspace.storage.impl.WorkspaceEntityData
 import com.intellij.platform.workspace.storage.impl.containers.toMutableWorkspaceList
 import com.intellij.platform.workspace.storage.impl.extractOneToOneParent
 import com.intellij.platform.workspace.storage.impl.updateOneToOneParentOfChild
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import org.jetbrains.annotations.NonNls
 
@@ -43,28 +44,52 @@ open class ExternalSystemModuleOptionsEntityImpl(private val dataSource: Externa
     get() = snapshot.extractOneToOneParent(MODULE_CONNECTION_ID, this)!!
 
   override val externalSystem: String?
-    get() = dataSource.externalSystem
+    get() {
+      readField("externalSystem")
+      return dataSource.externalSystem
+    }
 
   override val externalSystemModuleVersion: String?
-    get() = dataSource.externalSystemModuleVersion
+    get() {
+      readField("externalSystemModuleVersion")
+      return dataSource.externalSystemModuleVersion
+    }
 
   override val linkedProjectPath: String?
-    get() = dataSource.linkedProjectPath
+    get() {
+      readField("linkedProjectPath")
+      return dataSource.linkedProjectPath
+    }
 
   override val linkedProjectId: String?
-    get() = dataSource.linkedProjectId
+    get() {
+      readField("linkedProjectId")
+      return dataSource.linkedProjectId
+    }
 
   override val rootProjectPath: String?
-    get() = dataSource.rootProjectPath
+    get() {
+      readField("rootProjectPath")
+      return dataSource.rootProjectPath
+    }
 
   override val externalSystemModuleGroup: String?
-    get() = dataSource.externalSystemModuleGroup
+    get() {
+      readField("externalSystemModuleGroup")
+      return dataSource.externalSystemModuleGroup
+    }
 
   override val externalSystemModuleType: String?
-    get() = dataSource.externalSystemModuleType
+    get() {
+      readField("externalSystemModuleType")
+      return dataSource.externalSystemModuleType
+    }
 
   override val entitySource: EntitySource
-    get() = dataSource.entitySource
+    get() {
+      readField("entitySource")
+      return dataSource.entitySource
+    }
 
   override fun connectionIdList(): List<ConnectionId> {
     return connections
@@ -257,11 +282,13 @@ class ExternalSystemModuleOptionsEntityData : WorkspaceEntityData<ExternalSystem
     return modifiable
   }
 
-  override fun createEntity(snapshot: EntityStorage): ExternalSystemModuleOptionsEntity {
-    return getCached(snapshot) {
+  @OptIn(EntityStorageInstrumentationApi::class)
+  override fun createEntity(snapshot: EntityStorageInstrumentation): ExternalSystemModuleOptionsEntity {
+    val entityId = createEntityId()
+    return snapshot.initializeEntity(entityId) {
       val entity = ExternalSystemModuleOptionsEntityImpl(this)
       entity.snapshot = snapshot
-      entity.id = createEntityId()
+      entity.id = entityId
       entity
     }
   }

@@ -225,12 +225,12 @@ open class KotlinUastElementFactory(project: Project) : UastElementFactory {
         ).getPossiblyQualifiedCallExpression() ?: return null
 
         if (receiver != null) {
-            methodCall.parentAs<KtDotQualifiedExpression>()?.receiverExpression?.replace(wrapULiteral(receiver).sourcePsi!!)
+            methodCall.parentAs<KtDotQualifiedExpression>()?.receiverExpression?.replace(receiver.sourcePsi!!)
         }
 
         val valueArgumentList = methodCall.valueArgumentList
         for (parameter in parameters) {
-            valueArgumentList?.addArgument(psiFactory.createArgument(wrapULiteral(parameter).sourcePsi as KtExpression))
+            valueArgumentList?.addArgument(psiFactory.createArgument(parameter.sourcePsi as KtExpression))
         }
 
         if (context !is KtElement) return KotlinUFunctionCallExpression(methodCall, null)
@@ -276,8 +276,9 @@ open class KotlinUastElementFactory(project: Project) : UastElementFactory {
         return KotlinUCallableReferenceExpression(callableExpression, null)
     }
 
-    override fun createStringLiteralExpression(text: String, context: PsiElement?): ULiteralExpression {
-        return KotlinStringULiteralExpression(psiFactory(context).createExpression(StringUtil.wrapWithDoubleQuote(text)), null)
+    override fun createStringLiteralExpression(text: String, context: PsiElement?): UExpression {
+        val literal = psiFactory(context).createExpression(StringUtil.wrapWithDoubleQuote(text)) as KtStringTemplateExpression
+        return KotlinStringTemplateUPolyadicExpression(literal, null)
     }
 
     override fun createLongConstantExpression(long: Long, context: PsiElement?): UExpression? {

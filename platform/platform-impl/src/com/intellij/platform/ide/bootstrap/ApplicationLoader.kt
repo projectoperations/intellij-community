@@ -2,7 +2,6 @@
 @file:JvmName("ApplicationLoader")
 @file:Internal
 @file:Suppress("RAW_RUN_BLOCKING")
-
 package com.intellij.platform.ide.bootstrap
 
 import com.intellij.diagnostic.LoadingState
@@ -16,8 +15,11 @@ import com.intellij.ide.plugins.marketplace.statistics.enums.DialogAcceptanceRes
 import com.intellij.ide.ui.IconMapLoader
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.UISettings
+import com.intellij.ide.ui.html.initGlobalStyleSheet
 import com.intellij.ide.ui.laf.LafManagerImpl
-import com.intellij.idea.*
+import com.intellij.idea.AppExitCodes
+import com.intellij.idea.AppMode
+import com.intellij.idea.IdeStarter
 import com.intellij.internal.statistic.collectors.fus.actions.persistence.ActionsEventLogGroup
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationEx
@@ -25,14 +27,11 @@ import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
-import com.intellij.openapi.components.stateStore
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.getOrLogException
-import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.impl.ExtensionsAreaImpl
-import com.intellij.openapi.extensions.impl.findByIdOrFromInstance
+import com.intellij.openapi.extensions.useOrLogError
 import com.intellij.openapi.updateSettings.impl.UpdateSettings
 import com.intellij.openapi.util.SystemPropertyBean
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
@@ -40,6 +39,8 @@ import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.diagnostic.telemetry.impl.TelemetryManagerImpl
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
+import com.intellij.platform.ide.ideFingerprint
+import com.intellij.platform.settings.SettingsController
 import com.intellij.ui.AppIcon
 import com.intellij.ui.ExperimentalUI
 import com.intellij.util.PlatformUtils
@@ -78,25 +79,18 @@ internal suspend fun loadApp(app: ApplicationImpl,
                              logDeferred: Deferred<Logger>,
                              appRegisteredJob: CompletableDeferred<Unit>,
                              args: List<String>,
-                             initAwtToolkitAndEventQueueJob: Job) {
-  val starter = span("app initialization") {
+                             initAwtToolkitAndEventQueueJob: Job): ApplicationStarter {
+  return span("app initialization") {
     val initServiceContainerJob = launch {
-      initServiceContainer(app = app, pluginSetDeferred = pluginSetDeferred)
+      val pluginSet = span("plugin descriptor init waiting") {
+        pluginSetDeferred.await().await()
+      }
+
+      span("app component registration") {
+        app.registerComponents(modules = pluginSet.getEnabledModules(), app = app)
+      }
       // ApplicationManager.getApplication may be used in ApplicationInitializedListener constructor
       ApplicationManager.setApplication(app)
-    }
-
-    val initTelemetryJob = launch(CoroutineName("opentelemetry configuration")) {
-      initServiceContainerJob.join()
-      try {
-        TelemetryManager.setTelemetryManager(TelemetryManagerImpl(app))
-      }
-      catch (e: CancellationException) {
-        throw e
-      }
-      catch (e: Throwable) {
-        logDeferred.await().error("Can't initialize OpenTelemetry: will use default (noop) SDK impl", e)
-      }
     }
 
     val euaTaskDeferred: Deferred<(suspend () -> Boolean)?>? = if (AppMode.isHeadless()) {
@@ -109,6 +103,23 @@ internal suspend fun loadApp(app: ApplicationImpl,
     }
 
     initServiceContainerJob.join()
+
+    val initTelemetryJob = launch(CoroutineName("opentelemetry configuration")) {
+      try {
+        TelemetryManager.setTelemetryManager(TelemetryManagerImpl(coroutineScope = app.coroutineScope, isUnitTestMode = app.isUnitTestMode))
+      }
+      catch (e: CancellationException) {
+        throw e
+      }
+      catch (e: Throwable) {
+        logDeferred.await().error("Can't initialize OpenTelemetry: will use default (noop) SDK impl", e)
+      }
+    }
+
+    app.coroutineScope.launch {
+      // precompute after plugin model loaded
+      ideFingerprint()
+    }
 
     val loadIconMapping = if (app.isHeadlessEnvironment) {
       null
@@ -125,9 +136,7 @@ internal suspend fun loadApp(app: ApplicationImpl,
       initConfigurationStore(app)
     }
 
-    val deferredStarter = span("app starter creation") {
-      createAppStarter(args)
-    }
+    val applicationStarter = createAppStarter(args = args, asyncScope = this@span)
 
     launch(CoroutineName("app pre-initialization")) {
       initConfigurationStoreJob.join()
@@ -160,6 +169,7 @@ internal suspend fun loadApp(app: ApplicationImpl,
 
     appRegisteredJob.join()
     initConfigurationStoreJob.join()
+
     val appInitializedListenerJob = launch {
       val appInitializedListeners = appInitListeners.await()
       span("app initialized callback") {
@@ -167,6 +177,7 @@ internal suspend fun loadApp(app: ApplicationImpl,
         callAppInitialized(listeners = appInitializedListeners, asyncScope = app.coroutineScope)
       }
     }
+
     asyncScope.launch {
       launch(CoroutineName("checkThirdPartyPluginsAllowed")) {
         checkThirdPartyPluginsAllowed()
@@ -182,18 +193,7 @@ internal suspend fun loadApp(app: ApplicationImpl,
 
     appInitializedListenerJob.join()
 
-    deferredStarter.await()
-  }
-  executeApplicationStarter(starter, args)
-}
-
-private suspend fun initServiceContainer(app: ApplicationImpl, pluginSetDeferred: Deferred<Deferred<PluginSet>>) {
-  val pluginSet = span("plugin descriptor init waiting") {
-    pluginSetDeferred.await().await()
-  }
-
-  span("app component registration") {
-    app.registerComponents(modules = pluginSet.getEnabledModules(), app = app, precomputedExtensionModel = null, listenerCallbacks = null)
+    applicationStarter.await()
   }
 }
 
@@ -202,7 +202,7 @@ private suspend fun preInitApp(app: ApplicationImpl,
                                initLafJob: Job,
                                euaTaskDeferred: Deferred<(suspend () -> Boolean)?>?,
                                loadIconMapping: Job?) {
-  coroutineScope {
+  val cssInit = coroutineScope {
     if (!app.isHeadlessEnvironment) {
       asyncScope.launch(CoroutineName("FUS class preloading")) {
         // preload FUS classes (IDEA-301206)
@@ -234,42 +234,51 @@ private suspend fun preInitApp(app: ApplicationImpl,
         lafManager.applyInitState()
       }
     }
+
+    if (app.isHeadlessEnvironment) {
+      null
+    }
+    else {
+      asyncScope.launch {
+        // preload EditorColorsManager only when LafManager is ready - that's why out of coroutineScope
+        initGlobalStyleSheet()
+      }
+    }
   }
 
-  euaTaskDeferred?.await()?.invoke()
-
   if (!app.isHeadlessEnvironment) {
-    asyncScope.launch {
-      // preload only when LafManager is ready - that's why out of coroutineScope
-
-      launch(CoroutineName("EditorColorsManager preloading")) {
-        app.serviceAsync<EditorColorsManager>()
-      }
+    euaTaskDeferred?.await()?.let {
+      cssInit?.join()
+      it()
     }
   }
 }
 
 suspend fun initConfigurationStore(app: ApplicationImpl) {
-  val configPath = PathManager.getConfigDir()
+  val configDir = PathManager.getConfigDir()
 
-  span("beforeApplicationLoaded") {
-    for (listener in ApplicationLoadListener.EP_NAME.lazySequence()) {
-      launch {
-        runCatching {
-          listener.beforeApplicationLoaded(app, configPath)
-        }.getOrLogException(logger<AppStarter>())
+  coroutineScope {
+    launch(CoroutineName("preload SettingsController")) {
+      // preload
+      app.serviceAsync<SettingsController>()
+    }
+
+    span("beforeApplicationLoaded") {
+      for (extension in ApplicationLoadListener.EP_NAME.filterableLazySequence()) {
+        extension.useOrLogError {
+          it.beforeApplicationLoaded(app, configDir)
+        }
       }
     }
-  }
 
-  span("init app store") {
-    // we set it after beforeApplicationLoaded call, because the app store can depend on a stream provider state
-    app.stateStore.setPath(configPath)
-    LoadingState.setCurrentState(LoadingState.CONFIGURATION_STORE_INITIALIZED)
+    span("init app store") {
+      // we set it after beforeApplicationLoaded call, because the app store can depend on a stream provider state
+      app._getComponentStore().setPath(configDir)
+    }
   }
 }
 
-private suspend fun executeApplicationStarter(starter: ApplicationStarter, args: List<String>) {
+internal suspend fun executeApplicationStarter(starter: ApplicationStarter, args: List<String>) {
   if (starter.requiredModality == ApplicationStarter.NOT_IN_EDT) {
     if (starter is ModernApplicationStarter) {
       span("${starter.javaClass.simpleName}.start") {
@@ -294,10 +303,11 @@ private suspend fun executeApplicationStarter(starter: ApplicationStarter, args:
   ZipFilePool.POOL = null
 }
 
+@VisibleForTesting
 fun getAppInitializedListeners(app: Application): List<ApplicationInitializedListener> {
   val extensionArea = app.extensionArea as ExtensionsAreaImpl
   val point = extensionArea.getExtensionPoint<ApplicationInitializedListener>("com.intellij.applicationInitializedListener")
-  val result = point.extensionList
+  val result = point.asSequence().toList()
   point.reset()
   return result
 }
@@ -308,7 +318,7 @@ private fun CoroutineScope.runPostAppInitTasks() {
   }
 
   if (!AppMode.isLightEdit()) {
-    // this functionality should be used only by plugin functionality that is used after start-up
+    // this functionality should be used only by plugin functionality used after start-up
     launch(CoroutineName("system properties setting")) {
       SystemPropertyBean.initSystemProperties()
     }
@@ -316,38 +326,35 @@ private fun CoroutineScope.runPostAppInitTasks() {
 }
 
 // `ApplicationStarter` is an extension, so to find a starter, extensions must be registered first
-private fun CoroutineScope.createAppStarter(args: List<String>): Deferred<ApplicationStarter> {
-  val first = args.firstOrNull()
-  // first argument maybe a project path
-  if (first == null) {
-    return async { IdeStarter() }
+private suspend fun createAppStarter(args: List<String>, asyncScope: CoroutineScope): Deferred<ApplicationStarter> {
+  val commandName = args.firstOrNull()  // the first argument maybe a project path
+  return when {
+    commandName == null -> {
+      asyncScope.async(CoroutineName("app starter creation")) { IdeStarter() }
+    }
+    args.size == 1 && OSAgnosticPathUtil.isAbsolute(commandName) -> {
+      asyncScope.async(CoroutineName("app starter creation")) { createDefaultAppStarter() }
+    }
+    else -> {
+      span("app custom starter creation") {
+        val starter = findStarter(commandName) ?: createDefaultAppStarter()
+        if (AppMode.isHeadless() && !starter.isHeadless) {
+          val message = IdeBundle.message(
+            "application.cannot.start.in.a.headless.mode",
+            if (starter is IdeStarter) 0 else 1,
+            commandName,
+            if (args.isEmpty()) 0 else 1,
+            args.joinToString(" ")
+          )
+          StartupErrorReporter.showMessage(IdeBundle.message("main.startup.error"), message, true)
+          exitProcess(AppExitCodes.NO_GRAPHICS)
+        }
+        // must be executed before container creation
+        starter.premain(args)
+        CompletableDeferred(starter)
+      }
+    }
   }
-  else if (args.size == 1 && OSAgnosticPathUtil.isAbsolute(first)) {
-    return async { createDefaultAppStarter() }
-  }
-
-  val starter = findStarter(first) ?: createDefaultAppStarter()
-  if (AppMode.isHeadless() && !starter.isHeadless) {
-    @Suppress("DEPRECATION") val commandName = starter.commandName
-    val message = IdeBundle.message(
-      "application.cannot.start.in.a.headless.mode",
-      when {
-        starter is IdeStarter -> 0
-        commandName != null -> 1
-        else -> 2
-      },
-      commandName,
-      starter.javaClass.name,
-      if (args.isEmpty()) 0 else 1,
-      args.joinToString(" ")
-    )
-    StartupErrorReporter.showMessage(IdeBundle.message("main.startup.error"), message, true)
-    exitProcess(AppExitCodes.NO_GRAPHICS)
-  }
-
-  // must be executed before container creation
-  starter.premain(args)
-  return CompletableDeferred(value = starter)
 }
 
 private fun createDefaultAppStarter(): ApplicationStarter {
@@ -383,7 +390,8 @@ private fun addActivateAndWindowsCliListeners() {
       try {
         result.future.await().exitCode
       }
-      catch (e: Exception) {
+      catch (t: Throwable) {
+        LOG.error(t)
         AppExitCodes.ACTIVATE_ERROR
       }
     }
@@ -420,10 +428,22 @@ private suspend fun handleExternalCommand(args: List<String>, currentDirectory: 
   }
 }
 
-fun findStarter(key: String): ApplicationStarter? {
-  @Suppress("DEPRECATION")
-  return ExtensionPointName<ApplicationStarter>("com.intellij.appStarter").findByIdOrFromInstance(key) { it.commandName }
-}
+private const val APP_STARTER_EP_NAME = "com.intellij.appStarter"
+
+@Suppress("DEPRECATION")
+fun findStarter(key: String): ApplicationStarter? =
+  ExtensionPointName<ApplicationStarter>(APP_STARTER_EP_NAME).findByIdOrFromInstance(key) { it.commandName }
+
+/**
+ * Returns name of the command for this [ApplicationStarter] specified in plugin.xml file.
+ * It should be used instead of deprecated [ApplicationStarter.commandName].
+ */
+val ApplicationStarter.commandNameFromExtension: String?
+  get() =
+    ExtensionPointName<ApplicationStarter>(APP_STARTER_EP_NAME)
+      .filterableLazySequence()
+      .find { it.implementationClassName == javaClass.name }
+      ?.id
 
 @VisibleForTesting
 fun CoroutineScope.callAppInitialized(listeners: List<ApplicationInitializedListener>, asyncScope: CoroutineScope) {

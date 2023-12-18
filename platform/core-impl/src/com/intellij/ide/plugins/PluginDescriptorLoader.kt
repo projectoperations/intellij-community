@@ -12,6 +12,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.io.NioFiles
+import com.intellij.util.Java11Shim
 import com.intellij.util.PlatformUtils
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.io.Decompressor
@@ -481,29 +482,11 @@ private fun appendPlugin(descriptor: IdeaPluginDescriptor, target: StringBuilder
   }
 }
 
-@Internal
-@Deprecated("do not use")
-fun loadDescriptorsForDeprecatedWizard(): PluginLoadingResult {
-  return runBlocking {
-    val isUnitTestMode = PluginManagerCore.isUnitTestMode
-    val isRunningFromSources = PluginManagerCore.isRunningFromSources()
-    DescriptorListLoadingContext(
-      isMissingSubDescriptorIgnored = true,
-      isMissingIncludeIgnored = isUnitTestMode,
-      checkOptionalConfigFileUniqueness = isUnitTestMode || isRunningFromSources,
-    ).use { context ->
-      loadDescriptors(context = context, isUnitTestMode = isUnitTestMode, isRunningFromSources = isRunningFromSources,
-                      mainClassLoaderDeferred = CompletableDeferred(DescriptorListLoadingContext::class.java.classLoader))
-    }
-  }
-}
-
 /**
  * Think twice before use and get approve from the core team.
  *
  * Returns enabled plugins only.
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 @Internal
 suspend fun loadDescriptors(
   context: DescriptorListLoadingContext,
@@ -593,16 +576,21 @@ private fun CoroutineScope.loadDescriptorsFromDirs(
     platformPrefixProperty
   }
 
-  val root = loadCoreModules(context = context,
-                             platformPrefix = platformPrefix,
-                             isUnitTestMode = isUnitTestMode,
-                             isInDevServerMode = AppMode.isDevServer(),
-                             isRunningFromSources = isRunningFromSources,
-                             pool = zipFilePool,
-                             classLoader = mainClassLoader)
-  val custom = loadDescriptorsFromDir(dir = customPluginDir, context = context, isBundled = false, pool = zipFilePool)
-  val bundled = ProductLoadingStrategy.strategy.loadBundledPluginDescriptors(this, bundledPluginDir, isUnitTestMode, context, zipFilePool)
-  return (root + custom + bundled)
+  val result = mutableListOf<Deferred<IdeaPluginDescriptorImpl?>>()
+  result.addAll(loadCoreModules(context = context,
+                                platformPrefix = platformPrefix,
+                                isUnitTestMode = isUnitTestMode,
+                                isInDevServerMode = AppMode.isDevServer(),
+                                isRunningFromSources = isRunningFromSources,
+                                pool = zipFilePool,
+                                classLoader = mainClassLoader))
+  result.addAll(loadDescriptorsFromDir(dir = customPluginDir, context = context, isBundled = false, pool = zipFilePool))
+  result.addAll(ProductLoadingStrategy.strategy.loadBundledPluginDescriptors(scope = this,
+                                                                             bundledPluginDir = bundledPluginDir,
+                                                                             isUnitTestMode = isUnitTestMode,
+                                                                             context = context,
+                                                                             zipFilePool = zipFilePool))
+  return result
 }
 
 private fun CoroutineScope.loadCoreModules(context: DescriptorListLoadingContext,
@@ -617,34 +605,38 @@ private fun CoroutineScope.loadCoreModules(context: DescriptorListLoadingContext
                            platformPrefix.startsWith("CodeServer") ||
                            java.lang.Boolean.getBoolean("idea.force.use.core.classloader")
   // should be the only plugin in lib (only for Ultimate and WebStorm for now)
-  val rootModuleDescriptors = if ((platformPrefix == PlatformUtils.IDEA_PREFIX || platformPrefix == PlatformUtils.WEB_PREFIX) &&
-                                  (isInDevServerMode || (!isUnitTestMode && !isRunningFromSources))) {
-    Collections.singletonList(async {
+  if ((platformPrefix == PlatformUtils.IDEA_PREFIX || platformPrefix == PlatformUtils.WEB_PREFIX) &&
+      (isInDevServerMode || (!isUnitTestMode && !isRunningFromSources))) {
+    return Java11Shim.INSTANCE.listOf(async {
       loadCoreProductPlugin(PluginManagerCore.PLUGIN_XML_PATH, classLoader,
                             context = context,
                             pathResolver = pathResolver,
                             useCoreClassLoader = useCoreClassLoader)!!
     })
   }
-  else {
-    val fileName = "${platformPrefix}Plugin.xml"
-    var result = listOf(async {
-      loadCoreProductPlugin("${PluginManagerCore.META_INF}$fileName", classLoader, context, pathResolver, useCoreClassLoader)
-    })
 
+  val fileName = "${platformPrefix}Plugin.xml"
+  val result = mutableListOf<Deferred<IdeaPluginDescriptorImpl?>>()
+  result.add(async {
+    loadCoreProductPlugin(path = "${PluginManagerCore.META_INF}$fileName",
+                          classLoader = classLoader,
+                          context = context,
+                          pathResolver = pathResolver,
+                          useCoreClassLoader = useCoreClassLoader)
+  })
+
+  if (ProductLoadingStrategy.strategy.shouldLoadDescriptorsFromCoreClassPath) {
     val urlToFilename = collectPluginFilesInClassPath(classLoader)
     if (!urlToFilename.isEmpty()) {
-      @Suppress("SuspiciousCollectionReassignment")
-      result += loadDescriptorsFromClassPath(urlToFilename = urlToFilename,
-                                             context = context,
-                                             pathResolver = pathResolver,
-                                             useCoreClassLoader = useCoreClassLoader,
-                                             pool = pool)
+      result.addAll(loadDescriptorsFromClassPath(urlToFilename = urlToFilename,
+                                                 context = context,
+                                                 pathResolver = pathResolver,
+                                                 useCoreClassLoader = useCoreClassLoader,
+                                                 pool = pool)
+      )
     }
-
-    result
   }
-  return rootModuleDescriptors
+  return result
 }
 
 private fun getResourceReader(path: String, classLoader: ClassLoader): XMLStreamReader2? {
@@ -786,8 +778,8 @@ fun loadDescriptorsFromOtherIde(
   productBuildNumber: BuildNumber?,
 ): PluginLoadingResult {
   return DescriptorListLoadingContext(
-    disabledPlugins = emptySet(),
-    brokenPluginVersions = brokenPluginVersions ?: getBrokenPluginVersions(),
+    customDisabledPlugins = emptySet(),
+    customBrokenPluginVersions = brokenPluginVersions,
     productBuildNumber = { productBuildNumber ?: PluginManagerCore.buildNumber },
     isMissingIncludeIgnored = true,
     isMissingSubDescriptorIgnored = true,
@@ -814,8 +806,8 @@ fun loadDescriptorsFromOtherIde(
 fun testLoadDescriptorsFromClassPath(loader: ClassLoader): List<IdeaPluginDescriptor> {
   val urlToFilename = collectPluginFilesInClassPath(loader)
   val buildNumber = BuildNumber.fromString("2042.42")!!
-  val context = DescriptorListLoadingContext(disabledPlugins = Collections.emptySet(),
-                                             brokenPluginVersions = emptyMap(),
+  val context = DescriptorListLoadingContext(customDisabledPlugins = Collections.emptySet(),
+                                             customBrokenPluginVersions = emptyMap(),
                                              productBuildNumber = { buildNumber })
   val result = PluginLoadingResult(checkModuleDependencies = false)
   result.addAll(toSequence(runBlocking {
@@ -828,6 +820,13 @@ fun testLoadDescriptorsFromClassPath(loader: ClassLoader): List<IdeaPluginDescri
     )
   }, isMainProcess()), overrideUseIfCompatible = false, productBuildNumber = buildNumber)
   return result.enabledPlugins
+}
+
+fun loadCustomDescriptorsFromDir(scope: CoroutineScope,
+                                 dir: Path,
+                                 context: DescriptorListLoadingContext,
+                                 pool: ZipFilePool?): List<Deferred<IdeaPluginDescriptorImpl?>> {
+  return scope.loadDescriptorsFromDir(dir, context, false, pool)
 }
 
 internal fun CoroutineScope.loadDescriptorsFromDir(dir: Path,

@@ -5,7 +5,7 @@ import com.intellij.ide.actions.searcheverywhere.SearchEverywhereMixedListInfo
 import com.intellij.internal.statistic.eventLog.events.EventField
 import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.internal.statistic.eventLog.events.EventPair
-import com.intellij.searchEverywhereMl.ranking.features.statistician.SearchEverywhereContributorStatistician
+import com.intellij.searchEverywhereMl.ranking.features.statistician.getContributorStatistics
 
 internal class SearchEverywhereContributorFeaturesProvider {
   companion object {
@@ -13,7 +13,6 @@ internal class SearchEverywhereContributorFeaturesProvider {
       "SearchEverywhereContributor.All", "ClassSearchEverywhereContributor",
       "FileSearchEverywhereContributor", "RecentFilesSEContributor",
       "SymbolSearchEverywhereContributor", "ActionSearchEverywhereContributor",
-      "SemanticActionSearchEverywhereContributor",
       "RunConfigurationsSEContributor", "CommandsContributor",
       "TopHitSEContributor", "com.intellij.ide.actions.searcheverywhere.CalculatorSEContributor",
       "TmsSearchEverywhereContributor", "YAMLKeysSearchEverywhereContributor",
@@ -56,7 +55,7 @@ internal class SearchEverywhereContributorFeaturesProvider {
 
   private fun getStatisticianFeatures(contributor: SearchEverywhereContributor<*>): List<EventPair<*>> {
     val contributorId = contributor.searchProviderId
-    val statistics = SearchEverywhereContributorStatistician.getStatistics()
+    val statistics = getContributorStatistics()
 
     val isMostPopular = statistics.contributorUsage.firstOrNull()?.first?.equals(contributorId) ?: return emptyList()
     val popularityIndex = statistics.contributorUsage.indexOfFirst { it.first == contributorId }.takeIf { it >= 0 } ?: return emptyList()

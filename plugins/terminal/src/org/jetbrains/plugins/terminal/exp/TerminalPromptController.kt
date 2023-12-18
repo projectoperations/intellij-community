@@ -2,21 +2,26 @@
 package org.jetbrains.plugins.terminal.exp
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.util.SystemProperties
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider
 import org.jetbrains.plugins.terminal.exp.TerminalDataContextUtils.IS_PROMPT_EDITOR_KEY
+import org.jetbrains.plugins.terminal.exp.completion.IJShellRuntimeDataProvider
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.properties.Delegates
 
 class TerminalPromptController(
+  project: Project,
   private val editor: EditorEx,
-  session: TerminalSession,
+  session: BlockTerminalSession,
   private val commandExecutor: TerminalCommandExecutor
 ) : ShellCommandListener {
   private val commandHistoryManager: CommandHistoryManager
@@ -29,9 +34,23 @@ class TerminalPromptController(
     if (newValue != oldValue) listeners.forEach { it.promptVisibilityChanged(newValue) }
   }
 
+  var promptText: String = computePromptText(TerminalProjectOptionsProvider.getInstance(project).startingDirectory ?: "")
+    private set(value) {
+      if (value != field) {
+        field = value
+        listeners.forEach { it.promptLabelChanged(value) }
+      }
+    }
+
+  val commandText: String
+    get() = editor.document.text
+
   init {
     editor.putUserData(IS_PROMPT_EDITOR_KEY, true)
-    editor.putUserData(TerminalSession.KEY, session)
+    editor.putUserData(BlockTerminalSession.KEY, session)
+
+    val runtimeDataProvider = IJShellRuntimeDataProvider(session)
+    editor.putUserData(IJShellRuntimeDataProvider.KEY, runtimeDataProvider)
 
     commandHistoryManager = CommandHistoryManager(session)
     session.addCommandListener(this)
@@ -48,12 +67,17 @@ class TerminalPromptController(
     }
   }
 
-  override fun directoryChanged(newDirectory: String) {
-    val newText = computePromptText(newDirectory)
-    listeners.forEach { it.promptLabelChanged(newText) }
+  override fun initialized(currentDirectory: String?) {
+    if (currentDirectory != null) {
+      promptText = computePromptText(currentDirectory)
+    }
   }
 
-  fun computePromptText(directory: String): @NlsSafe String {
+  override fun directoryChanged(newDirectory: String) {
+    promptText = computePromptText(newDirectory)
+  }
+
+  private fun computePromptText(directory: String): @NlsSafe String {
     return if (directory != SystemProperties.getUserHome()) {
       FileUtil.getLocationRelativeToUserHome(directory)
     }
@@ -63,6 +87,12 @@ class TerminalPromptController(
   @RequiresEdt
   fun handleEnterPressed() {
     commandExecutor.startCommandExecution(editor.document.text)
+  }
+
+  @RequiresEdt
+  fun performPaste(dataContext: DataContext? = null) {
+    val context = dataContext ?: editor.dataContext
+    editor.pasteProvider.performPaste(context)
   }
 
   @RequiresEdt

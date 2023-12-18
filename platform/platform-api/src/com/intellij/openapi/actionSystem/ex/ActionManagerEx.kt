@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.Component
 import java.util.function.Consumer
 import java.util.function.Function
@@ -54,13 +55,13 @@ abstract class ActionManagerEx : ActionManager() {
       return result
     }
 
-    @ApiStatus.Internal
+    @Internal
     @JvmStatic
     fun doWithLazyActionManager(whatToDo: Consumer<ActionManager>) {
       withLazyActionManager(scope = null, task = whatToDo::accept)
     }
 
-    @ApiStatus.Internal
+    @Internal
     inline fun withLazyActionManager(scope: CoroutineScope?, crossinline task: (ActionManager) -> Unit) {
       val app = ApplicationManager.getApplication()
       val created = app.serviceIfCreated<ActionManager>()
@@ -91,13 +92,13 @@ abstract class ActionManagerEx : ActionManager() {
   /**
    * Do not call directly, prefer [ActionUtil] methods.
    */
-  @ApiStatus.Internal
+  @Internal
   abstract fun fireBeforeActionPerformed(action: AnAction, event: AnActionEvent)
 
   /**
    * Do not call directly, prefer [ActionUtil] methods.
    */
-  @ApiStatus.Internal
+  @Internal
   abstract fun fireAfterActionPerformed(action: AnAction, event: AnActionEvent, result: AnActionResult)
 
   @Deprecated("use {@link #fireBeforeActionPerformed(AnAction, AnActionEvent)} instead")
@@ -138,7 +139,47 @@ abstract class ActionManagerEx : ActionManager() {
    */
   abstract fun addActionPopupMenuListener(listener: ActionPopupMenuListener, parentDisposable: Disposable)
 
-  @get:ApiStatus.Internal
+  @get:Internal
   @get:ApiStatus.Experimental
   abstract val timerEvents: Flow<Unit>
+
+  @Internal
+  abstract fun getActionBinding(actionId: String): String?
+
+  @Internal
+  abstract fun getBoundActions(): Set<String>
+
+  @Internal
+  abstract fun bindShortcuts(sourceActionId: String, targetActionId: String)
+
+  @Internal
+  abstract fun unbindShortcuts(targetActionId: String)
+
+  @Internal
+  abstract fun asActionRuntimeRegistrar(): ActionRuntimeRegistrar
+}
+
+@Internal
+@ApiStatus.Experimental
+interface ActionRuntimeRegistrar {
+  fun registerAction(actionId: String, action: AnAction)
+
+  fun unregisterActionByIdPrefix(idPrefix: String)
+
+  fun unregisterAction(actionId: String)
+
+  // do not add API like `getAction` - `ActionRuntimeRegistrar` should not unstub actions
+  fun getActionOrStub(actionId: String): AnAction?
+
+  fun getUnstubbedAction(actionId: String): AnAction?
+
+  fun addToGroup(group: AnAction, action: AnAction, last: Constraints)
+
+  fun replaceAction(actionId: String, newAction: AnAction)
+
+  fun getId(action: AnAction): String?
+
+  fun getBaseAction(overridingAction: OverridingAction): AnAction?
+
+  fun isGroup(actionId: String): Boolean
 }

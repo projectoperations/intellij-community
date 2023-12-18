@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.checkin;
 
 import com.google.common.collect.HashMultiset;
@@ -526,7 +526,7 @@ public final class GitCheckinEnvironment implements CheckinEnvironment, AmendCom
   private static @NotNull List<FilePath> getPaths(@NotNull Collection<? extends ChangedPath> changes) {
     List<FilePath> files = new ArrayList<>();
     for (ChangedPath change : changes) {
-      if (CASE_SENSITIVE_FILE_PATH_HASHING_STRATEGY.equals(change.beforePath, change.afterPath)) {
+      if (equalsCaseSensitive(change.beforePath, change.afterPath)) {
         addIfNotNull(files, change.beforePath);
       }
       else {
@@ -717,8 +717,7 @@ public final class GitCheckinEnvironment implements CheckinEnvironment, AmendCom
                           beforePathsMultiSet.count(move.getAfter()) == 0 && afterPathsMultiSet.count(move.getBefore()) == 0);
   }
 
-  @NotNull
-  private static List<CommitChange> collectChangesToCommit(@NotNull Collection<Change> changes) {
+  private static @NotNull List<CommitChange> collectChangesToCommit(@NotNull Collection<Change> changes) {
     List<CommitChange> result = new ArrayList<>();
     MultiMap<VirtualFile, CommitChange> map = new MultiMap<>();
 
@@ -775,7 +774,7 @@ public final class GitCheckinEnvironment implements CheckinEnvironment, AmendCom
         }
       }
       if (hasMismatch) {
-        LOG.warn(String.format("Change mismatch on commit of %s: %s", virtualFile, fileCommitChanges));
+        LOG.error(String.format("Change mismatch on commit of %s: %s", virtualFile, fileCommitChanges));
       }
 
       result.add(new CommitChange(beforePath, afterPath,
@@ -1101,7 +1100,7 @@ public final class GitCheckinEnvironment implements CheckinEnvironment, AmendCom
 
     public boolean isMove() {
       if (beforePath == null || afterPath == null) return false;
-      return !CASE_SENSITIVE_FILE_PATH_HASHING_STRATEGY.equals(beforePath, afterPath);
+      return !equalsCaseSensitive(beforePath, afterPath);
     }
 
     @Override

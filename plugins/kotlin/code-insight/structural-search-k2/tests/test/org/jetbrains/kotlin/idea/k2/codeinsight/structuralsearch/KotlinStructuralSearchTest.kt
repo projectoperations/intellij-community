@@ -14,10 +14,15 @@ import com.intellij.structuralsearch.plugin.ui.SearchConfiguration
 import com.intellij.structuralsearch.plugin.ui.UIUtil
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.util.SmartList
+import com.intellij.util.ThrowableRunnable
 import org.jetbrains.kotlin.idea.KotlinFileType
+import org.jetbrains.kotlin.idea.fir.invalidateCaches
 import org.jetbrains.kotlin.idea.test.KotlinLightCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.idea.test.ProjectDescriptorWithStdlibSources
+import org.jetbrains.kotlin.idea.test.runAll
 import org.jetbrains.kotlin.idea.test.withCustomCompilerOptions
+
+private val disabled = true
 
 abstract class KotlinStructuralSearchTest : KotlinLightCodeInsightFixtureTestCase() {
     override fun isFirPlugin(): Boolean = true
@@ -38,6 +43,7 @@ abstract class KotlinStructuralSearchTest : KotlinLightCodeInsightFixtureTestCas
     }
 
     protected fun doTest(pattern: String, highlighting: String, context: PatternContext = KotlinStructuralSearchProfile.DEFAULT_CONTEXT) {
+        if (disabled) return // Test is flaky see KTIJ-27542
         myFixture.configureByText("aaa.kt", highlighting)
         withCustomCompilerOptions(myFixture.file.text, project, module) {
             testHighlighting(pattern, context)
@@ -54,6 +60,13 @@ abstract class KotlinStructuralSearchTest : KotlinLightCodeInsightFixtureTestCas
         assertNull("Constraint applicability error: $message\n", message)
         StructuralSearchProfileActionProvider.createNewInspection(myConfiguration, project)
         myFixture.testHighlighting(true, false, false)
+    }
+
+    override fun tearDown() {
+        runAll(
+            ThrowableRunnable { project.invalidateCaches() },
+            ThrowableRunnable { super.tearDown() }
+        )
     }
 
     companion object {

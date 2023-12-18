@@ -3,28 +3,17 @@ package com.intellij.platform.workspace.storage.tests
 
 import com.google.common.collect.HashBiMap
 import com.intellij.platform.workspace.storage.EntityStorage
-import com.intellij.platform.workspace.storage.EntityTypesResolver
 import com.intellij.platform.workspace.storage.WorkspaceEntity
 import com.intellij.platform.workspace.storage.impl.*
 import com.intellij.platform.workspace.storage.impl.containers.BidirectionalLongMultiMap
 import com.intellij.platform.workspace.storage.impl.serialization.EntityStorageSerializerImpl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
+import com.intellij.workspaceModel.ide.impl.WorkspaceModelCacheSerializer.PluginAwareEntityTypesResolver
 import junit.framework.TestCase.*
 import org.junit.Assert
 import java.nio.file.Files
 import java.util.function.BiPredicate
 import kotlin.reflect.full.memberProperties
-
-open class TestEntityTypesResolver : EntityTypesResolver {
-  private val pluginPrefix = "PLUGIN___"
-
-  override fun getPluginId(clazz: Class<*>): String = pluginPrefix + clazz.name
-  override fun resolveClass(name: String, pluginId: String?): Class<*> {
-    //Assert.assertEquals(pluginPrefix + name, pluginId)
-    if (name.startsWith("[")) return Class.forName(name)
-    return javaClass.classLoader.loadClass(name)
-  }
-}
 
 abstract class BaseSerializationChecker {
 
@@ -32,7 +21,7 @@ abstract class BaseSerializationChecker {
     storage as EntityStorageSnapshotImpl
     storage.assertConsistency()
 
-    val serializer = EntityStorageSerializerImpl(TestEntityTypesResolver(), virtualFileManager)
+    val serializer = EntityStorageSerializerImpl(PluginAwareEntityTypesResolver, virtualFileManager)
 
     val file = Files.createTempFile("", "")
     try {

@@ -35,6 +35,7 @@ import org.jetbrains.kotlin.idea.facet.initializeIfNeeded
 import org.jetbrains.kotlin.idea.test.*
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils.allowProjectRootAccess
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils.disposeVfsRootAccess
+import org.jetbrains.kotlin.idea.test.util.checkPluginIsCorrect
 import org.jetbrains.kotlin.idea.test.util.slashedPath
 import org.jetbrains.kotlin.idea.util.sourceRoots
 import org.jetbrains.kotlin.platform.TargetPlatform
@@ -171,6 +172,16 @@ abstract class AbstractMultiModuleTest : DaemonAnalyzerTestCase() {
             for (jar in jars) {
                 addRoot(jar, OrderRootType.CLASSES)
             }
+        }
+    }
+
+    fun Module.addLibrary(
+        file: VirtualFile,
+        name: String = KotlinJdkAndLibraryProjectDescriptor.LIBRARY_NAME,
+        kind: PersistentLibraryKind<*>? = null,
+    ) {
+        ConfigLibraryUtil.addLibrary(this, name, kind) {
+            addRoot(file, OrderRootType.CLASSES)
         }
     }
 

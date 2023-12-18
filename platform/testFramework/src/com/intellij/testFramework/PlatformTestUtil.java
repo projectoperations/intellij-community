@@ -25,10 +25,8 @@ import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.impl.FileTemplateManagerImpl;
-import com.intellij.ide.util.treeView.AbstractTreeBuilder;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
-import com.intellij.ide.util.treeView.AbstractTreeUi;
 import com.intellij.model.psi.PsiSymbolReferenceService;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
@@ -320,11 +318,7 @@ public final class PlatformTestUtil {
       UIUtil.dispatchAllInvocationEvents();
       return async.isProcessing();
     }
-    AbstractTreeBuilder builder = AbstractTreeBuilder.getBuilderFor(tree);
-    if (builder == null) return false;
-    AbstractTreeUi ui = builder.getUi();
-    if (ui == null) return false;
-    return ui.hasPendingWork();
+    return false;
   }
 
   public static void waitWhileBusy(@NotNull JTree tree) {
@@ -636,8 +630,8 @@ public final class PlatformTestUtil {
    */
   // to warn about not calling .assertTiming() in the end
   @Contract(pure = true)
-  public static @NotNull PerformanceTestInfo startPerformanceTest(@NonNls @NotNull String what, int expectedMs, @NotNull ThrowableRunnable<?> test) {
-    return startPerformanceTestWithVariableInputSize(what, expectedMs, 1, () -> {
+  public static @NotNull PerformanceTestInfo startPerformanceTest(@NonNls @NotNull String launchName, int expectedMs, @NotNull ThrowableRunnable<?> test) {
+    return startPerformanceTestWithVariableInputSize(launchName, expectedMs, 1, () -> {
       test.run();
       return 1;
     });
@@ -652,11 +646,11 @@ public final class PlatformTestUtil {
    * </p>
    */
   @Contract(pure = true)
-  public static @NotNull PerformanceTestInfo startPerformanceTestWithVariableInputSize(@NonNls @NotNull String what,
+  public static @NotNull PerformanceTestInfo startPerformanceTestWithVariableInputSize(@NonNls @NotNull String launchName,
                                                                                        int expectedMs,
                                                                                        int expectedInputSize,
                                                                                        @NotNull ThrowableComputable<Integer, ?> test) {
-    return new PerformanceTestInfo(test, expectedMs, expectedInputSize, what);
+    return new PerformanceTestInfo(test, expectedMs, expectedInputSize, launchName);
   }
 
   public static void assertPathsEqual(@Nullable String expected, @Nullable String actual) {
@@ -728,11 +722,14 @@ public final class PlatformTestUtil {
     }
   }
 
-  private static @NotNull Map<String, VirtualFile> buildNameToFileMap(VirtualFile @NotNull [] files, @Nullable VirtualFileFilter filter) {
+  private static @NotNull Map<String, VirtualFile> buildNameToFileMap(VirtualFile @NotNull [] files,
+                                                                      @Nullable VirtualFileFilter filter,
+                                                                      @Nullable Function<VirtualFile, String> fileNameMapper) {
     Map<String, VirtualFile> map = new HashMap<>();
     for (VirtualFile file : files) {
       if (filter != null && !filter.accept(file)) continue;
-      map.put(file.getName(), file);
+      String fileName = fileNameMapper != null ? fileNameMapper.apply(file) : file.getName();
+      map.put(fileName, file);
     }
     return map;
   }
@@ -741,10 +738,17 @@ public final class PlatformTestUtil {
     assertDirectoriesEqual(dirExpected, dirActual, null);
   }
 
-  @SuppressWarnings("UnsafeVfsRecursion")
   public static void assertDirectoriesEqual(@NotNull VirtualFile dirExpected,
                                             @NotNull VirtualFile dirActual,
                                             @Nullable VirtualFileFilter fileFilter) throws IOException {
+    assertDirectoriesEqual(dirExpected, dirActual, fileFilter, null);
+  }
+
+  @SuppressWarnings("UnsafeVfsRecursion")
+  public static void assertDirectoriesEqual(@NotNull VirtualFile dirExpected,
+                                            @NotNull VirtualFile dirActual,
+                                            @Nullable VirtualFileFilter fileFilter,
+                                            @Nullable Function<VirtualFile, String> fileNameMapper) throws IOException {
     FileDocumentManager.getInstance().saveAllDocuments();
 
     VirtualFile[] childrenAfter = dirExpected.getChildren();
@@ -753,8 +757,8 @@ public final class PlatformTestUtil {
     VirtualFile[] childrenBefore = dirActual.getChildren();
     shallowCompare(dirActual, childrenBefore);
 
-    Map<String, VirtualFile> mapAfter = buildNameToFileMap(childrenAfter, fileFilter);
-    Map<String, VirtualFile> mapBefore = buildNameToFileMap(childrenBefore, fileFilter);
+    Map<String, VirtualFile> mapAfter = buildNameToFileMap(childrenAfter, fileFilter, fileNameMapper);
+    Map<String, VirtualFile> mapBefore = buildNameToFileMap(childrenBefore, fileFilter, fileNameMapper);
 
     Set<String> keySetAfter = mapAfter.keySet();
     Set<String> keySetBefore = mapBefore.keySet();
@@ -764,7 +768,7 @@ public final class PlatformTestUtil {
       VirtualFile fileAfter = mapAfter.get(name);
       VirtualFile fileBefore = mapBefore.get(name);
       if (fileAfter.isDirectory()) {
-        assertDirectoriesEqual(fileAfter, fileBefore, fileFilter);
+        assertDirectoriesEqual(fileAfter, fileBefore, fileFilter, fileNameMapper);
       }
       else {
         assertFilesEqual(fileAfter, fileBefore);
@@ -792,7 +796,8 @@ public final class PlatformTestUtil {
         assertArrayEquals(fileExpected.getPath(), fileExpected.contentsToByteArray(), fileActual.contentsToByteArray());
       }
       else if (!StringUtil.equals(expected, actual)) {
-        throw new FileComparisonFailure("Text mismatch in the file " + fileExpected.getName(), expected, actual, fileExpected.getPath());
+        throw new FileComparisonFailure("Text mismatch in the file " + fileExpected.getName(), expected, actual,
+                                        fileActual.getUserData(VfsTestUtil.TEST_DATA_FILE_PATH));
       }
     }
   }

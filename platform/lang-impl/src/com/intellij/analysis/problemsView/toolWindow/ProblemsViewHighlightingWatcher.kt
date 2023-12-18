@@ -64,6 +64,7 @@ internal class ProblemsViewHighlightingWatcher(
           listener.problemDisappeared(problem)
         }
       }
+      problems.remove(highlighter)
     }
   }
 
@@ -80,12 +81,9 @@ internal class ProblemsViewHighlightingWatcher(
 
   fun findProblem(highlighter: RangeHighlighter): Problem? = problems[highlighter]
 
-  private fun getHighlightingProblem(highlighter: RangeHighlighter): HighlightingProblem
-    = HighlightingProblem(provider, file, highlighter)
-
   private fun getProblem(highlighter: RangeHighlighter): Problem? = when {
     !isValid(highlighter) -> null
-    else -> problems.computeIfAbsent(highlighter) { getHighlightingProblem(highlighter) }
+    else -> problems.computeIfAbsent(highlighter) { HighlightingProblem(provider, file, highlighter) }
   }
 
   private fun isValid(highlighter: RangeHighlighter): Boolean {

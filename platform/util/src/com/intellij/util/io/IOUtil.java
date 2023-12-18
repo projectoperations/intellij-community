@@ -14,6 +14,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.DataOutputStream;
 import java.io.*;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntFunction;
 
 import static java.nio.charset.StandardCharsets.US_ASCII;
@@ -236,6 +238,10 @@ public final class IOUtil {
     return c < 128;
   }
 
+  /**
+   * @return true if _there are no files with such prefix exist_ -- e.g. if we delete nothing,
+   * because there were no such files beforehand.
+   */
   public static boolean deleteAllFilesStartingWith(@NotNull Path file) {
     String baseName = file.getFileName().toString();
     Path parentFile = file.getParent();
@@ -261,7 +267,7 @@ public final class IOUtil {
     boolean ok = true;
     for (Path f : files) {
       try {
-        Files.deleteIfExists(f);
+        FileUtil.delete(f);
       }
       catch (IOException ignore) {
         ok = false;
@@ -368,6 +374,7 @@ public final class IOUtil {
 
 
   private static final byte[] ZEROES = new byte[1024];
+
   /**
    * Imitates 'fallocate' linux call: ensures file region [channel.size()..upUntilSize) is allocated on disk,
    * and zeroed. We can't call 'fallocate' directly, hence just write zeros into the channel.
@@ -445,11 +452,13 @@ public final class IOUtil {
         sb.append("0");
       }
       sb.append(Integer.toHexString(unsignedByte));
-      if (pageSize > 0 && i % pageSize == pageSize - 1) {
-        sb.append('\n');
-      }
-      else {
-        sb.append(' ');
+      if (i < bytes.length - 1) {
+        if (pageSize > 0 && i % pageSize == pageSize - 1) {
+          sb.append('\n');
+        }
+        else {
+          sb.append(' ');
+        }
       }
     }
     return sb.toString();
@@ -501,4 +510,44 @@ public final class IOUtil {
       throw mainEx;
     }
   }
+
+
+  private static final AtomicLong BITS_RESERVED_MEMORY_FIELD;
+
+  static {
+    //RC: counter-intuitively, but Direct ByteBuffers (seems to be) invisible to any public monitoring API.
+    //    E.g. memoryMXBean.getNonHeapMemoryUsage() doesn't count memory occupied by direct ByteBuffers
+    //    -- and neither do others memory-related MX-beans.
+    //    java.nio.Bits.RESERVED_MEMORY is the best way I'm able to find:
+    AtomicLong reservedMemoryCounter = null;
+    try {
+      Class<?> bitsClass = Class.forName("java.nio.Bits");
+      Field reservedMemoryField = bitsClass.getDeclaredField("RESERVED_MEMORY");
+      reservedMemoryField.setAccessible(true);
+      reservedMemoryCounter = (AtomicLong)reservedMemoryField.get(null);
+    }
+    catch (Throwable t) {
+      Logger log = Logger.getInstance(IOUtil.class);
+      if (log.isDebugEnabled()) {
+        log.warn("Can't get java.nio.Bits.RESERVED_MEMORY", t);
+      }
+    }
+
+    BITS_RESERVED_MEMORY_FIELD = reservedMemoryCounter;
+  }
+
+
+  //MAYBE RC: this method + PageCacheUtils.maxDirectMemory() is better to move to some common utility class
+
+  /** @return total size (bytes) of all direct {@link ByteBuffer}s allocated, or -1 if metric is not available */
+  public static long directBuffersTotalAllocatedSize() {
+    if (BITS_RESERVED_MEMORY_FIELD != null) {
+      return BITS_RESERVED_MEMORY_FIELD.get();
+    }
+    else {
+      return -1;
+    }
+  }
 }
+
+

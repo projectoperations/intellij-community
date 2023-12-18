@@ -240,7 +240,7 @@ public abstract class CodeBlockSurrounder {
   public static @Nullable CodeBlockSurrounder forExpression(@NotNull PsiExpression expression) {
     PsiElement cur = expression;
     PsiElement parent = cur.getParent();
-    while (parent instanceof PsiExpression || parent instanceof PsiExpressionList) {
+    while (parent instanceof PsiExpression || parent instanceof PsiExpressionList || parent instanceof PsiTemplate) {
       if (parent instanceof PsiLambdaExpression) {
         return new LambdaCodeBlockSurrounder(expression, (PsiLambdaExpression)parent);
       }
@@ -325,7 +325,7 @@ public abstract class CodeBlockSurrounder {
       return null;
     }
     if (parent instanceof PsiField) {
-      if (parent.getParent() instanceof PsiUnnamedClass) {
+      if (parent.getParent() instanceof PsiImplicitClass) {
         return null;
       }
       return new ExtractFieldInitializerSurrounder(expression, (PsiField)parent);

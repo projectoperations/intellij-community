@@ -231,7 +231,7 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
       executionSettings = new GradleExecutionSettings(null, null, DistributionType.BUNDLED, false);
     }
 
-    configureExecutionArgumentsAndVmOptions(executionSettings, resolverCtx, isBuildSrcProject);
+    configureExecutionArgumentsAndVmOptions(executionSettings, resolverCtx, gradleVersion, isBuildSrcProject);
     final Set<Class<?>> toolingExtensionClasses = new HashSet<>();
     for (GradleProjectResolverExtension resolverExtension = tracedResolverChain;
          resolverExtension != null;
@@ -565,15 +565,15 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
 
   private static void configureExecutionArgumentsAndVmOptions(@NotNull GradleExecutionSettings executionSettings,
                                                               @NotNull DefaultProjectResolverContext resolverCtx,
+                                                              @Nullable GradleVersion gradleVersion,
                                                               boolean isBuildSrcProject) {
-    if (!executionSettings.isDownloadSources()) {
-      executionSettings.withArgument("-Didea.gradle.download.sources=false");
-    }
+    executionSettings.withArgument("-Didea.gradle.download.sources=" + executionSettings.isDownloadSources());
     executionSettings.withArgument("-Didea.sync.active=true");
     if (resolverCtx.isResolveModulePerSourceSet()) {
       executionSettings.withArgument("-Didea.resolveSourceSetDependencies=true");
     }
-    if (executionSettings.isParallelModelFetch()) {
+    GradleVersion usedGradleVersion = Objects.requireNonNullElseGet(gradleVersion, GradleVersion::current);
+    if (executionSettings.isParallelModelFetch() && usedGradleVersion.compareTo(GradleVersion.version("7.4")) >= 0) {
       executionSettings.withArgument("-Didea.parallelModelFetch.enabled=true");
     }
     if (!isBuildSrcProject) {

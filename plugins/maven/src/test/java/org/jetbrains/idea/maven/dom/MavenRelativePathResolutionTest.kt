@@ -9,6 +9,8 @@ import org.junit.Test
 import java.io.File
 
 class MavenRelativePathResolutionTest : MavenDomWithIndicesTestCase() {
+  override fun runInDispatchThread() = true
+
   override fun setUp() = runBlocking {
     super.setUp()
     importProjectAsync("""
@@ -38,8 +40,8 @@ $relativePathUnixSeparator<caret></relativePath>
 </parent>"""
     )
 
-    myFixture.configureFromExistingVirtualFile(pom)
-    val resolved = myFixture.getElementAtCaret()
+    fixture.configureFromExistingVirtualFile(pom)
+    val resolved = fixture.getElementAtCaret()
     assertTrue(resolved is XmlFileImpl)
     val f = LocalFileSystem.getInstance().refreshAndFindFileByPath(file.path)
     val parentPsi = findPsiFile(f)
@@ -70,8 +72,8 @@ $relativePathUnixSeparator<caret></relativePath>
 </parent>"""
     )
 
-    myFixture.configureFromExistingVirtualFile(pom)
-    val resolved = myFixture.getElementAtCaret()
+    fixture.configureFromExistingVirtualFile(pom)
+    val resolved = fixture.getElementAtCaret()
     assertTrue(resolved is XmlFileImpl)
     val f = LocalFileSystem.getInstance().refreshAndFindFileByPath(file.path)
     val parentPsi = findPsiFile(f)

@@ -35,7 +35,7 @@ import java.util.*;
 import static com.intellij.codeInspection.options.OptPane.checkbox;
 import static com.intellij.codeInspection.options.OptPane.pane;
 
-public class DuplicateConditionInspection extends BaseInspection {
+public final class DuplicateConditionInspection extends BaseInspection {
 
   /**
    * @noinspection PublicField
@@ -116,7 +116,9 @@ public class DuplicateConditionInspection extends BaseInspection {
       }
     }
 
-    private void collectConditionsForExpression(PsiExpression condition, Set<? super PsiExpression> conditions, IElementType wantedTokenType) {
+    private static void collectConditionsForExpression(PsiExpression condition,
+                                                       Set<? super PsiExpression> conditions,
+                                                       IElementType wantedTokenType) {
       condition = PsiUtil.skipParenthesizedExprDown(condition);
       if (condition == null) return;
       if (condition instanceof PsiPolyadicExpression polyadicExpression) {

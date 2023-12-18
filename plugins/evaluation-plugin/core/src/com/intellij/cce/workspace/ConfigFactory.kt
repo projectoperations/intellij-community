@@ -5,6 +5,7 @@ import com.google.gson.*
 import com.intellij.cce.evaluable.EvaluationStrategy
 import com.intellij.cce.evaluable.StrategySerializer
 import com.intellij.cce.filter.EvaluationFilterReader
+import com.intellij.cce.interpreter.InterpretationOrder
 import com.intellij.cce.util.getAs
 import com.intellij.cce.util.getIfExists
 import com.intellij.cce.workspace.filter.CompareSessionsFilter
@@ -51,6 +52,9 @@ object ConfigFactory {
     val languageName = map.getAs<String>("language")
     return Config.build(map.handleEnv("projectPath"), languageName) {
       outputDir = map.handleEnv("outputDir")
+      if (map.containsKey("projectName")) {
+        projectName = map.handleEnv("projectName")
+      }
       deserializeStrategy(map.getIfExists("strategy"), strategySerializer, languageName, this)
       deserializeActionsGeneration(map.getIfExists("actions"), languageName, this)
       deserializeActionsInterpretation(map.getIfExists("interpret"), this)
@@ -74,6 +78,9 @@ object ConfigFactory {
     }
     builder.sessionProbability = map.getAs("sessionProbability")
     builder.sessionSeed = map.getAs<Double?>("sessionSeed")?.toLong()
+    if (map.containsKey("order")) {
+      builder.order = InterpretationOrder.valueOf(map.getAs<String>("order"))
+    }
     builder.saveLogs = map.getAs("saveLogs")
     if (map.containsKey("saveFeatures")) {
       builder.saveFeatures = map.getAs("saveFeatures")

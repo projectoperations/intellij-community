@@ -25,6 +25,8 @@ class DebugProbesImpl private constructor(context: DefaultExecutionContext) :
     private val enhanceStackTraceWithThreadDumpMethod by MethodMirrorDelegate("enhanceStackTraceWithThreadDump", javaLangListMirror)
     private val dumpMethod by MethodMirrorDelegate("dumpCoroutinesInfo", javaLangListMirror, "()Ljava/util/List;")
 
+    private val currentThreadCoroutineIdMethod by MethodDelegate<LongValue>("getCurrentThreadCoroutineId", "()J")
+
     private val dumpCoroutinesInfoAsJsonAndReferences by MethodDelegate<ArrayReference>("dumpCoroutinesInfoAsJsonAndReferences", "()[Ljava/lang/Object;")
     private val enhanceStackTraceWithThreadDumpAsJsonMethod by MethodDelegate<StringReference>(
         "enhanceStackTraceWithThreadDumpAsJson",
@@ -82,6 +84,10 @@ class DebugProbesImpl private constructor(context: DefaultExecutionContext) :
         return referenceList.values.mapNotNull { coroutineInfo.mirror(it, context) }
     }
 
+    fun getCurrentThreadCoroutineId(context: DefaultExecutionContext): Long? {
+        return instance?.let { currentThreadCoroutineIdMethod.value(it, context)?.longValue() }
+    }
+
     fun canDumpCoroutinesInfoAsJsonAndReferences() =
         dumpCoroutinesInfoAsJsonAndReferences.method != null
 
@@ -127,7 +133,7 @@ class DebugProbesImpl private constructor(context: DefaultExecutionContext) :
     }
 }
 
-class DebugProbesImplCoroutineOwner(private val coroutineInfo: CoroutineInfo, context: DefaultExecutionContext) :
+class DebugProbesImplCoroutineOwner(private val coroutineInfo: CoroutineInfo?, context: DefaultExecutionContext) :
         BaseMirror<ObjectReference, MirrorOfCoroutineOwner>(COROUTINE_OWNER_CLASS_NAME, context) {
     private val infoField by FieldMirrorDelegate("info", DebugCoroutineInfoImpl(context))
 
@@ -136,7 +142,7 @@ class DebugProbesImplCoroutineOwner(private val coroutineInfo: CoroutineInfo, co
         if (infoField.isCompatible(info))
             return MirrorOfCoroutineOwner(value, infoField.mirrorOnly(info, context))
         else
-            return MirrorOfCoroutineOwner(value, coroutineInfo.mirror(info, context))
+            return coroutineInfo?.let { MirrorOfCoroutineOwner(value, it.mirror(info, context)) }
     }
 
     companion object {
@@ -149,6 +155,10 @@ class DebugProbesImplCoroutineOwner(private val coroutineInfo: CoroutineInfo, co
 
 fun interface StackTraceMirrorProvider {
     fun getStackTrace(): List<MirrorOfStackTraceElement>?
+}
+
+fun interface JobMirrorProvider {
+    fun getJob(): MirrorOfJob?
 }
 
 class DebugCoroutineInfoImpl(context: DefaultExecutionContext) :
@@ -250,6 +260,8 @@ class CoroutineInfo private constructor(
         )
     }
 
+    fun getContextRef(value: ObjectReference) = contextFieldRef.value(value)
+
     fun getLastObservedStackTrace(value: ObjectReference, context: DefaultExecutionContext) =
         lastObservedStackTraceMethod.value(value, context)
 
@@ -262,6 +274,5 @@ class CoroutineInfo private constructor(
     private fun getEnhancedStackTraceProvider(value: ObjectReference, context: DefaultExecutionContext) =
         StackTraceMirrorProvider {
             debugProbesImplMirror.enhanceStackTraceWithThreadDump(context, value, this)
-       }
+        }
 }
-

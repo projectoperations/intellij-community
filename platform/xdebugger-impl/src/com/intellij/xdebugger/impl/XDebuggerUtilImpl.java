@@ -10,7 +10,7 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
@@ -77,9 +77,12 @@ import static org.jetbrains.concurrency.Promises.rejectedPromise;
 import static org.jetbrains.concurrency.Promises.resolvedPromise;
 
 public class XDebuggerUtilImpl extends XDebuggerUtil {
+  private static final Logger LOG = Logger.getInstance(XDebuggerUtilImpl.class);
+  
   private static final Ref<Boolean> SHOW_BREAKPOINT_AD = new Ref<>(true);
 
   public static final DataKey<Integer> LINE_NUMBER = DataKey.create("x.debugger.line.number");
+  public static final DataKey<Integer> OFFSET = DataKey.create("x.debugger.offset");
 
   @Override
   public XLineBreakpointType<?>[] getLineBreakpointTypes() {
@@ -144,6 +147,38 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
   /**
    * Get non-empty list of variants assuming that given list of types is non-empty too.
    */
+  public static List<? extends XLineBreakpointType.XLineBreakpointVariant>
+  getLineBreakpointVariantsSync(@NotNull final Project project,
+                                @NotNull List<? extends XLineBreakpointType> types,
+                                @NotNull final XSourcePosition position) {
+    if (types.isEmpty()) {
+      throw new IllegalArgumentException("non-empty types are expected");
+    }
+
+    boolean multipleTypes = types.size() > 1;
+    List<XLineBreakpointType.XLineBreakpointVariant> allVariants = new SmartList<>();
+    for (XLineBreakpointType type : types) {
+      var variants = type.computeVariants(project, position);
+      if (variants.isEmpty() && multipleTypes) {
+        // We have multiple types, but no non-default variants for this type. So we just create one.
+        allVariants.add(createDefaultBreakpointVariant(position, type));
+      }
+      else {
+        allVariants.addAll(variants);
+      }
+    }
+
+    if (allVariants.isEmpty()) {
+      assert !multipleTypes;
+      return Collections.singletonList(createDefaultBreakpointVariant(position, types.get(0)));
+    } else {
+      return allVariants;
+    }
+  }
+
+  /**
+   * Get non-empty list of variants assuming that given list of types is non-empty too.
+   */
   public static Promise<List<? extends XLineBreakpointType.XLineBreakpointVariant>>
   getLineBreakpointVariants(@NotNull final Project project,
                             @NotNull List<? extends XLineBreakpointType> types,
@@ -188,6 +223,13 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
       @Override
       public @NotNull Icon getIcon() {
         return type.getEnabledIcon();
+      }
+
+      @Override
+      public boolean isMultiVariant() {
+        // TODO[inline-bp]: unfortunatelly it's wrong for default line variant, which is currently "all" by default,
+        //                  see IDEA-336373.
+        return false;
       }
     };
   }
@@ -244,8 +286,9 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
     final XBreakpointManager breakpointManager = XDebuggerManager.getInstance(project).getBreakpointManager();
 
     Promise<List<? extends XLineBreakpointType.XLineBreakpointVariant>> variantsAsync = getLineBreakpointVariants(project, types, position);
-    if (XLineBreakpointManager.shouldShowBreakpointsInline()) {
-      return variantsAsync.then(variants -> {
+    if (areInlineBreakpointsEnabled()) {
+      return variantsAsync.then(variantsWithAll -> {
+        var variants = variantsWithAll.stream().filter(v -> !v.isMultiVariant()).toList();
 
         var breakpointOrVariant = getBestMatchingBreakpoint(caretOffset,
                                                             Stream.concat(
@@ -267,12 +310,11 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
         assert !variants.isEmpty();
         XLineBreakpointType.XLineBreakpointVariant variant;
         if (variants.size() > 1) {
-          assert editor != null; // FIXME: it's absolutely not true, but I want to look at this use cases
           variant = breakpointOrVariant instanceof XLineBreakpointType.XLineBreakpointVariant v ? v : variants.get(0);
         } else {
           variant = variants.get(0);
         }
-        return insertBreakpoint(variant.createProperties(), breakpointManager, file, line, variant.getType(), temporary);
+        return addLineBreakpoint(breakpointManager, variant, file, line, temporary);
       });
       // FIXME[inline-bp]: review code below, I was able to loose something non-trivial there
     }
@@ -362,8 +404,7 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
               @Override
               public PopupStep onChosen(final XLineBreakpointType.XLineBreakpointVariant selectedValue, boolean finalChoice) {
                 selectionListener.clearHighlighter();
-                insertBreakpoint(selectedValue.createProperties(), res, breakpointManager, file, line, selectedValue.getType(),
-                                 temporary);
+                addLineBreakpoint(res, breakpointManager, selectedValue, file, line, temporary);
                 return FINAL_CHOICE;
               }
 
@@ -386,30 +427,58 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
         }
         else {
           XLineBreakpointType.XLineBreakpointVariant variant = variants.get(0);
-          insertBreakpoint(variant.createProperties(), res, breakpointManager, file, line, variant.getType(), temporary);
+          addLineBreakpoint(res, breakpointManager, variant, file, line, temporary);
         }
       });
       return res;
     });
   }
 
-  private static <P extends XBreakpointProperties> void insertBreakpoint(P properties,
-                                                                         AsyncPromise<? super XLineBreakpoint> res,
-                                                                         XBreakpointManager breakpointManager,
-                                                                         VirtualFile file,
-                                                                         int line,
-                                                                         XLineBreakpointType<P> type,
-                                                                         Boolean temporary) {
-    res.setResult(insertBreakpoint(properties, breakpointManager, file, line, type, temporary));
+  private static <P extends XBreakpointProperties> void addLineBreakpoint(AsyncPromise<? super XLineBreakpoint> res,
+                                                                          XBreakpointManager breakpointManager,
+                                                                          XLineBreakpointType<P>.XLineBreakpointVariant variant,
+                                                                          VirtualFile file,
+                                                                          int line,
+                                                                          Boolean temporary) {
+    res.setResult(addLineBreakpoint(breakpointManager, variant, file, line, temporary));
   }
 
-  private static <P extends XBreakpointProperties> XLineBreakpoint insertBreakpoint(P properties,
-                                                                         XBreakpointManager breakpointManager,
-                                                                         VirtualFile file,
-                                                                         int line,
-                                                                         XLineBreakpointType<P> type,
-                                                                         Boolean temporary) {
-    return WriteAction.compute(() -> breakpointManager.addLineBreakpoint(type, file.getUrl(), line, properties, temporary));
+  private static <P extends XBreakpointProperties> void addLineBreakpoint(AsyncPromise<? super XLineBreakpoint> res,
+                                                                          XBreakpointManager breakpointManager,
+                                                                          XLineBreakpointType<P> type,
+                                                                          P properties,
+                                                                          VirtualFile file,
+                                                                          int line,
+                                                                          Boolean temporary) {
+    res.setResult(addLineBreakpoint(breakpointManager, type, properties, file, line, temporary));
+  }
+
+  public static <P extends XBreakpointProperties> XLineBreakpoint<P> addLineBreakpoint(XBreakpointManager breakpointManager,
+                                                                                       XLineBreakpointType<P>.XLineBreakpointVariant variant,
+                                                                                       VirtualFile file,
+                                                                                       int line) {
+    return addLineBreakpoint(breakpointManager, variant, file, line, false);
+  }
+
+  public static <P extends XBreakpointProperties> XLineBreakpoint<P> addLineBreakpoint(XBreakpointManager breakpointManager,
+                                                                                       XLineBreakpointType<P>.XLineBreakpointVariant variant,
+                                                                                       VirtualFile file,
+                                                                                       int line,
+                                                                                       Boolean temporary) {
+    var properties = variant.createProperties();
+    var type = variant.getType();
+    var breakpoint = addLineBreakpoint(breakpointManager, type, properties, file, line, temporary);
+    LOG.assertTrue(type.variantAndBreakpointMatch(breakpoint, variant), type + ": " + variant.getClass());
+    return breakpoint;
+  }
+
+  private static <P extends XBreakpointProperties> XLineBreakpoint<P> addLineBreakpoint(XBreakpointManager breakpointManager,
+                                                                                        XLineBreakpointType<P> type,
+                                                                                        P properties,
+                                                                                        VirtualFile file,
+                                                                                        int line,
+                                                                                        Boolean temporary) {
+    return breakpointManager.addLineBreakpoint(type, file.getUrl(), line, properties, temporary);
   }
 
   public static boolean removeBreakpointWithConfirmation(final XBreakpointBase<?, ?, ?> breakpoint) {
@@ -485,8 +554,12 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
   }
 
   @Override
-  public void removeBreakpoint(final Project project, final XBreakpoint<?> breakpoint) {
-    WriteAction.run(() -> XDebuggerManager.getInstance(project).getBreakpointManager().removeBreakpoint(breakpoint));
+  public void removeBreakpoint(Project project, XBreakpoint<?> breakpoint) {
+    XDebuggerManager.getInstance(project).getBreakpointManager().removeBreakpoint(breakpoint);
+  }
+
+  public static void removeAllBreakpoints(@NotNull Project project) {
+    ((XBreakpointManagerImpl)XDebuggerManager.getInstance(project).getBreakpointManager()).removeAllBreakpoints();
   }
 
   @Override
@@ -542,6 +615,10 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
     if (lineNumber != null) {
       return XSourcePositionImpl.create(editor.getVirtualFile(), lineNumber);
     }
+    Integer offsetFromDataContext = OFFSET.getData(context);
+    if (offsetFromDataContext != null) {
+      return XSourcePositionImpl.createByOffset(editor.getVirtualFile(), offsetFromDataContext);
+    }
 
     final Document document = editor.getDocument();
     int offset = editor.getCaretModel().getOffset();
@@ -557,11 +634,6 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
       return fileEditor instanceof TextEditor ? ((TextEditor)fileEditor).getEditor() : null;
     }
     return editor;
-  }
-
-  @Override
-  public <B extends XBreakpoint<?>> Comparator<B> getDefaultBreakpointComparator(final XBreakpointType<B, ?> type) {
-    return Comparator.comparing(type::getDisplayText);
   }
 
   @Override

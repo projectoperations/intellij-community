@@ -27,7 +27,7 @@ import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.codeInspection.options.OptPane.checkbox;
 
-public class BooleanMethodNameMustStartWithQuestionInspection extends NonBooleanMethodNameMayNotStartWithQuestionInspection {
+public final class BooleanMethodNameMustStartWithQuestionInspection extends NonBooleanMethodNameMayNotStartWithQuestionInspection {
 
   @SuppressWarnings("PublicField")
   public boolean ignoreInAnnotationInterface = true;
@@ -95,7 +95,7 @@ public class BooleanMethodNameMustStartWithQuestionInspection extends NonBoolean
       registerMethodError(method, method);
     }
 
-    private boolean isSpecialCase(String name) {
+    private static boolean isSpecialCase(String name) {
       return name.equals("add") || name.equals("remove") || name.equals("put");
     }
   }

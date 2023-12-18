@@ -25,7 +25,9 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicators.KotlinApplicatorInp
 import org.jetbrains.kotlin.idea.codeinsight.utils.ChooseValueExpression
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.CallableReturnTypeUpdaterUtils.TypeInfo.Companion.createByKtTypes
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
+import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFunction
+import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.psiUtil.findDescendantOfType
 import org.jetbrains.kotlin.types.Variance
@@ -44,6 +46,22 @@ object CallableReturnTypeUpdaterUtils {
         } else {
             setTypeWithTemplate(listOf(declaration to typeInfo).iterator(), project, editor)
         }
+
+        if (declaration is KtProperty && !typeInfo.useTemplate) {
+            val getter = declaration.getter
+            val returnTypeReference = getter?.returnTypeReference
+            if (returnTypeReference != null && !typeInfo.defaultType.isUnit) {
+                val typeRef = shortenReferences(returnTypeReference.replace(KtPsiFactory(project).createType(typeInfo.defaultType.longTypeRepresentation)) as KtElement)
+                if (typeRef != null) {
+                    updater?.moveCaretTo(typeRef.endOffset)
+                }
+            }
+
+            val setterParameter = declaration.setter?.parameter
+            if (setterParameter?.typeReference != null) {
+                updateType(setterParameter, typeInfo, project, editor, updater)
+            }
+        }
     }
 
     private fun KtCallableDeclaration.setType(type: TypeInfo.Type, project: Project, updater: ModPsiUpdater? = null) {
@@ -55,7 +73,7 @@ object CallableReturnTypeUpdaterUtils {
         typeReference = newTypeRef
         typeReference?.let {
             shortenReferences(it)
-            updater?.moveTo(it.endOffset)
+            updater?.moveCaretTo(it.endOffset)
         }
     }
 

@@ -15,6 +15,8 @@
     <extensionPoint name="workspaceModel.fileIndexContributor"
                     interface="com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndexContributor"
                     dynamic="true"/>
+    <extensionPoint name="workspaceModel.entityLifecycleSupporter" dynamic="true"
+                    interface="com.intellij.platform.backend.workspace.WorkspaceEntityLifecycleSupporter"/>
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
     <projectService serviceInterface="com.intellij.openapi.components.PathMacroManager"
@@ -25,7 +27,6 @@
                         serviceImplementation="com.intellij.openapi.project.ProjectLocatorImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.roots.libraries.LibraryTablesRegistrar"
                         serviceImplementation="com.intellij.openapi.roots.impl.libraries.LibraryTablesRegistrarImpl"/>
-    <applicationService serviceImplementation="com.intellij.openapi.roots.impl.libraries.ApplicationLibraryTable"/>
     <!-- Global Workspace Model -->
     <applicationService serviceInterface="com.intellij.workspaceModel.ide.legacyBridge.GlobalLibraryTableBridge"
                         serviceImplementation="com.intellij.workspaceModel.ide.impl.legacyBridge.library.GlobalLibraryTableBridgeImpl"/>
@@ -34,9 +35,6 @@
     <applicationService serviceInterface="com.intellij.workspaceModel.ide.JpsGlobalModelSynchronizer"
                         serviceImplementation="com.intellij.workspaceModel.ide.impl.jps.serialization.JpsGlobalModelSynchronizerImpl"/>
     <applicationService serviceImplementation="com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModel"/>
-    <registryKey key="workspace.model.global.library.bridge" defaultValue="true"
-                 description="Enables new implementation for global libraries which works via Workspace Model"
-                 restartRequired="true"/>
 
     <projectService serviceInterface="com.intellij.openapi.roots.FileIndexFacade"
                     serviceImplementation="com.intellij.openapi.roots.impl.ProjectFileIndexFacade"/>
@@ -86,6 +84,9 @@
     <registryKey key="ide.workspace.model.assertions.on.update" defaultValue="false" restartRequired="false"
                  description="Enable workspace model consistency checking after every update"/>
 
+    <postStartupActivity implementation="com.intellij.workspaceModel.ide.impl.WorkspaceEntitiesLifecycleActivity"/>
+
+    <persistentFsConnectionListener implementation="com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexCleaner"/>
   </extensions>
 
   <projectListeners>

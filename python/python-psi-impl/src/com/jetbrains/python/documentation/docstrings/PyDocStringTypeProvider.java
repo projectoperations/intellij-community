@@ -16,7 +16,7 @@ import java.util.function.Function;
 /**
  * @author Mikhail Golubev
  */
-public class PyDocStringTypeProvider extends PyTypeProviderBase {
+public final class PyDocStringTypeProvider extends PyTypeProviderBase {
   @Override
   public Ref<PyType> getParameterType(@NotNull PyNamedParameter param, @NotNull PyFunction func, @NotNull TypeEvalContext context) {
     StructuredDocString docString = func.getStructuredDocString();
@@ -113,8 +113,10 @@ public class PyDocStringTypeProvider extends PyTypeProviderBase {
       }
     }
 
-    for (PyGenericType typeVar : typeParameters.getAllTypeVars()) {
-      typeVar.setScopeOwner(findScopeOwner.apply(typeVar));
+    for (PyTypeParameterType typeParam : typeParameters.getAllTypeParameters()) {
+      if (typeParam instanceof PyTypeVarTypeImpl typeVar) {
+        typeVar.setScopeOwner(findScopeOwner.apply(typeVar));
+      }
     }
   }
 }

@@ -39,7 +39,7 @@ import static com.intellij.ui.paint.PaintUtil.RoundingMode.ROUND;
  * Use {@link #getInstance()} to get the app (triggers CEF startup on first call).
  * Use {@link #createClient()} to create a client.
  *
- * @author tav
+ * @see <a href="https://plugins.jetbrains.com/docs/intellij/jcef.html">Embedded Browser (JCEF) (IntelliJ Platform Docs)</a>
  */
 public final class JBCefApp {
   private static final Logger LOG = Logger.getInstance(JBCefApp.class);
@@ -75,12 +75,14 @@ public final class JBCefApp {
     boolean started = false;
     try {
       started = CefApp.startup(ArrayUtil.EMPTY_STRING_ARRAY);
-    } catch (UnsatisfiedLinkError e) {
+    }
+    catch (UnsatisfiedLinkError e) {
       LOG.error(e.getMessage());
     }
     if (!started) {
-      if (SystemInfoRt.isLinux)
+      if (SystemInfoRt.isLinux) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> SettingsHelper.showNotificationMissingLibraries());
+      }
       throw new IllegalStateException("CefApp failed to start");
     }
 
@@ -100,10 +102,11 @@ public final class JBCefApp {
   }
 
   /**
-   * Returns {@code JBCefApp} instance. If the app has not yet been initialized,
-   * then starts up CEF and initializes the app.
+   * Returns {@code JBCefApp} instance.
+   * <p>
+   * If the app has not yet been initialized, then it starts up CEF and initializes the app.
    *
-   * @throws IllegalStateException when JCEF initialization is not possible in current env
+   * @throws IllegalStateException when JCEF initialization is not possible in the current environment
    */
   public static @NotNull JBCefApp getInstance() {
     if (Holder.INSTANCE == null) {
@@ -144,7 +147,8 @@ public final class JBCefApp {
       if (config != null) {
         try {
           app = new JBCefApp(config);
-        } catch (IllegalStateException ignore) {
+        }
+        catch (IllegalStateException ignore) {
         }
       }
       return app;
@@ -181,8 +185,7 @@ public final class JBCefApp {
         return unsupported.apply("JCEF is manually disabled via 'ide.browser.jcef.enabled=false'");
       }
       if (GraphicsEnvironment.isHeadless() &&
-          !RegistryManager.getInstance().is("ide.browser.jcef.headless.enabled"))
-      {
+          !RegistryManager.getInstance().is("ide.browser.jcef.headless.enabled")) {
         return unsupported.apply("JCEF is manually disabled in headless env via 'ide.browser.jcef.headless.enabled=false'");
       }
       if (!SKIP_VERSION_CHECK) {
@@ -199,16 +202,16 @@ public final class JBCefApp {
         }
         if (MIN_SUPPORTED_JCEF_API_MAJOR_VERSION > version.apiVersion.major ||
             (MIN_SUPPORTED_JCEF_API_MAJOR_VERSION == version.apiVersion.major &&
-             MIN_SUPPORTED_JCEF_API_MINOR_VERSION > version.apiVersion.minor))
-        {
+             MIN_SUPPORTED_JCEF_API_MINOR_VERSION > version.apiVersion.minor)) {
           return unsupported.apply("JCEF: minimum supported API version is " +
                                    MIN_SUPPORTED_JCEF_API_MAJOR_VERSION + "." + MIN_SUPPORTED_JCEF_API_MINOR_VERSION +
                                    ", current is " + version.apiVersion.major + "." + version.apiVersion.minor);
         }
       }
       String altCefPath = System.getProperty("ALT_CEF_FRAMEWORK_DIR", null);
-      if (altCefPath == null || altCefPath.isEmpty())
+      if (altCefPath == null || altCefPath.isEmpty()) {
         altCefPath = System.getenv("ALT_CEF_FRAMEWORK_DIR");
+      }
 
       final boolean skipModuleCheck = (altCefPath != null && !altCefPath.isEmpty()) || SKIP_MODULE_CHECK;
       if (!skipModuleCheck) {
@@ -244,6 +247,12 @@ public final class JBCefApp {
     return myCefSettings.cache_path;
   }
 
+  @Contract(pure = true)
+  @NotNull
+  public Integer getRemoteDebuggingPort() {
+    return myCefSettings.remote_debugging_port;
+  }
+
   public @NotNull JBCefClient createClient() {
     return createClient(false);
   }
@@ -265,6 +274,14 @@ public final class JBCefApp {
     return SettingsHelper.isOffScreenRenderingModeEnabled();
   }
 
+  /**
+   * Throws {@code IllegalStateException} if the off-screen rendering mode is not enabled.
+   * <p>
+   * The off-screen mode allows for browser creation in either windowed or off-screen rendering mode.
+   *
+   * @see JBCefOsrHandlerBrowser
+   * @see JBCefBrowserBuilder#setOffScreenRendering(boolean)
+   */
   static void checkOffScreenRenderingModeEnabled() {
     if (!isOffScreenRenderingModeEnabled()) {
       throw new IllegalStateException("off-screen rendering mode is disabled: 'ide.browser.jcef.osr.enabled=false'");
@@ -281,7 +298,7 @@ public final class JBCefApp {
    * The method must be called prior to {@code JBCefApp} initialization
    * (performed by {@link #getInstance()}). For instance, via the IDE application service.
    * <p>
-   * The method should not be called for built-in schemes ("html", "file", etc).
+   * The method should not be called for built-in schemes ("html", "file", etc.).
    *
    * @throws IllegalStateException if the method is called after {@code JBCefApp} initialization
    */
@@ -341,8 +358,9 @@ public final class JBCefApp {
 
     @Override
     public void stateHasChanged(CefApp.CefAppState state) {
-      if (state.equals(CefApp.CefAppState.INITIALIZED))
+      if (state.equals(CefApp.CefAppState.INITIALIZED)) {
         LOG.info(String.format("jcef version: %s | cmd args: %s", CefApp.getInstance().getVersion().getJcefVersion(), myArgs));
+      }
     }
 
     @Override

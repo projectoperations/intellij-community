@@ -37,7 +37,7 @@ import com.intellij.psi.search.SearchScope
 import com.intellij.psi.util.elementsAtOffsetUp
 import com.intellij.refactoring.rename.api.RenameTarget
 import com.intellij.refactoring.rename.symbol.SymbolRenameTargetFactory
-import com.intellij.rt.execution.junit.FileComparisonFailure
+import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestDataFile
 import com.intellij.testFramework.UsefulTestCase
@@ -111,7 +111,8 @@ fun CodeInsightTestFixture.checkLookupItems(
       val lookupElement = lookupElements[lookupString]
       assertNotNull("Missing lookup string: $lookupString", lookupElement)
       val doc = IdeDocumentationTargetProvider.getInstance(project)
-        .documentationTarget(editor, file, lookupElement!!)
+        .documentationTargets(editor, file, lookupElement!!)
+        ?.firstOrNull()
         ?.let { computeDocumentationBlocking(it.createPointer()) }
         ?.html
         ?.trim()
@@ -238,7 +239,7 @@ private fun CodeInsightTestFixture.checkDocumentation(actualDocumentation: Strin
   }
   val expectedDocumentation = FileUtil.loadFile(file, "UTF-8", true).trim()
   if (expectedDocumentation != actualDocumentation) {
-    throw FileComparisonFailure(expectedFile, expectedDocumentation, actualDocumentation, path)
+    throw FileComparisonFailedError(expectedFile, expectedDocumentation, actualDocumentation!!, path)
   }
 }
 
@@ -523,11 +524,11 @@ fun CodeInsightTestFixture.checkListByFile(actualList: List<String>, @TestDataFi
     val expectedList = FileUtil.loadLines(file, "UTF-8").filter { it.isNotBlank() }
     val actualSet = actualList.toSet()
     if (!expectedList.all { actualSet.contains(it) }) {
-      throw FileComparisonFailure(expectedFile, expectedContents, actualContents, path)
+      throw FileComparisonFailedError(expectedFile, expectedContents, actualContents, path)
     }
   }
   else if (expectedContents != actualContents) {
-    throw FileComparisonFailure(expectedFile, expectedContents, actualContents, path)
+    throw FileComparisonFailedError(expectedFile, expectedContents, actualContents, path)
   }
 }
 
@@ -540,7 +541,7 @@ fun CodeInsightTestFixture.checkTextByFile(actualContents: String, @TestDataFile
   val actualContentsTrimmed = actualContents.trim() + "\n"
   val expectedContents = FileUtil.loadFile(file, "UTF-8", true).trim() + "\n"
   if (expectedContents != actualContentsTrimmed) {
-    throw FileComparisonFailure(expectedFile, expectedContents, actualContentsTrimmed, path)
+    throw FileComparisonFailedError(expectedFile, expectedContents, actualContentsTrimmed, path)
   }
 }
 
@@ -580,6 +581,16 @@ fun CodeInsightTestFixture.configureAndCopyPaste(sourceFile: String, destination
   configureFromTempProjectFile(sourceFile)
   performEditorAction(IdeActions.ACTION_EDITOR_COPY)
   configureFromTempProjectFile(destinationFile)
+  performEditorAction(IdeActions.ACTION_EDITOR_PASTE)
+  WriteAction.runAndWait<Throwable> {
+    FileDocumentManager.getInstance().saveAllDocuments()
+  }
+}
+
+fun CodeInsightTestFixture.performCopyPaste(destinationSignature: String) {
+  performEditorAction(IdeActions.ACTION_EDITOR_COPY)
+  editor.caretModel.primaryCaret.setSelection(0,0)
+  moveToOffsetBySignature(destinationSignature)
   performEditorAction(IdeActions.ACTION_EDITOR_PASTE)
   WriteAction.runAndWait<Throwable> {
     FileDocumentManager.getInstance().saveAllDocuments()

@@ -2,6 +2,7 @@
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.java.JavaBundle;
 import com.intellij.modcommand.ActionContext;
 import com.intellij.modcommand.ModPsiUpdater;
@@ -29,7 +30,7 @@ import java.util.List;
 import static com.intellij.util.ObjectUtils.tryCast;
 import static java.util.Collections.emptyList;
 
-public class VariableAccessFromInnerClassJava10Fix extends PsiUpdateModCommandAction<PsiElement> {
+public final class VariableAccessFromInnerClassJava10Fix extends PsiUpdateModCommandAction<PsiElement> {
   @NonNls private final static String[] NAMES = {
     "ref",
     "lambdaContext",
@@ -50,7 +51,7 @@ public class VariableAccessFromInnerClassJava10Fix extends PsiUpdateModCommandAc
 
   @Override
   protected @Nullable Presentation getPresentation(@NotNull ActionContext context, @NotNull PsiElement element) {
-    if (!PsiUtil.isLanguageLevel10OrHigher(context.file())) return null;
+    if (!HighlightingFeature.LVTI.isAvailable(context.file())) return null;
     PsiReferenceExpression reference = tryCast(element, PsiReferenceExpression.class);
     if (reference == null) return null;
     PsiLocalVariable variable = tryCast(reference.resolve(), PsiLocalVariable.class);

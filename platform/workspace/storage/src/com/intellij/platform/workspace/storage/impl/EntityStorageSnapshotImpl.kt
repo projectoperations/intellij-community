@@ -6,13 +6,11 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.platform.diagnostic.telemetry.JPS
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
-import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMs
+import com.intellij.platform.diagnostic.telemetry.WorkspaceModel
+import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.storage.*
-import com.intellij.platform.workspace.storage.impl.cache.EntityStorageCacheImpl
 import com.intellij.platform.workspace.storage.impl.cache.TracedSnapshotCache
 import com.intellij.platform.workspace.storage.impl.cache.TracedSnapshotCacheImpl
-import com.intellij.platform.workspace.storage.impl.containers.getDiff
-import com.intellij.platform.workspace.storage.impl.exceptions.AddDiffException
 import com.intellij.platform.workspace.storage.impl.exceptions.SymbolicIdAlreadyExistsException
 import com.intellij.platform.workspace.storage.impl.external.EmptyExternalEntityMapping
 import com.intellij.platform.workspace.storage.impl.external.ExternalEntityMappingImpl
@@ -27,9 +25,10 @@ import com.intellij.platform.workspace.storage.url.MutableVirtualFileUrlIndex
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlIndex
 import com.intellij.util.ExceptionUtil
 import com.intellij.util.ObjectUtils
-import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.containers.CollectionFactory
 import io.opentelemetry.api.metrics.Meter
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.ConcurrentHashMap
@@ -56,6 +55,9 @@ internal data class EntityReferenceImpl<E : WorkspaceEntity>(internal val id: En
   }
 }
 
+// companion object in EntityStorageSnapshotImpl is initialized too late
+private val entityStorageSnapshotImplInstancesCounter: AtomicLong = AtomicLong()
+
 @OptIn(EntityStorageInstrumentationApi::class)
 internal open class EntityStorageSnapshotImpl(
   override val entitiesByType: ImmutableEntitiesBarrel,
@@ -65,7 +67,7 @@ internal open class EntityStorageSnapshotImpl(
 ) : EntityStorageSnapshotInstrumentation, AbstractEntityStorage() {
 
   init {
-    this.snapshotCache.initSnapshot(this)
+    entityStorageSnapshotImplInstancesCounter.incrementAndGet()
   }
 
   // This cache should not be transferred to other versions of storage
@@ -73,10 +75,12 @@ internal open class EntityStorageSnapshotImpl(
 
   // I suppose that we can use some kind of array of arrays to get a quicker access (just two accesses by-index)
   // However, it's not implemented currently because I'm not sure about threading.
-  private val entitiesCache = ConcurrentHashMap<EntityId, WorkspaceEntity>()
+  //
+  // ConcurrentLongObjectHashMap can be used here, but it's not accessible from this module
+  private val entityCache: Long2ObjectMap<WorkspaceEntity> = Long2ObjectOpenHashMap() // guarded by entityCache
 
   override fun <T> cached(query: StorageQuery<T>): T {
-    return snapshotCache.cached(query)
+    return snapshotCache.cached(query, this)
   }
 
   @Suppress("UNCHECKED_CAST")
@@ -88,19 +92,36 @@ internal open class EntityStorageSnapshotImpl(
   override fun toSnapshot(): EntityStorageSnapshot = this
 
   override fun <T: WorkspaceEntity> initializeEntity(entityId: EntityId, newInstance: (() -> T)): T {
-    val found = entitiesCache[entityId]
+    val found = synchronized(entityCache) { entityCache[entityId] }
     if (found != null) {
       @Suppress("UNCHECKED_CAST")
       return found as T
     }
     val newData = newInstance()
-    entitiesCache[entityId] = newData
+    synchronized(entityCache) {
+      entityCache.put(entityId, newData)
+    }
     return newData
   }
 
   companion object {
     private val NULL_ENTITY = ObjectUtils.sentinel("null entity", WorkspaceEntity::class.java)
     val EMPTY = EntityStorageSnapshotImpl(ImmutableEntitiesBarrel.EMPTY, RefsTable(), StorageIndexes.EMPTY)
+
+    private fun setupOpenTelemetryReporting(meter: Meter): Unit {
+      val instancesCountCounter = meter.counterBuilder("workspaceModel.entityStorageSnapshotImpl.instances.count").buildObserver()
+
+      meter.batchCallback(
+        {
+          instancesCountCounter.record(entityStorageSnapshotImplInstancesCounter.get())
+        },
+        instancesCountCounter,
+      )
+    }
+
+    init {
+      setupOpenTelemetryReporting(TelemetryManager.getMeter(WorkspaceModel))
+    }
   }
 }
 
@@ -117,13 +138,12 @@ internal class MutableEntityStorageImpl(
   @Volatile
   private var trackStackTrace: Boolean = false
 
-  private var calculationCache = EntityStorageCacheImpl()
-
   init {
-    calculationCache.init(this)
+    instancesCounter.incrementAndGet()
   }
 
   /**
+   *
    * This log collects the log of operations, not the log of state changes.
    * This means, that if we remove child entity, we'll record only remove event without "modify" event for its parent.
    *
@@ -140,10 +160,6 @@ internal class MutableEntityStorageImpl(
 
   override val modificationCount: Long
     get() = this.changeLog.modificationCount
-
-  override fun <T> calculate(query: StorageQuery<T>): T {
-    return calculationCache.cached(query)
-  }
 
   private val writingFlag = AtomicBoolean()
 
@@ -169,65 +185,50 @@ internal class MutableEntityStorageImpl(
 
   // --------------- Replace By Source stuff -----------
 
-  override fun <E : WorkspaceEntity> entities(entityClass: Class<E>): Sequence<E> {
-    val start = System.currentTimeMillis()
-
+  override fun <E : WorkspaceEntity> entities(entityClass: Class<E>): Sequence<E> = getEntitiesTimeMs.addMeasuredTimeMillis {
     @Suppress("UNCHECKED_CAST")
-    val entities = entitiesByType[entityClass.toClassId()]?.all()?.map { it.wrapAsModifiable(this) } as? Sequence<E> ?: emptySequence()
-
-    getEntitiesTimeMs.addElapsedTimeMs(start)
-    return entities
+    entitiesByType[entityClass.toClassId()]?.all()?.map { it.wrapAsModifiable(this) } as? Sequence<E> ?: emptySequence()
   }
 
-  override fun <E : WorkspaceEntityWithSymbolicId, R : WorkspaceEntity> referrers(id: SymbolicEntityId<E>,
-                                                                                  entityClass: Class<R>): Sequence<R> {
-    val start = System.currentTimeMillis()
+  override fun <E : WorkspaceEntityWithSymbolicId, R : WorkspaceEntity> referrers(
+    id: SymbolicEntityId<E>,
+    entityClass: Class<R>
+  ): Sequence<R> = getReferrersTimeMs.addMeasuredTimeMillis {
     val classId = entityClass.toClassId()
 
     @Suppress("UNCHECKED_CAST")
-    val referrers = indexes.softLinks.getIdsByEntry(id).asSequence()
+    indexes.softLinks.getIdsByEntry(id).asSequence()
       .filter { it.clazz == classId }
       .map { entityDataByIdOrDie(it).wrapAsModifiable(this) as R }
-
-    getReferrersTimeMs.addElapsedTimeMs(start)
-    return referrers
   }
 
   @Suppress("UNCHECKED_CAST")
-  override fun <E : WorkspaceEntityWithSymbolicId> resolve(id: SymbolicEntityId<E>): E? {
-    val start = System.currentTimeMillis()
-
-    val entityIds = indexes.symbolicIdIndex.getIdsByEntry(id) ?: return null
-    val entityData: WorkspaceEntityData<WorkspaceEntity> = entityDataById(entityIds) as? WorkspaceEntityData<WorkspaceEntity> ?: return null
-    val asModifiable = entityData.wrapAsModifiable(this) as E?
-    resolveTimeMs.addElapsedTimeMs(start)
-    return asModifiable
+  override fun <E : WorkspaceEntityWithSymbolicId> resolve(id: SymbolicEntityId<E>): E? = resolveTimeMs.addMeasuredTimeMillis {
+    val entityIds = indexes.symbolicIdIndex.getIdsByEntry(id) ?: return@addMeasuredTimeMillis null
+    val entityData: WorkspaceEntityData<WorkspaceEntity> = entityDataById(entityIds) as? WorkspaceEntityData<WorkspaceEntity>
+                                                           ?: return@addMeasuredTimeMillis null
+    return@addMeasuredTimeMillis entityData.wrapAsModifiable(this) as E?
   }
 
   // Do not remove cast to Class<out TypedEntity>. kotlin fails without it
   @Suppress("USELESS_CAST", "UNCHECKED_CAST")
-  override fun entitiesBySource(sourceFilter: (EntitySource) -> Boolean): Map<EntitySource, Map<Class<out WorkspaceEntity>, List<WorkspaceEntity>>> {
-    val start = System.currentTimeMillis()
-    val groupedBySource = indexes.entitySourceIndex.entries().asSequence().filter { sourceFilter(it) }.associateWith { source ->
+  override fun entitiesBySource(sourceFilter: (EntitySource) -> Boolean)
+    : Map<EntitySource, Map<Class<out WorkspaceEntity>, List<WorkspaceEntity>>> = getEntitiesBySourceTimeMs.addMeasuredTimeMillis {
+    indexes.entitySourceIndex.entries().asSequence().filter { sourceFilter(it) }.associateWith { source ->
       indexes.entitySourceIndex
         .getIdsByEntry(source)!!.map {
           val entityDataById: WorkspaceEntityData<WorkspaceEntity> = this.entityDataById(it) as? WorkspaceEntityData<WorkspaceEntity>
                                                                      ?: run {
-                                                                       reportErrorAndAttachStorage("Cannot find an entity by id $it",
-                                                                                                   this@MutableEntityStorageImpl)
                                                                        error("Cannot find an entity by id $it")
                                                                      }
           entityDataById.wrapAsModifiable(this)
         }
         .groupBy { (it as WorkspaceEntityBase).getEntityInterface() }
     }
-    getEntitiesBySourceTimeMs.addElapsedTimeMs(start)
-    return groupedBySource
   }
 
   @Suppress("UNCHECKED_CAST")
-  override fun <T : WorkspaceEntity> addEntity(entity: T): T {
-    val start = System.currentTimeMillis()
+  override fun <T : WorkspaceEntity> addEntity(entity: T): T = addEntityTimeMs.addMeasuredTimeMillis {
     try {
       lockWrite()
       val entityToAdd = if (entity is ModifiableWorkspaceEntityBase<*, *>) {
@@ -235,7 +236,7 @@ internal class MutableEntityStorageImpl(
       }
       else {
         if ((entity as WorkspaceEntityBase).snapshot === this) { // We don't re-add entity from the same store
-          return entity
+          return@addMeasuredTimeMillis entity
         }
 
         @Suppress("USELESS_CAST") //this is needed to work around a bug in Kotlin compiler (KT-55555)
@@ -247,15 +248,13 @@ internal class MutableEntityStorageImpl(
     }
     finally {
       unlockWrite()
-      addEntityTimeMs.addElapsedTimeMs(start)
     }
 
-    return entity
+    return@addMeasuredTimeMillis entity
   }
 
   // This should be removed or not extracted into the interface
-  fun <T : WorkspaceEntity, E : WorkspaceEntityData<T>, D : ModifiableWorkspaceEntityBase<T, E>> putEntity(entity: D) {
-    val start = System.currentTimeMillis()
+  fun <T : WorkspaceEntity, E : WorkspaceEntityData<T>, D : ModifiableWorkspaceEntityBase<T, E>> putEntity(entity: D) = putEntityTimeMs.addMeasuredTimeMillis {
     try {
       lockWrite()
 
@@ -267,17 +266,14 @@ internal class MutableEntityStorageImpl(
       entitiesByType.add(newEntityData, entity.getEntityClass().toClassId())
 
       // Add the change to changelog
-      createAddEvent(newEntityData)
+      changeLog.addAddEvent(newEntityData.createEntityId(), newEntityData)
 
       // Update indexes
       indexes.entityAdded(newEntityData)
-
-      updateCalculationCache()
     }
     finally {
       unlockWrite()
     }
-    putEntityTimeMs.addElapsedTimeMs(start)
   }
 
   private fun <T : WorkspaceEntity> assertUniqueSymbolicId(pEntityData: WorkspaceEntityData<T>) {
@@ -305,9 +301,9 @@ internal class MutableEntityStorageImpl(
   }
 
   @Suppress("UNCHECKED_CAST")
-  override fun <M : WorkspaceEntity.Builder<out T>, T : WorkspaceEntity> modifyEntity(clazz: Class<M>, e: T, change: M.() -> Unit): T {
-    val start = System.currentTimeMillis()
-
+  override fun <M : WorkspaceEntity.Builder<out T>, T : WorkspaceEntity> modifyEntity(
+    clazz: Class<M>, e: T, change: M.() -> Unit
+  ): T = modifyEntityTimeMs.addMeasuredTimeMillis {
     val updatedEntity: T = try {
       lockWrite()
       if (e is ModifiableWorkspaceEntityBase<*, *> && e.diff !== this) error("Trying to modify entity from a different builder")
@@ -323,10 +319,6 @@ internal class MutableEntityStorageImpl(
       modifiableEntity.changedProperty.clear()
 
       val beforeSymbolicId = if (e is WorkspaceEntityWithSymbolicId) e.symbolicId else null
-
-      val originalParents = this.getOriginalParents(entityId.asChild())
-      val beforeParents = this.refs.getParentRefsOfChild(entityId.asChild())
-      val beforeChildren = this.refs.getChildrenRefsOfParentBy(entityId.asParent()).flatMap { (key, value) -> value.map { key to it } }
 
       // Execute modification code
       modifiableEntity.allowModifications {
@@ -360,19 +352,16 @@ internal class MutableEntityStorageImpl(
         }
       }
 
-      if (!modifiableEntity.changedProperty.contains("entitySource") || modifiableEntity.changedProperty.size > 1) {
-        // Add an entry to changelog
-        addReplaceEvent(this, entityId, beforeChildren, beforeParents, copiedData, originalEntityData, originalParents)
-      }
+      changeLog.addReplaceDataEvent(entityId, copiedData, originalEntityData, true)
       if (modifiableEntity.changedProperty.contains("entitySource")) {
-        updateEntitySource(entityId, originalEntityData, copiedData)
+        val newSource = copiedData.entitySource
+        indexes.entitySourceIndex.index(entityId, newSource)
+        newSource.virtualFileUrl?.let { indexes.virtualFileIndex.index(entityId, VIRTUAL_FILE_INDEX_ENTITY_SOURCE_PROPERTY, it) }
       }
 
       val updatedEntity = copiedData.createEntity(this)
 
       this.indexes.updateSymbolicIdIndexes(this, updatedEntity, beforeSymbolicId, copiedData, modifiableEntity)
-
-      updateCalculationCache()
 
       updatedEntity
     }
@@ -380,23 +369,10 @@ internal class MutableEntityStorageImpl(
       unlockWrite()
     }
 
-    modifyEntityTimeMs.addElapsedTimeMs(start)
-    return updatedEntity
+    return@addMeasuredTimeMillis updatedEntity
   }
 
-  private fun <T : WorkspaceEntity> updateEntitySource(entityId: EntityId, originalEntityData: WorkspaceEntityData<T>,
-                                                       copiedEntityData: WorkspaceEntityData<T>) {
-    val newSource = copiedEntityData.entitySource
-    val originalSource = this.getOriginalSourceFromChangelog(entityId) ?: originalEntityData.entitySource
-
-    this.changeLog.addChangeSourceEvent(entityId, copiedEntityData, originalSource)
-    indexes.entitySourceIndex.index(entityId, newSource)
-    newSource.virtualFileUrl?.let { indexes.virtualFileIndex.index(entityId, VIRTUAL_FILE_INDEX_ENTITY_SOURCE_PROPERTY, it) }
-  }
-
-  override fun removeEntity(e: WorkspaceEntity): Boolean {
-    val start = System.currentTimeMillis()
-
+  override fun removeEntity(e: WorkspaceEntity): Boolean = removeEntityTimeMs.addMeasuredTimeMillis {
     val result = try {
       lockWrite()
       if (e is ModifiableWorkspaceEntityBase<*, *> && e.diff !== this) error("Trying to remove entity from a different builder")
@@ -411,16 +387,13 @@ internal class MutableEntityStorageImpl(
     finally {
       unlockWrite()
     }
-
-    removeEntityTimeMs.addElapsedTimeMs(start)
-    return result
+    return@addMeasuredTimeMillis result
   }
 
   /**
    *  TODO Special cases: when source filter returns true for all entity sources.
    */
-  override fun replaceBySource(sourceFilter: (EntitySource) -> Boolean, replaceWith: EntityStorage) {
-    val start = System.currentTimeMillis()
+  override fun replaceBySource(sourceFilter: (EntitySource) -> Boolean, replaceWith: EntityStorage) = replaceBySourceTimeMs.addMeasuredTimeMillis {
     try {
       lockWrite()
       replaceWith as AbstractEntityStorage
@@ -430,93 +403,35 @@ internal class MutableEntityStorageImpl(
       }
       upgradeEngine?.let { it(rbsEngine) }
       rbsEngine.replace(this, replaceWith, sourceFilter)
-
-      updateCalculationCache()
     }
     finally {
       unlockWrite()
     }
-
-    replaceBySourceTimeMs.addElapsedTimeMs(start)
   }
 
-  /**
-   * Implementation note: [changeLog] contains the information about modified entities, but don't contain the info
-   *   regarding the entities that are affected by this change. For example, if we remove the child, we don't add the information that
-   *   the parent was modified.
-   */
-  override fun collectChanges(): Map<Class<*>, List<EntityChange<*>>> {
-    val start = System.currentTimeMillis()
+  override fun collectChanges(): Map<Class<*>, List<EntityChange<*>>> = collectChangesTimeMs.addMeasuredTimeMillis {
     val res = HashMap<Class<*>, MutableList<EntityChange<*>>>()
 
     try {
       lockWrite()
-      val originalImpl = this.originalSnapshot
-      val changedEntityIds = HashSet<Long>()
 
-      // Here we collect the ID of entities that were changed and entities that were affected by this change.
-      //  The information about what type of change was performed (added/removed/replaced) is not stored and will be calculated later.
       for ((entityId, change) in this.changeLog.changeLog) {
         when (change) {
           is ChangeEntry.AddEntity -> {
-            changedEntityIds += entityId
-            changedEntityIds += this.refs.getChildrenRefsOfParentBy(entityId.asParent()).values.flatten().map { it.id }
-            changedEntityIds += this.refs.getParentRefsOfChild(entityId.asChild()).values.map { it.id }
+            val addedEntity = change.entityData.createEntity(this).asBase()
+            res.getOrPut(entityId.clazz.findWorkspaceEntity()) { ArrayList() }.add(EntityChange.Added(addedEntity))
           }
           is ChangeEntry.RemoveEntity -> {
-            changedEntityIds += entityId
-            changedEntityIds += originalImpl.refs.getChildrenRefsOfParentBy(entityId.asParent()).values.flatten().map { it.id }
-            changedEntityIds += originalImpl.refs.getParentRefsOfChild(entityId.asChild()).values.map { it.id }
+            val removedData = originalSnapshot.entityDataById(change.id) ?: continue
+            val removedEntity = removedData.createEntity(originalSnapshot).asBase()
+            res.getOrPut(entityId.clazz.findWorkspaceEntity()) { ArrayList() }.add(EntityChange.Removed(removedEntity))
           }
           is ChangeEntry.ReplaceEntity -> {
-            changedEntityIds += entityId
-            if (change.references != null) {
-              changedEntityIds += (change.references.oldParents - change.references.modifiedParents).values.map { it.id }
-              changedEntityIds += (change.references.modifiedParents - change.references.oldParents).values.mapNotNull { it?.id }
-
-              val updatedChildren = change.references.removedChildren.map { it.second.id } + change.references.newChildren.map { it.second.id }
-              changedEntityIds += updatedChildren
-              updatedChildren.forEach { childId ->
-                val origParents: Set<EntityId> = originalImpl.refs.getParentRefsOfChild(childId.asChild()).mapTo(HashSet()) { it.value.id }
-                val newParents: Set<EntityId> = this.refs.getParentRefsOfChild(childId.asChild()).mapTo(HashSet()) { it.value.id }
-                changedEntityIds += (origParents - newParents)
-                changedEntityIds += (newParents - origParents)
-              }
-            }
+            val oldData = originalSnapshot.entityDataById(entityId) ?: continue
+            val replacedData = oldData.createEntity(originalSnapshot).asBase()
+            val replaceToData = this.entityDataByIdOrDie(entityId).createEntity(this)
+            res.getOrPut(entityId.clazz.findWorkspaceEntity()) { ArrayList() }.add(EntityChange.Replaced(replacedData, replaceToData))
           }
-          is ChangeEntry.ChangeEntitySource -> changedEntityIds += entityId
-          is ChangeEntry.ReplaceAndChangeSource -> {
-            changedEntityIds += entityId
-            if (change.dataChange.references != null) {
-              changedEntityIds += (change.dataChange.references.oldParents - change.dataChange.references.modifiedParents).values.map { it.id }
-              changedEntityIds += (change.dataChange.references.modifiedParents - change.dataChange.references.oldParents).values.mapNotNull { it?.id }
-
-              val updatedChildren = change.dataChange.references.removedChildren.map { it.second.id } + change.dataChange.references.newChildren.map { it.second.id }
-              changedEntityIds += updatedChildren
-              updatedChildren.forEach { childId ->
-                val origParents: Set<EntityId> = originalImpl.refs.getParentRefsOfChild(childId.asChild()).mapTo(HashSet()) { it.value.id }
-                val newParents: Set<EntityId> = this.refs.getParentRefsOfChild(childId.asChild()).mapTo(HashSet()) { it.value.id }
-                changedEntityIds += (origParents - newParents)
-                changedEntityIds += (newParents - origParents)
-              }
-            }
-          }
-        }
-      }
-
-      // Based on differences existence of entities in both storages, we detect if the entity was added, removed, or replaced.
-      changedEntityIds.forEach { id ->
-        val entityClass = id.clazz.findWorkspaceEntity()
-        val oldData = originalImpl.entityDataById(id)?.createEntity(originalImpl)
-        val newData = this.entityDataById(id)?.createEntity(this)
-        val event = when {
-          oldData != null && newData != null -> EntityChange.Replaced(oldData, newData)
-          oldData == null && newData != null -> EntityChange.Added(newData)
-          oldData != null && newData == null -> EntityChange.Removed(oldData)
-          else -> null
-        }
-        if (event != null) {
-          res.getOrPut(entityClass) { ArrayList() }.add(event)
         }
       }
     }
@@ -524,13 +439,11 @@ internal class MutableEntityStorageImpl(
       unlockWrite()
     }
 
-    collectChangesTimeMs.addElapsedTimeMs(start)
-    return res
+    return@addMeasuredTimeMillis res
   }
 
-  override fun hasSameEntities(): Boolean {
-    val start = System.currentTimeMillis()
-    if (changeLog.changeLog.isEmpty()) return true
+  override fun hasSameEntities(): Boolean = hasSameEntitiesTimeMs.addMeasuredTimeMillis {
+    if (changeLog.changeLog.isEmpty()) return@addMeasuredTimeMillis true
 
     val original = originalSnapshot
     val adds = ArrayList<WorkspaceEntityData<*>>()
@@ -577,7 +490,8 @@ internal class MutableEntityStorageImpl(
         val changedParent = changeLog.changeLog[parent.id]
         if (changedParent is ChangeEntry.ReplaceEntity) {
           if (changedParent.data?.newData == changedParent.data?.oldData
-              && changedParent.references?.modifiedParents?.isEmpty() == true
+              && changedParent.references?.newParents?.isEmpty() == true
+              && changedParent.references.removedParents.isEmpty()
               && changedParent.references.removedChildren.singleOrNull()?.takeIf { it.first == connection && it.second.id == initial } != null
               && changedParent.references.newChildren.singleOrNull()?.takeIf { it.first == connection && it.second.id == new } != null) {
             collapsibleChanges.add(parent.id)
@@ -586,9 +500,7 @@ internal class MutableEntityStorageImpl(
       }
     }
 
-    val isEqual = collapsibleChanges == changeLog.changeLog.keys
-    hasSameEntitiesTimeMs.addElapsedTimeMs(start)
-    return isEqual
+    return@addMeasuredTimeMillis collapsibleChanges == changeLog.changeLog.keys
   }
 
   private fun same(originalImpl: AbstractEntityStorage,
@@ -612,16 +524,15 @@ internal class MutableEntityStorageImpl(
     }
   }
 
-  override fun toSnapshot(): EntityStorageSnapshot {
-    val start = System.currentTimeMillis()
+  override fun toSnapshot(): EntityStorageSnapshot = toSnapshotTimeMs.addMeasuredTimeMillis {
     val newEntities = entitiesByType.toImmutable()
     val newRefs = refs.toImmutable()
     val newIndexes = indexes.toImmutable()
     val cache = TracedSnapshotCacheImpl()
     val snapshot = EntityStorageSnapshotImpl(newEntities, newRefs, newIndexes, cache)
-    cache.pullCache(this.originalSnapshot.snapshotCache, this.collectChanges())
-    toSnapshotTimeMs.addElapsedTimeMs(start)
-    return snapshot
+    val externalMappingChangelog = this.indexes.externalMappings.mapValues { it.value.indexLogBunches.changes.keys }
+    cache.pullCache(snapshot, this.originalSnapshot.snapshotCache, this.changeLog, externalMappingChangelog)
+    return@addMeasuredTimeMillis snapshot
   }
 
   override fun replaceChildren(connectionId: ConnectionId, parent: WorkspaceEntity, newChildren: List<WorkspaceEntity>) {
@@ -630,33 +541,34 @@ internal class MutableEntityStorageImpl(
         val parentId = parent.asBase().id
         check(newChildren.size <= 1) { "ONE_TO_ONE connection may have only one child" }
         val childId = newChildren.singleOrNull()?.asBase()?.id?.asChild()
-        val existingChildId = refs.getOneToOneChild(connectionId, parentId.arrayId)?.let { createEntityId(it, connectionId.childClass) }
+        val existingChildId = refs.getChildrenByParent(connectionId, parentId.asParent()).singleOrNull()?.id
         if (!connectionId.isParentNullable && existingChildId != null && (childId == null || childId.id != existingChildId)) {
           removeEntityByEntityId(existingChildId)
         }
         if (childId != null) {
           checkCircularDependency(connectionId, childId.id.arrayId, parentId.arrayId, this)
-          refs.replaceOneToOneChildOfParent(connectionId, parentId.arrayId, childId)
+          val modifications = refs.replaceOneToOneChildOfParent(connectionId, parentId, childId)
+          this.createReplaceEventsForUpdates(modifications, connectionId)
         }
         else {
-          refs.removeOneToOneRefByParent(connectionId, parentId.arrayId)
+          val modifications = refs.removeRefsByParent(connectionId, parentId.asParent())
+          this.createReplaceEventsForUpdates(modifications, connectionId)
         }
       }
       ConnectionId.ConnectionType.ONE_TO_MANY -> {
         val parentId = parent.asBase().id
         val childrenIds = newChildren.map { it.asBase().id.asChild() }
         if (!connectionId.isParentNullable) {
-          val existingChildren = refs.getOneToManyChildren(connectionId, parentId.arrayId)
-                                   ?.map { createEntityId(it, connectionId.childClass) }
-                                   ?.toHashSet() ?: mutableSetOf()
+          val existingChildren = refs.getChildrenByParent(connectionId, parentId.asParent()).toMutableSet()
           childrenIds.forEach {
-            existingChildren.remove(it.id)
+            existingChildren.remove(it)
           }
-          existingChildren.forEach { removeEntityByEntityId(it) }
+          existingChildren.forEach { removeEntityByEntityId(it.id) }
         }
 
         childrenIds.forEach { checkCircularDependency(connectionId, it.id.arrayId, parentId.arrayId, this) }
-        refs.replaceOneToManyChildrenOfParent(connectionId, parentId.arrayId, childrenIds)
+        val modifications = refs.replaceOneToManyChildrenOfParent(connectionId, parentId, childrenIds)
+        this.createReplaceEventsForUpdates(modifications, connectionId)
       }
       ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
         // TODO Why we don't remove old children like in [EntityStorage.updateOneToManyChildrenOfParent]? IDEA-327863
@@ -664,7 +576,8 @@ internal class MutableEntityStorageImpl(
         val parentId = parent.asBase().id.asParent()
         val childrenIds = newChildren.asSequence().map { it.asBase().id.asChild() }
         childrenIds.forEach { checkCircularDependency(it.id, parentId.id, this) }
-        refs.replaceOneToAbstractManyChildrenOfParent(connectionId, parentId, childrenIds)
+        val modifications = refs.replaceOneToAbstractManyChildrenOfParent(connectionId, parentId, childrenIds)
+        this.createReplaceEventsForUpdates(modifications, connectionId)
       }
       ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
         // TODO Why we don't remove old children like in [EntityStorage.updateOneToManyChildrenOfParent]? IDEA-327863
@@ -673,15 +586,15 @@ internal class MutableEntityStorageImpl(
         check(newChildren.size <= 1) { "ABSTRACT_ONE_TO_ONE connection may have only one child" }
         val childId = newChildren.singleOrNull()?.asBase()?.id?.asChild()
         if (childId != null) {
-          refs.replaceOneToAbstractOneChildOfParent(connectionId, parentId, childId)
+          val modifications = refs.replaceOneToAbstractOneChildOfParent(connectionId, parentId, childId)
+          this.createReplaceEventsForUpdates(modifications, connectionId)
         }
         else {
-          refs.removeOneToAbstractOneRefByParent(connectionId, parentId)
+          val operation = refs.removeRefsByParent(connectionId, parentId)
+          this.createReplaceEventsForUpdates(operation, connectionId)
         }
       }
     }
-
-    updateCalculationCache()
   }
 
   override fun addChild(connectionId: ConnectionId, parent: WorkspaceEntity?, child: WorkspaceEntity) {
@@ -698,11 +611,13 @@ internal class MutableEntityStorageImpl(
         }
         if (parentId != null) {
           checkCircularDependency(connectionId, childId.arrayId, parentId.id.arrayId, this)
-          refs.replaceOneToOneParentOfChild(connectionId, childId.arrayId, parentId.id)
+          val modifications = refs.replaceOneToOneParentOfChild(connectionId, childId, parentId.id)
+          this.createReplaceEventsForUpdates(modifications, connectionId)
         }
         else {
           // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
-          refs.removeOneToOneRefByChild(connectionId, childId.arrayId)
+          val modifications = refs.removeOneToOneRefByChild(connectionId, childId)
+          this.createReplaceEventsForUpdates(modifications, connectionId)
         }
       }
       ConnectionId.ConnectionType.ONE_TO_MANY -> {
@@ -710,11 +625,13 @@ internal class MutableEntityStorageImpl(
         val parentId = parent?.asBase()?.id?.asParent()
         if (parentId != null) {
           checkCircularDependency(connectionId, childId.id.arrayId, parentId.id.arrayId, this)
-          refs.replaceOneToManyParentOfChild(connectionId, childId.id.arrayId, parentId)
+          val modifications = refs.replaceOneToManyParentOfChild(connectionId, childId.id, parentId)
+          this.createReplaceEventsForUpdates(modifications, connectionId)
         }
         else {
           // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
-          refs.removeOneToManyRefsByChild(connectionId, childId.id.arrayId)
+          val modification = refs.removeOneToManyRefsByChild(connectionId, childId)
+          if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
         }
       }
       ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
@@ -722,11 +639,13 @@ internal class MutableEntityStorageImpl(
         val parentId = parent?.asBase()?.id?.asParent()
         if (parentId != null) {
           checkCircularDependency(childId.id, parentId.id, this)
-          refs.replaceOneToAbstractManyParentOfChild(connectionId, childId, parentId)
+          val modifications = refs.replaceOneToAbstractManyParentOfChild(connectionId, childId, parentId)
+          this.createReplaceEventsForUpdates(modifications, connectionId)
         }
         else {
           // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
-          refs.removeOneToAbstractManyRefsByChild(connectionId, childId)
+          val modification = refs.removeOneToAbstractManyRefsByChild(connectionId, childId)
+          if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
         }
       }
       ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
@@ -740,22 +659,21 @@ internal class MutableEntityStorageImpl(
           }
         }
         if (parentId != null) {
-          refs.replaceOneToAbstractOneParentOfChild(connectionId, childId, parentId)
+          val modifications = refs.replaceOneToAbstractOneParentOfChild(connectionId, childId, parentId)
+          this.createReplaceEventsForUpdates(modifications, connectionId)
         }
         else {
           // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
-          refs.removeOneToAbstractOneRefByChild(connectionId, childId)
+          val modification = refs.removeOneToAbstractOneRefByChild(connectionId, childId)
+          if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
         }
       }
     }
-
-    updateCalculationCache()
   }
 
   override fun hasChanges(): Boolean = changeLog.changeLog.isNotEmpty()
 
-  override fun addDiff(diff: MutableEntityStorage) {
-    val start = System.currentTimeMillis()
+  override fun addDiff(diff: MutableEntityStorage) = addDiffTimeMs.addMeasuredTimeMillis {
     try {
       lockWrite()
       diff as MutableEntityStorageImpl
@@ -763,19 +681,16 @@ internal class MutableEntityStorageImpl(
       val addDiffOperation = AddDiffOperation(this, diff)
       upgradeAddDiffEngine?.invoke(addDiffOperation)
       addDiffOperation.addDiff()
-
-      updateCalculationCache()
     }
     finally {
       unlockWrite()
     }
-    addDiffTimeMs.addElapsedTimeMs(start)
   }
 
   @Suppress("UNCHECKED_CAST")
-  override fun <T> getMutableExternalMapping(identifier: @NonNls String): MutableExternalEntityMapping<T> {
-    val start = System.currentTimeMillis()
-    val mapping: MutableExternalEntityMappingImpl<T> = try {
+  override fun <T> getMutableExternalMapping(identifier: @NonNls String)
+    : MutableExternalEntityMapping<T> = getMutableExternalMappingTimeMs.addMeasuredTimeMillis {
+    try {
       lockWrite()
       val mapping = indexes.externalMappings.computeIfAbsent(
         identifier) { MutableExternalEntityMappingImpl<T>() } as MutableExternalEntityMappingImpl<T>
@@ -785,14 +700,10 @@ internal class MutableEntityStorageImpl(
     finally {
       unlockWrite()
     }
-
-    getMutableExternalMappingTimeMs.addElapsedTimeMs(start)
-    return mapping
   }
 
-  fun getMutableVirtualFileUrlIndex(): MutableVirtualFileUrlIndex {
-    val start = System.currentTimeMillis()
-    val virtualFileIndex: MutableVirtualFileUrlIndex = try {
+  fun getMutableVirtualFileUrlIndex(): MutableVirtualFileUrlIndex = getMutableVFUrlIndexTimeMs.addMeasuredTimeMillis {
+    try {
       lockWrite()
       val virtualFileIndex = indexes.virtualFileIndex
       virtualFileIndex.setTypedEntityStorage(this)
@@ -801,13 +712,6 @@ internal class MutableEntityStorageImpl(
     finally {
       unlockWrite()
     }
-    getMutableVFUrlIndexTimeMs.addElapsedTimeMs(start)
-    return virtualFileIndex
-  }
-
-  internal fun addDiffAndReport(message: String, left: EntityStorage?, right: EntityStorage) {
-    this.reportConsistencyIssue(message, AddDiffException(message), null, left, right,
-                                ConsistencyCheckingMode.current == ConsistencyCheckingMode.ASYNCHRONOUS)
   }
 
   private fun applyDiffProtection(diff: AbstractEntityStorage) {
@@ -817,13 +721,13 @@ internal class MutableEntityStorageImpl(
     }
     else {
       diff.storageIsAlreadyApplied = true
-      var info = "Applying builder using addDiff. Previous stack trace >>>>\n"
       if (LOG.isTraceEnabled) {
-        val currentStackTrace = ExceptionUtil.currentStackTrace()
-        info += "\n$currentStackTrace"
+        diff.applyInfo = buildString {
+          appendLine("Applying builder using addDiff. Previous stack trace >>>>")
+          appendLine(ExceptionUtil.currentStackTrace())
+          appendLine("<<<<")
+        }
       }
-      info += "<<<<"
-      diff.applyInfo = info
     }
   }
 
@@ -837,28 +741,43 @@ internal class MutableEntityStorageImpl(
 
     accumulateEntitiesToRemove(idx, accumulator, entityFilter)
 
-    @Suppress("UNCHECKED_CAST")
-    val originals = accumulator.associateWith {
-      this.getOriginalEntityData(it) as WorkspaceEntityData<WorkspaceEntity> to this.getOriginalParents(it.asChild())
+    accumulator.forEach { id ->
+      removeSingleEntity(id)
     }
 
-    for (id in accumulator) {
-      val entityData = entityDataById(id)
-      if (entityData is SoftLinkable) indexes.removeFromSoftLinksIndex(entityData)
-      entitiesByType.remove(id.arrayId, id.clazz)
-    }
-
-    // Update index
-    //   Please don't join it with the previous loop
-    for (id in accumulator) indexes.entityRemoved(id)
-
-    accumulator.forEach {
-      LOG.debug { "Cascade removing: ${ClassToIntConverter.getInstance().getClassOrDie(it.clazz)}-${it.arrayId}" }
-      this.changeLog.addRemoveEvent(it, originals[it]!!.first, originals[it]!!.second)
-    }
-
-    updateCalculationCache()
     return true
+  }
+
+  /**
+   * Remove single entity, update indexes, and generate remove event
+   *
+   * This operation does not perform cascade removal of children. The children must be removed separately,
+   *   to avoid leaving storage in an inconsistent state.
+   */
+  @Suppress("UNCHECKED_CAST")
+  internal fun removeSingleEntity(id: EntityId) {
+    // Unlink children
+    val originalEntityData = this.getOriginalEntityData(id) as WorkspaceEntityData<WorkspaceEntity>
+    val children = refs.getChildrenRefsOfParentBy(id.asParent())
+    children.keys.forEach { connectionId ->
+      val modifications = refs.removeRefsByParent(connectionId, id.asParent())
+      this.createReplaceEventsForUpdates(modifications, connectionId)
+    }
+
+    // Unlink parents
+    val parents = refs.getParentRefsOfChild(id.asChild())
+    parents.forEach { (connectionId, parentId) ->
+      val modifications = refs.removeParentToChildRef(connectionId, parentId, id.asChild())
+      this.createReplaceEventsForUpdates(modifications, connectionId)
+    }
+
+    // Update indexes and generate changelog entry
+    val entityData = entityDataByIdOrDie(id)
+    if (entityData is SoftLinkable) indexes.removeFromSoftLinksIndex(entityData)
+    indexes.entityRemoved(id)
+    this.changeLog.addRemoveEvent(id, originalEntityData)
+
+    entitiesByType.remove(id.arrayId, id.clazz)
   }
 
   private fun lockWrite() {
@@ -888,36 +807,25 @@ internal class MutableEntityStorageImpl(
     threadName = null
   }
 
-  internal fun <T : WorkspaceEntity> createAddEvent(pEntityData: WorkspaceEntityData<T>) {
-    val entityId = pEntityData.createEntityId()
-    this.changeLog.addAddEvent(entityId, pEntityData)
-  }
-
   /**
-   * Cleanup references and accumulate hard linked entities in [accumulator]
+   * Accumulate hard linked entities in [accumulator].
+   *
+   * The builder is not modified
    */
-  private fun accumulateEntitiesToRemove(id: EntityId, accumulator: MutableSet<EntityId>, entityFilter: (EntityId) -> Boolean) {
+  private fun accumulateEntitiesToRemove(id: EntityId,
+                                         accumulator: MutableSet<EntityId>,
+                                         entityFilter: (EntityId) -> Boolean) {
     val children = refs.getChildrenRefsOfParentBy(id.asParent())
-    for ((connectionId, childrenIds) in children) {
+    for ((_, childrenIds) in children) {
       for (childId in childrenIds) {
         if (childId.id in accumulator) continue
         if (!entityFilter(childId.id)) continue
-        accumulator.add(childId.id)
+        // Let's keep the recursive call above adding an entity to the accumulator.
+        //   In this way, the acc will be populated from children to parents direction, and we'll be able to easily remove
+        //   entities by iterating from the start.
         accumulateEntitiesToRemove(childId.id, accumulator, entityFilter)
-        refs.removeRefsByParent(connectionId, id.asParent())
+        accumulator.add(childId.id)
       }
-    }
-
-    val parents = refs.getParentRefsOfChild(id.asChild())
-    for ((connectionId, parent) in parents) {
-      refs.removeParentToChildRef(connectionId, parent, id.asChild())
-    }
-  }
-
-  private fun updateCalculationCache() {
-    if (!calculationCache.isEmpty()) {
-      this.calculationCache = EntityStorageCacheImpl()
-      this.calculationCache.init(this)
     }
   }
 
@@ -925,47 +833,7 @@ internal class MutableEntityStorageImpl(
 
     private val LOG = logger<MutableEntityStorageImpl>()
 
-    internal fun addReplaceEvent(
-      builder: MutableEntityStorageImpl,
-      entityId: EntityId,
-      beforeChildren: List<Pair<ConnectionId, ChildEntityId>>,
-      beforeParents: Map<ConnectionId, ParentEntityId>,
-      copiedData: WorkspaceEntityData<out WorkspaceEntity>,
-      originalEntity: WorkspaceEntityData<out WorkspaceEntity>,
-      originalParents: Map<ConnectionId, ParentEntityId>,
-    ) {
-      val parents = builder.refs.getParentRefsOfChild(entityId.asChild())
-      val children = builder.refs
-        .getChildrenRefsOfParentBy(entityId.asParent())
-        .flatMap { (key, value) -> value.map { key to it } }
-
-      // Collect children changes
-      val beforeChildrenSet = beforeChildren.toMutableSet()
-      val (removedChildren, addedChildren) = getDiff(beforeChildrenSet, children)
-
-      // Collect parent changes
-      val parentsMapRes: MutableMap<ConnectionId, ParentEntityId?> = beforeParents.toMutableMap()
-      for ((connectionId, parentId) in parents) {
-        val existingParent = parentsMapRes[connectionId]
-        if (existingParent != null) {
-          if (existingParent == parentId) {
-            parentsMapRes.remove(connectionId, parentId)
-          }
-          else {
-            parentsMapRes[connectionId] = parentId
-          }
-        }
-        else {
-          parentsMapRes[connectionId] = parentId
-        }
-      }
-      val removedKeys = beforeParents.keys - parents.keys
-      removedKeys.forEach { parentsMapRes[it] = null }
-
-      builder.changeLog.addReplaceEvent(entityId, copiedData, originalEntity, originalParents, addedChildren, removedChildren,
-                                        parentsMapRes)
-    }
-
+    private val instancesCounter: AtomicLong = AtomicLong()
     private val getEntitiesTimeMs: AtomicLong = AtomicLong()
     private val getReferrersTimeMs: AtomicLong = AtomicLong()
     private val resolveTimeMs: AtomicLong = AtomicLong()
@@ -983,65 +851,51 @@ internal class MutableEntityStorageImpl(
     private val getMutableVFUrlIndexTimeMs: AtomicLong = AtomicLong()
 
     private fun setupOpenTelemetryReporting(meter: Meter): Unit {
-      val getEntitiesTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.entities.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val getReferrersTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.referrers.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val resolveTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.resolve.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val getEntitiesBySourceTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.entities.by.source.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val addEntityTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.add.entity.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val putEntityTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.put.entity.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val modifyEntityTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.modify.entity.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val removeEntityTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.remove.entity.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val replaceBySourceTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.replace.by.source.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val collectChangesTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.collect.changes.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val hasSameEntitiesTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.has.same.entities.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val toSnapshotTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.to.snapshot.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val addDiffTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.add.diff.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val getMutableExternalMappingTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.mutable.ext.mapping.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
-      val getMutableVFUrlIndexTimeGauge = meter.gaugeBuilder("workspaceModel.mutableEntityStorage.mutable.vfurl.index.ms")
-        .ofLongs().setDescription("Total time spent in method").buildObserver()
+      val instancesCountCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.instances.count").buildObserver()
+      val getEntitiesTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.entities.ms").buildObserver()
+      val getReferrersTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.referrers.ms").buildObserver()
+      val resolveTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.resolve.ms").buildObserver()
+      val getEntitiesBySourceTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.entities.by.source.ms").buildObserver()
+      val addEntityTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.add.entity.ms").buildObserver()
+      val putEntityTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.put.entity.ms").buildObserver()
+      val modifyEntityTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.modify.entity.ms").buildObserver()
+      val removeEntityTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.remove.entity.ms").buildObserver()
+      val replaceBySourceTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.replace.by.source.ms").buildObserver()
+      val collectChangesTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.collect.changes.ms").buildObserver()
+      val hasSameEntitiesTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.has.same.entities.ms").buildObserver()
+      val toSnapshotTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.to.snapshot.ms").buildObserver()
+      val addDiffTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.add.diff.ms").buildObserver()
+      val getMutableExternalMappingTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.mutable.ext.mapping.ms").buildObserver()
+      val getMutableVFUrlIndexTimeCounter = meter.counterBuilder("workspaceModel.mutableEntityStorage.mutable.vfurl.index.ms").buildObserver()
 
       meter.batchCallback(
         {
-          getEntitiesTimeGauge.record(getEntitiesTimeMs.get())
-          getReferrersTimeGauge.record(getReferrersTimeMs.get())
-          resolveTimeGauge.record(resolveTimeMs.get())
-          getEntitiesBySourceTimeGauge.record(getEntitiesBySourceTimeMs.get())
-          addEntityTimeGauge.record(addEntityTimeMs.get())
-          putEntityTimeGauge.record(putEntityTimeMs.get())
-          modifyEntityTimeGauge.record(modifyEntityTimeMs.get())
-          removeEntityTimeGauge.record(removeEntityTimeMs.get())
-          replaceBySourceTimeGauge.record(replaceBySourceTimeMs.get())
-          collectChangesTimeGauge.record(collectChangesTimeMs.get())
-          hasSameEntitiesTimeGauge.record(hasSameEntitiesTimeMs.get())
-          toSnapshotTimeGauge.record(toSnapshotTimeMs.get())
-          addDiffTimeGauge.record(addDiffTimeMs.get())
-          getMutableExternalMappingTimeGauge.record(getMutableExternalMappingTimeMs.get())
-          getMutableVFUrlIndexTimeGauge.record(getMutableVFUrlIndexTimeMs.get())
+          instancesCountCounter.record(instancesCounter.get())
+          getEntitiesTimeCounter.record(getEntitiesTimeMs.get())
+          getReferrersTimeCounter.record(getReferrersTimeMs.get())
+          resolveTimeCounter.record(resolveTimeMs.get())
+          getEntitiesBySourceTimeCounter.record(getEntitiesBySourceTimeMs.get())
+          addEntityTimeCounter.record(addEntityTimeMs.get())
+          putEntityTimeCounter.record(putEntityTimeMs.get())
+          modifyEntityTimeCounter.record(modifyEntityTimeMs.get())
+          removeEntityTimeCounter.record(removeEntityTimeMs.get())
+          replaceBySourceTimeCounter.record(replaceBySourceTimeMs.get())
+          collectChangesTimeCounter.record(collectChangesTimeMs.get())
+          hasSameEntitiesTimeCounter.record(hasSameEntitiesTimeMs.get())
+          toSnapshotTimeCounter.record(toSnapshotTimeMs.get())
+          addDiffTimeCounter.record(addDiffTimeMs.get())
+          getMutableExternalMappingTimeCounter.record(getMutableExternalMappingTimeMs.get())
+          getMutableVFUrlIndexTimeCounter.record(getMutableVFUrlIndexTimeMs.get())
         },
-        getEntitiesTimeGauge, getReferrersTimeGauge, resolveTimeGauge, getEntitiesBySourceTimeGauge, addEntityTimeGauge,
-        putEntityTimeGauge, modifyEntityTimeGauge, removeEntityTimeGauge, replaceBySourceTimeGauge,
-        collectChangesTimeGauge, hasSameEntitiesTimeGauge, toSnapshotTimeGauge, addDiffTimeGauge,
-        getMutableExternalMappingTimeGauge, getMutableVFUrlIndexTimeGauge
+        instancesCountCounter, getEntitiesTimeCounter, getReferrersTimeCounter, resolveTimeCounter,
+        getEntitiesBySourceTimeCounter, addEntityTimeCounter,
+        putEntityTimeCounter, modifyEntityTimeCounter, removeEntityTimeCounter, replaceBySourceTimeCounter,
+        collectChangesTimeCounter, hasSameEntitiesTimeCounter, toSnapshotTimeCounter, addDiffTimeCounter,
+        getMutableExternalMappingTimeCounter, getMutableVFUrlIndexTimeCounter
       )
     }
 
     init {
-      // See also [org.jetbrains.jps.diagnostic.JpsMetrics] and [org.jetbrains.jps.diagnostic.Metrics].
-      // If tracking of spans are needed it makes sense to extract them into separate module and depend on it.
       setupOpenTelemetryReporting(TelemetryManager.getMeter(JPS))
     }
   }
@@ -1101,7 +955,6 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
       indexes.entitySourceIndex
         .getIdsByEntry(source)!!.map {
           this.entityDataById(it)?.createEntity(this) ?: run {
-            reportErrorAndAttachStorage("Cannot find an entity by id $it", this@AbstractEntityStorage)
             error("Cannot find an entity by id $it")
           }
         }
@@ -1124,35 +977,15 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
 
   override fun <T: WorkspaceEntity> initializeEntity(entityId: EntityId, newInstance: (() -> T)): T = newInstance()
 
-  internal fun assertConsistencyInStrictMode(message: String,
-                                             sourceFilter: ((EntitySource) -> Boolean)?,
-                                             left: EntityStorage?,
-                                             right: EntityStorage?) {
-    if (ConsistencyCheckingMode.current != ConsistencyCheckingMode.DISABLED) {
+  internal fun assertConsistencyInStrictMode(message: String) {
+    if (ConsistencyCheckingMode.current != ConsistencyCheckingMode.DISABLED && !ConsistencyCheckingDisabler.isDisabled()) {
       try {
         this.assertConsistency()
       }
       catch (e: Throwable) {
         brokenConsistency = true
-        reportConsistencyIssue(message, e, sourceFilter, left, right,
-                               ConsistencyCheckingMode.current == ConsistencyCheckingMode.ASYNCHRONOUS)
+        LOG.error(message, e)
       }
-    }
-  }
-
-  internal fun reportConsistencyIssue(message: String,
-                                      e: Throwable,
-                                      sourceFilter: ((EntitySource) -> Boolean)?,
-                                      left: EntityStorage?,
-                                      right: EntityStorage?,
-                                      reportInBackgroundThread: Boolean) {
-    val storage = if (this is MutableEntityStorage) this.toSnapshot() as AbstractEntityStorage else this
-    val report = { reportConsistencyIssue(message, e, sourceFilter, left, right, storage) }
-    if (reportInBackgroundThread) {
-      consistencyChecker.execute(report)
-    }
-    else {
-      report()
     }
   }
 
@@ -1171,7 +1004,7 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
       }
       ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
         val parentId = parent.asBase().id
-        val childId = refs.getAbstractOneToOneChildren(connectionId, parentId.asParent())?.id ?: return null
+        val childId = refs.getChildrenByParent(connectionId, parentId.asParent()).singleOrNull()?.id ?: return null
         return entityDataByIdOrDie(childId).createEntity(this)
       }
       ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY, ConnectionId.ConnectionType.ONE_TO_MANY -> {
@@ -1184,15 +1017,16 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
     when (connectionId.connectionType) {
       ConnectionId.ConnectionType.ONE_TO_MANY -> {
         val parentId = parent.asBase().id
-        return refs.getOneToManyChildren(connectionId, parentId.arrayId)
-                 ?.map { entityDataByIdOrDie(createEntityId(it, connectionId.childClass)) }
-                 ?.map { it.createEntity(this) } ?: emptySequence()
+        return refs.getChildrenByParent(connectionId, parentId.asParent())
+          .asSequence()
+          .map { entityDataByIdOrDie(it.id) }
+          .map { it.createEntity(this) }
       }
       ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
-        return refs.getOneToAbstractManyChildren(connectionId, parent.asBase().id.asParent())
-                 ?.asSequence()
-                 ?.map { entityDataByIdOrDie(it.id) }
-                 ?.map { it.createEntity(this) } ?: emptySequence()
+        return refs.getChildrenByParent(connectionId, parent.asBase().id.asParent())
+                 .asSequence()
+                 .map { entityDataByIdOrDie(it.id) }
+                 .map { it.createEntity(this) }
       }
       ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE, ConnectionId.ConnectionType.ONE_TO_ONE -> {
         error("This function works only with one-to-many connections")
@@ -1227,8 +1061,6 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
 
   companion object {
     val LOG = logger<AbstractEntityStorage>()
-
-    private val consistencyChecker = AppExecutorUtil.createBoundedApplicationPoolExecutor("Check workspace model consistency", 1)
   }
 }
 

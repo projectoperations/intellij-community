@@ -4,22 +4,43 @@ package com.intellij.configurationStore
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import com.intellij.util.xmlb.annotations.Attribute
+import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.NonNls
+import org.jetbrains.annotations.TestOnly
 
-@Service(Service.Level.PROJECT)
-@State(name = "ProjectId", storages = [(Storage(StoragePathMacros.WORKSPACE_FILE))], reportStatistic = false)
-internal class ProjectIdManager : SimplePersistentStateComponent<ProjectIdState>(ProjectIdState()) {
+@Internal
+internal interface ProjectIdManager {
+
   companion object {
+
     fun getInstance(project: Project): ProjectIdManager = project.service()
   }
 
-  var id: String?
+  var id: @NonNls String?
+}
+
+@State(
+  name = "ProjectId",
+  storages = [(Storage(StoragePathMacros.WORKSPACE_FILE))],
+  reportStatistic = false,
+)
+private class ProjectIdManagerImpl : SimplePersistentStateComponent<ProjectIdManagerImpl.State>(State()),
+                                     ProjectIdManager {
+
+  override var id: @NonNls String?
     get() = state.id
     set(value) {
       state.id = value
     }
+
+  class State : BaseState() {
+    @get:Attribute
+    var id by string()
+  }
 }
 
-internal class ProjectIdState : BaseState() {
-  @get:Attribute
-  var id by string()
+@TestOnly
+private class MockProjectIdManager : ProjectIdManager {
+
+  override var id: String? = null
 }

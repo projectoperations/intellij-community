@@ -18,27 +18,38 @@ import com.intellij.openapi.editor.event.EditorMouseMotionListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.FocusChangeListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.observable.util.addKeyListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.jediterm.terminal.emulator.mouse.MouseMode
 import org.jetbrains.annotations.NonNls
-import org.jetbrains.plugins.terminal.exp.TerminalSelectionModel.TerminalSelectionListener
+import org.jetbrains.plugins.terminal.exp.TerminalEventDispatcher.MyKeyEventsListener
 import java.awt.AWTEvent
-import java.awt.event.InputEvent
-import java.awt.event.KeyEvent
-import java.awt.event.MouseEvent
-import java.awt.event.MouseWheelListener
+import java.awt.event.*
 import javax.swing.KeyStroke
 
 /**
  * Adds "Override IDE shortcuts" terminal feature allowing terminal to process all the key events.
- * Without own IdeEventQueue.EventDispatcher, terminal won't receive key events corresponding to IDE action shortcuts.
+ * Without own IdeEventQueue.EventDispatcher, the terminal won't receive key events corresponding to IDE action shortcuts.
+ * The algorithm is the following:
+ * 1. Sort out other events except KeyEvents in [dispatch]
+ * 2. If the key event corresponds to one of the AnActions from our list, we do not process it,
+ * allowing the platform to execute the corresponding AnAction.
+ * 3. All other key events are handled directly by [handleKeyEvent], and sent to the Terminal process.
+ * 4. If the platform failed to find the enabled action for the event from step 2,
+ * we catch it again using [MyKeyEventsListener] and process it using [handleKeyEvent] (by sending to the Terminal process)
  */
-internal abstract class TerminalEventDispatcher(private val parentDisposable: Disposable) : IdeEventQueue.EventDispatcher {
+internal abstract class TerminalEventDispatcher(
+  private val editor: EditorEx,
+  private val parentDisposable: Disposable
+) : IdeEventQueue.EventDispatcher {
+  private val keyListener: KeyListener = MyKeyEventsListener()
   private var myRegistered = false
   private var actionsToSkip: List<AnAction> = emptyList()
+
+  private var ignoreNextKeyTypedEvent: Boolean = false
 
   override fun dispatch(e: AWTEvent): Boolean {
     if (e is KeyEvent) {
@@ -49,7 +60,14 @@ internal abstract class TerminalEventDispatcher(private val parentDisposable: Di
 
   private fun dispatchKeyEvent(e: KeyEvent) {
     if (!skipAction(e)) {
-      handleKeyEvent(e)
+      if (e.id != KeyEvent.KEY_TYPED || !ignoreNextKeyTypedEvent) {
+        ignoreNextKeyTypedEvent = false
+        handleKeyEvent(e)
+      }
+    }
+    else {
+      // KeyEvent will be handled by action system, so we need to remember that the next KeyTyped event is not needed
+      ignoreNextKeyTypedEvent = true
     }
   }
 
@@ -60,6 +78,7 @@ internal abstract class TerminalEventDispatcher(private val parentDisposable: Di
     this.actionsToSkip = actionsToSkip
     if (!myRegistered) {
       IdeEventQueue.getInstance().addDispatcher(this, parentDisposable)
+      editor.contentComponent.addKeyListener(parentDisposable, keyListener)
       myRegistered = true
     }
   }
@@ -68,6 +87,7 @@ internal abstract class TerminalEventDispatcher(private val parentDisposable: Di
     ThreadingAssertions.assertEventDispatchThread()
     if (myRegistered) {
       IdeEventQueue.getInstance().removeDispatcher(this)
+      editor.contentComponent.removeKeyListener(keyListener)
       actionsToSkip = emptyList()
       myRegistered = false
     }
@@ -87,6 +107,18 @@ internal abstract class TerminalEventDispatcher(private val parentDisposable: Di
       }
     }
     return false
+  }
+
+  private inner class MyKeyEventsListener : KeyAdapter() {
+    override fun keyTyped(e: KeyEvent) {
+      handleKeyEvent(e)
+    }
+
+    override fun keyPressed(e: KeyEvent) {
+      // Action system has not consumed this KeyPressed event, so, next KeyTyped should be handled.
+      ignoreNextKeyTypedEvent = false
+      handleKeyEvent(e)
+    }
   }
 
   companion object {
@@ -142,7 +174,10 @@ internal abstract class TerminalEventDispatcher(private val parentDisposable: Di
       "MaintenanceAction",
       "TerminalIncreaseFontSize",
       "TerminalDecreaseFontSize",
-      "TerminalResetFontSize"
+      "TerminalResetFontSize",
+      "Terminal.Paste",
+      "Terminal.CopySelectedText",
+      "Terminal.CopyBlock"
     )
 
     fun getActionsToSkip(): List<AnAction> {
@@ -159,13 +194,13 @@ internal fun setupKeyEventDispatcher(editor: EditorEx,
                                      selectionModel: TerminalSelectionModel,
                                      disposable: Disposable) {
   // Key events forwarding from the editor to terminal panel
-  val eventDispatcher: TerminalEventDispatcher = object : TerminalEventDispatcher(disposable) {
+  val eventDispatcher: TerminalEventDispatcher = object : TerminalEventDispatcher(editor, disposable) {
     override fun handleKeyEvent(e: KeyEvent) {
       if (e.id == KeyEvent.KEY_TYPED) {
-        eventsHandler.handleKeyTyped(e)
+        eventsHandler.keyTyped(e)
       }
       else if (e.id == KeyEvent.KEY_PRESSED) {
-        eventsHandler.handleKeyPressed(e)
+        eventsHandler.keyPressed(e)
       }
     }
   }
@@ -173,11 +208,8 @@ internal fun setupKeyEventDispatcher(editor: EditorEx,
   editor.addFocusListener(object : FocusChangeListener {
     override fun focusGained(editor: Editor) {
       if (settings.overrideIdeShortcuts()) {
-        val selectedBlock = selectionModel.primarySelection
-        if (selectedBlock == null || selectedBlock == outputModel.getLastBlock()) {
-          val actionsToSkip = TerminalEventDispatcher.getActionsToSkip()
-          eventDispatcher.register(actionsToSkip)
-        }
+        val actionsToSkip = TerminalEventDispatcher.getActionsToSkip()
+        eventDispatcher.register(actionsToSkip)
       }
       else {
         eventDispatcher.unregister()
@@ -192,17 +224,6 @@ internal fun setupKeyEventDispatcher(editor: EditorEx,
     override fun focusLost(editor: Editor) {
       eventDispatcher.unregister()
       SaveAndSyncHandler.getInstance().scheduleRefresh()
-    }
-  }, disposable)
-
-  selectionModel.addListener(object : TerminalSelectionListener {
-    override fun selectionChanged(oldSelection: List<CommandBlock>, newSelection: List<CommandBlock>) {
-      val selectedBlock = selectionModel.primarySelection
-      if (selectedBlock == null || selectedBlock == outputModel.getLastBlock()) {
-        val actionsToSkip = TerminalEventDispatcher.getActionsToSkip()
-        eventDispatcher.register(actionsToSkip)
-      }
-      else eventDispatcher.unregister()
     }
   }, disposable)
 }
@@ -222,14 +243,14 @@ internal fun setupMouseListener(editor: EditorEx,
     override fun mousePressed(event: EditorMouseEvent) {
       if (settings.enableMouseReporting() && isRemoteMouseAction(event.mouseEvent)) {
         val p = event.logicalPosition
-        eventsHandler.handleMousePressed(p.column, p.line + historyLinesCount(), event.mouseEvent)
+        eventsHandler.mousePressed(p.column, p.line + historyLinesCount(), event.mouseEvent)
       }
     }
 
     override fun mouseReleased(event: EditorMouseEvent) {
       if (settings.enableMouseReporting() && isRemoteMouseAction(event.mouseEvent)) {
         val p = event.logicalPosition
-        eventsHandler.handleMouseReleased(p.column, p.line + historyLinesCount(), event.mouseEvent)
+        eventsHandler.mouseReleased(p.column, p.line + historyLinesCount(), event.mouseEvent)
       }
     }
   }, disposable)
@@ -238,24 +259,21 @@ internal fun setupMouseListener(editor: EditorEx,
     override fun mouseMoved(event: EditorMouseEvent) {
       if (settings.enableMouseReporting() && isRemoteMouseAction(event.mouseEvent)) {
         val p = event.logicalPosition
-        eventsHandler.handleMouseMoved(p.column, p.line + historyLinesCount(), event.mouseEvent)
+        eventsHandler.mouseMoved(p.column, p.line + historyLinesCount(), event.mouseEvent)
       }
     }
 
     override fun mouseDragged(event: EditorMouseEvent) {
       if (settings.enableMouseReporting() && isRemoteMouseAction(event.mouseEvent)) {
         val p = event.logicalPosition
-        eventsHandler.handleMouseDragged(p.column, p.line + historyLinesCount(), event.mouseEvent)
+        eventsHandler.mouseDragged(p.column, p.line + historyLinesCount(), event.mouseEvent)
       }
     }
   }, disposable)
 
   val mouseWheelListener = MouseWheelListener { event ->
-    if (settings.enableMouseReporting() && isRemoteMouseAction(event)) {
-      editor.selectionModel.removeSelection()
-      val p = editor.xyToLogicalPosition(event.point)
-      eventsHandler.handleMouseWheelMoved(p.column, p.line + historyLinesCount(), event)
-    }
+    val p = editor.xyToLogicalPosition(event.point)
+    eventsHandler.mouseWheelMoved(p.column, p.line + historyLinesCount(), event)
   }
   editor.scrollPane.addMouseWheelListener(mouseWheelListener)
   Disposer.register(disposable, Disposable {

@@ -28,7 +28,7 @@ import static com.intellij.codeInspection.options.OptPane.pane;
 /**
  * @author Bas Leijdekkers
  */
-public class EqualsReplaceableByObjectsCallInspection extends BaseInspection implements CleanupLocalInspectionTool {
+public final class EqualsReplaceableByObjectsCallInspection extends BaseInspection implements CleanupLocalInspectionTool {
   public boolean checkNotNull;
 
   private static final EquivalenceChecker EQUIVALENCE = new NoSideEffectExpressionEquivalenceChecker();
@@ -236,7 +236,7 @@ public class EqualsReplaceableByObjectsCallInspection extends BaseInspection imp
       return expression;
     }
 
-    private boolean isEquality(PsiExpression expression, boolean equals, PsiExpression part1, PsiExpression part2) {
+    private static boolean isEquality(PsiExpression expression, boolean equals, PsiExpression part1, PsiExpression part2) {
       expression = PsiUtil.skipParenthesizedExprDown(expression);
       if (!(expression instanceof PsiBinaryExpression binaryExpression)) {
         return false;

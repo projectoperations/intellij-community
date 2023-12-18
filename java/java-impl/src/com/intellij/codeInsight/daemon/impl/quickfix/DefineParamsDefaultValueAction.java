@@ -28,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-public class DefineParamsDefaultValueAction extends PsiBasedModCommandAction<PsiElement> {
+public final class DefineParamsDefaultValueAction extends PsiBasedModCommandAction<PsiElement> {
   private static final Logger LOG = Logger.getInstance(DefineParamsDefaultValueAction.class);
 
   public DefineParamsDefaultValueAction() {
@@ -74,9 +74,9 @@ public class DefineParamsDefaultValueAction extends PsiBasedModCommandAction<Psi
     PsiParameter selectedParam = PsiTreeUtil.getParentOfType(element, PsiParameter.class);
     int idx = selectedParam != null ? ArrayUtil.find(parameters, selectedParam) : -1;
     List<ParameterClassMember> defaultSelection = idx >= 0 ? List.of(members.get(idx)) : members;
-    return new ModChooseMember(
+    return ModCommand.chooseMultipleMembers(
       QuickFixBundle.message("choose.default.value.parameters.popup.title"),
-      members, defaultSelection, ModChooseMember.SelectionMode.MULTIPLE,
+      members, defaultSelection, 
       sel -> ModCommand.psiUpdate(context, updater -> {
         invoke(context.project(), updater.getWritable(element), updater,
                ContainerUtil.map2Array(sel, PsiParameter.EMPTY_ARRAY,
@@ -95,7 +95,7 @@ public class DefineParamsDefaultValueAction extends PsiBasedModCommandAction<Psi
     if (containingClass == null) return;
     final PsiMethod existingMethod = containingClass.findMethodBySignature(methodPrototype, false);
     if (existingMethod != null) {
-      updater.moveTo(existingMethod.getTextOffset());
+      updater.moveCaretTo(existingMethod.getTextOffset());
       updater.message(JavaBundle.message("default.param.value.warning",
                                          existingMethod.isConstructor() ? 0 : 1));
       return;

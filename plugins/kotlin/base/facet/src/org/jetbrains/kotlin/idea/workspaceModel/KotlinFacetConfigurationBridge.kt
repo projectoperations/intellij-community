@@ -9,14 +9,15 @@ import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetConfigurationBridge
 import org.jetbrains.kotlin.config.IKotlinFacetSettings
+import org.jetbrains.kotlin.config.KotlinFacetSettings
 import org.jetbrains.kotlin.config.KotlinModuleKind
-import org.jetbrains.kotlin.idea.facet.KotlinFacetConfiguration
-import org.jetbrains.kotlin.idea.facet.KotlinFacetType
+import org.jetbrains.kotlin.idea.facet.*
 import org.jetbrains.kotlin.idea.serialization.KotlinFacetSettingsWorkspaceModel
 
 class KotlinFacetConfigurationBridge : KotlinFacetConfiguration, FacetConfigurationBridge<KotlinSettingsEntity> {
-    override var settings: IKotlinFacetSettings
+    final override var settings: IKotlinFacetSettings
         private set
+        get() = KotlinFacetSettingsWorkspaceModel(kotlinSettingsEntity)
 
     private val kotlinSettingsEntity: KotlinSettingsEntity.Builder
     private var myModule: ModuleEntity? = null
@@ -29,27 +30,29 @@ class KotlinFacetConfigurationBridge : KotlinFacetConfiguration, FacetConfigurat
 
     constructor() :
             this(
-                KotlinSettingsEntity(KotlinFacetType.INSTANCE.presentableName,
-                                     ModuleId(""),
-                                     emptyList(),
-                                     emptyList(),
-                                     true,
-                                     emptyList(),
-                                     emptyList(),
-                                     emptySet(),
-                                     "",
-                                     "",
-                                     emptyList(),
-                                     false,
-                                     "",
-                                     false,
-                                     emptyList(),
-                                     KotlinModuleKind.DEFAULT,
-                                     "",
-                                     "",
-                                     CompilerSettings("", "", "", true, "lib"),
-                                     "",
-                                     object : EntitySource {}) as KotlinSettingsEntity.Builder
+                KotlinSettingsEntity(name = KotlinFacetType.INSTANCE.presentableName,
+                                     moduleId = ModuleId(""),
+                                     sourceRoots = emptyList(),
+                                     configFileItems = emptyList(),
+                                     useProjectSettings = true,
+                                     implementedModuleNames = emptyList(),
+                                     dependsOnModuleNames = emptyList(),
+                                     additionalVisibleModuleNames = emptySet(),
+                                     productionOutputPath = "",
+                                     testOutputPath = "",
+                                     sourceSetNames = emptyList(),
+                                     isTestModule = false,
+                                     externalProjectId = "",
+                                     isHmppEnabled = false,
+                                     pureKotlinSourceFolders = emptyList(),
+                                     kind = KotlinModuleKind.DEFAULT,
+                                     compilerArguments = "",
+                                     compilerSettings = CompilerSettingsData("", "", "", true, "lib", false),
+                                     targetPlatform = "",
+                                     externalSystemRunTasks = emptyList(),
+                                     version = KotlinFacetSettings.CURRENT_VERSION,
+                                     flushNeeded = false,
+                                     entitySource = object : EntitySource {}) as KotlinSettingsEntity.Builder
             )
 
     constructor(originKotlinSettingsEntity: KotlinSettingsEntity) :
@@ -70,19 +73,23 @@ class KotlinFacetConfigurationBridge : KotlinFacetConfiguration, FacetConfigurat
                 originKotlinSettingsEntity.isHmppEnabled,
                 originKotlinSettingsEntity.pureKotlinSourceFolders,
                 originKotlinSettingsEntity.kind,
-                originKotlinSettingsEntity.mergedCompilerArguments,
                 originKotlinSettingsEntity.compilerArguments,
                 originKotlinSettingsEntity.compilerSettings,
                 originKotlinSettingsEntity.targetPlatform,
+                originKotlinSettingsEntity.externalSystemRunTasks,
+                originKotlinSettingsEntity.version,
+                originKotlinSettingsEntity.flushNeeded,
                 originKotlinSettingsEntity.entitySource
             ) {
             } as KotlinSettingsEntity.Builder) {
         myModule = originKotlinSettingsEntity.module
-        //addConfigFileItems(originKotlinSettingsEntity.configFileItems)
     }
 
-    override fun createEditorTabs(editorContext: FacetEditorContext?, validatorsManager: FacetValidatorsManager?): Array<FacetEditorTab> {
-        TODO("Not yet implemented")
+    override fun createEditorTabs(editorContext: FacetEditorContext, validatorsManager: FacetValidatorsManager): Array<FacetEditorTab> {
+        val tabs = arrayListOf<FacetEditorTab>()
+        tabs += KotlinFacetEditorProviderService.getInstance(editorContext.project).getEditorTabs(this, editorContext, validatorsManager)
+        KotlinFacetConfigurationExtension.EP_NAME.extensionList.flatMapTo(tabs) { it.createEditorTabs(editorContext, validatorsManager) }
+        return tabs.toTypedArray()
     }
 
     override fun init(moduleEntity: ModuleEntity, entitySource: EntitySource) {
@@ -113,10 +120,12 @@ class KotlinFacetConfigurationBridge : KotlinFacetConfiguration, FacetConfigurat
             kotlinSettingsEntity.isHmppEnabled,
             kotlinSettingsEntity.pureKotlinSourceFolders,
             kotlinSettingsEntity.kind,
-            kotlinSettingsEntity.mergedCompilerArguments,
             kotlinSettingsEntity.compilerArguments,
             kotlinSettingsEntity.compilerSettings,
             kotlinSettingsEntity.targetPlatform,
+            kotlinSettingsEntity.externalSystemRunTasks,
+            kotlinSettingsEntity.version,
+            kotlinSettingsEntity.flushNeeded,
             kotlinSettingsEntity.entitySource,
         ) {
             module = moduleEntity
@@ -140,9 +149,11 @@ class KotlinFacetConfigurationBridge : KotlinFacetConfiguration, FacetConfigurat
         kotlinSettingsEntity.isHmppEnabled = diffEntity.isHmppEnabled
         kotlinSettingsEntity.pureKotlinSourceFolders = diffEntity.pureKotlinSourceFolders.toMutableList()
         kotlinSettingsEntity.kind = diffEntity.kind
-        kotlinSettingsEntity.mergedCompilerArguments = diffEntity.mergedCompilerArguments
         kotlinSettingsEntity.compilerArguments = diffEntity.compilerArguments
         kotlinSettingsEntity.compilerSettings = diffEntity.compilerSettings
         kotlinSettingsEntity.targetPlatform = diffEntity.targetPlatform
+        kotlinSettingsEntity.externalSystemRunTasks = diffEntity.externalSystemRunTasks.toMutableList()
+        kotlinSettingsEntity.version = diffEntity.version
+        kotlinSettingsEntity.flushNeeded = diffEntity.flushNeeded
     }
 }

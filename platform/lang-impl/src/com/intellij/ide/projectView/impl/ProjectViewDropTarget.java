@@ -5,15 +5,13 @@ import com.intellij.ide.DataManager;
 import com.intellij.ide.dnd.*;
 import com.intellij.ide.projectView.impl.nodes.DropTargetNode;
 import com.intellij.lang.LangBundle;
+import com.intellij.openapi.actionSystem.CustomizedDataContext;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.project.DumbModeBlockedFunctionality;
-import com.intellij.openapi.project.DumbModeBlockedFunctionalityCollector;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -118,12 +116,25 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
     return wrapper == null ? null : wrapper.getTreePaths();
   }
 
-  private static void doValidDrop(TreePath @NotNull [] sources, @NotNull TreePath target, @NotNull DropHandler handler) {
-    target = getValidTarget(sources, target, handler);
-    if (target != null) {
-      sources = removeRedundant(sources, target, handler);
-      if (sources.length != 0) handler.doDrop(sources, target);
-    }
+  private void doValidDrop(TreePath @NotNull [] sources, @NotNull TreePath target, @NotNull DropHandler handler) {
+    record ValidDropContext(TreePath @Nullable [] sources, @Nullable TreePath target) { }
+    ReadAction.nonBlocking(() -> {
+        TreePath validTarget = getValidTarget(sources, target, handler);
+        TreePath[] validSources = null;
+        if (validTarget != null) {
+          validSources = removeRedundant(sources, validTarget, handler);
+        }
+        return new ValidDropContext(validSources, validTarget);
+      })
+      .expireWith(myProject)
+      .finishOnUiThread(
+        ModalityState.defaultModalityState(),
+        context -> {
+          if (context.sources != null && context.sources.length != 0 && context.target != null) {
+            handler.doDrop(context.sources, context.target);
+          }
+        })
+      .submit(AppExecutorUtil.getAppExecutorService());
   }
 
   @Nullable
@@ -303,21 +314,15 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
         if (!element.isValid()) return;
       }
 
-      DataContext context = dataId -> {
-        if (LangDataKeys.TARGET_MODULE.is(dataId)) {
-          if (module != null) return module;
-        }
-        if (LangDataKeys.TARGET_PSI_ELEMENT.is(dataId)) {
-          return target;
-        }
-        else {
-          return externalDrop ? null : dataContext.getData(dataId);
-        }
-      };
+      DataContext context = CustomizedDataContext.create(externalDrop ? DataContext.EMPTY_CONTEXT : dataContext, dataId -> {
+        if (LangDataKeys.TARGET_MODULE.is(dataId)) return module;
+        if (LangDataKeys.TARGET_PSI_ELEMENT.is(dataId)) return target;
+        else return null;
+      });
       getActionHandler().invoke(myProject, sources, context);
     }
 
-    private RefactoringActionHandler getActionHandler() {
+    private static RefactoringActionHandler getActionHandler() {
       return RefactoringActionHandlerFactory.getInstance().createMoveHandler();
     }
 
@@ -383,13 +388,6 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
       final PsiElement targetElement = context.targetElement();
       final PsiElement @Nullable [] sources = getPsiElements(context);
       if (targetElement == null || sources == null) return;
-
-      if (DumbService.isDumb(myProject)) {
-        DumbModeBlockedFunctionalityCollector.INSTANCE.logFunctionalityBlocked(myProject, DumbModeBlockedFunctionality.ProjectView);
-        Messages.showMessageDialog(myProject, LangBundle.message("dialog.message.copy.refactoring.available.while.indexing.in.progress"),
-                                   LangBundle.message("dialog.title.indexing"), null);
-        return;
-      }
 
       final PsiDirectory psiDirectory;
       if (targetElement instanceof PsiDirectoryContainer directoryContainer) {

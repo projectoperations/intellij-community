@@ -8,12 +8,13 @@ import kotlinx.html.*
 import kotlinx.html.stream.createHTML
 import org.apache.commons.lang3.StringEscapeUtils
 
-class BasicFileReportGenerator(
+open class BasicFileReportGenerator(
   filterName: String,
   comparisonFilterName: String,
   featuresStorages: List<FeaturesStorage>,
   dirs: GeneratorDirectories
 ) : FileReportGenerator(featuresStorages, dirs, filterName, comparisonFilterName) {
+  protected open val spanClass = "completion"
 
   override fun getHtml(fileEvaluations: List<FileEvaluationInfo>, fileName: String, resourcePath: String, text: String): String {
     val sessions = fileEvaluations.map { it.sessionsInfo.sessions }
@@ -34,6 +35,8 @@ class BasicFileReportGenerator(
       script { src = "../res/script.js" }
     }
   }
+
+  protected open fun textToInsert(session: Session): String = session.expectedText
 
   private fun getLineNumbers(linesCount: Int): String =
     (1..linesCount).joinToString("\n") { it.toString().padStart(linesCount.toString().length) }
@@ -64,16 +67,17 @@ class BasicFileReportGenerator(
         val commonText = StringEscapeUtils.escapeHtml4(text.substring(offset, session.offset))
         append(commonText)
 
-        val center = session.expectedText.length / sessions.size
+        val textToInsert = textToInsert(session)
+        val center = textToInsert.length / sessions.size
         var shift = 0
         for (j in 0 until sessionGroup.lastIndex) {
-          val subToken = if (center == 0) session.expectedText else session.expectedText.substring(shift, shift + center)
+          val subToken = if (center == 0) textToInsert else textToInsert.substring(shift, shift + center)
           append(getSpan(sessionGroup[j], subToken, lookupOrder))
           append(delimiter)
           shift += center
         }
-        append(getSpan(sessionGroup.last(), session.expectedText.substring(shift), lookupOrder))
-        offset = session.offset + session.expectedText.length
+        append(getSpan(sessionGroup.last(), textToInsert.substring(shift), lookupOrder))
+        offset = session.offset + textToInsert.length
       }
       append(StringEscapeUtils.escapeHtml4(text.substring(offset)))
       toString()
@@ -81,7 +85,7 @@ class BasicFileReportGenerator(
   }
 
   private fun getSpan(session: Session?, text: String, lookupOrder: Int): String =
-    createHTML().span("completion ${
+    createHTML().span("$spanClass ${
       ReportColors.getColor(
         session,
         HtmlColorClasses,

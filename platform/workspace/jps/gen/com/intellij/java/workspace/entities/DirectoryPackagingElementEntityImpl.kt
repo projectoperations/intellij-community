@@ -7,7 +7,6 @@ import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.EntityInformation
 import com.intellij.platform.workspace.storage.EntitySource
-import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.EntityType
 import com.intellij.platform.workspace.storage.GeneratedCodeApiVersion
 import com.intellij.platform.workspace.storage.GeneratedCodeImplVersion
@@ -28,6 +27,8 @@ import com.intellij.platform.workspace.storage.impl.extractOneToManyChildren
 import com.intellij.platform.workspace.storage.impl.updateOneToAbstractManyChildrenOfParent
 import com.intellij.platform.workspace.storage.impl.updateOneToAbstractManyParentOfChild
 import com.intellij.platform.workspace.storage.impl.updateOneToAbstractOneParentOfChild
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import org.jetbrains.annotations.NonNls
@@ -66,10 +67,16 @@ open class DirectoryPackagingElementEntityImpl(private val dataSource: Directory
     get() = snapshot.extractOneToAbstractManyChildren<PackagingElementEntity>(CHILDREN_CONNECTION_ID, this)!!.toList()
 
   override val directoryName: String
-    get() = dataSource.directoryName
+    get() {
+      readField("directoryName")
+      return dataSource.directoryName
+    }
 
   override val entitySource: EntitySource
-    get() = dataSource.entitySource
+    get() {
+      readField("entitySource")
+      return dataSource.entitySource
+    }
 
   override fun connectionIdList(): List<ConnectionId> {
     return connections
@@ -289,11 +296,13 @@ class DirectoryPackagingElementEntityData : WorkspaceEntityData<DirectoryPackagi
     return modifiable
   }
 
-  override fun createEntity(snapshot: EntityStorage): DirectoryPackagingElementEntity {
-    return getCached(snapshot) {
+  @OptIn(EntityStorageInstrumentationApi::class)
+  override fun createEntity(snapshot: EntityStorageInstrumentation): DirectoryPackagingElementEntity {
+    val entityId = createEntityId()
+    return snapshot.initializeEntity(entityId) {
       val entity = DirectoryPackagingElementEntityImpl(this)
       entity.snapshot = snapshot
-      entity.id = createEntityId()
+      entity.id = entityId
       entity
     }
   }

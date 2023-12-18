@@ -8,7 +8,7 @@ import org.junit.Test
 class MavenDuplicatedDependencyInspectionTest : MavenDomWithIndicesTestCase() {
   @Test
   fun testDuplicatedInSameFile() = runBlocking {
-    myFixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
+    fixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
 
     createProjectPom("""
                        <groupId>mavenParent</groupId>
@@ -35,7 +35,7 @@ class MavenDuplicatedDependencyInspectionTest : MavenDomWithIndicesTestCase() {
 
   @Test
   fun testDuplicatedInSameFileDifferentVersion() = runBlocking {
-    myFixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
+    fixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
 
     createProjectPom("""
                        <groupId>mavenParent</groupId>
@@ -61,7 +61,7 @@ class MavenDuplicatedDependencyInspectionTest : MavenDomWithIndicesTestCase() {
 
   @Test
   fun testDuplicatedInParentDifferentScope() = runBlocking {
-    myFixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
+    fixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
 
     createModulePom("child", """
       <groupId>mavenParent</groupId>
@@ -111,7 +111,7 @@ class MavenDuplicatedDependencyInspectionTest : MavenDomWithIndicesTestCase() {
 
   @Test
   fun testDuplicatedInParentSameScope() = runBlocking {
-    myFixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
+    fixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
 
     createModulePom("child", """
       <groupId>mavenParent</groupId>
@@ -160,18 +160,18 @@ class MavenDuplicatedDependencyInspectionTest : MavenDomWithIndicesTestCase() {
 
   @Test
   fun testDuplicatedInParentDifferentVersion() = runBlocking {
-    myFixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
+    fixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
 
     createModulePom("child", """
       <groupId>mavenParent</groupId>
       <artifactId>child</artifactId>
       <version>1.0</version>
         
-          <parent>
-      <groupId>mavenParent</groupId>
-      <artifactId>parent</artifactId>
-      <version>1.0</version>
-          </parent>
+      <parent>
+        <groupId>mavenParent</groupId>
+        <artifactId>parent</artifactId>
+        <version>1.0</version>
+      </parent>
         
       <dependencies>
         <dependency>
@@ -206,7 +206,7 @@ class MavenDuplicatedDependencyInspectionTest : MavenDomWithIndicesTestCase() {
 
   @Test
   fun testDuplicatedInManagedDependencies() = runBlocking {
-    myFixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
+    fixture.enableInspections(MavenDuplicateDependenciesInspection::class.java)
 
     createProjectPom("""
                        <groupId>mavenParent</groupId>

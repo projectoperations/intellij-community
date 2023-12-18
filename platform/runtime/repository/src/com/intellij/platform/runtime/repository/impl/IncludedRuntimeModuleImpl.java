@@ -4,22 +4,16 @@ package com.intellij.platform.runtime.repository.impl;
 import com.intellij.platform.runtime.repository.IncludedRuntimeModule;
 import com.intellij.platform.runtime.repository.ModuleImportance;
 import com.intellij.platform.runtime.repository.RuntimeModuleDescriptor;
-import com.intellij.platform.runtime.repository.RuntimeModuleScope;
 import org.jetbrains.annotations.NotNull;
-
-import java.util.Set;
 
 public final class IncludedRuntimeModuleImpl implements IncludedRuntimeModule {
   private final RuntimeModuleDescriptor myModuleDescriptor;
-  private final ModuleImportance myLoadingRule;
-  private final Set<RuntimeModuleScope> myScopes;
+  private final ModuleImportance myImportance;
 
   public IncludedRuntimeModuleImpl(@NotNull RuntimeModuleDescriptor moduleDescriptor,
-                                   @NotNull ModuleImportance importance,
-                                   @NotNull Set<RuntimeModuleScope> scopes) {
+                                   @NotNull ModuleImportance importance) {
     myModuleDescriptor = moduleDescriptor;
-    myLoadingRule = importance;
-    myScopes = scopes;
+    myImportance = importance;
   }
 
   @Override
@@ -29,12 +23,7 @@ public final class IncludedRuntimeModuleImpl implements IncludedRuntimeModule {
 
   @Override
   public @NotNull ModuleImportance getImportance() {
-    return myLoadingRule;
-  }
-
-  @Override
-  public @NotNull Set<RuntimeModuleScope> getScopes() {
-    return myScopes;
+    return myImportance;
   }
 
   @Override

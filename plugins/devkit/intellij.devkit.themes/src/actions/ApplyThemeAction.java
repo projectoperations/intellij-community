@@ -8,6 +8,7 @@ import com.intellij.ide.ui.laf.TempUIThemeLookAndFeelInfo;
 import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.module.Module;
@@ -43,6 +44,18 @@ final class ApplyThemeAction extends DumbAwareAction {
     applyTempTheme(e);
   }
 
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    if (LafManager.getInstance().getCurrentUIThemeLookAndFeel() instanceof TempUIThemeLookAndFeelInfo) {
+      e.getPresentation().setIcon(AllIcons.Actions.Rerun);
+    }
+  }
+
+  @Override
+  public @NotNull ActionUpdateThread getActionUpdateThread() {
+    return ActionUpdateThread.BGT;
+  }
+
   @Contract("null -> false")
   private static boolean isThemeFile(@Nullable VirtualFile file) {
     return file != null && StringUtilRt.endsWithIgnoreCase(file.getNameSequence(), UITheme.FILE_EXT_ENDING);
@@ -66,9 +79,7 @@ final class ApplyThemeAction extends DumbAwareAction {
     }
 
     if (file == null) {
-        file = ContainerUtil.getFirstItem(
-          FilenameIndex.getAllFilesByExt(project, "theme.json", GlobalSearchScope.projectScope(project))
-        );
+      file = ContainerUtil.getFirstItem(FilenameIndex.getAllFilesByExt(project, "theme.json", GlobalSearchScope.projectScope(project)));
     }
     if (file != null && isThemeFile(file)) {
       return applyTempTheme(file, project);
@@ -76,8 +87,7 @@ final class ApplyThemeAction extends DumbAwareAction {
     return false;
   }
 
-  private static boolean applyTempTheme(@NotNull VirtualFile json,
-                                        @NotNull Project project) {
+  private static boolean applyTempTheme(@NotNull VirtualFile json, @NotNull Project project) {
     try {
       FileDocumentManager.getInstance().saveAllDocuments();
 
@@ -86,31 +96,25 @@ final class ApplyThemeAction extends DumbAwareAction {
         @Override
         public @NotNull String patchPath(@NotNull String path, @Nullable ClassLoader classLoader) {
           String result = module == null ? null : findAbsoluteFilePathByRelativePath(module, path);
-          return result != null ? result : path;
+          return result == null ? path : result;
         }
       });
 
-      VirtualFile editorSchemeFile;
       if (module != null) {
         ModuleRootManager moduleRootManager = ModuleRootManager.getInstance(module);
-        editorSchemeFile = findThemeFile(moduleRootManager, theme.getEditorSchemePath());
 
         patchBackgroundImagePath(moduleRootManager, theme.getBackground());
         patchBackgroundImagePath(moduleRootManager, theme.getEmptyFrameBackground());
       }
-      else {
-        editorSchemeFile = null;
-      }
 
       LafManager lafManager = LafManager.getInstance();
-      lafManager.setCurrentUIThemeLookAndFeel(new TempUIThemeLookAndFeelInfo(theme,
-                                                                           editorSchemeFile,
-                                                                           lafManager.getCurrentUIThemeLookAndFeel()));
+      lafManager.setCurrentUIThemeLookAndFeel(new TempUIThemeLookAndFeelInfo(theme, lafManager.getCurrentUIThemeLookAndFeel()));
       IconLoader.clearCache();
       lafManager.updateUI();
       return true;
     }
-    catch (IOException ignore) {}
+    catch (IOException ignore) {
+    }
     return false;
   }
 
@@ -142,7 +146,7 @@ final class ApplyThemeAction extends DumbAwareAction {
                                                                      @NotNull String relativePath) {
     String filename = new File(relativePath).getName();
     GlobalSearchScope moduleScope = GlobalSearchScope.moduleScope(module);
-    Collection<VirtualFile> filesByName = FilenameIndex.getVirtualFilesByName(filename, moduleScope);
+    Collection<VirtualFile> filesByName = ReadAction.compute(() -> FilenameIndex.getVirtualFilesByName(filename, moduleScope));
     for (VirtualFile file : filesByName) {
       String path = file.getPath();
       if (path.endsWith(relativePath) || path.endsWith(relativePath.replaceAll("/", "\\"))) {
@@ -151,17 +155,4 @@ final class ApplyThemeAction extends DumbAwareAction {
     }
     return null;
   }
-
-  @Override
-  public void update(@NotNull AnActionEvent e) {
-    if (LafManager.getInstance().getCurrentUIThemeLookAndFeel() instanceof TempUIThemeLookAndFeelInfo) {
-      e.getPresentation().setIcon(AllIcons.Actions.Rerun);
-    }
-  }
-
-  @Override
-  public @NotNull ActionUpdateThread getActionUpdateThread() {
-    return ActionUpdateThread.BGT;
-  }
-
 }

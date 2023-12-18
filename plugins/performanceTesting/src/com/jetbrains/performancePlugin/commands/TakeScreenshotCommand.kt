@@ -9,11 +9,9 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.playback.PlaybackContext
 import com.intellij.openapi.ui.playback.commands.PlaybackCommandCoroutineAdapter
+import com.intellij.util.system.OS
 import com.intellij.util.ui.ImageUtil
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.*
 import java.awt.*
 import java.awt.image.BufferedImage
 import java.io.File
@@ -34,12 +32,21 @@ private val LOG: Logger
  * Example: %takeScreenshot onExit
 </fullPathToFile> */
 class TakeScreenshotCommand(text: String, line: Int) : PlaybackCommandCoroutineAdapter(text, line) {
+
+  @Suppress("UNUSED") //Needs for Driver
+  constructor() : this("", 0)
+
   companion object {
     const val PREFIX: String = CMD_PREFIX + "takeScreenshot"
   }
 
   override suspend fun doExecute(context: PlaybackContext) {
     takeScreenshotOfAllWindows(extractCommandArgument(PREFIX).ifEmpty { "beforeExit" })
+  }
+
+  @Suppress("UNUSED") //Needs for Driver
+  fun takeScreenshot(childFolder: String?) {
+    runBlocking { takeScreenshotOfAllWindows(childFolder) }
   }
 }
 
@@ -69,7 +76,7 @@ fun takeScreenshotWithAwtRobot(fullPathToFile: String) {
 }
 
 suspend fun captureComponent(component: Component, file: File) {
-  if(component.width == 0 || component.height == 0) {
+  if (component.width == 0 || component.height == 0) {
     LOG.info(component.name + " has zero size, skipping")
     LOG.info(component.javaClass.toString())
     return
@@ -102,17 +109,28 @@ fun getNextFolder(base: File): File {
   return folder
 }
 
+@Suppress("SSBasedInspection")
+internal fun takeScreenshotOfAllWindowsBlocking(childFolder: String? = null) {
+  runBlocking { takeScreenshotOfAllWindows(childFolder) }
+}
+
 internal suspend fun takeScreenshotOfAllWindows(childFolder: String? = null) {
   val projects = ProjectManager.getInstance().openProjects
   var screenshotPath = File(PathManager.getLogPath() + "/screenshots/" + (childFolder ?: "default"))
   screenshotPath = getNextFolder(screenshotPath)
+
   for (project in projects) {
     try {
       withTimeout(30.seconds) {
         withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
           val prefix = if (projects.size == 1) "" else "${project.name}_"
-          Window.getWindows().forEach {
-            captureComponent(it, File(screenshotPath, prefix + it.name + ".png"))
+          for (it in Window.getWindows()) {
+            LOG.info("Capturing screenshot of ${it.javaClass}")
+            val file = File(screenshotPath, prefix + it.name + ".png")
+
+            captureComponent(it, file)
+
+            LOG.warn("Screenshot saved to:\n" + toLoggedImageLink(file))
           }
         }
       }
@@ -121,4 +139,12 @@ internal suspend fun takeScreenshotOfAllWindows(childFolder: String? = null) {
       LOG.info(e)
     }
   }
+}
+
+private fun toLoggedImageLink(file: File): String {
+  // makes is possible to open image from console output
+  if (OS.CURRENT == OS.Windows) {
+    return "file:///" + file.absolutePath.replace('\\', '/')
+  }
+  return "file://" + file.absolutePath
 }

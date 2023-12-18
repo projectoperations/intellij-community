@@ -27,8 +27,8 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.html.HtmlTag;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
-import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReferenceOwner;
-import com.intellij.psi.impl.source.resolve.reference.impl.providers.PsiFileReference;
+import com.intellij.psi.impl.source.resolve.reference.impl.providers.*;
+import com.intellij.psi.impl.source.xml.TagNameReference;
 import com.intellij.psi.meta.PsiMetaData;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.tree.IElementType;
@@ -418,8 +418,14 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
 
       if (error != null) {
         HighlightInfoType type = getTagProblemInfoType(tag);
-        final HighlightInfo info = HighlightInfo.newHighlightInfo(type).range(value).descriptionAndTooltip(error).create();
-        myHolder.add(info);
+        if (error.startsWith("<html>")) {
+          myHolder.add(HighlightInfo.newHighlightInfo(type).range(value)
+                         .description(StringUtil.removeHtmlTags(error).replace("\n", " "))
+                         .escapedToolTip(error).create());
+        }
+        else {
+          myHolder.add(HighlightInfo.newHighlightInfo(type).range(value).descriptionAndTooltip(error).create());
+        }
       }
     }
   }
@@ -434,7 +440,7 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
     for (int i = start; i < references.length; ++i) {
       PsiReference reference = references[i];
       ProgressManager.checkCanceled();
-      if (isUrlReference(reference)) continue;
+      if (!shouldCheckResolve(reference)) continue;
       if (!hasBadResolve(reference, false)) {
         continue;
       }
@@ -476,6 +482,14 @@ public class XmlHighlightVisitor extends XmlElementVisitor implements HighlightV
       UnresolvedReferenceQuickFixUpdater.getInstance(value.getProject()).registerQuickFixesLater(reference, builder);
       myHolder.add(builder.create());
     }
+  }
+
+  static boolean shouldCheckResolve(PsiReference reference) {
+    return reference instanceof TypeOrElementOrAttributeReference ||
+           reference instanceof DependentNSReference ||
+           reference instanceof URLReference ||
+           reference instanceof TagNameReference ||
+           reference instanceof PsiReferenceWithUnresolvedQuickFixes;
   }
 
   static boolean isUrlReference(PsiReference reference) {

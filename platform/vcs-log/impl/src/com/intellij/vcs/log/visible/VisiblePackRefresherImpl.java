@@ -46,6 +46,7 @@ public class VisiblePackRefresherImpl implements VisiblePackRefresher, Disposabl
   private final @NotNull List<VisiblePackChangeListener> myVisiblePackChangeListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
   private volatile @NotNull State myState;
+  private volatile @NotNull DataPack myDataPack;
 
   public VisiblePackRefresherImpl(@NotNull Project project,
                                   @NotNull VcsLogData logData,
@@ -54,6 +55,7 @@ public class VisiblePackRefresherImpl implements VisiblePackRefresher, Disposabl
                                   @NotNull VcsLogFilterer filterer,
                                   @NotNull String logId) {
     myLogData = logData;
+    myDataPack = logData.getDataPack();
     myVcsLogFilterer = filterer;
     myLogId = logId;
     myState = new State(filters, sortType);
@@ -109,6 +111,12 @@ public class VisiblePackRefresherImpl implements VisiblePackRefresher, Disposabl
     else {
       myTaskController.request(new ValidateRequest(validate));
     }
+  }
+
+  @Override
+  public void setDataPack(boolean validate, @NotNull DataPack dataPack) {
+    myDataPack = dataPack;
+    setValid(validate, true);
   }
 
   @Override
@@ -246,9 +254,11 @@ public class VisiblePackRefresherImpl implements VisiblePackRefresher, Disposabl
     private @NotNull State refresh(@NotNull State state,
                                    boolean resetCommitCount,
                                    @NotNull List<MoreCommitsRequest> moreCommitsRequests) {
-      DataPack dataPack = myLogData.getDataPack();
+      DataPack dataPack = myDataPack;
 
-      if (dataPack == DataPack.EMPTY && !myVcsLogFilterer.canFilterEmptyPack(state.getFilters())) {
+      VcsLogFilterCollection filters = state.getFilters();
+
+      if (dataPack == DataPack.EMPTY && !myVcsLogFilterer.canFilterEmptyPack(filters)) {
         // when filter is set during initialization, just remember filters
         // unless our builder can do something with an empty pack, for example in file history
         return state;
@@ -267,14 +277,19 @@ public class VisiblePackRefresherImpl implements VisiblePackRefresher, Disposabl
 
       try {
         Pair<VisiblePack, CommitCountStage> pair = myVcsLogFilterer.filter(dataPack, state.getVisiblePack(), state.getSortType(),
-                                                                           state.getFilters(), state.getCommitCount());
-        return state.withVisiblePack(pair.getFirst()).withCommitCount(pair.getSecond());
+                                                                           filters, state.getCommitCount());
+        VisiblePack visiblePack = pair.getFirst();
+        CommitCountStage commitCount = pair.getSecond();
+        if (dataPack instanceof DataPack.SmallDataPack) {
+          visiblePack = CompoundVisiblePack.build(visiblePack, state.getVisiblePack());
+        }
+        return state.withVisiblePack(visiblePack).withCommitCount(commitCount);
       }
       catch (ProcessCanceledException e) {
         throw e;
       }
       catch (Throwable t) {
-        return state.withVisiblePack(new VisiblePack.ErrorVisiblePack(dataPack, state.getFilters(), t));
+        return state.withVisiblePack(new VisiblePack.ErrorVisiblePack(dataPack, filters, t));
       }
       finally {
         VcsLogProgress.updateCurrentKey(new VisiblePackProgressKey(myLogId, false));

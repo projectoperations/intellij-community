@@ -31,7 +31,7 @@ import java.util.Arrays;
 
 import static com.intellij.codeInspection.options.OptPane.*;
 
-public class OverlyComplexBooleanExpressionInspection extends BaseInspection {
+public final class OverlyComplexBooleanExpressionInspection extends BaseInspection {
   private static final TokenSet s_booleanOperators =
     TokenSet.create(JavaTokenType.ANDAND, JavaTokenType.OROR, JavaTokenType.XOR, JavaTokenType.AND, JavaTokenType.OR);
 
@@ -132,7 +132,7 @@ public class OverlyComplexBooleanExpressionInspection extends BaseInspection {
       return 1;
     }
 
-    private boolean isBoolean(PsiExpression expression) {
+    private static boolean isBoolean(PsiExpression expression) {
       if (expression instanceof PsiPolyadicExpression polyadicExpression) {
         return s_booleanOperators.contains(polyadicExpression.getOperationTokenType());
       }
@@ -145,7 +145,7 @@ public class OverlyComplexBooleanExpressionInspection extends BaseInspection {
       return false;
     }
 
-    private boolean isPureConjunctionDisjunction(PsiExpression expression) {
+    private static boolean isPureConjunctionDisjunction(PsiExpression expression) {
       if (!(expression instanceof PsiPolyadicExpression polyadicExpression)) {
         return false;
       }

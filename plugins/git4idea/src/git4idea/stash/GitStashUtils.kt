@@ -14,6 +14,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
@@ -52,7 +53,7 @@ import git4idea.config.GitVersionSpecialty
 import git4idea.history.GitCommitRequirements
 import git4idea.history.GitCommitRequirements.DiffInMergeCommits.DIFF_TO_PARENTS
 import git4idea.history.GitCommitRequirements.DiffInMergeCommits.FIRST_PARENT
-import git4idea.history.GitCommitRequirements.DiffRenameLimit.NoRenames
+import git4idea.history.GitCommitRequirements.DiffRenames.NoRenames
 import git4idea.history.GitLogParser
 import git4idea.history.GitLogParser.GitLogOption
 import git4idea.history.GitLogUtil
@@ -67,7 +68,6 @@ import git4idea.ui.StashInfo
 import git4idea.util.GitUIUtil
 import git4idea.util.GitUntrackedFilesHelper
 import git4idea.util.LocalChangesWouldBeOverwrittenHelper
-import org.jetbrains.annotations.ApiStatus
 import java.awt.Component
 import java.nio.charset.Charset
 import javax.swing.event.HyperlinkEvent
@@ -256,7 +256,7 @@ object GitStashOperations {
       override fun run(indicator: ProgressIndicator) {
         DvcsUtil.workingTreeChangeStarted(project, GitBundle.message("stash.action.name")).use { _ ->
           val successfulRoots = linkedSetOf<VirtualFile>()
-          val failedRoots = linkedMapOf<VirtualFile, String>()
+          val failedRoots = linkedMapOf<VirtualFile, @NlsSafe String>()
           for (root in roots) {
             val activity = GitStashUsageCollector.logStashPush(project)
             val result = Git.getInstance().runCommand(createHandler(root))
@@ -359,14 +359,6 @@ private class UnstashMergeDialogCustomizer(private val stashInfo: StashInfo) : M
 
   override fun getRightPanelTitle(file: VirtualFile, revisionNumber: VcsRevisionNumber?): String {
     return GitBundle.message("unstash.conflict.diff.dialog.right.title")
-  }
-}
-
-@Deprecated("use the simpler overloading method which returns a list")
-@ApiStatus.ScheduledForRemoval
-fun loadStashStack(project: Project, root: VirtualFile, consumer: Consumer<StashInfo>) {
-  for (stash in loadStashStack(project, root)) {
-    consumer.consume(stash)
   }
 }
 

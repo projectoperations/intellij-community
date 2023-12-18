@@ -91,7 +91,6 @@ public final class ExpressionUtils {
   public static PsiExpression getFirstExpressionInList(@Nullable PsiExpressionList expressionList) {
     return PsiTreeUtil.getChildOfType(expressionList, PsiExpression.class);
   }
-
   @Nullable
   public static PsiExpression getOnlyExpressionInList(@Nullable PsiExpressionList expressionList) {
     return ControlFlowUtils.getOnlyChildOfType(expressionList, PsiExpression.class);
@@ -852,6 +851,7 @@ public final class ExpressionUtils {
    * @param qualifier for method call
    * @return a method call expression or null if the supplied expression is not a method call qualifier
    */
+  @Nullable
   @Contract(value = "null -> null", pure = true)
   public static PsiMethodCallExpression getCallForQualifier(PsiExpression qualifier) {
     if (qualifier != null &&
@@ -923,6 +923,7 @@ public final class ExpressionUtils {
     PsiClass memberClass = member.getContainingClass();
     if (memberClass != null) {
       if (member.hasModifierProperty(PsiModifier.STATIC)) {
+        if (memberClass.getName() == null) return null;
         return factory.createReferenceExpression(memberClass);
       }
       PsiClass containingClass = ClassUtils.getContainingClass(ref);

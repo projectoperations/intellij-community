@@ -96,7 +96,6 @@
                     serviceImplementation="org.jetbrains.idea.maven.project.MavenProjectResolverImpl"/>
 
     <projectService serviceImplementation="org.jetbrains.idea.maven.server.MavenDistributionsCache"/>
-    <projectService serviceImplementation="org.jetbrains.idea.maven.project.importing.MavenImportingManager"/>
 
     <applicationService serviceImplementation="org.jetbrains.idea.maven.utils.MavenWslCache"/>
     <applicationService serviceImplementation="org.jetbrains.idea.maven.indices.archetype.MavenCatalogManager"/>
@@ -119,8 +118,6 @@
     <compiler.task execute="AFTER" implementation="org.jetbrains.idea.maven.tasks.MavenTasksManager$MavenAfterCompileTask"/>
 
     <consoleFilterProvider implementation="org.jetbrains.idea.maven.project.MavenConsoleFilterProvider"/>
-
-    <activityInProgressPredicate implementation="org.jetbrains.idea.maven.utils.MavenInProgressPredicate"/>
 
     <projectConfigurable groupId="build.tools" groupWeight="120" instance="org.jetbrains.idea.maven.utils.MavenSettings" id="MavenSettings"
                          bundle="messages.MavenProjectBundle"
@@ -308,9 +305,11 @@
     <statistics.counterUsagesCollector implementationClass="org.jetbrains.idea.maven.statistics.MavenActionsUsagesCollector"/>
     <statistics.counterUsagesCollector implementationClass="org.jetbrains.idea.maven.statistics.MavenImportCollector"/>
     <statistics.counterUsagesCollector implementationClass="org.jetbrains.idea.maven.statistics.MavenDependencyInsertionCollector"/>
+    <statistics.counterUsagesCollector implementationClass="org.jetbrains.idea.maven.statistics.MavenIndexUsageCollector"/>
     <statistics.projectUsagesCollector implementation="org.jetbrains.idea.maven.statistics.MavenPluginCollector"/>
 
-    <statistics.validation.customValidationRule implementation="org.jetbrains.idea.maven.statistics.MavenPluginCoordinatesWhitelistValidationRule"/>
+    <statistics.validation.customValidationRule
+      implementation="org.jetbrains.idea.maven.statistics.MavenPluginCoordinatesWhitelistValidationRule"/>
 
     <registryKey key="maven.collect.local.stat" defaultValue="false"
                  description="Collect local maven statistics. Used in Internal mode. Does not affect FUS"/>
@@ -320,9 +319,6 @@
 
     <registryKey key="maven.dedicated.indexer" defaultValue="true"
                  description="Dedicated maven indexer" restartRequired="true"/>
-
-    <registryKey key="maven.linear.import" defaultValue="false"
-                 description="Linear maven import process"/>
 
     <registryKey key="maven.plugins.use.cache" defaultValue="true"
                  description="Use cache for plugin resolving"/>
@@ -344,6 +340,12 @@
 
     <registryKey key="maven.create.dummy.module.on.first.import" defaultValue="true"
                  description="Create maven dummy module on import"/>
+
+    <registryKey key="maven.preimport.project" defaultValue="true"
+                 description="Make fast project preimport"/>
+
+    <registryKey key="maven.preimport.only" defaultValue="false"
+                 description="Make fast project preimport only, without running maven import"/>
 
     <registryKey key="maven.server.per.idea.project" defaultValue="false"
                  description="Single Maven server per idea project, .mvn could be ignored"/>
@@ -373,6 +375,9 @@
 
     <registryKey key="maven.server.generate.sources.for.aggregator.projects" defaultValue="true"
                  description="Generate sources for aggregator projects (instead of all projects) for better performance"/>
+
+    <registryKey key="maven.max.parallel.tasks" defaultValue="-1"
+                 description="Maximal parallel tasks to read and resolve. If equal or less than zero, Runtime.getRuntime().availableProcessors()-1 used"/>
 
     <intentionAction>
       <language>XML</language>
@@ -727,6 +732,7 @@
       <action id="Maven.ResetReadStatistic" class="org.jetbrains.idea.maven.internal.MavenResetStatisticsAction"/>
       <action id="Maven.Killall" class="org.jetbrains.idea.maven.internal.MavenKillallConnectors"/>
       <action id="Maven.ShowConnectors" class="org.jetbrains.idea.maven.server.ui.ShowMavenConnectorsAction"/>
+      <action id="Maven.ReReadAll" class="org.jetbrains.idea.maven.internal.MavenReadExistingTreeAction"/>
       <add-to-group group-id="Internal" anchor="last"/>
     </group>
 
@@ -813,10 +819,24 @@
       <reference id="EditSource"/>
     </group>
 
+    <group id="Maven.ProfilesMenu" popup="true">
+      <action id="Maven.ResetProfiles"
+              class="org.jetbrains.idea.maven.project.actions.ResetProfilesAction"/>
+    </group>
+
+    <group id="Maven.ProfileMenu" popup="true">
+      <reference ref="Maven.ToggleProfile"/>
+    </group>
+
     <group id="Maven.BuildMenu" popup="true" class="org.jetbrains.idea.maven.navigator.actions.MavenBuildMenu">
       <group id="Maven.CreateRunConfiguration" class="com.intellij.execution.actions.CreateAction"/>
       <separator/>
       <reference ref="Maven.TasksGroup"/>
+    </group>
+
+    <group id="Maven.RepositoryMenu" class="org.jetbrains.idea.maven.navigator.actions.RepositoryMenu" popup="true">
+      <action id="Maven.UpdateLocalIndex" class="org.jetbrains.idea.maven.navigator.actions.UpdateLocalIndexAction"/>
+      <action id="Maven.ShowIndexData" class="org.jetbrains.idea.maven.navigator.actions.ShowIndexAction"/>
     </group>
 
     <group id="Maven.GlobalProjectMenu" class="org.jetbrains.idea.maven.utils.actions.MavenActionGroup" popup="true"
@@ -856,4 +876,9 @@
   <projectListeners>
     <listener class="org.jetbrains.idea.maven.project.MavenDependencyUpdater" topic="org.jetbrains.idea.maven.project.MavenImportListener"/>
   </projectListeners>
+  <applicationListeners>
+    <listener class="org.jetbrains.idea.maven.project.MavenImportListenerBridge"
+              topic="org.jetbrains.idea.maven.project.MavenSyncListener"
+              activeInTestMode="true" activeInHeadlessMode="true"/>
+  </applicationListeners>
 </idea-plugin>

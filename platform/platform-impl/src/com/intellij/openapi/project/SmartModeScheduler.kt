@@ -17,7 +17,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.startup.ProjectActivity
-import com.intellij.util.childScope
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.concurrency.ThreadingAssertions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -54,8 +54,8 @@ class SmartModeScheduler(private val project: Project, sc: CoroutineScope) : Dis
 
   private val projectOpening: AtomicBoolean = AtomicBoolean(true)
 
-  private val dumbServiceImpl = project.service<DumbService>() as DumbServiceImpl
-  private val filesScannerExecutor = project.service<UnindexedFilesScannerExecutor>()
+  private val dumbServiceImpl get() = DumbService.getInstance(project) as DumbServiceImpl
+  private val filesScannerExecutor get() = UnindexedFilesScannerExecutor.getInstance(project)
   private val projectDumbState: StateFlow<DumbServiceImpl.DumbState> = dumbServiceImpl.dumbStateAsFlow
   private val projectScanningChanged: Flow<*> = filesScannerExecutor.startedOrStoppedEvent
 

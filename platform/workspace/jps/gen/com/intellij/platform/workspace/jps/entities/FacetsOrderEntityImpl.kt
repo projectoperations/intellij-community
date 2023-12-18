@@ -5,7 +5,6 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.EntityInformation
 import com.intellij.platform.workspace.storage.EntitySource
-import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.EntityType
 import com.intellij.platform.workspace.storage.GeneratedCodeApiVersion
 import com.intellij.platform.workspace.storage.GeneratedCodeImplVersion
@@ -21,6 +20,8 @@ import com.intellij.platform.workspace.storage.impl.containers.MutableWorkspaceL
 import com.intellij.platform.workspace.storage.impl.containers.toMutableWorkspaceList
 import com.intellij.platform.workspace.storage.impl.extractOneToOneParent
 import com.intellij.platform.workspace.storage.impl.updateOneToOneParentOfChild
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 
@@ -39,13 +40,19 @@ open class FacetsOrderEntityImpl(private val dataSource: FacetsOrderEntityData) 
   }
 
   override val orderOfFacets: List<String>
-    get() = dataSource.orderOfFacets
+    get() {
+      readField("orderOfFacets")
+      return dataSource.orderOfFacets
+    }
 
   override val moduleEntity: ModuleEntity
     get() = snapshot.extractOneToOneParent(MODULEENTITY_CONNECTION_ID, this)!!
 
   override val entitySource: EntitySource
-    get() = dataSource.entitySource
+    get() {
+      readField("entitySource")
+      return dataSource.entitySource
+    }
 
   override fun connectionIdList(): List<ConnectionId> {
     return connections
@@ -203,11 +210,13 @@ class FacetsOrderEntityData : WorkspaceEntityData<FacetsOrderEntity>() {
     return modifiable
   }
 
-  override fun createEntity(snapshot: EntityStorage): FacetsOrderEntity {
-    return getCached(snapshot) {
+  @OptIn(EntityStorageInstrumentationApi::class)
+  override fun createEntity(snapshot: EntityStorageInstrumentation): FacetsOrderEntity {
+    val entityId = createEntityId()
+    return snapshot.initializeEntity(entityId) {
       val entity = FacetsOrderEntityImpl(this)
       entity.snapshot = snapshot
-      entity.id = createEntityId()
+      entity.id = entityId
       entity
     }
   }

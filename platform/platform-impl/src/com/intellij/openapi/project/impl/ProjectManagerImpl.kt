@@ -43,7 +43,6 @@ import com.intellij.openapi.extensions.impl.ExtensionsAreaImpl
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
-import com.intellij.openapi.progress.ModalTaskOwner
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.progress.impl.CoreProgressManager
@@ -68,6 +67,7 @@ import com.intellij.platform.PlatformProjectOpenProcessor
 import com.intellij.platform.PlatformProjectOpenProcessor.Companion.isLoadedFromCacheButHasNoModules
 import com.intellij.platform.attachToProjectAsync
 import com.intellij.platform.diagnostic.telemetry.impl.span
+import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.workspace.jps.JpsMetrics
 import com.intellij.projectImport.ProjectAttachProcessor
 import com.intellij.serviceContainer.ComponentManagerImpl
@@ -728,7 +728,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         throw e
       }
 
-      LOG.error(e)
+      LOG.error("project loading failed", e)
       failedToOpenProject(frameAllocator = frameAllocator, exception = e, options = options)
       return null
     }
@@ -1077,10 +1077,8 @@ private fun ensureCouldCloseIfUnableToSave(project: Project): Boolean {
     return true
   }
 
-  val message: @NlsContexts.DialogMessage StringBuilder = StringBuilder()
-  message.append("${ApplicationNamesInfo.getInstance().productName} was unable to save some project files," +
-                 "\nare you sure you want to close this project anyway?")
-  message.append("\n\nRead-only files:\n")
+  val message: @NlsContexts.DialogMessage StringBuilder = StringBuilder(
+    IdeBundle.message("dialog.message.was.unable.to.save.some.project.files", ApplicationNamesInfo.getInstance().productName))
   var count = 0
   val files = notifications.first().files
   for (file in files) {
@@ -1177,12 +1175,7 @@ private suspend fun checkOldTrustedStateAndMigrate(project: Project, projectStor
   return confirmOpeningOrLinkingUntrustedProjectAsync(
     projectStoreBaseDir,
     project,
-    IdeBundle.message("untrusted.project.open.dialog.title", project.name),
-    IdeBundle.message("untrusted.project.open.dialog.text", ApplicationNamesInfo.getInstance().fullProductName),
-    IdeBundle.message("untrusted.project.dialog.trust.button"),
-    IdeBundle.message("untrusted.project.open.dialog.distrust.button"),
-    IdeBundle.message("untrusted.project.open.dialog.cancel.button")
-  )
+    IdeBundle.message("untrusted.project.open.dialog.title", project.name))
 }
 
 private suspend fun initProject(file: Path,
@@ -1197,11 +1190,11 @@ private suspend fun initProject(file: Path,
   try {
     coroutineContext.ensureActive()
 
-    val registerComponentActivity = createActivity(project) { "project ${StartUpMeasurer.Activities.REGISTER_COMPONENTS_SUFFIX}" }
-
-    if (!PROJECT_PATH.isIn(project)) {
-      PROJECT_PATH.set(project, file)
+    val registerComponentActivity = createActivity(project) {
+      "project ${StartUpMeasurer.Activities.REGISTER_COMPONENTS_SUFFIX}"
     }
+
+    project.putUserDataIfAbsent(PROJECT_PATH, file)
     project.registerComponents()
     registerComponentActivity?.end()
 
@@ -1381,11 +1374,7 @@ private suspend fun checkTrustedState(projectStoreBaseDir: Path): Boolean {
   return confirmOpeningOrLinkingUntrustedProjectAsync(
     projectStoreBaseDir,
     null,
-    IdeBundle.message("untrusted.project.open.dialog.title", projectStoreBaseDir.fileName),
-    IdeBundle.message("untrusted.project.open.dialog.text", ApplicationNamesInfo.getInstance().fullProductName),
-    IdeBundle.message("untrusted.project.dialog.trust.button"),
-    IdeBundle.message("untrusted.project.open.dialog.distrust.button"),
-    IdeBundle.message("untrusted.project.open.dialog.cancel.button")
+    IdeBundle.message("untrusted.project.open.dialog.title", projectStoreBaseDir.fileName)
   )
 }
 

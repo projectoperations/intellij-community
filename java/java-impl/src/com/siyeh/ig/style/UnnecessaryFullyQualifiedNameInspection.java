@@ -45,7 +45,7 @@ import java.util.*;
 import static com.intellij.codeInspection.options.OptPane.checkbox;
 import static com.intellij.codeInspection.options.OptPane.pane;
 
-public class UnnecessaryFullyQualifiedNameInspection extends BaseInspection implements CleanupLocalInspectionTool {
+public final class UnnecessaryFullyQualifiedNameInspection extends BaseInspection implements CleanupLocalInspectionTool {
 
   @SuppressWarnings({"PublicField", "unused"})
   public boolean m_ignoreJavadoc; // left here to prevent changes to project files.
@@ -123,7 +123,11 @@ public class UnnecessaryFullyQualifiedNameInspection extends BaseInspection impl
       final String fullyQualifiedText = referenceElement.getText();
       final QualificationRemover qualificationRemover = new QualificationRemover(fullyQualifiedText);
       file.accept(qualificationRemover);
-      qualificationRemover.getShortenedElements().forEach(updater::highlight);
+      qualificationRemover.getShortenedElements().forEach(element -> {
+        if (element.isValid()) {
+          updater.highlight(element);
+        }
+      });
     }
   }
 

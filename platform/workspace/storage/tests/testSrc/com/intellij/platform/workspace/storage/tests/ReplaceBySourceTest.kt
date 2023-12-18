@@ -10,7 +10,6 @@ import com.intellij.platform.workspace.storage.testEntities.entities.*
 import com.intellij.platform.workspace.storage.toBuilder
 import com.intellij.testFramework.UsefulTestCase.assertEmpty
 import com.intellij.testFramework.UsefulTestCase.assertOneElement
-import com.intellij.testFramework.junit5.TestApplication
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.RepetitionInfo
@@ -111,7 +110,7 @@ class ReplaceBySourceTest {
     val parent1 = builder add NamedEntity("data1", MySource)
     val parent2 = builder add NamedEntity("data2", MySource)
     resetChanges()
-    val originalStorage = builder.toSnapshot()
+    builder.toSnapshot()
 
     builder.replaceBySource({ true }, createEmptyBuilder())
     val collectChanges = builder.collectChanges()
@@ -1792,6 +1791,22 @@ class ReplaceBySourceTest {
                     builder.entities(ChainedEntity::class.java).single { it.entitySource == AnotherSource }.parent!!.entitySource)
   }
 
+  @RepeatedTest(10)
+  fun `replace child to itself keeps it's order`() {
+    val middleChild = builder addEntity MiddleEntity("", AnotherSource)
+    val rightChild = builder addEntity RightEntity(MySource)
+    builder addEntity LeftEntity(MySource) {
+      this.children = listOf(middleChild, rightChild)
+    }
+
+    val anotherBuilder = builder.toSnapshot().toBuilder()
+
+    builder.replaceBySource({ it is AnotherSource }, anotherBuilder)
+
+    val children = builder.entities(LeftEntity::class.java).single().children
+    assertIs<MiddleEntity>(children[0])
+    assertIs<RightEntity>(children[1])
+  }
 
   private inner class ThisStateChecker {
     infix fun WorkspaceEntity.assert(state: ReplaceState) {

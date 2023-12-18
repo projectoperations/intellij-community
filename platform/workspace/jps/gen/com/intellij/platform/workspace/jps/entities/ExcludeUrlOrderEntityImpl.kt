@@ -5,7 +5,6 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.EntityInformation
 import com.intellij.platform.workspace.storage.EntitySource
-import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.EntityType
 import com.intellij.platform.workspace.storage.GeneratedCodeApiVersion
 import com.intellij.platform.workspace.storage.GeneratedCodeImplVersion
@@ -21,6 +20,8 @@ import com.intellij.platform.workspace.storage.impl.containers.MutableWorkspaceL
 import com.intellij.platform.workspace.storage.impl.containers.toMutableWorkspaceList
 import com.intellij.platform.workspace.storage.impl.extractOneToOneParent
 import com.intellij.platform.workspace.storage.impl.updateOneToOneParentOfChild
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 
@@ -41,13 +42,19 @@ open class ExcludeUrlOrderEntityImpl(private val dataSource: ExcludeUrlOrderEnti
   }
 
   override val order: List<VirtualFileUrl>
-    get() = dataSource.order
+    get() {
+      readField("order")
+      return dataSource.order
+    }
 
   override val contentRoot: ContentRootEntity
     get() = snapshot.extractOneToOneParent(CONTENTROOT_CONNECTION_ID, this)!!
 
   override val entitySource: EntitySource
-    get() = dataSource.entitySource
+    get() {
+      readField("entitySource")
+      return dataSource.entitySource
+    }
 
   override fun connectionIdList(): List<ConnectionId> {
     return connections
@@ -207,11 +214,13 @@ class ExcludeUrlOrderEntityData : WorkspaceEntityData<ExcludeUrlOrderEntity>() {
     return modifiable
   }
 
-  override fun createEntity(snapshot: EntityStorage): ExcludeUrlOrderEntity {
-    return getCached(snapshot) {
+  @OptIn(EntityStorageInstrumentationApi::class)
+  override fun createEntity(snapshot: EntityStorageInstrumentation): ExcludeUrlOrderEntity {
+    val entityId = createEntityId()
+    return snapshot.initializeEntity(entityId) {
       val entity = ExcludeUrlOrderEntityImpl(this)
       entity.snapshot = snapshot
-      entity.id = createEntityId()
+      entity.id = entityId
       entity
     }
   }

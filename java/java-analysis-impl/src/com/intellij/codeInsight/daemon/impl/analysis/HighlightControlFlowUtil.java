@@ -18,6 +18,7 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.augment.PsiAugmentProvider;
 import com.intellij.psi.controlFlow.*;
 import com.intellij.psi.impl.light.LightRecordCanonicalConstructor;
 import com.intellij.psi.search.LocalSearchScope;
@@ -388,6 +389,9 @@ public final class HighlightControlFlowUtil {
           }
           if (anotherField != null && !anotherField.hasModifierProperty(PsiModifier.STATIC) && field.hasModifierProperty(PsiModifier.STATIC) &&
               isFieldInitializedInClassInitializer(field, true, aClass.getInitializers())) {
+            return null;
+          }
+          if(anotherField!=null && anotherField.hasInitializer() && !PsiAugmentProvider.canTrustFieldInitializer(anotherField)) {
             return null;
           }
 
@@ -830,7 +834,7 @@ public final class HighlightControlFlowUtil {
             @Override
             public void visitReferenceExpression(@NotNull PsiReferenceExpression expression) {
               if (expression.isReferenceTo(variable) &&
-                  PsiUtil.isAccessedForWriting(expression) && 
+                  PsiUtil.isAccessedForWriting(expression) &&
                   ControlFlowUtil.isVariableAssignedInLoop(expression, variable)) {
                 stopWalking();
                 stopped.set(true);

@@ -378,6 +378,10 @@ public class LightAdvHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testUnsupportedFeatures() { doTest(false); }
   public void testThisBeforeSuper() { doTest(false); }
   public void testExplicitConstructorInvocation() { doTest(false); }
+  public void testExtendFinalClass() { doTest(false); }
+  public void testPrivateMethodCalledFromSuper() { doTest(false); }
+  public void testQualifiedThisCalledFromSuper() { doTest(false); }
+  public void testReferenceToClassFromSuper() { IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_16, () -> doTest(false)); }
   public void testThisInInterface() { doTest(false); }
   public void testInnerClassConstantReference() { doTest(false); }
   public void testIDEA60875() { doTest(false); }
@@ -445,5 +449,15 @@ public class LightAdvHighlightingTest extends LightDaemonAnalyzerTestCase {
 
   public void testArrayInitBeforeSuper() {
     doTest(false);
+  }
+
+  public void testThisReferencedInnerClass() {
+    doTest(false);
+  }
+
+  public void testReferenceToImplicitClass() {
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_22_PREVIEW, () -> {
+      doTest(false);
+    });
   }
 }

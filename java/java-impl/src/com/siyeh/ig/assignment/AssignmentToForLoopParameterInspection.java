@@ -20,7 +20,7 @@ import static com.intellij.codeInspection.options.OptPane.pane;
 /**
  * @author Bas Leijdekkers
  */
-public class AssignmentToForLoopParameterInspection extends BaseInspection {
+public final class AssignmentToForLoopParameterInspection extends BaseInspection {
 
   /**
    * @noinspection PublicField for externalization purposes
@@ -123,7 +123,7 @@ public class AssignmentToForLoopParameterInspection extends BaseInspection {
       registerError(expression, Boolean.TRUE);
     }
 
-    private boolean isInForStatementBody(PsiExpression expression, PsiForStatement statement) {
+    private static boolean isInForStatementBody(PsiExpression expression, PsiForStatement statement) {
       return PsiTreeUtil.isAncestor(statement.getBody(), expression, true);
     }
   }

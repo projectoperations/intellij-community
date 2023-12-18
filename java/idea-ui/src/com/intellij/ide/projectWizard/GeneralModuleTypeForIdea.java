@@ -37,7 +37,7 @@ import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.util.List;
 
-public class GeneralModuleTypeForIdea extends GeneralModuleType {
+public final class GeneralModuleTypeForIdea extends GeneralModuleType {
   @Override
   public @NotNull ModuleBuilder createModuleBuilder() {
     return new GeneralModuleBuilder() {
@@ -113,7 +113,7 @@ public class GeneralModuleTypeForIdea extends GeneralModuleType {
         });
       }
 
-      private Point getPoint(JTree tree) {
+      private static Point getPoint(JTree tree) {
         TreePath path = tree.getSelectionPath();
         Rectangle bounds = tree.getPathBounds(path);
         int x = tree.getVisibleRect().width + 5;

@@ -313,8 +313,11 @@ public final class PsiClassImplUtil {
   }
 
   public static boolean isMainOrPremainMethod(@NotNull PsiMethod method) {
+    if ("main".equals(method.getName()) && PsiMethodUtil.isMainMethod(method)) {
+      return true;
+    }
     String name = method.getName();
-    if (!("main".equals(name) || "premain".equals(name) || "agentmain".equals(name))) return false;
+    if ("premain".equals(name) || "agentmain".equals(name)) return false;
     if (!PsiTypes.voidType().equals(method.getReturnType())) return false;
 
     PsiElementFactory factory = JavaPsiFacade.getElementFactory(method.getProject());
@@ -1067,13 +1070,18 @@ public final class PsiClassImplUtil {
   public static boolean isClassEquivalentTo(@NotNull PsiClass aClass, PsiElement another) {
     if (aClass == another) return true;
     if (!(another instanceof PsiClass)) return false;
-    String name1 = aClass.getName();
-    if (name1 == null) return false;
     if (!another.isValid()) return false;
-    String name2 = ((PsiClass)another).getName();
-    if (name2 == null) return false;
-    if (name1.hashCode() != name2.hashCode()) return false;
-    if (!name1.equals(name2)) return false;
+    boolean isImplicitClass = aClass instanceof PsiImplicitClass;
+    boolean anotherImplicitClass = another instanceof PsiImplicitClass;
+    if (isImplicitClass != anotherImplicitClass) return false;
+    if (!isImplicitClass) {
+      String name1 = aClass.getName();
+      if (name1 == null) return false;
+      String name2 = ((PsiClass)another).getName();
+      if (name2 == null) return false;
+      if (name1.hashCode() != name2.hashCode()) return false;
+      if (!name1.equals(name2)) return false;
+    }
     String qName1 = aClass.getQualifiedName();
     String qName2 = ((PsiClass)another).getQualifiedName();
     if (qName1 == null || qName2 == null) {
@@ -1116,8 +1124,8 @@ public final class PsiClassImplUtil {
       return true;
     }
 
-    FileIndexFacade fileIndex = file1.getProject().getService(FileIndexFacade.class);
-    FileIndexFacade fileIndex2 = file2.getProject().getService(FileIndexFacade.class);
+    FileIndexFacade fileIndex = FileIndexFacade.getInstance(file1.getProject());
+    FileIndexFacade fileIndex2 = FileIndexFacade.getInstance(file2.getProject());
     VirtualFile vfile1 = file1.getViewProvider().getVirtualFile();
     VirtualFile vfile2 = file2.getViewProvider().getVirtualFile();
     boolean lib1 = fileIndex.isInLibraryClasses(vfile1);

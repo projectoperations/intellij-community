@@ -7,7 +7,6 @@ import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.EntityInformation
 import com.intellij.platform.workspace.storage.EntitySource
-import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.EntityType
 import com.intellij.platform.workspace.storage.GeneratedCodeApiVersion
 import com.intellij.platform.workspace.storage.GeneratedCodeImplVersion
@@ -23,6 +22,8 @@ import com.intellij.platform.workspace.storage.impl.WorkspaceEntityData
 import com.intellij.platform.workspace.storage.impl.containers.toMutableWorkspaceList
 import com.intellij.platform.workspace.storage.impl.extractOneToAbstractManyParent
 import com.intellij.platform.workspace.storage.impl.updateOneToAbstractManyParentOfChild
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import org.jetbrains.annotations.NonNls
@@ -47,13 +48,22 @@ open class FileCopyPackagingElementEntityImpl(private val dataSource: FileCopyPa
     get() = snapshot.extractOneToAbstractManyParent(PARENTENTITY_CONNECTION_ID, this)
 
   override val filePath: VirtualFileUrl
-    get() = dataSource.filePath
+    get() {
+      readField("filePath")
+      return dataSource.filePath
+    }
 
   override val renamedOutputFileName: String?
-    get() = dataSource.renamedOutputFileName
+    get() {
+      readField("renamedOutputFileName")
+      return dataSource.renamedOutputFileName
+    }
 
   override val entitySource: EntitySource
-    get() = dataSource.entitySource
+    get() {
+      readField("entitySource")
+      return dataSource.entitySource
+    }
 
   override fun connectionIdList(): List<ConnectionId> {
     return connections
@@ -196,11 +206,13 @@ class FileCopyPackagingElementEntityData : WorkspaceEntityData<FileCopyPackaging
     return modifiable
   }
 
-  override fun createEntity(snapshot: EntityStorage): FileCopyPackagingElementEntity {
-    return getCached(snapshot) {
+  @OptIn(EntityStorageInstrumentationApi::class)
+  override fun createEntity(snapshot: EntityStorageInstrumentation): FileCopyPackagingElementEntity {
+    val entityId = createEntityId()
+    return snapshot.initializeEntity(entityId) {
       val entity = FileCopyPackagingElementEntityImpl(this)
       entity.snapshot = snapshot
-      entity.id = createEntityId()
+      entity.id = entityId
       entity
     }
   }

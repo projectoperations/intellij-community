@@ -8,6 +8,8 @@ import java.util.function.Predicate;
 
 public interface DifferentiateContext {
 
+  DifferentiateParameters getParams();
+
   /**
    * Accessor for the main Graph
    */
@@ -24,7 +26,9 @@ public interface DifferentiateContext {
 
   void affectUsage(@NotNull Usage usage, @NotNull Predicate<Node<?, ?>> constraint);
 
-  void affectUsage(@NotNull BiPredicate<Node<?, ?>, Usage> usageQuery);
+  void affectUsage(Iterable<? extends ReferenceID> affectionScopeNodes, @NotNull BiPredicate<Node<?, ?>, Usage> usageQuery);
 
   void affectNodeSource(@NotNull NodeSource source);
+
+  boolean isCompiled(NodeSource src);
 }

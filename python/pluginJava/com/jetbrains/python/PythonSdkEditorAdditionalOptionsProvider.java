@@ -20,8 +20,8 @@ import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import java.awt.*;
 
-public class PythonSdkEditorAdditionalOptionsProvider extends SdkEditorAdditionalOptionsProvider {
-  protected PythonSdkEditorAdditionalOptionsProvider() {
+public final class PythonSdkEditorAdditionalOptionsProvider extends SdkEditorAdditionalOptionsProvider {
+  private PythonSdkEditorAdditionalOptionsProvider() {
     super(PythonSdkType.getInstance());
   }
 

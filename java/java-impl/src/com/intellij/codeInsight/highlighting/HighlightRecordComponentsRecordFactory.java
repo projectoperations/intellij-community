@@ -13,12 +13,12 @@ import java.util.List;
 
 import static com.intellij.util.ObjectUtils.tryCast;
 
-public class HighlightRecordComponentsRecordFactory extends HighlightUsagesHandlerFactoryBase {
+public final class HighlightRecordComponentsRecordFactory extends HighlightUsagesHandlerFactoryBase {
   @Nullable
   @Override
-  public HighlightUsagesHandlerBase<?> createHighlightUsagesHandler(@NotNull Editor editor,
-                                                                    @NotNull PsiFile file,
-                                                                    @NotNull PsiElement target) {
+  public HighlightUsagesHandlerBase<PsiRecordComponent> createHighlightUsagesHandler(@NotNull Editor editor,
+                                                                                     @NotNull PsiFile file,
+                                                                                     @NotNull PsiElement target) {
     if (!(target instanceof PsiIdentifier)) return null;
     PsiElement parent = target.getParent();
     if (!(parent instanceof PsiReferenceExpression)) return null;

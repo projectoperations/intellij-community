@@ -6,7 +6,6 @@ import com.intellij.diagnostic.LoadingState;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.impl.DataValidators;
 import com.intellij.ide.ui.UISettings;
-import com.intellij.idea.SplashManagerKt;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
@@ -39,6 +38,7 @@ import com.intellij.openapi.wm.impl.IdeGlassPaneImpl;
 import com.intellij.openapi.wm.impl.ProjectFrameHelper;
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomFrameDialogContent;
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomHeader;
+import com.intellij.platform.ide.bootstrap.SplashManagerKt;
 import com.intellij.reference.SoftReference;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBLayeredPane;
@@ -553,7 +553,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
     }
   }
 
-  private static final class MyDialog extends JDialog implements DialogWrapperDialog, DataProvider, Queryable, AbstractDialog {
+  private static final class MyDialog extends JDialog implements DialogWrapperDialog, DataProvider, Queryable, AbstractDialog, DisposableWindow {
     private final WeakReference<DialogWrapper> myDialogWrapper;
 
     /**
@@ -564,10 +564,13 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
     private Dimension myInitialSize;
     private String myDimensionServiceKey;
     private boolean myOpened = false;
+    private boolean myDisposed = false;
 
     private MyDialog.MyWindowListener myWindowListener;
 
     private final WeakReference<Project> myProject;
+
+    private @Nullable MacDirtySizeHack myMacDirtySizeHack;
 
     MyDialog(Window owner,
                     DialogWrapper dialogWrapper,
@@ -592,6 +595,11 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
     @Override
     public JDialog getWindow() {
       return this;
+    }
+
+    @Override
+    public boolean isWindowDisposed() {
+      return myDisposed;
     }
 
     @Override
@@ -629,6 +637,28 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
       if (myDialogWrapper == null) return; // this can be invoked from super constructor before this field is assigned
       final DialogWrapper wrapper = myDialogWrapper.get();
       if (wrapper != null) wrapper.fitToScreen(rect);
+    }
+
+    @Override
+    public void pack() {
+      super.pack();
+      // pack() already sets the size to the preferred size, but it may change during validation,
+      // which is performed after the size is set. This happens, for example, if there are components
+      // with soft wraps whose preferred height depends on their width.
+      var preferredSize = getPreferredSize();
+      super.setSize(preferredSize.width, preferredSize.height); // we don't want to call our own overload here
+    }
+
+    @Override
+    public void setLocation(int x, int y) {
+      var sizeHack = myMacDirtySizeHack;
+      if (sizeHack == null) {
+        super.setLocation(x, y);
+      }
+      else {
+        var hackSize = getSize();
+        super.setBounds(x, y, hackSize.width, hackSize.height);
+      }
     }
 
     @Override
@@ -679,13 +709,37 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
       super.setBounds(r);
     }
 
-    @SuppressWarnings("deprecation") // overridden for logging purposes, as other similar methods all delegate to this one
+    @SuppressWarnings("deprecation") // overridden for logging and hacking purposes, as other similar methods all delegate to this one
     @Override
     public void reshape(int x, int y, int width, int height) {
       if (LOG.isTraceEnabled()) {
         LOG.trace(new Throwable("DialogWrapperPeerImpl.MyDialog.reshape(title='" + getTitle() + "'): " + new Rectangle(x, y, width, height)));
       }
+      var sizeHack = myMacDirtySizeHack;
+      if (sizeHack != null) {
+        sizeHack.updateSize(width, height);
+      }
       super.reshape(x, y, width, height);
+    }
+
+    @Override
+    public Dimension getSize() {
+      var actualSize = super.getSize();
+      var sizeHack = myMacDirtySizeHack;
+      if (sizeHack != null) {
+        var hackSize = sizeHack.getSize();
+        if (LOG.isDebugEnabled() && !hackSize.equals(actualSize)) {
+          LOG.debug("MacOS hack size override: actual size is " + actualSize + ", but we use " + hackSize + " instead");
+        }
+        return hackSize;
+      }
+      return actualSize;
+    }
+
+    @NotNull
+    @Override
+    public Rectangle getBounds() { // just delegate to the above
+      return new Rectangle(getLocation(), getSize());
     }
 
     @Override
@@ -719,6 +773,10 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
         logMonitorConfiguration();
       }
       if (isAutoAdjustable) {
+        if (SystemInfoRt.isMac) {
+          myMacDirtySizeHack = new MacDirtySizeHack(getWidth(), getHeight());
+          addComponentListener(myMacDirtySizeHack);
+        }
         pack();
 
         Dimension initial = dialogWrapper.getInitialSize();
@@ -922,6 +980,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
       DialogWrapper.cleanupRootPane(rootPane);
       DialogWrapper.cleanupWindowListeners(this);
       rootPane = null;
+      myDisposed = true;
 
     }
 
@@ -1022,6 +1081,43 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
           else {
             toFocus.requestFocusInWindow();
           }
+        }
+      }
+    }
+
+    private final class MacDirtySizeHack extends ComponentAdapter {
+      private int width;
+      private int height;
+
+      MacDirtySizeHack(int width, int height) {
+        this.width = width;
+        this.height = height;
+      }
+
+      void updateSize(int width, int height) {
+        this.width = width;
+        this.height = height;
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Manually set size for the mac hack: width = " + width + ", height = " + height);
+        }
+      }
+
+      Dimension getSize() {
+        return new Dimension(width, height);
+      }
+
+      @Override
+      public void componentShown(ComponentEvent e) {
+        removeComponentListener(this);
+        myMacDirtySizeHack = null;
+        int width = getWidth();
+        int height = getHeight();
+        if (width != this.width || height != this.height) {
+          LOG.warn("The size of the dialog '" + getTitle() + "' has changed after showing, " +
+                   "set width = " + this.width + ", height = " + this.height + ", " +
+                   "now width = " + width + ", height = " + height + ", " +
+                   "resetting it back");
+          setSize(this.width, this.height);
         }
       }
     }

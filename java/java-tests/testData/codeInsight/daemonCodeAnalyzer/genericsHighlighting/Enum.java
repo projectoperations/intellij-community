@@ -44,7 +44,7 @@ enum enumWithTypeParameterInValueOf {
   <error descr="'valueOf(String)' clashes with 'valueOf(String)'; both methods have same erasure"><error descr="'valueOf(String)' is already defined in 'enumWithTypeParameterInValueOf'">static <T> void valueOf(String s)</error></error> {}
 }
 
-<error descr="There is no default constructor available in 'Operation'">class exte extends <error descr="Cannot inherit from enum 'Operation'">Operation</error></error> {
+class exte extends <error descr="Cannot inherit from enum 'Operation'">Operation</error> {
 }
 
 enum withConstant {
@@ -103,7 +103,7 @@ enum OurEnum {
 
 enum TestEnum
 {
-    A(<error descr="Illegal forward reference">B</error>), B(A);
+    A(<error descr="Cannot refer to enum constant 'B' before its definition">B</error>), B(A);
     TestEnum(TestEnum other) {
       <error descr="Call to super is not allowed in enum constructor">super(null, 0)</error>;
     }

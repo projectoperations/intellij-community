@@ -2,7 +2,7 @@
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.SystemInfoRt
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope2
+import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
 import com.intellij.util.SystemProperties
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
@@ -15,11 +15,10 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.impl.OsSpecificDistributionBuilder.Companion.suffix
+import org.jetbrains.intellij.build.impl.client.ADDITIONAL_EMBEDDED_CLIENT_VM_OPTIONS
+import org.jetbrains.intellij.build.impl.client.createJetBrainsClientContextForLaunchers
 import org.jetbrains.intellij.build.impl.productInfo.*
-import org.jetbrains.intellij.build.io.copyDir
-import org.jetbrains.intellij.build.io.copyFile
-import org.jetbrains.intellij.build.io.substituteTemplatePlaceholders
-import org.jetbrains.intellij.build.io.writeNewFile
+import org.jetbrains.intellij.build.io.*
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -31,7 +30,7 @@ import kotlin.io.path.nameWithoutExtension
 
 class MacDistributionBuilder(override val context: BuildContext,
                              private val customizer: MacDistributionCustomizer,
-                             private val ideaProperties: Path?) : OsSpecificDistributionBuilder {
+                             private val ideaProperties: CharSequence?) : OsSpecificDistributionBuilder {
   internal companion object {
     const val NO_RUNTIME_SUFFIX = "-no-jdk"
   }
@@ -53,7 +52,7 @@ class MacDistributionBuilder(override val context: BuildContext,
         <key>CFBundleTypeIconFile</key>
         <string>${targetIcnsFileName}</string>
         <key>CFBundleTypeName</key>
-        <string>${context.applicationInfo.productName} Project File</string>
+        <string>${context.applicationInfo.fullProductName} Project File</string>
         <key>CFBundleTypeRole</key>
         <string>Editor</string>
       </dict>"""
@@ -91,23 +90,21 @@ class MacDistributionBuilder(override val context: BuildContext,
       "# macOS-specific system properties",
       "#---------------------------------------------------------------------",
       "com.apple.mrj.application.live-resize=false",
-      "jbScreenMenuBar.enabled=true",
       "apple.awt.fileDialogForDirectories=true",
       "apple.awt.graphics.UseQuartz=true",
       "apple.awt.fullscreencapturealldisplays=false"
     )
     customizer.getCustomIdeaProperties(context.applicationInfo).forEach(BiConsumer { k, v -> platformProperties.add("$k=$v") })
 
-    layoutMacApp(ideaPropertiesFile = ideaProperties!!,
+    layoutMacApp(ideaPropertyContent = ideaProperties!!,
                  platformProperties = platformProperties,
                  docTypes = getDocTypes(),
                  macDistDir = macDistDir,
-                 arch = arch,
-                 context = context)
+                 arch = arch)
 
     generateBuildTxt(context, macDistDir.resolve("Resources"))
 
-    // if copyDistFiles false, it means that we will copy dist files directly without stage dir
+    // if copyDistFiles false, it means that we will copy dist files directly without a stage dir
     if (copyDistFiles) {
       copyDistFiles(context = context, newDir = macDistDir, os = OsFamily.MACOS, arch = arch)
     }
@@ -201,14 +198,19 @@ class MacDistributionBuilder(override val context: BuildContext,
     }
   }
 
-  private suspend fun layoutMacApp(ideaPropertiesFile: Path,
+  override fun writeVmOptions(distBinDir: Path): Path {
+    return writeMacOsVmOptions(distBinDir, context)
+  }
+
+  private suspend fun layoutMacApp(ideaPropertyContent: CharSequence,
                                    platformProperties: List<String>,
                                    docTypes: String?,
                                    macDistDir: Path,
-                                   arch: JvmArchitecture,
-                                   context: BuildContext) {
+                                   arch: JvmArchitecture) {
     val macCustomizer = customizer
-    copyDirWithFileFilter(context.paths.communityHomeDir.resolve("bin/mac"), macDistDir.resolve("bin"), customizer.binFilesFilter)
+    val macBinDir = macDistDir.resolve("bin")
+    copyDirWithFileFilter(context.paths.communityHomeDir.resolve("bin/mac"), macBinDir, customizer.binFilesFilter)
+    copyFileToDir(NativeBinaryDownloader.downloadRestarter(context, OsFamily.MACOS, arch), macBinDir)
     copyDir(context.paths.communityHomeDir.resolve("platform/build-scripts/resources/mac/Contents"), macDistDir)
 
     val executable = context.productProperties.baseFileName
@@ -242,7 +244,7 @@ class MacDistributionBuilder(override val context: BuildContext,
       }
     }
 
-    val fullName = context.applicationInfo.productName
+    val fullName = context.applicationInfo.fullProductName
 
     //todo improve
     val minor = context.applicationInfo.minorVersion
@@ -250,16 +252,17 @@ class MacDistributionBuilder(override val context: BuildContext,
     val version = if (isNotRelease) "EAP ${context.fullBuildNumber}" else "${context.applicationInfo.majorVersion}.${minor}"
     val isEap = if (isNotRelease) "-EAP" else ""
 
-    val properties = Files.readAllLines(ideaPropertiesFile)
-    properties.addAll(platformProperties)
-    Files.write(macDistDir.resolve("bin/idea.properties"), properties)
+    Files.writeString(macBinDir.resolve(PROPERTIES_FILE_NAME),
+                      (ideaPropertyContent.lineSequence() + platformProperties).joinToString(separator = "\n"))
 
     val bootClassPath = context.xBootClassPathJarNames.joinToString(separator = ":") { "\$APP_PACKAGE/Contents/lib/${it}" }
     val classPath = context.bootClassPathJarNames.joinToString(separator = ":") { "\$APP_PACKAGE/Contents/lib/${it}" }
 
-    val fileVmOptions = VmOptionsGenerator.computeVmOptions(context) +
-                        listOf("-Dapple.awt.application.appearance=system")
-    VmOptionsGenerator.writeVmOptions(macDistDir.resolve("bin/${executable}.vmoptions"), fileVmOptions, "\n")
+    writeVmOptions(macBinDir)
+    val jetBrainsClientContext = createJetBrainsClientContextForLaunchers(context)
+    if (jetBrainsClientContext != null) {
+      writeMacOsVmOptions(macBinDir, jetBrainsClientContext)
+    }
 
     val errorFilePath = "-XX:ErrorFile=\$USER_HOME/java_error_in_${executable}_%p.log"
     val heapDumpPath = "-XX:HeapDumpPath=\$USER_HOME/java_error_in_${executable}.hprof"
@@ -324,8 +327,7 @@ class MacDistributionBuilder(override val context: BuildContext,
       )
     )
 
-    val distBinDir = macDistDir.resolve("bin")
-    Files.createDirectories(distBinDir)
+    Files.createDirectories(macBinDir)
 
     val sourceScriptDir = context.paths.communityHomeDir.resolve("platform/build-scripts/resources/mac/scripts")
     Files.newDirectoryStream(sourceScriptDir).use { stream ->
@@ -343,7 +345,7 @@ class MacDistributionBuilder(override val context: BuildContext,
             // https://youtrack.jetbrains.com/issue/IJI-526/Force-git-to-use-LF-line-endings-in-working-copy-of-via-gitattri
             Files.writeString(sourceFileLf, Files.readString(file).replace("\r", ""))
 
-            val target = distBinDir.resolve(fileName)
+            val target = macBinDir.resolve(fileName)
             substituteTemplatePlaceholders(
               sourceFileLf,
               target,
@@ -371,7 +373,7 @@ class MacDistributionBuilder(override val context: BuildContext,
                                    macZip: Path,
                                    macZipWithoutRuntime: Path?, customizer: MacDistributionCustomizer,
                                    context: BuildContext) {
-    spanBuilder("build macOS artifacts for specific arch").setAttribute("arch", arch.name).useWithScope2 {
+    spanBuilder("build macOS artifacts for specific arch").setAttribute("arch", arch.name).useWithScope {
       val notarize = SystemProperties.getBooleanProperty(
         "intellij.build.mac.notarize",
         !context.isStepSkipped(BuildOptions.MAC_NOTARIZE_STEP)
@@ -450,21 +452,39 @@ private fun propertiesToXml(properties: List<String>, moreProperties: Map<String
 internal fun getMacZipRoot(customizer: MacDistributionCustomizer, context: BuildContext): String =
   "${customizer.getRootDirectoryName(context.applicationInfo, context.buildNumber)}/Contents"
 
-private fun generateProductJson(context: BuildContext, arch: JvmArchitecture, withRuntime: Boolean = true): String =
-  generateProductInfoJson(
+private fun generateProductJson(context: BuildContext, arch: JvmArchitecture, withRuntime: Boolean = true): String {
+  return generateProductInfoJson(
     relativePathToBin = "../bin",
     builtinModules = context.builtinModule,
-    launch = listOf(ProductInfoLaunchData(
-      os = OsFamily.MACOS.osName,
-      arch = arch.dirName,
-      launcherPath = "../MacOS/${context.productProperties.baseFileName}",
-      javaExecutablePath = if (withRuntime) "../jbr/Contents/Home/bin/java" else null,
-      vmOptionsFilePath = "../bin/${context.productProperties.baseFileName}.vmoptions",
-      startupWmClass = null,
-      bootClassPathJarNames = context.bootClassPathJarNames,
-      additionalJvmArguments = context.getAdditionalJvmArguments(OsFamily.MACOS, arch),
-      mainClass = context.ideMainClassName)),
-    context = context)
+    launch = listOf(createProductInfoLaunchData(context, arch, withRuntime)),
+    context = context
+  )
+}
+
+private fun createProductInfoLaunchData(context: BuildContext, arch: JvmArchitecture, withRuntime: Boolean): ProductInfoLaunchData {
+  val jetbrainsClientCustomLaunchData = createJetBrainsClientContextForLaunchers(context)?.let {
+    CustomCommandLaunchData(
+      commands = listOf("thinClient", "thinClient-headless"),
+      vmOptionsFilePath = "../bin/${it.productProperties.baseFileName}.vmoptions",
+      bootClassPathJarNames = it.bootClassPathJarNames,
+      additionalJvmArguments = it.getAdditionalJvmArguments(OsFamily.MACOS, arch) + ADDITIONAL_EMBEDDED_CLIENT_VM_OPTIONS,
+      mainClass = it.ideMainClassName,
+    )
+  }
+
+  return ProductInfoLaunchData(
+    os = OsFamily.MACOS.osName,
+    arch = arch.dirName,
+    launcherPath = "../MacOS/${context.productProperties.baseFileName}",
+    javaExecutablePath = if (withRuntime) "../jbr/Contents/Home/bin/java" else null,
+    vmOptionsFilePath = "../bin/${context.productProperties.baseFileName}.vmoptions",
+    startupWmClass = null,
+    bootClassPathJarNames = context.bootClassPathJarNames,
+    additionalJvmArguments = context.getAdditionalJvmArguments(OsFamily.MACOS, arch),
+    mainClass = context.ideMainClassName,
+    customCommands = listOfNotNull(jetbrainsClientCustomLaunchData)
+  )
+}
 
 private suspend fun buildMacZip(macDistributionBuilder: MacDistributionBuilder,
                                 targetFile: Path,
@@ -482,7 +502,7 @@ private suspend fun buildMacZip(macDistributionBuilder: MacDistributionBuilder,
       .setAttribute("zipRoot", zipRoot)
       .setAttribute(AttributeKey.stringArrayKey("directories"), directories.map { it.toString() })
       .setAttribute(AttributeKey.stringArrayKey("executableFilePatterns"), executableFileMatchers.values.toList())
-      .useWithScope2 {
+      .useWithScope {
         val entryCustomizer: (ZipArchiveEntry, Path, String) -> Unit = { entry, file, relativePathString ->
           val relativePath = Path.of(relativePathString)
           if (executableFileMatchers.any { it.key.matches(relativePath) } || (SystemInfoRt.isUnix && Files.isExecutable(file))) {
@@ -542,4 +562,14 @@ private suspend fun buildMacZip(macDistributionBuilder: MacDistributionBuilder,
         checkInArchive(archiveFile = targetFile, pathInArchive = "$zipRoot/Resources", context = macDistributionBuilder.context)
       }
   }
+}
+
+private fun writeMacOsVmOptions(distBinDir: Path, context: BuildContext): Path {
+  val executable = context.productProperties.baseFileName
+  val fileVmOptions = VmOptionsGenerator.computeVmOptions(context) +
+                      listOf("-Dapple.awt.application.appearance=system")
+  val vmOptionsPath = distBinDir.resolve("$executable.vmoptions")
+  VmOptionsGenerator.writeVmOptions(vmOptionsPath, fileVmOptions, "\n")
+
+  return vmOptionsPath
 }

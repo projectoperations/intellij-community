@@ -21,6 +21,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBLoadingPanel;
 import com.intellij.ui.components.panels.Wrapper;
+import com.intellij.ui.navigation.History;
 import com.intellij.ui.switcher.QuickActionProvider;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
@@ -72,6 +73,7 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
   private static final @NonNls String DIFF_SPLITTER_PROPORTION = "vcs.log.diff.splitter.proportion";
   private static final @NonNls String DETAILS_SPLITTER_PROPORTION = "vcs.log.details.splitter.proportion";
   private static final @NonNls String CHANGES_SPLITTER_PROPORTION = "vcs.log.changes.splitter.proportion";
+  private static final @NonNls String HELP_ID = "reference.changesToolWindow.log";
 
   private final @NotNull VcsLogData myLogData;
   private final @NotNull MainVcsLogUiProperties myUiProperties;
@@ -88,6 +90,8 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
   private final @NotNull Splitter myDetailsSplitter;
   private final @NotNull EditorNotificationPanel myNotificationLabel;
 
+  private final @NotNull History myHistory;
+
   private boolean myIsLoading;
   private @Nullable FilePath myPathToSelect = null;
 
@@ -97,6 +101,7 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
                    @NotNull AbstractVcsLogUi logUi,
                    @NotNull MainVcsLogUiProperties uiProperties,
                    @NotNull VcsLogFilterUiEx filterUi,
+                   @NotNull VcsLogColorManager colorManager,
                    boolean withEditorDiffPreview,
                    @NotNull Disposable disposable) {
     myLogData = logData;
@@ -104,7 +109,7 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
 
     myFilterUi = filterUi;
 
-    myGraphTable = new MyVcsLogGraphTable(logUi.getId(), logData, logUi.getProperties(), logUi.getColorManager(),
+    myGraphTable = new MyVcsLogGraphTable(logUi.getId(), logData, logUi.getProperties(), colorManager,
                                           () -> logUi.getRefresher().onRefresh(), logUi::requestMore, disposable);
     String vcsDisplayName = VcsLogUtil.getVcsDisplayName(logData.getProject(), logData.getLogProviders().values());
     myGraphTable.getAccessibleContext().setAccessibleName(VcsLogBundle.message("vcs.log.table.accessible.name", vcsDisplayName));
@@ -121,7 +126,7 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
 
     myChangesBrowser = new VcsLogChangesBrowser(logData.getProject(), myUiProperties, (commitId) -> {
       int index = myLogData.getCommitIndex(commitId.getHash(), commitId.getRoot());
-      return myLogData.getMiniDetailsGetter().getCommitData(index);
+      return myLogData.getMiniDetailsGetter().getCachedDataOrPlaceholder(index);
     }, withEditorDiffPreview, this);
     myChangesBrowser.getDiffAction().registerCustomShortcutSet(myChangesBrowser.getDiffAction().getShortcutSet(), getGraphTable());
     JBLoadingPanel changesLoadingPane = new JBLoadingPanel(new BorderLayout(), this,
@@ -176,7 +181,10 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
     };
     add(myDiffPreview.getMainComponent());
 
+    myHistory = VcsLogUiUtil.installNavigationHistory(logUi, myGraphTable);
+
     Disposer.register(disposable, this);
+
     myGraphTable.resetDefaultFocusTraversalKeys();
     setFocusCycleRoot(true);
     setFocusTraversalPolicy(new MyFocusPolicy());
@@ -208,7 +216,7 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
     return myFilterUi;
   }
 
-  private @NotNull JComponent createActionsToolbar() {
+  protected @NotNull JComponent createActionsToolbar() {
     ActionManager actionManager = ActionManager.getInstance();
 
     DefaultActionGroup toolbarGroup = (DefaultActionGroup)actionManager.getAction(VcsLogActionIds.TOOLBAR_ACTION_GROUP);
@@ -225,12 +233,10 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
     String vcsDisplayName = VcsLogUtil.getVcsDisplayName(myLogData.getProject(), myLogData.getLogProviders().values());
     textFilter.getAccessibleContext().setAccessibleName(VcsLogBundle.message("vcs.log.text.filter.accessible.name", vcsDisplayName));
 
-    DefaultActionGroup presentationSettingsGroup =
-      (DefaultActionGroup)actionManager.getAction(VcsLogActionIds.PRESENTATION_SETTINGS_ACTION_GROUP);
+    DefaultActionGroup presentationSettingsGroup = (DefaultActionGroup)actionManager.getAction(VcsLogActionIds.PRESENTATION_SETTINGS_ACTION_GROUP);
     configureIntelliSortAction(presentationSettingsGroup);
 
-    ActionGroup rightCornerGroup = (ActionGroup)Objects.requireNonNull(
-      CustomActionsSchema.getInstance().getCorrectedAction(VcsLogActionIds.TOOLBAR_RIGHT_CORNER_ACTION_GROUP));
+    ActionGroup rightCornerGroup = (ActionGroup)Objects.requireNonNull(CustomActionsSchema.getInstance().getCorrectedAction(VcsLogActionIds.TOOLBAR_RIGHT_CORNER_ACTION_GROUP));
     ActionToolbar rightCornerToolbar = actionManager.createActionToolbar(ActionPlaces.VCS_LOG_TOOLBAR_PLACE, rightCornerGroup, true);
     rightCornerToolbar.setTargetComponent(this);
     rightCornerToolbar.setReservePlaceAutoPopupIcon(false);
@@ -280,7 +286,7 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
       return new QuickActionProvider() {
         @Override
         public @NotNull List<AnAction> getActions(boolean originalProvider) {
-          AnAction textFilterAction = EmptyAction.wrap(ActionManager.getInstance().getAction(VcsLogActionIds.VCS_LOG_FOCUS_TEXT_FILTER));
+          AnAction textFilterAction = ActionUtil.wrap(VcsLogActionIds.VCS_LOG_FOCUS_TEXT_FILTER);
           textFilterAction.getTemplatePresentation().setText(VcsLogBundle.message("vcs.log.text.filter.action.text"));
           List<AnAction> actions = new ArrayList<>();
           actions.add(textFilterAction);
@@ -299,6 +305,8 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
         }
       };
     }
+    else if (PlatformCoreDataKeys.HELP_ID.is(dataId)) return HELP_ID;
+    else if (History.KEY.is(dataId)) return myHistory;
     return null;
   }
 

@@ -2,7 +2,10 @@
 package com.intellij.platform.workspace.storage.impl
 
 import com.google.common.collect.HashBiMap
-import com.intellij.platform.workspace.storage.*
+import com.intellij.platform.workspace.storage.EntitySource
+import com.intellij.platform.workspace.storage.SymbolicEntityId
+import com.intellij.platform.workspace.storage.WorkspaceEntity
+import com.intellij.platform.workspace.storage.WorkspaceEntityWithSymbolicId
 import com.intellij.platform.workspace.storage.impl.external.ExternalEntityMappingImpl
 import com.intellij.platform.workspace.storage.impl.external.MutableExternalEntityMappingImpl
 import com.intellij.platform.workspace.storage.impl.indices.EntityStorageInternalIndex
@@ -10,6 +13,7 @@ import com.intellij.platform.workspace.storage.impl.indices.MultimapStorageIndex
 import com.intellij.platform.workspace.storage.impl.indices.SymbolicIdInternalIndex
 import com.intellij.platform.workspace.storage.impl.indices.VirtualFileIndex
 import com.intellij.platform.workspace.storage.impl.indices.VirtualFileIndex.MutableVirtualFileIndex.Companion.VIRTUAL_FILE_INDEX_ENTITY_SOURCE_PROPERTY
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 
 internal open class StorageIndexes(
   // List of IDs of entities that use this particular persistent id
@@ -53,7 +57,7 @@ internal open class StorageIndexes(
 
     // Assert external mappings
     for ((_, mappings) in externalMappings) {
-      for ((id, _) in mappings.index) {
+      mappings.index.forEach { id, _ ->
         assert(storage.entityDataById(id) != null) { "Missing entity by id: $id" }
       }
     }
@@ -145,6 +149,7 @@ internal open class StorageIndexes(
   }
 }
 
+@OptIn(EntityStorageInstrumentationApi::class)
 internal class MutableStorageIndexes(
   override val softLinks: MultimapStorageIndex.MutableMultimapStorageIndex,
   override val virtualFileIndex: VirtualFileIndex.MutableVirtualFileIndex,
@@ -263,7 +268,6 @@ internal class MutableStorageIndexes(
     val idsWithSoftRef = HashSet(this.softLinks.getIdsByEntry(beforeSymbolicId))
     for (entityId in idsWithSoftRef) {
       val originalEntityData = builder.getOriginalEntityData(entityId) as WorkspaceEntityData<WorkspaceEntity>
-      val originalParentsData = builder.getOriginalParents(entityId.asChild())
       val entity = builder.entitiesByType.getEntityDataForModification(entityId) as WorkspaceEntityData<WorkspaceEntity>
       val editingBeforeSymbolicId = entity.symbolicId()
       (entity as SoftLinkable).updateLink(beforeSymbolicId, newSymbolicId)
@@ -273,10 +277,6 @@ internal class MutableStorageIndexes(
       // TODO :: Avoid updating of all soft links for the dependent entity
       builder.indexes.updateSymbolicIdIndexes(builder, entity.createEntity(builder), editingBeforeSymbolicId, entity)
     }
-  }
-
-  fun removeExternalMapping(identifier: String) {
-    externalMappings[identifier]?.clearMapping()
   }
 
   fun toImmutable(): StorageIndexes {

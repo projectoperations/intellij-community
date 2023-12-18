@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.util.ActionCallback;
+import com.intellij.util.concurrency.annotations.RequiresBlockingContext;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -25,6 +26,7 @@ public abstract class ActionManager {
   /**
    * Fetches the instance of ActionManager implementation.
    */
+  @RequiresBlockingContext
   public static ActionManager getInstance() {
     return ApplicationManager.getApplication().getService(ActionManager.class);
   }
@@ -74,8 +76,7 @@ public abstract class ActionManager {
   public abstract @NonNls @Nullable String getId(@NotNull AnAction action);
 
   /**
-   * Registers the specified action with the specified id. Note that the IDE's keymaps
-   * processing deals only with registered actions.
+   * Registers the specified action with the specified id. Note that the IDE's keymaps processing deals only with registered actions.
    *
    * @param actionId Id to associate with the action
    * @param action   Action to register

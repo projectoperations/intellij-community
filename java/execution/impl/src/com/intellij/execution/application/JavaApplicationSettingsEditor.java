@@ -1,14 +1,21 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.application;
 
+import com.intellij.codeInsight.completion.CompletionParameters;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.configurations.RuntimeConfigurationException;
 import com.intellij.execution.ui.*;
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.openapi.util.Predicates;
+import com.intellij.psi.impl.java.stubs.index.JavaStubIndexKeys;
+import com.intellij.psi.stubs.StubIndex;
 import com.intellij.ui.EditorTextField;
-import com.intellij.ui.components.JBTextField;
+import com.intellij.ui.TextFieldWithAutoCompletion;
+import com.intellij.ui.TextFieldWithAutoCompletion.StringsCompletionProvider;
 import com.intellij.util.ui.GridBag;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -16,6 +23,7 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseListener;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
@@ -23,11 +31,11 @@ import static com.intellij.execution.ui.CommandLinePanel.setMinimumWidth;
 
 public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<ApplicationConfiguration> {
   private SettingsEditorFragment<ApplicationConfiguration, MainClassPanel> myMainClassFragment;
-  private final boolean myInitialIsUnnamedClass;
+  private final boolean myInitialIsImplicitClass;
 
   public JavaApplicationSettingsEditor(ApplicationConfiguration configuration) {
     super(configuration);
-    myInitialIsUnnamedClass = configuration.isUnnamedClassConfiguration();
+    myInitialIsImplicitClass = configuration.isImplicitClassConfiguration();
   }
 
   @Override
@@ -45,14 +53,14 @@ public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<
                                      configuration -> configuration.getOptions().isIncludeProvidedScope(),
                                      (configuration, value) -> configuration.getOptions().setIncludeProvidedScope(value)));
     fragments.add(SettingsEditorFragment.createTag("unnamed.class",
-                                                   ExecutionBundle.message("application.configuration.is.unnamed.class"),
+                                                   ExecutionBundle.message("application.configuration.is.implicit.class"),
                                                    ExecutionBundle.message("group.java.options"),
                                                    configuration -> {
-                                                     return configuration.isUnnamedClassConfiguration();
+                                                     return configuration.isImplicitClassConfiguration();
                                                    },
                                                    (configuration, value) -> {
-                                                     configuration.setUnnamedClassConfiguration(value);
-                                                     updateMainClassFragment(configuration.isUnnamedClassConfiguration());
+                                                     configuration.setImplicitClassConfiguration(value);
+                                                     updateMainClassFragment(configuration.isImplicitClassConfiguration());
                                                    }));
     fragments.add(commonParameterFragments.programArguments());
     fragments.add(new TargetPathFragment<>());
@@ -67,8 +75,8 @@ public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<
 
   private class MainClassPanel extends JPanel {
     private final ClassEditorField myClassEditorField;
-    private final JBTextField myUnnamedClassField;
-    private boolean myIsUnnamedClassConfiguration;
+    private final TextFieldWithAutoCompletion<String> myImplicitClassField;
+    private boolean myIsImplicitClassConfiguration;
 
     private MainClassPanel(ModuleClasspathCombo classpathCombo) {
       super(new GridBagLayout());
@@ -83,26 +91,33 @@ public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<
       String placeholder = ExecutionBundle.message("application.configuration.main.class.placeholder");
       myClassEditorField.setPlaceholder(placeholder);
       myClassEditorField.getAccessibleContext().setAccessibleName(placeholder);
-      myClassEditorField.setVisible(!myIsUnnamedClassConfiguration);
+      myClassEditorField.setVisible(!myIsImplicitClassConfiguration);
       setMinimumWidth(myClassEditorField, 300);
       GridBag constraints = new GridBag().setDefaultFill(GridBagConstraints.HORIZONTAL).setDefaultWeightX(1.0);
       add(myClassEditorField, constraints.nextLine());
 
-      myUnnamedClassField = new JBTextField();
-      CommonParameterFragments.setMonospaced(myUnnamedClassField);
-      String unnamedClassPlaceholder = ExecutionBundle.message("application.configuration.main.unnamed.class.placeholder");
-      myUnnamedClassField.setVisible(myIsUnnamedClassConfiguration);
-      myUnnamedClassField.getEmptyText().setText(unnamedClassPlaceholder);
-      myUnnamedClassField.getAccessibleContext().setAccessibleName(unnamedClassPlaceholder);
-      setMinimumWidth(myUnnamedClassField, 300);
-      add(myUnnamedClassField, constraints.nextLine());
+      myImplicitClassField = new TextFieldWithAutoCompletion<>(getProject(), new StringsCompletionProvider(null, AllIcons.FileTypes.JavaClass) {
+        @Override
+        public @NotNull Collection<String> getItems(String prefix, boolean cached, CompletionParameters parameters) {
+            return DumbService.isDumb(getProject())
+                   ? List.of()
+                   : ReadAction.compute(() -> StubIndex.getInstance().getAllKeys(JavaStubIndexKeys.IMPLICIT_CLASSES, getProject()));
+        }
+      }, true, null);
+      CommonParameterFragments.setMonospaced(myImplicitClassField);
+      String implicitClassPlaceholder = ExecutionBundle.message("application.configuration.main.unnamed.class.placeholder");
+      myImplicitClassField.setVisible(myIsImplicitClassConfiguration);
+      myImplicitClassField.setPlaceholder(implicitClassPlaceholder);
+      myImplicitClassField.getAccessibleContext().setAccessibleName(implicitClassPlaceholder);
+      setMinimumWidth(myImplicitClassField, 300);
+      add(myImplicitClassField, constraints.nextLine());
     }
 
     public EditorTextField getEditorTextField() { return myClassEditorField; }
 
     void setClassName(String name) {
-      if (myIsUnnamedClassConfiguration) {
-        myUnnamedClassField.setText(name);
+      if (myIsImplicitClassConfiguration) {
+        myImplicitClassField.setText(name);
       }
       else {
         myClassEditorField.setClassName(name);
@@ -110,31 +125,31 @@ public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<
     }
 
     String getClassName() {
-      return myIsUnnamedClassConfiguration ? myUnnamedClassField.getText() : myClassEditorField.getClassName();
+      return myIsImplicitClassConfiguration ? myImplicitClassField.getText() : myClassEditorField.getClassName();
     }
 
     boolean isReadyForApply() {
-      return myIsUnnamedClassConfiguration || myClassEditorField.isReadyForApply();
+      return myIsImplicitClassConfiguration || myClassEditorField.isReadyForApply();
     }
 
-    void setUnnamedClassConfiguration(boolean isUnnamedClassConfiguration) {
-      myIsUnnamedClassConfiguration = isUnnamedClassConfiguration;
+    void setImplicitClassConfiguration(boolean isImplicitClassConfiguration) {
+      myIsImplicitClassConfiguration = isImplicitClassConfiguration;
       if (myClassEditorField != null) {
-        myClassEditorField.setVisible(!isUnnamedClassConfiguration);
-        myUnnamedClassField.setVisible(isUnnamedClassConfiguration);
+        myClassEditorField.setVisible(!isImplicitClassConfiguration);
+        myImplicitClassField.setVisible(isImplicitClassConfiguration);
       }
     }
 
     List<ValidationInfo> getValidation(ApplicationConfiguration configuration) {
       return Collections.singletonList(RuntimeConfigurationException.validate(
-        myIsUnnamedClassConfiguration ? myUnnamedClassField : myClassEditorField,
+        myIsImplicitClassConfiguration ? myImplicitClassField : myClassEditorField,
         () -> { if (!isDefaultSettings()) configuration.checkClass(); }
       ));
     }
 
     JComponent getEditorComponent() {
-      if (myIsUnnamedClassConfiguration) {
-        return myUnnamedClassField;
+      if (myIsImplicitClassConfiguration) {
+        return myImplicitClassField;
       } else {
         Editor editor = myClassEditorField.getEditor();
         return editor == null ? myClassEditorField : editor.getContentComponent();
@@ -143,7 +158,7 @@ public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<
 
     @Override
     public synchronized void addMouseListener(MouseListener l) {
-      myUnnamedClassField.addMouseListener(l);
+      myImplicitClassField.addMouseListener(l);
       myClassEditorField.addMouseListener(l);
     }
   }
@@ -164,15 +179,15 @@ public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<
     myMainClassFragment.setRemovable(false);
     myMainClassFragment.setEditorGetter(field -> field.getEditorComponent());
     myMainClassFragment.setValidation((configuration) -> mainClassPanel.getValidation(configuration));
-    updateMainClassFragment(myInitialIsUnnamedClass);
+    updateMainClassFragment(myInitialIsImplicitClass);
     return myMainClassFragment;
   }
 
-  private void updateMainClassFragment(boolean isUnnamedClass) {
+  private void updateMainClassFragment(boolean isImplicitClass) {
     if (myMainClassFragment == null) return;
-    myMainClassFragment.component().setUnnamedClassConfiguration(isUnnamedClass);
+    myMainClassFragment.component().setImplicitClassConfiguration(isImplicitClass);
 
-    if (isUnnamedClass) {
+    if (isImplicitClass) {
       myMainClassFragment.setHint(ExecutionBundle.message("application.configuration.main.class.unnamed.hint"));
     } else {
       myMainClassFragment.setHint(ExecutionBundle.message("application.configuration.main.class.hint"));

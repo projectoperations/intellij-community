@@ -145,15 +145,13 @@ class TestJetBrainsClientDownloaderConfigurationProvider : JetBrainsClientDownlo
 
     val traceCategories = listOf("#com.jetbrains.rdserver.joinLinks", "#com.jetbrains.rd.platform.codeWithMe.network")
 
-    val debugOptions = run {
-      if (isDebugEnabled) {
-        val suspendOnStart = if (debugSuspendOnStart) "y" else "n"
+    val debugOptions = if (isDebugEnabled) {
+      val suspendOnStart = if (debugSuspendOnStart) "y" else "n"
 
-        // changed in Java 9, now we have to use *: to listen on all interfaces
-          "-agentlib:jdwp=transport=dt_socket,server=y,suspend=$suspendOnStart,address=$debugPort"
-      }
-      else ""
+      // changed in Java 9, now we have to use *: to listen on all interfaces
+      "-agentlib:jdwp=transport=dt_socket,server=y,suspend=$suspendOnStart,address=*:$debugPort"
     }
+    else ""
 
     val testVmOptions = listOf(
       "-Djb.consents.confirmation.enabled=false", // hz
@@ -168,6 +166,7 @@ class TestJetBrainsClientDownloaderConfigurationProvider : JetBrainsClientDownlo
       "-DcodeWithMe.memory.only.certificate=true", // system keychain
       "-Dide.slow.operations.assertion=false",
       "-Deap.login.enabled=false",
+      "-Didea.updates.url=http://127.0.0.1",
       "-Didea.config.path=${guestConfigFolder!!.absolutePathString()}",
       "-Didea.system.path=${guestSystemFolder!!.absolutePathString()}",
       "-Didea.log.path=${guestLogFolder!!.absolutePathString()}",

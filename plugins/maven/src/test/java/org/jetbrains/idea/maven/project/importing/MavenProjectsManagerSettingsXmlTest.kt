@@ -6,18 +6,14 @@ import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.idea.maven.utils.MavenUtil
-import org.junit.Assume
 import org.junit.Test
 import java.io.File
 
 class MavenProjectsManagerSettingsXmlTest : MavenMultiVersionImportingTestCase() {
-  override fun runInDispatchThread() = false
-
+  
   override fun setUp() {
     super.setUp()
     initProjectsManager(true)
-    Assume.assumeFalse(MavenUtil.isLinearImportEnabled())
   }
 
   @Test
@@ -116,7 +112,7 @@ class MavenProjectsManagerSettingsXmlTest : MavenMultiVersionImportingTestCase()
                        <version>1</version>
                        """.trimIndent())
     importProjectAsync()
-    assertUnorderedElementsAreEqual(projectsTree.getAvailableProfiles())
+    assertUnorderedElementsAreEqual(projectsTree.availableProfiles)
     waitForImportWithinTimeout {
       createSettingsXml("""
                         <profiles>
@@ -127,9 +123,9 @@ class MavenProjectsManagerSettingsXmlTest : MavenMultiVersionImportingTestCase()
                         """.trimIndent())
     }
 
-    assertUnorderedElementsAreEqual(projectsTree.getAvailableProfiles(), "one")
+    assertUnorderedElementsAreEqual(projectsTree.availableProfiles, "one")
     deleteSettingsXmlAndWaitForImport()
-    assertUnorderedElementsAreEqual(projectsTree.getAvailableProfiles())
+    assertUnorderedElementsAreEqual(projectsTree.availableProfiles)
   }
 
   private suspend fun deleteSettingsXmlAndWaitForImport() {

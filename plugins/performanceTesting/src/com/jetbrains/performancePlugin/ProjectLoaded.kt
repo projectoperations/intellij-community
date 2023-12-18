@@ -19,10 +19,8 @@ import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.diagnostic.Attachment
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.ExtensionNotApplicableException
-import com.intellij.openapi.progress.ModalTaskOwner
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.progress.impl.CoreProgressManager
-import com.intellij.openapi.progress.runWithModalProgressBlocking
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.DumbService.Companion.isDumb
 import com.intellij.openapi.project.Project
@@ -32,10 +30,13 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.ex.StatusBarEx
 import com.intellij.platform.diagnostic.startUpPerformanceReporter.StartUpPerformanceReporter.Companion.logStats
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.util.Alarm
 import com.intellij.util.SystemProperties
 import com.jetbrains.performancePlugin.commands.OpenProjectCommand.Companion.shouldOpenInSmartMode
 import com.jetbrains.performancePlugin.commands.takeScreenshotOfAllWindows
+import com.jetbrains.performancePlugin.commands.takeScreenshotOfAllWindowsBlocking
 import com.jetbrains.performancePlugin.profilers.ProfilersController
 import com.jetbrains.performancePlugin.utils.ReporterCommandAsTelemetrySpan
 import io.opentelemetry.context.Context
@@ -181,7 +182,9 @@ private fun runScriptDuringIndexing(project: Project, alarm: Alarm) {
 class ProjectLoaded : ApplicationInitializedListener {
   override suspend fun execute(asyncScope: CoroutineScope) {
     if (System.getProperty("com.sun.management.jmxremote") == "true") {
-      InvokerMBean.register({ PerformanceTestSpan.TRACER }, { PerformanceTestSpan.getContext() })
+      InvokerMBean.register({ PerformanceTestSpan.TRACER },
+                            { PerformanceTestSpan.getContext() },
+                            { takeScreenshotOfAllWindowsBlocking(it) })
     }
 
     if (ApplicationManagerEx.getApplicationEx().isLightEditMode) {
@@ -373,7 +376,7 @@ private fun registerOnFinishRunnables(future: CompletableFuture<*>, mustExitOnFa
     .thenRun { LOG.info("Execution of the script has been finished successfully") }
     .exceptionally(Function { e ->
       ApplicationManager.getApplication().executeOnPooledThread {
-        if (SystemProperties.getBooleanProperty("startup.performance.framework", false)) {
+        if (ApplicationManagerEx.isInIntegrationTest()) {
           storeFailureToFile(e.message)
         }
         runBlocking {

@@ -12,6 +12,7 @@ import org.gradle.util.GradleVersion
 import org.jetbrains.plugins.gradle.service.project.GradleOperationHelperExtension
 import org.jetbrains.plugins.gradle.service.project.ProjectResolverContext
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings
+import org.jetbrains.plugins.gradle.testFramework.GradleExecutionTestCase
 import org.jetbrains.plugins.gradle.testFramework.annotations.AllGradleVersionsSource
 import org.jetbrains.plugins.gradle.testFramework.util.assumeThatConfigurationCacheIsSupported
 import org.jetbrains.plugins.gradle.testFramework.util.assumeThatGradleIsAtLeast
@@ -47,14 +48,14 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
         |}
       """.trimMargin())
 
-      executeTasks(":test :additionalTest", isRunAsTest = true)
-      assertTestTreeView {
+      executeTasks(":test :additionalTest --continue", isRunAsTest = true)
+      assertTestViewTree {
         assertNode("AppTest") {
           assertNode("test")
           assertNode("test")
         }
       }
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("failed") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -77,12 +78,8 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
                 }
               }
             }
-            if (!isTestLauncherUsed()) {
-              assertNode("There were failing tests. See the report at: .*".toRegex())
-            }
-          }
-          if (isTestLauncherUsed()) {
-            assertNode("Test failed.")
+            // IDEA-334636 this node should have the same indention as the 'additionalTest' node
+            assertNode("There were failing tests. See the report at: .*".toRegex())
           }
         }
       }
@@ -113,7 +110,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       """.trimMargin())
 
       executeTasks(":test", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("AppTest") {
           assertNode("test")
         }
@@ -142,12 +139,12 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       """.trimMargin())
 
       executeTasks(":test", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("AppTest") {
           assertNode("test")
         }
       }
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -189,7 +186,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       """.trimMargin())
 
       executeTasks(":test", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("TestCase1") {
           assertNode("test1")
           assertNode("test2")
@@ -201,7 +198,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       }
 
       executeTasks(":test --tests org.example.TestCase1", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("TestCase1") {
           assertNode("test1")
           assertNode("test2")
@@ -209,7 +206,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       }
 
       executeTasks(":test --tests org.example.TestCase2.test2", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("TestCase2") {
           assertNode("test2")
         }
@@ -230,12 +227,12 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       """.trimMargin())
 
       executeTasks(":test", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("TestCase") {
           assertNode("test")
         }
       }
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -254,12 +251,12 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       }
 
       executeTasks(":test", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("TestCase") {
           assertNode("test")
         }
       }
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -278,12 +275,12 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       }
 
       executeTasks(":test --rerun-tasks", isRunAsTest = false)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("TestCase") {
           assertNode("test")
         }
       }
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -302,8 +299,8 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       }
 
       executeTasks(":test", isRunAsTest = false)
-      assertTestTreeViewIsEmpty()
-      assertBuildExecutionTree {
+      assertTestViewTreeIsEmpty()
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -335,12 +332,12 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       """.trimMargin())
 
       executeTasks(":allTests", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("TestCase") {
           assertNode("test")
         }
       }
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -360,12 +357,12 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       }
 
       executeTasks(":allTests", isRunAsTest = true)
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("TestCase") {
           assertNode("test")
         }
       }
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -385,7 +382,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       }
 
       executeTasks(":allTests --rerun-tasks", isRunAsTest = false)
-      assertRunTreeView {
+      assertRunViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -399,7 +396,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       }
 
       executeTasks(":allTests", isRunAsTest = false)
-      assertRunTreeView {
+      assertRunViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -438,15 +435,15 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       """.trimMargin())
 
       executeTasks(":allTests --tests *", isRunAsTest = true)
-      assertTestTreeViewIsEmpty()
-      assertBuildExecutionTree {
+      assertTestViewTreeIsEmpty()
+      assertBuildViewTree {
         assertNode("failed") {
           assertNode("Unknown command-line option '--tests'")
         }
       }
 
       executeTasks(":allTests --tests *", isRunAsTest = false)
-      assertRunTreeView {
+      assertRunViewTree {
         assertNode("failed") {
           assertNode("Unknown command-line option '--tests'")
         }
@@ -471,7 +468,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       """.trimMargin())
 
       executeTasks(":beforeTest :test --tests org.example.TestCase.test", isRunAsTest = true)
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":beforeTest")
           assertNode(":compileJava")
@@ -490,7 +487,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
         }
       }
       executeTasks(":test --tests org.example.TestCase.test :afterTest", isRunAsTest = true)
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -509,7 +506,7 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
         }
       }
       executeTasks(":beforeTest :test --tests org.example.TestCase.test :afterTest", isRunAsTest = true)
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":beforeTest")
           assertNode(":compileJava")
@@ -549,15 +546,15 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
       """.trimMargin())
 
       executeTasks(":test", isRunAsTest = true)
-      assertTestTreeView { assertNode("TestCase") { assertNode("test1"); assertNode("test2") } }
+      assertTestViewTree { assertNode("TestCase") { assertNode("test1"); assertNode("test2") } }
       assertTestConsoleDoesNotContain("Unable to enhance Gradle Daemon")
 
       executeTasks(":test --tests org.example.TestCase.test1", isRunAsTest = true)
-      assertTestTreeView { assertNode("TestCase") { assertNode("test1") } }
+      assertTestViewTree { assertNode("TestCase") { assertNode("test1") } }
       assertTestConsoleDoesNotContain("Unable to enhance Gradle Daemon")
 
       executeTasks(":test --tests org.example.TestCase.test2", isRunAsTest = true)
-      assertTestTreeView { assertNode("TestCase") { assertNode("test2") } }
+      assertTestViewTree { assertNode("TestCase") { assertNode("test2") } }
       assertTestConsoleDoesNotContain("Unable to enhance Gradle Daemon")
     }
   }
@@ -626,12 +623,12 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
         GradleOperationHelperExtension.EP_NAME.point.registerExtension(extension, testDisposable)
         executeTasks(":test", isRunAsTest = true)
       }
-      assertTestTreeView {
+      assertTestViewTree {
         assertNode("AppTest") {
           assertNode("test1")
         }
       }
-      assertBuildExecutionTree {
+      assertBuildViewTree {
         assertNode("successful") {
           assertNode(":compileJava")
           assertNode(":processResources")
@@ -645,6 +642,61 @@ class GradleTestExecutionTest : GradleExecutionTestCase() {
                 assertNode("Test test1()(org.example.AppTest)")
               }
             }
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @AllGradleVersionsSource
+  fun `test Gradle test distribution nodes are hidden by default`(gradleVersion: GradleVersion) {
+    assumeThatGradleIsAtLeast(gradleVersion, "7.5")
+    testJunit5Project(gradleVersion) {
+      writeText("settings.gradle", """
+        plugins {
+            id "com.gradle.enterprise" version "3.15.1"
+        }
+
+        gradleEnterprise {
+            server = "https://something.com"
+        }
+
+        rootProject.name = '${project.name}'
+        include('lib')
+      """.trimIndent())
+      appendText("build.gradle", """
+        tasks.withType(Test).configureEach() {
+          distribution {
+              enabled = true
+              remoteExecutionPreferred = false
+              maxRemoteExecutors = 0
+          }
+        }
+      """.trimMargin())
+      writeText("src/test/java/org/example/AppTest.java", """
+        |package org.example;
+        |import $jUnitTestAnnotationClass;
+        |public class AppTest {
+        |   @Test public void testApp() {}
+        |}
+      """.trimMargin())
+      writeText("src/test/java/org/example/LibTest.java", """
+        |package org.example;
+        |import $jUnitTestAnnotationClass;
+        |public class LibTest {
+        |   @Test public void testLib() {}
+        |}
+      """.trimMargin())
+
+      executeTasks(":test", isRunAsTest = true)
+      assertTestViewTree {
+        assertNode("Distributed Test Run :test") {
+          assertNode("AppTest") {
+            assertNode("testApp")
+          }
+          assertNode("LibTest") {
+            assertNode("testLib")
           }
         }
       }

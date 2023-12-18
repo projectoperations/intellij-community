@@ -63,6 +63,11 @@ public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractH
         runTest("../completion/testData/basic/multifile/CompletionOnImportedFunction/");
     }
 
+    @TestMetadata("ConstructorReferenceNotImported")
+    public void testConstructorReferenceNotImported() throws Exception {
+        runTest("../completion/testData/basic/multifile/ConstructorReferenceNotImported/");
+    }
+
     @TestMetadata("DoNotCompleteWithConstraints")
     public void testDoNotCompleteWithConstraints() throws Exception {
         runTest("../completion/testData/basic/multifile/DoNotCompleteWithConstraints/");
@@ -193,11 +198,6 @@ public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractH
         runTest("../completion/testData/basic/multifile/InImportHighOrderTopLevelFun/");
     }
 
-    @TestMetadata("InImportHighOrderTopLevelFunNoTailText")
-    public void testInImportHighOrderTopLevelFunNoTailText() throws Exception {
-        runTest("../completion/testData/basic/multifile/InImportHighOrderTopLevelFunNoTailText/");
-    }
-
     @TestMetadata("InImportJavaClass")
     public void testInImportJavaClass() throws Exception {
         runTest("../completion/testData/basic/multifile/InImportJavaClass/");
@@ -241,6 +241,11 @@ public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractH
     @TestMetadata("JavaCallableReference")
     public void testJavaCallableReference() throws Exception {
         runTest("../completion/testData/basic/multifile/JavaCallableReference/");
+    }
+
+    @TestMetadata("JavaClassQualifierWithTypeArguments")
+    public void testJavaClassQualifierWithTypeArguments() throws Exception {
+        runTest("../completion/testData/basic/multifile/JavaClassQualifierWithTypeArguments/");
     }
 
     @TestMetadata("JavaEnum")

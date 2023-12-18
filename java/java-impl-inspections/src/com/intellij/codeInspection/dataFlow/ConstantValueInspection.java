@@ -18,7 +18,6 @@ import com.intellij.codeInspection.dataFlow.types.DfTypes;
 import com.intellij.codeInspection.options.OptPane;
 import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.modcommand.ModCommandAction;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -49,8 +48,7 @@ import static com.intellij.codeInspection.options.OptPane.pane;
 import static com.intellij.java.JavaBundle.message;
 import static com.intellij.util.ObjectUtils.tryCast;
 
-public class ConstantValueInspection extends AbstractBaseJavaLocalInspectionTool {
-  private static final Logger LOG = Logger.getInstance(ConstantValueInspection.class);
+public final class ConstantValueInspection extends AbstractBaseJavaLocalInspectionTool {
   public boolean DONT_REPORT_TRUE_ASSERT_STATEMENTS;
   public boolean IGNORE_ASSERT_STATEMENTS;
   public boolean REPORT_CONSTANT_REFERENCE_VALUES = true;
@@ -89,6 +87,25 @@ public class ConstantValueInspection extends AbstractBaseJavaLocalInspectionTool
       }
 
       @Override
+      public void visitSwitchLabeledRuleStatement(@NotNull PsiSwitchLabeledRuleStatement statement) {
+        checkSwitchCaseGuard(PsiUtil.skipParenthesizedExprDown(statement.getGuardExpression()));
+      }
+
+      @Override
+      public void visitSwitchLabelStatement(@NotNull PsiSwitchLabelStatement statement) {
+        checkSwitchCaseGuard(PsiUtil.skipParenthesizedExprDown(statement.getGuardExpression()));
+      }
+
+      private void checkSwitchCaseGuard(@Nullable PsiExpression guard) {
+        if (guard == null) return;
+        if (BoolUtils.isTrue(guard)) {
+          LocalQuickFix fix = createSimplifyBooleanExpressionFix(guard, guard.textMatches(PsiKeyword.TRUE));
+          holder.registerProblem(guard, JavaAnalysisBundle
+            .message("dataflow.message.constant.no.ref", guard.textMatches(PsiKeyword.TRUE) ? 1 : 0), LocalQuickFix.notNullElements(fix));
+        }
+      }
+
+      @Override
       public void visitIfStatement(@NotNull PsiIfStatement statement) {
         PsiExpression condition = PsiUtil.skipParenthesizedExprDown(statement.getCondition());
         if (BoolUtils.isBooleanLiteral(condition)) {
@@ -102,8 +119,11 @@ public class ConstantValueInspection extends AbstractBaseJavaLocalInspectionTool
       public void visitDoWhileStatement(@NotNull PsiDoWhileStatement statement) {
         PsiExpression condition = PsiUtil.skipParenthesizedExprDown(statement.getCondition());
         if (condition != null && condition.textMatches(PsiKeyword.FALSE)) {
-          holder.registerProblem(condition, JavaAnalysisBundle.message("dataflow.message.constant.no.ref", 0),
-                                 LocalQuickFix.notNullElements(createSimplifyBooleanExpressionFix(condition, false)));
+          LocalQuickFix fix = createSimplifyBooleanExpressionFix(condition, false);
+          if (fix != null) {
+            holder.registerProblem(condition, JavaAnalysisBundle.message("dataflow.message.constant.no.ref", 0),
+                                   LocalQuickFix.notNullElements(fix));
+          }
         }
       }
     };

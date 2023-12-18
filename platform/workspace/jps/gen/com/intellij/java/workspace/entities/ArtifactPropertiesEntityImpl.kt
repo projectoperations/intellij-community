@@ -7,7 +7,6 @@ import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.EntityInformation
 import com.intellij.platform.workspace.storage.EntitySource
-import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.EntityType
 import com.intellij.platform.workspace.storage.GeneratedCodeApiVersion
 import com.intellij.platform.workspace.storage.GeneratedCodeImplVersion
@@ -23,6 +22,8 @@ import com.intellij.platform.workspace.storage.impl.WorkspaceEntityData
 import com.intellij.platform.workspace.storage.impl.containers.toMutableWorkspaceList
 import com.intellij.platform.workspace.storage.impl.extractOneToManyParent
 import com.intellij.platform.workspace.storage.impl.updateOneToManyParentOfChild
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import org.jetbrains.annotations.NonNls
@@ -47,13 +48,22 @@ open class ArtifactPropertiesEntityImpl(private val dataSource: ArtifactProperti
     get() = snapshot.extractOneToManyParent(ARTIFACT_CONNECTION_ID, this)!!
 
   override val providerType: String
-    get() = dataSource.providerType
+    get() {
+      readField("providerType")
+      return dataSource.providerType
+    }
 
   override val propertiesXmlTag: String?
-    get() = dataSource.propertiesXmlTag
+    get() {
+      readField("propertiesXmlTag")
+      return dataSource.propertiesXmlTag
+    }
 
   override val entitySource: EntitySource
-    get() = dataSource.entitySource
+    get() {
+      readField("entitySource")
+      return dataSource.entitySource
+    }
 
   override fun connectionIdList(): List<ConnectionId> {
     return connections
@@ -204,11 +214,13 @@ class ArtifactPropertiesEntityData : WorkspaceEntityData<ArtifactPropertiesEntit
     return modifiable
   }
 
-  override fun createEntity(snapshot: EntityStorage): ArtifactPropertiesEntity {
-    return getCached(snapshot) {
+  @OptIn(EntityStorageInstrumentationApi::class)
+  override fun createEntity(snapshot: EntityStorageInstrumentation): ArtifactPropertiesEntity {
+    val entityId = createEntityId()
+    return snapshot.initializeEntity(entityId) {
       val entity = ArtifactPropertiesEntityImpl(this)
       entity.snapshot = snapshot
-      entity.id = createEntityId()
+      entity.id = entityId
       entity
     }
   }

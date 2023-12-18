@@ -3,7 +3,10 @@ package org.jetbrains.idea.maven.dom
 
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.maven.testFramework.MavenDomTestCase
+import com.intellij.openapi.application.EDT
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.jetbrains.idea.maven.dom.inspections.MavenParentMissedVersionInspection
 import org.junit.Test
 
@@ -40,8 +43,10 @@ class MavenAutomaticVersioningResolutionTest : MavenDomTestCase() {
                       </parent>
                        <artifactId>m</artifactId>
                       """.trimIndent())
-    assertResolved(m, findPsiFile(myProjectPom))
-    myFixture.enableInspections(listOf<Class<out LocalInspectionTool?>>(MavenParentMissedVersionInspection::class.java))
+    withContext(Dispatchers.EDT) {
+      assertResolved(m, findPsiFile(myProjectPom))
+    }
+    fixture.enableInspections(listOf<Class<out LocalInspectionTool?>>(MavenParentMissedVersionInspection::class.java))
     checkHighlighting(m)
   }
 
@@ -76,7 +81,7 @@ class MavenAutomaticVersioningResolutionTest : MavenDomTestCase() {
                         </parent>
                          <artifactId>m</artifactId>
                         """.trimIndent())
-    myFixture.enableInspections(listOf<Class<out LocalInspectionTool?>>(MavenParentMissedVersionInspection::class.java))
+    fixture.enableInspections(listOf<Class<out LocalInspectionTool?>>(MavenParentMissedVersionInspection::class.java))
     checkHighlighting(m)
   }
 
@@ -135,7 +140,9 @@ class MavenAutomaticVersioningResolutionTest : MavenDomTestCase() {
                          </dependency>
                        </dependencies>
                       """.trimIndent())
-    assertResolved(m2, findPsiFile(m1))
+    withContext(Dispatchers.EDT) {
+      assertResolved(m2, findPsiFile(m1))
+    }
     checkHighlighting(m2)
   }
 
@@ -173,6 +180,8 @@ class MavenAutomaticVersioningResolutionTest : MavenDomTestCase() {
                                        </parent>
                                         <artifactId>m1</artifactId>
                                        """.trimIndent())
-    assertResolved(m1, findPsiFile(myProjectPom))
+    withContext(Dispatchers.EDT) {
+      assertResolved(m1, findPsiFile(myProjectPom))
+    }
   }
 }

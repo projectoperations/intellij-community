@@ -11,7 +11,6 @@ import com.jediterm.terminal.TtyConnector
 import java.awt.Dimension
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
-import java.util.concurrent.CompletableFuture
 import javax.swing.JComponent
 
 /**
@@ -20,7 +19,7 @@ import javax.swing.JComponent
 @Suppress("unused")
 class PlainTerminalView(
   project: Project,
-  private val session: TerminalSession,
+  private val session: BlockTerminalSession,
   settings: JBTerminalSystemSettingsProviderBase
 ) : TerminalContentView {
   override val component: JComponent
@@ -31,8 +30,7 @@ class PlainTerminalView(
   private val view: SimpleTerminalView
 
   init {
-    val eventsHandler = TerminalEventsHandler(session, settings)
-    view = SimpleTerminalView(project, settings, session, eventsHandler)
+    view = SimpleTerminalView(project, settings, session)
     view.component.addComponentListener(object : ComponentAdapter() {
       override fun componentResized(e: ComponentEvent?) {
         val newSize = getTerminalSize() ?: return
@@ -44,7 +42,7 @@ class PlainTerminalView(
   }
 
   override fun connectToTty(ttyConnector: TtyConnector, initialTermSize: TermSize) {
-    session.controller.resize(initialTermSize, RequestOrigin.User, CompletableFuture.completedFuture(Unit))
+    session.controller.resize(initialTermSize, RequestOrigin.User)
     session.start(ttyConnector)
   }
 
@@ -61,6 +59,10 @@ class PlainTerminalView(
 
   override fun addTerminationCallback(onTerminated: Runnable, parentDisposable: Disposable) {
     session.addTerminationCallback(onTerminated, parentDisposable)
+  }
+
+  override fun sendCommandToExecute(shellCommand: String) {
+    session.commandManager.sendCommandToExecute(shellCommand)
   }
 
   override fun dispose() {}

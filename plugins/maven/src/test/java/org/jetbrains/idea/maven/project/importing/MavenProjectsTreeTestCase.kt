@@ -3,11 +3,12 @@ package org.jetbrains.idea.maven.project.importing
 
 import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCase
 import com.intellij.openapi.application.WriteAction
-import com.intellij.openapi.progress.RawProgressReporter
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.util.progress.RawProgressReporter
+import org.jetbrains.idea.maven.buildtool.MavenLogEventHandler
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.jetbrains.idea.maven.project.*
 import org.jetbrains.idea.maven.project.MavenProjectResolver.Companion.getInstance
@@ -21,6 +22,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 abstract class MavenProjectsTreeTestCase : MavenMultiVersionImportingTestCase() {
   private var myTree: MavenProjectsTree? = null
+  protected val rawProgressReporter: RawProgressReporter = object : RawProgressReporter {}
 
   val tree: MavenProjectsTree
     get() {
@@ -33,21 +35,21 @@ abstract class MavenProjectsTreeTestCase : MavenMultiVersionImportingTestCase() 
     myTree = MavenProjectsManager.getInstance(myProject).getProjectsTree()
   }
 
-  protected fun updateAll(vararg files: VirtualFile?) {
+  protected suspend fun updateAll(vararg files: VirtualFile?) {
     updateAll(emptyList<String>(), *files)
   }
 
-  protected fun updateAll(profiles: List<String?>?, vararg files: VirtualFile?) {
-    myTree!!.resetManagedFilesAndProfiles(Arrays.asList(*files), MavenExplicitProfiles(profiles))
-    myTree!!.updateAll(false, mavenGeneralSettings, mavenProgressIndicator.indicator)
+  protected suspend fun updateAll(profiles: List<String?>?, vararg files: VirtualFile?) {
+    myTree!!.resetManagedFilesAndProfiles(listOf(*files), MavenExplicitProfiles(profiles))
+    myTree!!.updateAll(false, mavenGeneralSettings, rawProgressReporter)
   }
 
-  protected fun update(file: VirtualFile) {
-    myTree!!.update(Arrays.asList(file), false, mavenGeneralSettings, mavenProgressIndicator.indicator)
+  protected suspend fun update(file: VirtualFile) {
+    myTree!!.update(listOf(file), false, mavenGeneralSettings, rawProgressReporter)
   }
 
-  protected fun deleteProject(file: VirtualFile) {
-    myTree!!.delete(Arrays.asList(file), mavenGeneralSettings, mavenProgressIndicator.indicator)
+  protected suspend fun deleteProject(file: VirtualFile) {
+    myTree!!.delete(listOf(file), mavenGeneralSettings, rawProgressReporter)
   }
 
   @Throws(IOException::class)
@@ -105,7 +107,6 @@ abstract class MavenProjectsTreeTestCase : MavenMultiVersionImportingTestCase() 
                         mavenProject: MavenProject,
                         generalSettings: MavenGeneralSettings,
                         embeddersManager: MavenEmbeddersManager,
-                        console: MavenConsole,
                         process: MavenProgressIndicator) {
     val resolver = getInstance(project)
     val progressReporter = object : RawProgressReporter {}
@@ -114,9 +115,8 @@ abstract class MavenProjectsTreeTestCase : MavenMultiVersionImportingTestCase() 
                        myTree!!,
                        generalSettings,
                        embeddersManager,
-                       console,
                        progressReporter,
-                       process.syncConsole)
+                       MavenLogEventHandler)
     }
   }
 

@@ -1,11 +1,12 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.serialization
 
-import org.jetbrains.kotlin.build.serializeToPlainText
 import org.jetbrains.kotlin.cli.common.arguments.CommonCompilerArguments
+import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
+import org.jetbrains.kotlin.cli.common.arguments.copyOf
+import org.jetbrains.kotlin.cli.common.arguments.parseCommandLineArguments
 import org.jetbrains.kotlin.config.*
-import org.jetbrains.kotlin.idea.workspaceModel.KotlinModuleSettingsSerializer
-import org.jetbrains.kotlin.idea.workspaceModel.KotlinSettingsEntity
+import org.jetbrains.kotlin.idea.workspaceModel.*
 import org.jetbrains.kotlin.platform.IdePlatformKind
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.isCommon
@@ -20,15 +21,26 @@ class KotlinFacetSettingsWorkspaceModel(val entity: KotlinSettingsEntity.Builder
             myUseProjectSettings = value
         }
 
-    private var _version = 5
     override var version: Int
-        get() = _version
+        get() = entity.version
         set(value) {
-            _version = value
+            entity.version = value
         }
 
     override fun updateMergedArguments() {
-        TODO("Not yet implemented")
+        // Do nothing
+    }
+
+    private fun computeMergedArguments(): CommonCompilerArguments? {
+        val compilerArguments = compilerArguments
+        val compilerSettings = compilerSettings
+
+        return compilerArguments?.copyOf()?.apply {
+            if (compilerSettings != null) {
+                parseCommandLineArguments(compilerSettings.additionalArgumentsAsList, this)
+            }
+            if (this is K2JVMCompilerArguments) this.classpath = ""
+        }
     }
 
     private var _additionalVisibleModuleNames: Set<String> = entity.additionalVisibleModuleNames
@@ -39,26 +51,63 @@ class KotlinFacetSettingsWorkspaceModel(val entity: KotlinSettingsEntity.Builder
             _additionalVisibleModuleNames = value
         }
 
-    override var compilerArguments: CommonCompilerArguments? =
-        if (entity.compilerArguments == "") null else KotlinModuleSettingsSerializer.serializeFromString(entity.compilerArguments) as? CommonCompilerArguments
+    private var _compilerArguments: CommonCompilerArguments? = null
+    override var compilerArguments: CommonCompilerArguments?
+        get() {
+            if (_compilerArguments != null) {
+                return _compilerArguments
+            }
+
+            val serializedArguments = entity.compilerArguments
+            _compilerArguments = if (serializedArguments.isNotEmpty()) {
+                KotlinModuleSettingsSerializer.serializeFromString(serializedArguments) as? CommonCompilerArguments
+            } else {
+                null
+            }
+
+            return _compilerArguments
+        }
         set(value) {
-            field = value
+            entity.compilerArguments = KotlinModuleSettingsSerializer.serializeToString(value)
+            updateMergedArguments()
+            _compilerArguments = value
         }
 
-    override var mergedCompilerArguments: CommonCompilerArguments? = null
+    override val mergedCompilerArguments: CommonCompilerArguments?
+        get() {
+            return computeMergedArguments()
+        }
 
     override var apiLevel: LanguageVersion?
         get() = compilerArguments?.apiVersion?.let { LanguageVersion.fromFullVersionString(it) }
         set(value) {
-
-            compilerArguments?.updateCompilerArguments {
+            updateCompilerArguments {
                 apiVersion = value?.versionString
             }
         }
 
+    private var _compilerSettings: CompilerSettings? = null
     override var compilerSettings: CompilerSettings?
-        get() = TODO("Not yet implemented")
-        set(value) {}
+        get() {
+            if (_compilerSettings != null) {
+                return _compilerSettings
+            }
+
+            val compilerSettingsData = entity.compilerSettings
+            if (!compilerSettingsData.isInitialized) return null
+
+            _compilerSettings = compilerSettingsData.toCompilerSettings { newSettings ->
+                entity.compilerSettings = newSettings.toCompilerSettingsData()
+                updateMergedArguments()
+            }
+
+            return _compilerSettings
+        }
+        set(value) {
+            entity.compilerSettings = value.toCompilerSettingsData()
+            updateMergedArguments()
+            _compilerSettings = value
+        }
 
 
     private var _dependsOnModuleNames: List<String> = entity.dependsOnModuleNames
@@ -77,12 +126,10 @@ class KotlinFacetSettingsWorkspaceModel(val entity: KotlinSettingsEntity.Builder
             _externalProjectId = value
         }
 
-    private var _externalSystemRunTasks: List<ExternalSystemRunTask> = emptyList()
     override var externalSystemRunTasks: List<ExternalSystemRunTask>
-        get() = _externalSystemRunTasks
+        get() = entity.externalSystemRunTasks.map { deserializeExternalSystemTestRunTask(it) }
         set(value) {
-            //TODO: entity
-            _externalSystemRunTasks = value
+            entity.externalSystemRunTasks = value.map { it.serializeExternalSystemTestRunTask() }.toMutableList()
         }
 
     private var _implementedModuleNames: List<String> = entity.implementedModuleNames
@@ -120,7 +167,7 @@ class KotlinFacetSettingsWorkspaceModel(val entity: KotlinSettingsEntity.Builder
     override var languageLevel: LanguageVersion?
         get() = compilerArguments?.languageVersion?.let { LanguageVersion.fromFullVersionString(it) }
         set(value) {
-            compilerArguments?.updateCompilerArguments {
+            updateCompilerArguments {
                 languageVersion = value?.versionString
             }
         }
@@ -159,15 +206,22 @@ class KotlinFacetSettingsWorkspaceModel(val entity: KotlinSettingsEntity.Builder
             entity.sourceSetNames = value.toMutableList()
         }
 
-    private var _targetPlatform : TargetPlatform? = entity.targetPlatform.deserializeTargetPlatformByComponentPlatforms()
+    private var _targetPlatform: TargetPlatform? = null
     override var targetPlatform: TargetPlatform?
         get() {
-            val args = compilerArguments
-            val singleSimplePlatform = _targetPlatform?.componentPlatforms?.singleOrNull()
-            if (singleSimplePlatform == JvmPlatforms.defaultJvmPlatform.singleOrNull() && args != null) {
-                return IdePlatformKind.platformByCompilerArguments(args)
+            if (_targetPlatform != null) {
+                return _targetPlatform
             }
-            return _targetPlatform
+
+            val args = compilerArguments
+            val deserializedTargetPlatform =
+                entity.targetPlatform.takeIf { it.isNotEmpty() }.deserializeTargetPlatformByComponentPlatforms()
+            val singleSimplePlatform = deserializedTargetPlatform?.componentPlatforms?.singleOrNull()
+            if (singleSimplePlatform == JvmPlatforms.defaultJvmPlatform.singleOrNull() && args != null) {
+                _targetPlatform = IdePlatformKind.platformByCompilerArguments(args)
+                return _targetPlatform
+            }
+            return deserializedTargetPlatform
         }
         set(value) {
             entity.targetPlatform = value?.serializeComponentPlatforms() ?: ""
@@ -181,14 +235,12 @@ class KotlinFacetSettingsWorkspaceModel(val entity: KotlinSettingsEntity.Builder
             entity.testOutputPath = value ?: ""
             _testOutputPath = value
         }
+}
 
-    private fun CommonCompilerArguments.updateMergedCompilerArguments(block: CommonCompilerArguments.() -> Unit) {
-        this.block()
-        entity.mergedCompilerArguments = serializeToPlainText(this)
-    }
-
-    private fun CommonCompilerArguments.updateCompilerArguments(block: CommonCompilerArguments.() -> Unit) {
-        this.block()
-        entity.compilerArguments = KotlinModuleSettingsSerializer.serializeToString(this)
+fun IKotlinFacetSettings.updateCompilerArguments(block: CommonCompilerArguments.() -> Unit) {
+    val compilerArguments = this.compilerArguments ?: return
+    block(compilerArguments)
+    if (this is KotlinFacetSettingsWorkspaceModel) {
+        this.compilerArguments = compilerArguments
     }
 }

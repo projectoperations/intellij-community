@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.idea.caches.resolve.resolveToDescriptorIfAny
 import org.jetbrains.kotlin.idea.caches.resolve.resolveToParameterDescriptorIfAny
 import org.jetbrains.kotlin.idea.codeInsight.DescriptorToSourceUtilsIde
 import org.jetbrains.kotlin.idea.util.application.executeCommand
+import org.jetbrains.kotlin.resolve.multiplatform.K1ExpectActualCompatibility
 import org.jetbrains.kotlin.idea.util.application.executeWriteCommand
 import org.jetbrains.kotlin.platform.konan.NativePlatformUnspecifiedTarget
 import org.jetbrains.kotlin.psi.KtConstructor
@@ -40,7 +41,7 @@ fun MemberDescriptor.expectedDescriptors(): List<DeclarationDescriptor> {
     }
 
     return expectedForActual.orEmpty().run {
-        get(ExpectActualCompatibility.Compatible) ?: values.flatten()
+        get(K1ExpectActualCompatibility.Compatible) ?: values.flatten()
     }
 }
 
@@ -219,7 +220,7 @@ private fun LibrarySourceInfo.libraryVariantsDescriptors(onlyPlatformVariants: B
     val binariesModuleInfo = binariesModuleInfo as? LibraryInfo ?: return emptyList()
     return LibraryInfoVariantsService.getInstance(project)
         .variants(binariesModuleInfo)
-        .filter { !onlyPlatformVariants || it.isPlatformVariant() }
+        .filter { !onlyPlatformVariants || it.isPlatformVariant() || isBundledLibraryVariant() }
         .mapNotNull {
             KotlinCacheService.getInstance(project)
                 .getResolutionFacadeByModuleInfo(it, it.platform)?.moduleDescriptor
@@ -227,3 +228,8 @@ private fun LibrarySourceInfo.libraryVariantsDescriptors(onlyPlatformVariants: B
 }
 
 private fun LibraryInfo.isPlatformVariant() = platform.size == 1 && platform.first() !is NativePlatformUnspecifiedTarget
+
+private fun LibrarySourceInfo.isBundledLibraryVariant(): Boolean {
+    val binariesModuleInfo = binariesModuleInfo as? LibraryInfo ?: return false
+    return LibraryInfoVariantsService.bundledLibraryVariant(binariesModuleInfo) != null
+}

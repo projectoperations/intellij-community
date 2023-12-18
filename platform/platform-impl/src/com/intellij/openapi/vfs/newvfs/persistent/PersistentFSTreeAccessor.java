@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -68,7 +68,6 @@ class PersistentFSTreeAccessor {
         "Super-root is a special file record for internal use, it MUST NOT be used directly");
     }
 
-    connection.markDirty();
     try (DataOutputStream record = attributeAccessor.writeAttribute(parentId, CHILDREN_ATTR)) {
       DataInputOutputUtil.writeINT(record, toSave.children.size());
 
@@ -241,7 +240,7 @@ class PersistentFSTreeAccessor {
       rootUrlId = connection.getNames().enumerate(rootUrl);
 
       try (DataOutputStream output = attributeAccessor.writeAttribute(SUPER_ROOT_ID, CHILDREN_ATTR)) {
-        final int newRootFileId = recordAccessor.createRecord();
+        final int newRootFileId = recordAccessor.createRecord(Collections.emptyList());
 
         final int index = Arrays.binarySearch(rootIds, newRootFileId);
         if (index >= 0) {
@@ -329,8 +328,6 @@ class PersistentFSTreeAccessor {
   void deleteRootRecord(int fileId) throws IOException {
     rootsAccessLock.lock();
     try {
-      connection.markDirty();
-
       if (fsRootDataLoader != null) {
         fsRootDataLoader.deleteRootRecord(getRootsStoragePath(fsRootDataLoader), fileId);
       }
@@ -362,6 +359,8 @@ class PersistentFSTreeAccessor {
       try (DataOutputStream output = attributeAccessor.writeAttribute(SUPER_ROOT_ID, CHILDREN_ATTR)) {
         saveNameIdSequenceWithDeltas(names, ids, output);
       }
+
+      connection.markDirty();
     }
     finally {
       rootsAccessLock.unlock();

@@ -19,7 +19,7 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class PydevDocumentationProvider extends AbstractDocumentationProvider {
+public final class PydevDocumentationProvider extends AbstractDocumentationProvider {
 
   @Override
   public PsiElement getDocumentationElementForLookupItem(final PsiManager psiManager, final Object object, final PsiElement element) {
@@ -32,8 +32,8 @@ public class PydevDocumentationProvider extends AbstractDocumentationProvider {
   @Override
   public @Nls String generateDoc(final PsiElement element, @Nullable final PsiElement originalElement) {
     // Process PydevConsoleElement case
-    if (element instanceof PydevConsoleElement) {
-      return PydevConsoleElement.generateDoc((PydevConsoleElement)element);
+    if (element instanceof PydevConsoleElement pydevElement) {
+      return PydevConsoleElement.generateDoc(pydevElement).toString();
     }
     return null;
   }

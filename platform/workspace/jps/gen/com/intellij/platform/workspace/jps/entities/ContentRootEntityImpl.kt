@@ -5,7 +5,6 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.EntityInformation
 import com.intellij.platform.workspace.storage.EntitySource
-import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.EntityType
 import com.intellij.platform.workspace.storage.GeneratedCodeApiVersion
 import com.intellij.platform.workspace.storage.GeneratedCodeImplVersion
@@ -25,6 +24,8 @@ import com.intellij.platform.workspace.storage.impl.extractOneToOneChild
 import com.intellij.platform.workspace.storage.impl.updateOneToManyChildrenOfParent
 import com.intellij.platform.workspace.storage.impl.updateOneToManyParentOfChild
 import com.intellij.platform.workspace.storage.impl.updateOneToOneChildOfParent
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import org.jetbrains.annotations.NonNls
@@ -61,13 +62,19 @@ open class ContentRootEntityImpl(private val dataSource: ContentRootEntityData) 
     get() = snapshot.extractOneToManyParent(MODULE_CONNECTION_ID, this)!!
 
   override val url: VirtualFileUrl
-    get() = dataSource.url
+    get() {
+      readField("url")
+      return dataSource.url
+    }
 
   override val excludedUrls: List<ExcludeUrlEntity>
     get() = snapshot.extractOneToManyChildren<ExcludeUrlEntity>(EXCLUDEDURLS_CONNECTION_ID, this)!!.toList()
 
   override val excludedPatterns: List<String>
-    get() = dataSource.excludedPatterns
+    get() {
+      readField("excludedPatterns")
+      return dataSource.excludedPatterns
+    }
 
   override val sourceRoots: List<SourceRootEntity>
     get() = snapshot.extractOneToManyChildren<SourceRootEntity>(SOURCEROOTS_CONNECTION_ID, this)!!.toList()
@@ -79,7 +86,10 @@ open class ContentRootEntityImpl(private val dataSource: ContentRootEntityData) 
     get() = snapshot.extractOneToOneChild(EXCLUDEURLORDER_CONNECTION_ID, this)
 
   override val entitySource: EntitySource
-    get() = dataSource.entitySource
+    get() {
+      readField("entitySource")
+      return dataSource.entitySource
+    }
 
   override fun connectionIdList(): List<ConnectionId> {
     return connections
@@ -442,11 +452,13 @@ class ContentRootEntityData : WorkspaceEntityData<ContentRootEntity>() {
     return modifiable
   }
 
-  override fun createEntity(snapshot: EntityStorage): ContentRootEntity {
-    return getCached(snapshot) {
+  @OptIn(EntityStorageInstrumentationApi::class)
+  override fun createEntity(snapshot: EntityStorageInstrumentation): ContentRootEntity {
+    val entityId = createEntityId()
+    return snapshot.initializeEntity(entityId) {
       val entity = ContentRootEntityImpl(this)
       entity.snapshot = snapshot
-      entity.id = createEntityId()
+      entity.id = entityId
       entity
     }
   }

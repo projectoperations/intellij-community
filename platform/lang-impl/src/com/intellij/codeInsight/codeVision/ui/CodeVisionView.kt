@@ -3,6 +3,8 @@ package com.intellij.codeInsight.codeVision.ui
 
 import com.intellij.codeInsight.codeVision.CodeVisionAnchorKind
 import com.intellij.codeInsight.codeVision.CodeVisionEntry
+import com.intellij.codeInsight.codeVision.CodeVisionModel
+import com.intellij.codeInsight.codeVision.highlighterOnCodeVisionEntryKey
 import com.intellij.codeInsight.codeVision.settings.CodeVisionSettings
 import com.intellij.codeInsight.codeVision.ui.model.CodeVisionListData
 import com.intellij.codeInsight.codeVision.ui.model.CodeVisionVisualVerticalPositionKeeper
@@ -61,6 +63,7 @@ class CodeVisionView(val project: Project) {
     lifetime: Lifetime,
     editor: EditorImpl,
     anchoringRange: TextRange,
+    codeVisionModel: CodeVisionModel,
     lenses: Map<CodeVisionAnchorKind, List<CodeVisionEntry>>
   ): (Int) -> Unit {
     if (!isLensValid(lenses)) return {}
@@ -70,7 +73,7 @@ class CodeVisionView(val project: Project) {
     val listInlays = mutableListOf<Inlay<*>>()
     for (lens in lenses) {
       val logicalPosition = editor.offsetToLogicalPosition(anchoringRange.startOffset)
-      val inlay = when (if (lens.key == CodeVisionAnchorKind.Default) CodeVisionSettings.instance().defaultPosition else lens.key) {
+      val inlay = when (if (lens.key == CodeVisionAnchorKind.Default) CodeVisionSettings.getInstance().defaultPosition else lens.key) {
         CodeVisionAnchorKind.Top -> {
           getOrCreateBlockInlay(editor, anchoringRange)
         }
@@ -82,6 +85,8 @@ class CodeVisionView(val project: Project) {
       listInlays.add(inlay)
       addCodeLenses(inlay, rangeCodeVisionModel, lens.value, lens.key, lifetime)
     }
+    val lensesRangeMarkers = lenses.values.asSequence().flatMap { it }.mapNotNull { it.getUserData(highlighterOnCodeVisionEntryKey) }
+    codeVisionModel.addOrUpdateLenses(lensesRangeMarkers.asIterable())
     lifetime.onTermination {
       for (inlay in listInlays) {
         inlays.remove(inlay)

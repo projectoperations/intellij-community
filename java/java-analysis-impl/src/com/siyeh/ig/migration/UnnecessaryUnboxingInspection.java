@@ -40,7 +40,7 @@ import java.util.Map;
 import static com.intellij.codeInspection.options.OptPane.checkbox;
 import static com.intellij.codeInspection.options.OptPane.pane;
 
-public class UnnecessaryUnboxingInspection extends BaseInspection {
+public final class UnnecessaryUnboxingInspection extends BaseInspection {
 
   @SuppressWarnings("PublicField")
   public boolean onlyReportSuperfluouslyUnboxed = false;
@@ -227,7 +227,7 @@ public class UnnecessaryUnboxingInspection extends BaseInspection {
       return false;
     }
 
-    private boolean isUnboxingExpression(PsiExpression expression) {
+    private static boolean isUnboxingExpression(PsiExpression expression) {
       if (!(expression instanceof PsiMethodCallExpression methodCallExpression)) {
         return false;
       }

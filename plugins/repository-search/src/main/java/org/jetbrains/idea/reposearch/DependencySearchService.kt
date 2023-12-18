@@ -11,6 +11,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.containers.CollectionFactory
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.concurrency.AsyncPromise
 import org.jetbrains.concurrency.Promise
@@ -54,7 +57,7 @@ class DependencySearchService(private val project: Project) : Disposable {
     if (existingFuture != null && parameters.useCache()) {
       val result = fillResultsFromCache(existingFuture, consumer)
       consumer(PoisonedRepositoryArtifactData.INSTANCE)
-      return result;
+      return result
     }
 
 
@@ -103,10 +106,12 @@ class DependencySearchService(private val project: Project) : Disposable {
   }
 
 
+  @Deprecated("prefer async method", ReplaceWith("suggestPrefixAsync(groupId, artifactId, parameters, consumer) }"))
   fun suggestPrefix(groupId: String, artifactId: String,
                     parameters: SearchParameters,
                     consumer: Consumer<RepositoryArtifactData>) = suggestPrefix(groupId, artifactId, parameters) { consumer.accept(it) }
 
+  @Deprecated("prefer async method", ReplaceWith("suggestPrefixAsync(groupId, artifactId, parameters, consumer) }"))
   fun suggestPrefix(groupId: String, artifactId: String,
                     parameters: SearchParameters,
                     consumer: ResultConsumer): Promise<Int> {
@@ -117,16 +122,99 @@ class DependencySearchService(private val project: Project) : Disposable {
     }
   }
 
+  private suspend fun performSearchAsync(cacheKey: String,
+                                         parameters: SearchParameters,
+                                         consumer: ResultConsumer,
+                                         searchMethod: (DependencySearchProvider, ResultConsumer) -> Unit) {
+    if (parameters.useCache()) {
+      val cachedValue = foundInCache(cacheKey, consumer)
+      if (cachedValue != null) {
+        return
+      }
+    }
 
+    val thisNewFuture = CompletableFuture<Collection<RepositoryArtifactData>>()
+    val existingFuture = cache.putIfAbsent(cacheKey, thisNewFuture)
+    if (existingFuture != null && parameters.useCache()) {
+      fillResultsFromCache(existingFuture, consumer)
+      return
+    }
+
+    val localResultSet = RepositoryArtifactDataStorage()
+    localProviders().forEach { lp -> searchMethod(lp) { localResultSet.add(it) } }
+    localResultSet.getAll().forEach(consumer)
+
+    val remoteProviders = remoteProviders()
+
+    if (parameters.isLocalOnly || remoteProviders.isEmpty()) {
+      thisNewFuture.complete(localResultSet.getAll())
+      return
+    }
+
+    val resultSet = RepositoryArtifactDataStorage()
+    coroutineScope {
+      remoteProviders.map {
+        async {
+          try {
+            searchMethod(it) {
+              resultSet.add(it)
+              consumer(it)
+            }
+          }
+          catch (e: Exception) {
+            logWarn("Exception getting data from provider $it", e)
+          }
+        }
+      }.awaitAll()
+    }
+
+    if (!resultSet.isEmpty() && existingFuture == null) {
+      thisNewFuture.complete(resultSet.getAll())
+    }
+  }
+
+  suspend fun suggestPrefixAsync(groupId: String, artifactId: String,
+                                 parameters: SearchParameters,
+                                 consumer: Consumer<RepositoryArtifactData>) = suggestPrefixAsync(
+    groupId, artifactId, parameters) { consumer.accept(it) }
+
+  suspend fun suggestPrefixAsync(groupId: String, artifactId: String,
+                                 parameters: SearchParameters,
+                                 consumer: ResultConsumer) {
+    val cacheKey = "_$groupId:$artifactId"
+    performSearchAsync(cacheKey, parameters, consumer) { p, c ->
+      p.suggestPrefix(groupId, artifactId).get()
+        .forEach(c) // TODO A consumer here is used synchronously...
+    }
+  }
+
+
+  @Deprecated("prefer async method", ReplaceWith("fulltextSearchAsync(searchString, parameters, consumer) }"))
   fun fulltextSearch(searchString: String,
                      parameters: SearchParameters,
                      consumer: Consumer<RepositoryArtifactData>) = fulltextSearch(searchString, parameters) { consumer.accept(it) }
 
 
+  @Deprecated("prefer async method", ReplaceWith("fulltextSearchAsync(searchString, parameters, consumer) }"))
   fun fulltextSearch(searchString: String,
                      parameters: SearchParameters,
                      consumer: ResultConsumer): Promise<Int> {
     return performSearch(searchString, parameters, consumer) { p, c ->
+      p.fulltextSearch(searchString).get()
+        .forEach(c) // TODO A consumer here is used synchronously...
+    }
+  }
+
+  suspend fun fulltextSearchAsync(searchString: String,
+                                  parameters: SearchParameters,
+                                  consumer: Consumer<RepositoryArtifactData>) = fulltextSearchAsync(searchString, parameters) {
+    consumer.accept(it)
+  }
+
+  suspend fun fulltextSearchAsync(searchString: String,
+                                  parameters: SearchParameters,
+                                  consumer: ResultConsumer) {
+    performSearchAsync(searchString, parameters, consumer) { p, c ->
       p.fulltextSearch(searchString).get()
         .forEach(c) // TODO A consumer here is used synchronously...
     }
@@ -210,7 +298,7 @@ class DependencySearchService(private val project: Project) : Disposable {
 
 
   class RepositoryArtifactDataStorage {
-    private val map = HashMap<String, RepositoryArtifactData>();
+    private val map = HashMap<String, RepositoryArtifactData>()
 
     @Synchronized
     fun add(data: RepositoryArtifactData) {

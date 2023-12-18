@@ -32,10 +32,7 @@ import com.intellij.util.TimeoutUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
 import org.intellij.lang.annotations.MagicConstant;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.Unmodifiable;
+import org.jetbrains.annotations.*;
 
 import java.util.*;
 import java.util.function.Predicate;
@@ -306,6 +303,9 @@ public final class PsiUtil extends PsiUtilCore {
     PsiElement codeBlock = null;
     if (variable instanceof PsiParameter) {
       PsiElement declarationScope = ((PsiParameter)variable).getDeclarationScope();
+      if (variable instanceof PsiPatternVariable) {
+        return declarationScope;
+      }
       if (declarationScope instanceof PsiCatchSection) {
         codeBlock = ((PsiCatchSection)declarationScope).getCatchBlock();
       }
@@ -1075,12 +1075,23 @@ public final class PsiUtil extends PsiUtilCore {
     return getLanguageLevel(element).isAtLeast(LanguageLevel.JDK_17);
   }
 
-  public static boolean isLanguageLevel18OrHigher(@NotNull PsiElement element) {
-    return getLanguageLevel(element).isAtLeast(LanguageLevel.JDK_18);
-  }
-
+  /**
+   * @param element element to get Java language level for
+   * @return the language level. If {@linkplain LanguageLevel#isUnsupported() unsupported} language level 
+   * is selected for project or module, this method returns the supported alias.
+   */
   @NotNull
   public static LanguageLevel getLanguageLevel(@NotNull PsiElement element) {
+    return getDeclaredLanguageLevel(element).getSupportedLevel();
+  }
+
+  /**
+   * @param element element to get Java language level for
+   * @return the language level. May return {@linkplain LanguageLevel#isUnsupported() unsupported} level.
+   */
+  @NotNull
+  @ApiStatus.Experimental
+  public static LanguageLevel getDeclaredLanguageLevel(@NotNull PsiElement element) {
     if (element instanceof PsiDirectory) {
       return JavaDirectoryService.getInstance().getLanguageLevel((PsiDirectory)element);
     }
@@ -1100,7 +1111,7 @@ public final class PsiUtil extends PsiUtilCore {
       }
     }
 
-    PsiResolveHelper instance = element.getProject().getService(PsiResolveHelper.class);
+    PsiResolveHelper instance = PsiResolveHelper.getInstance(element.getProject());
     return instance != null ? instance.getEffectiveLanguageLevel(getVirtualFile(file)) : LanguageLevel.HIGHEST;
   }
 

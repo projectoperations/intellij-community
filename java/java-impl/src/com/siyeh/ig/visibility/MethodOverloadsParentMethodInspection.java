@@ -32,7 +32,7 @@ import java.util.Set;
 import static com.intellij.codeInspection.options.OptPane.checkbox;
 import static com.intellij.codeInspection.options.OptPane.pane;
 
-public class MethodOverloadsParentMethodInspection extends BaseInspection {
+public final class MethodOverloadsParentMethodInspection extends BaseInspection {
   @SuppressWarnings("PublicField")
   public boolean reportIncompatibleParameters = false;
 
@@ -140,11 +140,11 @@ public class MethodOverloadsParentMethodInspection extends BaseInspection {
       return false;
     }
 
-    private boolean isOverriddenInClass(PsiMethod method, PsiClass aClass) {
+    private static boolean isOverriddenInClass(PsiMethod method, PsiClass aClass) {
       return aClass.findMethodsBySignature(method, false).length > 0;
     }
 
-    private boolean parametersAreCompatible(PsiParameter[] parameters, PsiParameter[] testParameters) {
+    private static boolean parametersAreCompatible(PsiParameter[] parameters, PsiParameter[] testParameters) {
       for (int i = 0; i < parameters.length; i++) {
         final PsiParameter parameter = parameters[i];
         final PsiType parameterType = parameter.getType();

@@ -4,7 +4,6 @@ package com.intellij.openapi.actionSystem.impl
 import com.intellij.featureStatistics.FeatureUsageTracker
 import com.intellij.ide.IdeEventQueue
 import com.intellij.ide.ui.UISettings
-import com.intellij.internal.statistic.collectors.fus.actions.persistence.MainMenuCollector
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.ActionMenu.Companion.isAligned
@@ -13,7 +12,6 @@ import com.intellij.openapi.actionSystem.impl.ActionMenu.Companion.isShowNoIcons
 import com.intellij.openapi.actionSystem.impl.ActionMenu.Companion.shouldConvertIconToDarkVariant
 import com.intellij.openapi.actionSystem.impl.ActionMenu.Companion.showDescriptionInStatusBar
 import com.intellij.openapi.actionSystem.impl.actionholder.createActionRef
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.TransactionGuard
 import com.intellij.openapi.application.TransactionGuardImpl
 import com.intellij.openapi.keymap.KeymapUtil
@@ -95,10 +93,6 @@ class ActionMenuItem internal constructor(action: AnAction,
     get() = actionRef.getAction()
 
   public override fun fireActionPerformed(event: ActionEvent) {
-    val app = ApplicationManager.getApplication()
-    if (!app.isDisposed() && ActionPlaces.MAIN_MENU == place) {
-      MainMenuCollector.getInstance().record(actionRef.getAction())
-    }
     (TransactionGuard.getInstance() as TransactionGuardImpl).performUserActivity(
       Runnable { super.fireActionPerformed(event) })
   }
@@ -119,7 +113,7 @@ class ActionMenuItem internal constructor(action: AnAction,
     // all items must be visible at this point
     //setVisible(presentation.isVisible());
     setEnabled(presentation.isEnabled)
-    val text = ActionPresentationDecorator.decorateTextIfNeeded(actionRef.getAction() ,presentation.getText(enableMnemonics))
+    val text = ActionPresentationDecorator.decorateTextIfNeeded(actionRef.getAction(), presentation.getText(enableMnemonics))
     setText(text)
     mnemonic = presentation.getMnemonic()
     displayedMnemonicIndex = presentation.getDisplayedMnemonicIndex()
@@ -132,7 +126,7 @@ class ActionMenuItem internal constructor(action: AnAction,
     }
     val shortcutSuffix = presentation.getClientProperty(Presentation.PROP_KEYBOARD_SHORTCUT_SUFFIX)
     val shortcut = defaultFirstShortcutText
-    firstShortcutTextFromPresentation = if (!shortcut.isNullOrEmpty() && !shortcutSuffix.isNullOrEmpty()) {
+    firstShortcutTextFromPresentation = if (shortcut.isNotEmpty() && !shortcutSuffix.isNullOrEmpty()) {
       shortcut + shortcutSuffix
     }
     else {
@@ -258,21 +252,20 @@ class ActionMenuItem internal constructor(action: AnAction,
     if (id != null) {
       FeatureUsageTracker.getInstance().triggerFeatureUsed("context.menu.click.stats.${id.replace(' ', '.')}")
     }
-    IdeFocusManager.findInstanceByContext(context).runOnOwnContext(context, Runnable {
+    IdeFocusManager.findInstanceByContext(context).runOnOwnContext(context) {
+      val presentation = action.getTemplatePresentation().clone()
+      // action items are created for perform-only groups, set performGroup to true
+      if (action is ActionGroup) presentation.isPerformGroup = true
       val currentEvent = IdeEventQueue.getInstance().trueCurrentEvent
       val event = AnActionEvent(
-        /* inputEvent = */ if (currentEvent is InputEvent) currentEvent else null,
-        /* dataContext = */ context,
-        /* place = */ place,
-        /* presentation = */ action.getTemplatePresentation().clone(),
-        /* actionManager = */ ActionManager.getInstance(),
-        /* modifiers = */ modifiers,
-        /* isContextMenuAction = */ true,
-        /* isActionToolbar = */ false)
+        currentEvent as? InputEvent, context, place,
+        presentation,
+        ActionManager.getInstance(),
+        modifiers, true, false)
       if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
         ActionUtil.performActionDumbAwareWithCallbacks(action, event)
       }
-    })
+    }
   }
 }
 

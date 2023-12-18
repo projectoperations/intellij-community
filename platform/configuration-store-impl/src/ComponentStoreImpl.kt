@@ -93,6 +93,8 @@ abstract class ComponentStoreImpl : IComponentStore {
 
   internal fun getComponents(): Map<String, ComponentInfo> = components
 
+  fun getComponentNames(): Set<String> = HashSet(components.keys)
+
   override fun clearCaches() {
     components.values.forEach(Consumer {
       it.updateModificationCount(-1)
@@ -243,7 +245,7 @@ abstract class ComponentStoreImpl : IComponentStore {
               SAVE_MOD_LOG.debug(
                 "${if (isUseModificationCount) "Skip " else ""}$name: modificationCount $currentModificationCount equals to last saved")
             }
-            if (isUseModificationCount) {
+            if (isUseModificationCount && !isForce) {
               continue
             }
           }
@@ -295,12 +297,23 @@ abstract class ComponentStoreImpl : IComponentStore {
 
         val saveResult = saveManager.save()
         saveResult.throwIfErrored()
-
-        if (!saveResult.isChanged) {
-          LOG.info("saveApplicationComponent is called for ${stateSpec.name} but nothing to save")
-        }
       }
     }
+  }
+
+  @TestOnly
+  suspend fun saveNonVfsComponent(component: PersistentStateComponent<*>): Boolean {
+    val stateSpec = getStateSpec(component)
+    val saveManager = createSaveSessionProducerManager()
+
+    commitComponent(session = saveManager,
+                    info = getComponents().entries.first { it.key == stateSpec.name }.value,
+                    componentName = null,
+                    modificationCountChanged = false)
+
+    val saveResult = saveManager.save()
+    saveResult.throwIfErrored()
+    return saveResult != SaveResult.EMPTY
   }
 
   open fun createSaveSessionProducerManager() = SaveSessionProducerManager()
@@ -643,6 +656,7 @@ abstract class ComponentStoreImpl : IComponentStore {
    */
   open fun reload(changedStorages: Set<StateStorage>): Collection<String>? {
     if (changedStorages.isEmpty()) {
+      LOG.debug("There is no changed storages to reload")
       return emptySet()
     }
 
@@ -658,6 +672,7 @@ abstract class ComponentStoreImpl : IComponentStore {
     if (componentNames.isEmpty()) {
       return emptySet()
     }
+    LOG.debug { "Reload components: $componentNames" }
 
     val notReloadableComponents = getNotReloadableComponents(componentNames)
     reinitComponents(componentNames, changedStorages, notReloadableComponents)

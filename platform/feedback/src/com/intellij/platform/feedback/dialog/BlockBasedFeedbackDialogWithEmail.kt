@@ -2,13 +2,14 @@
 package com.intellij.platform.feedback.dialog
 
 import com.intellij.openapi.project.Project
+import com.intellij.platform.feedback.dialog.uiBlocks.EmailBlock
+import com.intellij.platform.feedback.dialog.uiBlocks.TextDescriptionProvider
 import com.intellij.platform.feedback.impl.DEFAULT_FEEDBACK_CONSENT_ID
 import com.intellij.platform.feedback.impl.FeedbackRequestDataWithDetailedAnswer
 import com.intellij.platform.feedback.impl.FeedbackRequestType
-import com.intellij.platform.feedback.dialog.uiBlocks.EmailBlock
-import com.intellij.platform.feedback.dialog.uiBlocks.TextDescriptionProvider
 import com.intellij.platform.feedback.impl.submitFeedback
 import com.intellij.ui.dsl.builder.Panel
+import kotlinx.serialization.json.JsonObject
 
 /** This number should be increased when [BlockBasedFeedbackDialogWithEmail] fields changing */
 const val BLOCK_BASED_FEEDBACK_WITH_EMAIL_VERSION = 1
@@ -20,18 +21,41 @@ abstract class BlockBasedFeedbackDialogWithEmail<T : SystemDataJsonSerializable>
   abstract val zendeskTicketTitle: String
   abstract val zendeskFeedbackType: String
 
-  private val emailBlockWithAgreement = EmailBlock(myProject) { myShowFeedbackSystemInfoDialog() }
+  protected val emailBlockWithAgreement = EmailBlock(myProject) { myShowFeedbackSystemInfoDialog() }
+
+  protected open fun shouldAutoCloseZendeskTicket(): Boolean {
+    return true
+  }
+
+  /**
+   * Computes Zendesk ticket tags based on the collected data.
+   *
+   * Zendesk's tags have restrictions:
+   * * You can use only alphanumeric, dash, underscore, colon, and the forward slash characters.
+   * * You can't use special characters, such as #, @, or ! in tags.
+   *   If you try to add tags with special characters, they disappear when the ticket is updated.
+   */
+  protected open fun computeZendeskTicketTags(collectedData: JsonObject): List<String> {
+    return emptyList()
+  }
+
   override fun sendFeedbackData() {
+    val collectedData = collectDataToJsonObject()
+    val zendeskTicketTags = computeZendeskTicketTags(collectedData)
+
     val feedbackData = FeedbackRequestDataWithDetailedAnswer(
       emailBlockWithAgreement.getEmailAddressIfSpecified(),
       zendeskTicketTitle,
       collectDataToPlainText(),
       DEFAULT_FEEDBACK_CONSENT_ID,
+      shouldAutoCloseZendeskTicket(),
+      zendeskTicketTags,
       zendeskFeedbackType,
-      collectDataToJsonObject()
+      collectedData
     )
     submitFeedback(feedbackData,
-                   { }, { },
+                   { showThanksNotification() },
+                   { },
                    if (myForTest) FeedbackRequestType.TEST_REQUEST else FeedbackRequestType.PRODUCTION_REQUEST)
   }
 

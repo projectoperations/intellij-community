@@ -162,8 +162,11 @@ public final class ArtifactRepositoryManager {
       // Disable transfer errors caching to force re-request missing artifacts and metadata on network failures.
       // Despite this, some errors are still cached in session data, and for proper retries work we must reset this data after failure
       // what's performed by retryWithClearSessionData()
-      var artifactCachePolicy = ResolutionErrorPolicy.CACHE_NOT_FOUND;
-      var metadataCachePolicy = ResolutionErrorPolicy.CACHE_NOT_FOUND;
+      //
+      // a note: ResolutionErrorPolicy.CACHE_NOT_FOUND is not suitable because 5xx response is still cached in local repository and
+      // not re-requested, see IJI-1457
+      var artifactCachePolicy = ResolutionErrorPolicy.CACHE_DISABLED;
+      var metadataCachePolicy = ResolutionErrorPolicy.CACHE_DISABLED;
       session.setResolutionErrorPolicy(new SimpleResolutionErrorPolicy(artifactCachePolicy, metadataCachePolicy));
 
       session.setCache(new DefaultRepositoryCache());
@@ -278,7 +281,7 @@ public final class ArtifactRepositoryManager {
       org.apache.http.client.HttpClient.class, //http-client
       org.apache.commons.logging.LogFactory.class, // commons-logging
       org.slf4j.Marker.class, // slf4j, - required for aether resolver at runtime
-      org.slf4j.impl.JDK14LoggerFactory.class, // slf4j-jdk14 - required for aether resolver at runtime
+      org.slf4j.jul.JDK14LoggerFactory.class, // slf4j-jdk14 - required for aether resolver at runtime
       org.apache.commons.codec.binary.Base64.class // commons-codec
     ));
     result.addAll(List.of(ClassPathUtil.getUtilClasses())); // intellij.platform.util module

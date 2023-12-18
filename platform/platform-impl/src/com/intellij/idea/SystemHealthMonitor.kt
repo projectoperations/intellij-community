@@ -22,9 +22,7 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.progress.ModalTaskOwner
-import com.intellij.openapi.progress.TaskCancellation
-import com.intellij.openapi.progress.runWithModalProgressBlocking
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.SystemInfo
@@ -33,6 +31,8 @@ import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.platform.ide.bootstrap.shellEnvDeferred
 import com.intellij.platform.ide.customization.ExternalProductResourceUrls
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.TaskCancellation
 import com.intellij.util.SystemProperties
 import com.intellij.util.lang.JavaVersion
 import com.intellij.util.system.CpuArch
@@ -211,6 +211,7 @@ private suspend fun isJbrOperational(): Boolean {
   if (Files.isRegularFile(bin) && (SystemInfoRt.isWindows || Files.isExecutable(bin))) {
     try {
       return withTimeout(30.seconds) {
+        @Suppress("UsePlatformProcessAwaitExit")
         ProcessBuilder(bin.toString(), "-version")
           .redirectError(ProcessBuilder.Redirect.DISCARD)
           .redirectOutput(ProcessBuilder.Redirect.DISCARD)

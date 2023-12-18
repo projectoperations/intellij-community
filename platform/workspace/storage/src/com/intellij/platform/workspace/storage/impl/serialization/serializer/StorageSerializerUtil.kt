@@ -6,33 +6,21 @@ import com.esotericsoftware.kryo.kryo5.KryoException
 import com.esotericsoftware.kryo.kryo5.Serializer
 import com.esotericsoftware.kryo.kryo5.io.Input
 import com.esotericsoftware.kryo.kryo5.io.Output
-import com.google.common.collect.HashMultimap
 import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.EntityTypesResolver
 import com.intellij.platform.workspace.storage.SymbolicEntityId
 import com.intellij.platform.workspace.storage.WorkspaceEntity
 import com.intellij.platform.workspace.storage.impl.*
-import com.intellij.platform.workspace.storage.impl.createEntityId
+import com.intellij.platform.workspace.storage.impl.containers.Object2IntWithDefaultMap
+import com.intellij.platform.workspace.storage.impl.containers.Object2LongWithDefaultMap
 import com.intellij.platform.workspace.storage.impl.indices.*
-import com.intellij.platform.workspace.storage.impl.indices.EntityIdWithProperty
-import com.intellij.platform.workspace.storage.impl.indices.getHashingStrategy
 import com.intellij.platform.workspace.storage.impl.serialization.*
-import com.intellij.platform.workspace.storage.impl.serialization.SerializableEntityId
-import com.intellij.platform.workspace.storage.impl.serialization.StorageInterner
-import com.intellij.platform.workspace.storage.impl.serialization.TypeInfo
-import com.intellij.platform.workspace.storage.impl.serialization.getTypeInfo
-import com.intellij.platform.workspace.storage.impl.toClassId
 import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlImpl
 import com.intellij.platform.workspace.storage.url.UrlRelativizer
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
-import it.unimi.dsi.fastutil.objects.Object2IntMap
-import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap
-import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
-import java.util.ArrayList
 import java.util.function.BiConsumer
 import java.util.function.ToIntFunction
-import kotlin.collections.HashMap
 
 
 internal class StorageSerializerUtil(
@@ -40,7 +28,7 @@ internal class StorageSerializerUtil(
   private val virtualFileManager: VirtualFileUrlManager,
   private val interner: StorageInterner,
   private val urlRelativizer: UrlRelativizer?,
-  private val classCache: Object2IntMap<TypeInfo>
+  private val classCache: Object2IntWithDefaultMap<TypeInfo>,
 ) {
 
   internal fun getParentEntityIdSerializer(): Serializer<ParentEntityId> = object : Serializer<ParentEntityId>(false, true) {
@@ -257,7 +245,7 @@ internal class StorageSerializerUtil(
       vfu2EntityId.forEach { (key: VirtualFileUrl, value) ->
         kryo.writeObject(output, key)
         output.writeInt(value.keys.size)
-        value.forEach { (internalKey: EntityIdWithProperty, internalValue) ->
+        value.forEach { internalKey: EntityIdWithProperty, internalValue ->
           kryo.writeObject(output, internalKey.entityId.toSerializableEntityId())
           output.writeString(internalKey.propertyName)
           kryo.writeObject(output, internalValue.toSerializableEntityId())
@@ -270,7 +258,7 @@ internal class StorageSerializerUtil(
       repeat(input.readInt()) {
         val file = kryo.readObject(input, VirtualFileUrl::class.java) as VirtualFileUrl
         val size = input.readInt()
-        val data = Object2LongOpenHashMap<EntityIdWithProperty>(size)
+        val data = Object2LongWithDefaultMap<EntityIdWithProperty>(size)
         repeat(size) {
           val internalKeyEntityId = kryo.readObject(input, SerializableEntityId::class.java).toEntityId(classCache)
           val internalKeyPropertyName = interner.intern(input.readString())
@@ -325,7 +313,7 @@ internal class StorageSerializerUtil(
     return interner.intern(SerializableEntityId(arrayId, clazz.typeInfo))
   }
 
-  private fun SerializableEntityId.toEntityId(classCache: Object2IntMap<TypeInfo>): EntityId {
+  private fun SerializableEntityId.toEntityId(classCache: Object2IntWithDefaultMap<TypeInfo>): EntityId {
     val classId = classCache.computeIfAbsent(type, ToIntFunction {
       typesResolver.resolveClass(name = this.type.fqName, pluginId = this.type.pluginId).toClassId()
     })

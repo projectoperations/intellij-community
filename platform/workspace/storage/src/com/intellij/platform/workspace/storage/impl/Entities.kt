@@ -1,24 +1,35 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.workspace.storage.impl
 
-import com.intellij.util.ReflectionUtil
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.indices.VirtualFileIndex
 import com.intellij.platform.workspace.storage.impl.indices.WorkspaceMutableIndex
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.instrumentation
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
+import com.intellij.platform.workspace.storage.trace.ReadTrace
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
+import com.intellij.util.ReflectionUtil
 
 public abstract class WorkspaceEntityBase(private var currentEntityData: WorkspaceEntityData<out WorkspaceEntity>? = null) : WorkspaceEntity {
-  //override lateinit var entitySource: EntitySource
-  //  internal set
-
   public var id: EntityId = invalidEntityId
 
   public lateinit var snapshot: EntityStorage
+  internal var onRead: ((ReadTrace) -> Unit)? = null
 
   public abstract fun connectionIdList(): List<ConnectionId>
+
+  /**
+   * Record information that some field was read. This function is used only for fields with primitive values.
+   *   Reading of references to other entities doesn't use this function.
+   *
+   * [name] is passed for future use
+   */
+  @Suppress("UNUSED_PARAMETER")
+  protected fun readField(name: String) {
+    onRead?.invoke(ReadTrace.SomeFieldAccess(id))
+  }
 
   public open fun <R : WorkspaceEntity> referrers(entityClass: Class<R>): Sequence<R> {
     val mySnapshot = snapshot as AbstractEntityStorage
@@ -116,9 +127,18 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
   public fun updateChildToParentReferences(parents: Set<WorkspaceEntity>?) {
     if (diff == null) return
     val childId = getEntityData().createEntityId().asChild()
-    val entityInterfaceToEntity = parents?.associateBy { it.getEntityInterface() } ?: emptyMap()
+    val entityInterfaceToEntity = parents
+                                    ?.associateBy { it.getEntityInterface() }
+                                    ?.toMutableMap() ?: mutableMapOf()
+    val idToInterface = parents?.associate { it.asBase().id to it.getEntityInterface() } ?: emptyMap()
 
-    (diff as MutableEntityStorageImpl).refs.getParentRefsOfChild(childId).forEach { (connectionId, _) ->
+    (diff as MutableEntityStorageImpl).refs.getParentRefsOfChild(childId).forEach { (connectionId, existingParent) ->
+      val interfaceOfParent = idToInterface[existingParent.id]
+      if (interfaceOfParent != null) {
+        // We're trying to add parent that already exists. Skip it
+        entityInterfaceToEntity.remove(interfaceOfParent)
+        return@forEach
+      }
       val parentEntityClass = connectionId.parentClass.findWorkspaceEntity()
       // Remove outdated references
       if (!entityInterfaceToEntity.contains(parentEntityClass)) {
@@ -131,6 +151,7 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
     }
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   public fun updateReferenceToEntity(entityClass: Class<out WorkspaceEntity>, isThisFieldChild: Boolean, entities: List<WorkspaceEntity?>) {
     val foundConnectionId = findConnectionId(entityClass, entities)
     if (foundConnectionId == null) return
@@ -152,9 +173,9 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
             }
           }
           if (foundConnectionId.connectionType == ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY) {
-            myDiff.updateOneToAbstractManyChildrenOfParent(foundConnectionId, this, entities.filterNotNull().asSequence())
+            myDiff.instrumentation.replaceChildren(foundConnectionId, this, entities.filterNotNull())
           } else {
-            myDiff.updateOneToManyChildrenOfParent(foundConnectionId, this, entities.filterNotNull())
+            myDiff.instrumentation.replaceChildren(foundConnectionId, this, entities.filterNotNull())
           }
         } else {
           // One - to -one connection
@@ -165,9 +186,9 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
             myDiff.addEntity(item)
           }
           if (foundConnectionId.connectionType == ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE) {
-            myDiff.updateOneToAbstractOneChildOfParent(foundConnectionId, this, item)
+            myDiff.instrumentation.replaceChildren(foundConnectionId, this, listOfNotNull(item))
           } else {
-            myDiff.updateOneToOneChildOfParent(foundConnectionId, this, item)
+            myDiff.instrumentation.replaceChildren(foundConnectionId, this, listOfNotNull(item))
           }
         }
       }
@@ -182,9 +203,10 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
             myDiff.addEntity(item)
           }
           if (foundConnectionId.connectionType == ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY) {
-            myDiff.updateOneToAbstractManyParentOfChild(foundConnectionId, this, item)
-          } else {
-            myDiff.updateOneToManyParentOfChild(foundConnectionId, this, item)
+            myDiff.instrumentation.addChild(foundConnectionId, item, this)
+          }
+          else {
+            myDiff.instrumentation.addChild(foundConnectionId, item, this)
           }
         }
         else {
@@ -196,9 +218,10 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
             myDiff.addEntity(item)
           }
           if (foundConnectionId.connectionType == ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE) {
-            myDiff.updateOneToAbstractOneParentOfChild(foundConnectionId, this, item)
-          } else {
-            myDiff.updateOneToOneParentOfChild(foundConnectionId, this, item)
+            myDiff.instrumentation.addChild(foundConnectionId, item, this)
+          }
+          else {
+            myDiff.instrumentation.addChild(foundConnectionId, item, this)
           }
         }
       }
@@ -368,6 +391,7 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
     }
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   private fun processLinkedParentEntity(entity: Any?,
                                         builder: MutableEntityStorage,
                                         entityLink: EntityLink,
@@ -379,11 +403,12 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
       if (entity is ModifiableWorkspaceEntityBase<*, *> && entity.diff == null) {
         builder.addEntity(entity)
       }
-      applyParentRef(entityLink.connectionId, entity)
+      builder.instrumentation.addChild(entityLink.connectionId, entity, this)
       parentKeysToRemove.add(entityLink)
     }
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   private fun processLinkedChildEntity(entity: Any?,
                                        builder: MutableEntityStorage,
                                        connectionId: ConnectionId) {
@@ -393,14 +418,18 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
           builder.addEntity(item)
         }
       }
+      if (connectionId.isOneToOne) error("Only one-to-many connection is supported")
       @Suppress("UNCHECKED_CAST")
       entity as List<WorkspaceEntity>
       val withBuilder_entity = entity.filter { it is ModifiableWorkspaceEntityBase<*, *> && it.diff != null }
-      applyRef(connectionId, withBuilder_entity)
+      builder.instrumentation.replaceChildren(connectionId, this, withBuilder_entity)
     }
     else if (entity is WorkspaceEntity) {
-      builder.addEntity(entity)
-      applyRef(connectionId, entity)
+      if (entity is ModifiableWorkspaceEntityBase<*, *> && entity.diff == null) {
+        builder.addEntity(entity)
+      }
+      if (!connectionId.isOneToOne) error("Only one-to-one connection is supported")
+      builder.instrumentation.replaceChildren(connectionId, this, listOfNotNull(entity))
     }
   }
 
@@ -422,35 +451,6 @@ public abstract class ModifiableWorkspaceEntityBase<T : WorkspaceEntity, E: Work
   public fun addToBuilder() {
     val builder = diff as MutableEntityStorageImpl
     builder.putEntity(this)
-  }
-
-  // For generated entities
-  private fun applyRef(connectionId: ConnectionId, child: WorkspaceEntity) {
-    val builder = diff as MutableEntityStorageImpl
-    when (connectionId.connectionType) {
-      ConnectionId.ConnectionType.ONE_TO_ONE -> builder.updateOneToOneChildOfParent(connectionId, this, child)
-      ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> builder.updateOneToAbstractOneChildOfParent(connectionId, this, child)
-      else -> error("Unexpected branch")
-    }
-  }
-
-  private fun applyRef(connectionId: ConnectionId, children: List<WorkspaceEntity>) {
-    val builder = diff as MutableEntityStorageImpl
-    when (connectionId.connectionType) {
-      ConnectionId.ConnectionType.ONE_TO_MANY -> builder.updateOneToManyChildrenOfParent(connectionId, this, children)
-      ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> builder.updateOneToAbstractManyChildrenOfParent(connectionId, this, children.asSequence())
-      else -> error("Unexpected branch")
-    }
-  }
-
-  private fun applyParentRef(connectionId: ConnectionId, parent: WorkspaceEntity) {
-    val builder = diff as MutableEntityStorageImpl
-    when (connectionId.connectionType) {
-      ConnectionId.ConnectionType.ONE_TO_ONE -> builder.updateOneToOneParentOfChild(connectionId, this, parent)
-      ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> builder.updateOneToAbstractOneParentOfChild(connectionId, this, parent)
-      ConnectionId.ConnectionType.ONE_TO_MANY -> builder.updateOneToManyParentOfChild(connectionId, this, parent)
-      ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> builder.updateOneToAbstractManyParentOfChild(connectionId, this, parent)
-    }
   }
 
   public fun existsInBuilder(builder: MutableEntityStorage): Boolean {
@@ -504,7 +504,8 @@ public abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, Seri
 
   public fun createEntityId(): EntityId = createEntityId(id, getEntityInterface().toClassId())
 
-  public abstract fun createEntity(snapshot: EntityStorage): E
+  @OptIn(EntityStorageInstrumentationApi::class)
+  public abstract fun createEntity(snapshot: EntityStorageInstrumentation): E
 
   public abstract fun wrapAsModifiable(diff: MutableEntityStorage): WorkspaceEntity.Builder<E>
 
@@ -580,14 +581,6 @@ public abstract class WorkspaceEntityData<E : WorkspaceEntity> : Cloneable, Seri
    */
   public abstract class WithCalculableSymbolicId<E : WorkspaceEntity> : WorkspaceEntityData<E>() {
     public abstract fun symbolicId(): SymbolicEntityId<*>
-  }
-
-  @OptIn(EntityStorageInstrumentationApi::class)
-  protected fun <T : WorkspaceEntity> getCached(storage: EntityStorage, init: () -> T): T {
-    if (storage !is EntityStorageInstrumentation) {
-      error("Entities implementation is supposed to work with ${EntityStorageInstrumentation::class.simpleName} storage only")
-    }
-    return storage.initializeEntity(createEntityId(), init)
   }
 }
 

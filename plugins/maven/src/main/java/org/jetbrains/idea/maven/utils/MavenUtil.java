@@ -145,6 +145,16 @@ public class MavenUtil {
 
   private static volatile Map<String, String> ourPropertiesFromMvnOpts;
 
+  public static boolean enablePreimport() {
+    return Registry.is("maven.preimport.project") &&
+           !ApplicationManager.getApplication().isUnitTestMode() &&
+           !ApplicationManager.getApplication().isHeadlessEnvironment();
+  }
+
+  public static boolean enablePreimportOnly() {
+    return Registry.is("maven.preimport.only");
+  }
+
   public static Map<String, String> getPropertiesFromMavenOpts() {
     Map<String, String> res = ourPropertiesFromMvnOpts;
     if (res == null) {
@@ -291,6 +301,7 @@ public class MavenUtil {
     return PathManagerEx.getAppSystemDir().resolve("Maven").resolve(folder);
   }
 
+  @NotNull
   public static java.nio.file.Path getBaseDir(@NotNull VirtualFile file) {
     VirtualFile virtualBaseDir = getVFileBaseDir(file);
     return virtualBaseDir.toNioPath();
@@ -300,6 +311,7 @@ public class MavenUtil {
     return ContainerUtil.groupBy(projects, p -> getBaseDir(tree.findRootProject(p).getDirectoryFile()).toString());
   }
 
+  @NotNull
   public static VirtualFile getVFileBaseDir(@NotNull VirtualFile file) {
     VirtualFile baseDir = file.isDirectory() || file.getParent() == null ? file : file.getParent();
     VirtualFile dir = baseDir;
@@ -600,10 +612,15 @@ public class MavenUtil {
     return handler;
   }
 
+  /**
+   * @deprecated do not use this method, it mixes path to maven home and labels like "Use bundled maven"
+   * use {@link MavenUtil#getMavenHomeFile(org.jetbrains.idea.maven.project.StaticResolvedMavenHomeType) getMavenHomeFile(StaticResolvedMavenHomeType} instead
+   */
   @Nullable
-  @Deprecated
+  @Deprecated(forRemoval = true)
   public static File resolveMavenHomeDirectory(@Nullable String overrideMavenHome) {
     if (!isEmptyOrSpaces(overrideMavenHome)) {
+      //noinspection HardCodedStringLiteral
       return MavenUtil.getMavenHomeFile(staticOrBundled(resolveMavenHomeType(overrideMavenHome)));
     }
 
@@ -837,7 +854,7 @@ public class MavenUtil {
   private static String getMavenLibVersion(final File file) {
     WSLDistribution distribution = WslPath.getDistributionByWindowsUncPath(file.getPath());
     File fileToRead = Optional.ofNullable(distribution)
-      .map(it -> distribution.getWslPath(file.getPath()))
+      .map(it -> distribution.getWslPath(file.toPath()))
       .map(it -> distribution.resolveSymlink(it))
       .map(it -> distribution.getWindowsPath(it))
       .map(it -> new File(it))
@@ -898,11 +915,17 @@ public class MavenUtil {
     return new File(SystemProperties.getUserHome(), DOT_M2_DIR);
   }
 
+  /**
+   * @deprecated do not use this method, it mixes path to maven home and labels like "Use bundled maven" in overriddenMavenHome variable
+   * use {@link MavenUtil#resolveLocalRepository(String, StaticResolvedMavenHomeType, String) resolveLocalRepository(String, StaticResolvedMavenHomeType, String)}
+   * or {@link MavenUtil#resolveDefaultLocalRepository() resolveDefaultLocalRepository()} instead
+   */
   @NotNull
   @Deprecated(forRemoval = true)
   public static File resolveLocalRepository(@Nullable String overriddenLocalRepository,
                                             @Nullable String overriddenMavenHome,
                                             @Nullable String overriddenUserSettingsFile) {
+    //noinspection HardCodedStringLiteral
     MavenHomeType type = resolveMavenHomeType(overriddenMavenHome);
     if (type instanceof StaticResolvedMavenHomeType st) {
       return resolveLocalRepository(overriddenLocalRepository, st, overriddenUserSettingsFile);
@@ -1542,10 +1565,7 @@ public class MavenUtil {
 
   public static VirtualFile getConfigFile(MavenProject mavenProject, String fileRelativePath) {
     VirtualFile baseDir = getVFileBaseDir(mavenProject.getDirectoryFile());
-    if (baseDir != null) {
-      return baseDir.findFileByRelativePath(fileRelativePath);
-    }
-    return null;
+    return baseDir.findFileByRelativePath(fileRelativePath);
   }
 
   public static Path toPath(@Nullable MavenProject mavenProject, String path) {
@@ -1693,10 +1713,6 @@ public class MavenUtil {
     catch (AlreadyDisposedException e) {
       return false;
     }
-  }
-
-  public static boolean isLinearImportEnabled() {
-    return Registry.is("maven.linear.import");
   }
 
   @ApiStatus.Internal

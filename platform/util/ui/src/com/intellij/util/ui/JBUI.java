@@ -542,12 +542,18 @@ public final class JBUI {
     }
 
     public static final class DefaultTabs {
+      public static final JBValue.UIInteger UNDERLINE_HEIGHT = new JBValue.UIInteger("DefaultTabs.underlineHeight", 3);
+
       public static @NotNull Color underlineColor() {
         return JBColor.namedColor("DefaultTabs.underlineColor", new JBColor(0x4083C9, 0x4A88C7));
       }
 
+      /**
+       * @deprecated use {@link DefaultTabs#UNDERLINE_HEIGHT}
+       */
+      @Deprecated(forRemoval = true)
       public static int underlineHeight() {
-        return getInt("DefaultTabs.underlineHeight", JBUIScale.scale(3));
+        return UNDERLINE_HEIGHT.get();
       }
 
       public static @NotNull Color inactiveUnderlineColor() {
@@ -584,7 +590,7 @@ public final class JBUI {
 
     public static final class DebuggerTabs {
       public static int underlineHeight() {
-        return getInt("DebuggerTabs.underlineHeight", JBUIScale.scale(2));
+        return uiIntValue("DebuggerTabs.underlineHeight", 2).get();
       }
 
       public static Color underlinedTabBackground() {
@@ -614,7 +620,11 @@ public final class JBUI {
       }
 
       public static int underlineHeight() {
-        return getInt("EditorTabs.underlineHeight", DefaultTabs.underlineHeight());
+        return uiIntValue(underlineHeightKey(), Math.round(DefaultTabs.UNDERLINE_HEIGHT.getUnscaled())).get();
+      }
+
+      public static String underlineHeightKey() {
+        return "EditorTabs.underlineHeight";
       }
 
       public static int underlineArc() {
@@ -710,11 +720,11 @@ public final class JBUI {
       }
 
       public static float unselectedAlpha() {
-        return getFloat("EditorTabs.unselectedAlpha", 0.75f);
+        return getFloat("EditorTabs.unselectedAlpha", 1.0f);
       }
 
       public static float unselectedBlend() {
-        return getFloat("EditorTabs.unselectedBlend", StartupUiUtil.isUnderDarcula() ? 0.7f : 0.9f);
+        return getFloat("EditorTabs.unselectedBlend", 1.0f);
       }
     }
 
@@ -770,6 +780,14 @@ public final class JBUI {
       interface Tooltip {
         Color BACKGROUND = JBColor.namedColor("Editor.ToolTip.background", UIUtil.getToolTipBackground());
         Color FOREGROUND = JBColor.namedColor("Editor.ToolTip.foreground", UIUtil.getToolTipForeground());
+        Color BORDER = JBColor.namedColor("Editor.ToolTip.border", 0xC9CCD6, 0x43454A);
+        Color ERROR_BACKGROUND = JBColor.namedColor("Editor.ToolTip.errorBackground", 0x0, 0x0);
+        Color ERROR_BORDER = JBColor.namedColor("Editor.ToolTip.errorBorder", 0x0, 0x0);
+        Color SUCCESS_BACKGROUND = JBColor.namedColor("Editor.ToolTip.successBackground", 0xF2FCF3, 0x253627);
+        Color SUCCESS_BORDER = JBColor.namedColor("Editor.ToolTip.successBorder", 0xAFDBB8, 0x375239);
+        Color WARNING_BACKGROUND = JBColor.namedColor("Editor.ToolTip.warningBackground", 0xFFF6DE, 0x3D3223);
+        Color WARNING_BORDER = JBColor.namedColor("Editor.ToolTip.warningBorder", 0xFED277, 0x5E4D33);
+        Color ICON_HOVER_BACKGROUND = JBColor.namedColor("Editor.ToolTip.iconHoverBackground", ActionButton.hoverBorder());
       }
 
       interface Notification {
@@ -814,6 +832,11 @@ public final class JBUI {
       Color WARNING = JBColor.namedColor("IconBadge.warningBackground", 0xFFAF0F, 0xF2C55C);
       Color INFORMATION = JBColor.namedColor("IconBadge.infoBackground", 0x588CF3, 0x548AF7);
       Color SUCCESS = JBColor.namedColor("IconBadge.successBackground", 0x55A76A, 0x5FAD65);
+    }
+
+    public interface InlineBanner {
+      Color HOVER_BACKGROUND = JBColor.namedColor("InlineBanner.hoverBackground", ActionButton.hoverBorder());
+      Color PRESSED_BACKGROUND = JBColor.namedColor("InlineBanner.pressedBackground", ActionButton.pressedBackground());
     }
 
     public interface Notification {
@@ -1029,7 +1052,7 @@ public final class JBUI {
       }
 
       public static int underlineHeight() {
-        return getInt("ToolWindow.HeaderTab.underlineHeight", DefaultTabs.underlineHeight());
+        return uiIntValue("ToolWindow.HeaderTab.underlineHeight", Math.round(DefaultTabs.UNDERLINE_HEIGHT.getUnscaled())).get();
       }
 
 
@@ -1671,13 +1694,30 @@ public final class JBUI {
         public static @NotNull String fileToolbarInsetsKey() {
           return "CombinedDiff.fileToolbarInsets";
         }
+
+        public static int leftRightBlockInset() {
+          return getInt(leftRightBlockInsetKey(), 12);
+        }
+
+        public static @NotNull String leftRightBlockInsetKey() {
+          return "CombinedDiff.leftRightBlockInset";
+        }
+
+        public static int gapBetweenBlocks() {
+          return getInt(gapBetweenBlocksKey(), 10);
+        }
+
+        public static @NotNull String gapBetweenBlocksKey() {
+          return "CombinedDiff.gapBetweenBlocks";
+        }
       }
     }
 
     public interface Window {
       static Border getBorder(boolean undecoratedWindow) {
         Border result = UIManager.getBorder("Window.border");
-        if (result == null && undecoratedWindow && SystemInfoRt.isXWindow && Registry.is("ide.linux.use.undecorated.border")) {
+        if (result == null && undecoratedWindow &&
+            SystemInfo.isUnix && !SystemInfo.isMac && Registry.is("ide.linux.use.undecorated.border")) {
           result = UIManager.getBorder("Window.undecorated.border");
         }
         return result;
@@ -1896,7 +1936,7 @@ public final class JBUI {
       }
 
       public static int fieldsSeparatorWidth() {
-        return getInt("NewClass.separatorWidth", JBUIScale.scale(10));
+        return getInt("NewClass.separatorWidth", 10);
       }
     }
 
@@ -2168,6 +2208,18 @@ public final class JBUI {
         return 5;
       }
 
+      public static int toolbarBorderDirectionalGap() {
+        return getInt(toolbarBorderDirectionalGapKey(), defaultToolbarBorderDirectionalGap());
+      }
+
+      public static @NotNull String toolbarBorderDirectionalGapKey() {
+        return "RunWidget.toolbarBorderDirectionalGap";
+      }
+
+      public static int defaultToolbarBorderDirectionalGap() {
+        return 2;
+      }
+
       public static int actionButtonWidth() {
         return getInt(actionButtonWidthKey(), 30);
       }
@@ -2227,6 +2279,18 @@ public final class JBUI {
           }
           return hovered ? HOVER_BACKGROUND : BACKGROUND;
         }
+      }
+    }
+
+    public static final class ManagedIde {
+      public static final Color BADGE_BORDER = JBColor.namedColor("ManagedIdeBadgeBorder", CustomFrameDecorations.separatorForeground());
+      private static final Color BADGE_BACKGROUND = JBColor.namedColor("ManagedIdeBadgeBackground", CustomFrameDecorations.paneBackground());
+      private static final Color BADGE_BACKGROUND_HOVER = JBColor.namedColor("ManagedIdeBadgeBackgroundHover", JBColor.namedColor(
+        "MainToolbar.Dropdown.transparentHoverBackground", UIManager.getColor("MainToolbar.Icon.hoverBackground")));
+      public static final Color MENU_ITEM_HOVER = JBColor.namedColor("ManagedIdeMenuItemHover", 0xEBECF0, 0x43454A);
+
+      public static @NotNull Color getBadgeBackground(boolean hover) {
+        return hover ? BADGE_BACKGROUND_HOVER : BADGE_BACKGROUND;
       }
     }
   }

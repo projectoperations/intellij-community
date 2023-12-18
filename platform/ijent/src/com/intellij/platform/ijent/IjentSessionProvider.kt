@@ -1,25 +1,31 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ijent
 
+import com.intellij.execution.CommandLineUtil.posixQuote
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
-import com.intellij.util.attachAsChildTo
-import com.intellij.util.namedChildScope
+import com.intellij.platform.util.coroutines.attachAsChildTo
+import com.intellij.platform.util.coroutines.namedChildScope
+import com.intellij.util.io.awaitExit
+import com.intellij.util.io.copyToAsync
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.channels.SendChannel
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.OverrideOnly
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
+import kotlin.io.path.fileSize
+import kotlin.io.path.inputStream
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Given that there is some IJent process launched, this extension gets handles to stdin+stdout of the process and returns
  * an [IjentApi] instance for calling procedures on IJent side.
  */
+@ApiStatus.Experimental
 interface IjentSessionProvider {
   @get:OverrideOnly
   val epCoroutineScope: CoroutineScope
@@ -27,39 +33,50 @@ interface IjentSessionProvider {
   /**
    * When calling the method, there's no need to wire [communicationCoroutineScope] to [epCoroutineScope],
    * since it is already performed by factory methods.
+   *
+   * [communicationCoroutineScope] must be a supervisor scope.
+   *
+   * Automatically registers the result in [IjentSessionRegistry].
    */
   @OverrideOnly
   suspend fun connect(
-    id: Long,
+    id: IjentId,
     communicationCoroutineScope: CoroutineScope,
+    platform: IjentExecFileProvider.SupportedPlatform,
     inputStream: InputStream,
     outputStream: OutputStream,
   ): IjentApi
 
   companion object {
-    private val LOG = logger<IjentSessionProvider>()
-
-    private val counter = AtomicLong()
-
     /**
      * The session exits when one of the following happens:
      * * The job corresponding to [communicationCoroutineScope] is finished.
      * * [epCoroutineScope] is finished.
      * * [inputStream] is closed.
      */
-    suspend fun connect(communicationCoroutineScope: CoroutineScope, process: Process): IjentApi {
+    @OptIn(DelicateCoroutinesApi::class)
+    suspend fun connect(
+      communicationCoroutineScope: CoroutineScope,
+      platform: IjentExecFileProvider.SupportedPlatform,
+      process: Process,
+    ): IjentApi {
       val provider = serviceAsync<IjentSessionProvider>()
-      val id = counter.getAndIncrement()
-      val label = "IJent #$id"
+      val ijentsRegistry = IjentSessionRegistry.instanceAsync()
+      val ijentId = ijentsRegistry.makeNewId()
       val epCoroutineScope = provider.epCoroutineScope
       val childScope = communicationCoroutineScope
-        .namedChildScope(label, supervisor = false)
+        .namedChildScope(ijentId.toString(), supervisor = false)
         .apply { attachAsChildTo(epCoroutineScope) }
-      childScope.launch(Dispatchers.IO + childScope.coroutineNameAppended("$label > watchdog")) {
+
+      childScope.coroutineContext.job.invokeOnCompletion {
+        ijentsRegistry.ijentsInternal.remove(ijentId)
+      }
+
+      childScope.launch(Dispatchers.IO + childScope.coroutineNameAppended("$ijentId > watchdog")) {
         while (true) {
           if (process.waitFor(10, TimeUnit.MILLISECONDS)) {
             val exitValue = process.exitValue()
-            LOG.debug { "$label exit code $exitValue" }
+            LOG.debug { "$ijentId exit code $exitValue" }
             check(exitValue == 0) { "Process has exited with code $exitValue" }
             cancel()
             break
@@ -67,12 +84,12 @@ interface IjentSessionProvider {
           delay(100)
         }
       }
-      childScope.launch(Dispatchers.IO + childScope.coroutineNameAppended("$label > finalizer")) {
+      childScope.launch(Dispatchers.IO + childScope.coroutineNameAppended("$ijentId > finalizer")) {
         try {
           awaitCancellation()
         }
         catch (err: Exception) {
-          LOG.debug(err) { "$label is going to be terminated due to receiving an error" }
+          LOG.debug(err) { "$ijentId is going to be terminated due to receiving an error" }
           throw err
         }
         finally {
@@ -80,18 +97,18 @@ interface IjentSessionProvider {
             GlobalScope.launch(Dispatchers.IO + coroutineNameAppended("actual destruction")) {
               try {
                 if (process.waitFor(5, TimeUnit.SECONDS)) {
-                  LOG.debug { "$label exit code ${process.exitValue()}" }
+                  LOG.debug { "$ijentId exit code ${process.exitValue()}" }
                 }
               }
               finally {
                 if (process.isAlive) {
-                  LOG.debug { "The process $label is still alive, it will be killed" }
+                  LOG.warn("The process $ijentId is still alive, it will be killed")
                   process.destroy()
                 }
               }
             }
             GlobalScope.launch(Dispatchers.IO) {
-              LOG.debug { "Closing stdin of $label" }
+              LOG.debug { "Closing stdin of $ijentId" }
               process.outputStream.close()
             }
           }
@@ -101,82 +118,198 @@ interface IjentSessionProvider {
       val processScopeNamePrefix = childScope.coroutineContext[CoroutineName]?.let { "$it >" } ?: ""
 
       epCoroutineScope.launch(Dispatchers.IO) {
-        withContext(coroutineNameAppended("$processScopeNamePrefix $label > logger")) {
+        withContext(coroutineNameAppended("$processScopeNamePrefix $ijentId > logger")) {
           process.errorReader().use { errorReader ->
             for (line in errorReader.lineSequence()) {
               // TODO It works incorrectly with multiline log messages.
-              when (line.splitToSequence(' ').drop(1).take(1).firstOrNull()) {
-                "TRACE" -> LOG.trace { "$label log: $line" }
-                "DEBUG" -> LOG.debug { "$label log: $line" }
-                "INFO" -> LOG.info("$label log: $line")
-                "WARN" -> LOG.warn("$label log: $line")
-                "ERROR" -> LOG.error("$label log: $line")
-                else -> LOG.trace { "$label log: $line" }
+              when (line.splitToSequence(Regex(" +")).drop(1).take(1).firstOrNull()) {
+                "TRACE" -> LOG.trace { "$ijentId log: $line" }
+                "DEBUG" -> LOG.debug { "$ijentId log: $line" }
+                "INFO" -> LOG.info("$ijentId log: $line")
+                "WARN" -> LOG.warn("$ijentId log: $line")
+                "ERROR" -> LOG.error("$ijentId log: $line")
+                else -> LOG.trace { "$ijentId log: $line" }
               }
               yield()
             }
           }
         }
       }
-      return provider.connect(id, childScope, process.inputStream, process.outputStream)
+
+      val result = provider.connect(ijentId, childScope, platform, process.inputStream, process.outputStream)
+      ijentsRegistry.ijentsInternal[ijentId] = result
+      return result
+    }
+
+    /**
+     * Interactively requests IJent through a running POSIX-compliant command interpreter: sh, bash, ash, ksh, zsh.
+     *
+     * After determination of the remote operating system and architecture, an appropriate IJent binary is uploaded and executed.
+     * All requests and data transfer with the remote machine is performed through stdin and stdout of [shellProcess].
+     *
+     * It is recommended to always use `/bin/sh` for [shellProcess], but any other POSIX-compliant interpreter is accepted too. The shell
+     * is later changed to the default user's shell before starting IJent, in order that [IjentExecApi.fetchLoginShellEnvVariables] returns
+     * the variables from the appropriate shell configs.
+     *
+     * [shellProcess] must have stdin, stdout and stderr piped.
+     *
+     * [shellProcess] must NOT run inside a PTY.
+     *
+     * The line delimiter must be '\n'.
+     *
+     * The function takes the ownership of [shellProcess]: it invokes `exec(1)` inside the process and terminates [shellProcess]
+     * in case of problems.
+     */
+    suspend fun bootstrapOverShellSession(communicationCoroutineScope: CoroutineScope, shellProcess: Process): Pair<String, IjentApi> =
+      doBootstrapOverShellSession(shellProcess, communicationCoroutineScope)
+  }
+}
+
+internal class DefaultIjentSessionProvider(override val epCoroutineScope: CoroutineScope) : IjentSessionProvider {
+  override suspend fun connect(
+    id: IjentId,
+    communicationCoroutineScope: CoroutineScope,
+    platform: IjentExecFileProvider.SupportedPlatform,
+    inputStream: InputStream,
+    outputStream: OutputStream,
+  ): IjentApi {
+    throw UnsupportedOperationException()
+  }
+}
+
+private suspend fun doBootstrapOverShellSession(shellProcess: Process, communicationCoroutineScope: CoroutineScope) =
+  withContext(Dispatchers.IO) {
+    val stderrLogger = launch {
+      val line = StringBuilder()
+      try {
+        while (isActive) {
+          readLineWithoutBuffering(shellProcess.errorStream, line)
+          LOG.debug { "IJent bootstrap shell session stderr: $line" }
+          line.clear()
+        }
+      }
+      finally {
+        if (line.isNotEmpty()) {
+          LOG.debug { "IJent bootstrap shell session stderr: $line" }
+        }
+      }
+    }
+
+    val exitCodeAwaiter = launch {
+      val exitCode = shellProcess.awaitExit()
+      if (isActive) {
+        error("The process suddenly exited with the code $exitCode")
+      }
+    }
+
+    val (remoteIjentPath, targetPlatform) = bootstrapOverShellSession(shellProcess.outputStream, shellProcess.inputStream)
+    stderrLogger.cancel()
+    exitCodeAwaiter.cancel()
+
+    try {
+      remoteIjentPath to IjentSessionProvider.connect(communicationCoroutineScope, targetPlatform, shellProcess)
+    }
+    catch (err: Throwable) {
+      try {
+        shellProcess.destroy()
+      }
+      catch (err2: Throwable) {
+        err.addSuppressed(err)
+      }
+      throw err
     }
   }
-}
 
-interface IjentApi {
-  suspend fun executeProcess(exe: String, vararg args: String, env: Map<String, String> = emptyMap()): ExecuteProcessResult
+private suspend fun bootstrapOverShellSession(
+  outputStream: OutputStream,
+  inputStream: InputStream,
+): Pair<String, IjentExecFileProvider.SupportedPlatform> = withContext(Dispatchers.IO) {
+  // The boundary is for skipping various banners, greeting messages, PS1, etc.
+  val boundary = (0..31).joinToString("") { "abcdefghijklmnopqrstuvwxyz0123456789".random().toString() }
 
-  suspend fun fetchLoginShellEnvVariables(): Map<String, String>
+  // The timeout is taken at random.
+  val arch = withTimeout(10.seconds) {
+    // There are two arguments in `uname` that can show the process architecture: `-m` and `-p`. According to `man uname`, `-p` is more
+    // verbose, and that information may be sufficient for choosing the right binary.
+    // https://man.freebsd.org/cgi/man.cgi?query=uname&sektion=1
+    outputStream.write("set -ex; echo $boundary; uname -pm\n".toByteArray())
+    outputStream.flush()
 
-  /**
-   * Creates a remote UNIX socket forwarding, i.e. IJent listens waits for a connection on the remote machine, and when the connection
-   * is accepted, the IDE communicates to the remote client via a pair of Kotlin channels.
-   *
-   * The call accepts only one connection. If multiple connections should be accepted, the function is supposed to be called in a loop:
-   * ```kotlin
-   * val ijent: IjentApi = ijentApiFactory()
-   *
-   * val (socketPath, tx, rx) = listenOnUnixSocket(CreateFilePath.MkTemp(prefix = "ijent-", suffix = ".sock"))
-   * println(socketPath) // /tmp/ijent-12345678.sock
-   * launch {
-   *   handleConnection(tx, rx)
-   * }
-   * while (true) {
-   *   val (_, tx, rx) = listenOnUnixSocket(CreateFilePath.Fixed(socketPath))
-   *   launch {
-   *     handleConnection(tx, rx)
-   *   }
-   * }
-   * ```
-   */
-  suspend fun listenOnUnixSocket(path: CreateFilePath = CreateFilePath.MkTemp()): ListenOnUnixSocketResult
+    do {
+      val line = readLineWithoutBuffering(inputStream, tracingLabel = "stdout")
+      LOG.trace { "Received greeting line from stdout: $line" }
+    }
+    while (line != boundary)
 
-  data class ListenOnUnixSocketResult(
-    val unixSocketPath: String,
-    // TODO Avoid excessive byte arrays copying.
-    val tx: SendChannel<ByteArray>,
-    val rx: ReceiveChannel<ByteArray>,
-  )
+    readLineWithoutBuffering(inputStream, tracingLabel = "stdout")
+  }.split(" ")
 
-  sealed interface ExecuteProcessResult {
-    class Success(val process: IjentChildProcess) : ExecuteProcessResult
-    data class Failure(val errno: Int, val message: String) : ExecuteProcessResult
+  val targetPlatform = when  {
+    "x86_64" in arch -> IjentExecFileProvider.SupportedPlatform.X86_64__LINUX
+    "aarch64" in arch -> IjentExecFileProvider.SupportedPlatform.AARCH64__LINUX
+    else -> error("No binary for architecture $arch")  // TODO Some good exception class with an error message in UI.
   }
 
-  sealed interface CreateFilePath {
-    data class Fixed(val path: String) : CreateFilePath
+  val ijentBinaryOnLocalDisk = IjentExecFileProvider.getInstance().getIjentBinary(targetPlatform)
+  // TODO Don't upload a new binary every time if the binary is already on the server. However, hashes must be checked.
+  val ijentBinarySize = ijentBinaryOnLocalDisk.fileSize()
 
-    /** When [directory] is empty, the usual tmpdir is used. */
-    data class MkTemp(val directory: String = "", val prefix: String = "", val suffix: String = "") : CreateFilePath
+  val script =
+    """BINARY="$(mktemp -d)/ijent" """ +
+    """; LC_ALL=C head -c $ijentBinarySize > "${"$"}BINARY" """ +
+    """; chmod 500 "${"$"}BINARY" """ +
+    """; echo "${"$"}BINARY" """ +
+    "\n"
+
+  LOG.trace { "Executing script inside a shell: ${script.trimEnd()}" }
+  outputStream.write(script.toByteArray())
+  yield()
+  outputStream.flush()
+
+  LOG.debug { "Sending the IJent binary for $targetPlatform" }
+  ijentBinaryOnLocalDisk.inputStream().copyToAsync(outputStream)
+  outputStream.flush()
+  LOG.debug { "Sent the IJent binary for $targetPlatform" }
+
+  val remotePathToBinary = readLineWithoutBuffering(inputStream, tracingLabel = "stdout")
+
+  val joinedCmd = getIjentGrpcArgv(remotePathToBinary, selfDeleteOnExit = true).joinToString(" ")
+  val commandLineArgs =
+    """cd ${posixQuote(remotePathToBinary.substringBeforeLast('/'))}""" +
+    """; exec "$(getent passwd "${'$'}(whoami)" | cut -d: -f7)" -c ${posixQuote(joinedCmd)}""" +
+    "\n"
+  LOG.trace { "Executing IJent inside a shell: ${commandLineArgs.trimEnd()}" }
+
+  outputStream.write(commandLineArgs.toByteArray())
+  outputStream.flush()
+
+  remotePathToBinary to targetPlatform
+}
+
+/** The same stdin and stdout will be used for transferring binary data. Some buffering wrapper may occasionally consume too much data. */
+private suspend fun readLineWithoutBuffering(
+  stream: InputStream,
+  buffer: StringBuilder = StringBuilder(),
+  tracingLabel: String? = null,
+): String =
+  withContext(Dispatchers.IO) {
+    while (true) {
+      val available = stream.available()
+      if (available > 0) {
+        val c = stream.read()
+        if (c < 0 || c == '\n'.code) {
+          break
+        }
+        buffer.append(c.toChar())
+      }
+      else {
+        delay(50.milliseconds) // Just a random timeout, which was chosen without any research.
+      }
+    }
+    if (tracingLabel != null) {
+      LOG.trace { "Read line from $tracingLabel: $buffer" }
+    }
+    buffer.toString()
   }
-}
 
-interface IjentChildProcess {
-  val pid: Int
-  val stdin: SendChannel<ByteArray>
-  val stdout: ReceiveChannel<ByteArray>
-  val stderr: ReceiveChannel<ByteArray>
-  val exitCode: Deferred<Int>
-
-  suspend fun sendSignal(signal: Int)  // TODO Use a separate class for signals.
-}
+private val LOG = logger<IjentSessionProvider>()

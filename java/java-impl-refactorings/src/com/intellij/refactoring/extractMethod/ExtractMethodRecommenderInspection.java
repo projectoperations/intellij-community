@@ -37,7 +37,7 @@ import java.util.*;
 import static com.intellij.codeInspection.options.OptPane.number;
 import static com.intellij.codeInspection.options.OptPane.pane;
 
-public class ExtractMethodRecommenderInspection extends AbstractBaseJavaLocalInspectionTool {
+public final class ExtractMethodRecommenderInspection extends AbstractBaseJavaLocalInspectionTool {
   public int minLength = 500;
   public int maxParameters = 3;
 
@@ -63,6 +63,7 @@ public class ExtractMethodRecommenderInspection extends AbstractBaseJavaLocalIns
         BitSet declarations = getDeclarations(statements);
         if (declarations.isEmpty()) return;
         int maxLength = body.getTextLength() * 3 / 5;
+        if (maxLength < minLength) return;
         int maxCount;
         if (block == body) {
           maxCount = statements.length - 1;
@@ -87,7 +88,7 @@ public class ExtractMethodRecommenderInspection extends AbstractBaseJavaLocalIns
             if (textRange.getLength() < minLength || textRange.getLength() > maxLength) continue;
             try {
               ControlFlowWrapper wrapper = new ControlFlowWrapper(fragment, range);
-              Collection<PsiStatement> exitStatements = wrapper.prepareExitStatements(range, fragment);
+              Collection<PsiStatement> exitStatements = wrapper.prepareExitStatements(range);
               if (!exitStatements.isEmpty()) continue;
               if (wrapper.isGenerateConditionalExit() || wrapper.isReturnPresentBetween()) continue;
               PsiVariable[] variables = wrapper.getOutputVariables();
@@ -97,9 +98,10 @@ public class ExtractMethodRecommenderInspection extends AbstractBaseJavaLocalIns
 
               List<PsiVariable> inputVariables = wrapper.getInputVariables(fragment, range, variables);
               if (inputVariables.size() > maxParameters) continue;
-              ExtractMethodAnalyzerKt.findExtractOptions(Arrays.asList(range)); // check whether ExtractException will happen
+              ExtractMethodAnalyzerKt.findExtractOptions(Arrays.asList(range), false); // check whether ExtractException will happen
               if (voidPrefix(fragment, range, output)) continue;
               if (!outputUsedInLastStatement(range, output)) continue;
+              wrapper.checkExitStatements(range, fragment);
               if (to < statements.length) {
                 PsiStatement nextStatement = statements[to];
                 if (nextStatement instanceof PsiReturnStatement ret && 
@@ -155,13 +157,13 @@ public class ExtractMethodRecommenderInspection extends AbstractBaseJavaLocalIns
       }
 
       private static boolean voidPrefix(@NotNull PsiElement fragment, @NotNull PsiStatement @NotNull [] range, @NotNull PsiVariable output)
-        throws PrepareFailedException, ControlFlowWrapper.ExitStatementsNotSameException {
+        throws PrepareFailedException {
         if (output.getParent() instanceof PsiDeclarationStatement statement) {
           int declarationIndex = Arrays.asList(range).indexOf(statement);
           if (declarationIndex > 0) {
             PsiStatement[] subRange = Arrays.copyOf(range, declarationIndex);
             ControlFlowWrapper subWrapper = new ControlFlowWrapper(fragment, subRange);
-            subWrapper.prepareExitStatements(subRange, fragment);
+            subWrapper.prepareExitStatements(subRange);
             return subWrapper.getOutputVariables().length == 0;
           }
         }

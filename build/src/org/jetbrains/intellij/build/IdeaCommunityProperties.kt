@@ -2,32 +2,36 @@
 package org.jetbrains.intellij.build
 
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.plus
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot
 import org.jetbrains.intellij.build.impl.BuildContextImpl
 import org.jetbrains.intellij.build.kotlin.KotlinBinaries
 
 import java.nio.file.Path
 
-internal fun createCommunityBuildContext(
+internal suspend fun createCommunityBuildContext(
   communityHome: BuildDependenciesCommunityRoot,
   options: BuildOptions = BuildOptions(),
   projectHome: Path = communityHome.communityRoot,
 ): BuildContext {
-  return BuildContextImpl.createContextBlocking(communityHome = communityHome,
-                                                projectHome = projectHome,
-                                                productProperties = IdeaCommunityProperties(communityHome.communityRoot),
-                                                options = options)
+  return BuildContextImpl.createContext(communityHome = communityHome,
+                                        projectHome = projectHome,
+                                        productProperties = IdeaCommunityProperties(communityHome.communityRoot),
+                                        setupTracer = true,
+                                        options = options)
 }
 
 open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIdeaProperties() {
   companion object {
     val MAVEN_ARTIFACTS_ADDITIONAL_MODULES = persistentListOf(
       "intellij.tools.jps.build.standalone",
+      "intellij.devkit.runtimeModuleRepository.jps",
       "intellij.idea.community.build.tasks",
       "intellij.platform.debugger.testFramework",
       "intellij.platform.vcs.testFramework",
       "intellij.platform.externalSystem.testFramework",
-      "intellij.maven.testFramework"
+      "intellij.maven.testFramework",
+      "intellij.platform.reproducibleBuilds.diffTool",
     )
   }
 
@@ -60,7 +64,7 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
     productLayout.buildAllCompatiblePlugins = false
     productLayout.pluginLayouts = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS.addAll(listOf(
       JavaPluginLayout.javaPlugin(),
-      CommunityRepositoryModules.androidPlugin(emptyMap()),
+      CommunityRepositoryModules.androidPlugin(allPlatforms = true),
       CommunityRepositoryModules.groovyPlugin()
     ))
 
@@ -79,6 +83,8 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
     versionCheckerConfig = CE_CLASS_VERSIONS
     baseDownloadUrl = "https://download.jetbrains.com/idea/"
     buildDocAuthoringAssets = true
+
+    additionalVmOptions += "-Dide.show.tips.on.startup.default.value=false"
   }
 
   override suspend fun copyAdditionalFiles(context: BuildContext, targetDirectory: String) {

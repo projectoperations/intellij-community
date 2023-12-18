@@ -35,7 +35,6 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Arrays;
-import java.util.Objects;
 
 /**
  * Base {@link com.intellij.openapi.options.Configurable} for configuring code coverage
@@ -46,7 +45,7 @@ import java.util.Objects;
  * group.addEditor(title, yourCoverageConfigurable);
  * </code>
  */
-public final class CoverageConfigurable extends SettingsEditor<RunConfigurationBase> {
+public final class CoverageConfigurable extends SettingsEditor<RunConfigurationBase<?>> {
   private static final Logger LOG = Logger.getInstance(CoverageConfigurable.class);
 
   private final JreVersionDetector myVersionDetector = new JreVersionDetector();
@@ -60,20 +59,20 @@ public final class CoverageConfigurable extends SettingsEditor<RunConfigurationB
   private JCheckBox myTrackTestSourcesCb;
 
   private JCheckBox myBranchCoverageCb;
-  private final RunConfigurationBase myConfig;
+  private final RunConfigurationBase<?> myConfig;
 
-  public CoverageConfigurable(RunConfigurationBase config) {
+  public CoverageConfigurable(RunConfigurationBase<?> config) {
     myConfig = config;
     myProject = config.getProject();
   }
 
   @Override
-  protected void resetEditorFrom(@NotNull final RunConfigurationBase runConfiguration) {
+  protected void resetEditorFrom(@NotNull final RunConfigurationBase<?> runConfiguration) {
     final boolean isJre50;
     if (runConfiguration instanceof CommonJavaRunConfigurationParameters && myVersionDetector.isJre50Configured((CommonJavaRunConfigurationParameters)runConfiguration)) {
       isJre50 = true;
     } else if (runConfiguration instanceof ModuleBasedConfiguration){
-      isJre50 = myVersionDetector.isModuleJre50Configured((ModuleBasedConfiguration)runConfiguration);
+      isJre50 = myVersionDetector.isModuleJre50Configured((ModuleBasedConfiguration<?, ?>)runConfiguration);
     } else {
       isJre50 = true;
     }
@@ -84,19 +83,6 @@ public final class CoverageConfigurable extends SettingsEditor<RunConfigurationB
     CoverageRunner runner = configuration.getCoverageRunner();
     if (runner != null) {
       myCoverageRunnerCb.setSelectedItem(new CoverageRunnerItem(runner));
-    } else {
-      final String runnerId = configuration.getRunnerId();
-      if (runnerId != null){
-        final CoverageRunnerItem runnerItem = new CoverageRunnerItem(runnerId);
-        final DefaultComboBoxModel<CoverageRunnerItem> model = (DefaultComboBoxModel<CoverageRunnerItem>)myCoverageRunnerCb.getModel();
-        if (model.getIndexOf(runnerItem) == -1) {
-          model.addElement(runnerItem);
-        }
-        myCoverageRunnerCb.setSelectedItem(runnerItem);
-      } else {
-        myCoverageRunnerCb.setSelectedIndex(0);
-      }
-      runner = ((CoverageRunnerItem)Objects.requireNonNull(myCoverageRunnerCb.getSelectedItem())).getRunner();
     }
     myRunnerPanel.setEnabled(isJre50);
 
@@ -264,10 +250,6 @@ public final class CoverageConfigurable extends SettingsEditor<RunConfigurationB
 
     public CoverageRunner getRunner() {
       return myRunner;
-    }
-
-    public @NotNull String getRunnerId() {
-      return myRunnerId;
     }
 
     public String getPresentableName() {

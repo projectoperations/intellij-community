@@ -3,7 +3,9 @@
 
 package org.jetbrains.intellij.build.impl
 
+import com.intellij.util.xml.dom.XmlElement
 import com.intellij.util.xml.dom.readXmlAsModel
+import io.opentelemetry.api.trace.Span
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
@@ -52,7 +54,6 @@ private val PLATFORM_IMPLEMENTATION_MODULES = persistentListOf(
   "intellij.platform.analysis.impl",
   "intellij.platform.diff.impl",
   "intellij.platform.editor.ex",
-  "intellij.platform.elevation",
   "intellij.platform.externalProcessAuthHelper",
   "intellij.platform.inspect",
   // lvcs.xml - convert into product module
@@ -93,8 +94,11 @@ private val PLATFORM_IMPLEMENTATION_MODULES = persistentListOf(
   "intellij.platform.collaborationTools",
   "intellij.platform.collaborationTools.auth",
 
+  "intellij.platform.compose",
+  "intellij.platform.compose.skikoRuntime",
+
   "intellij.platform.markdown.utils",
-  "intellij.platform.util.commonsLangV2Shim",
+  "intellij.platform.util.commonsLangV2Shim"
 )
 
 internal val PLATFORM_CUSTOM_PACK_MODE: Map<String, LibraryPackMode> = persistentMapOf(
@@ -183,7 +187,14 @@ internal suspend fun createPlatformLayout(addPlatformCoverage: Boolean,
     "intellij.platform.util.rt",
     "intellij.platform.util.trove",
   ), productLayout = productLayout, layout = layout)
-  layout.withProjectLibrary(libraryName = "ion", jarName = UTIL_RT_JAR)
+  layout.withProjectLibrary(libraryName = "ion", jarName = UTIL_8_JAR)
+
+  // skiko-runtime needed for Compose
+  layout.withModuleLibrary(
+    libraryName = "jetbrains.skiko.awt.runtime.all",
+    moduleName = "intellij.platform.compose.skikoRuntime",
+    relativeOutputPath = "skiko-runtime.jar"
+  )
 
   // maven uses JDOM in an external process
   addModule(UTIL_8_JAR, listOf(
@@ -203,6 +214,7 @@ internal suspend fun createPlatformLayout(addPlatformCoverage: Boolean,
   // make sure that all ktor libraries bundled into the platform
   layout.withProjectLibrary(libraryName = "ktor-client-content-negotiation")
   layout.withProjectLibrary(libraryName = "ktor-client-logging")
+  layout.withProjectLibrary(libraryName = "ktor-serialization-kotlinx-json")
 
   // used by intellij.database.jdbcConsole - put to a small util module
   layout.withProjectLibrary(libraryName = "jbr-api", jarName = UTIL_JAR)
@@ -464,13 +476,15 @@ private fun compute(list: List<Pair<String, PersistentList<String>>>,
 
 // result _must be_ consistent, do not use Set.of or HashSet here
 private suspend fun getProductPluginContentModules(context: BuildContext, productPluginSourceModuleName: String): Set<ModuleItem> {
+  val result = LinkedHashSet<ModuleItem>()
+
   val content = withContext(Dispatchers.IO) {
     var file = context.findFileInModuleSources(productPluginSourceModuleName, "META-INF/plugin.xml")
     if (file == null) {
-      file = context.findFileInModuleSources(productPluginSourceModuleName,
-                                             "META-INF/${context.productProperties.platformPrefix}Plugin.xml")
+      file = context.findFileInModuleSources(moduleName = productPluginSourceModuleName,
+                                             relativePath = "META-INF/${context.productProperties.platformPrefix}Plugin.xml")
       if (file == null) {
-        context.messages.warning("Cannot find product plugin descriptor in '$productPluginSourceModuleName' module")
+        Span.current().addEvent("Cannot find product plugin descriptor in '$productPluginSourceModuleName' module")
         return@withContext null
       }
     }
@@ -478,10 +492,22 @@ private suspend fun getProductPluginContentModules(context: BuildContext, produc
     readXmlAsModel(file).getChild("content")
   } ?: return emptySet()
 
-  val modules = content.children("module")
-  val result = LinkedHashSet<ModuleItem>()
-  for (module in modules) {
-    result.add(ModuleItem(moduleName = module.attributes.get("name") ?: continue, relativeOutputFile = "modules.jar", reason = "productModule"))
+  collectProductModules(content, result)
+
+  withContext(Dispatchers.IO) {
+    val file = context.findFileInModuleSources("intellij.platform.resources", "META-INF/PlatformLangPlugin.xml")
+    file?.let { readXmlAsModel(it).getChild("content") }
+  }?.let {
+    collectProductModules(it, result)
   }
+
   return result
+}
+
+private fun collectProductModules(content: XmlElement, result: LinkedHashSet<ModuleItem>) {
+  for (module in content.children("module")) {
+    result.add(ModuleItem(moduleName = module.attributes.get("name") ?: continue,
+                          relativeOutputFile = "modules.jar",
+                          reason = "productModule"))
+  }
 }

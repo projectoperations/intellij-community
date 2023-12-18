@@ -41,12 +41,10 @@ import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.lang.JavaVersion;
 import org.gradle.StartParameter;
-import org.gradle.initialization.BuildLayoutParameters;
 import org.gradle.util.GradleVersion;
 import org.gradle.wrapper.GradleWrapperMain;
 import org.gradle.wrapper.PathAssembler;
 import org.gradle.wrapper.WrapperConfiguration;
-import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -56,6 +54,7 @@ import org.jetbrains.plugins.gradle.frameworkSupport.settingsScript.GroovyDslGra
 import org.jetbrains.plugins.gradle.jvmcompat.GradleJvmSupportMatrix;
 import org.jetbrains.plugins.gradle.service.execution.GradleExternalTaskConfigurationType;
 import org.jetbrains.plugins.gradle.service.execution.GradleRunConfiguration;
+import org.jetbrains.plugins.gradle.service.execution.GradleUserHomeUtil;
 import org.jetbrains.plugins.gradle.settings.DistributionType;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
 import org.jetbrains.plugins.gradle.settings.GradleSettings;
@@ -164,7 +163,7 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
 
   protected Path getGradleUserHome() {
     String serviceDirectory = GradleSettings.getInstance(myProject).getServiceDirectoryPath();
-    return serviceDirectory != null ? Path.of(serviceDirectory) : new BuildLayoutParameters().getGradleUserHomeDir().toPath();
+    return serviceDirectory != null ? Path.of(serviceDirectory) : GradleUserHomeUtil.gradleUserHomeDir().toPath();
   }
 
   /**
@@ -298,7 +297,7 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
     roots.add(myJdkHome);
     roots.addAll(collectRootsInside(myJdkHome));
     roots.add(PathManager.getConfigPath());
-    String gradleHomeEnv = System.getenv("GRADLE_USER_HOME");
+    String gradleHomeEnv = Environment.getVariable("GRADLE_USER_HOME");
     if (gradleHomeEnv != null) roots.add(gradleHomeEnv);
     String javaHome = Environment.getVariable("JAVA_HOME");
     if (javaHome != null) roots.add(javaHome);
@@ -356,18 +355,18 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
     super.importProject(skipIndexing);
   }
 
-  protected void importProjectUsingSingeModulePerGradleProject(@NonNls @Language("Groovy") String config, Boolean skipIndexing)
+  protected void importProjectUsingSingeModulePerGradleProject(@NonNls String config, Boolean skipIndexing)
     throws IOException {
     getCurrentExternalProjectSettings().setResolveModulePerSourceSet(false);
     importProject(config, skipIndexing);
   }
 
-  protected void importProjectUsingSingeModulePerGradleProject(@NonNls @Language("Groovy") String config) throws IOException {
+  protected void importProjectUsingSingeModulePerGradleProject(@NonNls String config) throws IOException {
     importProjectUsingSingeModulePerGradleProject(config, null);
   }
 
   @Override
-  protected void importProject(@NonNls @Language("Groovy") String config, Boolean skipIndexing) throws IOException {
+  protected void importProject(@NonNls String config, Boolean skipIndexing) throws IOException {
     if (UsefulTestCase.IS_UNDER_TEAMCITY) {
       config = injectRepo(config);
     }
@@ -415,7 +414,7 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
     super.handleImportFailure(errorMessage, errorDetails);
   }
 
-  public void importProject(@NonNls @Language("Groovy") String config) throws IOException {
+  public void importProject(@NonNls String config) throws IOException {
     importProject(config, null);
   }
 
@@ -446,7 +445,7 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
   private static final String MAVEN_REPOSITORY_PATCH_PLACE = "// Place for Maven repository patch";
 
   @NotNull
-  protected String injectRepo(@NonNls @Language("Groovy") String config) {
+  protected String injectRepo(@NonNls String config) {
     String mavenRepositoryPatch =
       """
         allprojects {
@@ -482,7 +481,7 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
     return GradleConstants.SYSTEM_ID;
   }
 
-  protected VirtualFile createSettingsFile(@NonNls @Language("Groovy") String content) throws IOException {
+  protected VirtualFile createSettingsFile(@NonNls String content) throws IOException {
     return createProjectSubFile("settings.gradle", content);
   }
 
@@ -565,6 +564,7 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
     return getCurrentGradleBaseVersion().compareTo(GradleVersion.version(ver)) < 0;
   }
 
+  @Deprecated
   protected boolean isGradleOlderOrSameAs(@NotNull String ver) {
     return getCurrentGradleBaseVersion().compareTo(GradleVersion.version(ver)) <= 0;
   }
@@ -573,6 +573,7 @@ public abstract class GradleImportingTestCase extends JavaExternalSystemImportin
     return getCurrentGradleBaseVersion().compareTo(GradleVersion.version(ver)) >= 0;
   }
 
+  @Deprecated
   protected boolean isGradleNewerThan(@NotNull String ver) {
     return getCurrentGradleBaseVersion().compareTo(GradleVersion.version(ver)) > 0;
   }

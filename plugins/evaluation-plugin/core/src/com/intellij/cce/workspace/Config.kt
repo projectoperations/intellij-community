@@ -3,6 +3,7 @@ package com.intellij.cce.workspace
 
 import com.intellij.cce.evaluable.EvaluationStrategy
 import com.intellij.cce.filter.EvaluationFilter
+import com.intellij.cce.interpreter.InterpretationOrder
 import com.intellij.cce.workspace.filter.CompareSessionsFilter
 import com.intellij.cce.workspace.filter.NamedFilter
 import com.intellij.cce.workspace.filter.SessionsFilter
@@ -11,6 +12,7 @@ import kotlin.io.path.absolute
 
 data class Config private constructor(
   val projectPath: String,
+  val projectName: String,
   val language: String,
   val outputDir: String,
   val strategy: EvaluationStrategy,
@@ -42,6 +44,7 @@ data class Config private constructor(
     val sessionsLimit: Int?,
     val sessionProbability: Double,
     val sessionSeed: Long?,
+    val order: InterpretationOrder,
     val saveLogs: Boolean,
     val saveFeatures: Boolean,
     val saveContent: Boolean,
@@ -62,6 +65,7 @@ data class Config private constructor(
 
   class Builder internal constructor(private val projectPath: String, private val language: String) {
     var evaluationRoots = mutableListOf<String>()
+    var projectName = projectPath.split('/').last()
     var outputDir: String = Paths.get(projectPath, "completion-evaluation").toAbsolutePath().toString()
     var strategy: EvaluationStrategy = EvaluationStrategy.defaultStrategy
     var saveLogs = false
@@ -74,6 +78,7 @@ data class Config private constructor(
     var sessionsLimit: Int? = null
     var sessionProbability: Double = 1.0
     var sessionSeed: Long? = null
+    var order: InterpretationOrder = InterpretationOrder.LINEAR
     var useReordering: Boolean = false
     var reorderingTitle: String = evaluationTitle
     var featuresForReordering = mutableListOf<String>()
@@ -118,6 +123,7 @@ data class Config private constructor(
 
     fun build(): Config = Config(
       Paths.get(projectPath).absolute().toString(),
+      projectName,
       language,
       outputDir,
       strategy,
@@ -129,6 +135,7 @@ data class Config private constructor(
         sessionsLimit,
         sessionProbability,
         sessionSeed,
+        order,
         saveLogs,
         saveFeatures,
         saveContent,

@@ -6,19 +6,24 @@ import com.intellij.java.JavaBundle;
 import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.util.PsiLiteralUtil;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.TypeUtils;
+import com.siyeh.ig.redundancy.RedundantEmbeddedExpressionInspection;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
+
 import static com.intellij.util.ObjectUtils.tryCast;
 
-public class StringTemplateMigrationInspection extends AbstractBaseJavaLocalInspectionTool {
+public final class StringTemplateMigrationInspection extends AbstractBaseJavaLocalInspectionTool {
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
@@ -28,43 +33,47 @@ public class StringTemplateMigrationInspection extends AbstractBaseJavaLocalInsp
       public void visitPolyadicExpression(@NotNull PsiPolyadicExpression expression) {
         if (expression.getOperationTokenType() != JavaTokenType.PLUS) return;
         if (!ExpressionUtils.hasStringType(expression)) return;
-        final ProblemHighlightType type = getAvailableType(expression.getOperands());
-        if (type == null) return;
+        final ProblemHighlightType type = getProblemHighlightType(expression);
+        if (type == null || (type == ProblemHighlightType.INFORMATION && !isOnTheFly)) return;
         holder.registerProblem(expression,
                                JavaBundle.message("inspection.string.template.migration.string.message"),
                                type, new ReplaceWithStringTemplateFix());
       }
 
       @Nullable
-      private static ProblemHighlightType getAvailableType(PsiExpression @NotNull [] operands) {
-        var available = new Object() {
-          boolean hasString = false;
-          boolean hasNotLiteralExpression = false;
-          boolean hasLiteralExpression = false;
-        };
+      private static ProblemHighlightType getProblemHighlightType(@NotNull PsiPolyadicExpression expression) {
+        PsiElement parent = PsiTreeUtil.skipParentsOfType(expression, PsiExpression.class);
+        if (parent instanceof PsiNameValuePair || parent instanceof PsiCaseLabelElementList || parent instanceof PsiAnnotationMethod) {
+          return null;
+        }
 
-        for (PsiExpression operand : operands) {
-          if (operand instanceof PsiTemplateExpression) { // Support for template concatenation is not yet implemented.
+        boolean hasString = false;
+        boolean hasNotLiteralExpression = false;
+        boolean hasLiteralExpression = false;
+
+        for (PsiExpression operand : expression.getOperands()) {
+          // Support for template concatenation is not yet implemented.
+          if (operand instanceof PsiTemplateExpression) {
             return null;
           }
-          if (operand instanceof PsiLiteralExpression literal && literal.getValue() instanceof String) {
-            available.hasString = true;
+          if (operand instanceof PsiLiteralExpression && ExpressionUtils.hasStringType(operand)) {
+            hasString = true;
           }
-          else if (!isOnlyLiterals(operand)) { // (1 + 2) * 3 + "str"
-            available.hasNotLiteralExpression = true;
+          // (1 + 2) * 3 + "str"
+          else if (!isOnlyLiterals(operand)) {
+            hasNotLiteralExpression = true;
           }
           else {
-            available.hasLiteralExpression = true;
+            hasLiteralExpression = true;
           }
         }
-        if (available.hasString && available.hasNotLiteralExpression) // "str" + str
-        {
+        // "str" + str
+        if (hasString && hasNotLiteralExpression) {
           return ProblemHighlightType.WEAK_WARNING;
         }
 
-        if (available.hasNotLiteralExpression || // str + str
-            (available.hasString && available.hasLiteralExpression) // "str" + 1 + 2
-        ) {
+        // (str + str) || "str" + 1 + 2)
+        if (hasNotLiteralExpression || (hasString && hasLiteralExpression) || PsiUtil.isConstantExpression(expression)) {
           return ProblemHighlightType.INFORMATION;
         }
         else {
@@ -82,8 +91,8 @@ public class StringTemplateMigrationInspection extends AbstractBaseJavaLocalInsp
           }
           return true;
         }
-        else if (operand instanceof PsiParenthesizedExpression parenthesized) {
-          final PsiExpression expression = parenthesized.getExpression();
+        else if (operand instanceof PsiParenthesizedExpression) {
+          final PsiExpression expression = PsiUtil.skipParenthesizedExprDown(operand);
           if (expression != null && !isOnlyLiterals(expression)) return false;
           return true;
         }
@@ -109,84 +118,89 @@ public class StringTemplateMigrationInspection extends AbstractBaseJavaLocalInsp
       if (expression == null) return;
       PsiPolyadicExpression polyadicExpression = tryCast(expression, PsiPolyadicExpression.class);
       if (polyadicExpression == null || !ExpressionUtils.hasStringType(polyadicExpression)) return;
-      replaceWithStringTemplate(polyadicExpression, polyadicExpression);
+      String stringTemplate = buildReplacementStringTemplate(polyadicExpression);
+      if (stringTemplate == null) return;
+      CommentTracker tracker = new CommentTracker();
+      PsiElement result = tracker.replaceAndRestoreComments(polyadicExpression, stringTemplate);
+      result = JavaCodeStyleManager.getInstance(project).shortenClassReferences(result);
+      if (result instanceof PsiTemplateExpression template) {
+        replaceRedundantEmbeddedExpression(template);
+      }
     }
 
-    private static void replaceWithStringTemplate(@NotNull PsiPolyadicExpression expression, @NotNull PsiExpression toReplace) {
+    private static String buildReplacementStringTemplate(@NotNull PsiPolyadicExpression expression) {
       StringBuilder content = new StringBuilder();
-      boolean isStringFounded = false;
+      boolean isStringFound = false;
+      boolean textBlock = useTextBlockTemplate(expression);
       for (PsiExpression operand : expression.getOperands()) {
-        if (!isStringFounded && TypeUtils.typeEquals(CommonClassNames.JAVA_LANG_STRING, operand.getType())) {
-          isStringFounded = true;
-          toTemplateExpression(content);
+        if (!isStringFound && ExpressionUtils.hasStringType(operand)) {
+          isStringFound = true;
+          if (!content.isEmpty()) {
+            content.insert(0, "\\{").append("}");
+          }
         }
 
         if (operand instanceof PsiParenthesizedExpression parenthesized) {
-          operand = removeParenthesize(parenthesized);
+          operand = PsiUtil.skipParenthesizedExprDown(parenthesized);
         }
         if (operand instanceof PsiLiteralExpression literal) {
-          if (TypeUtils.typeEquals(CommonClassNames.JAVA_LANG_STRING, literal.getType())) {
-            content.append(getLiteralText(literal));
+          if (ExpressionUtils.hasStringType(literal)) {
+            String value = (String)literal.getValue();
+            if (value == null) return null; // error in string literal
+            String escaped = StringUtil.escapeStringCharacters(value);
+            content.append(textBlock ? PsiLiteralUtil.escapeTextBlockCharacters(escaped, false, true, false) : escaped);
           }
           else {
-            toTemplateExpression(content, isStringFounded, literal);
+            toTemplateExpression(content, isStringFound, literal);
           }
         }
         else {
-          toTemplateExpression(content, isStringFounded, operand);
+          toTemplateExpression(content, isStringFound, operand);
         }
       }
-      CommentTracker tracker = new CommentTracker();
-      tracker.replaceAndRestoreComments(toReplace, content.insert(0, "STR.\"").append("\"").toString());
+      return textBlock ? CommonClassNames.JAVA_LANG_STRING_TEMPLATE + ".STR.\"\"\"\n" + content + "\"\"\"" : CommonClassNames.JAVA_LANG_STRING_TEMPLATE + ".STR.\"" + content + "\"";
     }
 
-    private static void toTemplateExpression(@NotNull StringBuilder result, boolean isParenthesize, @Nullable PsiElement element) {
-      if (element != null) {
-        if (isParenthesize || result.isEmpty()) {
-          toTemplateExpression(result, isParenthesize, element.getText());
+    private static boolean useTextBlockTemplate(PsiPolyadicExpression expression) {
+      for (PsiExpression operand : expression.getOperands()) {
+        if (operand instanceof PsiLiteralExpression literal && ExpressionUtils.hasStringType(operand)) {
+          if (literal.isTextBlock()) {
+            return true;
+          }
+          String value = (String)literal.getValue();
+          if (value != null && value.contains("\n")) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    private static void replaceRedundantEmbeddedExpression(PsiTemplateExpression template) {
+      while (template != null && template.getTemplate() != null) {
+        List<@NotNull PsiExpression> expressions = template.getTemplate().getEmbeddedExpressions();
+        for (PsiExpression expression : expressions) {
+          if (RedundantEmbeddedExpressionInspection.isEmbeddedLiteralRedundant(expression)) {
+            template = RedundantEmbeddedExpressionInspection.inlineEmbeddedExpression(expression);
+            if (template != null) break; // try again replacement with new embedded expressions
+          }
+          template = null; // finish
+        }
+      }
+    }
+
+    private static void toTemplateExpression(@NotNull StringBuilder result, boolean isEmbeddedExpression, @NotNull PsiElement element) {
+      if (isEmbeddedExpression || result.isEmpty()) {
+        if (isEmbeddedExpression) {
+          result.append("\\{").append(element.getText()).append("}");
         }
         else {
-          toTemplateExpression(result, isParenthesize, "+", element.getText());
+          result.append(element.getText());
         }
       }
-    }
-
-    private static void toTemplateExpression(@NotNull StringBuilder result, boolean isParenthesize, String... expressions) {
-      if (isParenthesize) {
-        result.append("\\{");
-        for (String expr : expressions) result.append(expr);
-        result.append("}");
-      }
       else {
-        for (String expr : expressions) result.append(expr);
+        result.append("+").append(element.getText());
       }
-    }
-
-    private static void toTemplateExpression(@NotNull StringBuilder result) {
-      if (!result.isEmpty()) {
-        result.insert(0, "\\{").append("}");
-      }
-    }
-
-
-    @NotNull
-    private static String getLiteralText(@NotNull PsiLiteralExpression literal) {
-      Object value;
-      if (!literal.isTextBlock() && ExpressionUtils.hasStringType(literal)) {
-        value = PsiLiteralUtil.getStringLiteralContent(literal);
-      }
-      else {
-        value = literal.getValue();
-      }
-      return value == null ? "" : value.toString();
-    }
-
-    @Nullable
-    private static PsiExpression removeParenthesize(@NotNull PsiParenthesizedExpression parenthesized) {
-      while (parenthesized.getExpression() != null && parenthesized.getExpression() instanceof PsiParenthesizedExpression) {
-        parenthesized = (PsiParenthesizedExpression)parenthesized.getExpression();
-      }
-      return parenthesized.getExpression();
     }
   }
 }

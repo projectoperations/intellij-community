@@ -11,7 +11,6 @@ import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar
 import com.intellij.openapi.util.EmptyRunnable
 import com.intellij.util.indexing.BuildableRootsChangeRescanningInfo
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots.OrderRootsCacheBridge
-import com.intellij.workspaceModel.ide.legacyBridge.GlobalLibraryTableBridge
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleDependencyIndex
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleDependencyListener
 import kotlinx.coroutines.CoroutineScope
@@ -31,7 +30,8 @@ class ProjectRootManagerBridge(project: Project, coroutineScope: CoroutineScope)
       return Runnable {
         super.actionToRunWhenProjectJdkChanges.run()
         if (moduleDependencyIndex.hasProjectSdkDependency()) {
-          fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addInheritedSdk())
+          val info = BuildableRootsChangeRescanningInfo.newInstance().addInheritedSdk().buildInfo()
+          fireRootsChanged(info)
         }
       }
     }
@@ -55,7 +55,7 @@ class ProjectRootManagerBridge(project: Project, coroutineScope: CoroutineScope)
 
     override fun referencedLibraryAdded(library: Library) {
       if (shouldListen(library)) {
-        fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addLibrary(library))
+        fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addLibrary(library).buildInfo())
       }
     }
 
@@ -63,7 +63,7 @@ class ProjectRootManagerBridge(project: Project, coroutineScope: CoroutineScope)
       if (insideRootsChange || !shouldListen(library)) return
       insideRootsChange = true
       try {
-        fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addLibrary(library))
+        fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addLibrary(library).buildInfo())
       }
       finally {
         insideRootsChange = false
@@ -78,19 +78,16 @@ class ProjectRootManagerBridge(project: Project, coroutineScope: CoroutineScope)
 
     private fun shouldListen(library: Library): Boolean {
       //project and global level libraries are stored in WorkspaceModel, and changes in their roots are handled by RootsChangeWatcher
-      if (GlobalLibraryTableBridge.isEnabled()) {
-        return library.table?.tableLevel != LibraryTablesRegistrar.PROJECT_LEVEL &&
-               library.table?.tableLevel != LibraryTablesRegistrar.APPLICATION_LEVEL
-      }
-      return library.table?.tableLevel != LibraryTablesRegistrar.PROJECT_LEVEL
+      return library.table?.tableLevel != LibraryTablesRegistrar.PROJECT_LEVEL &&
+             library.table?.tableLevel != LibraryTablesRegistrar.APPLICATION_LEVEL
     }
 
     override fun referencedSdkAdded(sdk: Sdk) {
-      fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addSdk(sdk))
+      fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addSdk(sdk).buildInfo())
     }
 
     override fun referencedSdkChanged(sdk: Sdk) {
-      fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addSdk(sdk))
+      fireRootsChanged(BuildableRootsChangeRescanningInfo.newInstance().addSdk(sdk).buildInfo())
     }
 
     override fun referencedSdkRemoved(sdk: Sdk) {

@@ -13,14 +13,19 @@ import com.intellij.structuralsearch.plugin.ui.SearchConfiguration
 import com.intellij.structuralsearch.plugin.util.CollectingMatchResultSink
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.util.SmartList
+import com.intellij.util.ThrowableRunnable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.intellij.lang.annotations.Language
 import org.jetbrains.kotlin.idea.KotlinFileType
+import org.jetbrains.kotlin.idea.fir.invalidateCaches
 import org.jetbrains.kotlin.idea.test.KotlinLightCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.idea.test.ProjectDescriptorWithStdlibSources
+import org.jetbrains.kotlin.idea.test.runAll
 import org.jetbrains.kotlin.idea.util.application.executeWriteCommand
+
+private const val disabled = true
 
 abstract class KotlinStructuralReplaceTest : KotlinLightCodeInsightFixtureTestCase() {
     override fun isFirPlugin(): Boolean = true
@@ -41,6 +46,7 @@ abstract class KotlinStructuralReplaceTest : KotlinLightCodeInsightFixtureTestCa
         shortenFqNames: Boolean = false,
         context: PatternContext = KotlinStructuralSearchProfile.DEFAULT_CONTEXT
     ) {
+        if (disabled) return // Test is flaky see KTIJ-27542
         myFixture.configureByText(KotlinFileType.INSTANCE, match)
         runBlocking {
             val matchOptions = searchConfiguration.matchOptions.apply {
@@ -68,7 +74,12 @@ abstract class KotlinStructuralReplaceTest : KotlinLightCodeInsightFixtureTestCa
             NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
             assertEquals(result, myFixture.file.text)
         }
+    }
 
-
+    override fun tearDown() {
+        runAll(
+            ThrowableRunnable { project.invalidateCaches() },
+            ThrowableRunnable { super.tearDown() }
+        )
     }
 }

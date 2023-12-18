@@ -658,8 +658,10 @@ public final class HighlightClassUtil {
       return null;
     }
 
-    String description = JavaErrorBundle.message("no.default.constructor.available", HighlightUtil.formatClass(baseClass));
+    // no need to distract with missing constructor error when there is already a "Cannot inherit from final class" error message
+    if (baseClass.hasModifierProperty(PsiModifier.FINAL)) return null;
 
+    String description = JavaErrorBundle.message("no.default.constructor.available", HighlightUtil.formatClass(baseClass));
     HighlightInfo.Builder info = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(range).descriptionAndTooltip(description);
     IntentionAction action = QuickFixFactory.getInstance().createCreateConstructorMatchingSuperFix(aClass);
     info.registerFix(action, null, null, null, null);
@@ -1350,19 +1352,19 @@ public final class HighlightClassUtil {
     return null;
   }
 
-  static HighlightInfo.Builder checkUnnamedClassMember(@NotNull PsiMember member, @NotNull LanguageLevel languageLevel,
-                                                       @NotNull PsiFile psiFile) {
-    if (!(member.getContainingClass() instanceof PsiUnnamedClass unnamedClass)) {
+  static HighlightInfo.Builder checkImplicitClassMember(@NotNull PsiMember member, @NotNull LanguageLevel languageLevel,
+                                                        @NotNull PsiFile psiFile) {
+    if (!(member.getContainingClass() instanceof PsiImplicitClass implicitClass)) {
       return null;
     }
 
-    HighlightInfo.Builder builder = HighlightUtil.checkFeature(member, HighlightingFeature.UNNAMED_CLASSES, languageLevel, psiFile);
+    HighlightInfo.Builder builder = HighlightUtil.checkFeature(member, HighlightingFeature.IMPLICIT_CLASSES, languageLevel, psiFile);
     if (builder == null) return null;
 
-    if (!(member instanceof PsiClass) && !HighlightingFeature.UNNAMED_CLASSES.isAvailable(member)) {
-      boolean hasClassToRelocate = PsiTreeUtil.findChildOfType(unnamedClass, PsiClass.class) != null;
+    if (!(member instanceof PsiClass) && !HighlightingFeature.IMPLICIT_CLASSES.isAvailable(member)) {
+      boolean hasClassToRelocate = PsiTreeUtil.findChildOfType(implicitClass, PsiClass.class) != null;
       if (hasClassToRelocate) {
-        MoveMembersIntoClassFix fix = new MoveMembersIntoClassFix(unnamedClass);
+        MoveMembersIntoClassFix fix = new MoveMembersIntoClassFix(implicitClass);
         builder.registerFix(fix, null, null, null, null);
       }
     }

@@ -12,8 +12,8 @@ import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.customization.CustomActionsSchema
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.impl.ActionConfigurationCustomizer
 import com.intellij.openapi.application.PathMacros
-import com.intellij.openapi.application.PreloadingActivity
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.application.impl.RawSwingDispatcher
 import com.intellij.openapi.components.serviceAsync
@@ -28,7 +28,7 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.ManagingFS
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager
 import com.intellij.platform.diagnostic.telemetry.impl.span
-import com.intellij.util.childScope
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.indexing.FileBasedIndex
 import kotlinx.coroutines.*
 import java.util.concurrent.CancellationException
@@ -66,21 +66,22 @@ fun CoroutineScope.preloadCriticalServices(app: ApplicationImpl,
 
     pathMacroJob.join()
 
+    val registryManagerJob = asyncScope.launch {
+      app.serviceAsync<RegistryManager>()
+    }
+
     // FileTypeManager requires appStarter execution
     launch {
       appRegistered.join()
       postAppRegistered(app = app,
                         asyncScope = asyncScope,
                         managingFsJob = managingFsJob,
+                        registryManagerJob = registryManagerJob,
                         initAwtToolkitAndEventQueueJob = initAwtToolkitAndEventQueueJob)
     }
   }
 
   asyncScope.launch {
-    launch {
-      app.serviceAsync<RegistryManager>()
-    }
-
     launch {
       app.serviceAsync<LogLevelConfigurationManager>()
     }
@@ -94,18 +95,31 @@ fun CoroutineScope.preloadCriticalServices(app: ApplicationImpl,
     launch {
       // https://youtrack.jetbrains.com/issue/IDEA-321138/Large-font-size-in-2023.2
       initLafJob.join()
+
+      launch(CoroutineName("CustomActionsSchema preloading")) {
+        app.serviceAsync<CustomActionsSchema>()
+      }
+
       span("UISettings preloading") { app.serviceAsync<UISettings>() }
     }
-    launch(CoroutineName("CustomActionsSchema preloading")) {
-      initLafJob.join()
-      app.serviceAsync<CustomActionsSchema>()
-    }
-    // wants PathMacros
-    launch(CoroutineName("GeneralSettings preloading")) { app.serviceAsync<GeneralSettings>() }
 
-    // ActionManager uses KeymapManager
-    span("KeymapManager preloading") { app.serviceAsync<KeymapManager>() }
-    span("ActionManager preloading") { app.serviceAsync<ActionManager>() }
+    // wants PathMacros
+    launch(CoroutineName("GeneralSettings preloading")) {
+      app.serviceAsync<GeneralSettings>()
+    }
+
+    launch(CoroutineName("actionConfigurationCustomizer preloading")) {
+      ActionConfigurationCustomizer.EP.forEachExtensionSafe {
+        // just preload
+      }
+    }
+
+    launch(CoroutineName("KeymapManager preloading")) {
+      app.serviceAsync<KeymapManager>()
+    }
+    launch(CoroutineName("ActionManager preloading")) {
+      app.serviceAsync<ActionManager>()
+    }
 
     app.serviceAsync<ScreenReaderStateManager>()
   }
@@ -114,6 +128,7 @@ fun CoroutineScope.preloadCriticalServices(app: ApplicationImpl,
 private fun CoroutineScope.postAppRegistered(app: ApplicationImpl,
                                              asyncScope: CoroutineScope,
                                              managingFsJob: Job,
+                                             registryManagerJob: Job,
                                              initAwtToolkitAndEventQueueJob: Job?) {
   asyncScope.launch {
     val fileTypeManagerJob = launch(CoroutineName("FileTypeManager preloading")) {
@@ -139,6 +154,8 @@ private fun CoroutineScope.postAppRegistered(app: ApplicationImpl,
       span("VirtualFilePointerManager preloading") {
         app.serviceAsync<VirtualFilePointerManager>()
       }
+      // RegistryManager is needed for ProjectJdkTable
+      registryManagerJob.join()
       span("ProjectJdkTable preloading") {
         app.serviceAsync<ProjectJdkTable>()
       }
@@ -181,9 +198,9 @@ private fun CoroutineScope.postAppRegistered(app: ApplicationImpl,
   if (!app.isHeadlessEnvironment && !app.isUnitTestMode && System.getProperty("enable.activity.preloading", "true").toBoolean()) {
     asyncScope.launch(CoroutineName("preloadingActivity executing")) {
       @Suppress("DEPRECATION")
-      val extensionPoint = app.extensionArea.getExtensionPoint<PreloadingActivity>("com.intellij.preloadingActivity")
+      val extensionPoint = app.extensionArea.getExtensionPoint<com.intellij.openapi.application.PreloadingActivity>("com.intellij.preloadingActivity")
       @Suppress("DEPRECATION")
-      for (item in ExtensionPointName<PreloadingActivity>(extensionPoint.name).filterableLazySequence()) {
+      for (item in ExtensionPointName<com.intellij.openapi.application.PreloadingActivity>(extensionPoint.name).filterableLazySequence()) {
         launch(CoroutineName(item.implementationClassName)) {
           item.instance?.let {
             executePreloadActivity(activity = it, descriptor = item.pluginDescriptor)
@@ -196,7 +213,7 @@ private fun CoroutineScope.postAppRegistered(app: ApplicationImpl,
 }
 
 @Suppress("DEPRECATION")
-private suspend fun executePreloadActivity(activity: PreloadingActivity, descriptor: PluginDescriptor) {
+private suspend fun executePreloadActivity(activity: com.intellij.openapi.application.PreloadingActivity, descriptor: PluginDescriptor) {
   try {
     activity.execute()
   }
@@ -204,7 +221,7 @@ private suspend fun executePreloadActivity(activity: PreloadingActivity, descrip
     throw e
   }
   catch (e: Throwable) {
-    logger<PreloadingActivity>()
+    logger<com.intellij.openapi.application.PreloadingActivity>()
       .error(PluginException("cannot execute preloading activity ${activity.javaClass.name}", e, descriptor.pluginId))
   }
 }

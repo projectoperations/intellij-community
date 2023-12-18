@@ -34,7 +34,7 @@ import java.util.Set;
 import static com.intellij.codeInspection.options.OptPane.checkbox;
 import static com.intellij.codeInspection.options.OptPane.pane;
 
-public class RawUseOfParameterizedTypeInspection extends BaseInspection {
+public final class RawUseOfParameterizedTypeInspection extends BaseInspection {
 
   @SuppressWarnings("PublicField") public boolean ignoreObjectConstruction = false;
 
@@ -115,7 +115,8 @@ public class RawUseOfParameterizedTypeInspection extends BaseInspection {
         if (!PsiUtil.isLanguageLevel7OrHigher(parent)) return null;
         if (newExpression.isArrayCreation() || newExpression.getAnonymousClass() != null) return null;
         PsiType expectedType = ExpectedTypeUtils.findExpectedType(newExpression, false);
-        if (expectedType == null || (expectedType instanceof PsiClassType && ((PsiClassType)expectedType).isRaw())) return null;
+        if (expectedType == null || expectedType.equals(PsiTypes.nullType()) || 
+            (expectedType instanceof PsiClassType && ((PsiClassType)expectedType).isRaw())) return null;
         PsiNewExpression copy = (PsiNewExpression)LambdaUtil.copyWithExpectedType(parent, expectedType);
         PsiJavaCodeReferenceElement reference = copy.getClassReference();
         if (reference == null) return null;

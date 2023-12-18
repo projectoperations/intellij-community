@@ -4,7 +4,6 @@ package org.jetbrains.idea.maven.dom
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.lang.properties.IProperty
 import com.intellij.maven.testFramework.MavenDomTestCase
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.util.SystemInfo
@@ -17,17 +16,12 @@ import org.jetbrains.idea.maven.dom.model.MavenDomProfiles
 import org.jetbrains.idea.maven.dom.model.MavenDomProfilesModel
 import org.jetbrains.idea.maven.dom.model.MavenDomSettingsModel
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
-import org.jetbrains.idea.maven.project.importing.FilesList
-import org.jetbrains.idea.maven.project.importing.MavenImportFlow
 import org.jetbrains.idea.maven.utils.MavenUtil
 import org.jetbrains.idea.maven.vfs.MavenPropertiesVirtualFileSystem
 import org.junit.Test
-import java.util.*
-import java.util.concurrent.TimeUnit
 
 class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
-  override fun runInDispatchThread() = false
-
+  
   override fun setUp() = runBlocking {
     super.setUp()
 
@@ -389,7 +383,8 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
 
   @Test
   fun testResolutionToInheritedModelPropertiesForRelativeParent() = runBlocking {
-    createProjectPom("""
+    withContext(Dispatchers.EDT) {
+      createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -402,8 +397,8 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                        <name>${'$'}{<caret>project.build.directory}</name>
                        """.trimIndent())
 
-    val parent = createModulePom("parent",
-                                 """
+      val parent = createModulePom("parent",
+                                   """
                                            <groupId>test</groupId>
                                            <artifactId>parent</artifactId>
                                            <version>1</version>
@@ -412,14 +407,14 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                                            </build>
                                            """.trimIndent())
 
-    withContext(Dispatchers.EDT) {
       assertResolved(myProjectPom, findTag(parent, "project.build.directory"))
     }
   }
 
   @Test
   fun testResolutionToInheritedPropertiesForNonManagedParent() = runBlocking {
-    createProjectPom("""
+    withContext(Dispatchers.EDT) {
+      createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -432,8 +427,8 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                        <name>${'$'}{<caret>foo}</name>
                        """.trimIndent())
 
-    val parent = createModulePom("parent",
-                                 """
+      val parent = createModulePom("parent",
+                                   """
                                            <groupId>test</groupId>
                                            <artifactId>parent</artifactId>
                                            <version>1</version>
@@ -442,7 +437,6 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                                            </properties>
                                            """.trimIndent())
 
-    withContext(Dispatchers.EDT) {
       assertResolved(myProjectPom, findTag(parent, "project.properties.foo"))
     }
   }
@@ -762,9 +756,9 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                                                </profiles>
                                                """.trimIndent())
 
-    myFixture.configureFromExistingVirtualFile(profiles)
-    myFixture.complete(CompletionType.BASIC)
-    val strings = myFixture.getLookupElementStrings()!!
+    fixture.configureFromExistingVirtualFile(profiles)
+    fixture.complete(CompletionType.BASIC)
+    val strings = fixture.getLookupElementStrings()!!
 
     assert(strings.containsAll(mutableListOf("foo", "bar")))
     assert(!strings.contains("xxx"))
@@ -784,9 +778,9 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                                                </profiles>
                                                """.trimIndent())
 
-    myFixture.configureFromExistingVirtualFile(profiles)
+    fixture.configureFromExistingVirtualFile(profiles)
     readAction {
-      val elementAtCaret = myFixture.getElementAtCaret()
+      val elementAtCaret = fixture.getElementAtCaret()
       assert(elementAtCaret is XmlTag)
       assertEquals("foo", (elementAtCaret as XmlTag).getName())
     }
@@ -884,7 +878,8 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
 
   @Test
   fun testResolvingInheritedProperties() = runBlocking {
-    createProjectPom("""
+    withContext(Dispatchers.EDT) {
+      createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -897,8 +892,8 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                        <name>${'$'}{<caret>foo}</name>
                        """.trimIndent())
 
-    val parent = createModulePom("parent",
-                                 """
+      val parent = createModulePom("parent",
+                                   """
                                            <groupId>test</groupId>
                                            <artifactId>parent</artifactId>
                                            <version>1</version>
@@ -906,8 +901,6 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                                              <foo>value</foo>
                                            </properties>
                                            """.trimIndent())
-
-    withContext(Dispatchers.EDT) {
       assertResolved(myProjectPom, findTag(parent, "project.properties.foo"))
     }
   }
@@ -956,7 +949,7 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
       val ref = getReferenceAtCaret(myProjectPom)
       assertNotNull(ref)
 
-      val resolved = ref.resolve()
+      val resolved = ref!!.resolve()
       assertEquals(System.getenv("Path").replace("[^A-Za-z]".toRegex(), ""),
                    (resolved as IProperty?)!!.getValue()!!.replace("[^A-Za-z]".toRegex(), ""))
     }
@@ -1203,32 +1196,11 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
   }
 
   private suspend fun readWithProfiles(vararg profiles: String) {
-    if (isNewImportingProcess) {
-      readWithProfilesViaImportFlow(*profiles)
-    }
-    else {
-      projectsManager.explicitProfiles = MavenExplicitProfiles(listOf(*profiles))
-      updateAllProjects()
-    }
+    projectsManager.explicitProfiles = MavenExplicitProfiles(listOf(*profiles))
+    updateAllProjects()
   }
 
   override fun readProjects() = runBlocking {
     readWithProfiles()
-  }
-
-  private fun readWithProfilesViaImportFlow(vararg profiles: String) {
-    val flow = MavenImportFlow()
-    val initialImportContext =
-      flow.prepareNewImport(myProject,
-                            FilesList(myAllPoms),
-                            mavenGeneralSettings,
-                            mavenImporterSettings,
-                            Arrays.asList(*profiles),
-                            emptyList())
-    projectsManager.initForTests()
-    ApplicationManager.getApplication().executeOnPooledThread {
-      myReadContext = flow.readMavenFiles(initialImportContext, mavenProgressIndicator)
-      projectsManager.setProjectsTree(myReadContext!!.projectsTree)
-    }[10, TimeUnit.SECONDS]
   }
 }

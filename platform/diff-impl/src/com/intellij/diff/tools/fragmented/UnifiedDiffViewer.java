@@ -3,6 +3,7 @@ package com.intellij.diff.tools.fragmented;
 
 import com.intellij.codeInsight.breadcrumbs.FileBreadcrumbsCollector;
 import com.intellij.diff.DiffContext;
+import com.intellij.diff.EditorDiffViewer;
 import com.intellij.diff.actions.AllLinesIterator;
 import com.intellij.diff.actions.BufferedLineIterator;
 import com.intellij.diff.actions.impl.OpenInEditorWithMouseAction;
@@ -80,7 +81,7 @@ import java.util.*;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
 
-public class UnifiedDiffViewer extends ListenerDiffViewerBase implements DifferencesLabel.DifferencesCounter {
+public class UnifiedDiffViewer extends ListenerDiffViewerBase implements DifferencesLabel.DifferencesCounter, EditorDiffViewer {
   @NotNull protected final EditorEx myEditor;
   @NotNull protected final Document myDocument;
   @NotNull protected final UnifiedDiffPanel myPanel;
@@ -251,11 +252,8 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements Differe
   protected List<AnAction> createEditorPopupActions() {
     List<AnAction> group = new ArrayList<>();
 
-    if (isEditable(Side.RIGHT, false)) {
-      group.add(new ReplaceSelectedChangesAction(Side.LEFT));
-      group.add(new ReplaceSelectedChangesAction(Side.RIGHT));
-    }
-
+    group.add(new ReplaceSelectedChangesAction(Side.LEFT));
+    group.add(new ReplaceSelectedChangesAction(Side.RIGHT));
     group.add(Separator.getInstance());
     group.addAll(TextDiffViewerUtil.createEditorPopupActions());
 
@@ -334,9 +332,9 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements Differe
 
     final List<LineFragment> fragments = myTextDiffProvider.compare(texts[0], texts[1], indicator);
 
-    UnifiedFragmentBuilder builder = ReadAction.compute(() -> {
+    UnifiedDiffState builder = ReadAction.compute(() -> {
       indicator.checkCanceled();
-      return new UnifiedFragmentBuilder(fragments, document1, document2, myMasterSide).exec();
+      return new SimpleUnifiedFragmentBuilder(document1, document2, myMasterSide).exec(fragments);
     });
 
     return apply(builder, texts, indicator);
@@ -385,7 +383,7 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements Differe
   }
 
   @NotNull
-  protected Runnable apply(@NotNull UnifiedFragmentBuilder builder,
+  protected Runnable apply(@NotNull UnifiedDiffState builder,
                            CharSequence @NotNull [] texts,
                            @NotNull ProgressIndicator indicator) {
     final DocumentContent content1 = getContent1();
@@ -850,7 +848,8 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements Differe
   }
 
   @NotNull
-  protected List<? extends EditorEx> getEditors() {
+  @Override
+  public List<? extends EditorEx> getEditors() {
     return Collections.singletonList(myEditor);
   }
 
@@ -1160,7 +1159,7 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements Differe
     }
 
     @NotNull
-    private LogicalPosition getPosition(int line, int column) {
+    private static LogicalPosition getPosition(int line, int column) {
       if (line == -1) return new LogicalPosition(0, 0);
       return new LogicalPosition(line, column);
     }

@@ -1,11 +1,11 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.workspace.storage.impl.url
 
-import com.intellij.util.containers.TreeNodeProcessingResult
 import com.intellij.platform.workspace.storage.impl.IntIdGenerator
 import com.intellij.platform.workspace.storage.impl.VirtualFileNameStore
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
+import com.intellij.util.containers.TreeNodeProcessingResult
 import it.unimi.dsi.fastutil.Hash.Strategy
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.ints.IntArrayList
@@ -123,9 +123,10 @@ public open class VirtualFileUrlManagerImpl : VirtualFileUrlManager {
         continue
       }
 
-      if (latestNode === findRootNode(latestNode.contentId)) {
+      // Handling reuse of the root node
+      if (latestNode === findRootNode(latestNode.contentId) && index == 0) {
         if (latestNode.contentId == nameId) {
-          if (index == latestElement) return latestNode.getVirtualFileUrl(this)
+          if (latestElement == 0) return latestNode.getVirtualFileUrl(this)
           continue
         }
       }

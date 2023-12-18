@@ -1,12 +1,14 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.io.dev.appendonlylog;
 
+import com.intellij.util.io.CleanableStorage;
 import com.intellij.util.io.blobstorage.ByteBufferReader;
 import com.intellij.util.io.blobstorage.ByteBufferWriter;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.Closeable;
+import java.io.Flushable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -16,11 +18,12 @@ import java.nio.ByteBuffer;
  * Thread-safety properties are implementation-specific.
  */
 @ApiStatus.Internal
-public interface AppendOnlyLog extends Closeable {
+public interface AppendOnlyLog extends Closeable, Flushable, CleanableStorage {
   /** @return id of appended record */
   long append(@NotNull ByteBufferWriter writer,
               int recordSize) throws IOException;
 
+  /** Simplified version of {@link #append(ByteBufferWriter, int)} -- appends data from byte[] */
   default long append(byte @NotNull [] data) throws IOException {
     return append(buffer -> buffer.put(data), data.length);
   }
@@ -28,6 +31,11 @@ public interface AppendOnlyLog extends Closeable {
   <T> T read(long recordId,
              @NotNull ByteBufferReader<T> reader) throws IOException;
 
+  /**
+   * @return true if supplied id looks like valid id of existing record in a log, false otherwise.
+   * returned false definitely means id is not valid -- but returned true means 'id _looks_ like a valid record id',
+   * because some implementations can't say for sure is id a valid record id or not.
+   */
   boolean isValidId(long id);
 
   /**
@@ -39,7 +47,8 @@ public interface AppendOnlyLog extends Closeable {
   @Override
   void close() throws IOException;
 
-  void flush(boolean force) throws IOException;
+  @Override
+  void flush() throws IOException;
 
   /** @return true if there are no records in the log */
   boolean isEmpty();

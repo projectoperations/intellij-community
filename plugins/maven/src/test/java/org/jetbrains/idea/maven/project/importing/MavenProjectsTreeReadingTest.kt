@@ -15,7 +15,7 @@
  */
 package org.jetbrains.idea.maven.project.importing
 
-import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.testFramework.PlatformTestUtil
@@ -28,15 +28,8 @@ import org.jetbrains.idea.maven.project.MavenProjectChanges
 import org.jetbrains.idea.maven.project.MavenProjectsTree
 import org.jetbrains.idea.maven.server.NativeMavenProjectHolder
 import org.junit.Test
-import java.io.IOException
 import java.util.*
 import java.util.Set
-import kotlin.collections.ArrayList
-import kotlin.collections.List
-import kotlin.collections.MutableList
-import kotlin.collections.listOf
-import kotlin.collections.map
-import kotlin.collections.mutableListOf
 
 class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
   @Test
@@ -388,10 +381,10 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     updateAll(myProjectPom)
     assertEquals(log().add("updated", "project", "m").add("deleted"), l.log)
     l.log.clear()
-    tree.updateAll(false, mavenGeneralSettings, mavenProgressIndicator.indicator)
+    tree.updateAll(false, mavenGeneralSettings, rawProgressReporter)
     assertEquals(log(), l.log)
     l.log.clear()
-    tree.updateAll(true, mavenGeneralSettings, mavenProgressIndicator.indicator)
+    tree.updateAll(true, mavenGeneralSettings, rawProgressReporter)
     assertEquals(log().add("updated", "project", "m").add("deleted"), l.log)
   }
 
@@ -417,10 +410,10 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     update(myProjectPom)
     assertEquals(log().add("updated", "project", "m").add("deleted"), l.log)
     l.log.clear()
-    tree.update(listOf(myProjectPom), false, mavenGeneralSettings, mavenProgressIndicator.indicator)
+    tree.update(listOf(myProjectPom), false, mavenGeneralSettings, rawProgressReporter)
     assertEquals(log(), l.log)
     l.log.clear()
-    tree.update(listOf(myProjectPom), true, mavenGeneralSettings, mavenProgressIndicator.indicator)
+    tree.update(listOf(myProjectPom), true, mavenGeneralSettings, rawProgressReporter)
     assertEquals(log().add("updated", "project").add("deleted"), l.log)
     l.log.clear()
   }
@@ -596,8 +589,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
   }
 
   @Test
-  @Throws(Exception::class)
-  fun testSendingNotificationsWhenResolveFailed() {
+  fun testSendingNotificationsWhenResolveFailed() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -621,7 +613,6 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
               project!!,
               mavenGeneralSettings,
               embeddersManager,
-              NULL_MAVEN_CONSOLE,
               mavenProgressIndicator
       )
     }
@@ -868,8 +859,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
   }
 
   @Test
-  @Throws(IOException::class)
-  fun testHandlingSelfInheritance() {
+  fun testHandlingSelfInheritance() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>parent</artifactId>
@@ -888,8 +878,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
   }
 
   @Test
-  @Throws(IOException::class)
-  fun testHandlingRecursiveInheritance() {
+  fun testHandlingRecursiveInheritance() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>parent</artifactId>
@@ -990,8 +979,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
   }
 
   @Test
-  @Throws(IOException::class)
-  fun testRecursiveInheritanceAndAggregation() {
+  fun testRecursiveInheritanceAndAggregation() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>parent</artifactId>
@@ -1509,11 +1497,11 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     val l = MyLoggingListener()
     tree.addListener(l, getTestRootDisposable())
     tree.addManagedFilesWithProfiles(listOf(myProjectPom), MavenExplicitProfiles.NONE)
-    tree.updateAll(false, mavenGeneralSettings, mavenProgressIndicator.indicator)
+    tree.updateAll(false, mavenGeneralSettings, rawProgressReporter)
     assertEquals(log().add("updated", "parent", "m1", "m2").add("deleted"), l.log)
     l.log.clear()
     tree.removeManagedFiles(Arrays.asList(myProjectPom))
-    tree.updateAll(false, mavenGeneralSettings, mavenProgressIndicator.indicator)
+    tree.updateAll(false, mavenGeneralSettings, rawProgressReporter)
     assertEquals(log().add("updated").add("deleted", "m1", "m2", "parent"), l.log)
   }
 
@@ -1775,14 +1763,13 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
                                 </profile>
                                 """.trimIndent())
     updateAll(myProjectPom)
-    val existingManagedFiles = tree.getExistingManagedFiles()
+    val existingManagedFiles = tree.existingManagedFiles
     val obsoleteFiles = tree.rootProjectsFiles
     assertEquals(existingManagedFiles, obsoleteFiles)
   }
 
   @Test
-  @Throws(Exception::class)
-  fun testSaveLoad() {
+  fun testSaveLoad() = runBlocking {
     //todo: move to resolver test
     // stripping down plugins
     // stripping down Xpp3Dom fields
@@ -1830,7 +1817,6 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
               parentProject!!,
               mavenGeneralSettings,
               embeddersManager,
-              NULL_MAVEN_CONSOLE,
               mavenProgressIndicator)
     }
     finally {
@@ -1847,13 +1833,12 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     assertEquals(m1, read.getModules(rootProject)[0].file)
     assertEquals(m2, read.getModules(rootProject)[1].file)
     assertNull(read.findAggregator(rootProject))
-    assertEquals(rootProject, read.findAggregator(read.findProject(m1)))
-    assertEquals(rootProject, read.findAggregator(read.findProject(m2)))
+    assertEquals(rootProject, read.findAggregator(read.findProject(m1)!!))
+    assertEquals(rootProject, read.findAggregator(read.findProject(m2)!!))
   }
 
   @Test
-  @Throws(Exception::class)
-  fun testCollectingProfilesFromSettingsXmlAndPluginsXml() {
+  fun testCollectingProfilesFromSettingsXmlAndPluginsXml() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -1877,12 +1862,11 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
                         </profiles>
                         """.trimIndent())
     updateAll(myProjectPom)
-    assertUnorderedElementsAreEqual(tree.getAvailableProfiles(), "one", "two", "three")
+    assertUnorderedElementsAreEqual(tree.availableProfiles, "one", "two", "three")
   }
 
   @Test
-  @Throws(Exception::class)
-  fun testCollectingProfilesFromSettingsXmlAndPluginsXmlAfterResolve() {
+  fun testCollectingProfilesFromSettingsXmlAndPluginsXmlAfterResolve() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -1912,19 +1896,17 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
               tree.rootProjects[0],
               mavenGeneralSettings,
               embeddersManager,
-              NULL_MAVEN_CONSOLE,
               mavenProgressIndicator
       )
     }
     finally {
       embeddersManager.releaseInTests()
     }
-    assertUnorderedElementsAreEqual(tree.getAvailableProfiles(), "one", "two", "three")
+    assertUnorderedElementsAreEqual(tree.availableProfiles, "one", "two", "three")
   }
 
   @Test
-  @Throws(Exception::class)
-  fun testCollectingProfilesFromParentsAfterResolve() {
+  fun testCollectingProfilesFromParentsAfterResolve() = runBlocking {
     createModulePom("parent1",
                     """
                       <groupId>test</groupId>
@@ -2020,7 +2002,6 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
               project,
               mavenGeneralSettings,
               embeddersManager,
-              NULL_MAVEN_CONSOLE,
               mavenProgressIndicator
       )
     }
@@ -2036,8 +2017,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
   }
 
   @Test
-  @Throws(IOException::class)
-  fun testDeletingAndRestoringActiveProfilesWhenAvailableProfilesChange() {
+  fun testDeletingAndRestoringActiveProfilesWhenAvailableProfilesChange() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -2091,8 +2071,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
   }
 
   @Test
-  @Throws(IOException::class)
-  fun testDeletingAndRestoringActiveProfilesWhenProjectDeletes() {
+  fun testDeletingAndRestoringActiveProfilesWhenProjectDeletes() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -2121,11 +2100,11 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     updateAll(mutableListOf<String?>("one", "two"), myProjectPom)
     assertUnorderedElementsAreEqual(
       tree.explicitProfiles.enabledProfiles, "one", "two")
-    val finalM = m
-    WriteCommandAction.writeCommandAction(myProject).run<IOException> {
-      finalM.delete(this)
-      deleteProject(finalM)
+    writeAction {
+      m.delete(this)
     }
+    deleteProject(m)
+
     assertUnorderedElementsAreEqual(
       tree.explicitProfiles.enabledProfiles, "one")
     m = createModulePom("m",
@@ -2193,8 +2172,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
   }
 
   @Test
-  @Throws(Exception::class)
-  fun testOutputPathsAreBasedOnTargetPathWhenResolving() {
+  fun testOutputPathsAreBasedOnTargetPathWhenResolving() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -2214,7 +2192,6 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
               project,
               mavenGeneralSettings,
               embeddersManager,
-              NULL_MAVEN_CONSOLE,
               mavenProgressIndicator)
     }
     finally {

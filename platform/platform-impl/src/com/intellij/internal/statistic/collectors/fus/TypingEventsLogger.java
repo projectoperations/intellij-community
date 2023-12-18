@@ -9,6 +9,8 @@ import com.intellij.internal.statistic.eventLog.events.*;
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector;
 import com.intellij.internal.statistic.utils.EventRateThrottleResult;
 import com.intellij.internal.statistic.utils.EventsRateWindowThrottle;
+import com.intellij.internal.statistic.utils.StatisticsUploadAssistant;
+import com.intellij.lang.Language;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
@@ -27,12 +29,12 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 
 public final class TypingEventsLogger extends CounterUsagesCollector {
-  private static final EventLogGroup GROUP = new EventLogGroup("editor.typing", 7);
+  private static final EventLogGroup GROUP = new EventLogGroup("editor.typing", 8);
 
   private static final EnumEventField<EditorKind> EDITOR_KIND = EventFields.Enum("editor_kind", EditorKind.class);
   private static final StringEventField TOOL_WINDOW =
     EventFields.StringValidatedByCustomRule("toolwindow_id", ToolWindowUtilValidator.class);
-  private static final VarargEventId TYPED = GROUP.registerVarargEvent("typed", EDITOR_KIND, TOOL_WINDOW);
+  private static final VarargEventId TYPED = GROUP.registerVarargEvent("typed", EDITOR_KIND, TOOL_WINDOW, EventFields.Language);
   private static final EventId TOO_MANY_EVENTS = GROUP.registerEvent("too.many.events");
   private static final IntEventField LATENCY_MAX = EventFields.Int("latency_max_ms");
   private static final IntEventField LATENCY_90 = EventFields.Int("latency_90_ms");
@@ -49,10 +51,12 @@ public final class TypingEventsLogger extends CounterUsagesCollector {
   public static final class TypingEventsListener implements AnActionListener {
     @Override
     public void beforeEditorTyping(char c, @NotNull DataContext dataContext) {
+      if (!StatisticsUploadAssistant.isCollectAllowedOrForced()) return;
+
       EventRateThrottleResult result = ourThrottle.tryPass(System.currentTimeMillis());
       Project project = CommonDataKeys.PROJECT.getData(dataContext);
       if (result == EventRateThrottleResult.ACCEPT) {
-        ArrayList<EventPair<?>> pairs = new ArrayList<>(2);
+        ArrayList<EventPair<?>> pairs = new ArrayList<>(3);
 
         Editor editor = CommonDataKeys.EDITOR.getData(dataContext);
         if (editor != null) {
@@ -66,6 +70,11 @@ public final class TypingEventsLogger extends CounterUsagesCollector {
         ToolWindow toolWindow = PlatformDataKeys.TOOL_WINDOW.getData(dataContext);
         if (toolWindow != null) {
           pairs.add(TOOL_WINDOW.with(toolWindow.getId()));
+        }
+
+        Language fileLanguage = DataContextUtils.getFileTypeLanguageByEditor(dataContext);
+        if (fileLanguage != null) {
+          pairs.add(EventFields.Language.with(fileLanguage));
         }
 
         TYPED.log(project, pairs);

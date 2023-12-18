@@ -21,6 +21,7 @@ import com.intellij.openapi.editor.markup.SeparatorPlacement;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
@@ -42,7 +43,7 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.util.*;
 
-public final class LineMarkersPass extends TextEditorHighlightingPass {
+public final class LineMarkersPass extends TextEditorHighlightingPass implements DumbAware {
   private static final Logger LOG = Logger.getInstance(LineMarkersPass.class);
 
   private final @NotNull PsiFile myFile;
@@ -159,8 +160,8 @@ public final class LineMarkersPass extends TextEditorHighlightingPass {
     List<LineMarkerProvider> forLanguage = LineMarkerProviders.getInstance().allForLanguageOrAny(language);
     List<LineMarkerProvider> providers = DumbService.getInstance(project).filterByDumbAwareness(forLanguage);
     LineMarkerSettings settings = LineMarkerSettings.getSettings();
-    return ContainerUtil.filter(providers, provider -> !(provider instanceof LineMarkerProviderDescriptor)
-                                                       || settings.isEnabled((LineMarkerProviderDescriptor)provider));
+    return ContainerUtil.filter(providers, provider -> !(provider instanceof LineMarkerProviderDescriptor line)
+                                                       || settings.isEnabled(line));
   }
 
   private void queryProviders(@NotNull List<? extends PsiElement> elements,

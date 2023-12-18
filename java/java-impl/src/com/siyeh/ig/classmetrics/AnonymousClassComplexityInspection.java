@@ -22,7 +22,7 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.fixes.MoveAnonymousToInnerClassFix;
 import org.jetbrains.annotations.NotNull;
 
-public class AnonymousClassComplexityInspection
+public final class AnonymousClassComplexityInspection
   extends ClassMetricInspection {
 
   private static final int DEFAULT_COMPLEXITY_LIMIT = 3;
@@ -83,7 +83,7 @@ public class AnonymousClassComplexityInspection
       registerClassError(aClass, Integer.valueOf(totalComplexity));
     }
 
-    private int calculateTotalComplexity(PsiClass aClass) {
+    private static int calculateTotalComplexity(PsiClass aClass) {
       final PsiMethod[] methods = aClass.getMethods();
       int totalComplexity = calculateComplexityForMethods(methods);
       totalComplexity += calculateInitializerComplexity(aClass);

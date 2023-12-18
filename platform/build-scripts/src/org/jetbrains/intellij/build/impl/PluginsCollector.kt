@@ -121,24 +121,29 @@ fun collectPluginDescriptors(skipImplementationDetailPlugins: Boolean,
     }
 
     // not a plugin
-    if (moduleName == "intellij.idea.ultimate.customization" || moduleName == "intellij.lightEdit" || moduleName == "intellij.webstorm") {
+    if (moduleName == "intellij.idea.ultimate.customization" ||
+        moduleName == "intellij.lightEdit" ||
+        (context.productProperties.platformPrefix != "FleetBackend" && moduleName.startsWith("fleet.plugins.")) ||
+        moduleName == "intellij.webstorm") {
       continue
     }
 
     val pluginXml = context.findFileInModuleSources(moduleName, "META-INF/plugin.xml") ?: continue
 
-    val pluginLayout = nonTrivialPlugins.get(moduleName) ?: PluginLayout.plugin(moduleName)
     val xml = JDOMUtil.load(pluginXml)
     check(!xml.isEmpty) {
       "Module '$moduleName': '$pluginXml' is empty"
     }
 
     if (skipImplementationDetailPlugins && xml.getAttributeValue("implementation-detail") == "true") {
-      context.messages.debug("PluginsCollector: skipping module '$moduleName' since 'implementation-detail' == 'true' in '$pluginXml'")
+      Span.current().addEvent("skip module '$moduleName' since 'implementation-detail' == 'true' in '$pluginXml'")
       continue
     }
 
-    JDOMXIncluder.resolveNonXIncludeElement(xml, pluginXml, SourcesBasedXIncludeResolver(pluginLayout, context))
+    val pluginLayout = nonTrivialPlugins.get(moduleName) ?: PluginLayout.pluginAuto(listOf(moduleName))
+    JDOMXIncluder.resolveNonXIncludeElement(original = xml,
+                                            base = pluginXml,
+                                            pathResolver = SourcesBasedXIncludeResolver(pluginLayout = pluginLayout, context = context))
 
     val id = xml.getChildTextTrim("id") ?: xml.getChildTextTrim("name")
     check(!id.isNullOrEmpty()) {
@@ -239,13 +244,11 @@ private object JDOMXIncluder {
   /**
    * The original element will be mutated in place.
    */
-  fun resolveNonXIncludeElement(original: Element,
-                                base: Path,
-                                pathResolver: PathResolver) {
+  fun resolveNonXIncludeElement(original: Element, base: Path, pathResolver: PathResolver) {
     check(!isIncludeElement(original))
     val bases = ArrayDeque<URL>()
     bases.push(base.toUri().toURL())
-    doResolveNonXIncludeElement(original, bases, pathResolver)
+    doResolveNonXIncludeElement(original = original, bases = bases, pathResolver = pathResolver)
   }
 
   private fun isIncludeElement(element: Element): Boolean {

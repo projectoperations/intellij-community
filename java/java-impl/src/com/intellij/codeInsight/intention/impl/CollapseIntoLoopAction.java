@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
 
 import static com.intellij.util.ObjectUtils.tryCast;
 
-public class CollapseIntoLoopAction implements ModCommandAction {
+public final class CollapseIntoLoopAction implements ModCommandAction {
   @Override
   public @NotNull @IntentionFamilyName String getFamilyName() {
     return JavaBundle.message("intention.name.collapse.into.loop");
@@ -36,6 +36,7 @@ public class CollapseIntoLoopAction implements ModCommandAction {
 
   @Override
   public @Nullable Presentation getPresentation(@NotNull ActionContext context) {
+    if (!BaseIntentionAction.canModify(context.file())) return null;
     return LoopModel.from(context) != null ? Presentation.of(getFamilyName()) : null;
   }
 

@@ -18,7 +18,6 @@ package com.intellij.ui;
 import com.intellij.ide.highlighter.HighlighterFactory;
 import com.intellij.lang.Language;
 import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
@@ -95,7 +94,7 @@ public class LanguageTextField extends EditorTextField {
       final PsiFileFactory factory = PsiFileFactory.getInstance(notNullProject);
 
       final long stamp = LocalTimeCounter.currentTime();
-      final PsiFile psiFile = factory.createFileFromText("Dummy." + fileType.getDefaultExtension(), fileType, "", stamp, true, false);
+      final PsiFile psiFile = factory.createFileFromText("Dummy." + fileType.getDefaultExtension(), fileType, value, stamp, true, false);
       documentCreator.customizePsiFile(psiFile);
 
       // No need to guess project in getDocument - we already know it
@@ -104,12 +103,6 @@ public class LanguageTextField extends EditorTextField {
         document = ReadAction.compute(() -> PsiDocumentManager.getInstance(notNullProject).getDocument(psiFile));
       }
       assert document != null;
-
-      if (!value.isEmpty()) {
-        ApplicationManager.getApplication().runWriteAction(() -> {
-          document.setText(value); // do not put initial value into backing LightVirtualFile.contentsToByteArray
-        });
-      }
       return document;
     }
     else {
@@ -120,7 +113,7 @@ public class LanguageTextField extends EditorTextField {
   @Override
   protected @NotNull EditorEx createEditor() {
     EditorEx editor = super.createEditor();
-    if (myLanguage != null) {
+    if (myLanguage != null && !myProject.isDisposed()) {
       FileType fileType = myLanguage.getAssociatedFileType();
       editor.setHighlighter(HighlighterFactory.createHighlighter(myProject, fileType));
     }

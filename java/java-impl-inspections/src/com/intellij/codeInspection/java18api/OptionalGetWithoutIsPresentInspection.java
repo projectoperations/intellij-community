@@ -30,7 +30,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.Objects;
 
-public class OptionalGetWithoutIsPresentInspection extends AbstractBaseJavaLocalInspectionTool {
+public final class OptionalGetWithoutIsPresentInspection extends AbstractBaseJavaLocalInspectionTool {
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
@@ -52,7 +52,7 @@ public class OptionalGetWithoutIsPresentInspection extends AbstractBaseJavaLocal
         }
       }
 
-      private boolean isOptionalProblem(@NotNull PsiExpression context, @NotNull JavaDfaAnchor anchor) {
+      private static boolean isOptionalProblem(@NotNull PsiExpression context, @NotNull JavaDfaAnchor anchor) {
         CommonDataflow.DataflowResult result = CommonDataflow.getDataflowResult(context);
         if (result == null || !result.anchorWasAnalyzed(anchor)) return false;
         DfType dfType = SpecialField.OPTIONAL_VALUE.getFromQualifier(result.getDfType(anchor));

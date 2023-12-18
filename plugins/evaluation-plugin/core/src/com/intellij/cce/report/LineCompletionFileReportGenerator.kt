@@ -34,6 +34,12 @@ class LineCompletionFileReportGenerator(
   }
 
   override fun getKindClass(lookup: Lookup, expectedText: String): String {
+    if (lookup.additionalInfo["trigger_decision"] == "SKIP") {
+      return "cg-skipped"
+    }
+    if (lookup.suggestions.isEmpty()) {
+      return "cg-empty"
+    }
     val restText = expectedText.substring(lookup.offset)
     val matchedRatio = (MatchedRatio().computeSimilarity(lookup, restText) ?: 0.0) / restText.length
     return when {

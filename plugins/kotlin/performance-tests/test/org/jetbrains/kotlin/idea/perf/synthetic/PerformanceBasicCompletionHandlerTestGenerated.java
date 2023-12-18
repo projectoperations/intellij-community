@@ -142,6 +142,11 @@ public abstract class PerformanceBasicCompletionHandlerTestGenerated extends Abs
             runTest("../completion/testData/handlers/basic/callableReference/NonEmptyQualifier.kt");
         }
 
+        @TestMetadata("NotImportedClassConstructor.kt")
+        public void testNotImportedClassConstructor() throws Exception {
+            runTest("../completion/testData/handlers/basic/callableReference/NotImportedClassConstructor.kt");
+        }
+
         @TestMetadata("NotImportedTopLevel.kt")
         public void testNotImportedTopLevel() throws Exception {
             runTest("../completion/testData/handlers/basic/callableReference/NotImportedTopLevel.kt");
@@ -1179,6 +1184,11 @@ public abstract class PerformanceBasicCompletionHandlerTestGenerated extends Abs
         @TestMetadata("AmbiguousSuperMethod.kt")
         public void testAmbiguousSuperMethod() throws Exception {
             runTest("../completion/testData/handlers/basic/AmbiguousSuperMethod.kt");
+        }
+
+        @TestMetadata("AmbiguousSuperMethodLambdaArgument.kt")
+        public void testAmbiguousSuperMethodLambdaArgument() throws Exception {
+            runTest("../completion/testData/handlers/basic/AmbiguousSuperMethodLambdaArgument.kt");
         }
 
         @TestMetadata("AmbiguousSuperMethodWithArgument.kt")

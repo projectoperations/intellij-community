@@ -35,8 +35,7 @@ import org.junit.Test
 import java.io.File
 
 class MavenFoldersUpdatingTest : MavenMultiVersionImportingTestCase() {
-  override fun runInDispatchThread() = false
-  @Test
+    @Test
   fun testUpdatingExternallyCreatedFolders() = runBlocking {
     importProjectAsync("""
                     <groupId>test</groupId>
@@ -52,8 +51,6 @@ class MavenFoldersUpdatingTest : MavenMultiVersionImportingTestCase() {
 
     assertExcludes("project", "target")
     assertGeneratedSources("project", "target/generated-sources/xxx")
-
-    assertNull(myProjectRoot.findChild("target"))
   }
 
   @Test

@@ -6,13 +6,16 @@ package com.intellij.ide.ui
 import com.fasterxml.jackson.core.JsonFactory
 import com.intellij.AbstractBundle
 import com.intellij.DynamicBundle
+import com.intellij.diagnostic.PluginException
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.cl.PluginAwareClassLoader
+import com.intellij.ide.ui.laf.UIThemeExportableBean
 import com.intellij.ide.ui.laf.UIThemeLookAndFeelInfoImpl
 import com.intellij.ide.ui.laf.UiThemeProviderListManager
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.IconPathPatcher
 import com.intellij.ui.ColorUtil
-import com.intellij.ui.IdeUICustomization
 import com.intellij.ui.JBColor
 import com.intellij.ui.svg.SvgAttributePatcher
 import com.intellij.ui.svg.newSvgPatcher
@@ -58,8 +61,6 @@ class UITheme internal constructor(
   val author: String?
     get() = bean.author
 
-  val additionalEditorSchemes: List<String>
-    get() = bean.additionalEditorSchemes ?: emptyList()
   val background: Map<String, Any?>
     get() = bean.background ?: emptyMap()
   val emptyFrameBackground: Map<String, Any?>
@@ -73,6 +74,9 @@ class UITheme internal constructor(
         entry.setValue(IJColorUIResource(value, key))
       }
     }
+
+    val classLoader = providerClassLoader
+    val warn = createWarnFunction(classLoader)
 
     for ((key, value) in bean.colorMap.map) {
       val k = "ColorPalette.$key"
@@ -90,7 +94,7 @@ class UITheme internal constructor(
       }
 
       @Suppress("NAME_SHADOWING")
-      val value = color ?: parseUiThemeValue(key = key, value = value, classLoader = providerClassLoader)
+      val value = color ?: parseUiThemeValue(key = key, value = value, classLoader = classLoader, warn = warn)
       if (key.startsWith("*.")) {
         val tail = key.substring(1)
         addPattern(key, value, defaults)
@@ -131,35 +135,66 @@ class UITheme internal constructor(
     _providerClassLoader = value
   }
 
-  val editorSchemePath: String?
-    get() = IdeUICustomization.getInstance().getUiThemeEditorSchemePath(id, bean.editorScheme)
+  internal fun describe(): UIThemeExportableBean {
+    val iconMap = bean.icons?.let {
+      val iconMap = LinkedHashMap<String, String>(it.size)
+      for ((key, value) in it) {
+        if (key != "ColorPalette" && value is String) {
+          iconMap.put(key, value)
+        }
+      }
+      iconMap
+    } ?: emptyMap()
+    @Suppress("UNCHECKED_CAST")
+    return UIThemeExportableBean(
+      colors = bean.colorMap.map.mapValues { it.value.rgb },
+      iconColorsOnSelection = bean.iconColorOnSelectionMap.map.mapValues { it.value.rgb },
+      icons = iconMap,
+      colorPalette = bean.icons?.get("ColorPalette") as? Map<String, String> ?: emptyMap()
+    )
+  }
 
-  var editorSchemeName: String? = null
+  var editorSchemeId: String? = bean.editorScheme
+    // custom set to be able to set a fixed editor scheme id (see the only setter in EditorColorsManagerImpl)
+    internal set
+
+  internal val originalEditorSchemeId: String?
+    get() = bean.editorScheme
 
   companion object {
     const val FILE_EXT_ENDING: String = ".theme.json"
 
     @ApiStatus.Internal
     fun loadTempThemeFromJson(stream: InputStream, themeId: @NonNls String): UITheme {
-      val theme = readTheme(JsonFactory().createParser(stream))
+      val classLoader = UITheme::class.java.classLoader
+      val warn = createWarnFunction(classLoader)
+      val theme = readTheme(JsonFactory().createParser(stream), warn)
       return createTheme(themeId = themeId,
                          theme = theme,
                          parentTheme = resolveParentTheme(theme, themeId),
-                         classLoader = UITheme::class.java.classLoader)
+                         classLoader = classLoader,
+                         warn = warn)
     }
 
     fun loadFromJson(data: ByteArray,
                      themeId: @NonNls String,
                      classLoader: ClassLoader,
                      iconMapper: ((String) -> String?)? = null): UITheme {
-      val theme = readTheme(JsonFactory().createParser(data))
+      val warn = createWarnFunction(classLoader)
+      val theme = readTheme(JsonFactory().createParser(data), warn)
       val parentTheme = resolveParentTheme(theme, themeId)
-      return createTheme(theme = theme, parentTheme = parentTheme, classLoader = classLoader, iconMapper = iconMapper, themeId = themeId)
+      return createTheme(theme = theme,
+                         parentTheme = parentTheme,
+                         classLoader = classLoader,
+                         iconMapper = iconMapper,
+                         themeId = themeId,
+                         warn = warn)
     }
 
     internal fun loadDeprecatedFromJson(data: ByteArray, themeId: @NonNls String, classLoader: ClassLoader): UITheme {
-      val theme = readTheme(JsonFactory().createParser(data))
-      return createTheme(theme = theme, parentTheme = null, classLoader = classLoader, iconMapper = null, themeId = themeId)
+      val warn = createWarnFunction(classLoader)
+      val theme = readTheme(JsonFactory().createParser(data), warn)
+      return createTheme(theme = theme, parentTheme = null, classLoader = classLoader, iconMapper = null, themeId = themeId, warn = warn)
     }
 
     private fun resolveParentTheme(theme: UIThemeBean, themeId: @NonNls String): UIThemeBean? {
@@ -180,8 +215,9 @@ class UITheme internal constructor(
                               classLoader: ClassLoader,
                               iconMapper: ((String) -> String?)? = null,
                               defaultDarkParent: Supplier<UITheme?>?,
-                              defaultLightParent: Supplier<UITheme?>?): UITheme {
-      val bean = readTheme(JsonFactory().createParser(data))
+                              defaultLightParent: Supplier<UITheme?>?,
+                              warn: (String, Throwable?) -> Unit): UITheme {
+      val bean = readTheme(JsonFactory().createParser(data), warn)
       val parent: UIThemeBean?
       if (parentTheme == null) {
         val parentThemeId = bean.parentTheme
@@ -196,7 +232,12 @@ class UITheme internal constructor(
         parent = parentTheme.bean
         bean.parentTheme = parentTheme.id
       }
-      return createTheme(theme = bean, parentTheme = parent, classLoader = classLoader, iconMapper = iconMapper, themeId = themeId)
+      return createTheme(theme = bean,
+                         parentTheme = parent,
+                         classLoader = classLoader,
+                         iconMapper = iconMapper,
+                         themeId = themeId,
+                         warn = warn)
     }
 
     @TestOnly
@@ -209,43 +250,14 @@ private fun createTheme(theme: UIThemeBean,
                         parentTheme: UIThemeBean?,
                         classLoader: ClassLoader,
                         iconMapper: ((String) -> String?)? = null,
-                        themeId: @NonNls String): UITheme {
+                        themeId: @NonNls String,
+                        warn: (String, Throwable?) -> Unit): UITheme {
   if (parentTheme != null) {
     importFromParentTheme(theme, parentTheme)
   }
-  initializeNamedColors(theme)
+  initializeNamedColors(theme, warn = warn)
 
   val paletteScopeManager = UiThemePaletteScopeManager()
-  val colorsOnSelection = theme.iconColorOnSelectionMap.map
-  var selectionColorPatcher: SvgElementColorPatcherProvider? = null
-  if (!colorsOnSelection.isEmpty()) {
-    val colors = HashMap<String, String>(colorsOnSelection.size)
-    val alphaColors = HashSet<String>(colorsOnSelection.size)
-    for ((key, v) in colorsOnSelection) {
-      val value = "#" + ColorUtil.toHex(/* c = */ v, /* withAlpha = */ false)
-      colors.put(key, value)
-      alphaColors.add(value)
-    }
-
-    selectionColorPatcher = object : SvgElementColorPatcherProvider {
-      private val svgPatcher = ConcurrentHashMap<UiThemePaletteScope, SvgAttributePatcher>()
-      private val paletteSvgPatcher: SvgAttributePatcher
-
-      init {
-        val hashBuilder = InsecureHashBuilder().stringMap(colors).update(0/* without scope */)
-        paletteSvgPatcher = newSvgPatcher(digest = hashBuilder.build(), newPalette = colors) { if (alphaColors.contains(it)) 255 else null }
-      }
-
-      override fun attributeForPath(path: String): SvgAttributePatcher {
-        val scope = paletteScopeManager.getScopeByPath(path) ?: return paletteSvgPatcher
-        return svgPatcher.computeIfAbsent(scope) {
-          val hashBuilder = scope.updateHash(InsecureHashBuilder().stringMap(colors).update(1 /* with scope */))
-          // `255` here is not a mistake - we want to set that corresponding color as non-transparent explicitly
-          newSvgPatcher(digest = hashBuilder.build(), newPalette = colors) { if (alphaColors.contains(it)) 255 else null }
-        }
-      }
-    }
-  }
 
   val iconMap = theme.icons
   var colorPatcher: SvgElementColorPatcherProvider? = null
@@ -279,6 +291,38 @@ private fun createTheme(theme: UIThemeBean,
     colorPatcher = configureIcons(theme = theme, paletteScopeManager = paletteScopeManager, iconMap = iconMap)
   }
 
+  val colorsOnSelection = theme.iconColorOnSelectionMap.map
+  var selectionColorPatcher: SvgElementColorPatcherProvider? = null
+  if (!colorsOnSelection.isEmpty()) {
+    val colors = HashMap<String, String>(colorsOnSelection.size)
+    val alphaColors = HashSet<String>(colorsOnSelection.size)
+    for ((key, v) in colorsOnSelection) {
+      val value = "#" + ColorUtil.toHex(/* c = */ v, /* withAlpha = */ false)
+      colors.put(key, value)
+      alphaColors.add(value)
+    }
+
+    val digest = paletteScopeManager.computeDigest(InsecureHashBuilder())
+      .putStringMap(colors)
+      .putLong(415157604330986170 /* id and version of this class implementation */)
+      .build()
+
+    selectionColorPatcher = object : SvgElementColorPatcherProvider {
+      private val svgPatcher = ConcurrentHashMap<UiThemePaletteScope, SvgAttributePatcher>()
+      private val paletteSvgPatcher = newSvgPatcher(newPalette = colors) { if (alphaColors.contains(it)) 255 else null }
+
+      override fun digest() = digest
+
+      override fun attributeForPath(path: String): SvgAttributePatcher {
+        val scope = paletteScopeManager.getScopeByPath(path) ?: return paletteSvgPatcher
+        return svgPatcher.computeIfAbsent(scope) {
+          // `255` here is not a mistake - we want to set that corresponding color as non-transparent explicitly
+          newSvgPatcher(newPalette = colors) { if (alphaColors.contains(it)) 255 else null }
+        }
+      }
+    }
+  }
+
   return UITheme(id = themeId,
                  bean = theme,
                  colorPatcher = colorPatcher,
@@ -290,12 +334,12 @@ private fun createTheme(theme: UIThemeBean,
 private fun configureIcons(theme: UIThemeBean,
                            paletteScopeManager: UiThemePaletteScopeManager,
                            iconMap: Map<String, Any?>): SvgElementColorPatcherProvider? {
-  val palette = iconMap.get("ColorPalette") as? Map<*, *> ?: return null
-  for (o in palette.keys) {
-    val colorKey = o.toString()
+  @Suppress("UNCHECKED_CAST")
+  val palette = iconMap.get("ColorPalette") as? Map<String, String> ?: return null
+  for (colorKey in palette.keys) {
     val scope = paletteScopeManager.getScope(colorKey) ?: continue
     val key = toColorString(key = colorKey, darkTheme = theme.dark)
-    var v = palette.get(colorKey)
+    var v: Any? = palette.get(colorKey)
     if (v is String) {
       // named
       v = theme.colorMap.map.get(v) ?: parseColorOrNull(key, null)
@@ -306,13 +350,14 @@ private fun configureIcons(theme: UIThemeBean,
       val fillTransparency = v.alpha
       val colorHex = "#" + ColorUtil.toHex(v, false)
       scope.newPalette.put(key, colorHex)
-      if (fillTransparency != 255) {
-        scope.alphas.put(colorHex, fillTransparency)
-      }
+      scope.alphas.put(colorHex, fillTransparency)
     }
   }
 
+  val digest = paletteScopeManager.computeDigest(InsecureHashBuilder()).build()
   return object : SvgElementColorPatcherProvider {
+    override fun digest() = digest
+
     override fun attributeForPath(path: String): SvgAttributePatcher? {
       return paletteScopeManager.getScopeByPath(path)?.svgColorIconPatcher?.get()
     }
@@ -395,4 +440,11 @@ internal class IJColorUIResource(color: Color, private val name: String) : JBCol
   override fun getName(): String = name
 
   override fun toString(): String = "IJColorUIResource(color=${super.toString()}, name=$name)"
+}
+
+private fun createWarnFunction(classLoader: ClassLoader): (String, Throwable?) -> Unit {
+  return { message, error ->
+    val id = if (classLoader is PluginAwareClassLoader) classLoader.pluginId else PluginManagerCore.CORE_ID
+    logger<UITheme>().warn(PluginException(message, error, id))
+  }
 }

@@ -10,7 +10,6 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.dependency.NodeBuilder;
 import org.jetbrains.jps.dependency.ReferenceID;
 import org.jetbrains.jps.dependency.Usage;
-import org.jetbrains.jps.dependency.impl.StringReferenceID;
 import org.jetbrains.jps.javac.Iterators;
 import org.jetbrains.org.objectweb.asm.*;
 import org.jetbrains.org.objectweb.asm.signature.SignatureReader;
@@ -19,7 +18,7 @@ import org.jetbrains.org.objectweb.asm.signature.SignatureVisitor;
 import java.lang.annotation.RetentionPolicy;
 import java.util.*;
 
-final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
+public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
 
   private static final Logger LOG = Logger.getInstance(JvmClassNodeBuilder.class);
   public static final String LAMBDA_FACTORY_CLASS = "java/lang/invoke/LambdaMetafactory";
@@ -104,7 +103,7 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
       else {
         targets.add(target);
       }
-      myUsages.add(new ClassUsage(type.getJvmName()));
+      addUsage(new ClassUsage(type.getJvmName()));
     }
 
     private String getMethodDescr(final Object value, boolean isArray) {
@@ -121,28 +120,28 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
         // only primitive, String, Class, Enum, another Annotation or array of any of these are allowed
         switch (name) {
           case "java/lang/Integer":
-            descriptor.append("I;");
+            descriptor.append("I");
             break;
           case "java/lang/Short":
-            descriptor.append("S;");
+            descriptor.append("S");
             break;
           case "java/lang/Long":
-            descriptor.append("J;");
+            descriptor.append("J");
             break;
           case "java/lang/Byte":
-            descriptor.append("B;");
+            descriptor.append("B");
             break;
           case "java/lang/Char":
-            descriptor.append("C;");
+            descriptor.append("C");
             break;
           case "java/lang/Boolean":
-            descriptor.append("Z;");
+            descriptor.append("Z");
             break;
           case "java/lang/Float":
-            descriptor.append("F;");
+            descriptor.append("F");
             break;
           case "java/lang/Double":
-            descriptor.append("D;");
+            descriptor.append("D");
             break;
           default:
             descriptor.append("L").append(name).append(";");
@@ -203,10 +202,10 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
 
       if (value instanceof Type) {
         final String className = ((Type)value).getClassName().replace('.', '/');
-        myUsages.add(new ClassUsage(className));
+        addUsage(new ClassUsage(className));
       }
 
-      myUsages.add(new MethodUsage(myType.getJvmName(), methodName, methodDescr));
+      addUsage(new MethodUsage(myType.getJvmName(), methodName, methodDescr));
       //myUsages.add(UsageRepr.createMetaMethodUsage(myContext, methodName, myType.className));
 
       myUsedArguments.add(methodName);
@@ -232,7 +231,7 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
 
     @Override
     public void visitMainClass(String mainClass) {
-      myUsages.add(new ClassUsage(mainClass));
+      addUsage(new ClassUsage(mainClass));
     }
 
     @Override
@@ -253,15 +252,15 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
 
     @Override
     public void visitUse(String service) {
-      myUsages.add(new ClassUsage(service));
+      addUsage(new ClassUsage(service));
     }
 
     @Override
     public void visitProvide(String service, String... providers) {
-      myUsages.add(new ClassUsage(service));
+      addUsage(new ClassUsage(service));
       if (providers != null) {
         for (String provider : providers) {
-          myUsages.add(new ClassUsage(provider));
+          addUsage(new ClassUsage(provider));
         }
       }
     }
@@ -302,12 +301,11 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
   private final SignatureVisitor mySignatureWithGenericBoundUsageCrawler = new BaseSignatureVisitor() {
     @Override
     public void visitClassType(String name) {
-      myUsages.add(new ClassUsage(name));
-      myUsages.add(new ClassAsGenericBoundUsage(name));
+      super.visitClassType(name);
+      addUsage(new ClassAsGenericBoundUsage(name));
     }
   };
 
-  private boolean myTakeIntoAccount = false;
   private boolean myIsModule = false;
   private final String myFileName;
   private final boolean myIsGenerated;
@@ -315,7 +313,7 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
   private String myName;
   private String myVersion; // for class contains a class bytecode version, for module contains a module version
   private String mySuperClass;
-  private String[] myInterfaces;
+  private Iterable<String> myInterfaces;
   private String mySignature;
 
   private final Ref<String> myClassNameHolder = Ref.create();
@@ -342,7 +340,7 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
     myIsGenerated = isGenerated;
   }
 
-  public static NodeBuilder create(String filePath, ClassReader cr, boolean isGenerated) {
+  public static JvmClassNodeBuilder create(String filePath, ClassReader cr, boolean isGenerated) {
     JvmClassNodeBuilder builder = new JvmClassNodeBuilder(filePath, isGenerated);
     try {
       cr.accept(builder, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
@@ -354,15 +352,19 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
   }
 
   @Override
-  public @NotNull ReferenceID getReferenceID() {
-    return new StringReferenceID(myName);
+  public @NotNull JvmNodeReferenceID getReferenceID() {
+    return new JvmNodeReferenceID(myName);
   }
 
   @Override
   public void addUsage(Usage usage) {
-    myUsages.add(usage);
+    ReferenceID owner = usage.getElementOwner();
+    if (!(owner instanceof JvmNodeReferenceID) || !JvmClass.OBJECT_CLASS_NAME.equals(((JvmNodeReferenceID)owner).getNodeName())) {
+      myUsages.add(usage);
+    }
   }
 
+  // todo: ignore private nodes on the client side
   @Override
   public JVMClassNode<? extends JVMClassNode<?, ?>, ? extends Proto.Diff<? extends JVMClassNode<?, ?>>> getResult() {
     JVMFlags flags = new JVMFlags(myAccess);
@@ -375,10 +377,32 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
     if (myIsGenerated) {
       flags = flags.deriveIsGenerated();
     }
+    
     if (myIsModule) {
-      return new JvmModule(flags, myVersion, myFileName, myName, myModuleRequires, myModuleExports, myUsages);
+      for (ModuleUsage usage : Iterators.map(Iterators.filter(myModuleRequires, r -> !Objects.equals(myName, r.getName())), r -> new ModuleUsage(r.getName()))) {
+        addUsage(usage);
+      }
+      return new JvmModule(flags, myName, myFileName, myVersion, myModuleRequires, myModuleExports, myUsages);
     }
-    return new JvmClass(flags, mySignature, myName, myFileName, mySuperClass, myOuterClassName.get(), Arrays.asList(myInterfaces), myFields, myMethods, myAnnotations, myTargets, myRetentionPolicy, myUsages);
+
+    for (Usage usage : Iterators.flat(new TypeRepr.ClassType(mySuperClass).getUsages(), Iterators.flat(Iterators.map(myInterfaces, s -> new TypeRepr.ClassType(s).getUsages())))) {
+      addUsage(usage);
+    }
+    for (Usage usage : Iterators.flat(Iterators.map(myFields, f -> f.getType().getUsages()))) {
+      addUsage(usage);
+    }
+    for (JvmMethod jvmMethod : myMethods) {
+      for (Usage usage : jvmMethod.getType().getUsages()) {
+        addUsage(usage);
+      }
+      for (Usage usage : Iterators.flat(Iterators.map(jvmMethod.getArgTypes(), t -> t.getUsages()))) {
+        addUsage(usage);
+      }
+      for (Usage usage : Iterators.flat(Iterators.map(jvmMethod.getExceptions(), t -> t.getUsages()))) {
+        addUsage(usage);
+      }
+    }
+    return new JvmClass(flags, mySignature, myName, myFileName, mySuperClass, myOuterClassName.get(), myInterfaces, myFields, myMethods, myAnnotations, myTargets, myRetentionPolicy, myUsages);
   }
 
   @Override
@@ -388,20 +412,9 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
     myVersion = String.valueOf(version);
     mySignature = sig;
     mySuperClass = superName;
-    myInterfaces = interfaces;
+    myInterfaces = Iterators.asIterable(interfaces);
 
     myClassNameHolder.set(name);
-
-    if (mySuperClass != null) {
-      addUsage(new ClassUsage(mySuperClass));
-    }
-
-    if (myInterfaces != null) {
-      for (String ifaceName : myInterfaces) {
-        addUsage(new ClassUsage(ifaceName));
-      }
-    }
-
     processSignature(sig);
   }
 
@@ -482,7 +495,7 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
       @Override
       public void visitEnd() {
         if ((access & Opcodes.ACC_SYNTHETIC) == 0 || (access & Opcodes.ACC_BRIDGE) > 0) {
-          myMethods.add(new JvmMethod(new JVMFlags(access), signature, n, desc, annotations, paramAnnotations, exceptions, defaultValue.get()));
+          myMethods.add(new JvmMethod(new JVMFlags(access), signature, n, desc, annotations, paramAnnotations, Iterators.asIterable(exceptions), defaultValue.get()));
         }
       }
 
@@ -663,7 +676,7 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
               if (samMethodType.getSort() == Type.METHOD) {
                 registerMethodUsage(returnType.getInternalName(), methodName, samMethodType.getDescriptor());
                 // reflect dynamic proxy instantiation with NewClassUsage
-                myUsages.add(new ClassNewUsage(returnType.getInternalName()));
+                addUsage(new ClassNewUsage(returnType.getInternalName()));
               }
             }
           }
@@ -690,23 +703,23 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
 
       private void registerFieldUsage(int opcode, String owner, String fName, String desc) {
         if (opcode == Opcodes.PUTFIELD || opcode == Opcodes.PUTSTATIC) {
-          myUsages.add(new FieldAssignUsage(owner, fName, desc));
+          addUsage(new FieldAssignUsage(owner, fName, desc));
         }
         if (opcode == Opcodes.GETFIELD || opcode == Opcodes.GETSTATIC) {
           Iterators.collect(TypeRepr.getType(desc).getUsages(), myUsages);
         }
-        myUsages.add(new FieldUsage(owner, fName, desc));
+        addUsage(new FieldUsage(owner, fName, desc));
       }
 
       private void registerMethodUsage(String owner, String name, @Nullable String desc) {
         //myUsages.add(UsageRepr.createMetaMethodUsage(myContext, methodName, methodOwner));
         if (desc != null) {
-          myUsages.add(new MethodUsage(owner, name, desc));
+          addUsage(new MethodUsage(owner, name, desc));
           Iterators.collect(TypeRepr.getType(Type.getReturnType(desc)).getUsages(), myUsages);
         }
         else {
           // todo: verify for which methods null descriptor is passed
-          myUsages.add(new MethodUsage(owner, name, ""));
+          addUsage(new MethodUsage(owner, name, ""));
         }
       }
 
@@ -716,7 +729,7 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
   /**
    * @return corresponding field access opcode or -1 if the handle does not represent field access handle
    */
-  private int getFieldAccessOpcode(Handle handle) {
+  private static int getFieldAccessOpcode(Handle handle) {
     switch (handle.getTag()) {
       case Opcodes.H_GETFIELD:
         return Opcodes.GETFIELD;
@@ -834,7 +847,7 @@ final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuilder {
 
     @Override
     public void visitClassType(String name) {
-      myUsages.add(new ClassUsage(name));
+      addUsage(new ClassUsage(name));
     }
   }
 }

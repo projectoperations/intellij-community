@@ -792,7 +792,7 @@ public final class GenericsHighlightUtil {
     return null;
   }
 
-  static HighlightInfo.Builder checkReferenceTypeUsedAsTypeArgument(@NotNull PsiTypeElement typeElement, @NotNull LanguageLevel level) {
+  static HighlightInfo.Builder checkReferenceTypeUsedAsTypeArgument(@NotNull PsiTypeElement typeElement) {
     PsiType type = typeElement.getType();
     PsiType wildCardBind = type instanceof PsiWildcardType ? ((PsiWildcardType)type).getBound() : null;
     if (type != PsiTypes.nullType() && type instanceof PsiPrimitiveType || wildCardBind instanceof PsiPrimitiveType) {
@@ -801,8 +801,6 @@ public final class GenericsHighlightUtil {
         .parent(PsiMatchers.hasClass(PsiJavaCodeReferenceElement.class, PsiNewExpression.class))
         .getElement();
       if (element == null) return null;
-
-      if (level.isAtLeast(LanguageLevel.JDK_X)) return null;
 
       String text = JavaErrorBundle.message("generics.type.argument.cannot.be.of.primitive.type");
       HighlightInfo.Builder builder = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(typeElement).descriptionAndTooltip(text);
@@ -966,15 +964,6 @@ public final class GenericsHighlightUtil {
         if (Comparing.strEqual(name1, name2)) {
           String message = JavaErrorBundle.message("generics.duplicate.type.parameter", name1);
           return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(typeParameter2).descriptionAndTooltip(message);
-        }
-      }
-      if (!level.isAtLeast(LanguageLevel.JDK_1_7)) {
-        for (PsiJavaCodeReferenceElement referenceElement : typeParameter1.getExtendsList().getReferenceElements()) {
-          PsiElement resolve = referenceElement.resolve();
-          if (resolve instanceof PsiTypeParameter && ArrayUtilRt.find(parameters, resolve) > i) {
-            return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(referenceElement).descriptionAndTooltip(
-              JavaErrorBundle.message("illegal.forward.reference"));
-          }
         }
       }
     }
@@ -1246,8 +1235,7 @@ public final class GenericsHighlightUtil {
     return null;
   }
 
-  static HighlightInfo.Builder checkParametersOnRaw(@NotNull PsiReferenceParameterList refParamList,
-                                            LanguageLevel languageLevel) {
+  static HighlightInfo.Builder checkParametersOnRaw(@NotNull PsiReferenceParameterList refParamList, LanguageLevel languageLevel) {
     JavaResolveResult resolveResult = null;
     PsiElement parent = refParamList.getParent();
     PsiElement qualifier = null;
@@ -1544,8 +1532,9 @@ public final class GenericsHighlightUtil {
         return null;
       }
 
+      PsiImplicitClass parentImplicitClass = PsiTreeUtil.getParentOfType(aClass, PsiImplicitClass.class);
       String qualifiedName = aClass.getQualifiedName();
-      if (qualifiedName != null && factory.findClass(qualifiedName, resolveScope) == null) {
+      if (parentImplicitClass == null && qualifiedName != null && factory.findClass(qualifiedName, resolveScope) == null) {
         return JavaErrorBundle.message("text.class.cannot.access", HighlightUtil.formatClass(aClass));
       }
 

@@ -45,9 +45,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.intellij.openapi.externalSystem.statistics.ExternalSystemUsagesCollector.ExternalSystemTaskId.ResolveProject;
-import static com.intellij.openapi.externalSystem.statistics.ExternalSystemUsagesCollector.externalSystemTaskStarted;
-
+import static com.intellij.openapi.externalSystem.statistics.ExternalSystemTaskCollector.externalSystemTaskStarted;
+import static com.intellij.openapi.externalSystem.statistics.ExternalSystemTaskId.ResolveProject;
 
 /**
  * Thread-safe.
@@ -61,7 +60,6 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
   private final @Nullable String myVmOptions;
   private final @Nullable String myArguments;
   private final @Nullable ProjectResolverPolicy myResolverPolicy;
-
 
   public ExternalSystemResolveProjectTask(
     @NotNull Project project,
@@ -81,8 +79,7 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
   @SuppressWarnings("unchecked")
   protected void doExecute() throws Exception {
     ExternalSystemProgressNotificationManagerImpl progressNotificationManager =
-      (ExternalSystemProgressNotificationManagerImpl)ApplicationManager.getApplication()
-        .getService(ExternalSystemProgressNotificationManager.class);
+      (ExternalSystemProgressNotificationManagerImpl)ExternalSystemProgressNotificationManager.getInstance();
     ExternalSystemTaskId id = getId();
 
     Project ideProject;

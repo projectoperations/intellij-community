@@ -10,18 +10,25 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.time.ZonedDateTime;
 import java.util.Calendar;
 
 /**
  * Provides product information.
  */
 public abstract class ApplicationInfo {
-  @SuppressWarnings("RetrievingService")
   public static ApplicationInfo getInstance() {
     return ApplicationManager.getApplication().getService(ApplicationInfo.class);
   }
 
   public abstract Calendar getBuildDate();
+
+  /**
+   * Retrieves the Unix timestamp in seconds of when the build was created.
+   */
+  @ApiStatus.Internal
+  @ApiStatus.Experimental
+  public abstract @NotNull ZonedDateTime getBuildTime();
 
   public abstract @NotNull BuildNumber getBuild();
 

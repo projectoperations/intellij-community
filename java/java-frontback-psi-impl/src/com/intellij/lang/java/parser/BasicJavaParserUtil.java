@@ -15,6 +15,7 @@ import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.JavaTokenType;
+import com.intellij.psi.ParsingDiagnostics;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.BasicJavaAstTreeUtil;
@@ -31,7 +32,7 @@ import org.jetbrains.annotations.PropertyKey;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import static com.intellij.psi.impl.source.BasicJavaDocElementType.DOC_COMMENT;
+import static com.intellij.psi.impl.source.BasicJavaDocElementType.BASIC_DOC_COMMENT;
 
 @ApiStatus.Experimental
 public final class BasicJavaParserUtil {
@@ -198,11 +199,12 @@ public final class BasicJavaParserUtil {
     final Project project = psi.getProject();
 
     final PsiBuilderFactory factory = PsiBuilderFactory.getInstance();
-    final Lexer lexer = BasicJavaAstTreeUtil.is(chameleon, DOC_COMMENT) ? javaDocLexer.apply(level) : javaLexer.apply(level);
+    final Lexer lexer = BasicJavaAstTreeUtil.is(chameleon, BASIC_DOC_COMMENT) ? javaDocLexer.apply(level) : javaLexer.apply(level);
     final PsiBuilder builder =
       factory.createBuilder(project, chameleon, lexer, chameleon.getElementType().getLanguage(), chameleon.getChars());
     setLanguageLevel(builder, level);
 
+    long startTime = System.nanoTime();
     final PsiBuilder.Marker root = builder.mark();
     wrapper.parse(builder);
     if (!builder.eof()) {
@@ -212,8 +214,9 @@ public final class BasicJavaParserUtil {
       extras.error(JavaPsiBundle.message("unexpected.tokens"));
     }
     root.done(chameleon.getElementType());
-
-    return builder.getTreeBuilt().getFirstChildNode();
+    ASTNode result = builder.getTreeBuilt().getFirstChildNode();
+    ParsingDiagnostics.registerParse(builder, chameleon.getElementType().getLanguage(), System.nanoTime() - startTime);
+    return result;
   }
 
 

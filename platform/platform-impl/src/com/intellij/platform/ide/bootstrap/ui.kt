@@ -8,12 +8,11 @@ import com.intellij.diagnostic.runActivity
 import com.intellij.ide.AssertiveRepaintManager
 import com.intellij.ide.BootstrapBundle
 import com.intellij.ide.IdeEventQueue
-import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.ide.ui.html.GlobalStyleSheetHolder
+import com.intellij.ide.ui.html.createGlobalStyleSheet
 import com.intellij.ide.ui.laf.IdeaLaf
 import com.intellij.ide.ui.laf.LookAndFeelThemeAdapter
 import com.intellij.idea.AppExitCodes
-import com.intellij.idea.StartupErrorReporter
+import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.application.impl.AWTExceptionHandler
 import com.intellij.openapi.application.impl.RawSwingDispatcher
 import com.intellij.openapi.diagnostic.logger
@@ -44,51 +43,45 @@ import javax.swing.UIManager
 import javax.swing.plaf.basic.BasicLookAndFeel
 import kotlin.system.exitProcess
 
-internal fun CoroutineScope.scheduleInitUi(initAwtToolkitJob: Job, isHeadless: Boolean): Job {
-  return launch {
-    // IdeaLaF uses AllIcons - icon manager must be activated
-    if (!isHeadless) {
-      span("icon manager activation") {
-        IconManager.activate(CoreIconManager())
-      }
+internal suspend fun initUi(initAwtToolkitJob: Job, isHeadless: Boolean, asyncScope: CoroutineScope) {
+  // IdeaLaF uses AllIcons - icon manager must be activated
+  if (!isHeadless) {
+    span("icon manager activation") {
+      IconManager.activate(CoreIconManager())
     }
+  }
 
-    initAwtToolkitJob.join()
-    // SwingDispatcher must be used after Toolkit init
-    span("initUi", RawSwingDispatcher) {
-      initLafAndScale(isHeadless)
-    }
+  initAwtToolkitJob.join()
+
+  val preloadFontJob = asyncScope.launch(CoroutineName("system fonts loading") + Dispatchers.IO) {
+    // forces loading of all system fonts; the following statement alone might not do it (see JBR-1825)
+    Font("N0nEx1st5ntF0nt", Font.PLAIN, 1).family
+    // caches available font family names for the default locale to speed up editor reopening (see `ComplementaryFontsRegistry`)
+    GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames
+  }
+
+  // SwingDispatcher must be used after Toolkit init
+  span("initUi", RawSwingDispatcher) {
+    initLafAndScale(isHeadless = isHeadless, preloadFontJob = preloadFontJob)
   }
 }
 
-internal suspend fun patchHtmlStyle(initLafJob: Job) {
-  initLafJob.join()
-
-  Class.forName(GlobalStyleSheetHolder::class.java.name, true, AppStarter::class.java.classLoader)
-
-  // separate task - allow other UI tasks to be executed (e.g., show splash)
+internal suspend fun configureCssUiDefaults() {
   withContext(RawSwingDispatcher) {
     val uiDefaults = span("app-specific laf state initialization") { UIManager.getDefaults() }
     span("html style patching") {
       // create a separate copy for each case
-      val globalStyleSheet = GlobalStyleSheetHolder.getGlobalStyleSheet()
+      val globalStyleSheet = createGlobalStyleSheet()
       uiDefaults.put("javax.swing.JLabel.userStyleSheet", globalStyleSheet)
       uiDefaults.put("HTMLEditorKit.jbStyleSheet", globalStyleSheet)
-
-      span("global styleSheet updating") {
-        GlobalStyleSheetHolder.updateGlobalSwingStyleSheet()
-      }
     }
   }
 }
 
-private suspend fun initLafAndScale(isHeadless: Boolean) {
+private suspend fun initLafAndScale(isHeadless: Boolean, preloadFontJob: Job) {
   if (!isHeadless) {
-    val env = span("GraphicsEnvironment init") {
-      GraphicsEnvironment.getLocalGraphicsEnvironment()
-    }
     span("graphics environment checking") {
-      if (env.isHeadlessInstance) {
+      if (GraphicsEnvironment.getLocalGraphicsEnvironment().isHeadlessInstance) {
         StartupErrorReporter.showMessage(BootstrapBundle.message("bootstrap.error.title.start.failed"),
                                          BootstrapBundle.message("bootstrap.error.message.no.graphics.environment"), true)
         exitProcess(AppExitCodes.NO_GRAPHICS)
@@ -97,6 +90,10 @@ private suspend fun initLafAndScale(isHeadless: Boolean) {
   }
 
   // we don't need Idea LaF to show splash, but we do need some base LaF to compute system font data (see below for what)
+
+  if (SystemInfoRt.isLinux) {
+    preloadFontJob.join()
+  }
 
   val baseLaF = span("base LaF creation") { createBaseLaF() }
   span("base LaF initialization") {
@@ -107,7 +104,7 @@ private suspend fun initLafAndScale(isHeadless: Boolean) {
 
   // to compute the system scale factor on non-macOS (JRE HiDPI is not enabled), we need to know system font data,
   // and to compute system font data we need to know `Label.font` UI default (that's why we compute base LaF first)
-  if (!isHeadless) {
+  if (!isHeadless && !SystemInfoRt.isMac) {
     JBUIScale.preload {
       runActivity("base LaF defaults getting") { baseLaF.defaults }
     }
@@ -117,7 +114,7 @@ private suspend fun initLafAndScale(isHeadless: Boolean) {
 internal fun CoroutineScope.scheduleInitAwtToolkit(lockSystemDirsJob: Job, busyThread: Thread): Job {
   val task = launch {
     // this should happen before UI initialization - if we're not going to show the UI (in case another IDE instance is already running),
-    // we shouldn't initialize AWT toolkit in order to avoid unnecessary focus stealing and space switching on macOS.
+    // we shouldn't initialize AWT toolkit to avoid unnecessary focus stealing and space switching on macOS.
     if (SystemInfoRt.isMac) {
       lockSystemDirsJob.join()
     }
@@ -168,6 +165,11 @@ private suspend fun initAwtToolkit(busyThread: Thread) {
     // [AWTAutoShutdown.notifyThreadBusy(Thread)] will put the main thread into the thread map,
     // and thus will effectively disable auto shutdown behavior for this application.
     AWTAutoShutdown.getInstance().notifyThreadBusy(busyThread)
+  }
+
+  // required for both UI scale computation and base LaF
+  span("GraphicsEnvironment init") {
+    GraphicsEnvironment.getLocalGraphicsEnvironment()
   }
 }
 
@@ -223,16 +225,11 @@ fun checkHiDPISettings() {
 }
 
 // must happen after initUi
-internal fun CoroutineScope.scheduleUpdateFrameClassAndWindowIconAndPreloadSystemFonts(initUiDeferred: Job) {
+internal fun CoroutineScope.scheduleUpdateFrameClassAndWindowIconAndPreloadSystemFonts(initAwtToolkitJob: Job,
+                                                                                       initUiScale: Job,
+                                                                                       appInfoDeferred: Deferred<ApplicationInfoEx>) {
   launch {
-    initUiDeferred.join()
-
-    launch(CoroutineName("system fonts loading") + Dispatchers.IO) {
-      // forces loading of all system fonts; the following statement alone might not do it (see JBR-1825)
-      Font("N0nEx1st5ntF0nt", Font.PLAIN, 1).family
-      // caches available font family names for the default locale to speed up editor reopening (see `ComplementaryFontsRegistry`)
-      GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames
-    }
+    initAwtToolkitJob.join()
 
     if (!SystemInfoRt.isWindows && !SystemInfoRt.isMac) {
       launch(CoroutineName("frame class updating")) {
@@ -250,11 +247,15 @@ internal fun CoroutineScope.scheduleUpdateFrameClassAndWindowIconAndPreloadSyste
       }
     }
 
-    launch(CoroutineName("update window icon")) {
-      // `updateWindowIcon` should be called after `initUiJob`, because it uses computed system font data for scale context
-      if (!isWindowIconAlreadyExternallySet() && !PluginManagerCore.isRunningFromSources()) {
+    // `updateWindowIcon` should be called after `initUiJob`, because it uses computed system font data for scale context
+    if (!isWindowIconAlreadyExternallySet()) {
+      launch {
+        initUiScale.join()
+        appInfoDeferred.join()
         // most of the time is consumed by loading SVG and can be done in parallel
-        updateAppWindowIcon(JOptionPane.getRootFrame())
+        span("update window icon") {
+          updateAppWindowIcon(JOptionPane.getRootFrame())
+        }
       }
     }
 
@@ -280,7 +281,6 @@ fun createBaseLaF(): LookAndFeel {
     return IdeaLaf(customFontDefaults = null)
   }
 
-  val fontDefaults = HashMap<Any, Any?>()
   // Normally, GTK LaF is considered "system" when (1) a GNOME session is active, and (2) GTK library is available.
   // Here, we weaken the requirements to only (2) and force GTK LaF installation to let it detect the system fonts
   // and scale them based on Xft.dpi value.
@@ -293,6 +293,7 @@ fun createBaseLaF(): LookAndFeel {
     if (gtk.isSupportedLookAndFeel) {
       // on JBR 11, overrides `SunGraphicsEnvironment#uiScaleEnabled` (sets `#uiScaleEnabled_overridden` to `false`)
       gtk.initialize()
+      val fontDefaults = HashMap<Any, Any?>()
       val gtkDefaults = gtk.defaults
       for (key in gtkDefaults.keys) {
         if (key.toString().endsWith(".font")) {
@@ -300,10 +301,11 @@ fun createBaseLaF(): LookAndFeel {
           fontDefaults.put(key, gtkDefaults.get(key))
         }
       }
+      return IdeaLaf(customFontDefaults = if (fontDefaults.isEmpty()) null else fontDefaults)
     }
   }
   catch (e: Exception) {
     logger<AppStarter>().warn(e)
   }
-  return IdeaLaf(customFontDefaults = if (fontDefaults.isEmpty()) null else fontDefaults)
+  return IdeaLaf(customFontDefaults = null)
 }

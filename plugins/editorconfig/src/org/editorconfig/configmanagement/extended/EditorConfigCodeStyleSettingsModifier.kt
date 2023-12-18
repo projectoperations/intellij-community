@@ -4,10 +4,8 @@
 package org.editorconfig.configmanagement.extended
 
 import com.intellij.application.options.CodeStyle
-import com.intellij.application.options.codeStyle.properties.AbstractCodeStylePropertyMapper
-import com.intellij.application.options.codeStyle.properties.CodeStylePropertiesUtil
-import com.intellij.application.options.codeStyle.properties.CodeStylePropertyAccessor
-import com.intellij.application.options.codeStyle.properties.GeneralCodeStylePropertyMapper
+import com.intellij.application.options.codeStyle.properties.*
+import com.intellij.application.options.codeStyle.properties.OverrideLanguageIndentOptionsAccessor.OVERRIDE_LANGUAGE_INDENT_OPTIONS_PROPERTY_NAME
 import com.intellij.lang.Language
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
@@ -16,6 +14,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
@@ -31,13 +30,15 @@ import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider
 import com.intellij.psi.codeStyle.modifier.CodeStyleSettingsModifier
 import com.intellij.psi.codeStyle.modifier.CodeStyleStatusBarUIContributor
 import com.intellij.psi.codeStyle.modifier.TransientCodeStyleSettings
+import com.intellij.util.application
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.runBlocking
 import org.ec4j.core.ResourceProperties
 import org.editorconfig.EditorConfigNotifier
 import org.editorconfig.Utils
 import org.editorconfig.configmanagement.EditorConfigNavigationActionsFactory
 import org.editorconfig.language.messages.EditorConfigBundle.message
-import org.editorconfig.plugincomponents.SettingsProviderComponent
+import org.editorconfig.plugincomponents.EditorConfigPropertiesService
 import org.editorconfig.settings.EditorConfigSettings
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.TestOnly
@@ -63,35 +64,47 @@ class EditorConfigCodeStyleSettingsModifier : CodeStyleSettingsModifier {
       return false
     }
 
-    return runBlockingMaybeCancellable {
-      try {
-        // Get editorconfig settings
-        val (properties, editorConfigs) = processEditorConfig(project, psiFile)
-        // Apply editorconfig settings for the current editor
-        if (applyCodeStyleSettings(settings, properties, psiFile)) {
-          settings.addDependencies(editorConfigs)
-          val navigationFactory = EditorConfigNavigationActionsFactory.getInstance(psiFile)
-          navigationFactory?.updateEditorConfigFilePaths(editorConfigs.map { it.path })
-          return@runBlockingMaybeCancellable true
-        }
-        else {
-          return@runBlockingMaybeCancellable false
-        }
-      }
-      catch (e: TimeoutCancellationException) {
-        LOG.warn(e)
-        if (!ApplicationManager.getApplication().isHeadlessEnvironment) {
-          error(project, "timeout", message("error.timeout"), DisableEditorConfigAction(project), true)
-        }
-      }
-      catch (e: CancellationException) {
-        throw e
-      }
-      catch (e: Exception) {
-        LOG.error(e)
-      }
-      false
+    return if (application.isDispatchThread && application.isHeadlessEnvironment) {
+      // see also CodeStyleCachedValueProvider.AsyncComputation.start
+      @Suppress("RAW_RUN_BLOCKING")
+      runBlocking { doModifySettings(psiFile, settings, project) }
     }
+    else {
+      runBlockingMaybeCancellable { doModifySettings(psiFile, settings, project) }
+    }
+
+  }
+
+  private suspend fun doModifySettings(psiFile: PsiFile, settings: TransientCodeStyleSettings, project: Project): Boolean {
+    try {
+      // Get editorconfig settings
+      val (properties, editorConfigs) = processEditorConfig(project, psiFile)
+      // Apply editorconfig settings for the current editor
+      if (applyCodeStyleSettings(settings, properties, psiFile)) {
+        settings.addDependencies(editorConfigs)
+        val navigationFactory = EditorConfigNavigationActionsFactory.getInstance(psiFile)
+        navigationFactory?.updateEditorConfigFilePaths(editorConfigs.map { it.path })
+        LOG.debug { "Modified for ${psiFile.name}" }
+        return true
+      }
+      else {
+        LOG.debug { "No changes for ${psiFile.name}" }
+        return false
+      }
+    }
+    catch (e: TimeoutCancellationException) {
+      LOG.warn(e)
+      if (!ApplicationManager.getApplication().isHeadlessEnvironment) {
+        error(project, "timeout", message("error.timeout"), DisableEditorConfigAction(project), true)
+      }
+    }
+    catch (e: CancellationException) {
+      throw e
+    }
+    catch (e: Exception) {
+      LOG.error(e)
+    }
+    return false
   }
 
   @Synchronized
@@ -198,7 +211,7 @@ private fun getDependentProperties(property: String, langPrefix: String?): List<
     stripped = stripped.removePrefix(langPrefix)
   }
   return when (stripped) {
-    "indent_size" -> listOf("continuation_indent_size")
+    "indent_size" -> listOf("continuation_indent_size", OVERRIDE_LANGUAGE_INDENT_OPTIONS_PROPERTY_NAME)
     else -> emptyList()
   }
 }
@@ -333,10 +346,11 @@ private suspend fun processEditorConfig(project: Project, psiFile: PsiFile): Pai
   val file = psiFile.virtualFile
   val filePath = Utils.getFilePath(project, file)
   if (filePath != null) {
-    return SettingsProviderComponent.getInstance(project).getPropertiesAndEditorConfigs(file)
+    return EditorConfigPropertiesService.getInstance(project).getPropertiesAndEditorConfigs(file)
   }
   else if (VfsUtilCore.isBrokenLink(file)) {
     LOG.warn("${file.presentableUrl} is a broken link")
   }
+  LOG.debug { "null filepath for ${psiFile.name}" }
   return Pair(ResourceProperties.Builder().build(), emptyList())
 }

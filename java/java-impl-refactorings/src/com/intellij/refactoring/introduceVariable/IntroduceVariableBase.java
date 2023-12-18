@@ -2,6 +2,7 @@
 package com.intellij.refactoring.introduceVariable;
 
 import com.intellij.codeInsight.CodeInsightUtil;
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.highlighting.HighlightManager;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.codeInsight.unwrap.ScopeHighlighter;
@@ -201,16 +202,6 @@ public abstract class IntroduceVariableBase extends IntroduceHandlerBase {
     else {
       return Pair.create(null, expressions);
     }
-  }
-
-  /**
-   * @deprecated use CommonJavaRefactoringUtil.collectExpressions
-   */
-  @Deprecated(forRemoval = true)
-  public static List<PsiExpression> collectExpressions(final PsiFile file,
-                                                       final Editor editor,
-                                                       final int offset) {
-    return CommonJavaRefactoringUtil.collectExpressions(file, editor, offset);
   }
 
   private boolean invoke(final Project project, final Editor editor, PsiFile file, int startOffset, int endOffset) {
@@ -578,7 +569,7 @@ public abstract class IntroduceVariableBase extends IntroduceHandlerBase {
   }
 
   public static boolean canBeExtractedWithoutExplicitType(PsiExpression expr) {
-    if (PsiUtil.isLanguageLevel10OrHigher(expr)) {
+    if (HighlightingFeature.LVTI.isAvailable(expr)) {
       PsiType type = getNormalizedType(expr);
       if (type != null && !PsiTypes.nullType().equals(type) && PsiTypesUtil.isDenotableType(type, expr)) {
         PsiExpression copy =

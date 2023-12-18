@@ -34,10 +34,7 @@ import com.intellij.psi.codeStyle.CodeStyleSettings
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager
 import com.intellij.psi.search.FileTypeIndex
 import com.intellij.psi.search.ProjectScope
-import com.intellij.testFramework.IdeaTestUtil
-import com.intellij.testFramework.LightProjectDescriptor
-import com.intellij.testFramework.LoggedErrorProcessor
-import com.intellij.testFramework.RunAll
+import com.intellij.testFramework.*
 import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture
 import com.intellij.util.ThrowableRunnable
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
@@ -60,6 +57,7 @@ import org.jetbrains.kotlin.idea.facet.removeKotlinFacet
 import org.jetbrains.kotlin.idea.formatter.KotlinLanguageCodeStyleSettingsProvider
 import org.jetbrains.kotlin.idea.formatter.KotlinStyleGuideCodeStyle
 import org.jetbrains.kotlin.idea.inspections.UnusedSymbolInspection
+import org.jetbrains.kotlin.idea.serialization.updateCompilerArguments
 import org.jetbrains.kotlin.idea.test.CompilerTestDirectives.API_VERSION_DIRECTIVE
 import org.jetbrains.kotlin.idea.test.CompilerTestDirectives.COMPILER_ARGUMENTS_DIRECTIVE
 import org.jetbrains.kotlin.idea.test.CompilerTestDirectives.COMPILER_PLUGIN_OPTIONS
@@ -373,12 +371,12 @@ object CompilerTestDirectives {
 
 fun <T> withCustomCompilerOptions(fileText: String, project: Project, module: Module, body: () -> T): T {
     val removeFacet = !module.hasKotlinFacet()
-    val configured = configureCompilerOptions(fileText, project, module)
+    val configured = runInEdtAndGet { configureCompilerOptions(fileText, project, module) }
     try {
         return body()
     } finally {
         if (configured) {
-            rollbackCompilerOptions(project, module, removeFacet)
+            runInEdtAndWait { rollbackCompilerOptions(project, module, removeFacet) }
         }
     }
 }
@@ -420,9 +418,10 @@ private fun configureCompilerOptions(fileText: String, project: Project, module:
         val facetSettings = KotlinFacet.get(module)!!.configuration.settings
 
         if (jvmTarget != null) {
-            val compilerArguments = facetSettings.compilerArguments
-            require(compilerArguments is K2JVMCompilerArguments) { "Attempt to specify `$JVM_TARGET_DIRECTIVE` for non-JVM test" }
-            compilerArguments.jvmTarget = jvmTarget
+            facetSettings.updateCompilerArguments {
+                require(this is K2JVMCompilerArguments) { "Attempt to specify `$JVM_TARGET_DIRECTIVE` for non-JVM test" }
+                this.jvmTarget = jvmTarget
+            }
         }
 
         if (options != null) {
@@ -510,7 +509,9 @@ private fun rollbackCompilerOptions(project: Project, module: Module, removeFace
     configureLanguageAndApiVersion(project, module, bundledKotlinVersion)
 
     val facetSettings = KotlinFacet.get(module)!!.configuration.settings
-    (facetSettings.compilerArguments as? K2JVMCompilerArguments)?.jvmTarget = JvmTarget.DEFAULT.description
+    facetSettings.updateCompilerArguments {
+        (this as? K2JVMCompilerArguments)?.jvmTarget = JvmTarget.DEFAULT.description
+    }
 
     val compilerSettings = facetSettings.compilerSettings ?: CompilerSettings().also {
         facetSettings.compilerSettings = it
@@ -554,11 +555,12 @@ private fun configureLanguageAndApiVersion(
     WriteAction.run<Throwable> {
         val modelsProvider = ProjectDataManager.getInstance().createModifiableModelsProvider(project)
         val facet = module.getOrCreateFacet(modelsProvider, useProjectSettings = false)
+        val facetSettings = facet.configuration.settings
 
-        val compilerArguments = facet.configuration.settings.compilerArguments
-        if (compilerArguments != null) {
-            compilerArguments.apiVersion = null
+        facetSettings.updateCompilerArguments {
+            this.apiVersion = null
         }
+
         facet.configureFacet(compilerVersion, null, modelsProvider)
         if (apiVersion != null) {
             facet.configuration.settings.apiLevel = LanguageVersion.fromVersionString(apiVersion.versionString)

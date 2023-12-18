@@ -36,7 +36,7 @@ import java.util.stream.Stream;
 import static com.intellij.codeInspection.javaDoc.MissingJavadocInspection.isDeprecated;
 import static com.intellij.codeInspection.options.OptPane.*;
 
-public class JavadocDeclarationInspection extends LocalInspectionTool {
+public final class JavadocDeclarationInspection extends LocalInspectionTool {
   public static final String SHORT_NAME = "JavadocDeclaration";
 
   public String ADDITIONAL_TAGS = "";
@@ -272,10 +272,9 @@ public class JavadocDeclarationInspection extends LocalInspectionTool {
               paramName = "<" + paramName + ">";
             }
             documentedParamNames = set(documentedParamNames);
-            if (documentedParamNames.contains(paramName)) {
+            if (!documentedParamNames.add(paramName)) {
               holder.registerProblem(tag.getNameElement(), JavaBundle.message("inspection.javadoc.problem.duplicate.param", paramName));
             }
-            documentedParamNames.add(paramName);
           }
         }
       }
@@ -288,20 +287,18 @@ public class JavadocDeclarationInspection extends LocalInspectionTool {
             if (element instanceof PsiClass psiClass) {
               String fqName = psiClass.getQualifiedName();
               documentedExceptions = set(documentedExceptions);
-              if (documentedExceptions.contains(fqName)) {
+              if (!documentedExceptions.add(fqName)) {
                 holder.registerProblem(tag.getNameElement(), JavaBundle.message("inspection.javadoc.problem.duplicate.throws", fqName));
               }
-              documentedExceptions.add(fqName);
             }
           }
         }
       }
       else if (UNIQUE_TAGS.contains(tag.getName())) {
         uniqueTags = set(uniqueTags);
-        if (uniqueTags.contains(tag.getName())) {
+        if (!uniqueTags.add(tag.getName())) {
           holder.registerProblem(tag.getNameElement(), JavaBundle.message("inspection.javadoc.problem.duplicate.tag", tag.getName()));
         }
-        uniqueTags.add(tag.getName());
       }
     }
   }

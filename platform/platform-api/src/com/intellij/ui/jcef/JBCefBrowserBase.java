@@ -4,6 +4,7 @@ package com.intellij.ui.jcef;
 import com.intellij.credentialStore.Credentials;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.BrowserUtil;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
@@ -39,6 +40,7 @@ import java.awt.image.BufferedImage;
 import java.beans.PropertyChangeListener;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -133,7 +135,7 @@ public abstract class JBCefBrowserBase implements JBCefDisposable {
   private static final double ZOOM_COMMON_RATIO = 1.2;
   private static final double LOG_ZOOM = Math.log(ZOOM_COMMON_RATIO);
 
-  static volatile @Nullable JBCefBrowserBase focusedBrowser;
+  static @Nullable WeakReference<JBCefBrowserBase> focusedBrowser;
 
   protected final @NotNull JBCefClient myCefClient;
   protected final @NotNull CefBrowser myCefBrowser;
@@ -371,7 +373,10 @@ public abstract class JBCefBrowserBase implements JBCefDisposable {
    * It is possible that at a certain moment, the browser can be focused natively but can not yet have Java focus.
    */
   public static @Nullable JBCefBrowserBase getFocusedBrowser() {
-    return focusedBrowser;
+    if (focusedBrowser != null) {
+      return focusedBrowser.get();
+    }
+    return null;
   }
 
   /**
@@ -739,6 +744,7 @@ public abstract class JBCefBrowserBase implements JBCefDisposable {
 
   public void openDevtools() {
     if (myDevtoolsFrame != null) {
+      myDevtoolsFrame.setVisible(true);
       myDevtoolsFrame.toFront();
       return;
     }
@@ -753,18 +759,28 @@ public abstract class JBCefBrowserBase implements JBCefDisposable {
 
     myDevtoolsFrame = new JDialog(ancestor);
     myDevtoolsFrame.setTitle("JCEF DevTools");
-    myDevtoolsFrame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+    myDevtoolsFrame.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
     myDevtoolsFrame.setBounds(bounds.width / 4 + 100, bounds.height / 4 + 100, bounds.width / 2, bounds.height / 2);
     myDevtoolsFrame.setLayout(new BorderLayout());
     JBCefBrowser devTools = JBCefBrowser.createBuilder().setCefBrowser(myCefBrowser.getDevTools()).setClient(myCefClient).build();
     myDevtoolsFrame.add(devTools.getComponent(), BorderLayout.CENTER);
+
+    Disposer.register(this, devTools);
+    Disposer.register(this, new Disposable() {
+      @Override
+      public void dispose() {
+        myDevtoolsFrame.dispose();
+      }
+    });
+
     myDevtoolsFrame.addWindowListener(new WindowAdapter() {
       @Override
       public void windowClosed(WindowEvent e) {
+        myDevtoolsFrame.dispose();
         myDevtoolsFrame = null;
-        Disposer.dispose(devTools);
       }
     });
+
     myDevtoolsFrame.setVisible(true);
   }
 

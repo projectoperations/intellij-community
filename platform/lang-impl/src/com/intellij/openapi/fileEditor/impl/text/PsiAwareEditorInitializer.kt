@@ -4,7 +4,7 @@ package com.intellij.openapi.fileEditor.impl.text
 import com.intellij.codeInsight.documentation.render.DocRenderManager
 import com.intellij.codeInsight.documentation.render.DocRenderPassFactory
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.readActionBlocking
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.ex.EditorEx
@@ -16,15 +16,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private class DocRenderTextEditorInitializer : TextEditorInitializer {
-  override suspend fun initializeEditor(project: Project, file: VirtualFile, document: Document, editorSupplier: suspend () -> EditorEx) {
+  override suspend fun initializeEditor(project: Project,
+                                        file: VirtualFile,
+                                        document: Document,
+                                        editorSupplier: suspend () -> EditorEx,
+                                        highlighterReady: suspend () -> Unit) {
     val editor = editorSupplier.invoke()
     if (!DocRenderManager.isDocRenderingEnabled(editor)) {
       return
     }
 
     val psiManager = project.serviceAsync<PsiManager>()
-    val items = readActionBlocking {
-      val psiFile = psiManager.findFile(file) ?: return@readActionBlocking null
+    val items = readAction {
+      val psiFile = psiManager.findFile(file) ?: return@readAction null
       DocRenderPassFactory.calculateItemsToRender(editor, psiFile)
     } ?: return
 
@@ -35,13 +39,17 @@ private class DocRenderTextEditorInitializer : TextEditorInitializer {
 }
 
 private class FocusZoneTextEditorInitializer : TextEditorInitializer {
-  override suspend fun initializeEditor(project: Project, file: VirtualFile, document: Document, editorSupplier: suspend () -> EditorEx) {
+  override suspend fun initializeEditor(project: Project,
+                                        file: VirtualFile,
+                                        document: Document,
+                                        editorSupplier: suspend () -> EditorEx,
+                                        highlighterReady: suspend () -> Unit) {
     if (!FocusModePassFactory.isEnabled()) {
       return
     }
 
     val psiManager = project.serviceAsync<PsiManager>()
-    val focusZones = readActionBlocking {
+    val focusZones = readAction {
       val psiFile = psiManager.findFile(file)
       FocusModePassFactory.calcFocusZones(psiFile)
     } ?: return

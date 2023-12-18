@@ -24,7 +24,7 @@ public abstract class AppendableObjectStorageTestBase<V> {
   @Rule
   public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-  private AppendableObjectStorage<V> appendableStorage;
+  protected AppendableObjectStorage<V> appendableStorage;
 
 
   // ================= simple single-value tests: =====================================================
@@ -70,28 +70,25 @@ public abstract class AppendableObjectStorageTestBase<V> {
     V valueAppended = generateValue();
 
 
+    final int valueIdAppended;
     appendableStorage.lockWrite();
     try {
-      int valueIdAppended = appendableStorage.append(valueAppended);
-
-      //RC: must flush data before .processAll()!
-      appendableStorage.force();
-
-      List<Pair<Integer, V>> valuesAndValueIds = new ArrayList<>();
-      appendableStorage.processAll((valueId, value) -> {
-        valuesAndValueIds.add(Pair.pair(valueId, value));
-        return true;
-      });
-
-      assertThat(
-        "Value appended must be read back as-is by .processAll()",
-        valuesAndValueIds,
-        contains(Pair.pair(valueIdAppended, valueAppended))
-      );
+      valueIdAppended = appendableStorage.append(valueAppended);
     }
     finally {
       appendableStorage.unlockWrite();
     }
+    List<Pair<Integer, V>> valuesAndValueIds = new ArrayList<>();
+    appendableStorage.processAll((valueId, value) -> {
+      valuesAndValueIds.add(Pair.pair(valueId, value));
+      return true;
+    });
+
+    assertThat(
+      "Value appended must be read back as-is by .processAll()",
+      valuesAndValueIds,
+      contains(Pair.pair(valueIdAppended, valueAppended))
+    );
   }
 
   // ================= multi-value property-based tests: ===========================================
@@ -182,18 +179,17 @@ public abstract class AppendableObjectStorageTestBase<V> {
   }
 
   @Test
-  public void storage_isDirty_afterEachAppend_AndBecomeNotDirtyAfterFlush() throws Exception {
+  public void storage_becomeNotDirty_AfterFlush() throws Exception {
     List<V> valuesAppended = generateValues(ENOUGH_VALUES);
 
     appendableStorage.lockWrite();
     try {
       for (V valueToAppend : valuesAppended) {
         appendableStorage.append(valueToAppend);
-        assertThat(
-          "Storage must be .dirty since value was just appended to it",
-          appendableStorage.isDirty(),
-          is(true)
-        );
+        //It seems natural to check appendableStorage.isDirty here, but it is not guaranteed to be dirty,
+        // because underlying PagedStorage/FilePageCache could flush the pages just because they need
+        // room for the new pages to cache. Hence appendableStorage.isDirty in 99+% of cases, but sometimes
+        // it is !dirty even though something was just appended to it.
 
         appendableStorage.force();
 

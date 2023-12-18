@@ -16,7 +16,6 @@ import com.intellij.openapi.vcs.changes.committed.CommittedChangesTreeBrowser;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.CommittedChangeListForRevision;
 import com.intellij.vcs.log.*;
@@ -112,8 +111,8 @@ public final class VcsLogUtil {
   // collect absolutely all roots that might be visible
   // if filters unset returns just all roots
   public static @NotNull Set<VirtualFile> getAllVisibleRoots(@NotNull Collection<VirtualFile> roots,
-                                                    @Nullable VcsLogRootFilter rootFilter,
-                                                    @Nullable VcsLogStructureFilter structureFilter) {
+                                                             @Nullable VcsLogRootFilter rootFilter,
+                                                             @Nullable VcsLogStructureFilter structureFilter) {
     if (rootFilter == null && structureFilter == null) return new HashSet<>(roots);
 
     Collection<VirtualFile> fromRootFilter;

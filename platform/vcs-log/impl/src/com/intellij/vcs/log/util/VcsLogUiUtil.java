@@ -27,6 +27,7 @@ import com.intellij.vcs.log.data.VcsLogData;
 import com.intellij.vcs.log.data.VcsLogProgress;
 import com.intellij.vcs.log.impl.VcsLogNavigationUtil;
 import com.intellij.vcs.log.ui.AbstractVcsLogUi;
+import com.intellij.vcs.log.ui.VcsLogUiEx;
 import com.intellij.vcs.log.ui.filter.VcsLogFilterUiEx;
 import com.intellij.vcs.log.ui.frame.ProgressStripe;
 import com.intellij.vcs.log.ui.table.VcsLogGraphTable;
@@ -108,8 +109,12 @@ public final class VcsLogUiUtil {
   }
 
   public static @NotNull History installNavigationHistory(@NotNull AbstractVcsLogUi ui) {
+    return installNavigationHistory(ui, ui.getTable());
+  }
+
+  public static @NotNull History installNavigationHistory(@NotNull AbstractVcsLogUi ui, @NotNull VcsLogGraphTable table) {
     History history = new History(new VcsLogPlaceNavigator(ui));
-    ui.getTable().getSelectionModel().addListSelectionListener((e) -> {
+    table.getSelectionModel().addListSelectionListener((e) -> {
       if (!history.isNavigatingNow() && !e.getValueIsAdjusting()) {
         history.pushQueryPlace();
       }
@@ -152,6 +157,11 @@ public final class VcsLogUiUtil {
     Dimension preferredSize = toolbar.getPreferredSize();
     int minToolbarSize = Math.round(Math.min(preferredSize.width, preferredSize.height) * 1.5f);
     return new Dimension(Math.max(size.width, minToolbarSize), Math.max(size.height, minToolbarSize));
+  }
+
+  public static @NotNull JComponent getComponent(@NotNull VcsLogUiEx ui) {
+    if (ui.getTable() instanceof JComponent) return (JComponent)ui.getTable();
+    return ui.getMainComponent();
   }
 
   private static final class VcsLogPlaceNavigator implements Place.Navigator {

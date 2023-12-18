@@ -4,9 +4,7 @@ package com.intellij.lang.impl.modcommand;
 import com.intellij.analysis.AnalysisBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
-import com.intellij.codeInspection.InspectionProfileEntry;
-import com.intellij.codeInspection.LocalQuickFix;
-import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
+import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.codeInspection.options.*;
 import com.intellij.lang.injection.InjectedLanguageManager;
@@ -35,8 +33,7 @@ import static com.intellij.openapi.util.text.HtmlChunk.text;
 
 public class ModCommandServiceImpl implements ModCommandService {
   @Override
-  @NotNull
-  public IntentionAction wrap(@NotNull ModCommandAction action) {
+  public @NotNull IntentionAction wrap(@NotNull ModCommandAction action) {
     return new ModCommandActionWrapper(action);
   }
 
@@ -68,16 +65,7 @@ public class ModCommandServiceImpl implements ModCommandService {
   public <T extends InspectionProfileEntry> @NotNull ModCommand updateOption(
     @NotNull PsiElement context, @NotNull T inspection, @NotNull Consumer<@NotNull T> updater) {
 
-    InspectionToolWrapper<?, ?> tool = InspectionProfileManager.getInstance(context.getProject())
-      .getCurrentProfile().getInspectionTool(inspection.getShortName(), context);
-    if (tool == null) {
-      throw new IllegalArgumentException("Tool not found: " + inspection.getShortName());
-    }
-    InspectionProfileEntry copiedTool = tool.createCopy().getTool();
-    if (copiedTool.getClass() != inspection.getClass()) {
-      throw new IllegalArgumentException(
-        "Invalid class: " + copiedTool.getClass() + "!=" + inspection.getClass() + " (id: " + inspection.getShortName() + ")");
-    }
+    InspectionProfileEntry copiedTool = getToolCopy(context, inspection);
     List<@NotNull OptControl> controls = inspection.getOptionsPane().allControls();
     final Element options = new Element("copy");
     inspection.writeSettings(options);
@@ -86,15 +74,39 @@ public class ModCommandServiceImpl implements ModCommandService {
     updater.accept((T)copiedTool);
     OptionController oldController = inspection.getOptionController();
     OptionController newController = copiedTool.getOptionController();
-    List<ModUpdateInspectionOptions.ModifiedInspectionOption> modifiedOptions = new ArrayList<>();
+    List<ModUpdateSystemOptions.ModifiedOption> modifiedOptions = new ArrayList<>();
     for (OptControl control : controls) {
       Object oldValue = oldController.getOption(control.bindId());
       Object newValue = newController.getOption(control.bindId());
       if (oldValue != null && newValue != null && !oldValue.equals(newValue)) {
-        modifiedOptions.add(new ModUpdateInspectionOptions.ModifiedInspectionOption(control.bindId(), oldValue, newValue));
+        String bindId = "currentProfile." + inspection.getShortName() + ".options." + control.bindId();
+        modifiedOptions.add(new ModUpdateSystemOptions.ModifiedOption(bindId, oldValue, newValue));
       }
     }
-    return modifiedOptions.isEmpty() ? ModCommand.nop() : new ModUpdateInspectionOptions(inspection.getShortName(), modifiedOptions);
+    return modifiedOptions.isEmpty() ? ModCommand.nop() : new ModUpdateSystemOptions(modifiedOptions);
+  }
+
+  @NotNull
+  private static <T extends InspectionProfileEntry> InspectionProfileEntry getToolCopy(@NotNull PsiElement context, @NotNull T inspection) {
+    InspectionToolWrapper<?, ?> tool = InspectionProfileManager.getInstance(context.getProject())
+      .getCurrentProfile().getInspectionTool(inspection.getShortName(), context);
+    if (tool == null) {
+      throw new IllegalArgumentException("Tool not found: " + inspection.getShortName());
+    }
+    InspectionProfileEntry copiedTool = tool.createCopy().getTool();
+    if (copiedTool.getClass() != inspection.getClass()) {
+      if (copiedTool instanceof GlobalInspectionTool global) {
+        LocalInspectionTool local = global.getSharedLocalInspectionTool();
+        if (local != null) {
+          copiedTool = local;
+        }
+      }
+      if (copiedTool.getClass() != inspection.getClass()) {
+        throw new IllegalArgumentException(
+          "Invalid class: " + copiedTool.getClass() + "!=" + inspection.getClass() + " (id: " + inspection.getShortName() + ")");
+      }
+    }
+    return copiedTool;
   }
 
   @ApiStatus.Experimental
@@ -129,21 +141,22 @@ public class ModCommandServiceImpl implements ModCommandService {
       else if (command instanceof ModChooseMember target) {
         return getPreview(target.nextCommand().apply(target.defaultSelection()), context);
       }
-      else if (command instanceof ModShowConflicts showConflicts) {
-        return getPreview(showConflicts.nextStep(), context);
-      }
       else if (command instanceof ModDisplayMessage message) {
         if (message.kind() == ModDisplayMessage.MessageKind.ERROR) {
           return new IntentionPreviewInfo.Html(new HtmlBuilder().append(
             AnalysisBundle.message("preview.cannot.perform.action")).br().append(message.messageText()).toFragment(), IntentionPreviewInfo.InfoKind.ERROR);
+        }
+        else if (navigateInfo == IntentionPreviewInfo.EMPTY) {
+          navigateInfo = new IntentionPreviewInfo.Html(message.messageText());
         }
       }
       else if (command instanceof ModCopyToClipboard copy) {
         navigateInfo = new IntentionPreviewInfo.Html(HtmlChunk.text(
           AnalysisBundle.message("preview.copy.to.clipboard", StringUtil.shortenTextWithEllipsis(copy.content(), 50, 10))));
       }
-      else if (command instanceof ModUpdateInspectionOptions options) {
-        navigateInfo = new IntentionPreviewInfo.Html(createOptionsPreview(context, options));
+      else if (command instanceof ModUpdateSystemOptions options) {
+        HtmlChunk preview = createOptionsPreview(context, options);
+        navigateInfo = preview.isEmpty() ? IntentionPreviewInfo.EMPTY : new IntentionPreviewInfo.Html(preview);
       }
     }
     return customDiffList.isEmpty() ? navigateInfo :
@@ -159,27 +172,24 @@ public class ModCommandServiceImpl implements ModCommandService {
       .orElse(IntentionPreviewInfo.EMPTY);
   }
 
-  private static @NotNull HtmlChunk createOptionsPreview(@NotNull ActionContext context, @NotNull ModUpdateInspectionOptions options) {
-    InspectionToolWrapper<?, ?> tool =
-      InspectionProfileManager.getInstance(context.project()).getCurrentProfile().getInspectionTool(options.inspectionShortName(), context.file());
-    if (tool == null) {
-      return HtmlChunk.empty();
-    }
+  private static @NotNull HtmlChunk createOptionsPreview(@NotNull ActionContext context, @NotNull ModUpdateSystemOptions options) {
     HtmlBuilder builder = new HtmlBuilder();
     for (var option : options.options()) {
-      builder.append(createOptionPreview(tool.getTool(), option));
+      builder.append(createOptionPreview(context.file(), option));
     }
     return builder.toFragment();
   }
 
-  private static @NotNull HtmlChunk createOptionPreview(@NotNull InspectionProfileEntry inspection,
-                                               ModUpdateInspectionOptions.@NotNull ModifiedInspectionOption option) {
-    OptPane pane = inspection.getOptionsPane();
+  private static @NotNull HtmlChunk createOptionPreview(@NotNull PsiFile file, ModUpdateSystemOptions.@NotNull ModifiedOption option) {
+    OptionController controller = OptionControllerProvider.rootController(file);
+    OptionController.OptionControlInfo controlInfo = controller.findControl(option.bindId());
+    if (controlInfo == null) return HtmlChunk.empty();
+    OptControl control = controlInfo.control();
     Object newValue = option.newValue();
     if (newValue instanceof Boolean value) {
-      OptCheckbox control = ObjectUtils.tryCast(pane.findControl(option.bindId()), OptCheckbox.class);
-      if (control == null) return HtmlChunk.empty();
-      HtmlChunk label = text(control.label().label());
+      OptCheckbox optCheckBox = ObjectUtils.tryCast(control, OptCheckbox.class);
+      if (optCheckBox == null) return HtmlChunk.empty();
+      HtmlChunk label = text(optCheckBox.label().label());
       HtmlChunk.Element checkbox = tag("input").attr("type", "checkbox").attr("readonly", "true");
       if (value) {
         checkbox = checkbox.attr("checked", "true");
@@ -189,32 +199,44 @@ public class ModCommandServiceImpl implements ModCommandService {
           tag("td").child(checkbox),
           tag("td").child(label)
         ));
-      return new HtmlBuilder().append(value ? AnalysisBundle.message("set.inspection.option.description.check")
-                                       : AnalysisBundle.message("set.inspection.option.description.uncheck"))
+      return new HtmlBuilder().append(value ? AnalysisBundle.message("set.option.description.check")
+                                       : AnalysisBundle.message("set.option.description.uncheck"))
           .br().br().append(info).toFragment();
     }
     if (newValue instanceof Integer value) {
-      OptNumber control = ObjectUtils.tryCast(pane.findControl(option.bindId()), OptNumber.class);
-      if (control == null) return HtmlChunk.empty();
-      LocMessage.PrefixSuffix prefixSuffix = control.splitLabel().splitLabel();
-      HtmlChunk.Element input = tag("input").attr("type", "text").attr("value", value)
-        .attr("size", value.toString().length() + 1).attr("readonly", "true");
-      HtmlChunk info = tag("table").child(tag("tr").children(
-        tag("td").child(text(prefixSuffix.prefix())),
-        tag("td").child(input),
-        tag("td").child(text(prefixSuffix.suffix()))
-      ));
-      return new HtmlBuilder().append(AnalysisBundle.message("set.inspection.option.description.input"))
+      OptNumber optNumber = ObjectUtils.tryCast(control, OptNumber.class);
+      if (optNumber == null) return HtmlChunk.empty();
+      LocMessage.PrefixSuffix prefixSuffix = optNumber.splitLabel().splitLabel();
+      HtmlChunk info = getValueChunk(value, prefixSuffix);
+      return new HtmlBuilder().append(AnalysisBundle.message("set.option.description.input"))
+          .br().br().append(info).br().toFragment();
+    }
+    if (newValue instanceof String value) {
+      OptString optString = ObjectUtils.tryCast(control, OptString.class);
+      if (optString == null) return HtmlChunk.empty();
+      LocMessage.PrefixSuffix prefixSuffix = optString.splitLabel().splitLabel();
+      HtmlChunk info = getValueChunk(value, prefixSuffix);
+      return new HtmlBuilder().append(AnalysisBundle.message("set.option.description.string"))
           .br().br().append(info).br().toFragment();
     }
     if (newValue instanceof List<?> list) {
-      OptStringList control = ObjectUtils.tryCast(pane.findControl(option.bindId()), OptStringList.class);
-      if (control == null) return HtmlChunk.empty();
+      OptStringList optList = ObjectUtils.tryCast(control, OptStringList.class);
+      if (optList == null) return HtmlChunk.empty();
       List<?> oldList = (List<?>)option.oldValue();
       //noinspection unchecked
-      return IntentionPreviewInfo.addListOption((List<String>)list, control.label().label(), value -> !oldList.contains(value)).content();
-      
+      return IntentionPreviewInfo.addListOption((List<String>)list, optList.label().label(), value -> !oldList.contains(value)).content();
     }
     throw new IllegalStateException("Value of type " + newValue.getClass() + " is not supported");
+  }
+
+  @NotNull
+  private static HtmlChunk getValueChunk(Object value, LocMessage.PrefixSuffix prefixSuffix) {
+    HtmlChunk.Element input = tag("input").attr("type", "text").attr("value", String.valueOf(value))
+      .attr("size", value.toString().length() + 1).attr("readonly", "true");
+    return tag("table").child(tag("tr").children(
+      tag("td").child(text(prefixSuffix.prefix())),
+      tag("td").child(input),
+      tag("td").child(text(prefixSuffix.suffix()))
+    ));
   }
 }

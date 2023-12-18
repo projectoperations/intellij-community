@@ -13,6 +13,7 @@ import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Proxy
 import java.lang.reflect.UndeclaredThrowableException
 import java.util.concurrent.ConcurrentHashMap
+import javax.management.AttributeNotFoundException
 import javax.management.InstanceNotFoundException
 import kotlin.reflect.KClass
 
@@ -30,7 +31,8 @@ internal class DriverImpl(host: JmxHost?) : Driver {
         return invoker.isApplicationInitialized()
       }
       catch (ut: UndeclaredThrowableException) {
-        if (ut.cause is InstanceNotFoundException) {
+        if (ut.cause is InstanceNotFoundException
+            || ut.cause is AttributeNotFoundException) {
           return false // Invoker is not yet registered in JMX
         }
         throw ut
@@ -46,6 +48,10 @@ internal class DriverImpl(host: JmxHost?) : Driver {
 
   override fun exitApplication() {
     invoker.exit()
+  }
+
+  override fun takeScreenshot(outFolder: String?) {
+    invoker.takeScreenshot(outFolder)
   }
 
   @Suppress("UNCHECKED_CAST")
@@ -296,6 +302,10 @@ internal class DriverImpl(host: JmxHost?) : Driver {
     return try {
       this.code()
     }
+    catch (t: Throwable) {
+      invoker.takeScreenshot("beforeKill")
+      throw t
+    }
     finally {
       if (currentValue != null) {
         sessionHolder.set(currentValue)
@@ -318,7 +328,12 @@ internal class DriverImpl(host: JmxHost?) : Driver {
   }
 
   override fun close() {
-    invoker.close()
+    try {
+      invoker.close()
+    } catch (t: Throwable) {
+      System.err.println("Error on close of JMX session")
+      t.printStackTrace()
+    }
   }
 
   override fun <T> withReadAction(dispatcher: OnDispatcher, code: Driver.() -> T): T {
@@ -359,6 +374,8 @@ internal interface Invoker : AutoCloseable {
   fun newSession(): Int
 
   fun cleanup(sessionId: Int)
+
+  fun takeScreenshot(folder: String?)
 }
 
 class DriverCallException(message: String, e: Throwable) : RuntimeException(message, e)

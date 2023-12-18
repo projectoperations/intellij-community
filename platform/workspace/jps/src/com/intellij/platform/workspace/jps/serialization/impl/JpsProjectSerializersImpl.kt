@@ -5,13 +5,13 @@ import com.intellij.java.workspace.entities.ArtifactEntity
 import com.intellij.java.workspace.entities.ArtifactId
 import com.intellij.openapi.diagnostic.*
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMs
-import com.intellij.platform.workspace.jps.JpsMetrics
+import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
+import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.jps.*
 import com.intellij.platform.workspace.jps.entities.*
 import com.intellij.platform.workspace.jps.serialization.SerializationContext
 import com.intellij.platform.workspace.storage.*
-import com.intellij.platform.workspace.storage.impl.reportErrorAndAttachStorage
+import com.intellij.platform.workspace.storage.impl.ConsistencyCheckingDisabler
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.util.PathUtilRt
@@ -246,8 +246,7 @@ class JpsProjectSerializersImpl(directorySerializersFactories: List<JpsDirectory
                                unloadedEntityBuilder: MutableEntityStorage,
                                unloadedModulesNameHolder: com.intellij.platform.workspace.jps.UnloadedModulesNameHolder,
                                errorReporter: ErrorReporter
-  ): List<EntitySource> {
-    val start = System.currentTimeMillis()
+  ): List<EntitySource> = loadEntitiesTimeMs.addMeasuredTimeMillis {
 
     val serializers = synchronized(lock) { fileSerializersByUrl.values.toList() }
     val buildersWithLoadedState = coroutineScope {
@@ -271,8 +270,7 @@ class JpsProjectSerializersImpl(directorySerializersFactories: List<JpsDirectory
     }
     orphanageBuilder.addDiff(squash(buildersWithLoadedState.map { it.orphanage }))
 
-    loadEntitiesTimeMs.addElapsedTimeMs(start)
-    return sourcesToUpdate
+    return@addMeasuredTimeMillis sourcesToUpdate
   }
 
   private fun loadEntitiesAndReportExceptions(serializer: JpsFileEntitiesSerializer<*>,
@@ -462,17 +460,15 @@ class JpsProjectSerializersImpl(directorySerializersFactories: List<JpsDirectory
   }
 
   private fun squash(builders: List<MutableEntityStorage>): MutableEntityStorage {
-    var result = builders
+    val target = MutableEntityStorage.create()
 
-    while (result.size > 1) {
-      result = result.chunked(2) { list ->
-        val res = list.first()
-        if (list.size == 2) res.addDiff(list.last())
-        res
-      }
+    // Consistency check takes a lot of time when we make an "accumulator" storage.
+    // To avoid a huge impact on performance metrics, we turn off consistency check for this particular case.
+    // However, in general, this place should be refactored: instead of returning builders, we should return entities themselves.
+    ConsistencyCheckingDisabler.withDisabled {
+      builders.forEach { builder -> target.addDiff(builder) }
     }
-
-    return result.singleOrNull() ?: MutableEntityStorage.create()
+    return target
   }
 
   @TestOnly
@@ -585,9 +581,7 @@ class JpsProjectSerializersImpl(directorySerializersFactories: List<JpsDirectory
   override fun saveEntities(storage: EntityStorage,
                             unloadedEntityStorage: EntityStorage,
                             affectedSources: Set<EntitySource>,
-                            writer: JpsFileContentWriter) {
-    val start = System.currentTimeMillis()
-
+                            writer: JpsFileContentWriter) = saveEntitiesTimeMs.addMeasuredTimeMillis {
     val affectedModuleListSerializers = HashSet<JpsModuleListSerializer>()
     val serializersToRun = HashMap<JpsFileEntitiesSerializer<*>, MutableMap<Class<out WorkspaceEntity>, MutableSet<WorkspaceEntity>>>()
 
@@ -604,8 +598,6 @@ class JpsProjectSerializersImpl(directorySerializersFactories: List<JpsDirectory
     serializersToRun.forEach {
       saveEntitiesBySerializer(it.key, it.value.mapValues { entitiesMapEntry -> entitiesMapEntry.value.toList() }, storage, writer)
     }
-
-    saveEntitiesTimeMs.addElapsedTimeMs(start)
   }
 
   private fun saveEntities(affectedSources: Set<EntitySource>,
@@ -725,7 +717,7 @@ class JpsProjectSerializersImpl(directorySerializersFactories: List<JpsDirectory
                 separator = "||") { "$it (Persistent Id: ${(it as? WorkspaceEntityWithSymbolicId)?.symbolicId})" }
             }
               """.trimMargin()
-            reportErrorAndAttachStorage(message, storage)
+            LOG.error(message)
           }
           if (existingSerializers.isEmpty() || existingSerializers.any { it.internalEntitySource != actualFileSource }) {
             processNewlyAddedDirectoryEntities(entities, serializersToRun)
@@ -924,18 +916,15 @@ class JpsProjectSerializersImpl(directorySerializersFactories: List<JpsDirectory
     private val saveEntitiesTimeMs: AtomicLong = AtomicLong()
 
     private fun setupOpenTelemetryReporting(meter: Meter) {
-      val loadEntitiesTimeGauge = meter.gaugeBuilder("jps.project.serializers.load.ms")
-        .ofLongs().buildObserver()
-
-      val saveEntitiesTimeGauge = meter.gaugeBuilder("jps.project.serializers.save.ms")
-        .ofLongs().buildObserver()
+      val loadEntitiesTimeCounter = meter.counterBuilder("jps.project.serializers.load.ms").buildObserver()
+      val saveEntitiesTimeCounter = meter.counterBuilder("jps.project.serializers.save.ms").buildObserver()
 
       meter.batchCallback(
         {
-          loadEntitiesTimeGauge.record(loadEntitiesTimeMs.get())
-          saveEntitiesTimeGauge.record(saveEntitiesTimeMs.get())
+          loadEntitiesTimeCounter.record(loadEntitiesTimeMs.get())
+          saveEntitiesTimeCounter.record(saveEntitiesTimeMs.get())
         },
-        loadEntitiesTimeGauge, saveEntitiesTimeGauge
+        loadEntitiesTimeCounter, saveEntitiesTimeCounter
       )
     }
 

@@ -53,7 +53,9 @@
     "CheckBox": {
       "background": "#ececec",
       "border": "com.intellij.ide.ui.laf.darcula.ui.DarculaCheckBoxBorder",
-      "borderInsets": "4,4,4,0",
+      "borderInsets": "4,4,4,4",
+      "iconSize": 22,
+      "textIconGap": 3,
       "UI": "com.intellij.laf.macos.MacIntelliJCheckBoxUI"
     },
 
@@ -201,7 +203,7 @@
     "RadioButton": {
       "background": "#ececec",
       "border": "com.intellij.ide.ui.laf.darcula.ui.DarculaRadioButtonBorder",
-      "borderInsets": "3,3,3,0",
+      "borderInsets": "3,3,3,3",
       "UI": "com.intellij.laf.macos.MacIntelliJRadioButtonUI"
     },
 

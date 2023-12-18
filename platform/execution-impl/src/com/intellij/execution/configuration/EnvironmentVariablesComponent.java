@@ -18,6 +18,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.event.ChangeListener;
+import java.util.List;
 import java.util.Map;
 
 public class EnvironmentVariablesComponent extends LabeledComponent<TextFieldWithBrowseButton>
@@ -29,7 +30,7 @@ public class EnvironmentVariablesComponent extends LabeledComponent<TextFieldWit
   private static final @NonNls String OPTION = "option";
   private static final @NonNls String ENV_VARIABLES = "ENV_VARIABLES";
 
-  private final EnvironmentVariablesTextFieldWithBrowseButton myEnvVars;
+  public final EnvironmentVariablesTextFieldWithBrowseButton myEnvVars;
 
   public EnvironmentVariablesComponent() {
     super();
@@ -58,6 +59,14 @@ public class EnvironmentVariablesComponent extends LabeledComponent<TextFieldWit
 
   public void setPassParentEnvs(final boolean passParentEnvs) {
     myEnvVars.setPassParentEnvs(passParentEnvs);
+  }
+
+  public void setEnvFilePaths(List<String> envFilePaths) {
+      myEnvVars.setEnvFilePaths(envFilePaths);
+  }
+
+  public List<String> getEnvFilePaths(){
+    return myEnvVars.getEnvFilePaths();
   }
 
   public @NotNull EnvironmentVariablesData getEnvData() {
@@ -99,7 +108,7 @@ public class EnvironmentVariablesComponent extends LabeledComponent<TextFieldWit
       }
     }
     else {
-      //compatibility with prev version
+      //compatibility with the previous version
       for (Element o : element.getChildren(OPTION)) {
         if (Comparing.strEqual(o.getAttributeValue(NAME), ENV_VARIABLES)) {
           splitVars(envs, o.getAttributeValue(VALUE));

@@ -19,7 +19,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
     val idea = "idea/tests/testData/"
 
     testGroup("code-insight/inspections-k2/tests", testDataPath = "../../..") {
-        testClass<AbstractK2LocalInspectionTest> {
+        testClass<AbstractK2LocalInspectionTest>(commonSuite = false) {
             val pattern = Patterns.forRegex("^([\\w\\-_]+)\\.(kt|kts)$")
             model("${idea}/inspectionsLocal/unusedVariable", pattern = pattern)
             model("${idea}/inspectionsLocal/redundantVisibilityModifier", pattern = pattern)
@@ -41,9 +41,14 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspectionsLocal/whenWithOnlyElse")
             model("${idea}/inspectionsLocal/equalsOrHashCode")
             model("${idea}/inspectionsLocal/removeRedundantQualifierName")
+            model("${idea}/inspectionsLocal/redundantUnitExpression")
             model("${idea}/inspectionsLocal/equalsBetweenInconvertibleTypes")
             model("${idea}/inspectionsLocal/redundantIf")
             model("${idea}/inspectionsLocal/mayBeConstant")
+            model("${idea}/inspectionsLocal/moveLambdaOutsideParentheses")
+            model("${idea}/inspectionsLocal/foldInitializerAndIfToElvis")
+            model("${idea}/inspectionsLocal/redundantElseInIf")
+            model("${idea}/inspectionsLocal/joinDeclarationAndAssignment")
             model("code-insight/inspections-k2/tests/testData/inspectionsLocal", pattern = pattern)
         }
         /**
@@ -71,6 +76,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
         testClass<AbstractK2QuickFixTest> {
             val pattern = Patterns.forRegex("^([\\w\\-_]+)\\.kt$")
             model("${idea}/quickfix/redundantIf", pattern = pattern)
+            model("${idea}/quickfix/changeSignature", pattern = pattern)
             model("${idea}/quickfix/redundantModalityModifier", pattern = pattern)
             model("${idea}/quickfix/removeToStringInStringTemplate", pattern = pattern)
             model("${idea}/quickfix/suppress", pattern = pattern)
@@ -78,11 +84,14 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/quickfix/optIn", pattern = pattern)
             model("${idea}/quickfix/removeUseSiteTarget", pattern = pattern)
             model("${idea}/quickfix/protectedInFinal", pattern = pattern)
+            model("${idea}/quickfix/createFromUsage/createFunction/call/abstract", pattern = pattern)
         }
 
         testClass<AbstractK2MultiFileQuickFixTest> {
             val pattern = Patterns.forRegex("""^(\w+)\.((before\.Main\.\w+)|(test))$""")
             model("${idea}/quickfix/optIn", pattern = pattern, testMethodName = "doTestWithExtraFile")
+            model("${idea}/quickfix/createFromUsage/createFunction/fromJava", pattern = pattern, testMethodName = "doTestWithExtraFile")
+            model("${idea}/quickfix/createFromUsage/createFunction/fromKotlinToJava", pattern = pattern, testMethodName = "doTestWithExtraFile")
         }
 
         testClass<AbstractK2MultiFileLocalInspectionTest> {

@@ -58,6 +58,14 @@ abstract class BaseCompletionGolfFileReportGenerator(
               delOption("cg-delimiter-none", "none")
             }
           }
+          div("trigger") {
+            label("labelText") { +"Trigger model " }
+            span("stats-skipped") { +"skipped" }
+          }
+          div("red-code") {
+            label("labelText") { +"Filters check " }
+            span("stats-absent") { +"skipped" }
+          }
           div("thresholds") {
             label("labelText") { +"Threshold grades:" }
             getThresholds().forEach {
@@ -212,13 +220,15 @@ abstract class BaseCompletionGolfFileReportGenerator(
       }
     }
 
-    div("line-stats") {
-      i {
-        style = "display: flex;"
-        pre("no-select") { +"    #  " }
-        pre("stats-value") {
-          style = "padding-inline: 4px;"
-          +getLineStats(session).joinToString(separator = "\t", prefix = "", postfix = "\t")
+    if (session.lookups.isNotEmpty()) {
+      div("line-stats") {
+        i {
+          style = "display: flex;"
+          pre("no-select") { +"    #  " }
+          pre("stats-value") {
+            style = "padding-inline: 4px;"
+            +getLineStats(session).joinToString(separator = "\t", prefix = "", postfix = "\t")
+          }
         }
       }
     }

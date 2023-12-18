@@ -101,7 +101,7 @@ public final class StreamlinedBlobStorageOverLockFreePagedStorage extends Stream
           final int version = getStorageVersion();
           if (version != STORAGE_VERSION_CURRENT) {
             throw new IOException(
-              "Can't read file[" + pagedStorage + "]: file version(" + version + ") != current impl version (" + STORAGE_VERSION_CURRENT + ")");
+              "[" + pagedStorage.getFile() + "]: file version(" + version + ") != current impl version (" + STORAGE_VERSION_CURRENT + ")");
           }
 
           final int filePageSize = readHeaderInt(HeaderLayout.PAGE_SIZE_OFFSET);
@@ -184,6 +184,7 @@ public final class StreamlinedBlobStorageOverLockFreePagedStorage extends Stream
             if (redirectToId == NULL_ID) {
               return false;
             }
+            checkRedirectToId(recordId, currentRecordId, redirectToId);
             currentRecordId = redirectToId;
           }
           else {
@@ -243,9 +244,7 @@ public final class StreamlinedBlobStorageOverLockFreePagedStorage extends Stream
 
           if (recordType == RecordLayout.RECORD_TYPE_MOVED) {
             final int redirectToId = recordLayout.redirectToId(buffer, offsetOnPage);
-            if (redirectToId == NULL_ID) { //!actual && redirectTo = NULL
-              throw new RecordAlreadyDeletedException("Can't read record[" + currentRecordId + "]: it was deleted");
-            }
+            checkRedirectToId(recordId, currentRecordId, redirectToId);
             currentRecordId = redirectToId;
           }
           else {
@@ -334,9 +333,7 @@ public final class StreamlinedBlobStorageOverLockFreePagedStorage extends Stream
           final byte recordType = recordLayout.recordType();
           if (recordType == RecordLayout.RECORD_TYPE_MOVED) {
             final int redirectToId = recordLayout.redirectToId(buffer, offsetOnPage);
-            if (!isValidRecordId(redirectToId)) {
-              throw new RecordAlreadyDeletedException("Can't write to record[" + currentRecordId + "]: it was deleted");
-            }
+            checkRedirectToId(recordId, currentRecordId, redirectToId);
             currentRecordId = redirectToId;
             continue;//hope redirect chains are not too long...
           }
@@ -559,7 +556,7 @@ public final class StreamlinedBlobStorageOverLockFreePagedStorage extends Stream
     try (final Page headerPage = pagedStorage.pageByIndex(0, /*forWrite: */ true)) {
       headerPage.lockPageForWrite();
       try {
-        putHeaderInt(HeaderLayout.NEXT_RECORD_ID_OFFSET, nextRecordId);
+        putHeaderInt(HeaderLayout.NEXT_RECORD_ID_OFFSET, nextRecordId());
         putHeaderInt(HeaderLayout.RECORDS_ALLOCATED_OFFSET, recordsAllocated.get());
         putHeaderInt(HeaderLayout.RECORDS_RELOCATED_OFFSET, recordsRelocated.get());
         putHeaderInt(HeaderLayout.RECORDS_DELETED_OFFSET, recordsDeleted.get());

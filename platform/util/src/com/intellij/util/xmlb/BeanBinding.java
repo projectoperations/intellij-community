@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xmlb;
 
 import com.intellij.openapi.util.JDOMExternalizable;
@@ -66,12 +66,13 @@ public class BeanBinding extends NotNullDeserializeBinding {
     Property classAnnotation = myBeanClass.getAnnotation(Property.class);
 
     List<MutableAccessor> accessors = getAccessors(myBeanClass);
-    bindings = new NestedBinding[accessors.size()];
-    for (int i = 0, size = accessors.size(); i < size; i++) {
+    NestedBinding[] result = accessors.isEmpty() ? NestedBinding.EMPTY_ARRAY : new NestedBinding[accessors.size()];
+    for (int i = 0; i < result.length; i++) {
       NestedBinding binding = createBinding(accessors.get(i), serializer, classAnnotation == null ? Property.Style.OPTION_TAG : classAnnotation.style());
       binding.init(originalType, serializer);
-      bindings[i] = binding;
+      result[i] = binding;
     }
+    bindings = result;
   }
 
   @Override
@@ -81,6 +82,10 @@ public class BeanBinding extends NotNullDeserializeBinding {
 
   public final Element serialize(@NotNull Object object, boolean createElementIfEmpty, @Nullable SerializationFilter filter) {
     return serializeInto(object, createElementIfEmpty ? new Element(myTagName) : null, filter);
+  }
+
+  public NestedBinding[] getBindings() {
+    return bindings;
   }
 
   public @Nullable Element serializeInto(@NotNull Object o, @Nullable Element element, @Nullable SerializationFilter filter) {
@@ -94,11 +99,11 @@ public class BeanBinding extends NotNullDeserializeBinding {
     return element;
   }
 
-  protected final @Nullable Element serializePropertyInto(@NotNull NestedBinding binding,
-                                                          @NotNull Object o,
-                                                          @Nullable Element element,
-                                                          @Nullable SerializationFilter filter,
-                                                          boolean isFilterPropertyItself) {
+  public final @Nullable Element serializePropertyInto(@NotNull NestedBinding binding,
+                                                       @NotNull Object o,
+                                                       @Nullable Element element,
+                                                       @Nullable SerializationFilter filter,
+                                                       boolean isFilterPropertyItself) {
     Accessor accessor = binding.getAccessor();
     Property property = accessor.getAnnotation(Property.class);
     if (property == null || !property.alwaysWrite()) {
@@ -150,7 +155,7 @@ public class BeanBinding extends NotNullDeserializeBinding {
     return instance;
   }
 
-  protected @NotNull Object newInstance() {
+  public @NotNull Object newInstance() {
     return ReflectionUtil.newInstance(myBeanClass, false);
   }
 
@@ -261,10 +266,15 @@ public class BeanBinding extends NotNullDeserializeBinding {
     }
   }
 
-  // binding value will be not set if no data
   public final void deserializeInto(@NotNull Object result, @NotNull XmlElement element) {
+    deserializeInto(result, element, bindings, 0, bindings.length);
+  }
+
+  // binding value will be not set if no data
+  public static void deserializeInto(@NotNull Object result, @NotNull XmlElement element, NestedBinding[] bindings, int start, int end) {
     int attributeBindingCount = 0;
-    for (NestedBinding binding : bindings) {
+    for (int i = start; i < end; i++) {
+      NestedBinding binding = bindings[i];
       if (binding instanceof AttributeBinding) {
         attributeBindingCount++;
         AttributeBinding attributeBinding = (AttributeBinding)binding;
@@ -388,7 +398,8 @@ public class BeanBinding extends NotNullDeserializeBinding {
         else if (aClass == String.class) {
           LOG.error("Do not compute bindings for String");
         }
-        LOG.warn("no accessors for " + aClass.getName());
+        LOG.warn("No accessors for " + aClass.getName() + ". " +
+                 "This means that state class cannot be serialized properly. Please see https://jb.gg/ij-psoc");
       }
       return result;
     }

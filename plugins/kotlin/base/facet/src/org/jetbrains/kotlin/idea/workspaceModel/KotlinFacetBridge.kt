@@ -2,16 +2,18 @@
 package org.jetbrains.kotlin.idea.workspaceModel
 
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.roots.ExternalProjectSystemRegistry
+import com.intellij.openapi.roots.ProjectModelExternalSource
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetBridge
 import com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetConfigurationBridge
 import org.jetbrains.kotlin.idea.facet.KotlinFacet
 import org.jetbrains.kotlin.idea.facet.KotlinFacetConfiguration
 
-class KotlinFacetBridge(/*facetType: KotlinFacetType,*/
-                        module: Module,
-                        name: String,
-                        configuration: KotlinFacetConfiguration
+class KotlinFacetBridge(
+    module: Module,
+    name: String,
+    configuration: KotlinFacetConfiguration
 ) : KotlinFacet(module, name, configuration),
     FacetBridge<KotlinSettingsEntity> {
     override val config: FacetConfigurationBridge<KotlinSettingsEntity>
@@ -21,16 +23,15 @@ class KotlinFacetBridge(/*facetType: KotlinFacetType,*/
         val moduleEntity = mutableStorage.resolve(existingFacetEntity.moduleId)!!
         val kotlinSettingsEntity = config.getEntity(moduleEntity)
         mutableStorage.modifyEntity(existingFacetEntity) {
+            if (kotlinSettingsEntity.flushNeeded) flushNeeded = false
             name = kotlinSettingsEntity.name
             sourceRoots = kotlinSettingsEntity.sourceRoots.toMutableList()
             configFileItems = kotlinSettingsEntity.configFileItems.toMutableList()
             moduleId = kotlinSettingsEntity.moduleId
             module = mutableStorage.resolve(kotlinSettingsEntity.moduleId)!!
             useProjectSettings = kotlinSettingsEntity.useProjectSettings
-            mergedCompilerArguments = kotlinSettingsEntity.mergedCompilerArguments
             compilerArguments = kotlinSettingsEntity.compilerArguments
             compilerSettings = kotlinSettingsEntity.compilerSettings
-            //externalSystemRunTasks = kotlinSettingsEntity.externalSystemRunTasks
             implementedModuleNames = kotlinSettingsEntity.implementedModuleNames.toMutableList()
             dependsOnModuleNames = kotlinSettingsEntity.dependsOnModuleNames.toMutableList()
             additionalVisibleModuleNames = kotlinSettingsEntity.additionalVisibleModuleNames.toMutableSet()
@@ -44,5 +45,10 @@ class KotlinFacetBridge(/*facetType: KotlinFacetType,*/
             pureKotlinSourceFolders = kotlinSettingsEntity.pureKotlinSourceFolders.toMutableList()
             targetPlatform = kotlinSettingsEntity.targetPlatform
         }
+    }
+
+    override fun getExternalSource(): ProjectModelExternalSource? {
+        return super.getExternalSource() ?: if (configuration.settings.externalProjectId.isEmpty()) return null
+        else ExternalProjectSystemRegistry.getInstance().getSourceById(configuration.settings.externalProjectId)
     }
 }

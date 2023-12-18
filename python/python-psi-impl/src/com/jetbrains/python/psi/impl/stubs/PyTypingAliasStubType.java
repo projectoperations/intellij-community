@@ -37,7 +37,7 @@ import static com.jetbrains.python.psi.PyUtil.as;
 /**
  * @author Mikhail Golubev
  */
-public class PyTypingAliasStubType extends CustomTargetExpressionStubType<PyTypingAliasStub> {
+public final class PyTypingAliasStubType extends CustomTargetExpressionStubType<PyTypingAliasStub> {
   private static final int STRING_LITERAL_LENGTH_THRESHOLD = 100;
 
   private static final Pattern TYPE_ANNOTATION_LIKE = Pattern.compile("\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*" +
@@ -114,7 +114,10 @@ public class PyTypingAliasStubType extends CustomTargetExpressionStubType<PyTypi
     final PyCallExpression call = as(expression, PyCallExpression.class);
     if (call != null) {
       final PyReferenceExpression callee = as(call.getCallee(), PyReferenceExpression.class);
-      return callee != null && ("TypeVar".equals(callee.getReferencedName()) || "ParamSpec".equals(callee.getReferencedName()));
+      return callee != null &&
+             ("TypeVar".equals(callee.getReferencedName()) || "TypeVarTuple".equals(callee.getReferencedName()) ||
+              "ParamSpec".equals(callee.getReferencedName()));
+
     }
 
     final PyStringLiteralExpression pyString = as(expression, PyStringLiteralExpression.class);

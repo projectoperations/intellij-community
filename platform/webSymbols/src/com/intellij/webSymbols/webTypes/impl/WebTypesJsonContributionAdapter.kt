@@ -2,36 +2,25 @@
 package com.intellij.webSymbols.webTypes.impl
 
 import com.intellij.model.Pointer
-import com.intellij.model.Symbol
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.util.UserDataHolderEx
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.psi.PsiElement
-import com.intellij.util.containers.Stack
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.webSymbols.*
 import com.intellij.webSymbols.WebSymbol.Companion.KIND_HTML_ATTRIBUTES
-import com.intellij.webSymbols.WebSymbol.Priority
-import com.intellij.webSymbols.completion.WebSymbolCodeCompletionItem
-import com.intellij.webSymbols.html.WebSymbolHtmlAttributeValue
 import com.intellij.webSymbols.impl.StaticWebSymbolsScopeBase
 import com.intellij.webSymbols.patterns.WebSymbolsPattern
-import com.intellij.webSymbols.query.WebSymbolsCodeCompletionQueryParams
-import com.intellij.webSymbols.query.WebSymbolsListSymbolsQueryParams
-import com.intellij.webSymbols.query.WebSymbolsNameMatchQueryParams
 import com.intellij.webSymbols.query.WebSymbolsQueryExecutor
-import com.intellij.webSymbols.utils.merge
 import com.intellij.webSymbols.webTypes.WebTypesJsonOrigin
 import com.intellij.webSymbols.webTypes.WebTypesScopeBase
-import com.intellij.webSymbols.webTypes.WebTypesSymbol
+import com.intellij.webSymbols.webTypes.WebTypesSymbolBase
 import com.intellij.webSymbols.webTypes.json.*
-import javax.swing.Icon
 
-abstract class WebTypesJsonContributionAdapter private constructor(protected val contribution: BaseContribution,
-                                                                   protected val jsonOrigin: WebTypesJsonOrigin,
-                                                                   protected val cacheHolder: UserDataHolderEx,
-                                                                   protected val rootScope: WebTypesScopeBase,
+abstract class WebTypesJsonContributionAdapter private constructor(internal val contribution: BaseContribution,
+                                                                   internal val jsonOrigin: WebTypesJsonOrigin,
+                                                                   internal val cacheHolder: UserDataHolderEx,
+                                                                   internal val rootScope: WebTypesScopeBase,
                                                                    override val namespace: SymbolNamespace,
                                                                    override val kind: String) :
   StaticWebSymbolsScopeBase.StaticSymbolContributionAdapter {
@@ -71,9 +60,9 @@ abstract class WebTypesJsonContributionAdapter private constructor(protected val
 
   open val contributionForQuery: GenericContributionsHost get() = contribution
 
-  private var exclusiveContributions: Set<Pair<SymbolNamespace, String>>? = null
+  private var exclusiveContributions: Set<WebSymbolQualifiedKind>? = null
 
-  fun isExclusiveFor(namespace: SymbolNamespace, kind: SymbolKind): Boolean =
+  fun isExclusiveFor(qualifiedKind: WebSymbolQualifiedKind): Boolean =
     (exclusiveContributions
      ?: when {
        contribution.exclusiveContributions.isEmpty() -> emptySet()
@@ -86,200 +75,15 @@ abstract class WebTypesJsonContributionAdapter private constructor(protected val
            val n = path.substring(1, slash).asWebTypesSymbolNamespace()
                    ?: return@mapNotNull null
            val k = path.substring(slash + 1, path.length)
-           Pair(n, k)
+           WebSymbolQualifiedKind(n, k)
          }
          .toSet()
      }.also { exclusiveContributions = it }
-    )
-      .takeIf { it.isNotEmpty() }
-      ?.contains(Pair(namespace, kind)) == true
+    ).contains(qualifiedKind)
 
   override fun withQueryExecutorContext(queryExecutor: WebSymbolsQueryExecutor): WebSymbol =
-    WebTypesSymbolImpl(this, queryExecutor)
-
-  internal class WebTypesSymbolImpl(private val base: WebTypesJsonContributionAdapter,
-                                    private val queryExecutor: WebSymbolsQueryExecutor)
-    : WebTypesSymbol {
-
-    private var _superContributions: List<WebSymbol>? = null
-
-    private val superContributions: List<WebSymbol>
-      get() = _superContributions
-              ?: base.contribution.extends
-                .also { _superContributions = emptyList() }
-                ?.resolve(listOf(), queryExecutor, true, true)
-                ?.toList()
-                ?.also { contributions -> _superContributions = contributions }
-              ?: emptyList()
-
-    override fun getMatchingSymbols(namespace: SymbolNamespace,
-                                    kind: String,
-                                    name: String,
-                                    params: WebSymbolsNameMatchQueryParams,
-                                    scope: Stack<WebSymbolsScope>): List<WebSymbol> =
-      base.rootScope
-        .getMatchingSymbols(base.contributionForQuery, base.jsonOrigin, namespace,
-                            kind, name, params, scope)
-        .toList()
-
-    override fun getSymbols(namespace: SymbolNamespace,
-                            kind: SymbolKind,
-                            params: WebSymbolsListSymbolsQueryParams,
-                            scope: Stack<WebSymbolsScope>): List<WebSymbolsScope> =
-      base.rootScope
-        .getSymbols(base.contributionForQuery, this.origin, namespace,
-                    kind, params)
-        .toList()
-
-    override fun getCodeCompletions(namespace: SymbolNamespace,
-                                    kind: String,
-                                    name: String,
-                                    params: WebSymbolsCodeCompletionQueryParams,
-                                    scope: Stack<WebSymbolsScope>): List<WebSymbolCodeCompletionItem> =
-      base.rootScope
-        .getCodeCompletions(base.contributionForQuery, base.jsonOrigin, namespace,
-                            kind, name, params, scope)
-        .toList()
-
-    override val kind: SymbolKind
-      get() = base.kind
-
-    override val origin: WebTypesJsonOrigin
-      get() = base.jsonOrigin
-
-    override val namespace: SymbolNamespace
-      get() = base.namespace
-
-    override val name: String
-      get() = if (base is Pattern) base.contributionName else base.name
-
-    override val description: String?
-      get() = base.contribution.description
-                ?.let { base.jsonOrigin.renderDescription(base.contribution.description) }
-              ?: superContributions.asSequence().mapNotNull { it.description }.firstOrNull()
-
-    override val descriptionSections: Map<String, String>
-      get() = (base.contribution.descriptionSections?.additionalProperties?.asSequence() ?: emptySequence())
-        .plus(superContributions.asSequence().flatMap { it.descriptionSections.asSequence() })
-        .distinctBy { it.key }
-        .associateBy({ it.key }, { base.jsonOrigin.renderDescription(it.value) })
-
-    override val docUrl: String?
-      get() = base.contribution.docUrl
-              ?: superContributions.asSequence().mapNotNull { it.docUrl }.firstOrNull()
-
-    override val icon: Icon?
-      get() = base.icon ?: superContributions.asSequence().mapNotNull { it.icon }.firstOrNull()
-
-    override val location: WebTypesSymbol.Location?
-      // Should not reach to super contributions, because it can lead to stack overflow
-      // when special containers are trying to merge symbols
-      get() = base.contribution.source
-        ?.let {
-          base.jsonOrigin.resolveSourceLocation(it)
-        }
-
-    override val source: PsiElement?
-      // Should not reach to super contributions, because it can lead to stack overflow
-      // when special containers are trying to merge symbols
-      get() = base.contribution.source
-        ?.let {
-          base.jsonOrigin.resolveSourceSymbol(it, base.cacheHolder)
-        }
-
-    override val attributeValue: WebSymbolHtmlAttributeValue?
-      get() = (base.contribution.attributeValue?.let { sequenceOf(HtmlAttributeValueImpl(it)) } ?: emptySequence())
-        .plus(superContributions.asSequence().map { it.attributeValue })
-        .merge()
-
-    override val type: Any?
-      get() = (base.contribution.type)
-                ?.let { base.jsonOrigin.typeSupport?.resolve(it.mapToTypeReferences()) }
-              ?: superContributions.asSequence().mapNotNull { it.type }.firstOrNull()
-
-    override val apiStatus: WebSymbolApiStatus
-      get() = base.contribution.toApiStatus(origin)
-
-    override val virtual: Boolean
-      get() = base.contribution.virtual == true
-
-    override val extension: Boolean
-      get() = base.contribution.extension == true
-
-    override val priority: Priority?
-      get() = base.contribution.priority?.wrap()
-              ?: superContributions.firstOrNull()?.priority
-
-    override val proximity: Int?
-      get() = base.contribution.proximity
-              ?: superContributions.firstOrNull()?.proximity
-
-    override val abstract: Boolean
-      get() = base.contribution.abstract == true
-
-    override val required: Boolean?
-      get() = (base.contribution as? GenericContribution)?.required
-              ?: (base.contribution as? HtmlAttribute)?.required
-              ?: superContributions.firstOrNull()?.required
-
-    override val defaultValue: String?
-      get() = (base.contribution as? GenericContribution)?.default
-              ?: (base.contribution as? HtmlAttribute)?.default
-              ?: superContributions.firstOrNull()?.defaultValue
-
-    override val pattern: WebSymbolsPattern?
-      get() = base.jsonPattern?.wrap(base.contribution.name, origin)
-
-    override fun createPointer(): Pointer<WebTypesSymbolImpl> {
-      val queryExecutorPtr = this.queryExecutor.createPointer()
-      val basePtr = this.base.createPointer()
-      return Pointer<WebTypesSymbolImpl> {
-        val queryExecutor = queryExecutorPtr.dereference() ?: return@Pointer null
-        val base = basePtr.dereference() ?: return@Pointer null
-        base.withQueryExecutorContext(queryExecutor) as WebTypesSymbolImpl
-      }
-    }
-
-    override val queryScope: List<WebSymbolsScope>
-      get() = superContributions.asSequence()
-        .flatMap { it.queryScope }
-        .plus(this)
-        .toList()
-
-    override val properties: Map<String, Any>
-      get() = base.contribution.genericProperties
-
-    override fun isExclusiveFor(namespace: SymbolNamespace, kind: SymbolKind): Boolean =
-      namespace == this.namespace
-      && (base.isExclusiveFor(namespace, kind)
-          || superContributions.any { it.isExclusiveFor(namespace, kind) })
-
-    override fun toString(): String =
-      base.toString()
-
-    override fun isEquivalentTo(symbol: Symbol): Boolean =
-      (symbol is WebTypesSymbolImpl && symbol.base == this.base)
-      || super.isEquivalentTo(symbol)
-
-    private inner class HtmlAttributeValueImpl(private val value: HtmlAttributeValue) : WebSymbolHtmlAttributeValue {
-      override val kind: WebSymbolHtmlAttributeValue.Kind?
-        get() = value.kind?.wrap()
-
-      override val type: WebSymbolHtmlAttributeValue.Type?
-        get() = value.type?.wrap()
-
-      override val required: Boolean?
-        get() = value.required
-
-      override val default: String?
-        get() = value.default
-
-      override val langType: Any?
-        get() = value.type?.toLangType()
-          ?.let { base.jsonOrigin.typeSupport?.resolve(it.mapToTypeReferences()) }
-
-    }
-  }
+    (WebTypesSymbolFactoryEP.get(WebSymbolQualifiedKind(namespace, kind))?.create() ?: WebTypesSymbolBase())
+      .also { it.init(this, queryExecutor)}
 
   abstract fun createPointer(): Pointer<out WebTypesJsonContributionAdapter>
 
@@ -309,7 +113,7 @@ abstract class WebTypesJsonContributionAdapter private constructor(protected val
 
   }
 
-  private class Pattern(contribution: BaseContribution,
+  internal class Pattern(contribution: BaseContribution,
                         context: WebTypesJsonOrigin,
                         cacheHolder: UserDataHolderEx,
                         rootScope: WebTypesScopeBase,

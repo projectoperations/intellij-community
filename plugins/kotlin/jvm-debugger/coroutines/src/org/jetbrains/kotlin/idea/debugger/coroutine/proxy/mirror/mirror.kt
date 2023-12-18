@@ -13,7 +13,9 @@ data class MirrorOfStandaloneCoroutine(
 data class MirrorOfCoroutineContext(
     val name: String?,
     val id: Long?,
-    val dispatcher: String?
+    val dispatcher: String?,
+    val job: MirrorOfJob?,
+    val summary: String?
 )
 
 data class MirrorOfCoroutineOwner(val that: ObjectReference, val coroutineInfo: MirrorOfCoroutineInfo?)
@@ -30,6 +32,11 @@ data class MirrorOfCoroutineInfo(
     val lastObservedFrame: ObjectReference?,
     val enhancedStackTraceProvider: StackTraceMirrorProvider,
     val creationStackTraceProvider: StackTraceMirrorProvider
+)
+
+data class MirrorOfJob(
+    val details: String,
+    val parent: JobMirrorProvider
 )
 
 data class MirrorOfCoroutineStackFrame(
@@ -82,6 +89,12 @@ data class MirrorOfDispatchedContinuation(
 )
 
 data class MirrorOfJavaLangAbstractCollection(val that: ObjectReference, val values: List<ObjectReference>)
+
+data class MirrorOfBaseContinuationImplLight(
+    val that: ObjectReference,
+    val nextContinuation: ObjectReference?,
+    val coroutineOwner: ObjectReference?
+)
 
 data class MirrorOfBaseContinuationImpl(
     val that: ObjectReference,

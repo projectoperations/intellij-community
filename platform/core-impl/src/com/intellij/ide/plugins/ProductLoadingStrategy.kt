@@ -42,6 +42,13 @@ abstract class ProductLoadingStrategy {
                                             isUnitTestMode: Boolean,
                                             context: DescriptorListLoadingContext,
                                             zipFilePool: ZipFilePool?): List<Deferred<IdeaPluginDescriptorImpl?>>
+
+  abstract fun isOptionalProductModule(moduleName: String): Boolean
+
+  /**
+   * Returns `true` if the loader should search for META-INF/plugin.xml files in the core application classpath and load them.  
+   */
+  abstract val shouldLoadDescriptorsFromCoreClassPath: Boolean
 }
 
 private class PathBasedProductLoadingStrategy : ProductLoadingStrategy() {
@@ -67,4 +74,11 @@ private class PathBasedProductLoadingStrategy : ProductLoadingStrategy() {
       scope.loadDescriptorsFromDir(dir = effectiveBundledPluginDir, context = context, isBundled = true, pool = zipFilePool)
     }
   }
+
+  override fun isOptionalProductModule(moduleName: String): Boolean {
+    return false
+  }
+
+  override val shouldLoadDescriptorsFromCoreClassPath: Boolean
+    get() = true
 }  

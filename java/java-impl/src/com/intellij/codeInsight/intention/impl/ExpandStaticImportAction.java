@@ -15,7 +15,7 @@ import java.util.Objects;
 
 import static com.intellij.psi.util.ImportsUtil.*;
 
-public class ExpandStaticImportAction extends PsiBasedModCommandAction<PsiIdentifier> {
+public final class ExpandStaticImportAction extends PsiBasedModCommandAction<PsiIdentifier> {
   private final @NotNull ThreeState myExpandAll;
   
   public ExpandStaticImportAction() {
@@ -83,9 +83,8 @@ public class ExpandStaticImportAction extends PsiBasedModCommandAction<PsiIdenti
             staticImportCopy.delete();
           });
         }
-        yield new ModChooseAction(JavaBundle.message("multiple.usages.of.static.import.found"),
-                                  List.of(new ExpandStaticImportAction(false),
-                                  new ExpandStaticImportAction(true)));
+        yield ModCommand.chooseAction(JavaBundle.message("multiple.usages.of.static.import.found"),
+                                      new ExpandStaticImportAction(false), new ExpandStaticImportAction(true));
       }
     };
   }

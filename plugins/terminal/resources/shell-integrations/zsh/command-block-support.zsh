@@ -21,7 +21,7 @@ __jetbrains_intellij_encode() {
 __jetbrains_intellij_encode_large() {
   builtin local value="$1"
   if builtin whence od > /dev/null && builtin whence sed > /dev/null && builtin whence tr > /dev/null; then
-    builtin echo -n "$value" | od -v -A n -t x1 | sed 's/ *//g' | tr -d '\n'
+    builtin printf "%s" "$value" | od -v -A n -t x1 | sed 's/ *//g' | tr -d '\n'
   else
     __jetbrains_intellij_encode "$value"
   fi
@@ -46,9 +46,16 @@ __jetbrains_intellij_get_environment() {
   builtin local builtin_names="$(builtin print -l -- ${(ko)builtins})"
   builtin local function_names="$(builtin print -l -- ${(ko)functions})"
   builtin local command_names="$(builtin print -l -- ${(ko)commands})"
+  builtin local aliases_mapping="$(__jetbrains_intellij_escape_json "$(alias)")"
 
-  builtin local result="{\"envs\": \"$env_vars\", \"keywords\": \"$keyword_names\", \"builtins\": \"$builtin_names\", \"functions\": \"$function_names\", \"commands\": \"$command_names\"}"
+  builtin local result="{\"envs\": \"$env_vars\", \"keywords\": \"$keyword_names\", \"builtins\": \"$builtin_names\", \"functions\": \"$function_names\", \"commands\": \"$command_names\", \"aliases\": \"$aliases_mapping\"}"
   builtin printf '\e]1341;generator_finished;request_id=%s;result=%s\a' "$request_id" "$(__jetbrains_intellij_encode_large "${result}")"
+}
+
+__jetbrains_intellij_escape_json() {
+  sed -e 's/\\/\\\\/g'\
+      -e 's/"/\\"/g'\
+      <<< "$1"
 }
 
 __jetbrains_intellij_zshaddhistory() {
@@ -71,11 +78,16 @@ __jetbrains_intellij_command_preexec() {
   then
     return 0
   fi
+  __jetbrains_intellij_clear_all_and_move_cursor_to_top_left
   builtin local entered_command="$1"
   builtin local current_directory="$PWD"
   builtin printf '\e]1341;command_started;command=%s;current_directory=%s\a' \
     "$(__jetbrains_intellij_encode "${entered_command}")" \
     "$(__jetbrains_intellij_encode "${current_directory}")"
+}
+
+__jetbrains_intellij_clear_all_and_move_cursor_to_top_left() {
+  builtin printf '\e[3J\e[1;1H'
 }
 
 __jetbrains_intellij_command_precmd() {
@@ -91,12 +103,14 @@ __jetbrains_intellij_command_precmd() {
   __jetbrains_intellij_configure_prompt
 }
 
+# override clear behaviour to handle it on IDE side and remove the blocks
+clear() {
+  builtin printf '\e]1341;clear_invoked\a'
+}
+
 add-zsh-hook preexec __jetbrains_intellij_command_preexec
 add-zsh-hook precmd __jetbrains_intellij_command_precmd
 add-zsh-hook zshaddhistory __jetbrains_intellij_zshaddhistory
-
-# This script is sourced from inside a `precmd` hook, i.e. right before the first prompt.
-builtin printf '\e]1341;initialized\a'
 
 __jetbrains_intellij_configure_prompt
 
@@ -104,3 +118,6 @@ __jetbrains_intellij_configure_prompt
 # Get all commands from history from the first command
 builtin local hist="$(builtin history 1)"
 builtin printf '\e]1341;command_history;history_string=%s\a' "$(__jetbrains_intellij_encode_large "${hist}")"
+
+# This script is sourced from inside a `precmd` hook, i.e. right before the first prompt.
+builtin printf '\e]1341;initialized;current_directory=%s\a' "$(__jetbrains_intellij_encode "$PWD")"

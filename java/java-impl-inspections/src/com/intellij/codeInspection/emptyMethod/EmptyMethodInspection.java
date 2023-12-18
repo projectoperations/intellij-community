@@ -38,7 +38,7 @@ import java.util.List;
 
 import static com.intellij.codeInspection.options.OptPane.*;
 
-public class EmptyMethodInspection extends GlobalJavaBatchInspectionTool {
+public final class EmptyMethodInspection extends GlobalJavaBatchInspectionTool {
   private static final @NonNls String SHORT_NAME = "EmptyMethod";
 
   private static final ExtensionPointName<Condition<RefMethod>> CAN_BE_EMPTY_EP = new ExtensionPointName<>("com.intellij.canBeEmpty");
@@ -119,16 +119,15 @@ public class EmptyMethodInspection extends GlobalJavaBatchInspectionTool {
     if (message != null) {
       final ArrayList<LocalQuickFix> fixes = new ArrayList<>();
       fixes.add(getFix(processor, needToDeleteHierarchy));
-      if (globalContext instanceof GlobalInspectionContextBase &&
-          ((GlobalInspectionContextBase)globalContext).getCurrentProfile().getSingleTool() == null) {
+      if (globalContext instanceof GlobalInspectionContextBase globalInspectionContextBase &&
+          globalInspectionContextBase.getCurrentProfile().getSingleTool() == null) {
         PsiElement psi = refMethod.getPsiElement();
-        if (psi instanceof PsiModifierListOwner) {
-          SpecialAnnotationsUtilBase.createAddToSpecialAnnotationFixes((PsiModifierListOwner)psi, qualifiedName -> {
-            fixes.add(SpecialAnnotationsUtilBase.createAddToSpecialAnnotationsListQuickFix(
+        if (psi instanceof PsiModifierListOwner owner) {
+          SpecialAnnotationsUtilBase.processUnknownAnnotations(owner, qualifiedName -> {
+            fixes.add(new AddToInspectionOptionListFix<>(
+              this, 
               QuickFixBundle.message("fix.add.special.annotation.text", qualifiedName),
-              QuickFixBundle.message("fix.add.special.annotation.family"),
-              JavaBundle.message("special.annotations.annotations.list"), EXCLUDE_ANNOS, qualifiedName
-            ));
+              qualifiedName, insp -> insp.EXCLUDE_ANNOS));
             return true;
           });
         }

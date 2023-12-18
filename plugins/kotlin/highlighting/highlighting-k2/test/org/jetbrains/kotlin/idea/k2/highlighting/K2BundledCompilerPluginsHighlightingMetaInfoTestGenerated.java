@@ -28,6 +28,11 @@ public class K2BundledCompilerPluginsHighlightingMetaInfoTestGenerated extends A
         runTest("../../idea/tests/testData/highlighterMetaInfoWithBundledCompilerPlugins/allOpen.kt");
     }
 
+    @TestMetadata("allOpen_oldRegistrar.kt")
+    public void testAllOpen_oldRegistrar() throws Exception {
+        runTest("../../idea/tests/testData/highlighterMetaInfoWithBundledCompilerPlugins/allOpen_oldRegistrar.kt");
+    }
+
     @TestMetadata("lombok.kt")
     public void testLombok() throws Exception {
         runTest("../../idea/tests/testData/highlighterMetaInfoWithBundledCompilerPlugins/lombok.kt");
@@ -46,5 +51,10 @@ public class K2BundledCompilerPluginsHighlightingMetaInfoTestGenerated extends A
     @TestMetadata("serialize.kt")
     public void testSerialize() throws Exception {
         runTest("../../idea/tests/testData/highlighterMetaInfoWithBundledCompilerPlugins/serialize.kt");
+    }
+
+    @TestMetadata("serialize_importFromGeneratedCompanion.kt")
+    public void testSerialize_importFromGeneratedCompanion() throws Exception {
+        runTest("../../idea/tests/testData/highlighterMetaInfoWithBundledCompilerPlugins/serialize_importFromGeneratedCompanion.kt");
     }
 }

@@ -46,6 +46,8 @@
     <orderEntry type="module" module-name="kotlin.code-insight.api" />
     <orderEntry type="module" module-name="kotlin.base.resources" />
     <orderEntry type="module" module-name="kotlin.base.util" />
+    <orderEntry type="module" module-name="kotlin.base.indices" />
     <orderEntry type="module" module-name="kotlin.uast.uast-kotlin-base" />
+    <orderEntry type="module" module-name="intellij.platform.lang.impl" />
   </component>
 </module>

@@ -16,7 +16,6 @@
 package com.siyeh.ig.naming;
 
 import com.intellij.codeInspection.options.OptPane;
-import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
@@ -27,13 +26,12 @@ import com.siyeh.ig.fixes.RenameFix;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
 import java.util.HashMap;
 import java.util.Map;
 
 import static com.intellij.codeInspection.options.OptPane.*;
 
-public class StandardVariableNamesInspection extends BaseInspection {
+public final class StandardVariableNamesInspection extends BaseInspection {
 
 
   @NonNls static final Map<String, String> s_expectedTypes =
@@ -142,7 +140,7 @@ public class StandardVariableNamesInspection extends BaseInspection {
       registerVariableError(variable, variable);
     }
 
-    private boolean isVariableNamedSameAsSuper(PsiVariable variable) {
+    private static boolean isVariableNamedSameAsSuper(PsiVariable variable) {
       if (!(variable instanceof PsiParameter parameter)) {
         return false;
       }

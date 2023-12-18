@@ -11,10 +11,16 @@ enum class GitLabGQLQuery(val filePath: String) {
   GET_MERGE_REQUEST("graphql/query/getMergeRequest.graphql"),
   @SinceGitLab("13.1")
   FIND_MERGE_REQUESTS("graphql/query/findProjectMergeRequests.graphql"),
+  @SinceGitLab("14.7")
+  GET_MERGE_REQUEST_COMMITS("graphql/query/getMergeRequestCommits.graphql"),
   @SinceGitLab("12.3")
   GET_MERGE_REQUEST_DISCUSSIONS("graphql/query/getMergeRequestDiscussions.graphql"),
   @SinceGitLab("13.1", note = "No exact version")
   GET_PROJECT_LABELS("graphql/query/getProjectLabels.graphql"),
+  @SinceGitLab("12.0")
+  GET_PROJECT_REPOSITORY("graphql/query/getProjectRepository.graphql"),
+  @SinceGitLab("15.2")
+  GET_PROJECT_WORK_ITEMS("graphql/query/getProjectWidgets.graphql"),
   @SinceGitLab("13.0")
   GET_MEMBER_PROJECTS("graphql/query/getMemberProjects.graphql"),
 
@@ -38,6 +44,8 @@ enum class GitLabGQLQuery(val filePath: String) {
 
   @SinceGitLab("13.10")
   MERGE_REQUEST_ACCEPT("graphql/query/mergeRequestAccept.graphql"),
+  @SinceGitLab("13.1")
+  MERGE_REQUEST_CREATE("graphql/query/mergeRequestCreate.graphql"),
   @SinceGitLab("13.12")
   MERGE_REQUEST_SET_DRAFT("graphql/query/mergeRequestSetDraft.graphql"),
   @SinceGitLab("15.3")

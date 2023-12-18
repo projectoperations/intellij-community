@@ -1,13 +1,12 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing.dependencies
 
-import com.google.common.hash.HashCode
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.progress.ProgressManager
+import com.intellij.platform.ide.ideFingerprint
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -40,31 +39,30 @@ import java.util.concurrent.atomic.AtomicReference
 class IndexingDependenciesFingerprint {
 
   @ApiStatus.Internal
-  data class FingerprintImpl(val fingerprint: HashCode)
+  data class FingerprintImpl(@JvmField val fingerprint: Long) {
+    internal constructor(buffer: ByteBuffer) : this(fingerprint = buffer.rewind().order(ByteOrder.LITTLE_ENDIAN).getLong())
+
+    fun toByteBuffer(): ByteBuffer {
+      // still 32 bytes even though we need only 8 to avoid index storage invalidation
+      val buffer = ByteBuffer.allocate(FINGERPRINT_SIZE_IN_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+      buffer.putLong(fingerprint)
+      buffer.rewind()
+      return buffer
+    }
+  }
 
   companion object {
-    const val FINGERPRINT_SIZE_IN_BYTES = 32
-    val NULL_FINGERPRINT = FingerprintImpl(HashCode.fromBytes(ByteArray(FINGERPRINT_SIZE_IN_BYTES)))
+    const val FINGERPRINT_SIZE_IN_BYTES: Int = 32
+    val NULL_FINGERPRINT: FingerprintImpl = FingerprintImpl(0)
   }
 
   private val latestFingerprint = AtomicReference(NULL_FINGERPRINT)
   private var debugHelperToken: Int = 0
 
   private fun calculateFingerprint(): FingerprintImpl {
-    val startTime = System.currentTimeMillis()
-    val hasher = PluginHasher()
-    PluginManager.getLoadedPlugins()
-      .sortedBy { plugin -> plugin.pluginId.idString } // this will produce a copy of the list
-      .forEach { plugin ->
-        ProgressManager.checkCanceled()
-        hasher.addPluginFingerprint(plugin)
-      }
-
-    hasher.mixInInt(debugHelperToken)
-    val fingerprint = hasher.getFingerprint()
-    val durationMs = System.currentTimeMillis() - startTime
-    thisLogger().info("Calculated dependencies fingerprint in ${durationMs} ms ($fingerprint)")
-    return FingerprintImpl(fingerprint)
+    //println(fingerprintString)
+    //println(hasher.getDebugInfo())
+    return FingerprintImpl(ideFingerprint(debugHelperToken).asLong())
   }
 
   fun getFingerprint(): FingerprintImpl {

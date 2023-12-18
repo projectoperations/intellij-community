@@ -7,6 +7,7 @@ import com.intellij.modcommand.ActionContext;
 import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.Presentation;
 import com.intellij.modcommand.PsiUpdateModCommandAction;
+import com.intellij.openapi.editor.Document;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -18,7 +19,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * @author Dmitry Batkovich
  */
-public class CreateSwitchIntention extends PsiUpdateModCommandAction<PsiExpressionStatement> {
+public final class CreateSwitchIntention extends PsiUpdateModCommandAction<PsiExpressionStatement> {
   public CreateSwitchIntention() {
     super(PsiExpressionStatement.class);
   }
@@ -33,8 +34,12 @@ public class CreateSwitchIntention extends PsiUpdateModCommandAction<PsiExpressi
     PsiCodeBlock body = switchStatement.getBody();
     PsiJavaToken rBrace = body == null ? null : body.getRBrace();
     if (rBrace != null) {
-      updater.moveTo(rBrace);
-      updater.moveToPrevious('\n');
+      updater.moveCaretTo(rBrace);
+      PsiFile file = body.getContainingFile();
+      Document document = file.getFileDocument();
+      PsiDocumentManager.getInstance(context.project()).doPostponedOperationsAndUnblockDocument(document);
+      int lineEndOffset = document.getLineEndOffset(document.getLineNumber(updater.getCaretOffset()) - 1);
+      updater.moveCaretTo(lineEndOffset);
     }
   }
 

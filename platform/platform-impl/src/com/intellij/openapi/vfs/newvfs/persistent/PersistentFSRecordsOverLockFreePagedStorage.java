@@ -422,10 +422,10 @@ public final class PersistentFSRecordsOverLockFreePagedStorage implements Persis
   }
 
   @Override
-  public void setNameId(final int recordId,
-                        final int nameId) throws IOException {
+  public int updateNameId(final int recordId,
+                          final int nameId) throws IOException {
     PersistentFSConnection.ensureIdIsValid(nameId);
-    setIntField(recordId, NAME_REF_OFFSET, nameId);
+    return setIntField(recordId, NAME_REF_OFFSET, nameId);
   }
 
   @Override
@@ -720,7 +720,7 @@ public final class PersistentFSRecordsOverLockFreePagedStorage implements Persis
   }
 
   @Override
-  public void closeAndRemoveAllFiles() throws IOException {
+  public void closeAndClean() throws IOException {
     close();
     try {
       storage.closeAndRemoveAllFiles();
@@ -824,18 +824,20 @@ public final class PersistentFSRecordsOverLockFreePagedStorage implements Persis
     }
   }
 
-  private void setIntField(final int recordId,
-                           final int fieldRelativeOffset,
-                           final int fieldValue) throws IOException {
+  private int setIntField(final int recordId,
+                          final int fieldRelativeOffset,
+                          final int fieldValue) throws IOException {
     final long recordOffsetInFile = recordOffsetInFile(recordId);
     final int recordOffsetOnPage = storage.toOffsetInPage(recordOffsetInFile);
     try (final PageUnsafe page = (PageUnsafe)storage.pageByOffset(recordOffsetInFile, /*forWrite: */ true)) {
       page.lockPageForWrite();
       try {
         final ByteBuffer pageBuffer = page.rawPageBuffer();
+        int previousValue = pageBuffer.getInt(recordOffsetOnPage + fieldRelativeOffset);
         pageBuffer.putInt(recordOffsetOnPage + fieldRelativeOffset, fieldValue);
         incrementRecordVersion(pageBuffer, recordOffsetOnPage);
         page.regionModified(recordOffsetOnPage, RECORD_SIZE_IN_BYTES);
+        return previousValue;
       }
       finally {
         page.unlockPageForWrite();

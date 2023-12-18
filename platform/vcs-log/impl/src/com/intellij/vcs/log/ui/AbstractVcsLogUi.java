@@ -12,6 +12,7 @@ import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vcs.VcsNotifier;
+import com.intellij.ui.navigation.History;
 import com.intellij.util.PairFunction;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.containers.ContainerUtil;
@@ -22,12 +23,15 @@ import com.intellij.vcs.log.data.VcsLogData;
 import com.intellij.vcs.log.impl.VcsLogImpl;
 import com.intellij.vcs.log.ui.highlighters.VcsLogHighlighterFactory;
 import com.intellij.vcs.log.ui.table.GraphTableModel;
+import com.intellij.vcs.log.ui.table.VcsLogGraphTable;
 import com.intellij.vcs.log.util.VcsLogUtil;
+import com.intellij.vcs.log.visible.CompoundVisibleGraph;
 import com.intellij.vcs.log.visible.VisiblePack;
 import com.intellij.vcs.log.visible.VisiblePackChangeListener;
 import com.intellij.vcs.log.visible.VisiblePackRefresher;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.concurrent.CancellationException;
@@ -81,7 +85,9 @@ public abstract class AbstractVcsLogUi implements VcsLogUiEx, Disposable {
   public void setVisiblePack(@NotNull VisiblePack pack) {
     ThreadingAssertions.assertEventDispatchThread();
 
-    boolean permGraphChanged = myVisiblePack.getDataPack() != pack.getDataPack();
+    boolean permGraphChanged =
+      pack.getVisibleGraph() instanceof CompoundVisibleGraph
+      || myVisiblePack.getDataPack() != pack.getDataPack();
 
     myVisiblePack = pack;
 
@@ -98,7 +104,6 @@ public abstract class AbstractVcsLogUi implements VcsLogUiEx, Disposable {
     return myRefresher;
   }
 
-  @Override
   public @NotNull VcsLogColorManager getColorManager() {
     return myColorManager;
   }
@@ -111,6 +116,18 @@ public abstract class AbstractVcsLogUi implements VcsLogUiEx, Disposable {
   @Override
   public @NotNull VcsLogData getLogData() {
     return myLogData;
+  }
+
+  @Override
+  public abstract @NotNull VcsLogGraphTable getTable();
+
+  /**
+   * @deprecated provide navigation history in the data context of the main component if needed
+   * @see History#KEY
+   */
+  @Deprecated
+  public @Nullable History getNavigationHistory() {
+    return null;
   }
 
   public void requestMore(@NotNull Runnable onLoaded) {

@@ -8,7 +8,6 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diff.impl.DiffUtil;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -25,6 +24,8 @@ import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.registry.RegistryValue;
+import com.intellij.openapi.util.registry.RegistryValueListener;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileEvent;
 import com.intellij.openapi.vfs.VirtualFileManager;
@@ -42,8 +43,8 @@ import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
 import com.intellij.xdebugger.XDebuggerManager;
+import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
-import com.intellij.xdebugger.breakpoints.XBreakpointManager;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -90,14 +91,19 @@ public final class XLineBreakpointManager {
         }
       }));
 
-      EditorFactory.getInstance().addEditorFactoryListener(new EditorFactoryListener() {
+      Registry.get(XDebuggerUtil.INLINE_BREAKPOINTS_KEY).addListener(new RegistryValueListener() {
         @Override
-        public void editorCreated(@NotNull EditorFactoryEvent event) {
-          if (!shouldShowBreakpointsInline()) return;
-
-          var file = event.getEditor().getVirtualFile();
-          if (file == null) return;
-          myBreakpoints.get(file.getUrl()).forEach(XLineBreakpointManager.this::queueBreakpointUpdate);
+        public void afterValueChanged(@NotNull RegistryValue value) {
+          if (!XDebuggerUtil.areInlineBreakpointsEnabled()) {
+            // Multiple breakpoints on the single line should be joined in this case.
+            for (String fileUrl : myBreakpoints.keySet()) {
+              var file = VirtualFileManager.getInstance().findFileByUrl(fileUrl);
+              if (file == null) continue;
+              var document = FileDocumentManager.getInstance().getDocument(file);
+              if (document == null) continue;
+              updateBreakpoints(document);
+            }
+          }
         }
       }, project);
     }
@@ -112,10 +118,6 @@ public final class XLineBreakpointManager {
           .forEach(XLineBreakpointManager.this::queueBreakpointUpdate);
       }
     });
-  }
-
-  public static boolean shouldShowBreakpointsInline() {
-    return Registry.is("debugger.show.breakpoints.inline");
   }
 
   void updateBreakpointsUI() {
@@ -158,7 +160,7 @@ public final class XLineBreakpointManager {
     List<XLineBreakpoint> toRemove = new SmartList<>();
     for (XLineBreakpointImpl breakpoint : breakpoints) {
       breakpoint.updatePosition();
-      if (!breakpoint.isValid() || !positions.add(shouldShowBreakpointsInline() ? breakpoint.getOffset() : breakpoint.getLine())) {
+      if (!breakpoint.isValid() || !positions.add(XDebuggerUtil.areInlineBreakpointsEnabled() ? breakpoint.getOffset() : breakpoint.getLine())) {
         toRemove.add(breakpoint);
       }
     }
@@ -171,8 +173,7 @@ public final class XLineBreakpointManager {
       return;
     }
 
-    XBreakpointManager manager = XDebuggerManager.getInstance(myProject).getBreakpointManager();
-    WriteAction.run(() -> toRemove.forEach(manager::removeBreakpoint));
+    ((XBreakpointManagerImpl)XDebuggerManager.getInstance(myProject).getBreakpointManager()).removeBreakpoints(toRemove);
   }
 
   public void breakpointChanged(XLineBreakpointImpl breakpoint) {
@@ -238,6 +239,8 @@ public final class XLineBreakpointManager {
             });
           }
         });
+
+        InlineBreakpointInlayManager.getInstance(myProject).redrawDocument(e);
       }
     }
   }

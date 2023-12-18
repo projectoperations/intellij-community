@@ -27,7 +27,7 @@ import org.jetbrains.java.debugger.breakpoints.properties.JavaFieldBreakpointPro
 import javax.swing.*;
 
 @ApiStatus.Experimental
-public class JavaCollectionBreakpointType extends JavaLineBreakpointTypeBase<JavaCollectionBreakpointProperties> {
+public final class JavaCollectionBreakpointType extends JavaLineBreakpointTypeBase<JavaCollectionBreakpointProperties> {
 
   public JavaCollectionBreakpointType() {
     super("java-collection", JavaDebuggerBundle.message("collection.watchpoints.tab.title"));
@@ -80,7 +80,7 @@ public class JavaCollectionBreakpointType extends JavaLineBreakpointTypeBase<Jav
   }
 
   //@Override
-  protected String getHelpID() {
+  private static String getHelpID() {
     return HelpID.COLLECTION_WATCHPOINTS;
   }
 
@@ -156,7 +156,7 @@ public class JavaCollectionBreakpointType extends JavaLineBreakpointTypeBase<Jav
         PsiClass psiClass = JavaPsiFacade.getInstance(project).findClass(className, GlobalSearchScope.allScope(project));
         if (psiClass != null) {
           final PsiFile psiFile = psiClass.getContainingFile();
-          Document document = PsiDocumentManager.getInstance(project).getDocument(psiFile);
+          Document document = psiFile.getViewProvider().getDocument();
           if (document != null) {
             PsiField field = psiClass.findFieldByName(fieldName, false);
             if (field != null) {

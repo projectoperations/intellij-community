@@ -39,7 +39,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class WhileCanBeForeachInspection extends BaseInspection {
+public final class WhileCanBeForeachInspection extends BaseInspection {
 
   @Override
   public LocalQuickFix buildFix(Object... infos) {
@@ -206,7 +206,7 @@ public class WhileCanBeForeachInspection extends BaseInspection {
         new CommentTracker().deleteAndRestoreComments(iterator);
       }
       PsiElement result = ct.replaceAndRestoreComments(whileStatement, newStatement.toString());
-      updater.moveTo(result);
+      updater.moveCaretTo(result);
     }
   }
 

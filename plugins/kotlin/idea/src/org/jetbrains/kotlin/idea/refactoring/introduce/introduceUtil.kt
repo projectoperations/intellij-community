@@ -166,7 +166,7 @@ fun findExpressionOrStringFragment(file: KtFile, startOffset: Int, endOffset: In
     val prefix = entry1.text.substring(0, prefixOffset)
     val suffix = entry2.text.substring(suffixOffset)
 
-    return ExtractableSubstringInfo(entry1, entry2, prefix, suffix).createExpression()
+    return K1ExtractableSubstringInfo(entry1, entry2, prefix, suffix).createExpression()
 }
 
 fun KotlinPsiRange.getPhysicalTextRange(): TextRange {

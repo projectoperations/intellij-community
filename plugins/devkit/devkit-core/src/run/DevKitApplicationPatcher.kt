@@ -44,9 +44,7 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
       }
     }
 
-    if (!vmParametersAsList.contains("--add-opens")) {
-      JUnitDevKitPatcher.appendAddOpensWhenNeeded(project, jdk, vmParameters)
-    }
+    JUnitDevKitPatcher.appendAddOpensWhenNeeded(project, jdk, vmParameters)
 
     if (!isDev) {
       return
@@ -82,7 +80,7 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
       vmParameters.addProperty("idea.system.path", "$dir/system")
     }
 
-    val runDir = Path.of("${configuration.workingDirectory}/out/dev-run/${productClassifier}")
+    val runDir = Path.of("${configuration.workingDirectory}/out/dev-run/${productClassifier}/${productClassifier}")
     for ((name, value) in getIdeSystemProperties(runDir)) {
       vmParameters.addProperty(name, value)
     }
@@ -113,7 +111,6 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
     vmParameters.addProperty("idea.debug.mode", "true")
     vmParameters.addProperty("idea.is.internal", "true")
     vmParameters.addProperty("fus.internal.test.mode", "true")
-    vmParameters.addProperty("jbScreenMenuBar.enabled", "true")
     vmParameters.addProperty("jdk.attach.allowAttachSelf")
     if (!vmParameters.hasParameter("-Didea.initially.ask.config=never")) {
       vmParameters.addProperty("idea.initially.ask.config", "true")
@@ -141,6 +138,7 @@ private fun getIdeSystemProperties(runDir: Path): Map<String, String> {
     // require bundled JNA dispatcher lib
     "jna.nosys" to "true",
     "jna.noclasspath" to "true",
+    "skiko.library.path" to "$libDir/skiko-awt-runtime-all",
+    "compose.swing.render.on.graphics" to "true",
   )
 }
-

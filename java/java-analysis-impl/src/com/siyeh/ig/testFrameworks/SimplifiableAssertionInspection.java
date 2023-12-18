@@ -3,19 +3,22 @@ package com.siyeh.ig.testFrameworks;
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.LocalQuickFix;
-import com.intellij.lang.jvm.JvmMethod;
-import com.intellij.lang.jvm.JvmParameter;
+import com.intellij.java.library.JavaLibraryUtil;
 import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.*;
+import com.intellij.util.text.VersionComparatorUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.callMatcher.CallMatcher;
+import com.siyeh.ig.junit.JUnitCommonClassNames;
 import com.siyeh.ig.psiutils.*;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -23,7 +26,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Objects;
 import java.util.stream.IntStream;
 
-public class SimplifiableAssertionInspection extends BaseInspection implements CleanupLocalInspectionTool {
+public final class SimplifiableAssertionInspection extends BaseInspection implements CleanupLocalInspectionTool {
   @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
@@ -93,29 +96,35 @@ public class SimplifiableAssertionInspection extends BaseInspection implements C
     return expression instanceof PsiMethodCallExpression && ARRAYS_EQUALS.test((PsiMethodCallExpression)expression);
   }
 
-  private static boolean isInstanceOfComparison(@NotNull AssertHint assertHint, @NotNull PsiExpression expression) {
-    if (!(expression instanceof PsiInstanceOfExpression)) return false;
+  private static boolean isInstanceOfMethodExistsWithMatchingParams(@NotNull AssertHint assertHint) {
     final PsiClass clazz = assertHint.getMethod().getContainingClass();
-    if (clazz == null) return false;
-    final String clazzName = clazz.getQualifiedName();
-    if (clazzName == null) return false;
-    final PsiClass assertClass = JavaPsiFacade.getInstance(expression.getProject())
-      .findClass(clazzName, clazz.getResolveScope());
-    if (assertClass == null) return false;
-    final JvmMethod[] methods = assertClass.findMethodsByName("assertInstanceOf");
-    final JvmParameter[] originalParameters = assertHint.getMethod().getParameters();
-    for (final JvmMethod method : methods) {
-      final JvmParameter[] parameters = method.getParameters();
-      if (parameters.length - 1 != originalParameters.length) {
+    if (clazz == null || !JUnitCommonClassNames.ORG_JUNIT_JUPITER_API_ASSERTIONS.equals(clazz.getQualifiedName())) return false;
+    final Module junitModule = ModuleUtilCore.findModuleForPsiElement(assertHint.getOriginalExpression());
+    if (junitModule != null) {
+      final String version = JavaLibraryUtil.getLibraryVersion(junitModule, "org.junit.jupiter:junit-jupiter-api");
+      if (version != null) return VersionComparatorUtil.compare(version, "5.8") >= 0;
+    }
+    final PsiMethod[] methods = clazz.findMethodsByName("assertInstanceOf", true);
+    final PsiParameterList originalParameters = assertHint.getMethod().getParameterList();
+    for (final PsiMethod method : methods) {
+      final PsiParameterList parameters = method.getParameterList();
+      if (parameters.getParametersCount() - 1 != originalParameters.getParametersCount()) {
         continue; // assertTrue(condition, ?, ?, ...) vs assertInstanceOf(param1, param2, ?, ?, ...)
       }
-      if (originalParameters.length == 1) return true;
-      if (IntStream.range(1, originalParameters.length)
-        .allMatch(i -> Objects.equals(originalParameters[i].getType(), parameters[i + 1].getType()))) {
+      if (originalParameters.getParametersCount() == 1) return true;
+      final PsiParameter[] originalParams = originalParameters.getParameters();
+      final PsiParameter[] params = parameters.getParameters();
+
+      if (IntStream.range(1, originalParams.length)
+        .allMatch(i -> Objects.equals(originalParams[i].getType(), params[i + 1].getType()))) {
         return true;
       }
     }
     return false;
+  }
+
+  private static boolean isInstanceOfComparison(@NotNull PsiExpression expression) {
+    return expression instanceof PsiInstanceOfExpression;
   }
 
   private static boolean isIdentityComparison(PsiExpression expression) {
@@ -185,7 +194,7 @@ public class SimplifiableAssertionInspection extends BaseInspection implements C
         else if (BoolUtils.isNegation(argument)) {
           replaceWithNegatedBooleanAssertion(assertTrueFalseHint);
         }
-        else if(assertTrue && isInstanceOfComparison(assertTrueFalseHint, argument)) {
+        else if (assertTrue && isInstanceOfComparison(argument) && isInstanceOfMethodExistsWithMatchingParams(assertTrueFalseHint)) {
           replaceWithInstanceOfComparison(assertTrueFalseHint);
         }
       }
@@ -461,7 +470,7 @@ public class SimplifiableAssertionInspection extends BaseInspection implements C
           else if (BoolUtils.isNegation(firstArgument)) {
             registerMethodCallError(expression, assertTrue ? "assertFalse()" : "assertTrue()");
           }
-          else if(assertTrue && isInstanceOfComparison(assertTrueFalseHint, firstArgument)) {
+          else if (assertTrue && isInstanceOfComparison(firstArgument) && isInstanceOfMethodExistsWithMatchingParams(assertTrueFalseHint)) {
             registerMethodCallError(expression, "assertInstanceOf()");
           }
         }

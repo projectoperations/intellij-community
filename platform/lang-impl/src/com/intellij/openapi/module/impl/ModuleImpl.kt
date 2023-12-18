@@ -1,5 +1,5 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("OVERRIDE_DEPRECATION", "ReplaceGetOrSet", "ReplacePutWithAssignment")
+@file:Suppress("OVERRIDE_DEPRECATION", "ReplaceGetOrSet", "ReplacePutWithAssignment", "ReplaceJavaStaticMethodWithKotlinAnalog")
 
 package com.intellij.openapi.module.impl
 
@@ -33,7 +33,6 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.serviceContainer.ComponentManagerImpl
 import com.intellij.serviceContainer.emptyConstructorMethodType
 import com.intellij.serviceContainer.findConstructorOrNull
-import com.intellij.util.namedChildScope
 import com.intellij.util.xmlb.annotations.MapAnnotation
 import com.intellij.util.xmlb.annotations.Property
 import org.jetbrains.annotations.ApiStatus
@@ -49,10 +48,7 @@ private val LOG: Logger
 open class ModuleImpl @ApiStatus.Internal constructor(
   name: String,
   project: Project,
-) : ComponentManagerImpl(
-  parent = project as ComponentManagerImpl,
-  coroutineScope = project.getCoroutineScope().namedChildScope("ModuleImpl@${System.identityHashCode(this)}"),
-), ModuleEx, Queryable {
+) : ComponentManagerImpl(project as ComponentManagerImpl), ModuleEx, Queryable {
 
   private val project: Project
   protected var imlFilePointer: VirtualFilePointer? = null
@@ -100,7 +96,12 @@ open class ModuleImpl @ApiStatus.Internal constructor(
             ?: RuntimeException("Cannot find suitable constructor, expected (Module) or ()")) as T
   }
 
-  override fun init(beforeComponentCreation: Runnable?) {
+  override val supportedSignaturesOfLightServiceConstructors: List<MethodType> = java.util.List.of(
+    moduleMethodType,
+    emptyConstructorMethodType,
+  )
+
+  override fun init() {
     // do not measure (activityNamePrefix method not overridden by this class)
     // because there are a lot of modules and no need to measure each one
     registerComponents()
@@ -110,7 +111,6 @@ open class ModuleImpl @ApiStatus.Internal constructor(
                       fakeCorePluginDescriptor,
                       true)
     }
-    beforeComponentCreation?.run()
     @Suppress("DEPRECATION")
     createComponents()
   }
@@ -249,6 +249,15 @@ open class ModuleImpl @ApiStatus.Internal constructor(
   override fun putInfo(info: MutableMap<in String, in String>) {
     info.put("id", "Module")
     info.put("name", getName())
+  }
+
+  override fun debugString(short: Boolean): String {
+    return if (short) {
+      javaClass.simpleName
+    }
+    else {
+      super.debugString(short)
+    }
   }
 
   @ApiStatus.Internal

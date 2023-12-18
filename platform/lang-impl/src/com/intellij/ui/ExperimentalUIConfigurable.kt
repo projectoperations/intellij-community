@@ -14,6 +14,7 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.feedback.newUi.NewUIFeedbackDialog
+import com.intellij.ui.ExperimentalUI.Companion.getInstance
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.*
 import com.intellij.ui.dsl.builder.Cell
@@ -23,14 +24,13 @@ import javax.swing.JLabel
 
 private const val PROMO_URL = "https://youtu.be/WGwECgPmQ-8"
 
-/**
- * @author Konstantin Bulenkov
- */
-open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.message("configurable.new.ui.name"), "reference.settings.ide.settings.new.ui") {
+@Suppress("ExtensionClassShouldBeFinalAndNonPublic")
+open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.message("configurable.new.ui.name"),
+                                                                    "reference.settings.ide.settings.new.ui") {
+
+  private val EP_NAME: ExtensionPointName<ExperimentalUIConfigurable> = ExtensionPointName.create("com.intellij.newUIConfigurable")
 
   companion object {
-    @JvmStatic
-    val EP_NAME: ExtensionPointName<ExperimentalUIConfigurable> = ExtensionPointName.create("com.intellij.newUIConfigurable")
     const val EXPLORE_NEW_UI_URL_TEMPLATE = "https://www.jetbrains.com/%s/new-ui/?utm_source=product&utm_medium=link&utm_campaign=new_ui_release"
   }
 
@@ -58,7 +58,7 @@ open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.me
               if (it != ExperimentalUI.isNewUI()) {
                 ApplicationManager.getApplication().invokeLater {
                   ExperimentalUiCollector.logSwitchUi(ExperimentalUiCollector.SwitchSource.PREFERENCES, it)
-                  ExperimentalUI.setNewUI(it)
+                  getInstance().setNewUIInternal(newUI = it, suggestRestart = !PlatformUtils.isJetBrainsClient())
                 }
               }
             })
@@ -72,12 +72,12 @@ open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.me
             .enabledIf(newUiCheckBox.selected)
             .comment(IdeBundle.message("checkbox.compact.mode.description"))
         }
-        if (SystemInfo.isWindows || SystemInfo.isXWindow) {
+        if (!SystemInfo.isMac) {
           row {
             checkBox(IdeBundle.message("checkbox.main.menu.separate.toolbar"))
               .bindSelected(UISettings.getInstance()::separateMainMenu)
               .apply {
-                if (SystemInfo.isXWindow) {
+                if (SystemInfo.isUnix) {
                   comment(IdeBundle.message("ide.restart.required.comment"))
                 }
               }.enabledIf(newUiCheckBox.selected)
@@ -123,19 +123,11 @@ open class ExperimentalUIConfigurable : BoundSearchableConfigurable(IdeBundle.me
   }
 
   final override fun apply() {
-    if (PlatformUtils.isJetBrainsClient()) {
-      ExperimentalUI.getInstance().setNewUIInternal(
-        /* newUI = */ !ExperimentalUI.isNewUI(),
-        /* suggestRestart = */ false
-      )
-    }
-    else {
-      getFirstEnabledConfigurable()?.onApply()
-      val uiSettingsChanged = isModified
-      super.apply()
-      if (uiSettingsChanged) {
-        LafManager.getInstance().applyDensity()
-      }
+    getFirstEnabledConfigurable()?.onApply()
+    val uiSettingsChanged = isModified
+    super.apply()
+    if (uiSettingsChanged) {
+      LafManager.getInstance().applyDensity()
     }
   }
 }

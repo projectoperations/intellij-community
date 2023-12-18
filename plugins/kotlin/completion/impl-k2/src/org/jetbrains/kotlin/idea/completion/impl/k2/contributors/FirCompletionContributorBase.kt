@@ -19,7 +19,6 @@ import org.jetbrains.kotlin.idea.base.analysis.api.utils.KtSymbolFromIndexProvid
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferencesInRange
 import org.jetbrains.kotlin.idea.completion.*
 import org.jetbrains.kotlin.idea.completion.context.FirBasicCompletionContext
-import org.jetbrains.kotlin.idea.completion.context.FirRawPositionCompletionContext
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.CallableMetadataProvider
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.CompletionSymbolOrigin
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.KtSymbolWithOrigin
@@ -32,9 +31,9 @@ import org.jetbrains.kotlin.idea.completion.weighers.CallableWeigher.callableWei
 import org.jetbrains.kotlin.idea.completion.weighers.Weighers
 import org.jetbrains.kotlin.idea.completion.weighers.Weighers.applyWeighsToLookupElement
 import org.jetbrains.kotlin.idea.completion.weighers.WeighingContext
-import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.positionContext.KotlinRawPositionContext
 import org.jetbrains.kotlin.platform.TargetPlatform
-import org.jetbrains.kotlin.psi.*
+import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.types.Variance
 
 internal class FirCompletionContributorOptions(
@@ -45,7 +44,7 @@ internal class FirCompletionContributorOptions(
     }
 }
 
-internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletionContext>(
+internal abstract class FirCompletionContributorBase<C : KotlinRawPositionContext>(
     protected val basicContext: FirBasicCompletionContext,
     options: FirCompletionContributorOptions,
 ) : FirCompletionContributor<C> {
@@ -128,7 +127,7 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
         val explicitReceiverText = weigherContext.explicitReceiver?.text
         return when (callableWeight?.kind) {
             // Make the text bold if it's immediate member of the receiver
-            CallableMetadataProvider.CallableKind.ThisClassMember, CallableMetadataProvider.CallableKind.ThisTypeExtension ->
+            CallableMetadataProvider.CallableKind.THIS_CLASS_MEMBER, CallableMetadataProvider.CallableKind.THIS_TYPE_EXTENSION ->
                 object : LookupElementDecorator<LookupElement>(this) {
                     override fun renderElement(presentation: LookupElementPresentation) {
                         super.renderElement(presentation)
@@ -137,7 +136,7 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
                 }
 
             // Make the text gray and insert type cast if the receiver type does not match.
-            is CallableMetadataProvider.CallableKind.ReceiverCastRequired -> object : LookupElementDecorator<LookupElement>(this) {
+            CallableMetadataProvider.CallableKind.RECEIVER_CAST_REQUIRED -> object : LookupElementDecorator<LookupElement>(this) {
                 override fun renderElement(presentation: LookupElementPresentation) {
                     super.renderElement(presentation)
                     presentation.itemTextForeground = KOTLIN_CAST_REQUIRED_COLOR
@@ -166,14 +165,9 @@ internal abstract class FirCompletionContributorBase<C : FirRawPositionCompletio
             else -> this
         }
     }
-
-    protected fun KtElement.reference() = when (this) {
-        is KtDotQualifiedExpression -> selectorExpression?.mainReference
-        else -> mainReference
-    }
 }
 
-internal fun <C : FirRawPositionCompletionContext> KtAnalysisSession.complete(
+internal fun <C : KotlinRawPositionContext> KtAnalysisSession.complete(
     contextContributor: FirCompletionContributor<C>,
     positionContext: C,
     weighingContext: WeighingContext,

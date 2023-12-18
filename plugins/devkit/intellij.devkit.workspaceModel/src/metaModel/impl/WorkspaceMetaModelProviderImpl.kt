@@ -4,26 +4,18 @@ package com.intellij.devkit.workspaceModel.metaModel.impl
 import com.intellij.devkit.workspaceModel.metaModel.IncorrectObjInterfaceException
 import com.intellij.devkit.workspaceModel.metaModel.WorkspaceMetaModelProvider
 import com.intellij.devkit.workspaceModel.metaModel.impl.extensions.*
-import com.intellij.devkit.workspaceModel.metaModel.impl.extensions.computeKind
-import com.intellij.devkit.workspaceModel.metaModel.impl.extensions.createObjTypeStub
-import com.intellij.devkit.workspaceModel.metaModel.impl.extensions.inheritors
-import com.intellij.devkit.workspaceModel.metaModel.impl.extensions.moduleAbstractTypes
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.module.impl.scopes.ModulesScope
 import com.intellij.openapi.project.Project
-import com.intellij.platform.workspace.storage.EntitySource
-import com.intellij.platform.workspace.storage.EqualsBy
-import com.intellij.platform.workspace.storage.SymbolicEntityId
-import com.intellij.platform.workspace.storage.WorkspaceEntity
+import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.annotations.Abstract
 import com.intellij.platform.workspace.storage.annotations.Child
 import com.intellij.platform.workspace.storage.annotations.Default
 import com.intellij.platform.workspace.storage.annotations.Open
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.psi.CommonClassNames
-import com.intellij.workspaceModel.codegen.deft.meta.*
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.workspaceModel.codegen.deft.meta.*
 import org.jetbrains.kotlin.caches.resolve.KotlinCacheService
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.annotations.Annotated
@@ -39,8 +31,7 @@ import org.jetbrains.kotlin.types.typeUtil.makeNotNullable
 import java.util.concurrent.ConcurrentHashMap
 
 internal class WorkspaceMetaModelProviderImpl(
-  private val explicitApiEnabled: Boolean,
-  private val keepUnknownFields: Boolean,
+  private val processAbstractTypes: Boolean,
   project: Project
 ): WorkspaceMetaModelProvider {
   private val objModuleByName = ConcurrentHashMap<String, Pair<CompiledObjModule, ModuleDescriptor>>()
@@ -86,7 +77,7 @@ internal class WorkspaceMetaModelProviderImpl(
         .filter { it.isEntityInterface }
     }
 
-    val module = CompiledObjModuleImpl(packageName, explicitApiEnabled)
+    val module = CompiledObjModuleImpl(packageName)
     val types = entityInterfaces.sortedBy { it.name }.withIndex().map {
       it.value to createObjTypeStub(it.value, module)
     }
@@ -111,7 +102,12 @@ internal class WorkspaceMetaModelProviderImpl(
           .filterIsInstance<PropertyDescriptor>()
           .filter { it.kind.isReal }
         for ((propertyId, property) in properties.withIndex()) {
-          objType.addField(createOwnProperty(property, propertyId, objType))
+          val kind = computeKind(property)
+          if (kind !is ObjProperty.ValueKind.Computable ||
+              // We can't simply skip all `Computable` because some of them are SymbolicIds
+              property.overriddenDescriptors.isNotEmpty()) {
+            objType.addField(createOwnProperty(property, propertyId, objType))
+          }
         }
         classDescriptor.typeConstructor.supertypes.forEach { superType ->
           val superDescriptor = superType.constructor.declarationDescriptor
@@ -193,13 +189,13 @@ internal class WorkspaceMetaModelProviderImpl(
           return ValueType.ObjRef(type.isAnnotatedBy(StandardNames.CHILD_ANNOTATION) || hasChildAnnotation, //todo leave only one target for @Child annotation 
                                   findObjClass(descriptor))
         }
-        return descriptor.toValueType(knownTypes, keepUnknownFields)
+        return descriptor.toValueType(knownTypes, processAbstractTypes)
       }
 
       return unsupportedType(type.toString())
     }
 
-    private fun ClassDescriptor.toValueType(knownTypes: MutableMap<String, ValueType.Blob<*>>, convertAbstractClasses: Boolean): ValueType.JvmClass<*> {
+    private fun ClassDescriptor.toValueType(knownTypes: MutableMap<String, ValueType.Blob<*>>, processAbstractTypes: Boolean): ValueType.JvmClass<*> {
       val javaClassFqn = javaClassFqn
       val superTypes = superTypesJavaFqns
 
@@ -210,24 +206,27 @@ internal class WorkspaceMetaModelProviderImpl(
 
       knownTypes[javaClassFqn] = blobType
       return when {
-        isObject -> ValueType.Object<Any>(javaClassFqn, superTypes, createProperties(this@toValueType, knownTypes))
+        isObject -> ValueType.Object<Any>(javaClassFqn, superTypes, createProperties(this, knownTypes))
         isEnumClass -> {
           val values = unsubstitutedInnerClassesScope.getContributedDescriptors(DescriptorKindFilter.CLASSIFIERS)
             .filterIsInstance<ClassDescriptor>().filter { it.isEnumEntry }.map { it.name.asString() }
-          ValueType.Enum<Any>(javaClassFqn, superTypes, values, createProperties(this@toValueType, knownTypes).withoutEnumFields())
+          ValueType.Enum<Any>(javaClassFqn, superTypes, values, createProperties(this, knownTypes).withoutEnumFields())
         }
         isSealed() -> {
           val subclasses = sealedSubclasses.map {
-            convertType(it.defaultType, hashMapOf(javaClassFqn to blobType), false) as ValueType.JvmClass<*>
+            convertType(it.defaultType, knownTypes, false) as ValueType.JvmClass<*>
           }
           ValueType.AbstractClass<Any>(javaClassFqn, superTypes, subclasses)
         }
-        convertAbstractClasses && isAbstractClassOrInterface -> {
+        isAbstractClassOrInterface -> {
+          if (!processAbstractTypes) {
+            throw IncorrectObjInterfaceException("$javaClassFqn is abstract type. Abstract types are not supported in generator")
+          }
           val inheritors = inheritors(javaPsiFacade, allScope)
-            .map { it.toValueType(hashMapOf(javaClassFqn to blobType), convertAbstractClasses) }
+            .map { it.toValueType(knownTypes, processAbstractTypes) }
           ValueType.AbstractClass<Any>(javaClassFqn, superTypes, inheritors)
         }
-        else -> ValueType.FinalClass<Any>(javaClassFqn, superTypes, createProperties(this@toValueType, knownTypes))
+        else -> ValueType.FinalClass<Any>(javaClassFqn, superTypes, createProperties(this, knownTypes))
       }
     }
 
@@ -315,6 +314,7 @@ internal object StandardNames {
   val ENTITY_SOURCE = FqName(EntitySource::class.qualifiedName!!)
   val VIRTUAL_FILE_URL = FqName(VirtualFileUrl::class.qualifiedName!!)
   val SYMBOLIC_ENTITY_ID = FqName(SymbolicEntityId::class.qualifiedName!!)
+  val ENTITY_REFERENCE = FqName(EntityReference::class.qualifiedName!!)
 }
 
 internal val standardTypes = setOf(Any::class.qualifiedName, CommonClassNames.JAVA_LANG_OBJECT, CommonClassNames.JAVA_LANG_ENUM)

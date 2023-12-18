@@ -10,17 +10,24 @@
     <extensionPoint name="vcsLogCommitStatusProvider"
                     interface="com.intellij.vcs.log.ui.frame.VcsCommitExternalStatusProvider"
                     dynamic="true"/>
+    <extensionPoint name="vcsLogFileHistoryHandler"
+                    interface="com.intellij.vcs.log.VcsLogFileHistoryHandler"
+                    area="IDEA_PROJECT"
+                    dynamic="true"/>
+    <extensionPoint name="fileHistoryPerformanceListener"
+                    interface="com.intellij.vcs.log.history.FileHistoryPerformanceListener"
+                    dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
     <changesViewContent tabName="Log"
                         className="com.intellij.vcs.log.impl.VcsLogContentProvider"
                         predicateClassName="com.intellij.vcs.log.impl.VcsLogContentProvider$VcsLogVisibilityPredicate"
-                        preloaderClassName="com.intellij.vcs.log.impl.VcsLogContentProvider$VcsLogContentPreloader"
                         displayNameSupplierClassName="com.intellij.vcs.log.impl.VcsLogContentProvider$DisplayNameSupplier"/>
 
     <applicationService serviceImplementation="com.intellij.vcs.log.impl.VcsLogApplicationSettings"/>
-    <projectService serviceImplementation="com.intellij.vcs.log.impl.VcsLogSharedSettings"/>
+
+    <generalVcsSettingsExtension instance="com.intellij.vcs.log.ui.VcsLogSharedSettingsConfigurable"/>
 
     <projectService serviceInterface="com.intellij.vcs.log.VcsLogObjectsFactory"
                     serviceImplementation="com.intellij.vcs.log.impl.VcsLogObjectsFactoryImpl"/>
@@ -28,7 +35,6 @@
                     serviceImplementation="com.intellij.vcs.log.data.VcsUserRegistryImpl"/>
     <projectService serviceImplementation="com.intellij.vcs.log.history.VcsDirectoryRenamesProvider"/>
 
-    <projectService serviceImplementation="com.intellij.vcs.log.statistics.VcsLogIndexCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.vcs.log.statistics.VcsLogRepoSizeCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.vcs.log.statistics.VcsLogFeaturesCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.vcs.log.statistics.VcsLogIndexProjectStatisticsCollector"/>
@@ -83,9 +89,9 @@
 
     <virtualFileSystem key="vcs-log" implementationClass="com.intellij.vcs.log.ui.editor.VcsLogVirtualFileSystem"/>
     <fileIconProvider implementation="com.intellij.vcs.log.ui.editor.VcsLogIconProvider"/>
-    <fileEditorProvider implementation="com.intellij.vcs.log.ui.editor.VcsLogEditorProvider" fileType="VcsLog"/>
+    <fileEditorProvider id="VcsLogEditor" implementation="com.intellij.vcs.log.ui.editor.VcsLogEditorProvider" fileType="VcsLog"/>
     <editorTabTitleProvider implementation="com.intellij.vcs.log.ui.editor.DefaultVcsLogFileTabTitleProvider"/>
-    <openTelemetryExporterProvider implementation="com.intellij.vcs.log.VcsLogTelemetryExporter"/>
+    <openTelemetryExporterProvider implementation="com.intellij.vcs.log.statistics.VcsLogTelemetryExporter"/>
   </extensions>
 
   <projectListeners>

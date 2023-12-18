@@ -43,8 +43,6 @@ class KotlinFacetDeserializationTest {
 
     @Before
     fun setUp() {
-        //TODO: remove after enabling by default
-        Registry.get("workspace.model.kotlin.facet.bridge").setValue(true)
         Assume.assumeTrue("Execute only if kotlin facet bridge enabled", KotlinFacetBridgeFactory.kotlinFacetBridgeEnabled)
     }
 
@@ -84,7 +82,7 @@ class KotlinFacetDeserializationTest {
                 assertEmpty(additionalVisibleModuleNames)
                 assertEmpty(externalProjectId)
                 assertEquals(KotlinModuleKind.DEFAULT, kind)
-                assertNull(compilerArguments)
+                assertNotNull(compilerArguments)
             }
         }
     }

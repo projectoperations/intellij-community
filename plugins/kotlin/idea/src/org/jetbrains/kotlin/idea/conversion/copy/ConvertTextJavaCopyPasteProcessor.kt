@@ -17,12 +17,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Ref
-import com.intellij.psi.PsiDocumentManager
-import com.intellij.psi.PsiErrorElement
-import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiFileFactory
-import com.intellij.psi.PsiJavaFile
-import com.intellij.psi.PsiUnnamedClass
+import com.intellij.psi.*
 import com.intellij.refactoring.suggested.range
 import com.intellij.util.LocalTimeCounter
 import org.jetbrains.annotations.TestOnly
@@ -39,7 +34,6 @@ import org.jetbrains.kotlin.psi.psiUtil.anyDescendantOfType
 import org.jetbrains.kotlin.psi.psiUtil.endOffset
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
 import org.jetbrains.kotlin.utils.addToStdlib.ifNotEmpty
-import org.jetbrains.kotlin.utils.addToStdlib.safeAs
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.Transferable
 import kotlin.system.measureTimeMillis
@@ -100,12 +94,12 @@ class ConvertTextJavaCopyPasteProcessor : CopyPastePostProcessor<TextBlockTransf
         val text = TextBlockTransferable.convertLineSeparators(editor, (values.single() as MyTransferableData).text, values)
 
         val psiDocumentManager = PsiDocumentManager.getInstance(project)
-        val targetFile = psiDocumentManager.getPsiFile(editor.document).safeAs<KtFile>()?.takeIf { it.virtualFile.isWritable } ?: return
-        psiDocumentManager.commitDocument(editor.document)
+        val (targetFile, targetBounds, targetDocument) = getTargetData(project, editor, caretOffset, bounds) ?: return
+        psiDocumentManager.commitDocument(targetDocument)
 
         val useNewJ2k = checkUseNewJ2k(targetFile)
         val targetModule = targetFile.module
-        val pasteTarget = detectPasteTarget(targetFile, bounds.startOffset, bounds.endOffset) ?: return
+        val pasteTarget = detectPasteTarget(targetFile, targetBounds.startOffset, targetBounds.endOffset) ?: return
         val conversionContext = detectConversionContext(pasteTarget.pasteContext, text, project) ?: return
         if (!confirmConvertJavaOnPaste(project, isPlainText = true)) return
 
@@ -126,15 +120,15 @@ class ConvertTextJavaCopyPasteProcessor : CopyPastePostProcessor<TextBlockTransf
                     convertedImportsText = "\n" + convertedImportsText
 
                 if (convertedImportsText.isNotBlank())
-                    editor.document.insertString(importsInsertOffset, convertedImportsText)
+                    targetDocument.insertString(importsInsertOffset, convertedImportsText)
 
-                val startOffset = bounds.startOffset
-                editor.document.replaceString(startOffset, bounds.endOffset, convertedText)
+                val startOffset = targetBounds.startOffset
+                targetDocument.replaceString(startOffset, targetBounds.endOffset, convertedText)
 
-                val endOffsetAfterCopy = startOffset + convertedText.length
+                val endOffsetAfterCopy = bounds.startOffset + convertedText.length
                 editor.caretModel.moveToOffset(endOffsetAfterCopy)
 
-                editor.document.createRangeMarker(startOffset, startOffset + convertedText.length)
+                targetDocument.createRangeMarker(startOffset, startOffset + convertedText.length)
             }
 
             psiDocumentManager.commitAllDocuments()
@@ -248,12 +242,12 @@ class ConvertTextJavaCopyPasteProcessor : CopyPastePostProcessor<TextBlockTransf
         // OK, there are some errors
         if (hasErrors) return false
 
-        val isJavaFileWithUnnamedClass = psiFile is PsiJavaFile && psiFile.classes.any { it is PsiUnnamedClass }
+        val isJavaFileWithImplicitClass = psiFile is PsiJavaFile && psiFile.classes.any { it is PsiImplicitClass }
 
-        // Java 21 allows to use unnamed classes
+        // Java 21 allows to use implicitly declared classes
         // before that java file like `class { void foo(){} }` is considered as error
         // after java 21 it is a valid java file
-        return !isJavaFileWithUnnamedClass
+        return !isJavaFileWithImplicitClass
     }
 
     private fun parseAsFile(text: String, fileType: LanguageFileType, project: Project): PsiFile {

@@ -15,6 +15,7 @@ import com.intellij.workspaceModel.ide.impl.jps.serialization.BaseIdeSerializati
 import com.intellij.workspaceModel.ide.legacyBridge.WorkspaceFacetContributor
 import junit.framework.TestCase
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.kotlin.config.KotlinFacetSettings
 import org.jetbrains.kotlin.config.KotlinModuleKind
 import org.jetbrains.kotlin.idea.facet.KotlinFacet
 import org.jetbrains.kotlin.idea.facet.KotlinFacetType
@@ -127,9 +128,11 @@ class KotlinFacetEventListenerTest {
                                                  emptyList(),
                                                  KotlinModuleKind.DEFAULT,
                                                  "",
+                                                 CompilerSettingsData("", "", "", true, "lib", false),
                                                  "",
-                                                 CompilerSettings("", "", "", true, "lib"),
-                                                 "",
+                                                 emptyList(),
+                                                 KotlinFacetSettings.CURRENT_VERSION,
+                                                 false,
                                                  object : EntitySource {}) {
                                 module = moduleEntity
                             }
@@ -199,9 +202,11 @@ class KotlinFacetEventListenerTest {
                                                  emptyList(),
                                                  KotlinModuleKind.DEFAULT,
                                                  "",
+                                                 CompilerSettingsData("", "", "", true, "lib", false),
                                                  "",
-                                                 CompilerSettings("", "", "", true, "lib"),
-                                                 "",
+                                                 emptyList(),
+                                                 KotlinFacetSettings.CURRENT_VERSION,
+                                                 false,
                                                  object : EntitySource {}) {
                                 module = moduleEntity
                             }

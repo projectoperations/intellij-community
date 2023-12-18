@@ -3,19 +3,26 @@ package com.intellij.platform.workspace.jps.serialization.impl
 
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.platform.workspace.jps.JpsImportedEntitySource
-import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.jps.entities.FacetEntity
 import com.intellij.platform.workspace.jps.entities.FacetId
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.jps.entities.childrenFacets
+import com.intellij.platform.workspace.storage.EntitySource
+import com.intellij.util.Functions.identity
 import org.jdom.Element
 import org.jetbrains.jps.model.serialization.facet.FacetState
+import java.util.concurrent.ConcurrentHashMap
 
 class DefaultFacetEntitySerializer: CustomFacetRelatedEntitySerializer<FacetEntity> {
   override val rootEntityType: Class<FacetEntity>
     get() = FacetEntity::class.java
   override val supportedFacetType: String
     get() = ALL_FACETS_TYPES_MARKER
+
+  // On a large project we may get a lot of string duplicates from facets
+  // On test with 50_000 modules such duplicates eat around 25MB of memory
+  // This class is used in concurrent environment, so the map has to be concurrent.
+  private val configurationStringInterner = ConcurrentHashMap<String, String>()
 
   override fun loadEntitiesFromFacetState(moduleEntity: ModuleEntity,
                                           facetState: FacetState,
@@ -29,7 +36,8 @@ class DefaultFacetEntitySerializer: CustomFacetRelatedEntitySerializer<FacetEnti
                                 evaluateEntitySource: (FacetState) -> EntitySource) {
     facetStates.forEach { facetState ->
       val entitySource = evaluateEntitySource(facetState)
-      val configurationXmlTag = facetState.configuration?.let { JDOMUtil.write(it) }
+      val configurationXmlTagRaw = facetState.configuration?.let { JDOMUtil.write(it) }
+      val configurationXmlTag = configurationXmlTagRaw?.let { configurationStringInterner.computeIfAbsent(it, identity()) }
 
       // Check for existing facet it's needed in cases when we read sub-facet located in .xml but underling facet is from .iml,
       // thus same root facet will be declared in two places

@@ -6,6 +6,7 @@ package com.intellij.diagnostic
 import com.intellij.execution.process.OSProcessUtil
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.internal.DebugAttachDetector
 import com.intellij.internal.statistic.utils.PluginInfo
 import com.intellij.internal.statistic.utils.getPluginInfoByDescriptor
 import com.intellij.openapi.application.*
@@ -404,24 +405,24 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
   override fun newSnapshot(): Snapshot = SnapshotImpl(this)
 
   private class SnapshotImpl(private val watcher: PerformanceWatcherImpl) : Snapshot {
-    private val myStartGeneralSnapshot = watcher.generalApdex
-    private val myStartSwingSnapshot = watcher.swingApdex
-    private val myStartMillis = System.currentTimeMillis()
+    private val startGeneralSnapshot = watcher.generalApdex
+    private val startSwingSnapshot = watcher.swingApdex
+    private val startMillis = System.currentTimeMillis()
 
     override fun logResponsivenessSinceCreation(activityName: @NonNls String) {
       LOG.info(getLogResponsivenessSinceCreationMessage(activityName))
     }
 
     override fun getLogResponsivenessSinceCreationMessage(activityName: @NonNls String): String {
-      return activityName + " took " + (System.currentTimeMillis() - myStartMillis) + "ms" +
-             "; general responsiveness: " + watcher.generalApdex.summarizePerformanceSince(myStartGeneralSnapshot) +
-             "; EDT responsiveness: " + watcher.swingApdex.summarizePerformanceSince(myStartSwingSnapshot)
+      return "$activityName took ${System.currentTimeMillis() - startMillis}ms; general responsiveness: ${
+        watcher.generalApdex.summarizePerformanceSince(startGeneralSnapshot)
+      }; EDT responsiveness: ${watcher.swingApdex.summarizePerformanceSince(startSwingSnapshot)}"
     }
   }
 }
 
 private fun postProcessReportFolder(durationMs: Long, task: SamplingTask, dir: Path, logDir: Path): Path? {
-  if (!Files.exists(dir)) {
+  if (Files.notExists(dir)) {
     return null
   }
 
@@ -436,12 +437,15 @@ private fun postProcessReportFolder(durationMs: Long, task: SamplingTask, dir: P
   }
 
   val message = "UI was frozen for ${durationMs}ms, details saved to $reportDir"
-  if (PluginManagerCore.isRunningFromSources()) {
+
+  if (DebugAttachDetector.isAttached()) {
+    // so freezes produced by standing at breakpoint are not reported as exceptions
     LOG.info(message)
   }
   else {
-    LOG.warn(message)
+    LOG.error(message)
   }
+
   return reportDir
 }
 
@@ -487,9 +491,12 @@ private suspend fun reportCrashesIfAny() {
 
         val content = Files.readString(file.toPath())
         // TODO: maybe we need to notify the user
+        // see https://youtrack.jetbrains.com/issue/IDEA-258128
         if (content.contains("fuck_the_regulations")) {
           break
         }
+
+        IdeaFreezeReporter.checkProfilerCrash(content)
 
         val attachment = Attachment("crash.txt", content)
         attachment.isIncluded = true

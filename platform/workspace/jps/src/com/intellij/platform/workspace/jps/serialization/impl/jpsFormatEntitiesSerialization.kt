@@ -6,13 +6,12 @@ import com.intellij.openapi.components.PathMacroMap
 import com.intellij.platform.workspace.jps.JpsFileEntitySource
 import com.intellij.platform.workspace.jps.JpsProjectConfigLocation
 import com.intellij.platform.workspace.jps.JpsProjectFileEntitySource
+import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.jps.serialization.SerializationContext
-import com.intellij.platform.workspace.jps.UnloadedModulesNameHolder
 import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.WorkspaceEntity
-import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import org.jdom.Element
@@ -31,6 +30,10 @@ interface JpsFileContentReader {
 interface JpsFileContentWriter {
   fun saveComponent(fileUrl: String, componentName: String, componentTag: Element?)
   fun getReplacePathMacroMap(fileUrl: String): PathMacroMap
+}
+
+interface JpsAppFileContentWriter: JpsFileContentWriter {
+  suspend fun saveSession()
 }
 
 /**

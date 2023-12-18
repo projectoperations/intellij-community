@@ -7,13 +7,17 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.components.service
-import com.intellij.openapi.progress.*
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.blockingContext
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.project.DumbServiceImpl.Companion.IDEA_FORCE_DUMB_QUEUE_TASKS
 import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileImpl
+import com.intellij.platform.ide.progress.withModalProgress
 import com.intellij.psi.PsiManager
 import com.intellij.psi.impl.PsiManagerImpl
 import com.intellij.testFramework.*
@@ -95,7 +99,7 @@ class DumbServiceImplTest {
   }
 
   @Test
-  @Suppress("INVISIBLE_MEMBER")
+  @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
   fun `test runWhenSmart does not hang in scheduler queue after Default dispatcher starvation`() {
     val releaseDefaultDispatcher = CountDownLatch(1)
     val inSmartMode = CountDownLatch(1)

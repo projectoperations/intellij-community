@@ -4,7 +4,6 @@ package com.intellij.openapi.wm.impl.customFrameDecorations.header.toolbar
 import com.intellij.ide.ProjectWindowCustomizerService
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsListener
-import com.intellij.ide.ui.customization.CustomActionsSchema
 import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
@@ -19,8 +18,9 @@ import com.intellij.openapi.wm.impl.customFrameDecorations.header.titleLabel.Sim
 import com.intellij.openapi.wm.impl.getPreferredWindowHeaderHeight
 import com.intellij.openapi.wm.impl.headertoolbar.MainToolbar
 import com.intellij.openapi.wm.impl.headertoolbar.computeMainActionGroups
-import com.intellij.openapi.wm.impl.headertoolbar.isToolbarInHeader
 import com.intellij.platform.ide.menu.IdeJMenuBar
+import com.intellij.platform.ide.menu.collectGlobalMenu
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.ScreenUtil
 import com.intellij.ui.WindowMoveListener
 import com.intellij.ui.components.panels.NonOpaquePanel
@@ -28,7 +28,6 @@ import com.intellij.ui.dsl.gridLayout.GridLayout
 import com.intellij.ui.dsl.gridLayout.UnscaledGapsX
 import com.intellij.ui.dsl.gridLayout.VerticalAlign
 import com.intellij.ui.dsl.gridLayout.builders.RowsGridBuilder
-import com.intellij.util.childScope
 import com.intellij.util.ui.GridBag
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
@@ -58,11 +57,11 @@ internal class ToolbarFrameHeader(private val coroutineScope: CoroutineScope,
     isOpaque = false
   }
   private val menuBarContainer = createMenuBarContainer()
-  private val mainMenuButton = MainMenuButton()
+  private val mainMenuButton = MainMenuButton(coroutineScope)
   private var toolbar: MainToolbar? = null
   private val toolbarPlaceholder = createToolbarPlaceholder()
   private val headerContent = createHeaderContent()
-  private val expandableMenu = ExpandableMenu(headerContent = headerContent, coroutineScope = coroutineScope.childScope(), frame)
+  private val expandableMenu = ExpandableMenu(headerContent = headerContent, coroutineScope = coroutineScope.childScope(), frame) { !isCompactHeader }
   private val toolbarHeaderTitle = SimpleCustomDecorationPathComponent(frame = frame).apply {
     isOpaque = false
   }
@@ -108,7 +107,7 @@ internal class ToolbarFrameHeader(private val coroutineScope: CoroutineScope,
             updateLayout()
           }
 
-          isCompactHeader = rootPane.isCompactHeader { computeMainActionGroups(CustomActionsSchema.getInstanceAsync()) }
+          isCompactHeader = rootPane.isCompactHeader { computeMainActionGroups() }
 
           when (mode) {
             ShowMode.TOOLBAR -> doUpdateToolbar(isCompactHeader)
@@ -137,6 +136,11 @@ internal class ToolbarFrameHeader(private val coroutineScope: CoroutineScope,
           }
         }
       }
+    }
+    collectGlobalMenu(coroutineScope) { globalMenuPresent ->
+      ideMenuBar.isVisible = !globalMenuPresent
+      // Repaint gradient
+      repaint()
     }
   }
 
@@ -184,7 +188,7 @@ internal class ToolbarFrameHeader(private val coroutineScope: CoroutineScope,
   }
 
   private val mode: ShowMode
-    get() = if (isToolbarInHeader()) ShowMode.TOOLBAR else ShowMode.MENU
+    get() = if (rootPane.isToolbarInHeader()) ShowMode.TOOLBAR else ShowMode.MENU
 
   private fun wrap(comp: JComponent): NonOpaquePanel {
     return object : NonOpaquePanel(comp) {
@@ -198,7 +202,9 @@ internal class ToolbarFrameHeader(private val coroutineScope: CoroutineScope,
   }
 
   override fun paintComponent(g: Graphics) {
-    if (!ProjectWindowCustomizerService.getInstance().paint(window = frame, parent = this, g = g as Graphics2D)) {
+    if (mode == ShowMode.MENU && menuBarHeaderTitle.isVisible ||
+        toolbarHeaderTitle.parent != null ||
+        !ProjectWindowCustomizerService.getInstance().paint(window = frame, parent = this, g = g as Graphics2D)) {
       // isOpaque is false to paint colorful toolbar gradient, so, we have to draw background on our own
       g.color = background
       g.fillRect(0, 0, width, height)

@@ -23,6 +23,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -38,9 +39,9 @@ import static com.intellij.ui.jcef.JBCefEventUtils.isUpDownKeyEvent;
  * <p>
  * Use {@link #loadURL(String)} or {@link #loadHTML(String)} for loading.
  *
- * @author tav
  * @see #createBuilder
  * @see JBCefOsrHandlerBrowser
+ * @see <a href="https://plugins.jetbrains.com/docs/intellij/jcef.html">Embedded Browser (JCEF) (IntelliJ Platform Docs)</a>
  */
 public class JBCefBrowser extends JBCefBrowserBase {
   /**
@@ -141,7 +142,8 @@ public class JBCefBrowser extends JBCefBrowserBase {
   }
 
   /**
-   * Creates a browser with default {@link JBCefClient}. The default client is disposed with this browser and may not be used with other browsers.
+   * Creates a browser with default {@link JBCefClient}.
+   * The default client is disposed with this browser and must not be used with other browsers.
    *
    * @see #createBuilder
    */
@@ -206,7 +208,7 @@ public class JBCefBrowser extends JBCefBrowserBase {
       public void onGotFocus(CefBrowser browser) {
         super.onGotFocus(browser);
         //noinspection AssignmentToStaticFieldFromInstanceMethod
-        focusedBrowser = JBCefBrowser.this;
+        focusedBrowser = new WeakReference<>(JBCefBrowser.this);
       }
 
       @Override

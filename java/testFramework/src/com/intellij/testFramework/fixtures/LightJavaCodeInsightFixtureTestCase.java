@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework.fixtures;
 
 import com.intellij.lang.Language;
@@ -53,9 +53,17 @@ public abstract class LightJavaCodeInsightFixtureTestCase extends UsefulTestCase
       return myWithAnnotations ? PsiTestUtil.addJdkAnnotations(jdk) : jdk;
     }
 
+    /**
+     * Calculate the name of SDK without instantiation
+     */
+    public @NotNull String getSdkName() {
+      return IdeaTestUtil.getMockJdkName(myLanguageLevel.toJavaVersion());
+    }
+
     @Override
     public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
       model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(myLanguageLevel);
+      addJetBrainsAnnotations(model);
     }
   }
 
@@ -69,7 +77,6 @@ public abstract class LightJavaCodeInsightFixtureTestCase extends UsefulTestCase
   public static final @NotNull LightProjectDescriptor JAVA_8_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_1_8, true);
   public static final @NotNull LightProjectDescriptor JAVA_9 = new ProjectDescriptor(LanguageLevel.JDK_1_9);
   public static final @NotNull LightProjectDescriptor JAVA_9_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_1_9, true);
-  public static final @NotNull LightProjectDescriptor JAVA_10 = new ProjectDescriptor(LanguageLevel.JDK_10);
   public static final @NotNull LightProjectDescriptor JAVA_11 = new ProjectDescriptor(LanguageLevel.JDK_11);
   public static final @NotNull LightProjectDescriptor JAVA_11_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_11, true);
   public static final @NotNull LightProjectDescriptor JAVA_12 = new ProjectDescriptor(LanguageLevel.JDK_12);
@@ -78,10 +85,12 @@ public abstract class LightJavaCodeInsightFixtureTestCase extends UsefulTestCase
   public static final @NotNull LightProjectDescriptor JAVA_15 = new ProjectDescriptor(LanguageLevel.JDK_15);
   public static final @NotNull LightProjectDescriptor JAVA_16 = new ProjectDescriptor(LanguageLevel.JDK_16);
   public static final @NotNull LightProjectDescriptor JAVA_17 = new ProjectDescriptor(LanguageLevel.JDK_17);
+  public static final @NotNull LightProjectDescriptor JAVA_17_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_17, true);
   public static final @NotNull LightProjectDescriptor JAVA_18 = new ProjectDescriptor(LanguageLevel.JDK_18);
   public static final @NotNull LightProjectDescriptor JAVA_19 = new ProjectDescriptor(LanguageLevel.JDK_19);
   public static final @NotNull LightProjectDescriptor JAVA_20 = new ProjectDescriptor(LanguageLevel.JDK_20_PREVIEW);
   public static final @NotNull LightProjectDescriptor JAVA_21 = new ProjectDescriptor(LanguageLevel.JDK_21_PREVIEW);
+  public static final @NotNull LightProjectDescriptor JAVA_22 = new ProjectDescriptor(LanguageLevel.JDK_22_PREVIEW);
   public static final @NotNull LightProjectDescriptor JAVA_X = new ProjectDescriptor(LanguageLevel.JDK_X);
 
   public static final @NotNull LightProjectDescriptor JAVA_LATEST = new ProjectDescriptor(LanguageLevel.HIGHEST) {
@@ -124,7 +133,9 @@ public abstract class LightJavaCodeInsightFixtureTestCase extends UsefulTestCase
   @Override
   protected void tearDown() throws Exception {
     try {
-      myFixture.tearDown();
+      if (myFixture != null) {
+        myFixture.tearDown();
+      }
     }
     catch (Throwable e) {
       addSuppressedException(e);

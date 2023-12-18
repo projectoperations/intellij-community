@@ -9,7 +9,7 @@ import com.intellij.openapi.diff.impl.patch.TextFilePatch
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.FileStatus
-import com.intellij.util.childScope
+import com.intellij.platform.util.coroutines.childScope
 import git4idea.changes.GitBranchComparisonResult
 import git4idea.changes.GitBranchComparisonResultImpl
 import git4idea.changes.GitCommitShaWithPatches
@@ -21,18 +21,27 @@ import git4idea.fetch.GitFetchSupport
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.map
 import org.jetbrains.plugins.gitlab.api.GitLabApi
+import org.jetbrains.plugins.gitlab.api.GitLabServerMetadata
 import org.jetbrains.plugins.gitlab.api.GitLabVersion
 import org.jetbrains.plugins.gitlab.api.dto.GitLabDiffDTO
-import org.jetbrains.plugins.gitlab.api.getMetadata
 import org.jetbrains.plugins.gitlab.mergerequest.api.request.*
 import org.jetbrains.plugins.gitlab.util.GitLabProjectMapping
 import java.nio.charset.StandardCharsets
 
 interface GitLabMergeRequestChanges {
-  val commits: List<GitLabCommit>
+  /**
+   * List of merge request commits
+   */
+  val commits: Deferred<List<GitLabCommit>>
 
+  /**
+   * Load and parse changes diffs
+   */
   suspend fun getParsedChanges(): GitBranchComparisonResult
 
+  /**
+   * Check that all merge request revisions are fetched and fetch the missing revisions
+   */
   suspend fun ensureAllRevisionsFetched()
 }
 
@@ -42,6 +51,7 @@ class GitLabMergeRequestChangesImpl(
   private val project: Project,
   parentCs: CoroutineScope,
   private val api: GitLabApi,
+  private val glMetadata: GitLabServerMetadata?,
   private val projectMapping: GitLabProjectMapping,
   private val mergeRequestDetails: GitLabMergeRequestFullDetails
 ) : GitLabMergeRequestChanges {
@@ -50,18 +60,32 @@ class GitLabMergeRequestChangesImpl(
 
   private val glProject = projectMapping.repository
 
-  override val commits: List<GitLabCommit> = mergeRequestDetails.commits.asReversed()
+  override val commits: Deferred<List<GitLabCommit>> = cs.async {
+    if (glMetadata != null && glMetadata.version < GitLabVersion(14, 7)) {
+      val initialURI = api.getMergeRequestCommitsURI(glProject, mergeRequestDetails.iid)
+      return@async ApiPageUtil.createPagesFlowByLinkHeader(initialURI) { uri -> api.rest.loadMergeRequestCommits(uri) }
+        .map { it.body() ?: emptyList() }
+        .foldToList(GitLabCommit.Companion::fromRestDTO)
+        .asReversed()
+    }
+
+    ApiPageUtil.createGQLPagesFlow { pagination -> api.graphQL.loadMergeRequestCommits(glProject, mergeRequestDetails.iid, pagination) }
+      .map { page -> page.nodes }
+      .foldToList(GitLabCommit.Companion::fromGraphQLDTO)
+      .asReversed()
+  }
 
   private val parsedChanges = cs.async(start = CoroutineStart.LAZY) {
-    loadChanges(commits)
+    loadChanges(commits.await())
   }
 
   override suspend fun getParsedChanges(): GitBranchComparisonResult = parsedChanges.await()
 
   private suspend fun loadChanges(commits: List<GitLabCommit>): GitBranchComparisonResult {
     val repository = projectMapping.remote.repository
-    val baseSha = mergeRequestDetails.diffRefs.startSha
-    val mergeBaseSha = mergeRequestDetails.diffRefs.baseSha ?: error("Missing merge base revision")
+    val diffRefs = mergeRequestDetails.diffRefs ?: error("Missing diff refs")
+    val baseSha = diffRefs.startSha
+    val mergeBaseSha = diffRefs.baseSha ?: error("Missing merge base revision")
 
     val commitsWithPatches = withContext(Dispatchers.IO) {
       coroutineScope {
@@ -92,22 +116,22 @@ class GitLabMergeRequestChangesImpl(
   }
 
   override suspend fun ensureAllRevisionsFetched() {
-    val revsToCheck = commits.map { it.sha }.toMutableList()
-    mergeRequestDetails.diffRefs.baseSha?.also {
+    val revsToCheck = commits.await().map { it.sha }.toMutableList()
+    mergeRequestDetails.diffRefs?.baseSha?.also {
       revsToCheck.add(it)
     }
     withContext(Dispatchers.IO) {
-      if (areAllRevisionPresent(revsToCheck)) return@withContext
+      if (areAllRevisionsPresent(revsToCheck)) return@withContext
 
       fetch(mergeRequestDetails.targetBranch)
       fetch("""merge-requests/${mergeRequestDetails.iid}/head:""")
 
-      check(areAllRevisionPresent(revsToCheck)) { "Failed to fetch some revisions" }
+      check(areAllRevisionsPresent(revsToCheck)) { "Failed to fetch some revisions" }
     }
   }
 
-  private suspend fun areAllRevisionPresent(revisions: List<String>): Boolean {
-    return coroutineToIndicator {
+  private suspend fun areAllRevisionsPresent(revisions: List<String>): Boolean =
+    coroutineToIndicator {
       val h = GitLineHandler(project, projectMapping.remote.repository.root, GitCommand.CAT_FILE)
       h.setSilent(true)
       h.addParameters("--batch-check=%(objecttype)")
@@ -116,7 +140,6 @@ class GitLabMergeRequestChangesImpl(
 
       !Git.getInstance().runCommand(h).getOutputOrThrow().contains("missing")
     }
-  }
 
   private suspend fun fetch(refspec: String) {
     coroutineToIndicator {
@@ -132,7 +155,7 @@ private fun GitLabDiffDTO.toPatch(): TextFilePatch {
   val afterFilePath = newPath.takeIf { !deletedFile }
   val headerFileBefore = beforeFilePath?.let { "a/$it" } ?: "/dev/null"
   val headerFileAfter = afterFilePath?.let { "b/$it" } ?: "/dev/null"
-  val header = "--- $headerFileBefore\n+++ $headerFileAfter"
+  val header = "--- $headerFileBefore\n+++ $headerFileAfter\n"
 
   val fileStatus = when {
     newFile -> FileStatus.ADDED

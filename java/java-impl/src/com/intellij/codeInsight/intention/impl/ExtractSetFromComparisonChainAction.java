@@ -33,7 +33,7 @@ import java.util.*;
 
 import static com.intellij.util.ObjectUtils.tryCast;
 
-public class ExtractSetFromComparisonChainAction implements ModCommandAction {
+public final class ExtractSetFromComparisonChainAction implements ModCommandAction {
   private static final String GUAVA_IMMUTABLE_SET = "com.google.common.collect.ImmutableSet";
   private static final String INITIALIZER_FORMAT_GUAVA = GUAVA_IMMUTABLE_SET + ".of({0})";
   private static final String INITIALIZER_FORMAT_JAVA2 =
@@ -69,9 +69,8 @@ public class ExtractSetFromComparisonChainAction implements ModCommandAction {
     List<ExpressionToConstantReplacementContext> copies =
       myProcessDuplicates == ThreeState.NO ? List.of() : findCopies(comparisons, containingClass);
     if (myProcessDuplicates == ThreeState.UNSURE && !copies.isEmpty()) {
-      return new ModChooseAction(JavaBundle.message("intention.extract.set.from.comparison.chain.popup.title"),
-                                 List.of(new ExtractSetFromComparisonChainAction(false),
-                                         new ExtractSetFromComparisonChainAction(true)));
+      return ModCommand.chooseAction(JavaBundle.message("intention.extract.set.from.comparison.chain.popup.title"),
+                                     new ExtractSetFromComparisonChainAction(false), new ExtractSetFromComparisonChainAction(true));
     }
     LinkedHashSet<String> suggestions = getSuggestions(comparisons);
 
@@ -149,6 +148,7 @@ public class ExtractSetFromComparisonChainAction implements ModCommandAction {
 
   @Override
   public @Nullable Presentation getPresentation(@NotNull ActionContext actionContext) {
+    if (!BaseIntentionAction.canModify(actionContext.file())) return null;
     PsiElement element = actionContext.findLeaf();
     List<ExpressionToConstantComparison> comparisons = comparisons(element).toList();
     if (comparisons.size() <= 1) return null;
