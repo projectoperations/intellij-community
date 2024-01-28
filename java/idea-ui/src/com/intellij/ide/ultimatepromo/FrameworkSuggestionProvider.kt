@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.FUSEventSource
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginAdvertiserService.Companion.ideaUltimate
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginSuggestionProvider
+import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.createTryUltimateActionLabel
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.EditorNotificationPanel
@@ -52,11 +53,8 @@ private class FrameworkPluginSuggestion(val project: Project, val framework: Fra
   override fun apply(fileEditor: FileEditor): EditorNotificationPanel {
     val panel = EditorNotificationPanel(fileEditor, EditorNotificationPanel.Status.Promo)
     panel.text = IdeBundle.message("plugins.advertiser.framework.supported.in.ultimate", framework.name, ideaUltimate.name)
-
-    panel.createActionLabel(IdeBundle.message("plugins.advertiser.action.try.ultimate", ideaUltimate.name)) {
-      FUSEventSource.EDITOR.openDownloadPageAndLog(project, ideaUltimate.downloadUrl, PluginId.getId(framework.pluginId))
-    }
-
+    panel.createTryUltimateActionLabel(ideaUltimate, project, PluginId.getId(framework.pluginId))
+    
     panel.createActionLabel(IdeBundle.message("plugins.advertiser.action.ignore.ultimate")) {
       FUSEventSource.EDITOR.logIgnoreExtension(project)
       dismissPluginSuggestion(framework)

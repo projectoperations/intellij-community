@@ -53,6 +53,7 @@ import com.intellij.usages.*;
 import com.intellij.usages.impl.UnknownUsagesInUnloadedModules;
 import com.intellij.usages.impl.UsageViewEx;
 import com.intellij.usages.rules.PsiElementUsage;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.SlowOperations;
 import com.intellij.util.ThrowableRunnable;
@@ -505,10 +506,13 @@ public abstract class BaseRefactoringProcessor implements Runnable {
       final Map<RefactoringHelper, Object> preparedData = new LinkedHashMap<>();
       final Runnable prepareHelpersRunnable = () -> {
         RefactoringEventData data = ReadAction.compute(() -> getBeforeData());
+        PsiElement[] elements = data != null ? data.getUserData(RefactoringEventData.PSI_ELEMENT_ARRAY_KEY) : null;
         PsiElement primaryElement = data != null ? data.getUserData(RefactoringEventData.PSI_ELEMENT_KEY) : null;
+        PsiElement[] allElements = elements != null ? ArrayUtil.append(elements, primaryElement) : new PsiElement[]{primaryElement};
         for (final RefactoringHelper helper : RefactoringHelper.EP_NAME.getExtensionList()) {
-          Object operation = ReadAction.compute(() -> primaryElement != null ? helper.prepareOperation(writableUsageInfos, primaryElement) 
-                                                                             : helper.prepareOperation(writableUsageInfos));
+          Object operation = ReadAction.compute(() -> {
+            return helper.prepareOperation(writableUsageInfos, ContainerUtil.filter(allElements, e -> e != null));
+          });
           preparedData.put(helper, operation);
         }
       };

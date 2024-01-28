@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.quickfix;
 
@@ -3208,6 +3208,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("removeFunctionSecondParameter2.kt")
         public void testRemoveFunctionSecondParameter2() throws Exception {
             runTest("testData/quickfix/changeSignature/removeFunctionSecondParameter2.kt");
+        }
+
+        @TestMetadata("removeLibraryClassParameter.kt")
+        public void testRemoveLibraryClassParameter() throws Exception {
+            runTest("testData/quickfix/changeSignature/removeLibraryClassParameter.kt");
         }
 
         @TestMetadata("removeNamedParameter.kt")
@@ -17935,6 +17940,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("elseNotLastInWhen.kt")
         public void testElseNotLastInWhen() throws Exception {
             runTest("testData/quickfix/when/elseNotLastInWhen.kt");
+        }
+
+        @TestMetadata("localSealedClassInheritorExhaustive.kt")
+        public void testLocalSealedClassInheritorExhaustive() throws Exception {
+            runTest("testData/quickfix/when/localSealedClassInheritorExhaustive.kt");
         }
 
         @TestMetadata("noElseInWhenWithBranches.kt")

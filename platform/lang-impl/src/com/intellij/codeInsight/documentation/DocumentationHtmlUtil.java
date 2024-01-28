@@ -1,13 +1,14 @@
 // Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.documentation;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.editor.impl.EditorCssFontResolver;
+import com.intellij.lang.documentation.QuickDocHighlightingHelper;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.module.ModuleTypeManager;
 import com.intellij.openapi.module.UnknownModuleType;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.ui.ColorUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.ExtendableHTMLViewFactory;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.StartupUiUtil;
@@ -17,8 +18,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.text.html.HTMLEditorKit;
-import javax.swing.text.html.StyleSheet;
+import java.awt.*;
 import java.util.List;
 import java.util.function.Function;
 
@@ -43,39 +43,18 @@ public final class DocumentationHtmlUtil {
     });
   }
 
-  /**
-   * Swing HTML Editor Kit processes values in percents of 'font-size' css property really weirdly
-   * and even in not a cross-platform way.
-   * So we have to do some hacks to align fonts.
-   */
-  private static int getMonospaceFontSizeCorrection() {
-    return SystemInfo.isWin10OrNewer && !ApplicationManager.getApplication().isUnitTestMode() ? 96 : 100;
-  }
-
-  public static void addDocumentationPaneDefaultCssRules(@NotNull HTMLEditorKit editorKit) {
-    StyleSheet styleSheet = editorKit.getStyleSheet();
-    for (String rule : getDocumentationPaneDefaultCssRules()) {
-      styleSheet.addRule(rule);
-    }
-  }
-
-  public static @NotNull List<String> getDocumentationPaneDefaultCssRules() {
+  public static @NotNull List<String> getDocumentationPaneDefaultCssRules(Color background) {
     int leftPadding = 8;
     int definitionTopPadding = 4;
     String linkColor = ColorUtil.toHtmlColor(JBUI.CurrentTheme.Link.Foreground.ENABLED);
     String borderColor = ColorUtil.toHtmlColor(UIUtil.getTooltipSeparatorColor());
     String sectionColor = ColorUtil.toHtmlColor(SECTION_COLOR);
-    String editorFontStyle = "{ font-family:\"" + EditorCssFontResolver.EDITOR_FONT_NAME_NO_LIGATURES_PLACEHOLDER + "\";" +
-                             "font-size:" + getMonospaceFontSizeCorrection() + "%; }";
     int fontSize = StartupUiUtil.getLabelFont().getSize();
 
-    return List.of(
-      "tt " + editorFontStyle,
-      "code " + editorFontStyle,
-      "pre " + editorFontStyle,
-      ".pre " + editorFontStyle,
-
+    // When updating styles here, consider updating styles in DocRenderer#getStyleSheet
+    var result = ContainerUtil.newLinkedList(
       "html { padding-bottom: 8px; }",
+      "pre  {white-space: pre-wrap}",  // supported by JetBrains Runtime
       "h5, h6 { margin-top: 8px; margin-bottom: 0 }",
       "h4 { margin-top: 8px; margin-bottom: 0; font-size: " + fontSize + "}",
       "h3 { margin-top: 8px; margin-bottom: 0; font-size: " + (fontSize + 3) + "}",
@@ -111,5 +90,12 @@ public final class DocumentationHtmlUtil {
       "td pre { padding: 1px 0 0 0; margin: 0 0 0 0 }",
       ".section { color: " + sectionColor + "; padding-right: 4px; white-space:nowrap;}"
     );
+
+    // Styled code
+    EditorColorsScheme globalScheme = EditorColorsManager.getInstance().getGlobalScheme();
+    result.addAll(QuickDocHighlightingHelper.getDefaultDocCodeStyles(globalScheme, background));
+
+    return result;
   }
+
 }

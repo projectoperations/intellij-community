@@ -3,6 +3,7 @@ package org.jetbrains.kotlin.idea.fir.extensions
 
 import com.intellij.ide.impl.isTrusted
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.module.Module
@@ -41,6 +42,7 @@ import org.jetbrains.kotlin.idea.base.projectStructure.ideaModule
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.ModuleTestSourceInfo
 import org.jetbrains.kotlin.idea.base.util.Frontend10ApiUsage
+import org.jetbrains.kotlin.idea.base.util.caching.getChanges
 import org.jetbrains.kotlin.idea.compiler.configuration.KotlinCommonCompilerArgumentsHolder
 import org.jetbrains.kotlin.idea.compiler.configuration.KotlinCompilerSettingsListener
 import org.jetbrains.kotlin.idea.facet.KotlinFacet
@@ -66,7 +68,7 @@ internal class KtCompilerPluginsProviderIdeImpl(private val project: Project, cs
     init {
         cs.launch {
             WorkspaceModel.getInstance(project).changesEventFlow.collect { event ->
-                val hasChanges = event.getChanges(FacetEntity::class.java).any { change ->
+                val hasChanges = event.getChanges<FacetEntity>().any { change ->
                     change.facetTypes.any { it == KotlinFacetType.ID }
                 }
                 if (hasChanges) {
@@ -192,12 +194,20 @@ internal class KtCompilerPluginsProviderIdeImpl(private val project: Project, cs
         return storage
     }
 
+    /**
+     * Returns the paths defined in [CommonCompilerArguments.pluginClasspaths]
+     * in the absolute form with the expansion of the present path macros
+     * (like 'KOTLIN_BUNDLED').
+     */
     private fun CommonCompilerArguments.getOriginalPluginClassPaths(): List<Path> {
-        return this
-            .pluginClasspaths
-            ?.map { Path.of(it).toAbsolutePath() }
-            ?.toList()
-            .orEmpty()
+        val pluginClassPaths = this.pluginClasspaths
+
+        if (pluginClassPaths.isNullOrEmpty()) return emptyList()
+
+        val pathMacroManager = PathMacroManager.getInstance(project)
+        val expandedPluginClassPaths = pluginClassPaths.map { pathMacroManager.expandPath(it) }
+
+        return expandedPluginClassPaths.map { Path.of(it).toAbsolutePath() }
     }
 
     private fun CommonCompilerArguments.getSubstitutedPluginClassPaths(): List<Path> {

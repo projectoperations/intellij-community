@@ -4,53 +4,49 @@ package com.intellij.ide.startup.importSettings.chooser.productChooser
 import com.intellij.icons.AllIcons
 import com.intellij.ide.startup.importSettings.ImportSettingsBundle
 import com.intellij.ide.startup.importSettings.chooser.ui.ImportSettingsController
-import com.intellij.ide.startup.importSettings.chooser.ui.ImportSettingsPage
+import com.intellij.ide.startup.importSettings.chooser.ui.OnboardingPage
 import com.intellij.ide.startup.importSettings.chooser.ui.UiUtils
 import com.intellij.ide.startup.importSettings.data.SettingsService
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
+import com.intellij.openapi.rd.createLifetime
 import com.intellij.platform.ide.bootstrap.StartupWizardStage
 import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.ui.util.preferredHeight
 import com.intellij.util.ui.JBUI
+import com.jetbrains.rd.util.lifetime.intersect
 import java.awt.*
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.SwingConstants
 
-class ProductChooserPage(val controller: ImportSettingsController) : ImportSettingsPage {
+class ProductChooserPage(val controller: ImportSettingsController) : OnboardingPage {
 
   override val stage = StartupWizardStage.ProductChoicePage
   override fun confirmExit(parentComponent: Component?): Boolean {
     return true
   }
 
-  private val accountLabel = object : JLabel("user.name"){
-    private val lifetime = controller.lifetime.createNested()
-    override fun addNotify() {
-      val settService = SettingsService.getInstance()
+  private val lifetime = controller.lifetime.createNested().intersect(this.createLifetime())
 
-      settService.jbAccount.advise(lifetime) {
-        isVisible = it != null
-        if (!isVisible) {
-          return@advise
-        }
-
-        text = it?.loginName
-      }
-      super.addNotify()
-    }
-
-    override fun removeNotify() {
-      super.removeNotify()
-      lifetime.terminate()
-    }
-  }.apply {
+  private val accountLabel = JLabel("user.name").apply {
     icon = AllIcons.General.User
+
+    val settService = SettingsService.getInstance()
+
+    settService.jbAccount.advise(lifetime) {
+      isVisible = it != null
+      if (!isVisible) {
+        return@advise
+      }
+
+      text = it?.loginName
+    }
+
   }
 
   private val pane = JPanel(VerticalLayout(JBUI.scale(26), SwingConstants.CENTER)).apply {
@@ -68,7 +64,7 @@ class ProductChooserPage(val controller: ImportSettingsController) : ImportSetti
     group.add(SyncChooserAction(controller))
     group.add(JbChooserAction(controller))
     group.add(ExpChooserAction(controller))
-    group.add(SkipImportAction { controller.skipImport() })
+    group.add(SkipImportAction { controller.skipImportAction.invoke() })
 
     val act = ActionManager.getInstance().createActionToolbar(ActionPlaces.IMPORT_SETTINGS_DIALOG, group, false).apply {
       if (this is ActionToolbarImpl) {
@@ -88,16 +84,10 @@ class ProductChooserPage(val controller: ImportSettingsController) : ImportSetti
     val group = DefaultActionGroup()
     group.add(OtherOptions(controller))
 
-    val at = object : ActionToolbarImpl(ActionPlaces.IMPORT_SETTINGS_DIALOG, group, true) {
-
-      override fun getPreferredSize(): Dimension {
-        val dm = super.getPreferredSize()
-        dm.width -= 15
-        return dm
-      }
-    }
-
+    val at = ActionToolbarImpl(ActionPlaces.IMPORT_SETTINGS_DIALOG, group, true)
+    at.setReservePlaceAutoPopupIcon(false)
     at.targetComponent = pane
+
     add(accountLabel, BorderLayout.WEST)
     add(at.component, BorderLayout.EAST)
 

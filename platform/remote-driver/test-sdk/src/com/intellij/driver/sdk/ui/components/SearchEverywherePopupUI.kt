@@ -13,7 +13,6 @@ class SearchEverywherePopupUI(data: ComponentData): PopupUiComponent(data) {
   private val resultsList = x("//div[@class='JBList']")
 
   fun searchAndChooseFirst(text: String) {
-    searchField.click()
     keyboard {
       enterText(text)
       resultsList.should(15) { hasText(text) }

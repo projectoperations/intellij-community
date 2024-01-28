@@ -117,7 +117,6 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
         return component;
       }
     });
-    setUpShowRootNode();
 
     final ToolWindow toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(CoverageViewManager.TOOLWINDOW_ID);
     final boolean isHorizontalView = toolWindow != null && toolWindow.getAnchor().isHorizontal();
@@ -130,27 +129,9 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     else {
       addToTop(toolbarComponent);
     }
+    setUpShowRootNode(actionToolbar);
     CoverageLogger.logViewOpen(project, myStateBean.isShowOnlyModified(), myHasVCSFilter, myStateBean.isHideFullyCovered(), myHasFullyCoveredFilter);
 
-    if (myTreeStructure.getRootElement() instanceof AbstractTreeNode<?> root) {
-      if (myViewExtension.hasVCSFilteredNodes() && myStateBean.isShowOnlyModified()
-          && myStateBean.isDefaultFilters()) {
-        if (root.getChildren().isEmpty()) {
-          myStateBean.setShowOnlyModified(false);
-          resetView();
-        }
-        else {
-          final String message = CoverageBundle.message("coverage.filter.gotit", myViewExtension.getElementsName());
-          final GotItTooltip gotIt = new GotItTooltip("coverage.view.elements.filter", message, this);
-          if (gotIt.canShow()) {
-            final JComponent filterAction = findToolbarActionButtonWithIcon(actionToolbar, FILTER_ICON);
-            if (filterAction != null) {
-              gotIt.show(filterAction, GotItTooltip.BOTTOM_MIDDLE);
-            }
-          }
-        }
-      }
-    }
     final CoverageRowSorter rowSorter = new CoverageRowSorter(myTable, myModel);
     myTable.setRowSorter(rowSorter);
     if (stateBean.mySortingColumn < 0 || stateBean.mySortingColumn >= myModel.getColumnCount()) {
@@ -159,7 +140,6 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     }
     final RowSorter.SortKey sortKey = new RowSorter.SortKey(stateBean.mySortingColumn, stateBean.myAscendingOrder ? SortOrder.ASCENDING : SortOrder.DESCENDING);
     rowSorter.setSortKeys(Collections.singletonList(sortKey));
-    AppExecutorUtil.getAppExecutorService().execute(() -> setWidth());
     addToCenter(myTable);
 
     attachFileStatusListener();
@@ -188,9 +168,30 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     });
   }
 
-  private void setUpShowRootNode() {
+  private void resetIfAllFiltered(AbstractTreeNode<?> root, ActionToolbar actionToolbar) {
+    if (myViewExtension.hasVCSFilteredNodes() && myStateBean.isShowOnlyModified() && myStateBean.isDefaultFilters()) {
+      if (!myViewExtension.hasChildren(root)) {
+        myStateBean.setShowOnlyModified(false);
+        resetView();
+      }
+      else {
+        final String message = CoverageBundle.message("coverage.filter.gotit", myViewExtension.getElementsName());
+        final GotItTooltip gotIt = new GotItTooltip("coverage.view.elements.filter", message, this);
+        if (gotIt.canShow()) {
+          final JComponent filterAction = findToolbarActionButtonWithIcon(actionToolbar, FILTER_ICON);
+          if (filterAction != null) {
+            gotIt.show(filterAction, GotItTooltip.BOTTOM_MIDDLE);
+          }
+        }
+      }
+    }
+  }
+
+  private void setUpShowRootNode(ActionToolbar actionToolbar) {
     final var showFull = new Ref<>(false);
     myModel.addTreeModelListener(new TreeModelListener() {
+      private volatile boolean called = false;
+
       @Override
       public void treeNodesChanged(TreeModelEvent e) {
       }
@@ -221,6 +222,14 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
           }
           if (showRoot != myTable.getTree().isRootVisible()) {
             myTable.getTree().setRootVisible(showRoot);
+          }
+          if (!called) {
+            var nodeRoot = myModel.getCoverageNode(root);
+            if (nodeRoot != null) {
+              called = true;
+              setWidth(nodeRoot);
+              resetIfAllFiltered(nodeRoot, actionToolbar);
+            }
           }
         }
       }
@@ -310,7 +319,7 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     }
   }
 
-  private void setWidth() {
+  private void setWidth(AbstractTreeNode<?> root) {
     final int columns = myTable.getTable().getColumnCount();
     final TableColumnModel columnModel = myTable.getTable().getColumnModel();
     int tableWidth = 0;
@@ -325,7 +334,7 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     }
     else {
       for (int column = 0; column < columns; column++) {
-        final int width = Math.max(getStringWidth(myModel.getColumnName(column)), getColumnWidth(column));
+        final int width = Math.max(getStringWidth(myModel.getColumnName(column)), getColumnWidth(column, root));
         columnModel.getColumn(column).setPreferredWidth(width);
         tableWidth += width;
       }
@@ -334,8 +343,8 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     myTable.setColumnProportion(((float)tableWidth) / (nameWidth + tableWidth) / columns);
   }
 
-  private int getColumnWidth(int column) {
-    final String preferredString = myViewExtension.getPercentage(column, (AbstractTreeNode<?>)myTreeStructure.getRootElement());
+  private int getColumnWidth(int column, AbstractTreeNode<?> root) {
+    final String preferredString = myViewExtension.getPercentage(column, root);
     if (preferredString == null) return JBUIScale.scale(60);
     return getStringWidth(preferredString);
   }
@@ -361,6 +370,7 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     installAutoScrollFromSource(actionGroup);
 
     actionGroup.add(ActionManager.getInstance().getAction("GenerateCoverageReport"));
+    actionGroup.add(ActionManager.getInstance().getAction("ImportCoverage"));
 
     List<AnAction> extraActions = myViewExtension.createExtraToolbarActions();
     extraActions.forEach(actionGroup::add);

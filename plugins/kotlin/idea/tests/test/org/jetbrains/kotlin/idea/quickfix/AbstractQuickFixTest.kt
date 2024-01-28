@@ -8,6 +8,7 @@ import com.intellij.codeInsight.intention.IntentionActionDelegate
 import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.codeInsight.intention.impl.ShowIntentionActionsHandler
 import com.intellij.codeInsight.intention.impl.config.IntentionManagerSettings
+import com.intellij.codeInspection.LocalQuickFixOnPsiElement
 import com.intellij.codeInspection.SuppressableProblemGroup
 import com.intellij.codeInspection.ex.QuickFixWrapper
 import com.intellij.internal.statistic.eventLog.StatisticsEventLoggerProvider
@@ -21,8 +22,9 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.CharsetToolkit
-import com.intellij.psi.util.PsiUtilBase
 import com.intellij.platform.testFramework.core.FileComparisonFailedError
+import com.intellij.psi.PsiFile
+import com.intellij.psi.util.PsiUtilBase
 import com.intellij.testFramework.*
 import com.intellij.util.ui.UIUtil
 import junit.framework.TestCase
@@ -34,7 +36,8 @@ import org.jetbrains.kotlin.idea.facet.KotlinFacet
 import org.jetbrains.kotlin.idea.statistic.FilterableTestStatisticsEventLoggerProvider
 import org.jetbrains.kotlin.idea.test.*
 import org.jetbrains.kotlin.psi.KtFile
-import org.jetbrains.kotlin.test.utils.IgnoreTests
+import org.jetbrains.kotlin.idea.base.test.IgnoreTests
+import org.jetbrains.kotlin.idea.base.test.InTextDirectivesUtils
 import org.junit.Assert
 import org.junit.ComparisonFailure
 import java.io.File
@@ -104,28 +107,28 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
         val beforeFile = File(beforeFileName)
         val beforeFileText = FileUtil.loadFile(beforeFile)
         InTextDirectivesUtils.checkIfMuted(beforeFileText)
-        withCustomCompilerOptions(beforeFileText, project, module) {
-            loadScriptConfiguration()
+        configureRegistryAndRun(beforeFileText) {
+            withCustomCompilerOptions(beforeFileText, project, module) {
+                IgnoreTests.runTestIfNotDisabledByFileDirective(Paths.get(beforeFileName), disableTestDirective) {
+                    val inspections = parseInspectionsToEnable(beforeFileName, beforeFileText).toTypedArray()
 
-            IgnoreTests.runTestIfNotDisabledByFileDirective(Paths.get(beforeFileName), disableTestDirective) {
-                val inspections = parseInspectionsToEnable(beforeFileName, beforeFileText).toTypedArray()
+                    try {
+                        myFixture.enableInspections(*inspections)
 
-                try {
-                    myFixture.enableInspections(*inspections)
-
-                    doKotlinQuickFixTest(beforeFileName)
-                    runInEdtAndWait { checkForUnexpectedErrors() }
-                } finally {
-                    myFixture.disableInspections(*inspections)
+                        doKotlinQuickFixTest(beforeFileName)
+                        runInEdtAndWait { checkForUnexpectedErrors() }
+                    } finally {
+                        myFixture.disableInspections(*inspections)
+                    }
                 }
-            }
 
-            // if `disableTestDirective` is present in the file and `runTestIfNotDisabledByFileDirective` doesn't throw an exception
-            // (meaning that the test indeed doesn't pass), don't run other checks
-            if (beforeFileText.lines().none { it.startsWith(disableTestDirective) }) {
-                runInEdtAndWait {
-                    checkFusEvents(beforeFile, beforeFileText)
-                    PsiTestUtil.checkPsiStructureWithCommit(file, PsiTestUtil::checkPsiMatchesTextIgnoringNonCode)
+                // if `disableTestDirective` is present in the file and `runTestIfNotDisabledByFileDirective` doesn't throw an exception
+                // (meaning that the test indeed doesn't pass), don't run other checks
+                if (beforeFileText.lines().none { it.startsWith(disableTestDirective) }) {
+                    runInEdtAndWait {
+                        checkFusEvents(beforeFile, beforeFileText)
+                        PsiTestUtil.checkPsiStructureWithCommit(file, PsiTestUtil::checkPsiMatchesTextIgnoringNonCode)
+                    }
                 }
             }
         }
@@ -166,7 +169,7 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
 
         if (calledId != quickFixName) {
             throw FileComparisonFailedError(
-                "expected to find quickfix `called` id",
+                "expected to find quickfix `called` $quickFixName",
                 fileText,
                 fileText.replace("// $fusDirectiveName: $quickFixName", "// $fusDirectiveName: $calledId"),
                 file.toString()
@@ -192,11 +195,6 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
 
     protected open fun configExtra(options: String) {
 
-    }
-
-    private fun loadScriptConfiguration() {
-        val file = myFixture.configureByFile(fileName())
-        ScriptConfigurationManager.getInstance(project).getConfiguration(file as KtFile)
     }
 
     private fun getPathAccordingToPackage(name: String, text: String): String {
@@ -228,25 +226,32 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
             var fileName = testFile.canonicalFile.name
             val putIntoPackageFolder =
                 InTextDirectivesUtils.findStringWithPrefixes(fileText, "// $FORCE_PACKAGE_FOLDER_DIRECTIVE") != null
-            if (putIntoPackageFolder) {
-                fileName = getPathAccordingToPackage(fileName, contents)
-                myFixture.addFileToProject(fileName, contents)
-                myFixture.configureByFile(fileName)
-            } else {
-                myFixture.configureByText(fileName, contents)
-            }
 
-            runInEdtAndWait { checkForUnexpectedActions() }
+            runInEdtAndWait {
+                if (putIntoPackageFolder) {
+                    fileName = getPathAccordingToPackage(fileName, contents)
+                    myFixture.addFileToProject(fileName, contents)
+                    myFixture.configureByFile(fileName)
+                } else {
+                    myFixture.configureByText(fileName, contents)
+                }
+
+                // The script configuration must not be loaded during highlighting. It should also be loaded as soon as possible, so we run
+                // it together with the fixture's file configuration in the EDT.
+                loadScriptConfiguration(myFixture.file as KtFile)
+
+                checkForUnexpectedActions()
+            }
 
             configExtra(fileText)
 
-            val hint = ActionHint.parse(myFixture.file, contents.replace("\${file}", fileName, ignoreCase = true))
+            val hint = myFixture.file.actionHint(contents.replace("\${file}", fileName, ignoreCase = true))
             actionHint = hint
             val intention = runInEdtAndGet { findActionWithText(hint.expectedText) }
             if (hint.shouldPresent()) {
                 if (intention == null) {
                     fail(
-                        "Action with text '" + hint.expectedText + "' not found\nAvailable actions:\n" +
+                        "Action with text '" + hint.expectedText + "' not found\n${myFixture.availableIntentions.size} available actions:\n" +
                                 myFixture.availableIntentions.joinToString(separator = "\n") { "// \"${it.text}\" \"true\"" })
                     return
                 }
@@ -290,13 +295,22 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
                 ConfigLibraryUtil.unconfigureLibrariesByDirective(myFixture.module, fileText)
             }
         }
+    }
 
+    private fun loadScriptConfiguration(file: KtFile) {
+        ScriptConfigurationManager.getInstance(project).getConfiguration(file)
+    }
+
+    private fun PsiFile.actionHint(contents: String): ActionHint {
+      return ActionHint.parse(this, contents,
+                              actionPrefix?.let { ".*//(?: $it)?" } ?: "//",
+                              true)
     }
 
     private fun applyAction(contents: String, hint: ActionHint, intention: IntentionAction, fileName: String) {
         val unwrappedIntention = unwrapIntention(intention)
         if (shouldCheckIntentionActionType) {
-            if (intention.asModCommandAction() == null) {
+            if (intention.asModCommandAction() == null && unwrappedIntention !is LocalQuickFixOnPsiElement) {
                 assertInstanceOf(unwrappedIntention, QuickFixActionBase::class.java)
             }
         }
@@ -365,7 +379,7 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
 
     private fun checkForUnexpectedActions() {
         val text = myFixture.editor.document.text
-        val actionHint = ActionHint.parse(myFixture.file, text)
+        val actionHint = myFixture.file.actionHint(text)
         if (actionHint.shouldPresent() && !InTextDirectivesUtils.isDirectiveDefined(text, DirectiveBasedActionUtils.ACTION_DIRECTIVE)) {
             return
         }
@@ -438,4 +452,6 @@ abstract class AbstractQuickFixTest : KotlinLightCodeInsightFixtureTestCase(), Q
 
     override val additionalToolDirectives: Array<String>
         get() = arrayOf(if (isFirPlugin) K2_TOOL_DIRECTIVE else K1_TOOL_DIRECTIVE)
+
+    protected open val actionPrefix: String? = null
 }

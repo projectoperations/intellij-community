@@ -13,8 +13,8 @@ import com.intellij.ide.ui.LafManagerListener
 import com.intellij.ide.ui.laf.darcula.DarculaUIUtil
 import com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationBundle
 import com.intellij.openapi.observable.properties.AbstractObservableProperty
-import com.intellij.openapi.progress.util.ProgressWindow
 import com.intellij.openapi.ui.ComponentValidator
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.util.Disposer
@@ -32,7 +32,7 @@ import com.intellij.util.ui.SingleComponentCenteringLayout
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.update.Activatable
 import com.intellij.util.ui.update.UiNotifyConnector
-import com.intellij.vcs.log.ui.frame.ProgressStripe
+import com.intellij.vcs.ui.ProgressStripe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -134,7 +134,7 @@ object CollaborationToolsUIUtil {
    * Show progress stripe above [component]
    */
   fun wrapWithProgressStripe(scope: CoroutineScope, loadingFlow: Flow<Boolean>, component: JComponent): JComponent {
-    return ProgressStripe(component, scope.nestedDisposable(), ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS).apply {
+    return ProgressStripe(component, scope.nestedDisposable()).apply {
       bindProgressIn(scope, loadingFlow)
     }
   }
@@ -332,6 +332,18 @@ object CollaborationToolsUIUtil {
         }
       }
     }
+
+  /**
+   * Hides the component if none of the children are visible
+   * TODO: handle children list mutability
+   */
+  fun hideWhenNoVisibleChildren(component: JComponent) {
+    val children = component.components
+    component.isVisible = children.any { it.isVisible }
+    for (child in children) {
+      UIUtil.runWhenVisibilityChanged(child) { component.isVisible = children.any { it.isVisible } }
+    }
+  }
 }
 
 @Suppress("FunctionName")
@@ -385,6 +397,15 @@ fun jbColorFromHex(light: @NonNls String, dark: @NonNls String): JBColor =
 @Suppress("FunctionName")
 fun LoadingLabel(): JLabel = JLabel(CollaborationToolsUIUtil.animatedLoadingIcon).apply {
   name = "Animated loading label"
+}
+
+/**
+ * Loading label with a text
+ */
+@Suppress("FunctionName")
+fun LoadingTextLabel(): JLabel = JLabel(ApplicationBundle.message("label.loading.page.please.wait")).apply {
+  foreground = UIUtil.getContextHelpForeground()
+  name = "Textual loading label"
 }
 
 /**

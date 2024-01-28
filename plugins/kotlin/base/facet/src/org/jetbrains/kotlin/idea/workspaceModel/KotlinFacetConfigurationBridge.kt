@@ -1,9 +1,6 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.workspaceModel
 
-import com.intellij.facet.ui.FacetEditorContext
-import com.intellij.facet.ui.FacetEditorTab
-import com.intellij.facet.ui.FacetValidatorsManager
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.platform.workspace.storage.EntitySource
@@ -15,17 +12,13 @@ import org.jetbrains.kotlin.idea.facet.*
 import org.jetbrains.kotlin.idea.serialization.KotlinFacetSettingsWorkspaceModel
 
 class KotlinFacetConfigurationBridge : KotlinFacetConfiguration, FacetConfigurationBridge<KotlinSettingsEntity> {
-    final override var settings: IKotlinFacetSettings
-        private set
-        get() = KotlinFacetSettingsWorkspaceModel(kotlinSettingsEntity)
+    override val settings: IKotlinFacetSettings by lazy { KotlinFacetSettingsWorkspaceModel(kotlinSettingsEntity) }
 
     private val kotlinSettingsEntity: KotlinSettingsEntity.Builder
     private var myModule: ModuleEntity? = null
 
-    private constructor(kotlinSettingsEntity: KotlinSettingsEntity.Builder) :
-            super() {
+    private constructor(kotlinSettingsEntity: KotlinSettingsEntity.Builder) : super() {
         this.kotlinSettingsEntity = kotlinSettingsEntity
-        settings = KotlinFacetSettingsWorkspaceModel(kotlinSettingsEntity)
     }
 
     constructor() :
@@ -83,13 +76,6 @@ class KotlinFacetConfigurationBridge : KotlinFacetConfiguration, FacetConfigurat
             ) {
             } as KotlinSettingsEntity.Builder) {
         myModule = originKotlinSettingsEntity.module
-    }
-
-    override fun createEditorTabs(editorContext: FacetEditorContext, validatorsManager: FacetValidatorsManager): Array<FacetEditorTab> {
-        val tabs = arrayListOf<FacetEditorTab>()
-        tabs += KotlinFacetEditorProviderService.getInstance(editorContext.project).getEditorTabs(this, editorContext, validatorsManager)
-        KotlinFacetConfigurationExtension.EP_NAME.extensionList.flatMapTo(tabs) { it.createEditorTabs(editorContext, validatorsManager) }
-        return tabs.toTypedArray()
     }
 
     override fun init(moduleEntity: ModuleEntity, entitySource: EntitySource) {

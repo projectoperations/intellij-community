@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.configurationStore
 
 import com.intellij.notification.Notification
@@ -7,7 +7,6 @@ import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PathMacroSubstitutor
 import com.intellij.openapi.components.RoamingType
-import com.intellij.openapi.components.StateStorageOperation
 import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil
@@ -16,17 +15,16 @@ import com.intellij.openapi.util.SafeStAXStreamBuilder
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.vfs.CharsetToolkit
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.ArrayUtil
 import com.intellij.util.LineSeparator
 import com.intellij.util.io.readCharSequence
-import com.intellij.util.io.systemIndependentPath
 import com.intellij.util.xml.dom.createXmlStreamReader
 import org.jdom.Element
 import org.jdom.JDOMException
 import org.jetbrains.annotations.NonNls
 import java.io.IOException
-import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
@@ -42,7 +40,7 @@ open class FileBasedStorage(file: Path,
   XmlElementStorage(fileSpec = fileSpec,
                     rootElementName = rootElementName,
                     pathMacroSubstitutor = pathMacroManager,
-                    roamingType = roamingType,
+                    storageRoamingType = roamingType,
                     provider = provider) {
 
   @Volatile
@@ -107,7 +105,7 @@ open class FileBasedStorage(file: Path,
       }
 
       val isUseVfs = storage.configuration.isUseVfsForWrite
-      val virtualFile = if (isUseVfs) storage.getVirtualFile(StateStorageOperation.WRITE) else null
+      val virtualFile = if (isUseVfs) storage.getVirtualFile() else null
       when {
         dataWriter == null -> {
           if (isUseVfs && virtualFile == null) {
@@ -124,7 +122,7 @@ open class FileBasedStorage(file: Path,
           val file = storage.file
           LOG.debug { "Save $file" }
           try {
-            dataWriter.writeTo(file, this, lineSeparator)
+            dataWriter.writeTo(file, requestor = this, lineSeparator, storage.isUseXmlProlog)
           }
           catch (e: ReadOnlyModificationException) {
             throw e
@@ -137,29 +135,17 @@ open class FileBasedStorage(file: Path,
     }
   }
 
-  fun getVirtualFile(reasonOperation: StateStorageOperation): VirtualFile? {
+  fun getVirtualFile(): VirtualFile? {
     var result = cachedVirtualFile
     if (result == null) {
-      result = configuration.resolveVirtualFile(file.systemIndependentPath, reasonOperation)
-      cachedVirtualFile = result
+      result = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file)
+      if (result != null && result.isValid) {
+        // otherwise virtualFile.contentsToByteArray() will query expensive FileTypeManager.getInstance()).getByFile()
+        result.setCharset(Charsets.UTF_8, null, false)
+        cachedVirtualFile = result
+      }
     }
     return result
-  }
-
-  private inline fun <T> runAndHandleExceptions(task: () -> T): T? {
-    try {
-      return task()
-    }
-    catch (e: JDOMException) {
-      processReadException(e)
-    }
-    catch (e: XMLStreamException) {
-      processReadException(e)
-    }
-    catch (e: IOException) {
-      processReadException(e)
-    }
-    return null
   }
 
   fun preloadStorageData(isEmpty: Boolean) {
@@ -173,73 +159,53 @@ open class FileBasedStorage(file: Path,
 
   override fun loadLocalData(): Element? {
     blockSaving = null
-    return runAndHandleExceptions {
-      if (configuration.isUseVfsForRead) {
-        loadUsingVfs()
+
+    try {
+      val attributes: BasicFileAttributes?
+      try {
+        attributes = Files.readAttributes(file, BasicFileAttributes::class.java)
+      }
+      catch (_: NoSuchFileException) {
+        LOG.debug { "Document was not loaded for $fileSpec, doesn't exist" }
+        return null
+      }
+
+      if (!attributes.isRegularFile) {
+        LOG.debug { "Document was not loaded for $fileSpec, not a file" }
+        return null
+      }
+      else if (attributes.size() == 0L) {
+        processReadException(null)
+        return null
+      }
+
+      if (isUseUnixLineSeparator) {
+        // do not load the whole data into memory if there is no need to detect line separators
+        lineSeparator = LineSeparator.LF
+        val xmlStreamReader = createXmlStreamReader(Files.newInputStream(file))
+        try {
+          return SafeStAXStreamBuilder.build(xmlStreamReader, true, false, SafeStAXStreamBuilder.FACTORY)
+        }
+        finally {
+          xmlStreamReader.close()
+        }
       }
       else {
-        loadLocalDataUsingIo()
+        val data = CharsetToolkit.inputStreamSkippingBOM(Files.newInputStream(file)).reader().readCharSequence(attributes.size().toInt())
+        lineSeparator = detectLineSeparators(data, if (isUseXmlProlog) null else LineSeparator.LF)
+        return JDOMUtil.load(data)
       }
     }
-  }
-
-  private fun loadLocalDataUsingIo(): Element? {
-    val attributes: BasicFileAttributes?
-    try {
-      attributes = Files.readAttributes(file, BasicFileAttributes::class.java)
+    catch (e: JDOMException) {
+      processReadException(e)
     }
-    catch (e: NoSuchFileException) {
-      LOG.debug { "Document was not loaded for $fileSpec, doesn't exist" }
-      return null
+    catch (e: XMLStreamException) {
+      processReadException(e)
     }
-
-    if (!attributes.isRegularFile) {
-      LOG.debug { "Document was not loaded for $fileSpec, not a file" }
-      return null
+    catch (e: IOException) {
+      processReadException(e)
     }
-    else if (attributes.size() == 0L) {
-      processReadException(null)
-      return null
-    }
-
-    if (isUseUnixLineSeparator) {
-      // do not load the whole data into memory if no need to detect line separator
-      lineSeparator = LineSeparator.LF
-      val xmlStreamReader = createXmlStreamReader(Files.newInputStream(file))
-      try {
-        return SafeStAXStreamBuilder.build(xmlStreamReader, true, false, SafeStAXStreamBuilder.FACTORY)
-      }
-      finally {
-        xmlStreamReader.close()
-      }
-    }
-    else {
-      val data = CharsetToolkit.inputStreamSkippingBOM(Files.newInputStream(file)).reader().readCharSequence(attributes.size().toInt())
-      lineSeparator = detectLineSeparators(data, if (isUseXmlProlog) null else LineSeparator.LF)
-      return JDOMUtil.load(data)
-    }
-  }
-
-  private fun loadUsingVfs(): Element? {
-    val virtualFile = getVirtualFile(StateStorageOperation.READ)
-    if (virtualFile == null || !virtualFile.exists()) {
-      // only on first load
-      handleVirtualFileNotFound()
-      return null
-    }
-
-    val byteArray = virtualFile.contentsToByteArray()
-    if (byteArray.isEmpty()) {
-      processReadException(null)
-      return null
-    }
-
-    val charBuffer = Charsets.UTF_8.decode(ByteBuffer.wrap(byteArray))
-    lineSeparator = detectLineSeparators(charBuffer, if (isUseXmlProlog) null else LineSeparator.LF)
-    return JDOMUtil.load(charBuffer)
-  }
-
-  protected open fun handleVirtualFileNotFound() {
+    return null
   }
 
   private fun processReadException(e: Exception?) {

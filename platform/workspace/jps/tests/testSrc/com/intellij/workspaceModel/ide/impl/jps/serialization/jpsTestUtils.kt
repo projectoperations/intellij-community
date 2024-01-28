@@ -1,4 +1,6 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:OptIn(EntityStorageInstrumentationApi::class)
+
 package com.intellij.workspaceModel.ide.impl.jps.serialization
 
 import com.intellij.configurationStore.StoreUtil.saveDocumentsAndProjectsAndApp
@@ -25,18 +27,19 @@ import com.intellij.platform.workspace.jps.JpsProjectConfigLocation
 import com.intellij.platform.workspace.jps.JpsProjectFileEntitySource
 import com.intellij.platform.workspace.jps.entities.LibraryEntity
 import com.intellij.platform.workspace.jps.serialization.impl.*
+import com.intellij.platform.workspace.storage.*
+import com.intellij.platform.workspace.storage.impl.url.toVirtualFileUrl
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.url.VirtualFileUrl
+import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.testFramework.UsefulTestCase
 import com.intellij.testFramework.replaceService
 import com.intellij.util.LineSeparator
 import com.intellij.util.io.assertMatches
 import com.intellij.util.io.directoryContentOf
 import com.intellij.workspaceModel.ide.JpsGlobalModelSynchronizer
-import com.intellij.workspaceModel.ide.getGlobalInstance
 import com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModel
-import com.intellij.platform.workspace.storage.*
-import com.intellij.platform.workspace.storage.impl.url.toVirtualFileUrl
-import com.intellij.platform.workspace.storage.url.VirtualFileUrl
-import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import junit.framework.AssertionFailedError
 import kotlinx.coroutines.CoroutineScope
 import org.jdom.Element
@@ -56,9 +59,9 @@ internal val sampleFileBasedProjectFile = File(PathManagerEx.getCommunityHomePat
                                                "jps/model-serialization/testData/sampleProject-ipr/sampleProject.ipr")
 
 internal data class LoadedProjectData(
-  val storage: EntityStorageSnapshot,
-  val orphanage: EntityStorageSnapshot,
-  val unloadedEntitiesStorage: EntityStorageSnapshot,
+  val storage: ImmutableEntityStorage,
+  val orphanage: ImmutableEntityStorage,
+  val unloadedEntitiesStorage: ImmutableEntityStorage,
   val serializers: JpsProjectSerializersImpl,
   val configLocation: JpsProjectConfigLocation,
   val originalProjectDir: File
@@ -225,12 +228,16 @@ fun JpsProjectSerializersImpl.checkConsistency(configLocation: JpsProjectConfigL
     serializer is JpsFileEntityTypeSerializer<E> && storage.entities(serializer.mainEntityClass).none { serializer.entityFilter(it) }
     && unloadedEntitiesStorage.entities(serializer.mainEntityClass).none { serializer.entityFilter(it) }
 
-  val allSources = storage.entitiesBySource { true } + unloadedEntitiesStorage.entitiesBySource { true }
-  val urlsFromSources = allSources.keys.filterIsInstance<JpsFileEntitySource>().mapTo(HashSet()) { getNonNullActualFileUrl(it) }
+  val allSources = storage.entitiesBySource { true }.mapTo(HashSet()) { it.entitySource } +
+                   unloadedEntitiesStorage.entitiesBySource { true }.mapTo(HashSet()) { it.entitySource }
+  val urlsFromSources = allSources
+    .filterIsInstance<JpsFileEntitySource>()
+    .filterNot { it is JpsGlobalFileEntitySource } // Do not check global entity sources in project-level serializers
+    .mapTo(HashSet()) { getNonNullActualFileUrl(it) }
   assertEquals(urlsFromSources.sorted(), fileSerializersByUrl.keys.associateWith { fileSerializersByUrl.getValues(it) }
     .filterNot { entry -> entry.value.all { isSerializerWithoutEntities(it) } }.map { it.key }.sorted())
 
-  val fileIdFromEntities = allSources.keys.filterIsInstance(JpsProjectFileEntitySource.FileInDirectory::class.java).mapTo(
+  val fileIdFromEntities = allSources.filterIsInstance<JpsProjectFileEntitySource.FileInDirectory>().mapTo(
     HashSet()) { it.fileNameId }
   val unregisteredIds = fileIdFromEntities - fileIdToFileName.keys.toSet()
   assertTrue("Some fileNameId aren't registered: ${unregisteredIds}", unregisteredIds.isEmpty())
@@ -245,7 +252,7 @@ internal fun File.asConfigLocation(virtualFileManager: VirtualFileUrlManager): J
 internal fun toConfigLocation(file: Path, virtualFileManager: VirtualFileUrlManager): JpsProjectConfigLocation {
   if (FileUtil.extensionEquals(file.fileName.toString(), "ipr")) {
     val iprFile = file.toVirtualFileUrl(virtualFileManager)
-    return JpsProjectConfigLocation.FileBased(iprFile, virtualFileManager.getParentVirtualUrl(iprFile)!!)
+    return JpsProjectConfigLocation.FileBased(iprFile, iprFile.parent!!)
   }
   else {
     val projectDir = file.toVirtualFileUrl(virtualFileManager)
@@ -368,8 +375,8 @@ internal fun checkSaveProjectAfterChange(originalProjectFile: File,
                                          forceAllFilesRewrite: Boolean = false) {
   val projectData = copyAndLoadProject(originalProjectFile, virtualFileManager, unloadedModuleNameHolder, checkConsistencyAfterLoading,
                                        externalStorageConfigurationManager)
-  val builder = MutableEntityStorage.from(projectData.storage)
-  val unloadedEntitiesBuilder = MutableEntityStorage.from(projectData.unloadedEntitiesStorage)
+  val builder = MutableEntityStorage.from(projectData.storage) as MutableEntityStorageInstrumentation
+  val unloadedEntitiesBuilder = MutableEntityStorage.from(projectData.unloadedEntitiesStorage) as MutableEntityStorageInstrumentation
   change(builder, projectData.orphanage.toBuilder(), unloadedEntitiesBuilder, projectData.configLocation)
   val changesList = builder.collectChanges().values + unloadedEntitiesBuilder.collectChanges().values
   val changedSources = changesList.flatMapTo(HashSet()) { changes ->
@@ -382,7 +389,7 @@ internal fun checkSaveProjectAfterChange(originalProjectFile: File,
     }.map { it.entitySource }
   }
   if (forceAllFilesRewrite) {
-    changedSources.addAll(builder.entitiesBySource { true }.keys)
+    changedSources.addAll(builder.entitiesBySource { true }.mapTo(HashSet()) { it.entitySource })
   }
   val writer = JpsFileContentWriterImpl(projectData.configLocation)
   projectData.serializers.saveEntities(builder.toSnapshot(), unloadedEntitiesBuilder.toSnapshot(), changedSources, writer)
@@ -434,11 +441,11 @@ internal fun copyAndLoadGlobalEntities(originalFile: String? = null,
     ApplicationManager.getApplication().replaceService(GlobalWorkspaceModel::class.java, GlobalWorkspaceModel(), parentDisposable)
 
     // Entity source for global entities
-    val virtualFileManager = VirtualFileUrlManager.getGlobalInstance()
-    val globalLibrariesFile = virtualFileManager.fromUrl("$testDir/options/applicationLibraries.xml")
+    val virtualFileManager = GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager()
+    val globalLibrariesFile = virtualFileManager.getOrCreateFromUri("$testDir/options/applicationLibraries.xml")
     val libraryEntitySource = JpsGlobalFileEntitySource(globalLibrariesFile)
 
-    val globalSdkFile = virtualFileManager.fromUrl("$testDir/options/jdk.table.xml")
+    val globalSdkFile = virtualFileManager.getOrCreateFromUri("$testDir/options/jdk.table.xml")
     val sdkEntitySource = JpsGlobalFileEntitySource(globalSdkFile)
     action(libraryEntitySource, sdkEntitySource)
 

@@ -18,10 +18,10 @@ import com.intellij.cce.evaluation.EvaluationRootInfo
 import com.intellij.cce.util.ExceptionsUtil.stackTraceToString
 import com.intellij.cce.workspace.ConfigFactory
 import com.intellij.cce.workspace.EvaluationWorkspace
-import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.application.ApplicationStarter
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.Disposer
 import java.io.File
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -30,6 +30,9 @@ import kotlin.io.path.isDirectory
 import kotlin.system.exitProcess
 
 internal class CompletionEvaluationStarter : ApplicationStarter {
+  override val requiredModality: Int
+    get() = ApplicationStarter.NOT_IN_EDT
+
   override val commandName: String
     get() = "ml-evaluate"
 
@@ -54,39 +57,39 @@ internal class CompletionEvaluationStarter : ApplicationStarter {
       fatalError("Error for loading config: $configPath, $e. StackTrace: ${stackTraceToString(e)}")
     }
 
-    protected fun loadProject(projectPath: String): Project = try {
-      println("Open and load project $projectPath. Operation may take a few minutes.")
-      val project = OpenProjectMethodProvider.find()?.openProjectInHeadlessMode(projectPath) ?: openProjectHeadless(projectPath)
-      println("Project loaded!")
-      project
-    }
-    catch (e: Throwable) {
-      fatalError("Project could not be loaded: $e")
+    protected fun loadAndApply(projectPath: String, action: (Project) -> Unit) {
+      val parentDisposable = Disposer.newDisposable()
+      val project: Project?
+
+      try {
+        println("Open and load project $projectPath. Operation may take a few minutes.")
+        project = runBlockingCancellable {
+          ProjectOpeningUtils.openProject(
+            File(projectPath).toPath(),
+            parentDisposable,
+          )
+        }
+        println("Project loaded!")
+
+        try {
+          action(project)
+        }
+        catch (exception: Exception) {
+          throw RuntimeException("Failed to run actions on the project: $exception")
+        }
+      }
+      catch (exception: Exception) {
+        fatalError("Project could not be loaded or processed: $exception")
+      }
+      finally {
+        // Closes the project even if it is not fully opened, but started to
+        Disposer.dispose(parentDisposable)
+      }
     }
 
     private fun fatalError(msg: String): Nothing {
       System.err.println("Evaluation failed: $msg")
       exitProcess(1)
-    }
-
-    private fun openProjectHeadless(projectPath: String): Project {
-      val project = File(projectPath)
-      assert(project.exists()) { "File $projectPath does not exist" }
-
-      val projectDir = if (project.isDirectory) project else project.parentFile
-      val ideaDir = File(projectDir, Project.DIRECTORY_STORE_FOLDER)
-      if (!ideaDir.exists()) {
-        println(".idea directory is missing. Project will be imported")
-        val importedProject = ProjectUtil.openOrImport(project.toPath(), null, false)
-        assert(importedProject != null) { ".idea directory is missing and project can't be imported" }
-        return importedProject!!
-      }
-      val existing = ProjectManager.getInstance().openProjects.firstOrNull { proj ->
-        !proj.isDefault && ProjectUtil.isSameProject(project.toPath(), proj)
-      }
-      if (existing != null) return existing
-
-      return ProjectManager.getInstance().loadAndOpenProject(projectPath)!!
     }
   }
 
@@ -101,13 +104,14 @@ internal class CompletionEvaluationStarter : ApplicationStarter {
     override fun run() {
       val feature = EvaluableFeature.forFeature(featureName) ?: throw Exception("No support for the $featureName")
       val config = loadConfig(Paths.get(configPath), feature.getStrategySerializer())
-      val project = loadProject(config.projectPath)
-      val workspace = EvaluationWorkspace.create(config)
-      val stepFactory = BackgroundStepFactory(feature, config, project, null, EvaluationRootInfo(true))
-      EvaluationProcess.build({
-                                customize()
-                                shouldReorderElements = config.reorder.useReordering
-                              }, stepFactory).startAsync(workspace)
+      loadAndApply(config.projectPath) { project ->
+        val workspace = EvaluationWorkspace.create(config)
+        val stepFactory = BackgroundStepFactory(feature, config, project, null, EvaluationRootInfo(true))
+        EvaluationProcess.build({
+                                  customize()
+                                  shouldReorderElements = config.reorder.useReordering
+                                }, stepFactory).startAsync(workspace).get()
+      }
     }
 
     protected abstract fun EvaluationProcess.Builder.customize()
@@ -140,14 +144,15 @@ internal class CompletionEvaluationStarter : ApplicationStarter {
       val feature = EvaluableFeature.forFeature(featureName) ?: throw Exception("No support for the feature")
       val workspace = EvaluationWorkspace.open(workspacePath)
       val config = workspace.readConfig(feature.getStrategySerializer())
-      val project = loadProject(config.projectPath)
-      val process = EvaluationProcess.build({
-                                              shouldGenerateActions = false
-                                              shouldInterpretActions = interpretActions
-                                              shouldReorderElements = reorderElements
-                                              shouldGenerateReports = generateReport
-                                            }, BackgroundStepFactory(feature, config, project, null, EvaluationRootInfo(true)))
-      process.startAsync(workspace)
+      loadAndApply(config.projectPath) { project ->
+        val process = EvaluationProcess.build({
+                                                shouldGenerateActions = false
+                                                shouldInterpretActions = interpretActions
+                                                shouldReorderElements = reorderElements
+                                                shouldGenerateReports = generateReport
+                                              }, BackgroundStepFactory(feature, config, project, null, EvaluationRootInfo(true)))
+        process.startAsync(workspace)
+      }
     }
   }
 
@@ -163,12 +168,13 @@ internal class CompletionEvaluationStarter : ApplicationStarter {
         "COMPARING",
       )
       val outputWorkspace = EvaluationWorkspace.create(config)
-      val project = loadProject(config.projectPath)
-      val process = EvaluationProcess.build({
-                                              shouldGenerateReports = true
-                                            },
-                                            BackgroundStepFactory(feature, config, project, workspacesToCompare, EvaluationRootInfo(true)))
-      process.startAsync(outputWorkspace)
+      loadAndApply(config.projectPath) { project ->
+        val process = EvaluationProcess.build({
+                                                shouldGenerateReports = true
+                                              },
+                                              BackgroundStepFactory(feature, config, project, workspacesToCompare, EvaluationRootInfo(true)))
+        process.startAsync(outputWorkspace)
+      }
     }
   }
 
@@ -204,12 +210,13 @@ internal class CompletionEvaluationStarter : ApplicationStarter {
         }
       }
       outputWorkspace.saveMetadata()
-      val project = loadProject(config.projectPath)
-      val process = EvaluationProcess.build({
-                                              shouldGenerateReports = true
-                                            },
-                                            BackgroundStepFactory(feature, config, project, null, EvaluationRootInfo(true)))
-      process.startAsync(outputWorkspace)
+      loadAndApply(config.projectPath) { project ->
+        val process = EvaluationProcess.build({
+                                                shouldGenerateReports = true
+                                              },
+                                              BackgroundStepFactory(feature, config, project, null, EvaluationRootInfo(true)))
+        process.startAsync(outputWorkspace)
+      }
     }
   }
 }

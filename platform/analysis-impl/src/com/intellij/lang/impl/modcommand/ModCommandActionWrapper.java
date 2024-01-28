@@ -8,6 +8,7 @@ import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.PriorityAction;
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
 import com.intellij.modcommand.*;
+import com.intellij.openapi.diagnostic.ReportingClassSubstitutor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
@@ -27,11 +28,16 @@ import java.util.Objects;
  * A bridge from {@link ModCommandAction} to {@link IntentionAction} interface.
  */
 /*package*/ final class ModCommandActionWrapper implements IntentionAction, PriorityAction, Iconable, IntentionActionWithFixAllOption,
-                                                           CustomizableIntentionAction {
+                                                           CustomizableIntentionAction, ReportingClassSubstitutor {
   private final @NotNull ModCommandAction myAction;
   private @Nullable Presentation myPresentation;
 
   ModCommandActionWrapper(@NotNull ModCommandAction action) { this.myAction = action; }
+
+  ModCommandActionWrapper(@NotNull ModCommandAction action, @Nullable Presentation presentation) {
+    this.myAction = action;
+    this.myPresentation = presentation;
+  }
 
   @Override
   public @Nullable PsiElement getElementToMakeWritable(@NotNull PsiFile currentFile) {
@@ -146,5 +152,10 @@ import java.util.Objects;
   @Override
   public @NotNull ModCommandAction asModCommandAction() {
     return myAction;
+  }
+
+  @Override
+  public @NotNull Class<?> getSubstitutedClass() {
+    return ReportingClassSubstitutor.getClassToReport(myAction);
   }
 }

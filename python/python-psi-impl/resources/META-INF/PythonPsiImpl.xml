@@ -1,6 +1,21 @@
 <idea-plugin>
 
   <extensions defaultExtensionNs="com.intellij">
+    <readWriteAccessDetector implementation="com.jetbrains.python.findUsages.PyReadWriteAccessDetector"/>
+
+
+    <projectService serviceImplementation="com.jetbrains.python.findUsages.PyFindUsagesOptions"/>
+
+    <highlightRangeExtension implementation="com.jetbrains.python.validation.PyHighlightingAnnotator"/>
+    <!-- We run it before FilePathCompletionContributor (id="filePath") to get help text about full path results in the extended completion -->
+    <psi.referenceContributor implementation="com.jetbrains.python.codeInsight.PySoftFileReferenceContributor" language="Python"
+                              order="before filePath"/>
+    <fileType name="PythonStub"
+              language="PythonStub"
+              extensions="pyi"
+              implementationClass="com.jetbrains.python.pyi.PyiFileType"
+              fieldName="INSTANCE"/>
+
     <lang.elementManipulator forClass="com.jetbrains.python.psi.PyReferenceExpression"
                              implementationClass="com.jetbrains.python.psi.impl.PyReferenceExpressionManipulator"/>
 
@@ -548,11 +563,11 @@
     <typeProvider implementation="com.jetbrains.python.codeInsight.typing.PyAncestorTypeProvider" order="last"/>
 
     <!-- NumPy -->
-    <typeProvider implementation="com.jetbrains.numpy.codeInsight.NumpyDocStringTypeProvider" order="before pythonDocstringTypeProvider"/>
-    <pyClassMembersProvider implementation="com.jetbrains.numpy.codeInsight.NumpyClassMembersProvider"/>
-    <pyModuleMembersProvider implementation="com.jetbrains.numpy.codeInsight.NumpyModuleMembersProvider"/>
-    <resolveResultRater implementation="com.jetbrains.numpy.codeInsight.NumpyResolveRater"/>
-    <pyiStubSuppressor implementation="com.jetbrains.numpy.codeInsight.NumpyPyiStubsSuppressor"/>
+    <typeProvider implementation="com.jetbrains.python.numpy.codeInsight.NumpyDocStringTypeProvider" order="before pythonDocstringTypeProvider"/>
+    <pyClassMembersProvider implementation="com.jetbrains.python.numpy.codeInsight.NumpyClassMembersProvider"/>
+    <pyModuleMembersProvider implementation="com.jetbrains.python.numpy.codeInsight.NumpyModuleMembersProvider"/>
+    <resolveResultRater implementation="com.jetbrains.python.numpy.codeInsight.NumpyResolveRater"/>
+    <pyiStubSuppressor implementation="com.jetbrains.python.numpy.codeInsight.NumpyPyiStubsSuppressor"/>
 
     <!--stdlib-->
     <canonicalPathProvider implementation="com.jetbrains.python.codeInsight.stdlib.PyStdlibCanonicalPathProvider"/>
@@ -566,8 +581,8 @@
     <pyModuleMembersProvider implementation="com.jetbrains.python.codeInsight.stdlib.PyStdlibOverridingModuleMembersProvider"/>
 
     <!-- TensorFlow -->
-    <importResolver implementation="com.jetbrains.tensorFlow.PyTensorFlowImportResolver"/>
-    <pyModuleMembersProvider implementation="com.jetbrains.tensorFlow.PyTensorFlowModuleMembersProvider"/>
+    <importResolver implementation="com.jetbrains.python.tensorFlow.PyTensorFlowImportResolver"/>
+    <pyModuleMembersProvider implementation="com.jetbrains.python.tensorFlow.PyTensorFlowModuleMembersProvider"/>
   </extensions>
 
 </idea-plugin>

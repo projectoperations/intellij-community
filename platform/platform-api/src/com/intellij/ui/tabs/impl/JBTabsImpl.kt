@@ -327,10 +327,8 @@ open class JBTabsImpl(private var project: Project?,
       }
 
       private fun createUI(): ScrollBarUI {
-        val thicknessMin = 3
-        val thicknessMax = 5
-        return if (SystemInfo.isMac) TabMacScrollBarUI(SCROLL_BAR_THICKNESS, thicknessMax, thicknessMin)
-        else TabScrollBarUI(SCROLL_BAR_THICKNESS, thicknessMax, thicknessMin)
+        return if (SystemInfo.isMac) TabMacScrollBarUI(SCROLL_BAR_THICKNESS, SCROLL_BAR_THICKNESS, SCROLL_BAR_THICKNESS)
+        else TabScrollBarUI(SCROLL_BAR_THICKNESS, SCROLL_BAR_THICKNESS, SCROLL_BAR_THICKNESS)
       }
     }
     fakeScrollPane.verticalScrollBar = scrollBar
@@ -347,7 +345,7 @@ open class JBTabsImpl(private var project: Project?,
     addMouseMotionAwtListener(parentDisposable)
     isFocusTraversalPolicyProvider = true
     focusTraversalPolicy = object : LayoutFocusTraversalPolicy() {
-      override fun getDefaultComponent(aContainer: Container): Component? = toFocus
+      override fun getDefaultComponent(aContainer: Container): Component? = getToFocus()
     }
 
     lazyUiDisposable(parent = parentDisposable, ui = this, child = this) { child, project ->
@@ -1120,37 +1118,36 @@ open class JBTabsImpl(private var project: Project?,
     return popup
   }
 
-  private val toFocus: JComponent?
-    get() {
-      val info = selectedInfo
-      LOG.debug { "selected info: $info" }
-      if (info == null) return null
+  private fun getToFocus(): JComponent? {
+    val info = selectedInfo
+    LOG.debug { "selected info: $info" }
+    if (info == null) return null
 
-      if (isRequestFocusOnLastFocusedComponent) {
-        val lastFocusOwner = info.lastFocusOwner
-        if (lastFocusOwner != null && !isMyChildIsFocusedNow) {
-          LOG.debug { "last focus owner: $lastFocusOwner" }
-          return lastFocusOwner
-        }
+    if (isRequestFocusOnLastFocusedComponent) {
+      val lastFocusOwner = info.lastFocusOwner
+      if (lastFocusOwner != null && !isMyChildIsFocusedNow) {
+        LOG.debug { "last focus owner: $lastFocusOwner" }
+        return lastFocusOwner
       }
-
-      val toFocus: JComponent? = info.preferredFocusableComponent
-      LOG.debug { "preferred focusable component: $toFocus" }
-      if (toFocus == null || !toFocus.isShowing) {
-        return null
-      }
-
-      val policyToFocus = focusManager.getFocusTargetFor(toFocus)
-      LOG.debug { "focus target: $policyToFocus" }
-      if (policyToFocus != null) {
-        return policyToFocus
-      }
-
-      return toFocus
     }
 
+    val toFocus: JComponent? = info.preferredFocusableComponent
+    LOG.debug { "preferred focusable component: $toFocus" }
+    if (toFocus == null || !toFocus.isShowing) {
+      return null
+    }
+
+    val policyToFocus = focusManager.getFocusTargetFor(toFocus)
+    LOG.debug { "focus target: $policyToFocus" }
+    if (policyToFocus != null) {
+      return policyToFocus
+    }
+
+    return toFocus
+  }
+
   override fun requestFocus() {
-    val toFocus = toFocus
+    val toFocus = getToFocus()
     if (toFocus == null) {
       focusManager.doWhenFocusSettlesDown { super.requestFocus() }
     }
@@ -1160,7 +1157,7 @@ open class JBTabsImpl(private var project: Project?,
   }
 
   override fun requestFocusInWindow(): Boolean {
-    return toFocus?.requestFocusInWindow() ?: super.requestFocusInWindow()
+    return getToFocus()?.requestFocusInWindow() ?: super.requestFocusInWindow()
   }
 
   override fun addTab(info: TabInfo, index: Int): TabInfo {
@@ -1298,10 +1295,10 @@ open class JBTabsImpl(private var project: Project?,
         // This might look like a no-op, but in some cases it's not. In particular, it's required when a focus transfer has just been
         // requested to another component. E.g., this happens on 'unsplit' operation when we remove an editor component from UI hierarchy and
         // re-add it at once in a different layout, and want that editor component to preserve focus afterward.
-        return requestFocus(owner, requestFocusInWindow)
+        return requestFocusLaterOn(owner, requestFocusInWindow)
       }
       else {
-        return requestFocus(toFocus, requestFocusInWindow)
+        return requestFocusLater(requestFocusInWindow)
       }
     }
     if (isRequestFocusOnLastFocusedComponent && mySelectedInfo != null && isMyChildIsFocusedNow) {
@@ -1328,10 +1325,9 @@ open class JBTabsImpl(private var project: Project?,
       return removeDeferred()
     }
 
-    val toFocus = toFocus
-    if (project != null && toFocus != null) {
+    if (project != null && getToFocus() != null) {
       val result = ActionCallback()
-      requestFocus(toFocus, requestFocusInWindow).doWhenProcessed {
+      requestFocusLater(requestFocusInWindow).doWhenProcessed {
         if (project!!.isDisposed) {
           result.setRejected()
         }
@@ -1342,14 +1338,7 @@ open class JBTabsImpl(private var project: Project?,
       return result
     }
     else {
-      ApplicationManager.getApplication().invokeLater({
-                                                        if (requestFocusInWindow) {
-                                                          requestFocusInWindow()
-                                                        }
-                                                        else {
-                                                          focusManager.requestFocusInProject(this, project)
-                                                        }
-                                                      }, ModalityState.nonModal())
+      requestFocusLaterOn(this, requestFocusInWindow)
       return removeDeferred()
     }
   }
@@ -1395,24 +1384,44 @@ open class JBTabsImpl(private var project: Project?,
     }
   }
 
-  private fun requestFocus(toFocus: Component?, inWindow: Boolean): ActionCallback {
-    if (toFocus == null) {
-      return ActionCallback.DONE
-    }
-    if (isShowing) {
-      val result = ActionCallback()
-      ApplicationManager.getApplication().invokeLater {
-        if (inWindow) {
-          toFocus.requestFocusInWindow()
-          result.setDone()
-        }
-        else {
-          focusManager.requestFocusInProject(toFocus, project).notifyWhenDone(result)
-        }
+  /**
+   * Do not pass [getToFocus] inside, use [requestFocusLater], as its value might change.
+   */
+  private fun requestFocusLaterOn(toFocus: Component?, inWindow: Boolean): ActionCallback {
+    if (toFocus == null) return ActionCallback.DONE
+    if (!isShowing) return ActionCallback.REJECTED
+
+    val result = ActionCallback()
+    ApplicationManager.getApplication().invokeLater {
+      if (inWindow) {
+        toFocus.requestFocusInWindow()
+        result.setDone()
       }
-      return result
+      else {
+        focusManager.requestFocusInProject(toFocus, project).notifyWhenDone(result)
+      }
     }
-    return ActionCallback.REJECTED
+    return result
+  }
+
+  private fun requestFocusLater(inWindow: Boolean): ActionCallback {
+    if (!isShowing) return ActionCallback.REJECTED
+
+    val result = ActionCallback()
+    ApplicationManager.getApplication().invokeLater {
+      val toFocus = getToFocus()
+      if (toFocus == null) {
+        result.setDone()
+      }
+      else if (inWindow) {
+        toFocus.requestFocusInWindow()
+        result.setDone()
+      }
+      else {
+        focusManager.requestFocusInProject(toFocus, project).notifyWhenDone(result)
+      }
+    }
+    return result
   }
 
   private fun removeDeferred(): ActionCallback {

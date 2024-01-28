@@ -110,9 +110,6 @@ class BuildOptions(
     /** Build Frankenstein artifacts.  */
     const val CROSS_PLATFORM_DISTRIBUTION_STEP = "cross_platform_dist"
 
-    /** Toolbox links generator step  */
-    const val TOOLBOX_LITE_GEN_STEP = "toolbox_lite_gen"
-
     /** Generate files containing lists of used third-party libraries  */
     const val THIRD_PARTY_LIBRARIES_LIST_STEP = "third_party_libraries"
 
@@ -167,6 +164,11 @@ class BuildOptions(
     const val INCREMENTAL_COMPILATION_FALLBACK_REBUILD_PROPERTY = "intellij.build.incremental.compilation.fallback.rebuild"
 
     /**
+     * If `true` then [org.jetbrains.intellij.build.impl.compilation.CompiledClasses] will be rebuilt from scratch
+     */
+    const val FORCE_REBUILD_PROPERTY = "intellij.jps.cache.rebuild.force"
+
+    /**
      * Enables module structure validation, `false` by default.
      */
     const val VALIDATE_MODULES_STRUCTURE_PROPERTY = "intellij.build.module.structure"
@@ -219,9 +221,14 @@ class BuildOptions(
     const val INTELLIJ_BUILD_OUTPUT_ROOT = "intellij.build.output.root"
 
     /**
-     * Path to a zip file containing 'production' and 'test' directories with compiled classes of the project modules inside.
+     * @see [pathToCompiledClassesArchive]
      */
     const val INTELLIJ_BUILD_COMPILER_CLASSES_ARCHIVE = "intellij.build.compiled.classes.archive"
+
+    /**
+     * @see [pathToCompiledClassesArchivesMetadata]
+     */
+    const val INTELLIJ_BUILD_COMPILER_CLASSES_ARCHIVES_METADATA = "intellij.build.compiled.classes.archives.metadata"
 
     /**
      * By default, calculated based on build number.
@@ -262,6 +269,7 @@ class BuildOptions(
    */
   var isInDevelopmentMode = SystemProperties.getBooleanProperty("intellij.build.dev.mode", System.getenv("TEAMCITY_VERSION") == null)
   var useCompiledClassesFromProjectOutput = SystemProperties.getBooleanProperty(USE_COMPILED_CLASSES_PROPERTY, isInDevelopmentMode)
+  var forceRebuild = SystemProperties.getBooleanProperty(FORCE_REBUILD_PROPERTY, false)
 
   /**
    * Pass comma-separated names of build steps (see below) to [BUILD_STEPS_TO_SKIP_PROPERTY] system property to skip them when building locally.
@@ -300,7 +308,7 @@ class BuildOptions(
    * Path to a metadata file containing urls with compiled classes of the project modules inside.
    * Metadata is a [org.jetbrains.intellij.build.impl.compilation.CompilationPartsMetadata] serialized into JSON format.
    */
-  var pathToCompiledClassesArchivesMetadata: String? = System.getProperty("intellij.build.compiled.classes.archives.metadata")
+  var pathToCompiledClassesArchivesMetadata: String? = System.getProperty(INTELLIJ_BUILD_COMPILER_CLASSES_ARCHIVES_METADATA)
 
   /**
    * If `true`, the project modules will be compiled incrementally.

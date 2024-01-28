@@ -40,7 +40,6 @@ import com.intellij.util.concurrency.EdtScheduledExecutorService;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.messages.Topic;
 import com.intellij.util.ui.*;
 import com.intellij.util.ui.update.UiNotifyConnector;
 import org.intellij.lang.annotations.MagicConstant;
@@ -71,14 +70,6 @@ import java.util.function.Supplier;
 
 public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickActionProvider, AlphaAnimated {
   private static final Logger LOG = Logger.getInstance(ActionToolbarImpl.class);
-
-  @Topic.AppLevel
-  public static final Topic<ActionToolbarAppListener> TOPIC = new Topic<>(ActionToolbarAppListener.class, Topic.BroadcastDirection.NONE);
-
-  public interface ActionToolbarAppListener {
-    default void toolbarAdded(@NotNull ActionToolbar toolbar) {
-    }
-  }
 
   private static final Set<ActionToolbarImpl> ourToolbars = new LinkedHashSet<>();
   private static final String RIGHT_ALIGN_KEY = "RIGHT_ALIGN";
@@ -138,7 +129,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
 
   /** @see #calculateBounds(Dimension, List) */
   private final List<Rectangle> myComponentBounds = new ArrayList<>();
-  private Supplier<? extends Dimension> myMinimumButtonSizeFunction = Dimension::new;
+  private Supplier<? extends Dimension> myMinimumButtonSizeSupplier = Dimension::new;
   private JBDimension myMinimumButtonSize = JBUI.emptySize();
 
   /** @see ActionToolbar#getLayoutPolicy() */
@@ -351,7 +342,6 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     ourToolbars.add(this);
 
     updateActionsOnAdd();
-    ApplicationManager.getApplication().getMessageBus().syncPublisher(TOPIC).toolbarAdded(this);
   }
 
   protected void updateActionsOnAdd() {
@@ -517,16 +507,10 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
     }
   }
 
-  @Override
-  protected void addImpl(Component comp, Object constraints, int index) {
-    super.addImpl(comp, constraints, index);
-  }
-
   protected final @NotNull JComponent getCustomComponent(@NotNull AnAction action) {
     Presentation presentation = myPresentationFactory.getPresentation(action);
     JComponent customComponent = presentation.getClientProperty(CustomComponentAction.COMPONENT_KEY);
     if (customComponent == null) {
-      presentation.putClientProperty(CustomComponentAction.MINIMAL_DEMENTION_SUPPLIER, myMinimumButtonSizeFunction);
       customComponent = createCustomComponent((CustomComponentAction)action, presentation);
       if (customComponent.getParent() != null && customComponent.getClientProperty(SUPPRESS_ACTION_COMPONENT_WARNING) == null) {
         customComponent.putClientProperty(SUPPRESS_ACTION_COMPONENT_WARNING, true);
@@ -633,7 +617,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
       action,
       getActionButtonLook(),
       myPlace, myPresentationFactory.getPresentation(action),
-      myMinimumButtonSizeFunction);
+      myMinimumButtonSizeSupplier);
   }
 
   protected @Nullable ActionButtonLook getActionButtonLook() {
@@ -801,7 +785,23 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
         maxHeight = Math.max(eachBound.height, maxHeight);
 
         if (!full) {
-          boolean inside = isLast ? eachX + eachBound.width <= widthToFit : eachX + eachBound.width + autoButtonSize <= widthToFit;
+          int reservedSpace = isLast ? 0 : autoButtonSize;
+          int availableWidth = widthToFit - eachX - reservedSpace;
+          boolean inside;
+
+          if (eachBound.width <= availableWidth) {
+            inside = true;
+          }
+          else {
+            Dimension lastFitMinimumSize = eachComp.getMinimumSize();
+            if (lastFitMinimumSize.width > 0 && lastFitMinimumSize.width <= availableWidth) {
+              inside = true;
+              eachBound.width = availableWidth;
+            }
+            else {
+              inside = false;
+            }
+          }
 
           if (inside) {
             if (eachComp == mySecondaryActionsButton) {
@@ -822,14 +822,12 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
           }
           else {
             full = true;
+            myAutoPopupRec = new Rectangle(insets.left + eachX, insets.top, widthToFit - eachX, heightToFit);
+            myFirstOutsideIndex = i;
           }
         }
 
         if (full) {
-          if (myAutoPopupRec == null) {
-            myAutoPopupRec = new Rectangle(insets.left + eachX, insets.top, widthToFit - eachX, heightToFit);
-            myFirstOutsideIndex = i;
-          }
           eachBound.x = Integer.MAX_VALUE;
           eachBound.y = Integer.MAX_VALUE;
         }
@@ -862,14 +860,12 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
           }
           else {
             full = true;
+            myAutoPopupRec = new Rectangle(insets.left, insets.top + eachY, widthToFit, heightToFit - eachY);
+            myFirstOutsideIndex = i;
           }
         }
 
         if (full) {
-          if (myAutoPopupRec == null) {
-            myAutoPopupRec = new Rectangle(insets.left, insets.top + eachY, widthToFit, heightToFit - eachY);
-            myFirstOutsideIndex = i;
-          }
           eachBound.x = Integer.MAX_VALUE;
           eachBound.y = Integer.MAX_VALUE;
         }
@@ -1271,25 +1267,29 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar, QuickAct
   }
 
   @Override
-  public void setMinimumButtonSize(final @NotNull Dimension size) {
+  public void setMinimumButtonSize(@NotNull Dimension size) {
     setMinimumButtonSize(() -> size);
   }
 
-  public void setMinimumButtonSize(final Supplier<? extends @NotNull Dimension> size) {
-    myMinimumButtonSizeFunction = size;
+  public void setMinimumButtonSize(@NotNull Supplier<? extends @NotNull Dimension> size) {
+    myMinimumButtonSizeSupplier = size;
     updateMinimumButtonSize();
     revalidate();
   }
 
+  public @NotNull Supplier<? extends @NotNull Dimension> getMinimumButtonSizeSupplier() {
+    return myMinimumButtonSizeSupplier;
+  }
+
   private void updateMinimumButtonSize() {
-    if (myMinimumButtonSizeFunction == null) {
+    if (myMinimumButtonSizeSupplier == null) {
       return; // called from the superclass constructor through updateUI()
     }
-    myMinimumButtonSize = JBDimension.create(myMinimumButtonSizeFunction.get(), true);
+    myMinimumButtonSize = JBDimension.create(myMinimumButtonSizeSupplier.get(), true);
     for (int i = getComponentCount() - 1; i >= 0; i--) {
       final Component component = getComponent(i);
       if (component instanceof ActionButton button) {
-        button.setMinimumButtonSize(myMinimumButtonSizeFunction);
+        button.setMinimumButtonSize(myMinimumButtonSizeSupplier);
       }
       else if (component instanceof JLabel && LOADING_LABEL.equals(component.getName())) {
         Dimension dimension = new Dimension();

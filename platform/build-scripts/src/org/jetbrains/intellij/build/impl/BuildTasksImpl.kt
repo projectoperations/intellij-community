@@ -1,13 +1,13 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplacePutWithAssignment")
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.Formats
-import com.intellij.platform.diagnostic.telemetry.helpers.use
+import com.intellij.platform.diagnostic.telemetry.helpers.useWithoutActiveScope
 import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScopeBlocking
+import com.intellij.platform.diagnostic.telemetry.helpers.use
 import com.intellij.util.io.Decompressor
 import com.intellij.util.system.CpuArch
 import io.opentelemetry.api.common.AttributeKey
@@ -244,7 +244,7 @@ private suspend fun layoutShared(context: BuildContext) {
       context.productProperties.copyAdditionalFiles(context, context.paths.getDistAll())
     }
   }
-  checkClassFiles(context.paths.distAllDir, context, isDistAll = true)
+  checkClassFiles(root = context.paths.distAllDir, context = context, isDistAll = true)
 }
 
 private fun findBrandingResource(relativePath: String, context: BuildContext): Path {
@@ -299,7 +299,7 @@ private fun downloadMissingLibrarySources(
 ) {
   spanBuilder("download missing sources")
     .setAttribute(AttributeKey.stringArrayKey("librariesWithMissingSources"), librariesWithMissingSources.map { it.name })
-    .use { span ->
+    .useWithoutActiveScope { span ->
       val configuration = JpsRemoteRepositoryService.getInstance().getRemoteRepositoriesConfiguration(context.project)
       val repositories = configuration?.repositories?.map { ArtifactRepositoryManager.createRemoteRepository(it.id, it.url) } ?: emptyList()
       val repositoryManager = ArtifactRepositoryManager(getLocalArtifactRepositoryRoot(context.projectModel.global).toFile(), repositories,
@@ -350,7 +350,7 @@ private suspend fun buildOsSpecificDistributions(context: BuildContext): List<Di
 
   val ideaPropertyFileContent = createIdeaPropertyFile(context)
 
-  spanBuilder("Adjust executable permissions on common dist").useWithScopeBlocking {
+  spanBuilder("Adjust executable permissions on common dist").use {
     val matchers = SUPPORTED_DISTRIBUTIONS.mapNotNull {
       getOsDistributionBuilder(it.os, null, context)
     }.flatMap { builder ->
@@ -513,7 +513,7 @@ suspend fun zipSourcesOfModules(modules: List<String>, targetFile: Path, include
 
     spanBuilder("pack")
       .setAttribute("targetFile", context.paths.buildOutputDir.relativize(targetFile).toString())
-      .useWithScopeBlocking {
+      .use {
         zipWithCompression(targetFile = targetFile, dirs = zipFileMap)
       }
 
@@ -679,30 +679,6 @@ suspend fun buildDistributions(context: BuildContext): Unit = spanBuilder("build
     launch(Dispatchers.IO) {
       context.executeStep(spanBuilder("generate software bill of materials"), SoftwareBillOfMaterials.STEP_ID) {
         SoftwareBillOfMaterialsImpl(context, distDirs, distEntries).generate()
-      }
-    }
-    @Suppress("SpellCheckingInspection")
-    if (java.lang.Boolean.getBoolean("intellij.build.toolbox.litegen")) {
-      @Suppress("SENSELESS_COMPARISON")
-      if (context.buildNumber == null) {
-        Span.current().addEvent("Toolbox LiteGen is not executed - it does not support SNAPSHOT build numbers")
-      }
-      else if (context.options.targetOs != OsFamily.ALL) {
-        Span.current().addEvent("Toolbox LiteGen is not executed - it doesn't support installers are being built only for specific OS")
-      }
-      else {
-        context.executeStep(spanBuilder("build toolbox lite-gen links"), BuildOptions.TOOLBOX_LITE_GEN_STEP) {
-          val toolboxLiteGenVersion = System.getProperty("intellij.build.toolbox.litegen.version")
-          checkNotNull(toolboxLiteGenVersion) {
-            "Toolbox Lite-Gen version is not specified!"
-          }
-
-          ToolboxLiteGen.runToolboxLiteGen(context.paths.communityHomeDirRoot, context.messages,
-                                           toolboxLiteGenVersion, "/artifacts-dir=" + context.paths.artifacts,
-                                           "/product-code=" + context.applicationInfo.productCode,
-                                           "/isEAP=" + context.applicationInfo.isEAP.toString(),
-                                           "/output-dir=" + context.paths.buildOutputRoot + "/toolbox-lite-gen")
-        }
       }
     }
     if (context.productProperties.buildCrossPlatformDistribution) {
@@ -1063,7 +1039,7 @@ private fun buildCrossPlatformZip(distResults: List<DistributionForOsTaskResult>
 
 private suspend fun checkClassFiles(root: Path, context: BuildContext, isDistAll: Boolean) {
   // version checking patterns are only for dist all (all non-os and non-arch specific files)
-  if (context.isStepSkipped(BuildOptions.VERIFY_CLASS_FILE_VERSIONS) || !isDistAll) {
+  if (!isDistAll || context.isStepSkipped(BuildOptions.VERIFY_CLASS_FILE_VERSIONS)) {
     return
   }
 
@@ -1073,22 +1049,21 @@ private suspend fun checkClassFiles(root: Path, context: BuildContext, isDistAll
   if (forbiddenSubPaths.isNotEmpty()) {
     val forbiddenString = forbiddenSubPaths.let { "(${it.size}): ${it.joinToString()}" }
     val exceptionsString = forbiddenSubPathExceptions.let { "(${it.size}): ${it.joinToString()}" }
-    context.messages.warning("checkClassFiles: forbiddenSubPaths $forbiddenString, exceptions $exceptionsString")
+    Span.current().addEvent("checkClassFiles: forbiddenSubPaths $forbiddenString, exceptions $exceptionsString")
   }
   else {
-    context.messages.warning("checkClassFiles: forbiddenSubPaths: EMPTY (no scrambling checks will be done)")
+    Span.current().addEvent("checkClassFiles: forbiddenSubPaths: EMPTY (no scrambling checks will be done)")
   }
 
   if (versionCheckerConfig.isNotEmpty() || forbiddenSubPaths.isNotEmpty()) {
     checkClassFiles(versionCheckConfig = versionCheckerConfig,
                     forbiddenSubPaths = forbiddenSubPaths,
                     forbiddenSubPathExceptions = forbiddenSubPathExceptions,
-                    root = root,
-                    messages = context.messages)
+                    root = root)
   }
 
   if (forbiddenSubPaths.isNotEmpty()) {
-    context.messages.warning("checkClassFiles: SUCCESS for forbiddenSubPaths at '$root': ${forbiddenSubPaths.joinToString()}")
+    Span.current().addEvent("checkClassFiles: SUCCESS for forbiddenSubPaths at '$root': ${forbiddenSubPaths.joinToString()}")
   }
 }
 
@@ -1232,6 +1207,7 @@ private fun crossPlatformZip(macX64DistDir: Path,
           !relPath.startsWith("MacOS/") &&
           !relPath.startsWith("Resources/") &&
           !relPath.startsWith("Info.plist") &&
+          !relPath.startsWith("Helpers/") &&
           filterFileIfAlreadyInZip(relPath, macArm64DistDir.resolve(relPath), zipFileUniqueGuard)
         }, entryCustomizer = entryCustomizer)
       }

@@ -10,9 +10,9 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.Experiments
+import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.testFramework.PlatformTestUtil.waitForFuture
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import com.intellij.util.Processor
@@ -106,6 +106,7 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
     assertEquals(listOf("item8", "item7", "item2", "item5", "item1", "item4", "item6", "item3"), waitForFuture(future, SEARCH_TIMEOUT))
   }
 
+  @IJIgnore(issue = "IDEA-336674")
   fun `test priority for actions with space in pattern`() {
     mixingResultsFlag.set(true)
 
@@ -207,9 +208,8 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
   fun `test recent files at the top of results`() {
     mixingResultsFlag.set(true)
 
-    val registryValue = Registry.get("search.everywhere.recent.at.top")
-    val savedFlag = registryValue.asBoolean()
-    registryValue.setValue(true)
+    val savedFlag = AdvancedSettings.getBoolean("search.everywhere.recent.at.top")
+    AdvancedSettings.setBoolean("search.everywhere.recent.at.top", true)
     try {
       val file1 = myFixture.addFileToProject("ApplicationFile.txt", "")
       val file2 = myFixture.addFileToProject("AppFile.txt", "")
@@ -236,7 +236,7 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
       future = ui.findElementsForPattern("appfile")
       assertEquals(listOf(file4, file3, file5, file2, file1, file6), waitForFuture(future, SEARCH_TIMEOUT))
     } finally {
-      registryValue.setValue(savedFlag)
+      AdvancedSettings.setBoolean("search.everywhere.recent.at.top", savedFlag)
     }
   }
 

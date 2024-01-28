@@ -1,5 +1,6 @@
 package org.jetbrains.idea.reposearch
 
+import com.intellij.openapi.components.service
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.LightPlatformTestCase
@@ -7,7 +8,7 @@ import com.intellij.testFramework.UsefulTestCase
 import junit.framework.TestCase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.onlinecompletion.model.MavenRepositoryArtifactInfo
-import java.util.concurrent.CompletableFuture
+import java.util.*
 import java.util.concurrent.ConcurrentLinkedDeque
 
 class DependencySearchServiceTest : LightPlatformTestCase() {
@@ -16,7 +17,7 @@ class DependencySearchServiceTest : LightPlatformTestCase() {
   private lateinit var dependencySearchService: DependencySearchService
   override fun setUp() {
     super.setUp()
-    dependencySearchService = DependencySearchService(project)
+    dependencySearchService = project.service<DependencySearchService>()
     Disposer.register(testRootDisposable, dependencySearchService)
   }
 
@@ -26,40 +27,32 @@ class DependencySearchServiceTest : LightPlatformTestCase() {
     val testProviderLocal1 = object : TestSearchProvider() {
       override fun isLocal() = true
 
-      override fun suggestPrefix(groupId: String, artifactId: String): CompletableFuture<List<RepositoryArtifactData>> {
-        return CompletableFuture.supplyAsync {
-          listOf(MavenRepositoryArtifactInfo(groupId, artifactId, listOf("0", "1")))
-        }
+      override suspend fun suggestPrefix(groupId: String, artifactId: String): List<RepositoryArtifactData> {
+        return listOf(MavenRepositoryArtifactInfo(groupId, artifactId, listOf("0", "1")))
       }
     }
 
     val testProviderLocal2 = object : TestSearchProvider() {
       override fun isLocal() = true
 
-      override fun suggestPrefix(groupId: String, artifactId: String): CompletableFuture<List<RepositoryArtifactData>> {
-        return CompletableFuture.supplyAsync {
-          listOf(MavenRepositoryArtifactInfo(groupId, artifactId, listOf("2")))
-        }
+      override suspend fun suggestPrefix(groupId: String, artifactId: String): List<RepositoryArtifactData> {
+        return listOf(MavenRepositoryArtifactInfo(groupId, artifactId, listOf("2")))
       }
     }
 
     val testProviderRemote3 = object : TestSearchProvider() {
       override fun isLocal() = false
 
-      override fun suggestPrefix(groupId: String, artifactId: String): CompletableFuture<List<RepositoryArtifactData>> {
-        return CompletableFuture.supplyAsync {
-          listOf(MavenRepositoryArtifactInfo(groupId, artifactId, listOf("3")))
-        }
+      override suspend fun suggestPrefix(groupId: String, artifactId: String): List<RepositoryArtifactData> {
+        return listOf(MavenRepositoryArtifactInfo(groupId, artifactId, listOf("3")))
       }
     }
 
     val testProviderRemote4 = object : TestSearchProvider() {
       override fun isLocal() = false
 
-      override fun suggestPrefix(groupId: String, artifactId: String): CompletableFuture<List<RepositoryArtifactData>> {
-        return CompletableFuture.supplyAsync {
-          listOf(MavenRepositoryArtifactInfo(groupId, artifactId, listOf("4")))
-        }
+      override suspend fun suggestPrefix(groupId: String, artifactId: String): List<RepositoryArtifactData> {
+        return listOf(MavenRepositoryArtifactInfo(groupId, artifactId, listOf("4")))
       }
     }
 
@@ -84,9 +77,9 @@ class DependencySearchServiceTest : LightPlatformTestCase() {
     val testProvider = object : TestSearchProvider() {
       override fun isLocal() = false
 
-      override fun fulltextSearch(searchString: String): CompletableFuture<List<RepositoryArtifactData>> = CompletableFuture.supplyAsync {
+      override suspend fun fulltextSearch(searchString: String): List<RepositoryArtifactData> {
         requests++
-        listOf(object : RepositoryArtifactData {
+        return listOf(object : RepositoryArtifactData {
           override fun getKey() = searchString
 
           override fun mergeWith(another: RepositoryArtifactData) = this
@@ -108,17 +101,21 @@ class DependencySearchServiceTest : LightPlatformTestCase() {
 
   open class TestSearchProvider : DependencySearchProvider {
 
-    override fun fulltextSearch(searchString: String): CompletableFuture<List<RepositoryArtifactData>> {
+    private val _cacheKey = UUID.randomUUID().toString()
+
+    override suspend fun fulltextSearch(searchString: String): List<RepositoryArtifactData> {
       TODO("Not yet implemented")
     }
 
-    override fun suggestPrefix(groupId: String, artifactId: String): CompletableFuture<List<RepositoryArtifactData>> {
+    override suspend fun suggestPrefix(groupId: String, artifactId: String): List<RepositoryArtifactData> {
       TODO("Not yet implemented")
     }
 
     override fun isLocal(): Boolean {
       TODO("Not yet implemented")
     }
+
+    override val cacheKey = _cacheKey
 
   }
 

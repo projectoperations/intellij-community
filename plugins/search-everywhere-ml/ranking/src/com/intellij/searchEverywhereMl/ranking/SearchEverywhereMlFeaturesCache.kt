@@ -4,6 +4,7 @@ import com.intellij.ide.util.gotoByName.GotoActionModel
 import com.intellij.internal.statistic.eventLog.events.EventPair
 import com.intellij.internal.statistic.eventLog.events.ObjectEventData
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.searchEverywhereMl.ranking.id.SearchEverywhereMlItemIdProvider
 import kotlin.math.round
@@ -22,7 +23,7 @@ internal class SearchEverywhereMlFeaturesCache {
         return null
       }
 
-      val elementId = elementIdProvider.getId(it.element)
+      val elementId = ReadAction.compute<Int?, Nothing> { elementIdProvider.getId(it.element) }
 
       val elementCache = buildElementCache(it, shouldLogFeatures, actionManager, contributorFeaturesProvider(it), elementId)
 
@@ -98,12 +99,12 @@ internal data class SearchEverywhereMLElementCache(
 ) {
   fun toEvents(): List<EventPair<*>> {
     val result = mutableListOf<EventPair<*>>()
-    contributor?.let { result.add(SearchEverywhereMLStatisticsCollector.Fields.CONTRIBUTOR_DATA_KEY.with(ObjectEventData(it))) }
-    id?.let { result.add(SearchEverywhereMLStatisticsCollector.Fields.ID_KEY.with(it)) }
-    mlWeight?.let { result.add(SearchEverywhereMLStatisticsCollector.Fields.ML_WEIGHT_KEY.with(it)) }
-    mlFeatures?.let { result.add(SearchEverywhereMLStatisticsCollector.Fields.FEATURES_DATA_KEY.with(ObjectEventData(it))) }
-    actionId?.let { result.add(SearchEverywhereMLStatisticsCollector.Fields.ACTION_ID_KEY.with(it)) }
-    absentFeatures?.let { result.add(SearchEverywhereMLStatisticsCollector.Fields.ABSENT_FEATURES_KEY.with(it)) }
+    contributor?.let { result.add(SearchEverywhereMLStatisticsCollector.CONTRIBUTOR_DATA_KEY.with(ObjectEventData(it))) }
+    id?.let { result.add(SearchEverywhereMLStatisticsCollector.ID_KEY.with(it)) }
+    mlWeight?.let { result.add(SearchEverywhereMLStatisticsCollector.ML_WEIGHT_KEY.with(it)) }
+    mlFeatures?.let { result.add(SearchEverywhereMLStatisticsCollector.FEATURES_DATA_KEY.with(ObjectEventData(it))) }
+    actionId?.let { result.add(SearchEverywhereMLStatisticsCollector.ACTION_ID_KEY.with(it)) }
+    absentFeatures?.let { result.add(SearchEverywhereMLStatisticsCollector.ABSENT_FEATURES_KEY.with(it)) }
     return result
   }
 

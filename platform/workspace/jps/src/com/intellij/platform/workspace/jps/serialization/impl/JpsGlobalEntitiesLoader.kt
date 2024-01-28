@@ -14,24 +14,21 @@ object JpsGlobalEntitiesSerializers {
   private val isSdkBridgeEnabled: Boolean = Registry.`is`("workspace.model.global.sdk.bridge", true)
 
   fun createApplicationSerializers(virtualFileUrlManager: VirtualFileUrlManager,
-                                   sortedRootTypes: List<String>,
-                                   createLibSerializer: Boolean): List<JpsFileEntitiesSerializer<WorkspaceEntity>> {
-    val serializers = mutableListOf<JpsFileEntitiesSerializer<WorkspaceEntity>>()
+                                   sortedRootTypes: List<String>): List<JpsFileEntityTypeSerializer<WorkspaceEntity>> {
+    val serializers = mutableListOf<JpsFileEntityTypeSerializer<WorkspaceEntity>>()
     if (isSdkBridgeEnabled) {
-      serializers.add(createSdkSerializer(virtualFileUrlManager, sortedRootTypes) as JpsFileEntitiesSerializer<WorkspaceEntity>)
+      serializers.add(createSdkSerializer(virtualFileUrlManager, sortedRootTypes) as JpsFileEntityTypeSerializer<WorkspaceEntity>)
     }
 
-    if (createLibSerializer) {
-      val globalLibrariesFile = virtualFileUrlManager.fromUrl(PathManager.getOptionsFile(GLOBAL_LIBRARIES_FILE_NAME).absolutePath)
-      val globalLibrariesEntitySource = JpsGlobalFileEntitySource(globalLibrariesFile)
-      serializers.add(JpsGlobalLibrariesFileSerializer(globalLibrariesEntitySource) as JpsFileEntitiesSerializer<WorkspaceEntity>)
-    }
+    val globalLibrariesFile = virtualFileUrlManager.getOrCreateFromUri(PathManager.getOptionsFile(GLOBAL_LIBRARIES_FILE_NAME).absolutePath)
+    val globalLibrariesEntitySource = JpsGlobalFileEntitySource(globalLibrariesFile)
+    serializers.add(JpsGlobalLibrariesFileSerializer(globalLibrariesEntitySource) as JpsFileEntityTypeSerializer<WorkspaceEntity>)
 
     return serializers
   }
 
   fun createSdkSerializer(virtualFileUrlManager: VirtualFileUrlManager, sortedRootTypes: List<String>): JpsSdkEntitySerializer {
-    val globalSdkFile = virtualFileUrlManager.fromUrl(PathManager.getOptionsFile(SDK_FILE_NAME).absolutePath)
+    val globalSdkFile = virtualFileUrlManager.getOrCreateFromUri(PathManager.getOptionsFile(SDK_FILE_NAME).absolutePath)
     val globalSdkEntitySource = JpsGlobalFileEntitySource(globalSdkFile)
     return JpsSdkEntitySerializer(globalSdkEntitySource, sortedRootTypes)
   }

@@ -10,6 +10,7 @@ import com.intellij.notification.NotificationListener
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.externalSystem.service.execution.InvalidSdkException
 import com.intellij.openapi.options.ShowSettingsUtil
@@ -268,7 +269,7 @@ object MavenWslUtil : MavenUtil() {
           val projectWslDistr = tryGetWslDistribution(project)
           var needReset = false
 
-          MavenServerManager.getInstance().allConnectors.forEach {
+          MavenServerManager.getInstance().getAllConnectors().forEach {
             if (it.project == project) {
               val jdkWslDistr = tryGetWslDistributionForPath(it.jdk.homePath)
               if ((projectWslDistr != null && it.supportType != "WSL") || !sameDistributions(projectWslDistr, jdkWslDistr)) {
@@ -395,6 +396,7 @@ object MavenWslUtil : MavenUtil() {
 }
 
 
+@Service
 class MavenWslCache {
 
   private val myEnvCache: MutableMap<String, Map<String, String>> = HashMap()

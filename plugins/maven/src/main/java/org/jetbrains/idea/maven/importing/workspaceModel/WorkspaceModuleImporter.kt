@@ -14,6 +14,7 @@ import com.intellij.openapi.roots.ExternalProjectSystemRegistry
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.JarFileSystem
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.backend.workspace.toVirtualFileUrl
 import com.intellij.platform.workspace.jps.entities.*
@@ -98,7 +99,7 @@ internal class WorkspaceModuleImporter(
 
   private fun collectDependencies(moduleName: String,
                                   originalModule: ModuleEntity?,
-                                  dependencies: List<Any>,
+                                  dependencies: List<MavenImportDependency<*>>,
                                   moduleLibrarySource: EntitySource): List<ModuleDependencyItem> {
     val result = ArrayList<ModuleDependencyItem>(2 + dependencies.size)
 
@@ -126,7 +127,7 @@ internal class WorkspaceModuleImporter(
                                   null,
                                   {
                                     dependency.rootPaths.map { (url, type) ->
-                                      LibraryRoot(virtualFileUrlManager.fromUrl(pathToUrl(url)), type)
+                                      LibraryRoot(virtualFileUrlManager.getOrCreateFromUri(pathToUrl(url)), type)
                                     }
                                   },
                                   { reuseOrCreateProjectLibrarySource(dependency.artifact) })
@@ -165,7 +166,7 @@ internal class WorkspaceModuleImporter(
                      artifact,
                      {
                        val classes = MavenImportUtil.getArtifactUrlForClassifierAndExtension(artifact, null, null)
-                       listOf(LibraryRoot(virtualFileUrlManager.fromUrl(classes), LibraryRootTypeId.COMPILED))
+                       listOf(LibraryRoot(virtualFileUrlManager.getOrCreateFromUri(classes), LibraryRootTypeId.COMPILED))
                      },
                      sourceProvider)
     return ModuleDependencyItem.Exportable.LibraryDependency(libraryId, false, artifact.dependencyScope)
@@ -179,9 +180,9 @@ internal class WorkspaceModuleImporter(
       val sources = MavenImportUtil.getArtifactUrlForClassifierAndExtension(artifact, "sources", "jar")
       val javadoc = MavenImportUtil.getArtifactUrlForClassifierAndExtension(artifact, "javadoc", "jar")
       listOf(
-        LibraryRoot(virtualFileUrlManager.fromUrl(classes), LibraryRootTypeId.COMPILED),
-        LibraryRoot(virtualFileUrlManager.fromUrl(sources), LibraryRootTypeId.SOURCES),
-        LibraryRoot(virtualFileUrlManager.fromUrl(javadoc), JAVADOC_TYPE),
+        LibraryRoot(virtualFileUrlManager.getOrCreateFromUri(classes), LibraryRootTypeId.COMPILED),
+        LibraryRoot(virtualFileUrlManager.getOrCreateFromUri(sources), LibraryRootTypeId.SOURCES),
+        LibraryRoot(virtualFileUrlManager.getOrCreateFromUri(javadoc), JAVADOC_TYPE),
       )
     }
     return createLibraryDependency(artifact.libraryName,
@@ -257,20 +258,18 @@ internal class WorkspaceModuleImporter(
     val mavenProject = importData.mavenProject
     val languageLevel = MavenImportUtil.getLanguageLevel(mavenProject) { importData.moduleData.sourceLanguageLevel }
 
-    var inheritCompilerOutput = true
+    val inheritCompilerOutput = !importingSettings.isUseMavenOutput
     var compilerOutputUrl: VirtualFileUrl? = null
     var compilerOutputUrlForTests: VirtualFileUrl? = null
 
     val moduleType = importData.moduleData.type
 
-    if (moduleType.containsCode && importingSettings.isUseMavenOutput) {
-
-      inheritCompilerOutput = false
+    if (!inheritCompilerOutput) {
       if (moduleType.containsMain) {
-        compilerOutputUrl = virtualFileUrlManager.fromPath(importFolderHolder.outputPath)
+        compilerOutputUrl = virtualFileUrlManager.getOrCreateFromUri(VfsUtilCore.pathToUrl(importFolderHolder.outputPath))
       }
       if (moduleType.containsTest) {
-        compilerOutputUrlForTests = virtualFileUrlManager.fromPath(importFolderHolder.testOutputPath)
+        compilerOutputUrlForTests = virtualFileUrlManager.getOrCreateFromUri(VfsUtilCore.pathToUrl(importFolderHolder.testOutputPath))
       }
     }
 

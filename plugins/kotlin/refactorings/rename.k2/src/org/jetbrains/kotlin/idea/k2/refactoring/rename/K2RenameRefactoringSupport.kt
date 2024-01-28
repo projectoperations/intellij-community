@@ -1,14 +1,12 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.rename
 
-import com.intellij.openapi.application.runReadAction
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiReference
 import com.intellij.psi.search.SearchScope
 import com.intellij.psi.search.searches.OverridingMethodsSearch
 import com.intellij.usageView.UsageInfo
-import com.intellij.util.IncorrectOperationException
 import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
@@ -19,12 +17,13 @@ import org.jetbrains.kotlin.analysis.api.symbols.KtCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KtKotlinPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KtValueParameterSymbol
 import org.jetbrains.kotlin.asJava.classes.KtLightClass
-import org.jetbrains.kotlin.asJava.toLightMethods
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.getJvmName
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
+import org.jetbrains.kotlin.idea.base.psi.isExpectDeclaration
 import org.jetbrains.kotlin.idea.refactoring.rename.KotlinRenameRefactoringSupport
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
+
 import org.jetbrains.kotlin.idea.searching.inheritors.findAllOverridings
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.NameUtils
@@ -35,9 +34,6 @@ import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 
 internal class K2RenameRefactoringSupport : KotlinRenameRefactoringSupport {
-    private fun notImplementedInK2(): Nothing {
-        throw IncorrectOperationException()
-    }
 
     override fun processForeignUsages(
         element: PsiElement,
@@ -85,14 +81,6 @@ internal class K2RenameRefactoringSupport : KotlinRenameRefactoringSupport {
     override fun demangleInternalName(mangledName: String): String? {
         val indexOfDollar = mangledName.indexOf('$')
         return if (indexOfDollar >= 0) mangledName.substring(0, indexOfDollar) else null
-    }
-
-    override fun actualsForExpected(declaration: KtDeclaration): Set<KtDeclaration> {
-        notImplementedInK2()
-    }
-
-    override fun liftToExpected(declaration: KtDeclaration): KtDeclaration? {
-        return null
     }
 
     override fun getJvmName(element: PsiElement): String? {
@@ -147,18 +135,12 @@ internal class K2RenameRefactoringSupport : KotlinRenameRefactoringSupport {
 
     }
 
-    override fun findAllOverridingMethods(psiMethod: PsiMethod, scope: SearchScope): List<PsiMethod> {
+    override fun findAllOverridingMethods(psiMethod: PsiElement, scope: SearchScope): List<PsiElement> {
         return when (val element = psiMethod.unwrapped) {
             is PsiMethod -> OverridingMethodsSearch.search(element, scope, /* checkDeep = */ true).toList()
 
             is KtCallableDeclaration -> {
-                val allOverrides = element.findAllOverridings(scope).toList()
-
-                val lightOverrides = allOverrides
-                    .flatMap { runReadAction { it.toLightMethods() } }
-                    .distinctBy { it.unwrapped }
-
-                lightOverrides
+                element.findAllOverridings(scope).toList()
             }
 
             else -> error("Unexpected class ${psiMethod::class}")

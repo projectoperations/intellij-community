@@ -12,6 +12,7 @@ import com.intellij.psi.PsiPackage
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.elementType
 import com.intellij.refactoring.changeSignature.ChangeInfo
+import com.intellij.refactoring.suggested.endOffset
 import com.intellij.usageView.UsageInfo
 import org.jetbrains.kotlin.idea.base.projectStructure.RootKindFilter
 import org.jetbrains.kotlin.idea.base.projectStructure.matches
@@ -31,7 +32,14 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import org.jetbrains.kotlin.psi.psiUtil.getNextSiblingIgnoringWhitespaceAndComments
 import org.jetbrains.kotlin.psi.psiUtil.getPrevSiblingIgnoringWhitespaceAndComments
 import org.jetbrains.kotlin.psi.psiUtil.siblings
+import java.util.Collections
 import kotlin.math.min
+
+fun KtFile.createTempCopy(text: String? = null): KtFile {
+    val tmpFile = KtPsiFactory.contextual(this).createFile(name, text ?: this.text ?: "")
+    tmpFile.originalFile = this
+    return tmpFile
+}
 
 fun PsiElement.canRefactorElement(): Boolean {
   return when {
@@ -72,10 +80,11 @@ fun KtCallExpression.isComplexCallWithLambdaArgument(): Boolean = when {
     else -> false
 }
 
-fun KtCallExpression.moveFunctionLiteralOutsideParentheses() {
+fun KtCallExpression.moveFunctionLiteralOutsideParentheses(moveCaretTo: ((Int) -> Unit)? = null) {
     assert(lambdaArguments.isEmpty())
     val argumentList = valueArgumentList!!
-    val argument = argumentList.arguments.last()
+    val arguments = argumentList.arguments
+    val argument = arguments.last()
     val expression = argument.getArgumentExpression()!!
     assert(expression.unpackFunctionLiteral() != null)
 
@@ -108,8 +117,12 @@ fun KtCallExpression.moveFunctionLiteralOutsideParentheses() {
     /* we should not remove empty parenthesis when callee is a call too - it won't parse */
     if (argumentList.arguments.size == 1 && calleeExpression !is KtCallExpression) {
         argumentList.delete()
+        calleeExpression?.let { moveCaretTo?.invoke(it.endOffset) }
     } else {
         argumentList.removeArgument(argument)
+        if (arguments.size > 1) {
+            arguments[arguments.size - 2]?.let { moveCaretTo?.invoke(it.endOffset) }
+        }
     }
 }
 fun <ListType : KtElement> replaceListPsiAndKeepDelimiters(
@@ -202,5 +215,64 @@ fun KtNamedDeclaration.deleteWithCompanion() {
         containingClass.delete()
     } else {
         this.delete()
+    }
+}
+
+fun PsiElement.getAllExtractionContainers(strict: Boolean = true): List<KtElement> {
+    val containers = ArrayList<KtElement>()
+
+    var objectOrNonInnerNestedClassFound = false
+    val parents = if (strict) parents else parentsWithSelf
+    for (element in parents) {
+        val isValidContainer = when (element) {
+            is KtFile -> true
+            is KtClassBody -> !objectOrNonInnerNestedClassFound || element.parent is KtObjectDeclaration
+            is KtBlockExpression -> !objectOrNonInnerNestedClassFound
+            else -> false
+        }
+        if (!isValidContainer) continue
+
+        containers.add(element as KtElement)
+
+        if (!objectOrNonInnerNestedClassFound) {
+            val bodyParent = (element as? KtClassBody)?.parent
+            objectOrNonInnerNestedClassFound =
+                (bodyParent is KtObjectDeclaration && !bodyParent.isObjectLiteral())
+                        || (bodyParent is KtClass && !bodyParent.isInner())
+        }
+    }
+
+    return containers
+}
+
+fun PsiElement.getExtractionContainers(strict: Boolean = true, includeAll: Boolean = false): List<KtElement> {
+    fun getEnclosingDeclaration(element: PsiElement, strict: Boolean): PsiElement? {
+        return (if (strict) element.parents else element.parentsWithSelf)
+            .filter {
+                (it is KtDeclarationWithBody && it !is KtFunctionLiteral && !(it is KtNamedFunction && it.name == null))
+                        || it is KtAnonymousInitializer
+                        || it is KtClassBody
+                        || it is KtFile
+            }
+            .firstOrNull()
+    }
+
+    if (includeAll) return getAllExtractionContainers(strict)
+
+    val enclosingDeclaration = getEnclosingDeclaration(this, strict)?.let {
+        if (it is KtDeclarationWithBody || it is KtAnonymousInitializer) getEnclosingDeclaration(it, true) else it
+    }
+
+    return when (enclosingDeclaration) {
+        is KtFile -> Collections.singletonList(enclosingDeclaration)
+        is KtClassBody -> getAllExtractionContainers(strict).filterIsInstance<KtClassBody>()
+        else -> {
+            val targetContainer = when (enclosingDeclaration) {
+                is KtDeclarationWithBody -> enclosingDeclaration.bodyExpression
+                is KtAnonymousInitializer -> enclosingDeclaration.body
+                else -> null
+            }
+            if (targetContainer is KtBlockExpression) Collections.singletonList(targetContainer) else Collections.emptyList()
+        }
     }
 }

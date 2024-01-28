@@ -10,7 +10,10 @@ import com.intellij.vcs.log.VcsFullCommitDetails
 import java.text.DateFormat
 import java.util.*
 
-internal sealed class HistoryRecord(private val commitDetails: VcsFullCommitDetails, val isFirstCommit: Boolean, isLastCommit: Boolean) {
+internal sealed class HistoryRecord(val commitId: Int,
+                                    private val commitDetails: VcsFullCommitDetails,
+                                    val isFirstCommit: Boolean,
+                                    isLastCommit: Boolean) {
   val id = commitDetails.id
   val position: RecordPosition
   val time: String
@@ -19,11 +22,14 @@ internal sealed class HistoryRecord(private val commitDetails: VcsFullCommitDeta
   init {
     position = if (isFirstCommit && isLastCommit) {
       RecordPosition.SINGLE
-    } else if (isFirstCommit) {
+    }
+    else if (isFirstCommit) {
       RecordPosition.BOTTOM
-    } else if (isLastCommit) {
+    }
+    else if (isLastCommit) {
       RecordPosition.TOP
-    } else {
+    }
+    else {
       RecordPosition.MIDDLE
     }
   }
@@ -53,9 +59,11 @@ internal sealed class HistoryRecord(private val commitDetails: VcsFullCommitDeta
 
     return if (isToday(commitTimeDate)) {
       SettingsSyncBundle.message("ui.toolwindow.time.today", timePart)
-    } else if (isYesterday(commitTimeDate)) {
+    }
+    else if (isYesterday(commitTimeDate)) {
       SettingsSyncBundle.message("ui.toolwindow.time.yesterday", timePart)
-    } else {
+    }
+    else {
       val dateFormatter = DateFormat.getDateInstance(DateFormat.DEFAULT, Locale.getDefault())
       val datePart = dateFormatter.format(commitTimeDate)
       SettingsSyncBundle.message("ui.toolwindow.time.date", datePart, timePart)
@@ -70,7 +78,12 @@ internal sealed class HistoryRecord(private val commitDetails: VcsFullCommitDeta
   }
 }
 
-internal class ChangeRecord(private val commitDetails: VcsFullCommitDetails, isFirstCommit: Boolean, isLastCommit: Boolean, private val commits: List<VcsFullCommitDetails>): HistoryRecord(commitDetails, isFirstCommit, isLastCommit) {
+internal class ChangeRecord(commitId: Int,
+                            private val commitDetails: VcsFullCommitDetails,
+                            isFirstCommit: Boolean,
+                            isLastCommit: Boolean,
+                            private val commits: List<VcsFullCommitDetails>) : HistoryRecord(commitId, commitDetails, isFirstCommit,
+                                                                                             isLastCommit) {
   companion object {
     private val logger = logger<ChangeRecord>()
   }
@@ -84,7 +97,7 @@ internal class ChangeRecord(private val commitDetails: VcsFullCommitDetails, isF
   val os: OperatingSystem? = parseOSFromCommitDetails()
 
   private fun getChangeOrigin(): ChangeOrigin {
-    val idInCommitMessage = commitDetails.fullMessage.lines().singleOrNull { it.startsWith( "id:") }
+    val idInCommitMessage = commitDetails.fullMessage.lines().singleOrNull { it.startsWith("id:") }
                             ?: return ChangeOrigin.Local
 
     return when {
@@ -115,7 +128,8 @@ internal class ChangeRecord(private val commitDetails: VcsFullCommitDetails, isF
       val fileName = change.virtualFile?.name ?: return SettingsCategory.OTHER
       if (fileName == GitSettingsLog.PLUGINS_FILE) return SettingsCategory.PLUGINS
 
-      return getCategory(fileName)
+      //workaround empty category
+      return getCategory(fileName) ?: SettingsCategory.OTHER
     }
 
     val changesCategories = changes.map { getChangeCategory(it) }.distinct().sortedBy { getCategoryOrder(it) }.map { toString(it) }
@@ -154,27 +168,28 @@ internal class ChangeRecord(private val commitDetails: VcsFullCommitDetails, isF
 
   private fun parseRestoredFromCommitDetails(): String? {
     val hash = commitDetails.fullMessage
-             .lines()
-             .singleOrNull { it.startsWith("restores:") }
-             ?.removePrefix("restores:")
-             ?.trim() ?: return null
+                 .lines()
+                 .singleOrNull { it.startsWith("restores:") }
+                 ?.removePrefix("restores:")
+                 ?.trim() ?: return null
 
     val commitForHash = commits.firstOrNull { it.id.asString() == hash }
     return if (commitForHash == null) {
       // todo log (once)
       SettingsSyncBundle.message("ui.toolwindow.restored.to.hash.text", hash)
-    } else {
+    }
+    else {
       SettingsSyncBundle.message("ui.toolwindow.restored.from.date.text", getTime(commitForHash.timestamp))
     }
   }
 
   private fun parseOSFromCommitDetails(): OperatingSystem? {
     val osString = commitDetails.fullMessage
-                 .lines()
-                 .singleOrNull { it.startsWith("os:") }
-                 ?.removePrefix("os:")
-                 ?.trim()
-                 ?.lowercase() ?: return null
+                     .lines()
+                     .singleOrNull { it.startsWith("os:") }
+                     ?.removePrefix("os:")
+                     ?.trim()
+                     ?.lowercase() ?: return null
     return when {
       osString.contains("linux") -> OperatingSystem.LINUX
       osString.contains("macos") -> OperatingSystem.MAC
@@ -190,9 +205,10 @@ internal class ChangeRecord(private val commitDetails: VcsFullCommitDetails, isF
   }
 
   sealed class ChangeOrigin {
-    data object Local: ChangeOrigin()
-    data object Remote: ChangeOrigin()
+    data object Local : ChangeOrigin()
+    data object Remote : ChangeOrigin()
   }
 }
 
-internal class MergeRecord(private val commitDetails: VcsFullCommitDetails, isFirstCommit: Boolean, isLastCommit: Boolean): HistoryRecord(commitDetails, isFirstCommit, isLastCommit)
+internal class MergeRecord(commitId: Int, private val commitDetails: VcsFullCommitDetails, isFirstCommit: Boolean, isLastCommit: Boolean) :
+  HistoryRecord(commitId, commitDetails, isFirstCommit, isLastCommit)

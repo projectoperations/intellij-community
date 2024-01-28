@@ -29,14 +29,15 @@ import com.intellij.ui.EditorNotificationPanel
 import com.intellij.ui.EditorNotificationProvider
 import com.intellij.ui.EditorNotifications
 import com.intellij.ui.HyperlinkLabel
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.VisibleForTesting
 import java.awt.BorderLayout
-import java.time.Instant
 import java.util.function.Function
 import javax.swing.JComponent
 import javax.swing.JLabel
-import kotlin.time.Duration.Companion.seconds
 
 class PluginAdvertiserEditorNotificationProvider : EditorNotificationProvider, DumbAware {
   override fun collectNotificationData(project: Project, file: VirtualFile): Function<in FileEditor, out JComponent?>? {
@@ -140,7 +141,7 @@ class PluginAdvertiserEditorNotificationProvider : EditorNotificationProvider, D
           }
         }
         else {
-          // Plugin supporting the pattern is installed and enabled but the current file is reassigned to a different file type
+          // The plugin supporting the pattern is installed and enabled, but the current file is reassigned to a different file type
           return null
         }
       }
@@ -191,9 +192,8 @@ class PluginAdvertiserEditorNotificationProvider : EditorNotificationProvider, D
       }
 
       for (suggestedIde in suggestedIdes) {
-        panel.createActionLabel(IdeBundle.message("plugins.advertiser.action.try.ultimate", suggestedIde.name)) {
+        panel.createTryUltimateActionLabel(suggestedIde, project) {
           pluginAdvertiserExtensionsState.addEnabledExtensionOrFileNameAndInvalidateCache(extensionOrFileName)
-          FUSEventSource.EDITOR.openDownloadPageAndLog(project, suggestedIde.downloadUrl)
         }
       }
 
@@ -222,9 +222,8 @@ fun getSuggestionData(
 ): PluginAdvertiserEditorNotificationProvider.AdvertiserSuggestion? {
   return service<PluginAdvertiserExtensionsStateService>()
     .createExtensionDataProvider(project)
-    .requestExtensionData(fileName, fileType)?.let {
-      getSuggestionData(project = project, extensionsData = it, activeProductCode = activeProductCode, fileType = fileType)
-    }
+    .requestExtensionData(fileName, fileType)
+    ?.let { getSuggestionData(project = project, extensionsData = it, activeProductCode = activeProductCode, fileType = fileType) }
 }
 
 private fun getSuggestionData(
@@ -300,17 +299,9 @@ internal class AdvertiserInfoUpdateService(
   private val project: Project,
   private val coroutineScope: CoroutineScope
 ) {
-  private val firstRequestTs: Instant = Instant.now()
-
   fun scheduleAdvertiserUpdate(file: VirtualFile) {
     val fileName = file.name
     coroutineScope.launch {
-      if (Instant.now().isBefore(firstRequestTs.plusSeconds(30))) {
-        delay(30.seconds) // no hurry, let's think that the network is really slow anyway
-      }
-
-      MarketplaceRequests.getInstance().updatePluginIdsAndExtensionData()
-
       val extensionsStateService = PluginAdvertiserExtensionsStateService.getInstance()
       var shouldUpdateNotifications = extensionsStateService.updateCache(fileName)
       val fullExtension = PluginAdvertiserExtensionsStateService.getFullExtension(fileName)

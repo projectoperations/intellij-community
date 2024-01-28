@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.AnnotationUtil;
@@ -6,22 +6,24 @@ import com.intellij.codeInsight.intention.PriorityAction;
 import com.intellij.codeInsight.intention.preview.IntentionPreviewUtils;
 import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.modcommand.*;
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.presentation.java.ClassPresentationUtil;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.search.searches.FunctionalExpressionSearch;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.RefactoringUIUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.IntentionPowerPackBundle;
 import com.siyeh.ig.psiutils.PsiElementOrderComparator;
+import one.util.streamex.EntryStream;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-import static com.intellij.modcommand.ModCommand.*;
+import static com.intellij.modcommand.ModCommand.psiUpdate;
+import static com.intellij.modcommand.ModCommand.showConflicts;
 
 public final class ConvertInterfaceToClassIntention extends PsiBasedModCommandAction<PsiClass> {
   private final boolean myCheckStartPosition;
@@ -67,7 +69,6 @@ public final class ConvertInterfaceToClassIntention extends PsiBasedModCommandAc
                                                                          @NotNull Collection<PsiClass> inheritors) {
     final Map<PsiElement, ModShowConflicts.Conflict> conflicts = new HashMap<>();
     inheritors.forEach(aClass -> {
-      System.out.println("aClass = " + aClass);
       if (aClass.isEnum() || aClass.isRecord() || aClass.isInterface()) {
         final ModShowConflicts.Conflict conflict = new ModShowConflicts.Conflict(List.of(IntentionPowerPackBundle.message(
           "0.implementing.1.will.not.compile.after.converting.1.to.a.class",
@@ -103,13 +104,9 @@ public final class ConvertInterfaceToClassIntention extends PsiBasedModCommandAc
         RefactoringUIUtil.getDescription(anInterface, false))));
       conflicts.put(functionalExpression, conflict);
     }
-    final PsiElement[] elements = conflicts.keySet().toArray(PsiElement.EMPTY_ARRAY);
-    Arrays.sort(elements, new PsiElementComparator());
-    final Map<PsiElement, ModShowConflicts.Conflict> sortedConflicts = new LinkedHashMap<>();
-    for (PsiElement element : elements) {
-      sortedConflicts.put(element, conflicts.get(element));
-    }
-    return sortedConflicts;
+    Comparator<PsiElement> comparator = Comparator.comparing(
+      (PsiElement e) -> e.getContainingFile().getVirtualFile().getPath()).thenComparing(PsiElementOrderComparator.getInstance());
+    return EntryStream.of(conflicts).sorted(Map.Entry.comparingByKey(comparator)).toCustomMap(LinkedHashMap::new);
   }
 
   public static boolean canConvertToClass(@NotNull PsiClass aClass) {
@@ -121,16 +118,9 @@ public final class ConvertInterfaceToClassIntention extends PsiBasedModCommandAc
 
   private static void changeInterfaceToClass(PsiClass anInterface) {
     final PsiIdentifier nameIdentifier = anInterface.getNameIdentifier();
-    assert nameIdentifier != null;
-    final PsiElement whiteSpace = nameIdentifier.getPrevSibling();
-    assert whiteSpace != null;
-    final PsiElement interfaceToken = whiteSpace.getPrevSibling();
-    assert interfaceToken != null;
-    final PsiKeyword interfaceKeyword = (PsiKeyword)interfaceToken.getOriginalElement();
-    final Project project = anInterface.getProject();
-    final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(project);
-    final PsiElementFactory factory = psiFacade.getElementFactory();
-    final PsiKeyword classKeyword = factory.createKeyword("class");
+    final PsiKeyword interfaceKeyword = PsiTreeUtil.getPrevSiblingOfType(nameIdentifier, PsiKeyword.class);
+    assert interfaceKeyword != null;
+    final PsiKeyword classKeyword = JavaPsiFacade.getInstance(anInterface.getProject()).getElementFactory().createKeyword("class");
     interfaceKeyword.replace(classKeyword);
 
     final PsiModifierList classModifierList = anInterface.getModifierList();
@@ -144,8 +134,7 @@ public final class ConvertInterfaceToClassIntention extends PsiBasedModCommandAc
       classModifierList.setModifierProperty(PsiModifier.STATIC, true);
     }
 
-    final PsiMethod[] methods = anInterface.getMethods();
-    for (final PsiMethod method : methods) {
+    for (final PsiMethod method : anInterface.getMethods()) {
       PsiUtil.setModifierProperty(method, PsiModifier.PUBLIC, true);
       if (method.hasModifierProperty(PsiModifier.DEFAULT)) {
         PsiUtil.setModifierProperty(method, PsiModifier.DEFAULT, false);
@@ -155,8 +144,7 @@ public final class ConvertInterfaceToClassIntention extends PsiBasedModCommandAc
       }
     }
 
-    final PsiField[] fields = anInterface.getFields();
-    for (final PsiField field : fields) {
+    for (final PsiField field : anInterface.getFields()) {
       final PsiModifierList modifierList = field.getModifierList();
       if (modifierList != null) {
         modifierList.setModifierProperty(PsiModifier.PUBLIC, true);
@@ -165,8 +153,7 @@ public final class ConvertInterfaceToClassIntention extends PsiBasedModCommandAc
       }
     }
 
-    final PsiClass[] innerClasses = anInterface.getInnerClasses();
-    for (PsiClass innerClass : innerClasses) {
+    for (PsiClass innerClass : anInterface.getInnerClasses()) {
       final PsiModifierList modifierList = innerClass.getModifierList();
       if (modifierList != null) {
         modifierList.setModifierProperty(PsiModifier.PUBLIC, true);
@@ -227,14 +214,6 @@ public final class ConvertInterfaceToClassIntention extends PsiBasedModCommandAc
         }
         implementsReference.delete();
       }
-    }
-  }
-
-  private static class PsiElementComparator implements Comparator<PsiElement> {
-    @Override
-    public int compare(PsiElement e1, PsiElement e2) {
-      final int result = e1.getContainingFile().getVirtualFile().getPath().compareTo(e2.getContainingFile().getVirtualFile().getPath());
-      return result == 0 ? PsiElementOrderComparator.getInstance().compare(e1, e2) : result;
     }
   }
 }

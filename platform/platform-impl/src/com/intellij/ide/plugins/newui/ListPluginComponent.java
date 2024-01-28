@@ -736,12 +736,19 @@ public final class ListPluginComponent extends JPanel {
           if (PluginDetailsPageComponent.isMultiTabs() && myInstallButton.isVisible()) {
             myInstalledDescriptorForMarketplace = PluginManagerCore.findPlugin(myPlugin.getPluginId());
             if (myInstalledDescriptorForMarketplace != null) {
-              myInstallButton.setVisible(false);
-              myEnableDisableButton.setVisible(true);
-              myVersion.setText(myInstalledDescriptorForMarketplace.getVersion());
-              myVersion.setVisible(true);
-              updateEnabledStateUI();
-              fullRepaint();
+              if (myMarketplace) {
+                myInstallButton.setVisible(false);
+                myEnableDisableButton.setVisible(true);
+                myVersion.setText(myInstalledDescriptorForMarketplace.getVersion());
+                myVersion.setVisible(true);
+                updateEnabledStateUI();
+                fullRepaint();
+              }
+              else {
+                myPlugin = myInstalledDescriptorForMarketplace;
+                myInstalledDescriptorForMarketplace = null;
+                updateButtons();
+              }
               return;
             }
           }
@@ -796,10 +803,34 @@ public final class ListPluginComponent extends JPanel {
     PluginsViewCustomizerKt.getListPluginComponentCustomizer().processRemoveButtons(this);
   }
 
+  public void updateButtons() {
+    if (myIsAvailable) {
+      removeButtons(false);
+      if (myRestartButton != null) {
+        myLayout.removeButtonComponent(myRestartButton);
+        myRestartButton = null;
+      }
+      if (myAlignButton != null) {
+        myLayout.removeButtonComponent(myAlignButton);
+        myAlignButton = null;
+      }
+      myAfterUpdate = false;
+      createButtons();
+      if (myUpdateDescriptor != null) {
+        setUpdateDescriptor(myUpdateDescriptor);
+      }
+      doUpdateEnabledState();
+    }
+  }
+
   public void updateEnabledState() {
     if (myMarketplace && myInstalledDescriptorForMarketplace == null) {
       return;
     }
+    doUpdateEnabledState();
+  }
+
+  private void doUpdateEnabledState() {
     if (!myPluginModel.isUninstalled(getDescriptorForActions())) {
       updateEnabledStateUI();
     }

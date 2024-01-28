@@ -20,6 +20,7 @@ import com.intellij.diff.comparison.ComparisonPolicy;
 import com.intellij.diff.fragments.DiffFragment;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.util.MemberChooser;
+import com.intellij.injected.editor.EditorWindow;
 import com.intellij.lang.LangBundle;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.modcommand.*;
@@ -40,17 +41,20 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.fileEditor.*;
+import com.intellij.openapi.fileEditor.impl.EditorTabPresentationUtil;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.progress.DumbProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiManagerEx;
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.rename.PsiElementRenameHandler;
@@ -82,6 +86,9 @@ public class ModCommandExecutorImpl extends ModCommandBatchExecutorImpl {
   @RequiresEdt
   @Override
   public void executeInteractively(@NotNull ActionContext context, @NotNull ModCommand command, @Nullable Editor editor) {
+    if (editor instanceof EditorWindow window) {
+      editor = window.getDelegate();
+    }
     if (!ensureWritable(context.project(), command)) return;
     doExecuteInteractively(context, command, ModCommand.nop(), editor);
   }
@@ -315,16 +322,21 @@ public class ModCommandExecutorImpl extends ModCommandBatchExecutorImpl {
     PsiFile psiFile = PsiManagerEx.getInstanceEx(project).findFile(file);
     if (psiFile == null) return false;
     TextRange range = rename.symbolRange().range();
-    PsiElement injectedElement = InjectedLanguageManager.getInstance(project).findInjectedElementAt(psiFile, range.getStartOffset());
+    InjectedLanguageManager manager = InjectedLanguageManager.getInstance(project);
+    PsiElement injectedElement = manager.findInjectedElementAt(psiFile, range.getStartOffset());
     PsiElement psiElement = injectedElement != null ? injectedElement : psiFile.findElementAt(range.getStartOffset());
     PsiNamedElement namedElement = PsiTreeUtil.getNonStrictParentOfType(psiElement, PsiNamedElement.class);
     if (namedElement == null) return false;
     Editor finalEditor = getEditor(project, editor, file);
     if (finalEditor == null) return false;
+    if (injectedElement != null) {
+      finalEditor = InjectedLanguageUtil.getInjectedEditorForInjectedFile(finalEditor, injectedElement.getContainingFile()); 
+    }
     DataContext context = DataManager.getInstance().getDataContext(finalEditor.getComponent());
     DataContext finalContext = SimpleDataContext.builder()
       .setParent(context)
       .add(CommonDataKeys.PSI_ELEMENT, namedElement)
+      .add(CommonDataKeys.EDITOR, finalEditor)
       .add(PsiElementRenameHandler.NAME_SUGGESTIONS, rename.nameSuggestions())
       .build();
     PsiElement anchor = namedElement instanceof PsiNameIdentifierOwner owner ? 
@@ -389,8 +401,7 @@ public class ModCommandExecutorImpl extends ModCommandBatchExecutorImpl {
     if (editor == null) return false;
     List<IntentionActionWithTextCaching> actionsWithTextCaching = ContainerUtil.map(
       actions, (actionAndPresentation) -> {
-        IntentionAction intention = actionAndPresentation.action().asIntention();
-        intention.isAvailable(context.project(), finalEditor, context.file()); // cache text and icon
+        IntentionAction intention = new ModCommandActionWrapper(actionAndPresentation.action(), actionAndPresentation.presentation());
         return new IntentionActionWithTextCaching(intention);
       });
     IntentionContainer intentions = new IntentionContainer() {
@@ -495,5 +506,11 @@ public class ModCommandExecutorImpl extends ModCommandBatchExecutorImpl {
                                                                                 DumbProgressIndicator.INSTANCE);
     return ContainerUtil.map(fragments, fr -> new Fragment(fr.getStartOffset2(), fr.getEndOffset1() - fr.getStartOffset1(),
                                                            fr.getEndOffset2() - fr.getStartOffset2()));
+  }
+
+  @Override
+  protected @NotNull String getFileNamePresentation(Project project, VirtualFile file) {
+    String fileTitle = EditorTabPresentationUtil.getCustomEditorTabTitle(project, file);
+    return fileTitle != null ? fileTitle : super.getFileNamePresentation(project, file);
   }
 }

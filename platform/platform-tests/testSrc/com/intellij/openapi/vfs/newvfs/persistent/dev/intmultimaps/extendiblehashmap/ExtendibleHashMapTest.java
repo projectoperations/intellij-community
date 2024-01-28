@@ -3,7 +3,7 @@ package com.intellij.openapi.vfs.newvfs.persistent.dev.intmultimaps.extendibleha
 
 import com.intellij.openapi.vfs.newvfs.persistent.StorageTestingUtils;
 import com.intellij.util.io.CorruptedException;
-import com.intellij.util.io.dev.intmultimaps.IntToMultiIntMapTestBase;
+import com.intellij.util.io.dev.intmultimaps.DurableIntToMultiIntMapTestBase;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.AfterEach;
@@ -18,7 +18,7 @@ import java.util.List;
 import static com.intellij.openapi.vfs.newvfs.persistent.dev.intmultimaps.extendiblehashmap.ExtendibleMapFactory.NotClosedProperlyAction.*;
 import static org.junit.jupiter.api.Assertions.*;
 
-public class ExtendibleHashMapTest extends IntToMultiIntMapTestBase<ExtendibleHashMap> {
+public class ExtendibleHashMapTest extends DurableIntToMultiIntMapTestBase<ExtendibleHashMap> {
 
   public ExtendibleHashMapTest() {
     super(/*entriesToTest: */4_000_000);
@@ -60,7 +60,7 @@ public class ExtendibleHashMapTest extends IntToMultiIntMapTestBase<ExtendibleHa
     StorageTestingUtils.emulateImproperClose(multimap);
 
     multimap = open(
-      ExtendibleMapFactory.defaults().ifNotClosedProperly(IGNORE_AND_HOPE_FOR_THE_BEST),
+      ExtendibleMapFactory.mediumSize().ifNotClosedProperly(IGNORE_AND_HOPE_FOR_THE_BEST),
       storagePath
     );
     assertFalse(
@@ -80,7 +80,7 @@ public class ExtendibleHashMapTest extends IntToMultiIntMapTestBase<ExtendibleHa
     StorageTestingUtils.emulateImproperClose(multimap);
 
     multimap = open(
-      ExtendibleMapFactory.defaults().ifNotClosedProperly(DROP_AND_CREATE_EMPTY_MAP),
+      ExtendibleMapFactory.mediumSize().ifNotClosedProperly(DROP_AND_CREATE_EMPTY_MAP),
       storagePath
     );
     assertTrue(
@@ -103,7 +103,7 @@ public class ExtendibleHashMapTest extends IntToMultiIntMapTestBase<ExtendibleHa
       CorruptedException.class,
       () -> {
         multimap = open(
-          ExtendibleMapFactory.defaults().ifNotClosedProperly(FAIL_SPECTACULARLY),
+          ExtendibleMapFactory.mediumSize().ifNotClosedProperly(FAIL_SPECTACULARLY),
           storagePath
         );
       });
@@ -136,7 +136,7 @@ public class ExtendibleHashMapTest extends IntToMultiIntMapTestBase<ExtendibleHa
   }
 
   protected ExtendibleHashMap openFile(@NotNull Path storagePath) throws IOException {
-    return open(ExtendibleMapFactory.defaults(), storagePath);
+    return open(ExtendibleMapFactory.mediumSize(), storagePath);
   }
 
   private ExtendibleHashMap open(@NotNull ExtendibleMapFactory factory,

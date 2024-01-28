@@ -4,6 +4,7 @@ package org.jetbrains.plugins.gradle.service.project;
 import com.intellij.build.events.MessageEvent;
 import com.intellij.build.issue.BuildIssue;
 import com.intellij.buildsystem.model.unified.UnifiedCoordinates;
+import com.intellij.gradle.toolingExtension.util.GradleVersionUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ProjectKeys;
@@ -183,7 +184,7 @@ public final class GradleProjectResolverUtil {
     Boolean isSupported = IS_INCLUDED_BUILD_TASK_RUN_SUPPORTED.get(project);
     if (isSupported == null) {
       String gradleVersion = resolverCtx.getProjectGradleVersion();
-      isSupported = gradleVersion != null && GradleVersion.version(gradleVersion).compareTo(GradleVersion.version("6.8")) >= 0;
+      isSupported = gradleVersion != null && GradleVersionUtil.isGradleAtLeast(gradleVersion, "6.8");
       IS_INCLUDED_BUILD_TASK_RUN_SUPPORTED.set(project, isSupported);
     }
     return isSupported;
@@ -318,15 +319,6 @@ public final class GradleProjectResolverUtil {
     return externalProjectId.substring(i + 1);
   }
 
-  /**
-   * @deprecated Use getGradleIdentityPathOrNull instead
-   */
-  @Deprecated(forRemoval = true)
-  @Nullable
-  public static String getGradlePath(final Module module) {
-    return getGradleIdentityPathOrNull(module);
-  }
-
   @Nullable
   public static String getGradleIdentityPathOrNull(final Module module) {
     if (!ExternalSystemApiUtil.isExternalSystemAwareModule(GradleConstants.SYSTEM_ID, module)) return null;
@@ -393,12 +385,10 @@ public final class GradleProjectResolverUtil {
     if (libOrPluginsFile != null && "lib".equals(libOrPluginsFile.getName()) && libOrPluginsFile.getParentFile() != null) {
       File srcDir = new File(libOrPluginsFile.getParentFile(), "src");
 
-      if (gradleVersion.compareTo(GradleVersion.version("1.9")) >= 0) {
-        int endIndex = libFile.getName().indexOf(gradleVersion.getVersion());
-        if (endIndex != -1) {
-          String srcDirChild = libFile.getName().substring("gradle-".length(), endIndex - 1);
-          srcDir = new File(srcDir, srcDirChild);
-        }
+      int endIndex = libFile.getName().indexOf(gradleVersion.getVersion());
+      if (endIndex != -1) {
+        String srcDirChild = libFile.getName().substring("gradle-".length(), endIndex - 1);
+        srcDir = new File(srcDir, srcDirChild);
       }
 
       if (srcDir.isDirectory()) {
@@ -936,16 +926,6 @@ public final class GradleProjectResolverUtil {
 
   private static final Key<Map<String, DataNode<LibraryData>>> LIBRARIES_BY_NAME_CACHE =
     Key.create("GradleProjectResolverUtil.FOUND_LIBRARIES");
-
-  /**
-   * @deprecated use {@link GradleProjectResolverUtil#linkProjectLibrary(DataNode, LibraryData)} instead
-   */
-  @Deprecated(forRemoval = true)
-  public static boolean linkProjectLibrary(/*@NotNull*/ ProjectResolverContext context,
-                                                        @Nullable DataNode<ProjectData> ideProject,
-                                                        @NotNull final LibraryData library) {
-    return linkProjectLibrary(ideProject, library);
-  }
 
   public static boolean linkProjectLibrary(
     @Nullable DataNode<ProjectData> ideProject,

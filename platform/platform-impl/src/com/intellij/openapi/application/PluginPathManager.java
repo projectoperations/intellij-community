@@ -10,9 +10,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 
 public final class PluginPathManager {
@@ -26,12 +24,7 @@ public final class PluginPathManager {
         "community",
         "community/android",
         "contrib",
-        "CIDR",
-        "../ultimate",
-        "../ultimate/community",
-        "../ultimate/community/android",
-        "../ultimate/contrib",
-        "../ultimate/CIDR");
+        "CIDR");
     private static final List<File> subRepos = findSubRepos();
 
     private static List<File> findSubRepos() {
@@ -52,7 +45,7 @@ public final class PluginPathManager {
     }
 
     private static File @NotNull [] getSortedSubReposRoots(@NotNull File dir) {
-      ArrayList<File> result = new ArrayList<>();
+      Set<File> result = new HashSet<>();
       for (String root : ROOT_NAMES) {
         var subRepo = new File(dir, root);
         if (subRepo.exists() && subRepo.isDirectory()) {

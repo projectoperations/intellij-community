@@ -43,12 +43,10 @@ import com.intellij.ui.ComponentUtil;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.HashingStrategy;
+import com.intellij.util.ui.JBUI;
 import org.jdom.Attribute;
 import org.jdom.Element;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
@@ -59,8 +57,12 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import static com.intellij.openapi.options.newEditor.ConfigurablesListPanelKt.createConfigurablesListPanel;
+import static com.intellij.ui.ScrollPaneFactory.createScrollPane;
+import static javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER;
+
 public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
-  implements EditorOptionsProvider, SchemesModel<EditorColorsScheme>, Configurable.WithEpDependencies {
+  implements EditorOptionsProvider, SchemesModel<EditorColorsScheme>, Configurable.WithEpDependencies, Configurable.NoScroll, Configurable.NoMargin {
   private static final Logger LOG = Logger.getInstance(ColorAndFontOptions.class);
 
   public static final String ID = "reference.settingsdialog.IDE.editor.colors";
@@ -71,6 +73,7 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
   private boolean mySomeSchemesDeleted = false;
   private Map<ColorAndFontPanelFactory, InnerSearchableConfigurable> mySubPanelFactories;
 
+  private SchemesPanelFactory mySchemesPanelFactory;
   private SchemesPanel myRootSchemesPanel;
 
   private boolean myInitResetCompleted = false;
@@ -205,6 +208,11 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
   @Override
   public @NotNull Collection<BaseExtensionPointName<?>> getDependencies() {
     return List.of(ColorSettingsPage.EP_NAME, ColorAndFontPanelFactory.EP_NAME, ColorAndFontDescriptorsProvider.EP_NAME);
+  }
+
+  @ApiStatus.Internal
+  public void setSchemesPanelFactory(SchemesPanelFactory schemesPanelFactory) {
+    mySchemesPanelFactory = schemesPanelFactory;
   }
 
   public static boolean isReadOnly(final @NotNull EditorColorsScheme scheme) {
@@ -361,10 +369,40 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
 
   @Override
   public JComponent createComponent() {
+    return createComponent(false);
+  }
+
+  @ApiStatus.Internal
+  public JComponent createComponent(boolean comboBoxOnly) {
     if (myRootSchemesPanel == null) {
       ensureSchemesPanel();
     }
-    return myRootSchemesPanel;
+
+    if (comboBoxOnly) {
+      return myRootSchemesPanel;
+    }
+    else {
+      JPanel container = new JPanel();
+      container.setLayout(new BorderLayout());
+      container.setBorder(JBUI.Borders.empty(11, 16, 0, 16));
+
+      container.add(BorderLayout.NORTH, myRootSchemesPanel);
+      container.add(BorderLayout.CENTER, createChildSectionLinkList());
+
+      return container;
+    }
+  }
+
+  private JComponent createChildSectionLinkList() {
+    JComponent content = new JPanel(new BorderLayout());
+    content.setBorder(JBUI.Borders.emptyTop(11));
+    content.add(BorderLayout.CENTER, createConfigurablesListPanel(ApplicationBundle.message("description.colors.and.fonts"),
+                                                                  Arrays.asList(getConfigurables()),
+                                                                  null));
+
+    JScrollPane pane = createScrollPane(content, true);
+    pane.setHorizontalScrollBarPolicy(HORIZONTAL_SCROLLBAR_NEVER);
+    return pane;
   }
 
   @Override
@@ -690,7 +728,12 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
 
   private void ensureSchemesPanel() {
     if (myRootSchemesPanel == null) {
-      myRootSchemesPanel = new SchemesPanel(this);
+      if (mySchemesPanelFactory == null) {
+        myRootSchemesPanel = new SchemesPanel(this, 0);
+      }
+      else {
+        myRootSchemesPanel = mySchemesPanelFactory.createSchemesPanel(this);
+      }
 
       myRootSchemesPanel.addListener(new ColorAndFontSettingsListener.Abstract(){
         @Override

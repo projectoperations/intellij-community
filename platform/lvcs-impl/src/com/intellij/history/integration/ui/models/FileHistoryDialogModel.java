@@ -23,6 +23,10 @@ import com.intellij.history.integration.revertion.DifferenceReverter;
 import com.intellij.history.integration.revertion.Reverter;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.Set;
 
 public abstract class FileHistoryDialogModel extends HistoryDialogModel {
   public FileHistoryDialogModel(Project p, IdeaGateway gw, LocalHistoryFacade vcs, VirtualFile f) {
@@ -35,6 +39,10 @@ public abstract class FileHistoryDialogModel extends HistoryDialogModel {
   public Reverter createReverter() {
     Revision l = getLeftRevision();
     Revision r = getRightRevision();
-    return new DifferenceReverter(myProject, myVcs, myGateway, l.getDifferencesWith(r), l);
+    return new DifferenceReverter(myProject, myVcs, myGateway, Revision.getDifferencesBetween(l, r), l);
+  }
+
+  public @NotNull Set<Long> filterContents(@NotNull String filter) {
+    return RevisionDataKt.filterContents(myVcs, myGateway, myFile, ContainerUtil.map(getRevisions(), item -> item.revision), filter, myBefore);
   }
 }

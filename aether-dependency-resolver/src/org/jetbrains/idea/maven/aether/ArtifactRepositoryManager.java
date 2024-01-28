@@ -162,11 +162,8 @@ public final class ArtifactRepositoryManager {
       // Disable transfer errors caching to force re-request missing artifacts and metadata on network failures.
       // Despite this, some errors are still cached in session data, and for proper retries work we must reset this data after failure
       // what's performed by retryWithClearSessionData()
-      //
-      // a note: ResolutionErrorPolicy.CACHE_NOT_FOUND is not suitable because 5xx response is still cached in local repository and
-      // not re-requested, see IJI-1457
-      var artifactCachePolicy = ResolutionErrorPolicy.CACHE_DISABLED;
-      var metadataCachePolicy = ResolutionErrorPolicy.CACHE_DISABLED;
+      var artifactCachePolicy = ResolutionErrorPolicy.CACHE_NOT_FOUND;
+      var metadataCachePolicy = ResolutionErrorPolicy.CACHE_NOT_FOUND;
       session.setResolutionErrorPolicy(new SimpleResolutionErrorPolicy(artifactCachePolicy, metadataCachePolicy));
 
       session.setCache(new DefaultRepositoryCache());
@@ -552,9 +549,14 @@ public final class ArtifactRepositoryManager {
   public static RemoteRepository createRemoteRepository(String id, String url, ArtifactAuthenticationData authenticationData, boolean allowSnapshots) {
     // for maven repos repository type should be 'default'
     RemoteRepository.Builder builder = new RemoteRepository.Builder(id, "default", url);
-    if (!allowSnapshots) {
-      builder.setSnapshotPolicy(new RepositoryPolicy(false, null, null));
-    }
+
+    // explicitly set UPDATE_POLICY_ALWAYS, because default setting is UPDATE_POLICY_DAILY, and 5xx resolution errors are cached
+    // in local repository for one day and retry does not work
+    RepositoryPolicy enabledRepositoryPolicy = new RepositoryPolicy(true, RepositoryPolicy.UPDATE_POLICY_ALWAYS, null);
+    RepositoryPolicy disabledRepositoryPolicy = new RepositoryPolicy(false, null, null);
+    builder.setReleasePolicy(enabledRepositoryPolicy);
+    builder.setSnapshotPolicy(allowSnapshots ? enabledRepositoryPolicy : disabledRepositoryPolicy);
+
     if (authenticationData != null) {
       AuthenticationBuilder authenticationBuilder = new AuthenticationBuilder();
       authenticationBuilder.addUsername(authenticationData.getUsername());

@@ -5,6 +5,8 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.Conditions;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
@@ -23,6 +25,8 @@ import com.intellij.vcs.log.data.CompressedRefs;
 import com.intellij.vcs.log.data.RefsModel;
 import com.intellij.vcs.log.impl.*;
 import com.intellij.vcs.log.ui.VcsLogInternalDataKeys;
+import com.intellij.vcs.log.ui.VcsLogUiEx;
+import com.intellij.vcs.log.visible.VisiblePack;
 import com.intellij.vcsUtil.VcsUtil;
 import kotlin.Unit;
 import org.jetbrains.annotations.Nls;
@@ -336,6 +340,10 @@ public final class VcsLogUtil {
     return getVcsDisplayName(project, logManager.getDataManager().getLogProviders().values());
   }
 
+  public static void invokeOnChange(@NotNull VcsLogUi ui, @NotNull Runnable runnable) {
+    invokeOnChange(ui, runnable, Conditions.alwaysTrue());
+  }
+
   public static void invokeOnChange(@NotNull VcsLogUi ui, @NotNull Runnable runnable,
                                     @NotNull Condition<? super VcsLogDataPack> condition) {
     ui.addLogListener(new VcsLogListener() {
@@ -364,4 +372,29 @@ public final class VcsLogUtil {
       }, project.getDisposed());
     });
   }
+
+  /**
+   * Requests to load more filtered commits.
+   *
+   * @param ui       target {@link VcsLogUiEx} instance.
+   * @param onLoaded will be called upon task completion on the EDT.
+   * @see VcsLogUtil#canRequestMore(VisiblePack)
+   */
+  public static void requestToLoadMore(@NotNull VcsLogUiEx ui, @NotNull Runnable onLoaded) {
+    MORE_REQUESTED.set(ui.getDataPack(), true);
+    ui.getRefresher().moreCommitsNeeded(onLoaded);
+  }
+
+  /**
+   * Returns true if this {@link VisiblePack} does not have all filtered commits and no requests to load more were submitted.
+   *
+   * @param visiblePack target {@link VisiblePack}
+   * @see VcsLogUtil#requestToLoadMore(VcsLogUiEx, Runnable)
+   */
+  public static boolean canRequestMore(@NotNull VisiblePack visiblePack) {
+    if (!visiblePack.canRequestMore()) return false;
+    return !MORE_REQUESTED.get(visiblePack, false);
+  }
+
+  private static final @NotNull Key<Boolean> MORE_REQUESTED = Key.create("MORE_REQUESTED");
 }

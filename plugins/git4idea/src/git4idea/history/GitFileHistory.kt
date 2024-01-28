@@ -11,7 +11,10 @@ import com.intellij.openapi.vcs.history.VcsFileRevision
 import com.intellij.openapi.vcs.history.VcsRevisionNumber
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.containers.ContainerUtil
+import com.intellij.vcs.log.impl.VcsFileStatusInfo
+import com.intellij.vcs.log.impl.isRenamed
 import com.intellij.vcsUtil.VcsUtil
+import git4idea.GitContentRevision
 import git4idea.GitFileRevision
 import git4idea.GitRevisionNumber
 import git4idea.GitUtil
@@ -98,7 +101,7 @@ class GitFileHistory internal constructor(private val project: Project,
       val revision = createGitFileRevision(project, root, record, startPath)
       consumer(revision)
     }
-    Git.getInstance().runCommandWithoutCollectingOutput(handler)
+    Git.getInstance().runCommandWithoutCollectingOutput(handler).throwOnError()
     splitter.reportErrors()
     return lastCommits
   }
@@ -112,8 +115,7 @@ class GitFileHistory internal constructor(private val project: Project,
     val requirements = GitCommitRequirements(diffRenames = GitCommitRequirements.DiffRenames.Limit.Default,
                                              diffInMergeCommits = GitCommitRequirements.DiffInMergeCommits.DIFF_TO_PARENTS)
     val h = GitLineHandler(project, root, GitCommand.SHOW, requirements.configParameters())
-    val parser = GitLogParser.createDefaultParser(project, GitLogParser.NameStatus.STATUS, GitLogOption.HASH, GitLogOption.COMMIT_TIME,
-                                                  GitLogOption.PARENTS)
+    val parser = GitLogParser.createDefaultParser(project, GitLogParser.NameStatus.STATUS, GitLogOption.PARENTS)
     h.setStdoutSuppressed(true)
     h.addParameters(requirements.commandParameters(project, h.executable))
     h.addParameters("--follow", "--name-status", parser.pretty, "--encoding=UTF-8", commit)
@@ -123,15 +125,22 @@ class GitFileHistory internal constructor(private val project: Project,
     val output = Git.getInstance().runCommand(h).getOutputOrThrow()
     val records = parser.parse(output)
 
-    return records.mapIndexedNotNull { i, record ->
-      val changes = record.parseChanges(project, root)
-      changes.firstOrNull { change ->
-        (change.isMoved || change.isRenamed) && filePath == change.afterRevision!!.file
-      }?.let { change ->
-        val parents = record.parentsHashes
-        if (parents.isNotEmpty()) FileHistoryStart(parents[i], change.beforeRevision!!.file) else null
+    if (records.isEmpty()) return emptyList()
+
+    val parentsHashes = records.first().parentsHashes
+
+    // each record correspond to a parent of the target commit (since DIFF_TO_PARENTS was passed to the "git show" command)
+    val renames = parentsHashes.zip(records).mapNotNullValues { record ->
+      record.statusInfos.firstOrNull(VcsFileStatusInfo::isRenamed)
+    }.toMutableList()
+    if (records.size < parentsHashes.size && fullHistory) {
+      for (parent in parentsHashes.drop(records.size)) {
+        val rename = GitLogHistoryHandler.getRename(project, root, parent, commit, filePath) ?: continue
+        renames.add(Pair(parent, rename))
       }
     }
+
+    return renames.map { (parent, status) -> FileHistoryStart(parent, GitContentRevision.createPath(root, status.firstPath)) }
   }
 
   private fun createLogHandler(parser: GitLogParser<GitLogFullRecord>,
@@ -252,4 +261,8 @@ class GitFileHistory internal constructor(private val project: Project,
       return collectHistoryForRevision(project, path, GitRevisionNumber.HEAD, *parameters)
     }
   }
+}
+
+private fun <K, V, R> List<Pair<K, V>>.mapNotNullValues(mapping: (V) -> R?): List<Pair<K, R>> {
+  return mapNotNull { (key, value) -> mapping(value)?.let { mappedValue -> key to mappedValue } }
 }

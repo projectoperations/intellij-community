@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl.analysis;
 
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
@@ -165,7 +165,7 @@ public final class GenericsHighlightUtil {
 
           PsiElement grandParent = referenceParameterList.getParent().getParent();
           if (grandParent instanceof PsiTypeElement) {
-            PsiElement variable = grandParent.getParent();
+            PsiElement variable = PsiTreeUtil.skipParentsOfType(grandParent, PsiTypeElement.class);
             if (variable instanceof PsiVariable) {
               if (targetParametersNum == 0) {
                 IntentionAction action = PriorityIntentionActionWrapper
@@ -748,6 +748,19 @@ public final class GenericsHighlightUtil {
     return info;
   }
 
+  static HighlightInfo.Builder checkDiamondTypeNotAllowed(@NotNull PsiNewExpression expression) {
+    PsiReferenceParameterList typeArgumentList = expression.getTypeArgumentList();
+    PsiTypeElement[] typeParameterElements = typeArgumentList.getTypeParameterElements();
+    if (typeParameterElements.length == 1 && typeParameterElements[0].getType() instanceof PsiDiamondType) {
+      String description = JavaErrorBundle.message("diamond.operator.not.allowed.here");
+      HighlightInfo.Builder info =
+        HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(typeArgumentList).descriptionAndTooltip(description);
+      info.registerFix(QuickFixFactory.getInstance().createDeleteFix(typeArgumentList), null, null, null, null);
+      return info;
+    }
+    return null;
+  }
+
   static HighlightInfo.Builder checkTypeParameterInstantiation(@NotNull PsiNewExpression expression) {
     PsiJavaCodeReferenceElement classReference = expression.getClassOrAnonymousClassReference();
     if (classReference == null) return null;
@@ -849,18 +862,28 @@ public final class GenericsHighlightUtil {
   }
 
   //http://docs.oracle.com/javase/specs/jls/se7/html/jls-8.html#jls-8.9.2
-  static HighlightInfo.Builder checkAccessStaticFieldFromEnumConstructor(@NotNull PsiReferenceExpression expr, @NotNull JavaResolveResult result) {
+  static HighlightInfo.Builder checkAccessStaticFieldFromEnumConstructor(@NotNull PsiReferenceExpression expr,
+                                                                         @NotNull JavaResolveResult result) {
     PsiField field = ObjectUtils.tryCast(result.getElement(), PsiField.class);
     if (field == null) return null;
 
     PsiClass enumClass = getEnumClassForExpressionInInitializer(expr);
     if (enumClass == null || !isRestrictedStaticEnumField(field, enumClass)) return null;
 
-    String description = JavaErrorBundle.message(
-      "illegal.to.access.static.member.from.enum.constructor.or.instance.initializer",
-      HighlightMessageUtil.getSymbolName(field, result.getSubstitutor())
-    );
-
+    int fieldType = field instanceof PsiEnumConstant ? 2 : 1;
+    PsiMember initializer = PsiUtil.findEnclosingConstructorOrInitializer(expr);
+    int initializerType;
+    if (initializer instanceof PsiMethod) {
+      initializerType = 1;
+    }
+    else if (initializer instanceof PsiField) {
+      initializerType = 2;
+    }
+    else {
+      initializerType = 3;
+    }
+    String description = JavaErrorBundle.message("illegal.to.access.static.member.from.enum.constructor.or.instance.initializer",
+                                                 fieldType, initializerType);
     return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(expr).descriptionAndTooltip(description);
   }
 
@@ -889,15 +912,14 @@ public final class GenericsHighlightUtil {
   public static @Nullable PsiClass getEnumClassForExpressionInInitializer(@NotNull PsiExpression expr) {
     if (PsiImplUtil.getSwitchLabel(expr) != null) return null;
     PsiMember constructorOrInitializer = PsiUtil.findEnclosingConstructorOrInitializer(expr);
-    if (constructorOrInitializer == null) return null;
-    if (constructorOrInitializer.hasModifierProperty(PsiModifier.STATIC)) return null;
-    PsiClass enumClass = constructorOrInitializer instanceof PsiEnumConstantInitializer ?
-                      (PsiClass)constructorOrInitializer : constructorOrInitializer.getContainingClass();
+    if (constructorOrInitializer == null || constructorOrInitializer.hasModifierProperty(PsiModifier.STATIC)) return null;
+    PsiClass enumClass = constructorOrInitializer instanceof PsiEnumConstantInitializer
+                         ? (PsiClass)constructorOrInitializer
+                         : constructorOrInitializer.getContainingClass();
     if (enumClass instanceof PsiEnumConstantInitializer) {
       enumClass = enumClass.getSuperClass();
     }
-    if (enumClass == null || !enumClass.isEnum()) return null;
-    return enumClass;
+    return enumClass != null && enumClass.isEnum() ? enumClass : null;
   }
 
   static HighlightInfo.Builder checkEnumInstantiation(@NotNull PsiElement expression, @Nullable PsiClass aClass) {
@@ -911,15 +933,14 @@ public final class GenericsHighlightUtil {
 
   public static HighlightInfo.Builder checkGenericArrayCreation(@NotNull PsiElement element, @Nullable PsiType type) {
     if (type instanceof PsiArrayType arrayType) {
-      if (!JavaGenericsUtil.isReifiableType(arrayType.getComponentType())) {
-        String description = JavaErrorBundle.message("generic.array.creation");
-        return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(element).descriptionAndTooltip(description);
-      }
-
       if (element instanceof PsiNewExpression newExpression) {
-        if (newExpression.getTypeArguments().length > 0) {
+        PsiReferenceParameterList typeArgumentList = newExpression.getTypeArgumentList();
+        if (typeArgumentList.getTypeArgumentCount() > 0) {
           String description = JavaErrorBundle.message("array.creation.with.type.arguments");
-          return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(element).descriptionAndTooltip(description);
+          HighlightInfo.Builder info =
+            HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(typeArgumentList).descriptionAndTooltip(description);
+          info.registerFix(QuickFixFactory.getInstance().createDeleteFix(typeArgumentList), null, null, null, null);
+          return info;
         }
         PsiJavaCodeReferenceElement classReference = newExpression.getClassReference();
         if (classReference != null) {
@@ -928,10 +949,36 @@ public final class GenericsHighlightUtil {
             PsiTypeElement[] typeParameterElements = parameterList.getTypeParameterElements();
             if (typeParameterElements.length == 1 && typeParameterElements[0].getType() instanceof PsiDiamondType) {
               String description = JavaErrorBundle.message("cannot.create.array.with.empty.diamond");
-              return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(element).descriptionAndTooltip(description);
+              HighlightInfo.Builder info =
+                HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(parameterList).descriptionAndTooltip(description);
+              info.registerFix(QuickFixFactory.getInstance().createDeleteFix(parameterList), null, null, null, null);
+              return info;
+            }
+            if (typeParameterElements.length >= 1 && !JavaGenericsUtil.isReifiableType(arrayType.getComponentType())) {
+              String description = JavaErrorBundle.message("generic.array.creation");
+              HighlightInfo.Builder info =
+                HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(parameterList).descriptionAndTooltip(description);
+              info.registerFix(QuickFixFactory.getInstance().createDeleteFix(parameterList), null, null, null, null);
+              return info;
             }
           }
         }
+      }
+      if (!JavaGenericsUtil.isReifiableType(arrayType.getComponentType())) {
+        String description = JavaErrorBundle.message("generic.array.creation");
+        if (element.getParent() instanceof PsiMethodReferenceExpression && element.getFirstChild() instanceof PsiTypeElement typeElement) {
+          PsiJavaCodeReferenceElement referenceElement = PsiTreeUtil.findChildOfType(typeElement, PsiJavaCodeReferenceElement.class);
+          if (referenceElement != null) {
+            PsiReferenceParameterList parameterList = referenceElement.getParameterList();
+            if (parameterList != null && parameterList.getTypeArgumentCount() > 0) {
+              HighlightInfo.Builder info =
+                HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(parameterList).descriptionAndTooltip(description);
+              info.registerFix(QuickFixFactory.getInstance().createDeleteFix(parameterList), null, null, null, null);
+              return info;
+            }
+          }
+        }
+        return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(element).descriptionAndTooltip(description);
       }
     }
 

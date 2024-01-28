@@ -1,8 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.project
 
-import com.intellij.openapi.application.ReadAction
-import com.intellij.openapi.progress.blockingContext
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.util.Comparing
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -27,22 +26,30 @@ internal class MavenProjectsTreeUpdater(private val tree: MavenProjectsTree,
                                         private val process: RawProgressReporter?,
                                         private val updateModules: Boolean) {
   private val updated = ConcurrentHashMap<VirtualFile, Boolean>()
+  private val createdMavenProjects = ConcurrentHashMap<VirtualFile, MavenProject>()
   private val userSettingsFile = generalSettings.effectiveUserSettingsIoFile
   private val globalSettingsFile = generalSettings.effectiveGlobalSettingsIoFile
 
   private fun startUpdate(mavenProjectFile: VirtualFile, forceRead: Boolean): Boolean {
     val projectPath = mavenProjectFile.path
 
-    if (tree.isIgnored(projectPath)) return false
+    if (tree.isIgnored(projectPath)) {
+      MavenLog.LOG.trace("Won't update ignored file $mavenProjectFile")
+      return false
+    }
 
+    // 3 possible states:
+    // null means the file hasn't been updated
+    // false means the file has been updated without force read
+    // true means the file has been updated with force read
     val previousUpdateRef = Ref<Boolean>()
-    updated.compute(mavenProjectFile) { file: VirtualFile?, value: Boolean? ->
+    updated.compute(mavenProjectFile) { _: VirtualFile?, value: Boolean? ->
       previousUpdateRef.set(value)
-      java.lang.Boolean.TRUE == value || forceRead
+      true == value || forceRead
     }
     val previousUpdate = previousUpdateRef.get()
 
-    if ((null != previousUpdate && !forceRead) || (java.lang.Boolean.TRUE == previousUpdate)) {
+    if ((null != previousUpdate && !forceRead) || (true == previousUpdate)) {
       // we already updated this file
       MavenLog.LOG.trace("Has already been updated ($previousUpdate): $mavenProjectFile; forceRead: $forceRead")
       return false
@@ -59,7 +66,9 @@ internal class MavenProjectsTreeUpdater(private val tree: MavenProjectsTree,
     if (readPom) {
       val oldProjectId = if (mavenProject.isNew) null else mavenProject.mavenId
       val oldParentId = mavenProject.parentId
-      val readChanges = blockingContext { mavenProject.read(generalSettings, explicitProfiles, reader, tree.projectLocator) }
+      val readerResult = reader.readProjectAsync(generalSettings, mavenProject.file, explicitProfiles, tree.projectLocator)
+      val readChanges = mavenProject.updateFromReaderResult(readerResult, generalSettings, true)
+
       tree.putVirtualFileToProjectMapping(mavenProject, oldProjectId)
 
       if (Comparing.equal(oldParentId, mavenProject.parentId)) {
@@ -79,11 +88,11 @@ internal class MavenProjectsTreeUpdater(private val tree: MavenProjectsTree,
     return readPom
   }
 
-  private fun calculateTimestamp(mavenProject: MavenProject): MavenProjectTimestamp {
-    return ReadAction.compute<MavenProjectTimestamp, RuntimeException> {
+  private suspend fun calculateTimestamp(mavenProject: MavenProject): MavenProjectTimestamp {
+    return readAction {
       val pomTimestamp = getFileTimestamp(mavenProject.file)
       val parent = tree.findParent(mavenProject)
-      val parentLastReadStamp = parent?.lastReadStamp ?: -1
+      val parentTimestamp = getFileTimestamp(parent?.file)
       val profilesXmlFile = mavenProject.profilesXmlFile
       val profilesTimestamp = getFileTimestamp(profilesXmlFile)
       val jvmConfigFile = MavenUtil.getConfigFile(mavenProject, MavenConstants.JVM_CONFIG_RELATIVE_PATH)
@@ -95,13 +104,13 @@ internal class MavenProjectsTreeUpdater(private val tree: MavenProjectsTree,
 
       val profilesHashCode = explicitProfiles.hashCode()
       MavenProjectTimestamp(pomTimestamp,
-                                                                                parentLastReadStamp,
-                                                                                profilesTimestamp,
-                                                                                userSettingsTimestamp,
-                                                                                globalSettingsTimestamp,
-                                                                                profilesHashCode.toLong(),
-                                                                                jvmConfigTimestamp,
-                                                                                mavenConfigTimestamp)
+                            parentTimestamp,
+                            profilesTimestamp,
+                            userSettingsTimestamp,
+                            globalSettingsTimestamp,
+                            profilesHashCode.toLong(),
+                            jvmConfigTimestamp,
+                            mavenConfigTimestamp)
     }
   }
 
@@ -168,12 +177,25 @@ internal class MavenProjectsTreeUpdater(private val tree: MavenProjectsTree,
 
   private fun findOrCreateProject(f: VirtualFile): MavenProject {
     val mavenProject = tree.findProject(f)
-    return mavenProject ?: MavenProject(f)
+    if (null != mavenProject) {
+      return mavenProject
+    }
+
+    val createdMavenProject = createdMavenProjects.compute(f) { file: VirtualFile?, value: MavenProject? ->
+      if (null != value) return@compute value
+
+      MavenLog.LOG.debug("Maven tree updater: created new maven project $file")
+      MavenProject(f)
+    }!!
+
+    return createdMavenProject
   }
 
   private suspend fun update(mavenProjectFile: VirtualFile, forceRead: Boolean) {
     // if the file has already been updated, skip subsequent updates
     if (!startUpdate(mavenProjectFile, forceRead)) return
+
+    MavenLog.LOG.trace("Maven tree updater: start update $mavenProjectFile, forceRead=$forceRead")
 
     val mavenProject = findOrCreateProject(mavenProjectFile)
 
@@ -216,6 +238,8 @@ internal class MavenProjectsTreeUpdater(private val tree: MavenProjectsTree,
       )
     }
     updateProjects(childUpdates)
+
+    MavenLog.LOG.trace("Maven tree updater: finish update $mavenProjectFile, forceRead=$forceRead")
   }
 
   suspend fun updateProjects(specs: List<UpdateSpec>) {

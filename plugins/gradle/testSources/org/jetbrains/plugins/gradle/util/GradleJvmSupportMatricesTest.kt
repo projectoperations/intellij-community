@@ -9,7 +9,7 @@ class GradleJvmSupportMatricesTest : GradleJvmSupportMatricesTestCase() {
   companion object {
     private const val FUTURE_GRADLE_VERSION = "100.0"
     private const val FUTURE_JAVA_VERSION = 100
-    private const val BUNDLED_GRADLE_VERSION = "8.4"
+    private const val BUNDLED_GRADLE_VERSION = "8.5"
     private const val LATEST_GRADLE_VERSION = "8.5"
   }
 
@@ -124,10 +124,10 @@ class GradleJvmSupportMatricesTest : GradleJvmSupportMatricesTestCase() {
   }
 
   fun `test suggesting oldest compatible gradle version for java version`() {
-    assertEquals("3.0", suggestOldestSupportedGradleVersion(6))
-    assertEquals("3.0", suggestOldestSupportedGradleVersion(7))
-    assertEquals("3.0", suggestOldestSupportedGradleVersion(8))
-    assertEquals("4.3", suggestOldestSupportedGradleVersion(9))
+    assertEquals("4.5", suggestOldestSupportedGradleVersion(6))
+    assertEquals("4.5", suggestOldestSupportedGradleVersion(7))
+    assertEquals("4.5", suggestOldestSupportedGradleVersion(8))
+    assertEquals("4.5", suggestOldestSupportedGradleVersion(9))
     assertEquals("4.7", suggestOldestSupportedGradleVersion(10))
     assertEquals("5.0", suggestOldestSupportedGradleVersion(11))
     assertEquals("5.4", suggestOldestSupportedGradleVersion(12))

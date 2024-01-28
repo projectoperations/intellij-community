@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.components.PathMacroManager
@@ -21,7 +21,7 @@ import com.intellij.util.io.safeOutputStream
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import org.jdom.Attribute
 import org.jdom.Element
-import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.io.FileNotFoundException
 import java.io.OutputStream
 import java.io.Writer
@@ -31,12 +31,15 @@ import kotlin.math.min
 abstract class XmlElementStorage protected constructor(val fileSpec: String,
                                                        protected val rootElementName: String?,
                                                        private val pathMacroSubstitutor: PathMacroSubstitutor? = null,
-                                                       val roamingType: RoamingType,
+                                                       storageRoamingType: RoamingType,
                                                        private val provider: StreamProvider? = null) : StorageBaseEx<StateMap>() {
   override val saveStorageDataOnReload: Boolean
     get() {
       return provider == null || provider.saveStorageDataOnReload
     }
+
+  internal val rawRoamingType = storageRoamingType
+  private val effectiveRoamingType = getEffectiveRoamingType(storageRoamingType, fileSpec)
 
   protected abstract fun loadLocalData(): Element?
 
@@ -48,8 +51,6 @@ abstract class XmlElementStorage protected constructor(val fileSpec: String,
     storageData.archive(componentName, serializedState)
   }
 
-  final override fun hasState(storageData: StateMap, componentName: String) = storageData.hasState(componentName)
-
   final override fun loadData() = loadElement()?.let { loadState(it) } ?: StateMap.EMPTY
 
   private fun loadElement(useStreamProvider: Boolean = true): Element? {
@@ -57,7 +58,7 @@ abstract class XmlElementStorage protected constructor(val fileSpec: String,
     try {
       val isLoadLocalData: Boolean
       if (useStreamProvider && provider != null) {
-        isLoadLocalData = !provider.read(fileSpec, roamingType) { inputStream ->
+        isLoadLocalData = !provider.read(fileSpec, effectiveRoamingType) { inputStream ->
           inputStream?.let {
             element = JDOMUtil.load(inputStream)
             providerDataStateChanged(createDataWriterForElement(element = element!!,
@@ -120,8 +121,10 @@ abstract class XmlElementStorage protected constructor(val fileSpec: String,
     }
   }
 
-  abstract class XmlElementStorageSaveSessionProducer<T : XmlElementStorage>(private val originalStates: StateMap,
-                                                                             protected val storage: T) : SaveSessionProducerBase() {
+  abstract class XmlElementStorageSaveSessionProducer<T : XmlElementStorage>(
+    private val originalStates: StateMap,
+    protected val storage: T
+  ) : SaveSessionProducerBase() {
     private var copiedStates: MutableMap<String, Any>? = null
 
     private var newLiveStates: MutableMap<String, Element>? = HashMap()
@@ -149,24 +152,26 @@ abstract class XmlElementStorage protected constructor(val fileSpec: String,
       }
 
       // during beforeElementSaved() elements can be modified and so, even if our save() never returns empty list, at this point, elements can be an empty list
-      return SaveExecutor(elements, writer, stateMap)
+      return XmlSaveSession(elements, writer, stateMap)
     }
 
-    private inner class SaveExecutor(private val elements: MutableList<Element>?,
-                                     private val writer: DataWriter?,
-                                     private val stateMap: StateMap) : SaveSession, SafeWriteRequestor, LargeFileWriteRequestor {
+    private inner class XmlSaveSession(
+      private val elements: MutableList<Element>?,
+      private val writer: DataWriter?,
+      private val stateMap: StateMap
+    ) : SaveSession, SafeWriteRequestor, LargeFileWriteRequestor {
       override fun saveBlocking() {
         var isSavedLocally = false
         val provider = storage.provider
         if (elements == null) {
-          if (provider == null || !provider.delete(storage.fileSpec, storage.roamingType)) {
+          if (provider == null || !provider.delete(storage.fileSpec, storage.effectiveRoamingType)) {
             isSavedLocally = true
             saveLocally(writer)
           }
         }
-        else if (provider != null && provider.isApplicable(storage.fileSpec, storage.roamingType)) {
+        else if (provider != null && provider.isApplicable(storage.fileSpec, storage.effectiveRoamingType)) {
           // we should use standard line-separator (\n) - stream provider can share file content on any OS
-          provider.write(storage.fileSpec, writer!!.toBufferExposingByteArray().toByteArray(), storage.roamingType)
+          provider.write(storage.fileSpec, writer!!.toBufferExposingByteArray().toByteArray(), storage.effectiveRoamingType)
         }
         else {
           isSavedLocally = true
@@ -261,7 +266,11 @@ internal class XmlDataWriter(private val rootElementName: String?,
       writer.append('>')
     }
 
-    val xmlOutputter = JbXmlOutputter(lineSeparatorWithIndent, filter?.toElementFilter(), replacePathMap, macroFilter, storageFilePathForDebugPurposes = storageFilePathForDebugPurposes)
+    val xmlOutputter = JbXmlOutputter(lineSeparator = lineSeparatorWithIndent,
+                                      elementFilter = filter?.toElementFilter(),
+                                      macroMap = replacePathMap,
+                                      macroFilter = macroFilter,
+                                      storageFilePathForDebugPurposes = storageFilePathForDebugPurposes)
     for (element in elements) {
       if (hasRootElement) {
         writer.append(lineSeparatorWithIndent)
@@ -371,10 +380,12 @@ private fun getChangedComponentNames(oldStateMap: StateMap, newStateMap: StateMa
   return diffs
 }
 
+@Internal
 enum class DataStateChanged {
   LOADED, SAVED
 }
 
+@Internal
 interface DataWriterFilter {
   enum class ElementLevel {
     ZERO, FIRST
@@ -410,10 +421,7 @@ interface DataWriter {
   fun hasData(filter: DataWriterFilter): Boolean
 }
 
-internal fun DataWriter?.writeTo(file: Path,
-                                 requestor: Any?,
-                                 lineSeparator: LineSeparator = LineSeparator.LF,
-                                 useXmlProlog: Boolean = false) {
+internal fun DataWriter?.writeTo(file: Path, requestor: Any?, lineSeparator: LineSeparator, useXmlProlog: Boolean) {
   if (this == null) {
     file.delete()
   }
@@ -432,7 +440,7 @@ internal fun DataWriter?.writeTo(file: Path,
 internal abstract class StringDataWriter : DataWriter {
   final override fun write(output: OutputStream, lineSeparator: LineSeparator, filter: DataWriterFilter?) {
     output.bufferedWriter().use {
-      write(it, lineSeparator.separatorString, filter)
+      write(writer = it, lineSeparator = lineSeparator.separatorString, filter = filter)
     }
   }
 
@@ -452,13 +460,15 @@ internal fun createDataWriterForElement(element: Element, storageFilePathForDebu
 
     override fun write(output: OutputStream, lineSeparator: LineSeparator, filter: DataWriterFilter?) {
       output.bufferedWriter().use {
-        JbXmlOutputter(lineSeparator.separatorString, elementFilter = filter?.toElementFilter(), storageFilePathForDebugPurposes = storageFilePathForDebugPurposes).output(element, it)
+        JbXmlOutputter(lineSeparator = lineSeparator.separatorString,
+                       elementFilter = filter?.toElementFilter(),
+                       storageFilePathForDebugPurposes = storageFilePathForDebugPurposes).output(element, it)
       }
     }
   }
 }
 
-@ApiStatus.Internal
+@Internal
 interface ExternalStorageWithInternalPart {
   val internalStorage: StateStorage
 }

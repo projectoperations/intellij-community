@@ -169,8 +169,10 @@ public final class ProblemDescriptorUtil {
 
   @Contract(pure = true)
   public static @NotNull String unescapeTags(@NotNull String message) {
-    message = StringUtil.replace(message, "<code>", "'");
-    message = StringUtil.replace(message, "</code>", "'");
+    if (!XmlStringUtil.isWrappedInHtml(message)) {
+      message = StringUtil.replace(message, "<code>", "'");
+      message = StringUtil.replace(message, "</code>", "'");
+    }
     message = message.contains(XML_CODE_MARKER.first) ? unescapeXmlCode(message) :
               !XmlStringUtil.isWrappedInHtml(message) ? StringUtil.unescapeXmlEntities(message) : message;
     return message;
@@ -316,12 +318,9 @@ public final class ProblemDescriptorUtil {
     LocalQuickFix[] result = new LocalQuickFix[fixInfos.size()];
     int i = 0;
     for (Annotation.QuickFixInfo fixInfo : fixInfos) {
-      IntentionAction intentionAction = fixInfo.quickFix;
-      final LocalQuickFix fix;
-      if (intentionAction instanceof LocalQuickFix) {
-        fix = (LocalQuickFix)intentionAction;
-      }
-      else {
+      LocalQuickFix fix = fixInfo.localQuickFix;
+      if (fix == null) {
+        IntentionAction intentionAction = fixInfo.quickFix;
         LocalQuickFix lqf = quickFixMappingCache.get(intentionAction);
         if (lqf == null) {
           lqf = new ExternalAnnotatorInspectionVisitor.LocalQuickFixBackedByIntentionAction(intentionAction);

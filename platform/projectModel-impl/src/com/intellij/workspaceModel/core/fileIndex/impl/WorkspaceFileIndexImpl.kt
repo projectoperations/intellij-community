@@ -18,8 +18,9 @@ import com.intellij.openapi.util.LowMemoryWatcher
 import com.intellij.openapi.vfs.*
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.virtualFile
-import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
+import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerImpl
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.PathUtil
 import com.intellij.util.Query
@@ -30,7 +31,6 @@ import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSet
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetData
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetWithCustomData
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileInternalInfo.NonWorkspace
-import com.intellij.workspaceModel.ide.getInstance
 
 class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexEx, Disposable.Default {
   companion object {
@@ -81,13 +81,13 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
   override fun isUrlInContent(url: String): ThreeState {
     var currentUrl = url
     val fileManager = VirtualFileManager.getInstance()
-    val urlManager = VirtualFileUrlManager.getInstance(project)
+    val urlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
     while (currentUrl.isNotEmpty()) {
       val file = fileManager.findFileByUrl(currentUrl)
       if (file != null) {
         return ThreeState.fromBoolean(isInContent(file))
       }
-      val virtualFileUrl = urlManager.findByUrl(currentUrl)
+      val virtualFileUrl = urlManager.findByUri(currentUrl)
       if (virtualFileUrl != null) {
         val kinds = getMainIndexData().getNonExistentFileSetKinds(virtualFileUrl)
         if (NonExistingFileSetKind.EXCLUDED_FROM_CONTENT in kinds) {
@@ -172,8 +172,8 @@ class WorkspaceFileIndexImpl(private val project: Project) : WorkspaceFileIndexE
     
     /* there may be other file sets under this directory; their URLs must be registered in VirtualFileUrlManager,
        so it's enough to process VirtualFileUrls only. */
-    val virtualFileUrlManager = VirtualFileUrlManager.getInstance(project)
-    val virtualFileUrl = virtualFileUrlManager.findByUrl(dir.url) ?: return VirtualFileVisitor.SKIP_CHILDREN
+    val virtualFileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager() as VirtualFileUrlManagerImpl
+    val virtualFileUrl = virtualFileUrlManager.findByUri(dir.url) ?: return VirtualFileVisitor.SKIP_CHILDREN
     val processed = virtualFileUrlManager.processChildrenRecursively(virtualFileUrl) { childUrl ->
       val childFile = childUrl.virtualFile ?: return@processChildrenRecursively TreeNodeProcessingResult.SKIP_CHILDREN
       return@processChildrenRecursively if (runReadAction { isInContent (childFile) }) {

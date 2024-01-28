@@ -4,6 +4,7 @@ package com.intellij.openapi.actionSystem.impl
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.codeInsight.hint.HintManagerImpl
 import com.intellij.ide.IdeEventQueue
+import com.intellij.idea.AppMode
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionPlaces
@@ -17,7 +18,6 @@ import com.intellij.openapi.editor.event.*
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
-import com.intellij.psi.util.PsiEditorUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.ui.LightweightHint
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -204,14 +204,15 @@ abstract class FloatingToolbar(
   fun canBeShownAtCurrentSelection(): Boolean {
     if (!isEnabled()) return false
     val selectionModel = editor.selectionModel
-    val file = PsiEditorUtil.getPsiFile(editor)
+    val project = editor.project ?: return false
+    val file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument()) ?: return false
     val document = editor.document
     if (!PsiDocumentManager.getInstance(file.project).isCommitted(document)) {
       return false
     }
     val elementAtStart = PsiUtilCore.getElementAtOffset(file, selectionModel.selectionStart)
     val elementAtEnd = PsiUtilCore.getElementAtOffset(file, selectionModel.selectionEnd)
-    return !(hasIgnoredParent(elementAtStart) || hasIgnoredParent(elementAtEnd))
+    return !(hasIgnoredParent(elementAtStart) || hasIgnoredParent(elementAtEnd)) && !AppMode.isRemoteDevHost()
   }
 
   /**

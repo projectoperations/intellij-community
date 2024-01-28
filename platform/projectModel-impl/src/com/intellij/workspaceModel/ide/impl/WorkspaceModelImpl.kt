@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl
 
 import com.intellij.diagnostic.StartUpMeasurer
@@ -12,11 +12,15 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.backend.workspace.*
+import com.intellij.platform.backend.workspace.impl.WorkspaceModelInternal
 import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
 import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.VersionedEntityStorageImpl
 import com.intellij.platform.workspace.storage.impl.assertConsistency
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.serviceContainer.AlreadyDisposedException
 import com.intellij.workspaceModel.core.fileIndex.EntityStorageKind
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndex
@@ -33,13 +37,16 @@ import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.system.measureTimeMillis
 
-open class WorkspaceModelImpl(private val project: Project, private val cs: CoroutineScope) : WorkspaceModel, Disposable {
+@ApiStatus.Internal
+open class WorkspaceModelImpl(private val project: Project, private val cs: CoroutineScope) : WorkspaceModelInternal, Disposable {
   @Volatile
   var loadedFromCache = false
     protected set
 
   final override val entityStorage: VersionedEntityStorageImpl
   private val unloadedEntitiesStorage: VersionedEntityStorageImpl
+
+  private val virtualFileManager: VirtualFileUrlManager = IdeVirtualFileUrlManagerImpl()
 
   private val updatesFlow = MutableSharedFlow<VersionedStorageChange>()
 
@@ -49,7 +56,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
    */
   override val changesEventFlow: Flow<VersionedStorageChange> = updatesFlow.asSharedFlow()
 
-  override val currentSnapshot: EntityStorageSnapshot
+  override val currentSnapshot: ImmutableEntityStorage
     get() = entityStorage.current
 
   val entityTracer: EntityTracingLogger = EntityTracingLogger()
@@ -66,21 +73,21 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     val start = System.currentTimeMillis()
 
     val initialContent = WorkspaceModelInitialTestContent.pop()
-    val cache = WorkspaceModelCache.getInstance(project)
+    val cache = WorkspaceModelCache.getInstance(project)?.apply { setVirtualFileUrlManager(virtualFileManager) }
     val (projectEntities, unloadedEntities) = when {
       initialContent != null -> {
-        loadedFromCache = initialContent !== EntityStorageSnapshot.empty()
-        initialContent.toBuilder() to EntityStorageSnapshot.empty()
+        loadedFromCache = initialContent !== ImmutableEntityStorage.empty()
+        initialContent.toBuilder() to ImmutableEntityStorage.empty()
       }
       cache != null -> {
         val activity = StartUpMeasurer.startActivity("cache loading")
         val cacheLoadingStart = System.currentTimeMillis()
 
         val previousStorage: MutableEntityStorage?
-        val previousStorageForUnloaded: EntityStorageSnapshot
+        val previousStorageForUnloaded: ImmutableEntityStorage
         val loadingCacheTime = measureTimeMillis {
           previousStorage = cache.loadCache()
-          previousStorageForUnloaded = cache.loadUnloadedEntitiesCache()?.toSnapshot() ?: EntityStorageSnapshot.empty()
+          previousStorageForUnloaded = cache.loadUnloadedEntitiesCache()?.toSnapshot() ?: ImmutableEntityStorage.empty()
         }
         val storage = if (previousStorage == null) {
           MutableEntityStorage.create()
@@ -96,7 +103,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
         activity.end()
         storage to previousStorageForUnloaded
       }
-      else -> MutableEntityStorage.create() to EntityStorageSnapshot.empty()
+      else -> MutableEntityStorage.create() to ImmutableEntityStorage.empty()
     }
 
     @Suppress("LeakingThis")
@@ -108,8 +115,10 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     loadingTotalTimeMs.addElapsedTimeMillis(start)
   }
 
-  override val currentSnapshotOfUnloadedEntities: EntityStorageSnapshot
+  override val currentSnapshotOfUnloadedEntities: ImmutableEntityStorage
     get() = unloadedEntitiesStorage.current
+
+  override fun getVirtualFileUrlManager(): VirtualFileUrlManager = virtualFileManager
 
   /**
    * Used only in Rider IDE
@@ -121,6 +130,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     loadedFromCache = false
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   @Synchronized
   final override fun updateProjectModel(description: @NonNls String, updater: (MutableEntityStorage) -> Unit) {
     ApplicationManager.getApplication().assertWriteAccessAllowed()
@@ -144,13 +154,13 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
 
       val changes: Map<Class<*>, List<EntityChange<*>>>
       collectChangesTimeMillis = measureTimeMillis {
-        changes = builder.collectChanges()
+        changes = (builder as MutableEntityStorageInstrumentation).collectChanges()
       }
       initializingTimeMillis = measureTimeMillis {
         this.initializeBridges(changes, builder)
       }
 
-      val newStorage: EntityStorageSnapshot
+      val newStorage: ImmutableEntityStorage
       toSnapshotTimeMillis = measureTimeMillis {
         newStorage = builder.toSnapshot()
       }
@@ -201,18 +211,19 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
    *
    * **N.B** For more information on why this and other methods were marked by Synchronized see IDEA-313151
    */
+  @OptIn(EntityStorageInstrumentationApi::class)
   @ApiStatus.Obsolete
   @Synchronized
   fun updateProjectModelSilent(description: @NonNls String, updater: (MutableEntityStorage) -> Unit) {
     checkRecursiveUpdate()
 
-    val newStorage: EntityStorageSnapshot
+    val newStorage: ImmutableEntityStorage
     val updateTimeMillis: Long
     val toSnapshotTimeMillis: Long
 
     val generalTime = measureTimeMillis {
       val before = entityStorage.current
-      val builder = MutableEntityStorage.from(entityStorage.current)
+      val builder = MutableEntityStorage.from(entityStorage.current) as MutableEntityStorageInstrumentation
       updateTimeMillis = measureTimeMillis {
         updater(builder)
       }
@@ -245,6 +256,9 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     }
   }
 
+  /**
+   * Things that must be considered if you'd love to change this logic: IDEA-342103
+   */
   private fun checkRecursiveUpdate() = checkRecursiveUpdateTimeMs.addMeasuredTimeMillis {
     val stackStraceIterator = RuntimeException().stackTrace.iterator()
     // Skip two methods of the current update
@@ -262,13 +276,14 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     }
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   override fun updateUnloadedEntities(description: @NonNls String, updater: (MutableEntityStorage) -> Unit) {
     ApplicationManager.getApplication().assertWriteAccessAllowed()
     if (project.isDisposed) return
 
     val time = measureTimeMillis {
       val before = currentSnapshotOfUnloadedEntities
-      val builder = MutableEntityStorage.from(before)
+      val builder = MutableEntityStorage.from(before) as MutableEntityStorageInstrumentation
       updater(builder)
       startPreUpdateHandlers(before, builder)
       val changes = builder.collectChanges()

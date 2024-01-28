@@ -1,6 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.util;
 
+import com.intellij.gradle.toolingExtension.util.GradleVersionUtil;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.model.DataNode;
@@ -36,11 +37,13 @@ import org.jetbrains.plugins.gradle.model.data.GradleProjectBuildScriptData;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
 import org.jetbrains.plugins.gradle.settings.GradleSettings;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -105,6 +108,24 @@ public final class GradleUtil {
     if (wrapperPropertiesFile == null) {
       return null;
     }
+    return readWrapperConfiguration(wrapperPropertiesFile);
+  }
+
+  public static boolean writeWrapperConfiguration(@NotNull Path targetPath, @NotNull WrapperConfiguration wrapperConfiguration) {
+    Properties wrapperProperties = new Properties();
+    setFromWrapperConfiguration(wrapperConfiguration, wrapperProperties);
+    try (BufferedWriter writer = Files.newBufferedWriter(targetPath, StandardCharsets.ISO_8859_1)) {
+      wrapperProperties.store(writer, null);
+    }
+    catch (IOException e) {
+      GradleLog.LOG.warn(
+        String.format("I/O exception on writing Gradle wrapper properties into '%s'", targetPath.toAbsolutePath()), e);
+      return false;
+    }
+    return true;
+  }
+
+  public static @Nullable WrapperConfiguration readWrapperConfiguration(@NotNull Path wrapperPropertiesFile) {
     Properties props = readGradleProperties(wrapperPropertiesFile);
     if (props == null) {
       return null;
@@ -113,19 +134,33 @@ public final class GradleUtil {
     if (uri == null) {
       return null;
     }
-    final WrapperConfiguration wrapperConfiguration = new WrapperConfiguration();
-    wrapperConfiguration.setDistribution(uri);
-    applyPropertyValue(props, WrapperExecutor.DISTRIBUTION_PATH_PROPERTY, wrapperConfiguration::setDistributionPath);
-    applyPropertyValue(props, WrapperExecutor.DISTRIBUTION_BASE_PROPERTY, wrapperConfiguration::setDistributionBase);
-    applyPropertyValue(props, WrapperExecutor.ZIP_STORE_PATH_PROPERTY, wrapperConfiguration::setZipPath);
-    applyPropertyValue(props, WrapperExecutor.ZIP_STORE_BASE_PROPERTY, wrapperConfiguration::setZipBase);
+    WrapperConfiguration wrapperConfiguration = new WrapperConfiguration();
+    setToWrapperConfiguration(wrapperConfiguration, uri, props);
     return wrapperConfiguration;
   }
 
+  public static void setToWrapperConfiguration(@NotNull WrapperConfiguration target,
+                                               @NotNull URI disributionUri,
+                                               @NotNull Properties source) {
+    target.setDistribution(disributionUri);
+    applyPropertyValue(source, WrapperExecutor.DISTRIBUTION_PATH_PROPERTY, target::setDistributionPath);
+    applyPropertyValue(source, WrapperExecutor.DISTRIBUTION_BASE_PROPERTY, target::setDistributionBase);
+    applyPropertyValue(source, WrapperExecutor.ZIP_STORE_PATH_PROPERTY, target::setZipPath);
+    applyPropertyValue(source, WrapperExecutor.ZIP_STORE_BASE_PROPERTY, target::setZipBase);
+  }
+
+  public static void setFromWrapperConfiguration(@NotNull WrapperConfiguration source, @NotNull Properties target) {
+    target.setProperty(WrapperExecutor.DISTRIBUTION_URL_PROPERTY, source.getDistribution().toString());
+    target.setProperty(WrapperExecutor.DISTRIBUTION_BASE_PROPERTY, source.getDistributionBase());
+    target.setProperty(WrapperExecutor.DISTRIBUTION_PATH_PROPERTY, source.getDistributionPath());
+    target.setProperty(WrapperExecutor.ZIP_STORE_BASE_PROPERTY, source.getZipBase());
+    target.setProperty(WrapperExecutor.ZIP_STORE_PATH_PROPERTY, source.getZipPath());
+  }
+
   private static @Nullable Properties readGradleProperties(@NotNull Path wrapperPropertiesFile) {
-    try (InputStream wrapperInputStream = Files.newInputStream(wrapperPropertiesFile)) {
+    try (BufferedReader reader = Files.newBufferedReader(wrapperPropertiesFile, StandardCharsets.ISO_8859_1)) {
       final Properties props = new Properties();
-      props.load(wrapperInputStream);
+      props.load(reader);
       return props;
     }
     catch (Exception e) {
@@ -325,6 +360,7 @@ public final class GradleUtil {
     return modelsProvider.findIdeModule(moduleData);
   }
 
+  @SuppressWarnings("unused") // used externally
   public static @NotNull GradleVersion getGradleVersion(Project project, PsiFile file) {
     VirtualFile virtualFile = file.getVirtualFile();
     if (virtualFile != null) {
@@ -334,6 +370,7 @@ public final class GradleUtil {
     return GradleVersion.current();
   }
 
+  @SuppressWarnings("unused") // used externally
   public static @NotNull GradleVersion getGradleVersion(Project project, String filePath) {
     ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(GradleConstants.SYSTEM_ID);
     if (manager instanceof GradleManager gradleManager) {
@@ -349,8 +386,9 @@ public final class GradleUtil {
     return GradleVersion.current();
   }
 
+  @SuppressWarnings("unused") // used externally
   public static boolean isSupportedImplementationScope(@NotNull GradleVersion gradleVersion) {
-    return gradleVersion.getBaseVersion().compareTo(GradleVersion.version("3.4")) >= 0;
+    return GradleVersionUtil.isGradleAtLeast(gradleVersion, "3.4");
   }
 
   @Nullable

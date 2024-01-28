@@ -13,7 +13,6 @@ import com.intellij.platform.workspace.jps.entities.modifyEntity
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.util.containers.ConcurrentFactoryMap
 import com.intellij.workspaceModel.ide.JpsGlobalModelSynchronizer
-import com.intellij.workspaceModel.ide.getGlobalInstance
 import com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModel
 import com.intellij.workspaceModel.ide.impl.jps.serialization.JpsGlobalModelSynchronizerImpl
 import com.intellij.workspaceModel.ide.impl.legacyBridge.sdk.SdkBridgeImpl.Companion.mutableSdkMap
@@ -61,13 +60,13 @@ class SdkTableBridgeImpl: SdkTableImplementationDelegate {
     }
 
     val sdkEntitySource = SdkBridgeImpl.createEntitySourceForSdk()
-    val virtualFileUrlManager = VirtualFileUrlManager.getGlobalInstance()
-    val homePathVfu = delegateSdk.homePath?.let { virtualFileUrlManager.fromUrl(it) }
+    val virtualFileUrlManager = globalWorkspaceModel.getVirtualFileUrlManager()
+    val homePathVfu = delegateSdk.homePath?.let { virtualFileUrlManager.getOrCreateFromUri(it) }
 
     val roots = mutableListOf<SdkRoot>()
     for (type in OrderRootType.getAllPersistentTypes()) {
       sdk.rootProvider.getUrls(type).forEach { url ->
-        roots.add(SdkRoot(virtualFileUrlManager.fromUrl(url), rootTypes[type.customName]!!))
+        roots.add(SdkRoot(virtualFileUrlManager.getOrCreateFromUri(url), rootTypes[type.customName]!!))
       }
     }
 
@@ -117,7 +116,7 @@ class SdkTableBridgeImpl: SdkTableImplementationDelegate {
   @Suppress("RAW_RUN_BLOCKING")
   override fun saveOnDisk() {
     runBlocking {
-      (JpsGlobalModelSynchronizer.getInstance() as JpsGlobalModelSynchronizerImpl).saveGlobalEntities()
+      (JpsGlobalModelSynchronizer.getInstance() as JpsGlobalModelSynchronizerImpl).saveSdkEntities()
     }
   }
 }

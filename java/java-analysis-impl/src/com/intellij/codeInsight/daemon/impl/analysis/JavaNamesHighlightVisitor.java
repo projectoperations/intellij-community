@@ -2,7 +2,6 @@
 package com.intellij.codeInsight.daemon.impl.analysis;
 
 import com.intellij.codeInsight.daemon.impl.HighlightVisitor;
-import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.lang.java.lexer.JavaLexer;
 import com.intellij.openapi.editor.colors.TextAttributesScheme;
 import com.intellij.openapi.project.DumbAware;
@@ -43,7 +42,7 @@ final class JavaNamesHighlightVisitor extends JavaElementVisitor implements High
   @Override
   public boolean suitableForFile(@NotNull PsiFile file) {
     // both PsiJavaFile and PsiCodeFragment must match
-    return file instanceof PsiImportHolder && !InjectedLanguageManager.getInstance(file.getProject()).isInjectedFragment(file);
+    return file instanceof PsiImportHolder;
   }
 
   @Override
@@ -233,6 +232,12 @@ final class JavaNamesHighlightVisitor extends JavaElementVisitor implements High
     else if (resolved instanceof PsiClass) {
       myHolder.add(HighlightNamesUtil.highlightClassName((PsiClass)resolved, element, colorsScheme));
     }
+    else if (element.getParent() instanceof PsiAnnotation) {
+      myHolder.add(HighlightNamesUtil.highlightClassName(null, element, colorsScheme));
+    }
+    else if (PsiTreeUtil.skipParentsOfType(element, PsiJavaCodeReferenceElement.class) instanceof PsiAnnotation) {
+      myHolder.add(HighlightNamesUtil.highlightPackage(null, element, colorsScheme));
+    }
   }
 
   @Override
@@ -266,7 +271,7 @@ final class JavaNamesHighlightVisitor extends JavaElementVisitor implements High
     }
   }
 
-  private <T> T computeIfSmartMode(@NotNull Project project, Supplier<T> operation) {
+  private static <T> T computeIfSmartMode(@NotNull Project project, Supplier<T> operation) {
     if (DumbService.isDumb(project)) return null;
     return operation.get();
   }

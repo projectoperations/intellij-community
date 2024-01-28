@@ -28,7 +28,9 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.EdtExecutorService;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
+import com.intellij.util.ui.EmptyIcon;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.TextTransferable;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.components.BorderLayoutPanel;
 import com.intellij.util.ui.table.ComponentsListFocusTraversalPolicy;
@@ -136,6 +138,9 @@ public final class XFramesView extends XDebugView {
         return session.getFrameSourcePosition(frame);
       }
     };
+
+    installSpeedSearch(myFramesList, session);
+
     myFrameSelectionHandler.install(myFramesList);
     EditSourceOnDoubleClickHandler.install(myFramesList);
 
@@ -223,6 +228,43 @@ public final class XFramesView extends XDebugView {
     myMainPanel.setFocusCycleRoot(true);
     myMainPanel.setFocusTraversalPolicy(new MyFocusPolicy());
     addFramesNavigationAd(myMainPanel);
+  }
+
+  private static void installSpeedSearch(XDebuggerFramesList framesList, @NotNull XDebugSessionImpl session) {
+    //noinspection unchecked
+    TreeUIHelper.getInstance().installListSpeedSearch(framesList, obj -> {
+      if (obj instanceof XStackFrame frame) {
+        // Get the exact text which is used for the UI node representing the frame
+        // NOTE: this logic is called only when user types in the frames list.
+        // So the performance of the default case is not affected, but when the user types in the speedsearch field,
+        // the nodes are effectively rendered twice: 1) for presentation in UI 2) for speedsearch
+        StringBuilderTextContainer builder = new StringBuilderTextContainer();
+        frame.customizePresentation(builder);
+        return builder.getText();
+      }
+      else {
+        return null;
+      }
+    });
+  }
+
+  /**
+   * @implNote this class is not thread safe
+   * @implNote this class could be extracted somewhere in `com.intellij.ui` package as it's quite simple.
+   * Similar minimalistic implementations can be found in {@link SimpleColoredText} and {@link TextTransferable.ColoredStringBuilder}.
+   * However, those are not as minimalistic as this one.
+   */
+  private static class StringBuilderTextContainer implements ColoredTextContainer {
+    private final StringBuilder builder = new StringBuilder();
+
+    @Override
+    public void append(@NotNull String fragment, @NotNull SimpleTextAttributes attributes) {
+      builder.append(fragment);
+    }
+
+    public String getText() {
+      return builder.toString();
+    }
   }
 
   public void onFrameSelectionKeyPressed(@NotNull Consumer<? super XStackFrame> handler) {
@@ -668,6 +710,52 @@ public final class XFramesView extends XDebugView {
       return selectCurrentFrame();
     }
   }
+
+  private static class HiddenStackFramesItem extends XStackFrame implements XDebuggerFramesList.ItemWithCustomBackgroundColor,
+                                                                            XDebuggerFramesList.ItemWithSeparatorAbove {
+
+    private final int hiddenFrameCount;
+    private final @NotNull XStackFrame firstHiddenFrame;
+
+    private HiddenStackFramesItem(int hiddenFrameCount, @NotNull XStackFrame firstHiddenFrame) {
+      this.hiddenFrameCount = hiddenFrameCount;
+      this.firstHiddenFrame = firstHiddenFrame;
+    }
+
+    @Override
+    public void customizePresentation(@NotNull ColoredTextContainer component) {
+      component.append(XDebuggerBundle.message("label.hidden.frames", hiddenFrameCount), SimpleTextAttributes.GRAYED_ATTRIBUTES);
+      component.setIcon(EmptyIcon.ICON_16);
+    }
+
+    @Override
+    public @Nullable Color getBackgroundColor() {
+      return null;
+    }
+
+    @Override
+    public boolean hasSeparatorAbove() {
+      if (firstHiddenFrame instanceof XDebuggerFramesList.ItemWithSeparatorAbove item) {
+        return item.hasSeparatorAbove();
+      }
+      return false;
+    }
+
+    @Override
+    public String getCaptionAboveOf() {
+      if (firstHiddenFrame instanceof XDebuggerFramesList.ItemWithSeparatorAbove item) {
+        return item.getCaptionAboveOf();
+      }
+      return null;
+    }
+  }
+
+  public static List<XStackFrame> createHiddenFramePlaceholder(int hiddenFrameCount, @NotNull XStackFrame firstHiddenFrame) {
+    return Registry.is("debugger.hidden.frames.placeholder")
+           ? Collections.singletonList(new HiddenStackFramesItem(hiddenFrameCount, firstHiddenFrame))
+           : Collections.emptyList();
+  }
+
 
   static void addFramesNavigationAd(JPanel parent) {
     if (!(parent.getLayout() instanceof BorderLayout)) {

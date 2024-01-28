@@ -132,6 +132,7 @@ function addCommonFeatures(sessionDiv, popup, lookup) {
   addTriggerModelBlock(popup, lookup)
   addDiagnosticsBlock("RAW SUGGESTIONS:", "raw_proposals", popup, lookup)
   addDiagnosticsBlock("RAW FILTERED:", "raw_filtered", popup, lookup)
+  addDiagnosticsBlock("ANALYZED SUGGESTIONS:", "analyzed_proposals", popup, lookup)
   addDiagnosticsBlock("ANALYZED FILTERED:", "analyzed_filtered", popup, lookup)
 }
 
@@ -149,7 +150,7 @@ function addSuggestions(sessionDiv, popup, lookup) {
     if (lookup["selectedPosition"] == i) {
       p.setAttribute("style", "font-weight: bold;")
     }
-    p.innerHTML = suggestions[i].presentationText
+    p.innerHTML = suggestions[i].presentationText.replace(/</g, '&lt;').replace(/>/g, '&gt;')
     suggestionDiv.appendChild(p)
     popup.appendChild(suggestionDiv)
   }
@@ -175,7 +176,7 @@ function addDiagnosticsBlock(description, field, popup, lookup) {
     textDiv.setAttribute("class", "suggestion")
     let p = document.createElement("code")
     p.setAttribute("class", "suggestion-p")
-    p.innerHTML = diagnostics[i]["first"] + " (" + diagnostics[i]["second"] + ")"
+    p.innerHTML = diagnostics[i]["first"].replace(/</g, '&lt;').replace(/>/g, '&gt;') + " (" + diagnostics[i]["second"] + ")"
     textDiv.appendChild(p)
     popup.appendChild(textDiv)
   }
@@ -307,7 +308,8 @@ function updateMultilinePopup(event) {
   popup.setAttribute("class", "autocomplete-items")
 
   addMultilineHeaders(popup, showSuggestion)
-  let indent = getMultilineContext(sessionDiv).prefix.match(/ *$/)[0].length
+  let context = getMultilineContext(sessionDiv)
+  let indent = "prefix" in context ? context.prefix.match(/ *$/)[0].length : 0
   let expectedText = sessions[sessionDiv.id.split(" ")[0]]["expectedText"].replace(new RegExp(`^ {${indent}}`, 'gm'), '')
   if (showSuggestion) {
     addMultilineSuggestion(sessionDiv, popup, lookup)

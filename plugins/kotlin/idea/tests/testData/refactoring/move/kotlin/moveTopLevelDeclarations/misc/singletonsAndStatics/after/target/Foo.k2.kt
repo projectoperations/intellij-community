@@ -1,6 +1,7 @@
 package target
 
 import library.KtClass
+import library.KtObject
 import source.Bar
 
 class Foo {
@@ -17,6 +18,6 @@ class Foo {
     val kt7 = KtClass
 
     val kt8 = Bar
-    val kt9 = source.Bar.Companion
-    val kt10 = source.Bar.Companion.c
+    val kt9 = Bar.Companion
+    val kt10 = Bar.Companion.c
 }

@@ -26,7 +26,6 @@ import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolKind
 import org.jetbrains.kotlin.analysis.api.types.KtErrorType
 import org.jetbrains.kotlin.analysis.api.types.KtFunctionalType
 import org.jetbrains.kotlin.analysis.api.types.KtType
-import org.jetbrains.kotlin.idea.base.analysis.api.utils.collectReceiverTypesForElement
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.collectReceiverTypesForExplicitReceiverExpression
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.isPossiblySubTypeOf
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.resolveToExpandedSymbol
@@ -36,6 +35,7 @@ import org.jetbrains.kotlin.idea.completion.checkers.ApplicableExtension
 import org.jetbrains.kotlin.idea.completion.checkers.CompletionVisibilityChecker
 import org.jetbrains.kotlin.idea.completion.checkers.ExtensionApplicabilityChecker
 import org.jetbrains.kotlin.idea.completion.context.FirBasicCompletionContext
+import org.jetbrains.kotlin.idea.completion.context.getOriginalDeclarationOrSelf
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.*
 import org.jetbrains.kotlin.idea.completion.lookups.CallableInsertionOptions
 import org.jetbrains.kotlin.idea.completion.lookups.CallableInsertionStrategy
@@ -549,20 +549,21 @@ internal open class FirCallableCompletionContributor(
                         // fun test(a, b: Int = <caret>, c: Int) {}
                         // ```
                         // `a` and `b` should not show up in completion.
-                        val originalOrSelf = getOriginalDeclarationOrSelf(grandParent)
+                        val originalOrSelf = getOriginalDeclarationOrSelf(grandParent, basicContext.originalKtFile)
                         originalOrSelf.getNextParametersWithSelf().forEach { add(it) }
                     }
                 }
 
-                is KtProperty -> if (grandParent.initializer == parent) add(getOriginalDeclarationOrSelf(grandParent))
+                is KtProperty -> {
+                    if (grandParent.initializer == parent) {
+                        add(getOriginalDeclarationOrSelf(grandParent, basicContext.originalKtFile))
+                    }
+                }
             }
 
             if (parent is KtDeclaration) break // we can use variable inside lambda or anonymous object located in its initializer
         }
     }
-
-    private inline fun <reified T : KtDeclaration> KtAnalysisSession.getOriginalDeclarationOrSelf(declaration: T): T =
-        declaration.getOriginalDeclaration() as? T ?: declaration
 
     private fun KtParameter.getNextParametersWithSelf(): Sequence<KtParameter> = generateSequence({ this }, { it.nextSiblingOfSameType() })
 
@@ -724,7 +725,7 @@ internal class FirInfixCallableCompletionContributor(
 ) : FirCallableCompletionContributor(basicContext, priority) {
     context(KtAnalysisSession)
     override fun getInsertionStrategy(signature: KtCallableSignature<*>): CallableInsertionStrategy =
-        insertionStrategy
+        infixCallableInsertionStrategy
 
     context(KtAnalysisSession)
     override fun getInsertionStrategyForExtensionFunction(
@@ -742,7 +743,11 @@ internal class FirInfixCallableCompletionContributor(
     }
 
     companion object {
-        private val insertionStrategy = CallableInsertionStrategy.AsIdentifierCustom {
+        private val infixCallableInsertionStrategy = CallableInsertionStrategy.AsIdentifierCustom {
+            if (completionChar == ' ') {
+                setAddCompletionChar(false)
+            }
+
             insertStringAndInvokeCompletion(" ")
         }
     }

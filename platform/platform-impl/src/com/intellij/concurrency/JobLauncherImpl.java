@@ -11,6 +11,8 @@ import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.openapi.progress.util.ProgressWrapper;
 import com.intellij.openapi.progress.util.StandardProgressIndicatorBase;
 import com.intellij.util.ExceptionUtil;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.PairProcessor;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.FileBasedIndex;
@@ -20,10 +22,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -376,39 +375,80 @@ public final class JobLauncherImpl extends JobLauncher {
     }
     return result;
   }
+  private static final Object TOMBSTONE = ObjectUtils.sentinel("TOMBSTONE");
+  private static <T> T TOMBSTONE() {
+    //noinspection unchecked
+    return (T)TOMBSTONE;
+  }
+
+  public interface QueueController<T> {
+    void enqueue(T element);
+    void dropEverythingAndPanic();
+    void finish();
+  }
+
   /**
-   * Schedule all elements from the {@code things} for processing by {@code thingProcessor} concurrently in the system's ForkJoinPool and the current thread.
-   * Processing happens in the queue-head to the queue-tail order, but in parallel maintaining {@link JobSchedulerImpl#getJobPoolParallelism} parallelism,
+   * Method for producing some elements (to process via {@code thingProcessor}), and scheduling their processing along with ongoing calculations.
+   * It has three parts:
+   *  - Produce elements to process concurrently. To produce the next element, call {@link QueueController#enqueue} and then, after all elements have been generated, {@link QueueController#finish()}, to mark there are no more elements.
+   *    These elements are put in the BlockingQueue, after that several FJP tasks are spawned to deque elements from that queue and process them.
+   *  - Processor to process each element.
+   *    You can also add more elements to the queue there by calling {@link QueueController} methods inside.
+   *  - otherActions runnable to be run during the queue processing, concurrently.
+   *    You can also add more elements to the queue there by calling {@link QueueController} methods inside.
+   * Processing happens in the queue-head to the queue-tail order, in parallel, maintaining {@link JobSchedulerImpl#getJobPoolParallelism} parallelism,
    * so the elements in the queue-head have higher priority than the tail.
-   * Stop when {@code tombStone} element is occurred.
-   * If was unable to process some element (an exception occurred during {@code thingProcessor.process()} call), add it back to the {@code failedToProcess} queue.
-   * @return future which completes when the entire queue is processed
+   * Stop when all elements are processed (to mark the queue "no more accepting new elements", call {@link QueueController#finish()}.
+   * Guarantees all tasks are completed in the method end, or runtime exception is thrown, in which case some elements might be in-flight.
+   * @return true if all processors returned true
    */
   @ApiStatus.Internal
-  public <T> ForkJoinTask<Boolean> processQueueAsync(@NotNull BlockingQueue<@NotNull T> things,
-                                                     @NotNull ProgressIndicator progress,
-                                                     @NotNull T tombStone,
-                                                     @NotNull Processor<? super T> thingProcessor) throws ProcessCanceledException {
+  public <T> boolean procInOrderAsync(@NotNull ProgressIndicator progress,
+                                      int maxQueueSize,
+                                      @NotNull PairProcessor<? super T, ? super QueueController<? super T>> thingProcessor,
+                                      @NotNull Consumer<? super QueueController<? super T>> otherActions) throws ProcessCanceledException {
     progress.checkCanceled(); // do not start up expensive threads if there's no need to
-    int size = things.size();
-    boolean isQueueBounded = things.contains(tombStone);
-    // start up (CPU cores) parallel tasks but no more than (queue size)
-    int n = Math.max(1, Math.min(isQueueBounded ? size-1 : Integer.MAX_VALUE, JobSchedulerImpl.getJobPoolParallelism() - 1));
-    List<T> firstElements = new ArrayList<>(n);
-    things.drainTo(firstElements, n);
-    // if the tombstone was removed by this batch operation, return it back to the queue to give a chance to other tasks to stop themselves
-    if (ContainerUtil.getLastItem(firstElements) == tombStone) {
-      firstElements.remove(firstElements.size() - 1);
-      try {
-        things.put(tombStone);
-      }
-      catch (InterruptedException e) {
-        LOG.error(e);
-      }
-    }
+    // optimization: if we know the max number of elements in the queue, use the cheaper ABQ
+    BlockingQueue<T> things = maxQueueSize < Integer.MAX_VALUE ?
+                              new ArrayBlockingQueue<>(maxQueueSize + JobSchedulerImpl.getJobPoolParallelism())
+                              : new LinkedBlockingQueue<>();
+    // start (up to CPU cores) parallel tasks but no more than (queue size)
+    int n = Math.max(1, Math.min(maxQueueSize, JobSchedulerImpl.getJobPoolParallelism() - 1));
 
-    AtomicReference<Callable<Boolean>> firstTask = new AtomicReference<>();
+    QueueController<? super T> addToQueue = new QueueController<T>() {
+      @Override
+      public void enqueue(T t) {
+        boolean added = things.offer(t);
+        if (!added) {
+          dropEverythingAndPanic();
+        }
+      }
+
+      @Override
+      public void dropEverythingAndPanic() {
+        // drop everything you are doing and stop
+        if (things.peek() != TOMBSTONE()) {
+          things.clear();
+        }
+        finish();
+      }
+
+      @Override
+      public void finish() {
+        // mark the queue end, for all workers to take
+        for (int i = 0; i < n; i++) {
+          if (!things.offer(TOMBSTONE())) {
+            // if the queue is not able to accommodate all tombstones, then someone else has already put tombstones there, and it's safe to ignore the false result
+            break;
+          }
+        }
+      }
+
+
+    };
+
     AtomicBoolean futureResult = new AtomicBoolean(true);
+    AtomicReference<Callable<Boolean>> firstTask = new AtomicReference<>();
     CountedCompleter<Boolean> completer = new CountedCompleter<>() {
       @Override
       public void compute() {
@@ -430,13 +470,10 @@ public final class JobLauncherImpl extends JobLauncher {
     // each one trying to dequeue as many elements off `things` as possible and handing them to `thingProcessor`, until `tombStone` is hit
     final class MyProcessQueueTask implements Callable<Boolean> {
       private final int mySeq;
-      private final T myFirstTask;
-
       private final CoroutineContext myContext = ThreadContext.currentThreadContext();
 
-      private MyProcessQueueTask(int seq, @Nullable T firstTask) {
+      private MyProcessQueueTask(int seq) {
         mySeq = seq;
-        myFirstTask = firstTask;
       }
 
       @Override
@@ -445,43 +482,44 @@ public final class JobLauncherImpl extends JobLauncher {
         try {
           ProgressManager.getInstance().executeProcessUnderProgress(() -> {
             try {
-              T element = myFirstTask;
               while (true) {
-                if (element == null) element = things.take();
+                T element = things.take();
 
-                if (element == tombStone) {
-                  things.put(tombStone); // return just popped tombStone to the 'things' queue for everybody else to see it
-                  // since the queue is drained up to the tombStone, there surely should be a place for one element, so "put" will not block
+                if (element == TOMBSTONE()) {
                   result[0] = true;
                   break;
                 }
                 try (AccessToken ignored = ThreadContext.installThreadContext(myContext, true)) {
                   ProgressManager.checkCanceled();
-                  if (!thingProcessor.process(element)) {
+                  if (!thingProcessor.process(element, addToQueue)) {
                     break;
                   }
                 }
                 catch (RuntimeException|Error e) {
                   if (logAllExceptions) {
                     LOG.info("Failed to process " + element + ". Add too failed query.", e);
-                    System.out.println("Failed to process " + element + ". "+ ExceptionUtil.getThrowableText(e));
                   }
                   throw e;
                 }
-                element = null;
               }
             }
             catch (InterruptedException e) {
               throw new RuntimeException(e);
             }
           }, progress);
+          completer.tryComplete();
           return result[0];
+        }
+        catch (Throwable throwable) {
+          completer.completeExceptionally(throwable);
+          return false;
         }
         finally {
           if (!result[0]) {
+            // in case of exception, we need to cancel all tasks as quick as possible, so if there is a task blocked in ".take()" we could unblock it by offering tombstone
+            addToQueue.dropEverythingAndPanic();
             futureResult.set(false);
           }
-          completer.tryComplete();
         }
       }
 
@@ -491,13 +529,25 @@ public final class JobLauncherImpl extends JobLauncher {
       }
     }
     completer.setPendingCount(n-1);
-    List<ForkJoinTask<Boolean>> tasks = new ArrayList<>(n-1);
     for (int i = 1; i < n; i++) {
-      tasks.add(ForkJoinPool.commonPool().submit(new MyProcessQueueTask(i, i < firstElements.size() ? firstElements.get(i) : null)));
+      ForkJoinPool.commonPool().submit(new MyProcessQueueTask(i));
     }
-    firstTask.set(new MyProcessQueueTask(0, ContainerUtil.getFirstItem(firstElements)));
+    firstTask.set(new MyProcessQueueTask(0));
 
-    return completer;
+    try {
+      // execute other actions while we are processing enqueued elements
+      otherActions.accept(addToQueue);
+    }
+    catch (Exception e) {
+      // in case of exception in normal flow, terminate background tasks
+      addToQueue.dropEverythingAndPanic();
+      throw e;
+    }
+    finally {
+      // do not call future.get() to avoid overcompensation
+      completer.invoke();
+    }
+    return futureResult.get();
   }
 }
 

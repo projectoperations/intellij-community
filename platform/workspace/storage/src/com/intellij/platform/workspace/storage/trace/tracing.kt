@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.platform.workspace.storage.trace
 
@@ -6,12 +6,11 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.*
-import com.intellij.platform.workspace.storage.impl.containers.ClosableHashSet
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
-import com.intellij.platform.workspace.storage.instrumentation.EntityStorageSnapshotInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.ImmutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlIndex
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
-import java.util.*
+import it.unimi.dsi.fastutil.longs.LongArrayList
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 
 
 /**
@@ -21,17 +20,17 @@ import java.util.*
  * Implementation note: There could be two options for attaching the tracker. One is an inheritance, the second is delegation. Fleet uses
  *   delegation, we use inheritance.
  * The decision to use inheritance comes from how we create entities. For that, we internally call the method [initializeEntity].
- * As this is an internal call from [EntityStorageSnapshotImpl], the deligation won't override it and this will cause two problems:
- *   - The storage in entity will be [EntityStorageSnapshotImpl], but it should be [ReadTracker].
- *   - Since the [EntityStorageSnapshotImpl] caches entities, we'll leak entities with read tracker attached.
+ * As this is an internal call from [ImmutableEntityStorageImpl], the deligation won't override it and this will cause two problems:
+ *   - The storage in entity will be [ImmutableEntityStorageImpl], but it should be [ReadTracker].
+ *   - Since the [ImmutableEntityStorageImpl] caches entities, we'll leak entities with read tracker attached.
  *
- * The argument for deligation is clearer architecture ([EntityStorageSnapshotImpl] is not open).
+ * The argument for deligation is clearer architecture ([ImmutableEntityStorageImpl] is not open).
  */
 internal class ReadTracker private constructor(
-  snapshot: EntityStorageSnapshot,
+  snapshot: ImmutableEntityStorage,
   internal val onRead: (ReadTrace) -> Unit,
-) : EntityStorageSnapshotImpl(
-  (snapshot as EntityStorageSnapshotImpl).entitiesByType,
+) : ImmutableEntityStorageImpl(
+  (snapshot as ImmutableEntityStorageImpl).entitiesByType,
   snapshot.refs,
   snapshot.indexes,
   snapshot.snapshotCache,
@@ -50,11 +49,11 @@ internal class ReadTracker private constructor(
     return super.entities(entityClass)
   }
 
-  override fun <E : WorkspaceEntity> entitiesAmount(entityClass: Class<E>): Int {
+  override fun <E : WorkspaceEntity> entityCount(entityClass: Class<E>): Int {
     val trace = ReadTrace.EntitiesOfType(entityClass)
     log.trace { "Read trace of `entitiesAmount` function: $trace" }
     onRead(trace)
-    return super.entitiesAmount(entityClass)
+    return super.entityCount(entityClass)
   }
 
   override fun <E : WorkspaceEntityWithSymbolicId, R : WorkspaceEntity> referrers(id: SymbolicEntityId<E>,
@@ -79,7 +78,7 @@ internal class ReadTracker private constructor(
     return super.contains(id)
   }
 
-  override fun <T> getExternalMapping(identifier: String): ExternalEntityMapping<T> {
+  override fun <T> getExternalMapping(identifier: ExternalMappingKey<T>): ExternalEntityMapping<T> {
     val trace = ReadTrace.ExternalMappingAccess(identifier)
     log.trace { "Read trace of `getExternalMapping` function: $trace" }
     onRead(trace)
@@ -90,7 +89,7 @@ internal class ReadTracker private constructor(
     TODO("The VirtualFileUrlIndex is not supported for read tracing at the moment")
   }
 
-  override fun entitiesBySource(sourceFilter: (EntitySource) -> Boolean): Map<EntitySource, Map<Class<out WorkspaceEntity>, List<WorkspaceEntity>>> {
+  override fun entitiesBySource(sourceFilter: (EntitySource) -> Boolean): Sequence<WorkspaceEntity> {
     TODO("The entitiesBySource is not supported for read tracing at the moment")
   }
 
@@ -124,39 +123,21 @@ internal class ReadTracker private constructor(
   companion object {
     private val log = logger<ReadTracker>()
 
-    fun trace(snapshot: EntityStorageSnapshot, action: (EntityStorageSnapshot) -> Unit): Set<ReadTrace> {
-      return ClosableHashSet<ReadTrace>().use { traces ->
+    fun trace(snapshot: ImmutableEntityStorage, action: (ImmutableEntityStorage) -> Unit): Set<ReadTrace> {
+      return HashSet<ReadTrace>().also { traces ->
         val traced = ReadTracker(snapshot) { traces.add(it) }
         action(traced)
-        traces
       }
     }
 
-    fun <T> traceHashes(snapshot: EntityStorageSnapshot, action: (EntityStorageSnapshot) -> T): Pair<ReadTraceHashSet, T> {
-      val res = ClosableHashSet<ReadTraceHash>().use { traces ->
-        val traced = ReadTracker(snapshot) { traces.add(it.hash) }
-        val res = action(traced)
-        traces to res
-      }
-      return ReadTraceHashSet(res.first) to res.second
+    fun tracedSnapshot(snapshot: ImmutableEntityStorage, addTo: LongArrayList): ReadTracker {
+      return ReadTracker(snapshot) { addTo.add(it.hash) }
     }
   }
 }
 
-// Type aliases for read trace as Int with string. This should increase memory consumption, but make debugging simpler
-internal data class ReadTraceHash(val hash: Int, val debug: String)
-internal typealias ReadTraceHashSet = HashSet<ReadTraceHash>
-internal fun Int.traceWithDebug(debug: String): ReadTraceHash = ReadTraceHash(this, debug)
-internal typealias ObjectToTraceMap<K, V> = HashMap<K, V>
-internal typealias TraceToObjectMap<K, V> = Object2ObjectOpenHashMap<K, V>
-
-// Type aliases for read trace as Int. This should decrease memory consumption, but make debugging more complicated
-//internal typealias ReadTraceHash = Int
-//internal typealias ReadTraceHashSet = IntOpenHashSet
-//internal fun Int.traceWithDebug(debug: String): ReadTraceHash = this
-//internal typealias ObjectToTraceMap<K, V> = HashMap<K, IntSet>
-//internal typealias TraceToObjectMap<K, V> = Int2ObjectOpenHashMap<V>
-
+internal typealias ReadTraceHash = Long
+internal typealias ReadTraceHashSet = LongOpenHashSet
 
 internal sealed interface ReadTrace {
 
@@ -169,10 +150,8 @@ internal sealed interface ReadTrace {
   data class EntitiesOfType(val ofClass: Class<out WorkspaceEntity>) : ReadTrace {
     override val hash: ReadTraceHash
       get() {
-        return Objects.hash(
-          433, // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
-          ofClass
-        ).traceWithDebug(this.toString())
+        val mult = 433L // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
+        return (mult * (mult + ofClass.toClassId()))
       }
   }
 
@@ -182,21 +161,18 @@ internal sealed interface ReadTrace {
   ) : ReadTrace {
     override val hash: ReadTraceHash
       get() {
-        return Objects.hash(
-          569, // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
-          linkTo,
-          inClass
-        ).traceWithDebug(this.toString())
+        val mult = 569L // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
+        var res = mult * linkTo.hashCode()
+        res = mult * res + inClass.toClassId()
+        return res
       }
   }
 
   data class Resolve(val link: SymbolicEntityId<WorkspaceEntityWithSymbolicId>) : ReadTrace {
     override val hash: ReadTraceHash
       get() {
-        return Objects.hash(
-          859, // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
-          link,
-        ).traceWithDebug(this.toString())
+        val mult = 859L // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
+        return (mult + (mult + link.hashCode()))
       }
   }
 
@@ -204,13 +180,11 @@ internal sealed interface ReadTrace {
    * Any read from external mapping.
    * This is a very broad scope, it can be more precise later.
    */
-  data class ExternalMappingAccess(val identifier: String) : ReadTrace {
+  data class ExternalMappingAccess(val identifier: ExternalMappingKey<*>) : ReadTrace {
     override val hash: ReadTraceHash
       get() {
-        return Objects.hash(
-          1129, // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
-          identifier,
-        ).traceWithDebug(this.toString())
+        val mult = 1129L // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
+        return (mult * (mult + identifier.hashCode()))
       }
   }
 
@@ -219,10 +193,8 @@ internal sealed interface ReadTrace {
   ) : ReadTrace {
     override val hash: ReadTraceHash
       get() {
-        return Objects.hash(
-          2833, // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
-          entityId,
-        ).traceWithDebug(this.toString())
+        val mult = 2833L // Prime number id of this trace type to distinguish hashes if they have the same args. The number was chosen randomly.
+        return (mult * (mult + entityId))
       }
 
     override fun toString(): String {
@@ -232,8 +204,8 @@ internal sealed interface ReadTrace {
 }
 
 @OptIn(EntityStorageInstrumentationApi::class)
-internal fun ChangeLog.toTraces(newSnapshot: EntityStorageSnapshotInstrumentation): ReadTraceHashSet {
-  val patternSet = ReadTraceHashSet()
+internal fun ChangeLog.toTraces(newSnapshot: ImmutableEntityStorageInstrumentation): ReadTraceHashSet {
+  val patternSet = ReadTraceHashSet(this.size)
   this@toTraces.forEach { (id, change) ->
     when (change) {
       is ChangeEntry.AddEntity -> {
@@ -248,9 +220,8 @@ internal fun ChangeLog.toTraces(newSnapshot: EntityStorageSnapshotInstrumentatio
           }
         }
 
-        val entity = entityData.createEntity(newSnapshot)
-        if (entity is WorkspaceEntityWithSymbolicId) {
-          patternSet.add(ReadTrace.Resolve(entity.symbolicId).hash)
+        if (entityData is WorkspaceEntityData.WithCalculableSymbolicId) {
+          patternSet.add(ReadTrace.Resolve(entityData.symbolicId()).hash)
         }
       }
       is ChangeEntry.RemoveEntity -> {
@@ -265,14 +236,13 @@ internal fun ChangeLog.toTraces(newSnapshot: EntityStorageSnapshotInstrumentatio
           }
         }
 
-        val entity = entityData.createEntity(newSnapshot)
-        if (entity is WorkspaceEntityWithSymbolicId) {
-          patternSet.add(ReadTrace.Resolve(entity.symbolicId).hash)
+        if (entityData is WorkspaceEntityData.WithCalculableSymbolicId) {
+          patternSet.add(ReadTrace.Resolve(entityData.symbolicId()).hash)
         }
       }
       is ChangeEntry.ReplaceEntity -> {
         val ofClass = id.clazz.findWorkspaceEntity()
-        val entityData = (newSnapshot as EntityStorageSnapshotImpl).entityDataByIdOrDie(id)
+        val entityData = (newSnapshot as ImmutableEntityStorageImpl).entityDataByIdOrDie(id)
 
         patternSet.add(ReadTrace.SomeFieldAccess(id).hash)
 
@@ -284,9 +254,8 @@ internal fun ChangeLog.toTraces(newSnapshot: EntityStorageSnapshotInstrumentatio
         }
 
         // Because maybe we update the field that calculates symbolic id
-        val entity = entityData.createEntity(newSnapshot)
-        if (entity is WorkspaceEntityWithSymbolicId) {
-          patternSet.add(ReadTrace.Resolve(entity.symbolicId).hash)
+        if (entityData is WorkspaceEntityData.WithCalculableSymbolicId) {
+          patternSet.add(ReadTrace.Resolve(entityData.symbolicId()).hash)
         }
       }
     }

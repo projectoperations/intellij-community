@@ -2,6 +2,7 @@
 
 package org.jetbrains.kotlin.idea.gradleTooling
 
+import com.intellij.gradle.toolingExtension.impl.model.dependencyDownloadPolicyModel.GradleDependencyDownloadPolicyCache
 import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.artifacts.ConfigurationContainer
@@ -10,9 +11,7 @@ import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.api.provider.Property
 import org.gradle.tooling.BuildController
 import org.gradle.tooling.model.Model
-import org.gradle.tooling.model.build.BuildEnvironment
 import org.gradle.tooling.model.gradle.GradleBuild
-import org.gradle.util.GradleVersion
 import org.jetbrains.kotlin.idea.projectModel.KotlinTaskProperties
 import org.jetbrains.kotlin.tooling.core.Interner
 import org.jetbrains.plugins.gradle.model.ProjectImportModelProvider
@@ -79,14 +78,11 @@ abstract class AbstractKotlinGradleModelBuilder : ModelBuilderService {
 
         const val kotlinPluginWrapper = "org.jetbrains.kotlin.gradle.plugin.KotlinPluginWrapperKt"
 
-        private val propertyClassPresent = GradleVersion.current() >= GradleVersion.version("4.3")
-
         fun Task.getSourceSetName(): String = try {
             val method = javaClass.methods.firstOrNull { it.name.startsWith("getSourceSetName") && it.parameterTypes.isEmpty() }
-            val sourceSetName = method?.invoke(this)
-            when {
-                sourceSetName is String -> sourceSetName
-                propertyClassPresent && sourceSetName is Property<*> -> sourceSetName.get() as? String
+            when (val sourceSetName = method?.invoke(this)) {
+                is String -> sourceSetName
+                is Property<*> -> sourceSetName.get() as? String
                 else -> null
             }
         } catch (e: InvocationTargetException) {
@@ -112,12 +108,7 @@ class AndroidAwareGradleModelProvider<TModel>(
         projectModel: Model,
         modelConsumer: ProjectImportModelProvider.ProjectModelConsumer
     ) {
-        val supportsParametrizedModels: Boolean = controller.findModel(BuildEnvironment::class.java)?.gradle?.gradleVersion?.let {
-            // Parametrized build models were introduced in 4.4. Make sure that gradle import does not fail on pre-4.4
-            GradleVersion.version(it) >= GradleVersion.version("4.4")
-        } ?: false
-
-        val model = if (androidPluginIsRequestingVariantSpecificModels && supportsParametrizedModels) {
+        val model = if (androidPluginIsRequestingVariantSpecificModels) {
             controller.findModel(projectModel, modelClass, ModelBuilderService.Parameter::class.java) {
                 it.value = REQUEST_FOR_NON_ANDROID_MODULES_ONLY
             }
@@ -246,7 +237,7 @@ class KotlinGradleModelBuilder : AbstractKotlinGradleModelBuilder(), ModelBuilde
         val implementedProjects = getImplementedProjects(project)
 
         if (builderContext != null) {
-            downloadKotlinStdlibSources(project, builderContext)
+            downloadKotlinStdlibSourcesIfNeeded(project, builderContext)
         }
 
         return KotlinGradleModelImpl(
@@ -262,7 +253,17 @@ class KotlinGradleModelBuilder : AbstractKotlinGradleModelBuilder(), ModelBuilde
         )
     }
 
-    private fun downloadKotlinStdlibSources(project: Project, context: ModelBuilderContext) {
+    private fun downloadKotlinStdlibSourcesIfNeeded(project: Project, context: ModelBuilderContext) {
+        // If `idea.gradle.download.sources.force` is `true`, then sources will be downloaded anyway (so no need to do it again here)
+        // if it is `false`, then we have to skip any source downloading here
+        // So the only one valid case is if the force flag is absent
+        if (System.getProperty("idea.gradle.download.sources.force") != null) return
+
+        // Dependency download policy covers all other cases to determine whether sources are marked for download or not
+        val dependencyDownloadPolicy = GradleDependencyDownloadPolicyCache.getInstance(context)
+            .getDependencyDownloadPolicy(project)
+        if (dependencyDownloadPolicy.isDownloadSources()) return
+
         val kotlinStdlib = project.configurations.detachedConfiguration()
         project.configurations.forEachUsedKotlinLibrary {
             kotlinStdlib.dependencies.add(it)

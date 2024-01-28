@@ -140,6 +140,24 @@ public class PsiJavaParserFacadeImpl implements PsiJavaParserFacade {
   }
 
   @NotNull
+  @Override
+  public PsiImplicitClass createImplicitClassFromText(@NotNull String body, @Nullable PsiElement context) throws IncorrectOperationException {
+    PsiJavaFile aFile = createDummyJavaFile(
+      "int i = 0;" +  //used to preserve first comments
+      body);
+    PsiClass[] classes = aFile.getClasses();
+    if (classes.length != 1) {
+      throw new IncorrectOperationException("Incorrect class '" + body + "'");
+    }
+    if (classes[0] instanceof PsiImplicitClass) {
+      PsiImplicitClass implicitClass = (PsiImplicitClass)classes[0];
+      implicitClass.getFirstChild().delete(); //delete stub field
+      return implicitClass;
+    }
+    throw new IncorrectOperationException("Incorrect implicit class '" + body + "'");
+  }
+
+  @NotNull
   public PsiClass createRecord(@NotNull String name) throws IncorrectOperationException {
     return createRecordFromText("public record " + name + "() { }");
   }

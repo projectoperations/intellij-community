@@ -51,8 +51,6 @@
 
     <action id="CodeInspection.OnEditor" class="com.intellij.codeInspection.actions.CodeInspectionOnEditorAction"/>
 
-    <action id="ActivateNavBar" class="com.intellij.ide.navigationToolbar.ActivateNavigationBarAction" popup="true"/>
-
     <action id="EditorIndentLineOrSelection" class="com.intellij.openapi.editor.actions.IndentLineOrSelectionAction">
       <add-to-group group-id="EditorActions"/>
     </action>
@@ -739,7 +737,7 @@
     </group>
 
     <group id="NewGroup" popup="true" searchable="false">
-      <action id="NewFile" class="com.intellij.ide.actions.CreateFileAction"/>
+      <action id="NewFile" class="com.intellij.ide.actions.CreateFileAction" icon="AllIcons.FileTypes.Text"/>
       <reference id="NewScratchFile"/>
       <action id="NewDir" class="com.intellij.ide.actions.CreateDirectoryOrPackageAction"/>
       <group class="com.intellij.ide.fileTemplates.actions.FileTemplateSeparator" id="FileTemplateSeparatorGroup"/>
@@ -1681,9 +1679,6 @@
     <action id="ShowControlFlowAction" class="com.intellij.internal.cfgView.ShowControlFlowAction" internal="true">
       <add-to-group group-id="Internal" anchor="last"/>
     </action>
-    <action id="DumpFormattingModel" class="com.intellij.internal.DumpFormattingModelAction" internal="true">
-      <add-to-group group-id="Internal" anchor="last"/>
-    </action>
     <group id="TodoMainGroup">
       <add-to-group group-id="Other.KeymapGroup"/>
       <group id="TodoViewGroupByGroup" icon="AllIcons.Actions.GroupBy" popup="true">
@@ -1707,6 +1702,9 @@
       <action id="MoreRunToolbarActions" class="com.intellij.execution.ui.MoreRunToolbarActions" />
       <action id="InactiveStopActionPlaceholder" class="com.intellij.execution.ui.InactiveStopActionPlaceholder" />
     </group>
+
+    <action id="AllRunConfigurationsToggle" class="com.intellij.execution.ui.AllRunConfigurationsToggle"/>
+    <group id="RunConfigurationsActionGroup" class="com.intellij.execution.ui.RunConfigurationsActionGroup"/>
 
     <group id="ExecutionTargetsToolbarGroup" searchable="false" popup="false">
       <reference id="ExecutionTargets"/>
@@ -1751,6 +1749,7 @@
       <action id="DumpLoadedInspectionsAction" internal="true" class="com.intellij.internal.DumpLoadedInspectionsAction"/>
       <action id="DumpPluginDescriptorsAction" internal="true" class="com.intellij.internal.DumpPluginDescriptorsAction"/>
       <action id="DumpRunConfigurationTypesAction" internal="true" class="com.intellij.internal.DumpRunConfigurationTypesAction"/>
+      <action id="DumpFormattingModel" class="com.intellij.internal.DumpFormattingModelAction" internal="true"/>
       <add-to-group group-id="Internal" anchor="last"/>
     </group>
     <group id="Internal.VFS" popup="true" internal="true">

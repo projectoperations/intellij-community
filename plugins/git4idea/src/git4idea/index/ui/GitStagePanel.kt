@@ -11,7 +11,6 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.ex.ActionUtil.performActionDumbAwareWithCallbacks
 import com.intellij.openapi.help.HelpManager
-import com.intellij.openapi.progress.util.ProgressWindow
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.util.Disposer
@@ -42,7 +41,7 @@ import com.intellij.vcs.commit.CommitWorkflowListener
 import com.intellij.vcs.commit.insertEditedCommitNode
 import com.intellij.vcs.log.runInEdt
 import com.intellij.vcs.log.runInEdtAsync
-import com.intellij.vcs.log.ui.frame.ProgressStripe
+import com.intellij.vcs.ui.ProgressStripe
 import git4idea.GitVcs
 import git4idea.conflicts.GitConflictsUtil.canShowMergeWindow
 import git4idea.conflicts.GitConflictsUtil.showMergeWindow
@@ -136,7 +135,7 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     val treePanel = GitStageTreePanel()
       .addToCenter(createScrollPane(tree, sideBorder))
       .addToBottom(statusPanel)
-    progressStripe = ProgressStripe(treePanel, this, ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS)
+    progressStripe = ProgressStripe(treePanel, this)
     val treePanelWithToolbar = JPanel(BorderLayout())
     treePanelWithToolbar.add(toolbar.component, BorderLayout.NORTH)
     treePanelWithToolbar.add(progressStripe, BorderLayout.CENTER)
@@ -203,7 +202,9 @@ internal class GitStagePanel(private val tracker: GitStageTracker,
     if (QuickActionProvider.KEY.`is`(dataId)) return toolbar
     if (EditorTabDiffPreviewManager.EDITOR_TAB_DIFF_PREVIEW.`is`(dataId)) return editorTabPreview
     if (PlatformDataKeys.HELP_ID.`is`(dataId)) return HELP_ID
-    return null
+
+    // This makes COMMIT_WORKFLOW_HANDLER available anywhere in "Local Changes" - so commit executor actions are enabled.
+    return commitPanel.getDataFromProviders(dataId)
   }
 
   fun updateLayout() {

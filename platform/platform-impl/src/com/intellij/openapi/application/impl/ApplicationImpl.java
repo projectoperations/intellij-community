@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application.impl;
 
 import com.intellij.CommonBundle;
@@ -19,6 +19,7 @@ import com.intellij.openapi.application.*;
 import com.intellij.openapi.application.ex.ApplicationEx;
 import com.intellij.openapi.application.ex.ApplicationUtil;
 import com.intellij.openapi.client.ClientAwareComponentManager;
+import com.intellij.openapi.components.impl.stores.IComponentStore;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
@@ -69,6 +70,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static com.intellij.ide.ShutdownKt.cancelAndJoinBlocking;
+import static com.intellij.openapi.application.RuntimeFlagsKt.isNewLockEnabled;
 import static com.intellij.util.concurrency.AppExecutorUtil.propagateContextOrCancellation;
 
 @ApiStatus.Internal
@@ -77,6 +79,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
     return Logger.getInstance(ApplicationImpl.class);
   }
 
+  private final static boolean isNewLockEnabled = isNewLockEnabled();
   private ReadMostlyRWLock myLock;
 
   /**
@@ -276,7 +279,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
 
   @Override
   public void invokeLater(@NotNull Runnable runnable, @NotNull ModalityState state, @NotNull Condition<?> expired) {
-    if (myLock == null) {
+    if (!isNewLockEnabled && myLock == null) {
       getLogger().error("Do not call invokeLater when app is not yet fully initialized");
     }
 
@@ -298,7 +301,17 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
     //noinspection deprecation
     myDispatcher.getMulticaster().applicationExiting();
 
+    IComponentStore componentStore = getServiceIfCreated(IComponentStore.class);
     super.dispose();
+    if (componentStore != null) {
+      try {
+        componentStore.release();
+      }
+      catch (Exception e) {
+        getLogger().error(e);
+      }
+    }
+
     // Remove IW lock from EDT as EDT might be re-created, which might lead to deadlock if anybody uses this disposed app
     if (!StartupUtil.isImplicitReadOnEDTDisabled() || isUnitTestMode()) {
       invokeLater(() -> releaseWriteIntentLock(), ModalityState.nonModal());
@@ -557,7 +570,6 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
 
       stopServicePreloading();
 
-
       if (BitUtil.isSet(flags, SAVE)) {
         TraceUtil.runWithSpanThrows(tracer, "saveSettingsOnExit",
                                     (span) -> SaveAndSyncHandler.getInstance().saveSettingsUnderModalProgress(this));
@@ -784,7 +796,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
 
   @ApiStatus.Internal
   public boolean isCurrentWriteOnEdt() {
-    return EDT.isEdt(myLock.writeThread);
+    return !isNewLockEnabled && EDT.isEdt(myLock.writeThread);
   }
 
   @Override
@@ -913,11 +925,6 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
         ThreadingAssertions.assertEventDispatchThread();
       }
     }
-  }
-
-  @Override
-  public void assertTimeConsuming() {
-    assertIsNonDispatchThread();
   }
 
   @Override
@@ -1176,6 +1183,6 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
 
   @NotNull
   private static ThreadingSupport getThreadingSupport() {
-    return RwLockHolder.INSTANCE;
+    return isNewLockEnabled ? AnyThreadWriteThreadingSupport.INSTANCE : RwLockHolder.INSTANCE;
   }
 }

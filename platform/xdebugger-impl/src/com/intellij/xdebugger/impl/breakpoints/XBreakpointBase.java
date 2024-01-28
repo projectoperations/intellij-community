@@ -365,13 +365,21 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
     }
   }
 
+  /**
+   * Full description of the breakpoint,
+   * including kind of breakpoint target (e.g., "Lambda breakpoint", see {@link XBreakpointUtil#getGeneralDescription(XBreakpoint)})
+   * and its properties (e.g., condition).
+   * Formatted as HTML document.
+   * Primarily used for tooltip in the editor.
+   */
   @NotNull
   @Nls
   public String getDescription() {
     StringBuilder builder = new StringBuilder();
     builder.append(CommonXmlStrings.HTML_START).append(CommonXmlStrings.BODY_START);
     LineSeparator separator = new LineSeparator(builder);
-    builder.append(StringUtil.escapeXmlEntities(XBreakpointUtil.getDisplayText(this)));
+    builder.append(StringUtil.escapeXmlEntities(XBreakpointUtil.getGeneralDescription(this)));
+    var prePropertiesLen = builder.length();
 
     String errorMessage = getErrorMessage();
     if (!StringUtil.isEmpty(errorMessage)) {
@@ -381,15 +389,18 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
       builder.append("</font>");
     }
 
-    if (getSuspendPolicy() == SuspendPolicy.NONE) {
+    var suspendPolicy = getSuspendPolicy();
+    if (suspendPolicy == SuspendPolicy.NONE) {
       builder.append(separator.get()).append(XDebuggerBundle.message("xbreakpoint.tooltip.suspend.policy.none"));
     }
     else if (getType().isSuspendThreadSupported()) {
-      builder.append(separator.get());
-      //noinspection EnumSwitchStatementWhichMissesCases
-      switch (getSuspendPolicy()) {
-        case ALL -> builder.append(XDebuggerBundle.message("xbreakpoint.tooltip.suspend.policy.all"));
-        case THREAD -> builder.append(XDebuggerBundle.message("xbreakpoint.tooltip.suspend.policy.thread"));
+      var defaultSuspendPolicy = myBreakpointManager.getBreakpointDefaults(getType()).getSuspendPolicy();
+      if (suspendPolicy != defaultSuspendPolicy) {
+        builder.append(separator.get());
+        switch (suspendPolicy) {
+          case ALL -> builder.append(XDebuggerBundle.message("xbreakpoint.tooltip.suspend.policy.all"));
+          case THREAD -> builder.append(XDebuggerBundle.message("xbreakpoint.tooltip.suspend.policy.thread"));
+        }
       }
     }
 
@@ -424,6 +435,16 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
       builder.append(str);
       builder.append(CommonXmlStrings.NBSP);
       builder.append(XBreakpointUtil.getShortText(masterBreakpoint));
+    }
+
+    for (@Nls String line : XBreakpointUtil.getPropertyXMLDescriptions(this)) {
+      builder.append(separator.get());
+      builder.append(line);
+    }
+
+    if (prePropertiesLen == builder.length()) {
+      builder.append(separator.get());
+      builder.append(XDebuggerBundle.message("xbreakpoint.tooltip.edit.hint"));
     }
 
     builder.append(CommonXmlStrings.BODY_END).append(CommonXmlStrings.HTML_END);

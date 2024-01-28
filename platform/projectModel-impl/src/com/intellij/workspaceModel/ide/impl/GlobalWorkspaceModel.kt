@@ -4,6 +4,7 @@ package com.intellij.workspaceModel.ide.impl
 import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -11,23 +12,24 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.backend.workspace.GlobalWorkspaceModelCache
-import com.intellij.workspaceModel.ide.JpsGlobalModelSynchronizer
 import com.intellij.platform.backend.workspace.WorkspaceModel
-import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
 import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.jps.JpsGlobalFileEntitySource
 import com.intellij.platform.workspace.jps.entities.*
-import com.intellij.util.concurrency.annotations.RequiresWriteLock
-import com.intellij.workspaceModel.ide.*
-import com.intellij.workspaceModel.ide.impl.legacyBridge.library.ProjectLibraryTableBridgeImpl.Companion.libraryMap
-import com.intellij.workspaceModel.ide.impl.legacyBridge.library.ProjectLibraryTableBridgeImpl.Companion.mutableLibraryMap
-import com.intellij.workspaceModel.ide.legacyBridge.GlobalLibraryTableBridge
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.VersionedEntityStorageImpl
 import com.intellij.platform.workspace.storage.impl.assertConsistency
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.util.concurrency.ThreadingAssertions
+import com.intellij.util.concurrency.annotations.RequiresWriteLock
+import com.intellij.workspaceModel.ide.JpsGlobalModelSynchronizer
+import com.intellij.workspaceModel.ide.impl.legacyBridge.library.LegacyCustomLibraryEntitySource
+import com.intellij.workspaceModel.ide.impl.legacyBridge.library.ProjectLibraryTableBridgeImpl.Companion.libraryMap
+import com.intellij.workspaceModel.ide.impl.legacyBridge.library.ProjectLibraryTableBridgeImpl.Companion.mutableLibraryMap
+import com.intellij.workspaceModel.ide.legacyBridge.GlobalEntityBridgeAndEventHandler
 import com.intellij.workspaceModel.ide.legacyBridge.GlobalSdkTableBridge
 import io.opentelemetry.api.metrics.Meter
 import org.jetbrains.annotations.ApiStatus
@@ -35,6 +37,8 @@ import org.jetbrains.annotations.NonNls
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.system.measureTimeMillis
 
+@Service
+@OptIn(EntityStorageInstrumentationApi::class)
 @ApiStatus.Internal
 class GlobalWorkspaceModel : Disposable {
   /**
@@ -44,17 +48,21 @@ class GlobalWorkspaceModel : Disposable {
 
   // Marker indicating that changes came from global storage
   internal var isFromGlobalWorkspaceModel: Boolean = false
-  private val globalWorkspaceModelCache = GlobalWorkspaceModelCache.getInstance()
-  private val globalEntitiesFilter = { entitySource: EntitySource -> entitySource is JpsGlobalFileEntitySource }
+  private val virtualFileManager: VirtualFileUrlManager = IdeVirtualFileUrlManagerImpl()
+  private val globalWorkspaceModelCache = GlobalWorkspaceModelCache.getInstance()?.apply { setVirtualFileUrlManager(virtualFileManager) }
+  private val globalEntitiesFilter = { entitySource: EntitySource -> entitySource is JpsGlobalFileEntitySource
+                                                                     || entitySource is LegacyCustomLibraryEntitySource }
 
   val entityStorage: VersionedEntityStorageImpl
-  val currentSnapshot: EntityStorageSnapshot
+  val currentSnapshot: ImmutableEntityStorage
     get() = entityStorage.current
 
   var loadedFromCache = false
     private set
 
-  private val modelVersionUpdate = AtomicLong(-1)
+  private val updateModelMethodName = GlobalWorkspaceModel::updateModel.name
+  private val onChangedMethodName = GlobalWorkspaceModel::onChanged.name
+
 
   init {
     LOG.debug { "Loading global workspace model" }
@@ -80,20 +88,20 @@ class GlobalWorkspaceModel : Disposable {
       }
       else -> MutableEntityStorage.create()
     }
-    entityStorage = VersionedEntityStorageImpl(EntityStorageSnapshot.empty())
+    entityStorage = VersionedEntityStorageImpl(ImmutableEntityStorage.empty())
 
-    val callback = JpsGlobalModelSynchronizer.getInstance().loadInitialState(mutableEntityStorage, entityStorage, loadedFromCache)
-    val changes = mutableEntityStorage.collectChanges()
+    val callback = JpsGlobalModelSynchronizer.getInstance()
+      .apply { setVirtualFileUrlManager(virtualFileManager) }
+      .loadInitialState(mutableEntityStorage, entityStorage, loadedFromCache)
+    val changes = (mutableEntityStorage as MutableEntityStorageInstrumentation).collectChanges()
     entityStorage.replace(mutableEntityStorage.toSnapshot(), changes, {}, {})
     callback.invoke()
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   fun updateModel(description: @NonNls String, updater: (MutableEntityStorage) -> Unit) {
     ThreadingAssertions.assertWriteAccess()
-    if (modelVersionUpdate.get() == entityStorage.pointer.version) {
-      LOG.error("Trying to update global model twice from the same version. Maybe recursive call of 'updateModel'? Action:$description")
-    }
-    modelVersionUpdate.set(entityStorage.pointer.version)
+    checkRecursiveUpdate(description)
 
     val updateTimeMillis: Long
     val collectChangesTimeMillis: Long
@@ -107,13 +115,13 @@ class GlobalWorkspaceModel : Disposable {
       }
       val changes: Map<Class<*>, List<EntityChange<*>>>
       collectChangesTimeMillis = measureTimeMillis {
-        changes = builder.collectChanges()
+        changes = (builder as MutableEntityStorageInstrumentation).collectChanges()
       }
       initializingTimeMillis = measureTimeMillis {
         this.initializeBridges(changes, builder)
       }
 
-      val newStorage: EntityStorageSnapshot
+      val newStorage: ImmutableEntityStorage
       toSnapshotTimeMillis = measureTimeMillis {
         newStorage = builder.toSnapshot()
       }
@@ -138,32 +146,39 @@ class GlobalWorkspaceModel : Disposable {
     }
   }
 
+  /**
+   * Returns instance of [VirtualFileUrlManager] which should be used to create [VirtualFileUrl] instances to be stored in entities added in
+   * the global application-level storage.
+   * It's important not to use this function for entities stored in the main [WorkspaceModel][com.intellij.platform.backend.workspace.WorkspaceModel]
+   * storage, because this would create a memory leak: these instances won't be removed when the project is closed.
+   */
+  @ApiStatus.Internal
+  fun getVirtualFileUrlManager(): VirtualFileUrlManager = virtualFileManager
+
   override fun dispose() = Unit
 
   @RequiresWriteLock
   private fun initializeBridges(change: Map<Class<*>, List<EntityChange<*>>>, builder: MutableEntityStorage) {
     ThreadingAssertions.assertWriteAccess()
-    logErrorOnEventHandling {
-      GlobalLibraryTableBridge.getInstance().initializeLibraryBridges(change, builder)
-    }
-    logErrorOnEventHandling {
-      GlobalSdkTableBridge.getInstance().initializeSdkBridges(change, builder)
+
+    GlobalEntityBridgeAndEventHandler.getAllGlobalEntityHandlers().forEach {
+      logErrorOnEventHandling {
+        it.initializeBridges(change, builder)
+      }
     }
   }
 
   private fun onBeforeChanged(change: VersionedStorageChange) {
     ThreadingAssertions.assertWriteAccess()
 
-    GlobalSdkTableBridge.getInstance().handleBeforeChangeEvents(change)
-    GlobalLibraryTableBridge.getInstance().handleBeforeChangeEvents(change)
+    GlobalEntityBridgeAndEventHandler.getAllGlobalEntityHandlers().forEach { it.handleBeforeChangeEvents(change) }
   }
 
   @RequiresWriteLock
   private fun onChanged(change: VersionedStorageChange) {
     ThreadingAssertions.assertWriteAccess()
 
-    GlobalSdkTableBridge.getInstance().handleChangedEvents(change)
-    GlobalLibraryTableBridge.getInstance().handleChangedEvents(change)
+    GlobalEntityBridgeAndEventHandler.getAllGlobalEntityHandlers().forEach { it.handleChangedEvents(change) }
 
     globalWorkspaceModelCache?.scheduleCacheSave()
     isFromGlobalWorkspaceModel = true
@@ -183,7 +198,7 @@ class GlobalWorkspaceModel : Disposable {
 
     val workspaceModel = WorkspaceModel.getInstance(targetProject)
     val entitiesCopyAtBuilder = copyEntitiesToEmptyStorage(entityStorage.current,
-                                                           VirtualFileUrlManager.getInstance(targetProject))
+                                                           workspaceModel.getVirtualFileUrlManager())
     workspaceModel.updateProjectModel("Sync global entities with project: ${targetProject.name}") { builder ->
       builder.replaceBySource(globalEntitiesFilter, entitiesCopyAtBuilder)
     }
@@ -193,7 +208,8 @@ class GlobalWorkspaceModel : Disposable {
                                  targetBuilder: MutableEntityStorage) = applyStateToProjectBuilderTimeMs.addMeasuredTimeMillis {
     LOG.info("Sync global entities with mutable entity storage")
     targetBuilder.replaceBySource(globalEntitiesFilter,
-                                  copyEntitiesToEmptyStorage(entityStorage.current, VirtualFileUrlManager.getInstance(project)))
+                                  copyEntitiesToEmptyStorage(entityStorage.current,
+                                                             WorkspaceModel.getInstance(project).getVirtualFileUrlManager()))
   }
 
   @RequiresWriteLock
@@ -202,23 +218,43 @@ class GlobalWorkspaceModel : Disposable {
 
     filteredProject = sourceProject
     val entitiesCopyAtBuilder = copyEntitiesToEmptyStorage(WorkspaceModel.getInstance(sourceProject).currentSnapshot,
-                                                           VirtualFileUrlManager.getGlobalInstance())
+                                                           virtualFileManager)
     updateModel("Sync entities from project ${sourceProject.name} with global storage") { builder ->
       builder.replaceBySource(globalEntitiesFilter, entitiesCopyAtBuilder)
     }
     filteredProject = null
   }
 
+  /**
+   * Things that must be considered if you'd love to change this logic: IDEA-342103
+   */
+  private fun checkRecursiveUpdate(description: @NonNls String) {
+    val stackStraceIterator = RuntimeException().stackTrace.iterator()
+    // Skip two methods of the current update
+    repeat(2) { stackStraceIterator.next() }
+    while (stackStraceIterator.hasNext()) {
+      val frame = stackStraceIterator.next()
+      if (frame.methodName == updateModelMethodName && frame.className == GlobalWorkspaceModel::class.qualifiedName) {
+        LOG.error("Trying to update global model twice from the same version. Maybe recursive call of 'updateModel'? Action: $description")
+      }
+      else if (frame.methodName == onChangedMethodName && frame.className == GlobalWorkspaceModel::class.qualifiedName) {
+        // It's fine to update the project method in "after update" listeners
+        return
+      }
+    }
+  }
+
   private fun copyEntitiesToEmptyStorage(storage: EntityStorage, vfuManager: VirtualFileUrlManager): MutableEntityStorage {
     val mutableEntityStorage = MutableEntityStorage.create()
-    // Copying global libraries
+    // Copying global and custom libraries
     storage.entities(LibraryEntity::class.java).forEach { libraryEntity ->
       if (!globalEntitiesFilter.invoke(libraryEntity.entitySource)) return@forEach
       val libraryRootsCopy = libraryEntity.roots.map { root ->
         LibraryRoot(root.url.createCopyAtManager(vfuManager), root.type, root.inclusionOptions)
       }
 
-      val entitySourceCopy = (libraryEntity.entitySource as JpsGlobalFileEntitySource).copy(vfuManager)
+      // If it's global library then we need to copy its entity source. For the custom lib we just reuse origin entity source
+      val entitySourceCopy = (libraryEntity.entitySource as? JpsGlobalFileEntitySource)?.copy(vfuManager) ?: libraryEntity.entitySource
       val excludedRootsCopy = libraryEntity.excludedRoots.map { it.copy(entitySourceCopy, vfuManager) }
       val libraryPropertiesCopy = libraryEntity.libraryProperties?.copy(entitySourceCopy)
       val libraryEntityCopy = LibraryEntity(libraryEntity.name, libraryEntity.tableId, libraryRootsCopy, entitySourceCopy) {
@@ -245,9 +281,9 @@ class GlobalWorkspaceModel : Disposable {
         version = sdkEntity.version
       }
       mutableEntityStorage.addEntity(sdkEntityCopy)
-      val sdkBridge = storage.getExternalMapping<Any>(SDK_BRIDGE_MAPPING_ID).getDataByEntity(sdkEntity)
+      val sdkBridge = storage.getExternalMapping(SDK_BRIDGE_MAPPING_ID).getDataByEntity(sdkEntity)
       if (sdkBridge != null) {
-        mutableEntityStorage.getMutableExternalMapping<Any>(SDK_BRIDGE_MAPPING_ID).addIfAbsent(sdkEntityCopy, sdkBridge)
+        mutableEntityStorage.getMutableExternalMapping(SDK_BRIDGE_MAPPING_ID).addIfAbsent(sdkEntityCopy, sdkBridge)
       }
     }
     return mutableEntityStorage
@@ -266,7 +302,7 @@ class GlobalWorkspaceModel : Disposable {
   companion object {
 
     //TODO:: Fix me don't have dependencies to SdkTableBridgeImpl
-    private const val SDK_BRIDGE_MAPPING_ID = "intellij.sdk.bridge"
+    private val SDK_BRIDGE_MAPPING_ID = ExternalMappingKey.create<Any>("intellij.sdk.bridge")
 
 
 
@@ -305,7 +341,7 @@ class GlobalWorkspaceModel : Disposable {
   }
 }
 
-private fun VirtualFileUrl.createCopyAtManager(manager: VirtualFileUrlManager): VirtualFileUrl = manager.fromUrl(url)
+private fun VirtualFileUrl.createCopyAtManager(manager: VirtualFileUrlManager): VirtualFileUrl = manager.getOrCreateFromUri(url)
 
 private fun ExcludeUrlEntity.copy(entitySource: EntitySource, manager: VirtualFileUrlManager): ExcludeUrlEntity =
   ExcludeUrlEntity(url.createCopyAtManager(manager), entitySource)

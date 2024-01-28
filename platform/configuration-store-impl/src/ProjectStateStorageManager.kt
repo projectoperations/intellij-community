@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.components.PathMacroSubstitutor
@@ -6,10 +6,8 @@ import com.intellij.openapi.components.StateStorageOperation
 import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.isExternalStorageEnabled
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.serviceContainer.ComponentManagerImpl
 import org.jdom.Element
-import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 
 // extended in upsource
@@ -21,27 +19,9 @@ open class ProjectStateStorageManager(macroSubstitutor: PathMacroSubstitutor,
     const val ROOT_TAG_NAME = "project"
   }
 
-  private val fileBasedStorageConfiguration = object : FileBasedStorageConfiguration {
-    override val isUseVfsForWrite: Boolean
-      get() = true
-
-    override val isUseVfsForRead: Boolean
-      get() = project is VirtualFileResolver
-
-    override fun resolveVirtualFile(path: String, reasonOperation: StateStorageOperation): VirtualFile? {
-      return when (project) {
-        is VirtualFileResolver -> project.resolveVirtualFile(path, reasonOperation)
-        else -> super.resolveVirtualFile(path, reasonOperation)
-      }
-    }
-  }
-
-  override fun getFileBasedStorageConfiguration(fileSpec: String): FileBasedStorageConfiguration {
-    return when {
-      isSpecialStorage(fileSpec) -> appFileBasedStorageConfiguration
-      else -> fileBasedStorageConfiguration
-    }
-  }
+  override fun getFileBasedStorageConfiguration(fileSpec: String): FileBasedStorageConfiguration =
+    if (isSpecialStorage(fileSpec)) appFileBasedStorageConfiguration
+    else defaultFileBasedStorageConfiguration
 
   override fun normalizeFileSpec(fileSpec: String) = removeMacroIfStartsWith(super.normalizeFileSpec(fileSpec), PROJECT_CONFIG_DIR)
 
@@ -70,10 +50,4 @@ open class ProjectStateStorageManager(macroSubstitutor: PathMacroSubstitutor,
 
   override val isExternalSystemStorageEnabled: Boolean
     get() = project.isExternalStorageEnabled
-}
-
-// for upsource
-@ApiStatus.Experimental
-interface VirtualFileResolver {
-  fun resolveVirtualFile(path: String, reasonOperation: StateStorageOperation) = doResolveVirtualFile(path, reasonOperation)
 }

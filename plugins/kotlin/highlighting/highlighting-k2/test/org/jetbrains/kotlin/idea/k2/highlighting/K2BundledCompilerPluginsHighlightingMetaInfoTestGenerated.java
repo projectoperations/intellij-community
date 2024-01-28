@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.k2.highlighting;
 
@@ -26,6 +26,11 @@ public class K2BundledCompilerPluginsHighlightingMetaInfoTestGenerated extends A
     @TestMetadata("allOpen.kt")
     public void testAllOpen() throws Exception {
         runTest("../../idea/tests/testData/highlighterMetaInfoWithBundledCompilerPlugins/allOpen.kt");
+    }
+
+    @TestMetadata("allOpen_from_KOTLIN_BUNDLED.kt")
+    public void testAllOpen_from_KOTLIN_BUNDLED() throws Exception {
+        runTest("../../idea/tests/testData/highlighterMetaInfoWithBundledCompilerPlugins/allOpen_from_KOTLIN_BUNDLED.kt");
     }
 
     @TestMetadata("allOpen_oldRegistrar.kt")

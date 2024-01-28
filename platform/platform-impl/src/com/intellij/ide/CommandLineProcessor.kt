@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide
 
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
@@ -15,6 +15,7 @@ import com.intellij.ide.util.PsiNavigationSupport
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.*
+import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
@@ -34,6 +35,7 @@ import com.intellij.platform.CommandLineProjectOpenProcessor
 import com.intellij.platform.PlatformProjectOpenProcessor.Companion.configureToOpenDotIdeaOrCreateNewIfNotExists
 import com.intellij.platform.ide.bootstrap.CommandLineArgs
 import com.intellij.platform.ide.bootstrap.findStarter
+import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer
 import com.intellij.ui.AppIcon
 import com.intellij.util.PlatformUtils
 import com.intellij.util.io.URLUtil
@@ -133,8 +135,7 @@ object CommandLineProcessor {
       else {
         PsiNavigationSupport.getInstance().createNavigatable(project, file, -1)
       }
-      @Suppress("DEPRECATION")
-      project.coroutineScope.launch(Dispatchers.EDT) {
+      (project as ComponentManagerEx).getCoroutineScope().launch(Dispatchers.EDT) {
         navigatable.navigate(true)
       }
     }
@@ -154,8 +155,7 @@ object CommandLineProcessor {
 
   @ApiStatus.Internal
   fun scheduleProcessProtocolCommand(rawUri: @NlsSafe String) {
-    @Suppress("DEPRECATION")
-    ApplicationManager.getApplication().coroutineScope.launch {
+    (ApplicationManager.getApplication() as ComponentManagerEx).getCoroutineScope().launch {
       processProtocolCommand(rawUri)
     }
   }
@@ -229,6 +229,7 @@ object CommandLineProcessor {
     logMessage.append("-----")
     LOG.info(logMessage.toString())
     if (args.isEmpty()) {
+      FUSProjectHotStartUpMeasurer.noProjectFound()
       if (focusApp) {
         withContext(Dispatchers.EDT) {
           findVisibleFrame()?.let { frame ->
@@ -240,6 +241,7 @@ object CommandLineProcessor {
     }
 
     processApplicationStarters(args, currentDirectory)?.let {
+      FUSProjectHotStartUpMeasurer.reportStarterUsed()
       // app focus is up to app starter
       return CommandLineProcessorResult(project = null, result = it)
     }
@@ -321,6 +323,7 @@ object CommandLineProcessor {
   ): CommandLineProcessorResult {
     val parsedArgsResult = parseArgs(args, currentDirectory)
     if (parsedArgsResult.isFailure) {
+      FUSProjectHotStartUpMeasurer.noProjectFound()
       when (val e = parsedArgsResult.exceptionOrNull()) {
         is ParseException -> return createError(IdeBundle.message("dialog.message.invalid.path", e.message))
         else -> error("Unexpected exception during parsing arguments: $e")
@@ -329,6 +332,28 @@ object CommandLineProcessor {
 
     val commands = parsedArgsResult.getOrNull()
     requireNotNull(commands) { "Parsed args result should have been checked for failure before" }
+
+    if (commands.isEmpty()) {
+      FUSProjectHotStartUpMeasurer.noProjectFound()
+    }
+    else if (commands.size > 1) {
+      FUSProjectHotStartUpMeasurer.openingMultipleProjects()
+    }
+    else {
+      when (val command = commands[0]) {
+        is OpenProjectResult -> {
+          if (command.lightEditMode) {
+            FUSProjectHotStartUpMeasurer.lightEditProjectFound()
+          }
+          else {
+            FUSProjectHotStartUpMeasurer.reportProjectPath(command.file)
+          }
+        }
+        is NoProjectResult -> {
+          FUSProjectHotStartUpMeasurer.noProjectFound()
+        }
+      }
+    }
 
     var result: CommandLineProcessorResult? = null
     for (command in commands) {

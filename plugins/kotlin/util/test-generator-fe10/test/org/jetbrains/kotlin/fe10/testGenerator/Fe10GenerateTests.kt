@@ -37,7 +37,7 @@ import org.jetbrains.kotlin.idea.codeInsight.inspections.shared.idea.kdoc.Abstra
 import org.jetbrains.kotlin.idea.codeInsight.intentions.shared.AbstractSharedK1IntentionTest
 import org.jetbrains.kotlin.idea.codeInsight.moveUpDown.AbstractMoveLeftRightTest
 import org.jetbrains.kotlin.idea.codeInsight.moveUpDown.AbstractMoveStatementTest
-import org.jetbrains.kotlin.idea.codeInsight.postfix.AbstractPostfixTemplateProviderTest
+import org.jetbrains.kotlin.idea.codeInsight.postfix.AbstractK1PostfixTemplateTest
 import org.jetbrains.kotlin.idea.codeInsight.surroundWith.AbstractSurroundWithTest
 import org.jetbrains.kotlin.idea.codeInsight.unwrap.AbstractUnwrapRemoveTest
 import org.jetbrains.kotlin.idea.compilerPlugin.kotlinxSerialization.AbstractSerializationPluginIdeDiagnosticTest
@@ -156,10 +156,6 @@ import org.jetbrains.kotlin.testGenerator.model.Patterns.KT_WITHOUT_DOT_AND_FIR_
 import org.jetbrains.kotlin.testGenerator.model.Patterns.KT_WITHOUT_FIR_PREFIX
 import org.jetbrains.kotlin.testGenerator.model.Patterns.TEST
 import org.jetbrains.kotlin.testGenerator.model.Patterns.WS_KTS
-import org.jetbrains.kotlin.tools.projectWizard.cli.AbstractProjectTemplateBuildFileGenerationTest
-import org.jetbrains.kotlin.tools.projectWizard.cli.AbstractYamlBuildFileGenerationTest
-import org.jetbrains.kotlin.tools.projectWizard.wizard.AbstractProjectTemplateNewWizardProjectImportTest
-import org.jetbrains.kotlin.tools.projectWizard.wizard.AbstractYamlNewWizardProjectImportTest
 import org.jetbrains.uast.test.kotlin.comparison.*
 
 fun main(@Suppress("UNUSED_PARAMETER") args: Array<String>) {
@@ -507,6 +503,10 @@ private fun assembleWorkspace(): TWorkspace = workspace {
             model("codeInsight/breadcrumbs", pattern = KT_OR_KTS)
         }
 
+        testClass<AbstractPairMatcherTest> {
+            model("codeInsight/pairMatcher", pattern = KT_OR_KTS)
+        }
+
         testClass<AbstractK1IntentionTest> {
             model("intentions", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.(kt|kts)$"))
         }
@@ -786,15 +786,15 @@ private fun assembleWorkspace(): TWorkspace = workspace {
             model("copyPaste/moveDeclarations", pattern = KT_WITHOUT_DOTS, testMethodName = "doTest")
         }
 
-        testClass<AbstractCustomHighlightUsageHandlerTest>("HighlightExitPointsTestGenerated") {
+        testClass<AbstractCustomHighlightUsageHandlerTest>("org.jetbrains.kotlin.idea.highlighter.HighlightExitPointsTestGenerated") {
             model("exitPoints")
         }
 
-        testClass<AbstractCustomHighlightUsageHandlerTest>("KotlinHighlightUsagesTestGenerated") {
+        testClass<AbstractCustomHighlightUsageHandlerTest>("org.jetbrains.kotlin.idea.highlighter.KotlinHighlightUsagesTestGenerated") {
             model("highlightUsages")
         }
 
-        testClass<AbstractKotlinReceiverUsageHighlightingTest>("KotlinReceiverUsageHighlightingTestGenerated") {
+        testClass<AbstractKotlinReceiverUsageHighlightingTest>("org.jetbrains.kotlin.idea.highlighter.KotlinReceiverUsageHighlightingTestGenerated") {
             model("receiverUsageHighlighting")
         }
 
@@ -916,7 +916,7 @@ private fun assembleWorkspace(): TWorkspace = workspace {
         }
 
         testClass<AbstractExtractionTest> {
-            model("refactoring/introduceVariable", pattern = KT_OR_KTS, testMethodName = "doIntroduceVariableTest")
+            model("refactoring/introduceVariable", pattern = KT_OR_KTS_WITHOUT_DOTS, testMethodName = "doIntroduceVariableTest")
             model("refactoring/extractFunction", pattern = KT_OR_KTS, testMethodName = "doExtractFunctionTest", excludedDirectories = listOf("inplace"))
             model("refactoring/introduceProperty", pattern = KT_OR_KTS, testMethodName = "doIntroducePropertyTest")
             model("refactoring/introduceParameter", pattern = KT_OR_KTS, testMethodName = "doIntroduceSimpleParameterTest")
@@ -980,10 +980,6 @@ private fun assembleWorkspace(): TWorkspace = workspace {
 
         testClass<AbstractIdeReplCompletionTest> {
             model("repl/completion")
-        }
-
-        testClass<AbstractPostfixTemplateProviderTest> {
-            model("codeInsight/postfix")
         }
 
         testClass<AbstractKotlinArgumentsHintsProviderTest> {
@@ -1215,42 +1211,12 @@ private fun assembleWorkspace(): TWorkspace = workspace {
             model("basic/java8")
         }
 
-        testClass<AbstractCompletionIncrementalResolveTest31> {
+        testClass<AbstractK1CompletionIncrementalResolveTest> {
             model("incrementalResolve")
         }
 
         testClass<AbstractMultiPlatformCompletionTest> {
             model("multiPlatform", isRecursive = false, pattern = DIRECTORY)
-        }
-    }
-
-    testGroup("project-wizard/tests") {
-        fun MutableTSuite.allBuildSystemTests(relativeRootPath: String) {
-            for (testClass in listOf("GradleKts", "GradleGroovy", "Maven")) {
-                model(
-                    relativeRootPath,
-                    isRecursive = false,
-                    pattern = DIRECTORY,
-                    testMethodName = "doTest${testClass}",
-                    testClassName = testClass,
-                )
-            }
-        }
-
-        testClass<AbstractYamlBuildFileGenerationTest> {
-            model("buildFileGeneration", isRecursive = false, pattern = DIRECTORY)
-        }
-
-        testClass<AbstractProjectTemplateBuildFileGenerationTest> {
-            model("projectTemplatesBuildFileGeneration", isRecursive = false, pattern = DIRECTORY)
-        }
-
-        testClass<AbstractYamlNewWizardProjectImportTest> {
-            allBuildSystemTests("buildFileGeneration")
-        }
-
-        testClass<AbstractProjectTemplateNewWizardProjectImportTest> {
-            allBuildSystemTests("projectTemplatesBuildFileGeneration")
         }
     }
 
@@ -1264,7 +1230,7 @@ private fun assembleWorkspace(): TWorkspace = workspace {
         }
     }
 
-    testGroup("j2k/new/tests") {
+    testGroup("j2k/k1.new/tests") {
         testClass<AbstractNewJavaToKotlinConverterSingleFileTest> {
             model("newJ2k", pattern = Patterns.forRegex("""^([^.]+)\.java$"""))
         }
@@ -1415,6 +1381,12 @@ private fun assembleWorkspace(): TWorkspace = workspace {
 
         testClass<AbstractPerformanceCompletionCharFilterTest>(commonSuite = false) {
             model("handlers/charFilter", testMethodName = "doPerfTest", pattern = KT_WITHOUT_DOTS)
+        }
+    }
+
+    testGroup("idea/tests",  testDataPath = "../../code-insight/postfix-templates/testData") {
+        testClass<AbstractK1PostfixTemplateTest> {
+            model("expansion/oldTestData", pattern = KT_WITHOUT_DOTS, passTestDataPath = false)
         }
     }
 

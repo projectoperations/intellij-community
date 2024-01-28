@@ -31,7 +31,7 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScopeBlocking
+import com.intellij.platform.diagnostic.telemetry.helpers.use
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.SlowOperations
@@ -184,7 +184,7 @@ internal class ActionUpdater @JvmOverloads constructor(
         edtCallsCount++
         edtWaitNanos += start - start0
         currentEDTWaitMillis = TimeUnit.NANOSECONDS.toMillis(start - start0)
-        Utils.getTracer(true).spanBuilder(operationName).useWithScopeBlocking { span: Span ->
+        Utils.getTracer(true).spanBuilder(operationName).use { span: Span ->
           val prevStack = ourInEDTActionOperationStack
           val prevNoRules = isNoRulesInEDTSection
           var traceCookie: ThreadDumpService.Cookie? = null
@@ -258,7 +258,10 @@ internal class ActionUpdater @JvmOverloads constructor(
       if (testDelayMillis > 0) {
         delay(testDelayMillis.toLong())
       }
-      val result = removeUnnecessarySeparators(doExpandActionGroup(group, hideDisabled))
+      val result = ActionUpdaterInterceptor.expandActionGroup(
+        presentationFactory, dataContext, place, group, toolbarAction, asUpdateSession()) {
+        removeUnnecessarySeparators(doExpandActionGroup(group, hideDisabled))
+      }
       computeOnEdt {
         applyPresentationChanges()
       }
@@ -329,8 +332,8 @@ internal class ActionUpdater @JvmOverloads constructor(
     val children = getGroupChildren(group)
     // parallel update execution can break some existing caching
     // the preferred way to do caching now is `updateSession.sharedData`
-    val result = withContext(if (group is ActionUpdateThreadAware.Recursive) ForcedActionUpdateThreadElement(group.getActionUpdateThread())
-                             else EmptyCoroutineContext) {
+    val updateContext = ForcedActionUpdateThreadElement.forGroup(group)
+    val expandResult = withContext(updateContext) {
       children
         .map {
           async {
@@ -340,15 +343,21 @@ internal class ActionUpdater @JvmOverloads constructor(
         .awaitAll()
         .flatten()
     }
-    val actions = postProcessGroupChildren(group, result)
-    for (action in actions) {
-      if (action is InlineActionsHolder) {
-        for (inlineAction in action.getInlineActions()) {
-          updateAction(inlineAction)
+    val result = postProcessGroupChildren(group, expandResult)
+    result
+      .mapNotNull {
+        updatedPresentations[it]?.getClientProperty(ActionUtil.INLINE_ACTIONS)
+        ?: (it as? InlineActionsHolder)?.inlineActions
+      }
+      .flatten()
+      .map {
+        async(updateContext) {
+          updateAction(it)
         }
       }
-    }
-    actions
+      .toList()
+      .awaitAll()
+    result
   }
 
   private suspend fun postProcessGroupChildren(group: ActionGroup, result: List<AnAction>): List<AnAction> {
@@ -361,7 +370,7 @@ internal class ActionUpdater @JvmOverloads constructor(
       return retryOnAwaitSharedData(operationName, maxAwaitSharedDataRetries) {
         blockingContext { // no data-context hence no RA, just blockingContext
           val spanBuilder = Utils.getTracer(true).spanBuilder(operationName)
-          spanBuilder.useWithScopeBlocking {
+          spanBuilder.use {
             group.postProcessVisibleChildren(result, updateSession)
           }
         }
@@ -668,13 +677,18 @@ internal class ActionUpdater @JvmOverloads constructor(
       return updater.updateAction(action) ?: updater.initialBgtPresentation(action)
     }
 
+    override suspend fun childrenSuspend(actionGroup: ActionGroup): List<AnAction> {
+      return updater.getGroupChildren(actionGroup)
+    }
+
     override suspend fun expandSuspend(group: ActionGroup): List<AnAction> {
       return updater.expandActionGroup(group, group is CompactActionGroup)
     }
 
-    override suspend fun <T: Any?> sharedDataSuspend(key: Key<T>, supplier: suspend () -> T): T {
-      return updater.getSessionDataDeferred(Pair(key.toString(), key), supplier).await()
-    }
+    override fun <T: Any?> sharedDataSuspend(key: Key<T>, supplier: suspend () -> T): T =
+      updater.computeSessionDataOrThrow(Pair(key.toString(), key)) {
+        supplier()
+      }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun visitCaches(visitor: (AnAction, String, Any) -> Unit) {
@@ -815,7 +829,11 @@ private class AwaitSharedData(val job: Job, message: String) : RuntimeException(
 
 private class ForcedActionUpdateThreadElement(val updateThread: ActionUpdateThread)
   : AbstractCoroutineContextElement(ForcedActionUpdateThreadElement) {
-  companion object : CoroutineContext.Key<ForcedActionUpdateThreadElement>
+  companion object : CoroutineContext.Key<ForcedActionUpdateThreadElement> {
+    fun forGroup(group: ActionGroup) =
+      if (group is ActionUpdateThreadAware.Recursive) ForcedActionUpdateThreadElement(group.getActionUpdateThread())
+      else EmptyCoroutineContext
+  }
 }
 
 class SkipOperation(operation: String) : RuntimeException(operation) {

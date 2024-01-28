@@ -3,6 +3,7 @@ package org.jetbrains.plugins.gitlab.mergerequest.ui.diff
 
 import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.collaboration.ui.codereview.CodeReviewChatItemUIUtil
+import com.intellij.collaboration.ui.codereview.comment.CodeReviewCommentTextFieldFactory
 import com.intellij.collaboration.ui.codereview.comment.CodeReviewCommentUIUtil
 import com.intellij.collaboration.ui.codereview.comment.CommentInputActionsComponentFactory
 import com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory
@@ -31,6 +32,17 @@ internal object GitLabMergeRequestDiffInlayComponentsFactory {
       CodeReviewCommentUIUtil.createEditorInlayPanel(it)
     }
 
+  fun createDraftNote(project: Project,
+                      cs: CoroutineScope,
+                      avatarIconsProvider: IconsProvider<GitLabUserDTO>,
+                      vm: GitLabNoteViewModel,
+                      place: GitLabStatistics.MergeRequestNoteActionPlace): JComponent =
+    GitLabNoteComponentFactory.create(CodeReviewChatItemUIUtil.ComponentType.COMPACT, project, cs, avatarIconsProvider, vm, place).apply {
+      border = JBUI.Borders.empty(CodeReviewCommentUIUtil.getInlayPadding(CodeReviewChatItemUIUtil.ComponentType.COMPACT))
+    }.let {
+      CodeReviewCommentUIUtil.createEditorInlayPanel(it)
+    }
+
   fun createNewDiscussion(project: Project,
                           cs: CoroutineScope,
                           avatarIconsProvider: IconsProvider<GitLabUserDTO>,
@@ -51,22 +63,21 @@ internal object GitLabMergeRequestDiffInlayComponentsFactory {
         onCancel()
       }
     }
-    val primaryAction = vm.primarySubmitActionIn(cs, addAction, addAsDraftAction)
     val actions = CommentInputActionsComponentFactory.Config(
-      primaryAction = primaryAction,
+      primaryAction = vm.primarySubmitActionIn(cs, addAction, addAsDraftAction),
       secondaryActions = vm.secondarySubmitActionIn(cs, addAction, addAsDraftAction),
       cancelAction = MutableStateFlow(cancelAction),
-      submitHint = MutableStateFlow(
-        if (primaryAction == addAction)
-          CollaborationToolsBundle.message("review.comment.hint", CommentInputActionsComponentFactory.submitShortcutText)
-        else
-          GitLabBundle.message("merge.request.details.action.draft.comment.hint", CommentInputActionsComponentFactory.submitShortcutText))
+      submitHint = vm.submitActionHintIn(cs,
+                                         CollaborationToolsBundle.message("review.comment.hint",
+                                                                          CommentInputActionsComponentFactory.submitShortcutText),
+                                         GitLabBundle.message("merge.request.details.action.draft.comment.hint",
+                                                              CommentInputActionsComponentFactory.submitShortcutText))
     )
 
     val itemType = CodeReviewChatItemUIUtil.ComponentType.COMPACT
     val icon = CommentTextFieldFactory.IconConfig.of(itemType, avatarIconsProvider, vm.currentUser)
 
-    val editor = GitLabNoteEditorComponentFactory.create(project, cs, vm, actions, icon).apply {
+    val editor = CodeReviewCommentTextFieldFactory.createIn(cs, vm, actions, icon).apply {
       border = JBUI.Borders.empty(itemType.inputPaddingInsets)
     }
 

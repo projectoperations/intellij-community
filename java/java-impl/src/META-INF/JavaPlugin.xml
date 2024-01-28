@@ -47,6 +47,8 @@
     <listener class="com.intellij.debugger.impl.HotSwapManager$HotSwapDebuggerManagerListener" topic="com.intellij.debugger.impl.DebuggerManagerListener"/>
     <listener class="com.intellij.debugger.ui.HotSwapUIImpl$HotSwapDebuggerManagerListener" topic="com.intellij.debugger.impl.DebuggerManagerListener"/>
     <listener class="com.intellij.packaging.impl.artifacts.ArtifactVirtualFileListener" topic="com.intellij.openapi.vfs.newvfs.BulkFileListener"/>
+    <listener class="com.intellij.compiler.server.impl.BuildProcessPreloadedStateClearer" topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
+    <listener class="com.intellij.compiler.server.impl.BuildProcessPreloadedStateClearer" topic="com.intellij.openapi.roots.ModuleRootListener"/>
   </projectListeners>
 
   <extensionPoints>
@@ -365,14 +367,12 @@
     <projectService serviceImplementation="com.intellij.jarRepository.RemoteRepositoriesConfiguration"/>
     <projectService serviceImplementation="com.intellij.jarRepository.services.MavenRepositoryServicesManager"/>
     <projectService serviceImplementation="com.intellij.codeInsight.JavaProjectCodeInsightSettings"/>
-    <projectService serviceImplementation="com.intellij.javadoc.JavadocGenerationManager"/>
     <projectService serviceInterface="com.intellij.testIntegration.TestFailedLineManager"
                     serviceImplementation="com.intellij.execution.codeInspection.TestFailedLineManagerImpl"/>
     <projectService serviceInterface="com.intellij.codeInspection.ex.EntryPointsManager"
                     serviceImplementation="com.intellij.codeInspection.ex.EntryPointsManagerImpl"/>
     <projectService serviceInterface="com.intellij.openapi.roots.JavaProjectModelModificationService"
                     serviceImplementation="com.intellij.openapi.roots.impl.JavaProjectModelModificationServiceImpl"/>
-    <projectService serviceImplementation="com.intellij.codeInsight.ExpectedTypesProvider"/>
     <projectService serviceInterface="com.intellij.refactoring.listeners.JavaRefactoringListenerManager"
                     serviceImplementation="com.intellij.refactoring.listeners.impl.JavaRefactoringListenerManagerImpl"/>
     <projectService serviceImplementation="com.intellij.refactoring.RefactoringManager"/>
@@ -486,9 +486,6 @@
     <projectService serviceInterface="com.intellij.compiler.CompilerEncodingService"
                     serviceImplementation="com.intellij.compiler.impl.CompilerEncodingServiceImpl"/>
 
-    <projectService serviceImplementation="com.intellij.packaging.impl.compiler.ArtifactsWorkspaceSettings"/>
-
-    <projectService serviceImplementation="com.intellij.compiler.CompilerWorkspaceConfiguration"/>
     <projectService serviceImplementation="com.intellij.compiler.CompilerConfigurationSettings" configurationSchemaKey="compiler"/>
     <projectService
       serviceInterface="com.intellij.build.BuildWorkspaceConfiguration"
@@ -497,7 +494,7 @@
     <statistics.projectUsagesCollector implementation="com.intellij.compiler.CompilerSettingsCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.pom.java.JavaLanguageVersionsCollector"/>
 
-    <changesGroupingPolicy key="module" id="module"
+    <changesGroupingPolicy key="module" id="module" weight="20"
                            implementationClass="com.intellij.openapi.vcs.changes.ui.ModuleChangesGroupingPolicy$Factory"/>
     <vcs.changeListDecorator implementation="com.intellij.execution.testDiscovery.AffectedTestsInChangeListPainter"/>
 
@@ -1263,8 +1260,8 @@
     <codeInsight.lineMarkerProvider language="JAVA" implementationClass="com.intellij.codeInsight.daemon.impl.RecursiveCallLineMarkerProvider"/>
     <codeInsight.lineMarkerProvider language="UAST" implementationClass="com.intellij.codeInsight.daemon.impl.IconLineMarkerProvider"/>
     <codeInsight.lineMarkerProvider language="JAVA" implementationClass="com.intellij.codeInsight.ExternalAnnotationLineMarkerProvider"/>
-    <codeInsight.lineMarkerProvider language="JAVA" implementationClass="com.intellij.codeInsight.InferredNullabilityAnnotationsLineMarkerProvider"/>
-    <codeInsight.lineMarkerProvider language="JAVA" implementationClass="com.intellij.codeInsight.InferredContractAnnotationsLineMarkerProvider"/>
+    <codeInsight.lineMarkerProvider language="JAVA" order="last" implementationClass="com.intellij.codeInsight.InferredNullabilityAnnotationsLineMarkerProvider"/>
+    <codeInsight.lineMarkerProvider language="JAVA" order="last" implementationClass="com.intellij.codeInsight.InferredContractAnnotationsLineMarkerProvider"/>
     <codeInsight.gotoSuper language="SPI" implementationClass="com.intellij.spi.SPIGotoSuperHandler"/>
     <codeInsight.gotoSuper language="JAVA" implementationClass="com.intellij.codeInsight.navigation.JavaGotoSuperHandler"/>
     <codeInsight.delegateMethods language="JAVA" implementationClass="com.intellij.codeInsight.generation.GenerateDelegateHandler"/>
@@ -1528,6 +1525,19 @@
                      implementationClass="com.intellij.codeInspection.StringTemplateMigrationInspection"
                      bundle="messages.JavaBundle"
                      key="inspection.string.template.migration.name"/>
+    <localInspection groupPathKey="group.path.names.java.language.level.specific.issues.and.migration.aids" language="JAVA"
+                     groupBundle="messages.InspectionsBundle"
+                     groupKey="group.names.language.level.specific.issues.and.migration.aids21" enabledByDefault="true" level="INFORMATION"
+                     implementationClass="com.intellij.codeInspection.ImplicitToExplicitClassBackwardMigrationInspection"
+                     bundle="messages.JavaBundle"
+                     key="inspection.implicit.to.explicit.class.backward.migration.name"/>
+    <localInspection groupPathKey="group.path.names.java.language.level.specific.issues.and.migration.aids" language="JAVA"
+                     groupBundle="messages.InspectionsBundle"
+                     groupKey="group.names.language.level.specific.issues.and.migration.aids21" enabledByDefault="true" level="WARNING"
+                     implementationClass="com.intellij.codeInspection.ExplicitToImplicitClassMigrationInspection"
+                     bundle="messages.JavaBundle"
+                     editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
+                     key="inspection.explicit.to.implicit.class.migration.name"/>
     <localInspection groupPathKey="group.path.names.java.language.level.specific.issues.and.migration.aids" language="JAVA" shortName="TextBlockBackwardMigration"
                      groupBundle="messages.InspectionsBundle"
                      groupKey="group.names.language.level.specific.issues.and.migration.aids15" enabledByDefault="true" level="INFORMATION"
@@ -1860,6 +1870,9 @@
     <localInspection groupPath="Java" language="JAVA" shortName="ConstantValue" bundle="messages.JavaBundle" key="inspection.data.flow.constant.values.display.name"
                      groupKey="group.names.probable.bugs" groupBundle="messages.InspectionsBundle" enabledByDefault="true" level="WARNING"
                      implementationClass="com.intellij.codeInspection.dataFlow.ConstantValueInspection"/>
+    <localInspection groupPath="Java" language="JAVA" shortName="UnreachableCode" bundle="messages.JavaBundle" key="inspection.data.flow.unreachable.code.display.name"
+                     groupKey="group.names.probable.bugs" groupBundle="messages.InspectionsBundle" enabledByDefault="true" level="WARNING"
+                     editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES" implementationClass="com.intellij.codeInspection.dataFlow.UnreachableCodeInspection"/>
     <inspectionElementsMerger implementation="com.intellij.codeInspection.dataFlow.OptionalOfNullableMisuseInspectionMerger" />
     <inspectionElementsMerger implementation="com.intellij.codeInspection.dataFlow.ConstantValueInspectionMerger" />
     <inspectionElementsMerger implementation="com.intellij.codeInspection.dataFlow.DataFlowInspectionMerger" />
@@ -2392,7 +2405,7 @@
     <registryKey key="ide.java.show.bundled.runtime" defaultValue="true" description="Enables using bundled JetBrains Runtime for execution"/>
     <vcs.codeVisionLanguageContext language="JAVA" implementationClass="com.intellij.codeInsight.hints.JavaVcsCodeVisionContext"/>
     <codeInsight.codeVisionSettingsPreviewLanguage modelId="vcs.code.vision" language="JAVA"/>
-    <codeInsight.daemonBoundCodeVisionProvider implementation="com.intellij.codeInsight.daemon.impl.JavaReferencesCodeVisionProvider"/>
+    <codeInsight.codeVisionProvider implementation="com.intellij.codeInsight.daemon.impl.JavaReferencesCodeVisionProvider"/>
     <codeInsight.codeVisionSettingsPreviewLanguage modelId="references" language="JAVA"/>
     <codeInsight.daemonBoundCodeVisionProvider implementation="com.intellij.codeInsight.daemon.impl.JavaInheritorsCodeVisionProvider"/>
     <codeInsight.codeVisionSettingsPreviewLanguage modelId="inheritors" language="JAVA"/>
@@ -2410,6 +2423,7 @@
     <notificationGroup id="Accepted language levels" displayType="STICKY_BALLOON" bundle="messages.JavaBundle" key="notification.group.language.level"/>
     <notificationGroup id="Quarantine Cleaner" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="Build Script Found" displayType="STICKY_BALLOON" bundle="messages.JavaUiBundle" key="notification.group.build.script.found"/>
+    <statistics.notificationIdsHolder implementation="com.intellij.ide.SetupJavaProjectFromSourcesNotificationIds"/>
     <notificationGroup id="Java Preview Features" displayType="BALLOON" bundle="messages.JavaBundle" key="notification.group.preview.features"/>
     <notificationGroup id="Remove redundant exports/opens" displayType="BALLOON" bundle="messages.JavaBundle" key="notification.group.redundant.exports"/>
     <notificationGroup id="Setup SDK" displayType="BALLOON" bundle="messages.JavaBundle" key="notification.group.setup.sdk"/>
@@ -2432,7 +2446,7 @@
     <applicationService serviceInterface="com.intellij.openapi.roots.ui.configuration.ModulesConfigurator$NewProjectWizardFactory"
                         serviceImplementation="com.intellij.openapi.roots.ui.configuration.ModulesConfigurator$NewProjectWizardFactoryImpl"/>
 
-    <newProjectWizard.language implementation="com.intellij.ide.projectWizard.generators.JavaNewProjectWizard" order="first"/>
+    <newProjectWizard.languageGenerator implementation="com.intellij.ide.projectWizard.generators.JavaNewProjectWizard" order="first"/>
     <newProjectWizard.java.buildSystem implementation="com.intellij.ide.projectWizard.generators.IntelliJJavaNewProjectWizard"/>
     <requiredForSmartModeStartupActivity implementation="com.intellij.ide.projectWizard.generators.SdkPreIndexingRequiredForSmartModeActivity"/>
 

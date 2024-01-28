@@ -7,7 +7,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.intellij.ide.IdeTooltip;
 import com.intellij.ide.IdeTooltipManager;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.progress.util.ProgressIndicatorWithDelayedPresentation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.ActionCallback;
@@ -29,9 +28,9 @@ import com.intellij.vcs.log.impl.VcsLogNavigationUtil;
 import com.intellij.vcs.log.ui.AbstractVcsLogUi;
 import com.intellij.vcs.log.ui.VcsLogUiEx;
 import com.intellij.vcs.log.ui.filter.VcsLogFilterUiEx;
-import com.intellij.vcs.log.ui.frame.ProgressStripe;
 import com.intellij.vcs.log.ui.table.VcsLogGraphTable;
 import com.intellij.vcs.log.visible.VisiblePackRefresherImpl;
+import com.intellij.vcs.ui.ProgressStripe;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -47,9 +46,7 @@ public final class VcsLogUiUtil {
                                                     @NotNull VcsLogData logData,
                                                     @NotNull String logId,
                                                     @NotNull Disposable disposableParent) {
-    ProgressStripe progressStripe =
-      new ProgressStripe(component, disposableParent,
-                         ProgressIndicatorWithDelayedPresentation.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS) {
+    ProgressStripe progressStripe = new ProgressStripe(component, disposableParent) {
         @Override
         public void updateUI() {
           super.updateUI();
@@ -106,10 +103,6 @@ public final class VcsLogUiUtil {
     IdeTooltip tooltip = new IdeTooltip(component, point, new Wrapper(tipComponent)).setPreferredPosition(position).setToCenter(false)
       .setToCenterIfSmall(false);
     IdeTooltipManager.getInstance().show(tooltip, false);
-  }
-
-  public static @NotNull History installNavigationHistory(@NotNull AbstractVcsLogUi ui) {
-    return installNavigationHistory(ui, ui.getTable());
   }
 
   public static @NotNull History installNavigationHistory(@NotNull AbstractVcsLogUi ui, @NotNull VcsLogGraphTable table) {

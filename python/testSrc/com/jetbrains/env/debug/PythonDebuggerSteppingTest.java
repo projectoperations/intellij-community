@@ -3,7 +3,6 @@ package com.jetbrains.env.debug;
 
 import com.google.common.collect.ImmutableSet;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkModificator;
 import com.intellij.xdebugger.XDebuggerTestUtil;
@@ -41,14 +40,14 @@ public class PythonDebuggerSteppingTest extends PyEnvTestCase {
     public void runTestOn(@NotNull String sdkHome, @Nullable Sdk existingSdk) throws Exception {
       Sdk sdk = createTempSdk(sdkHome, SdkCreationType.SDK_PACKAGES_AND_SKELETONS);
       SdkModificator modificator = sdk.getSdkModificator();
-      ApplicationManager.getApplication().invokeAndWait(modificator::commitChanges);
+      ApplicationManager.getApplication().invokeAndWait(() -> {
+        ApplicationManager.getApplication().runWriteAction(modificator::commitChanges);
+      });
       super.runTestOn(sdk.getHomePath(), sdk);
     }
 
     void assertSmartStepIntoVariants(@NotNull String @NotNull ... expectedFunctionNames) {
-      ReadAction.run(() -> {
-        List<?> variants = getSmartStepIntoVariants();
-
+      getSmartStepIntoVariantsAsync().onSuccess(variants -> {
         String[] arr = new String[variants.size()];
         for(int i = 0; i < arr.length; i++) {
           PySmartStepIntoVariant v = (PySmartStepIntoVariant) variants.get(i);
@@ -149,7 +148,6 @@ public class PythonDebuggerSteppingTest extends PyEnvTestCase {
     });
   }
 
-  @EnvTestTagsRequired(tags = {"-python3.11", "-python3.12"})
   @Test
   public void testSmartStepInto() {
     runPythonTest(new PyDebuggerTask("/debug", "test3.py") {

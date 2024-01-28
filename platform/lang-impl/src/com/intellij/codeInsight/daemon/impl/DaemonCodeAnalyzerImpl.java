@@ -89,7 +89,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @State(name = "DaemonCodeAnalyzer", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
-public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implements PersistentStateComponent<Element>, Disposable {
+public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
+  implements PersistentStateComponent<Element>, Disposable, DaemonCodeAnalysisStatus {
+
   private static final Logger LOG = Logger.getInstance(DaemonCodeAnalyzerImpl.class);
 
   private static final Key<List<HighlightInfo>> FILE_LEVEL_HIGHLIGHTS = Key.create("FILE_LEVEL_HIGHLIGHTS");
@@ -116,9 +118,11 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
   private static final @NonNls String FILE_TAG = "file";
   private static final @NonNls String URL_ATT = "url";
   private final PassExecutorService myPassExecutorService;
-  // Timestamp of myUpdateRunnable which it's needed to start (in System.nanoTime() sense)
-  // May be later than the actual ScheduledFuture sitting in the myAlarm queue.
-  // When it happens that the future has started sooner than myScheduledUpdateStart, it will re-schedule itself for later.
+  /**
+   * Timestamp of {@link #myUpdateRunnable} which it's needed to start (in System.nanoTime() sense)
+   * May be later than the actual ScheduledFuture sitting in the {@link EdtExecutorService} queue.
+   * When it happens that the future has started sooner than this stamp, it will re-schedule itself for later.
+   */
   private long myScheduledUpdateTimestamp; // guarded by this
   private volatile boolean completeEssentialHighlightingRequested;
   private final AtomicInteger daemonCancelEventCount = new AtomicInteger();
@@ -371,7 +375,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
     // clear status maps to run passes from scratch so that refCountHolder won't conflict and try to restart itself on partially filled maps
     myFileStatusMap.markAllFilesDirty("prepare to run main passes");
     stopProcess(false, "disable background daemon");
-    myPassExecutorService.cancelAll(true);
+    myPassExecutorService.cancelAll(true, "DaemonCodeAnalyzerImpl.runMainPasses");
 
     List<HighlightInfo> result;
     try {
@@ -454,7 +458,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
     myUpdateRunnableFuture.cancel(false);
 
     // previous passes can be canceled but still in flight. wait for them to avoid interference
-    myPassExecutorService.cancelAll(false);
+    myPassExecutorService.cancelAll(false, "DaemonCodeAnalyzerImpl.runPasses");
 
     FileStatusMap fileStatusMap = getFileStatusMap();
     boolean old = fileStatusMap.allowDirt(canChangeDocument);
@@ -606,7 +610,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
 
   @TestOnly
   public void waitForTermination() {
-    myPassExecutorService.cancelAll(true);
+    myPassExecutorService.cancelAll(true, "DaemonCodeAnalyzerImpl.waitForTermination");
   }
 
   @Override
@@ -727,6 +731,10 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
       .collect(Collectors.toList());
   }
 
+  /**
+   * Used in tests, don't remove VisibleForTesting
+   */
+  @Override
   @ApiStatus.Internal
   @VisibleForTesting
   public boolean isAllAnalysisFinished(@NotNull PsiFile psiFile) {
@@ -762,26 +770,28 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
     return false;
   }
 
+  @Override
   @TestOnly
   public boolean isRunningOrPending() {
     ThreadingAssertions.assertEventDispatchThread();
     return isRunning() || !myUpdateRunnableFuture.isDone() || GeneralHighlightingPass.isRestartPending();
   }
 
-  // return true if the progress really was canceled
+  /**
+   * return true if the progress really was canceled
+   * reset {@link #myScheduledUpdateTimestamp} always, but re-schedule {@link #myUpdateRunnable} only rarely because of thread scheduling overhead
+   */
   synchronized void stopProcess(boolean toRestartAlarm, @NotNull @NonNls String reason) {
     cancelAllUpdateProgresses(toRestartAlarm, reason);
     boolean restart = toRestartAlarm && !myDisposed;
-
-    // reset myScheduledUpdateStart always, but re-schedule myUpdateRunnable only rarely because of thread scheduling overhead
-    long autoReparseDelayNanos = TimeUnit.MILLISECONDS.toNanos(mySettings.getAutoReparseDelay());
     if (restart) {
+      long autoReparseDelayNanos = TimeUnit.MILLISECONDS.toNanos(mySettings.getAutoReparseDelay());
       myScheduledUpdateTimestamp = System.nanoTime() + autoReparseDelayNanos;
-    }
-    // optimisation: this check is to avoid too many re-schedules in case of thousands of event spikes
-    boolean isDone = myUpdateRunnableFuture.isDone();
-    if (restart && isDone) {
-      scheduleUpdateRunnable(autoReparseDelayNanos);
+      // optimisation: this check is to avoid too many re-schedules in case of thousands of event spikes
+      boolean isDone = myUpdateRunnableFuture.isDone();
+      if (isDone) {
+        scheduleUpdateRunnable(autoReparseDelayNanos);
+      }
     }
   }
 
@@ -800,7 +810,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
       if (!updateProgress.isCanceled()) {
         PassExecutorService.log(updateProgress, null, "Cancel", reason, toRestartAlarm);
         updateProgress.cancel(reason);
-        myPassExecutorService.cancelAll(false);
+        myPassExecutorService.cancelAll(false, reason);
       }
     }
     daemonCancelEventCount.incrementAndGet();
@@ -1067,7 +1077,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
         PsiFile psiFile = virtualFile == null ? null : findFileToHighlight(dca.myProject, virtualFile);
         submitted |= psiFile != null && dca.queuePassesCreation(fileEditor, virtualFile, psiFile, ArrayUtil.EMPTY_INT_ARRAY) != null;
         if (PassExecutorService.LOG.isDebugEnabled()) {
-          PassExecutorService.log(null, null, "submitting psiFile:", psiFile+"; submitted=", submitted);
+          PassExecutorService.log(null, null, "submitting psiFile:", psiFile+" ("+virtualFile+"); submitted=", submitted);
         }
       }
       if (!submitted) {
@@ -1134,7 +1144,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx implement
       session = HighlightingSessionImpl.createHighlightingSession(psiFile, editor, scheme, progress, daemonCancelEventCount);
     }
     JobLauncher.getInstance().submitToJobThread(Context.current().wrap(() ->
-                                                  submitInBackground(fileEditor, document, virtualFile, psiFile, highlighter, passesToIgnore, progress, session)),
+      submitInBackground(fileEditor, document, virtualFile, psiFile, highlighter, passesToIgnore, progress, session)),
       // manifest exceptions in EDT to avoid storing them in the Future and abandoning
       task -> ApplicationManager.getApplication().invokeLater(() -> ConcurrencyUtil.manifestExceptionsIn(task)));
     return session;

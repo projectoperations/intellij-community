@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl
 
 import com.intellij.openapi.application.ApplicationManager
@@ -11,6 +11,8 @@ import com.intellij.platform.workspace.jps.OrphanageWorkerEntitySource
 import com.intellij.platform.workspace.jps.entities.*
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.VersionedEntityStorageImpl
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.util.concurrency.annotations.RequiresWriteLock
 import com.intellij.workspaceModel.ide.EntitiesOrphanage
@@ -19,10 +21,11 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.system.measureTimeMillis
 
 class EntitiesOrphanageImpl(private val project: Project) : EntitiesOrphanage {
-  private val entityStorage: VersionedEntityStorageImpl = VersionedEntityStorageImpl(EntityStorageSnapshot.empty())
-  override val currentSnapshot: EntityStorageSnapshot
+  private val entityStorage: VersionedEntityStorageImpl = VersionedEntityStorageImpl(ImmutableEntityStorage.empty())
+  override val currentSnapshot: ImmutableEntityStorage
     get() = entityStorage.current
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   @RequiresWriteLock
   override fun update(updater: (MutableEntityStorage) -> Unit) {
     ApplicationManager.getApplication().assertWriteAccessAllowed()
@@ -32,11 +35,11 @@ class EntitiesOrphanageImpl(private val project: Project) : EntitiesOrphanage {
 
     updater(builder)
 
-    val changes = builder.collectChanges()
+    val changes = (builder as MutableEntityStorageInstrumentation).collectChanges()
 
     checkIfParentsAlreadyExist(changes, builder)
 
-    val newStorage: EntityStorageSnapshot = builder.toSnapshot()
+    val newStorage: ImmutableEntityStorage = builder.toSnapshot()
     entityStorage.replace(newStorage, emptyMap(), {}, {})
 
     log.info("Update orphanage. ${changes[ModuleEntity::class.java]?.size ?: 0} modules added")
@@ -235,16 +238,16 @@ private class SourceRootAdder : EntityAdder {
 
     entitiesToRemoveFromOrphanage.forEach {
       // This should be done before remove
-      val contentRootReference = it.contentRoot.createReference<ContentRootEntity>()
-      val moduleReference = it.contentRoot.module.createReference<ModuleEntity>()
+      val contentRootPointer = it.contentRoot.createPointer<ContentRootEntity>()
+      val modulePointer = it.contentRoot.module.createPointer<ModuleEntity>()
 
       builder.removeEntity(it)
 
-      val content = contentRootReference.resolve(builder) ?: return@forEach
+      val content = contentRootPointer.resolve(builder) ?: return@forEach
       if (content.sourceRoots.isEmpty() && content.excludedUrls.isEmpty()) {
         builder.removeEntity(content)
 
-        val module = moduleReference.resolve(builder) ?: return@forEach
+        val module = modulePointer.resolve(builder) ?: return@forEach
         if (module.contentRoots.isEmpty()) {
           builder.removeEntity(module)
         }
@@ -303,16 +306,16 @@ private class ExcludeRootAdder : EntityAdder {
   override fun cleanOrphanage(builder: MutableEntityStorage) {
     entitiesToRemoveFromOrphanage.forEach {
       // This should be done before removing
-      val moduleReference = it.contentRoot?.module?.createReference<ModuleEntity>()
-      val contentReference = it.contentRoot?.createReference<ContentRootEntity>()
+      val modulePointer = it.contentRoot?.module?.createPointer<ModuleEntity>()
+      val contentPointer = it.contentRoot?.createPointer<ContentRootEntity>()
 
       builder.removeEntity(it)
 
-      val content = contentReference?.resolve(builder) ?: return@forEach
+      val content = contentPointer?.resolve(builder) ?: return@forEach
       if (content.excludedUrls.isEmpty() && content.sourceRoots.isEmpty()) {
         builder.removeEntity(content)
 
-        val module = moduleReference?.resolve(builder) ?: return@forEach
+        val module = modulePointer?.resolve(builder) ?: return@forEach
         if (module.contentRoots.isEmpty()) {
           builder.removeEntity(module)
         }

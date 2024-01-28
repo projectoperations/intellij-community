@@ -25,6 +25,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xdebugger.frame.XExecutionStack;
 import com.intellij.xdebugger.frame.XStackFrame;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.frame.XFramesView;
 import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
 import com.jetbrains.jdi.ThreadGroupReferenceImpl;
 import com.jetbrains.jdi.ThreadReferenceImpl;
@@ -141,15 +142,6 @@ public class JavaExecutionStack extends XExecutionStack {
     }
   }
 
-  /**
-   * @deprecated Use {@link #createStackFrames(StackFrameProxyImpl)} instead.
-   */
-  @NotNull
-  @Deprecated(forRemoval = true)
-  public XStackFrame createStackFrame(@NotNull StackFrameProxyImpl stackFrameProxy) {
-    return createStackFrames(stackFrameProxy).get(0);
-  }
-
   @NotNull
   public List<XStackFrame> createStackFrames(@NotNull StackFrameProxyImpl stackFrameProxy) {
     return createFrames(new StackFrameDescriptorImpl(stackFrameProxy, myTracker));
@@ -217,7 +209,7 @@ public class JavaExecutionStack extends XExecutionStack {
                 added++;
               }
               myDebugProcess.getManagerThread().schedule(
-                new AppendFrameCommand(suspendContext, iterator, container, added, firstFrameIndex, null, 0, true));
+                new AppendFrameCommand(suspendContext, iterator, container, added, firstFrameIndex, 0, null, null, 0, true));
             }
             catch (EvaluateException e) {
               container.errorOccurred(e.getMessage());
@@ -240,11 +232,19 @@ public class JavaExecutionStack extends XExecutionStack {
     private int myAddedAsync;
     private boolean mySeparator;
 
+    /**
+     * Current count of frames hidden since the last shown one.
+     */
+    private int myHiddenCount;
+    private @Nullable XStackFrame myFirstHiddenFrame;
+
     AppendFrameCommand(SuspendContextImpl suspendContext,
                        @Nullable Iterator<StackFrameProxyImpl> stackFramesIterator,
                        XStackFrameContainer container,
                        int added,
                        int skip,
+                       int hiddenCount,
+                       XStackFrame firstHiddenFrame,
                        @Nullable List<? extends StackFrameItem> asyncStack,
                        int addedAsync,
                        boolean separator) {
@@ -253,6 +253,8 @@ public class JavaExecutionStack extends XExecutionStack {
       myContainer = container;
       myAdded = added;
       mySkip = skip;
+      myHiddenCount = hiddenCount;
+      myFirstHiddenFrame = firstHiddenFrame;
       myAsyncStack = asyncStack;
       myAddedAsync = addedAsync;
       mySeparator = separator;
@@ -265,6 +267,10 @@ public class JavaExecutionStack extends XExecutionStack {
 
     private boolean addFrameIfNeeded(XStackFrame frame, boolean last) {
       if (++myAdded > mySkip) {
+        if (myHiddenCount > 0) {
+          assert myFirstHiddenFrame != null;
+          myContainer.addStackFrames(XFramesView.createHiddenFramePlaceholder(myHiddenCount, myFirstHiddenFrame), false);
+        }
         myContainer.addStackFrames(Collections.singletonList(frame), last);
         return true;
       }
@@ -305,6 +311,14 @@ public class JavaExecutionStack extends XExecutionStack {
                 });
               }
               addFrameIfNeeded(frame, false);
+              myHiddenCount = 0;
+              myFirstHiddenFrame = null;
+            }
+            else {
+              if (myHiddenCount == 0) {
+                myFirstHiddenFrame = frame;
+              }
+              myHiddenCount++;
             }
           }
 
@@ -346,7 +360,7 @@ public class JavaExecutionStack extends XExecutionStack {
                           boolean separator) {
       myDebugProcess.getManagerThread().schedule(
         new AppendFrameCommand(suspendContext, stackFramesIterator, myContainer,
-                               myAdded, mySkip, asyncStackFrames, myAddedAsync, separator));
+                               myAdded, mySkip, myHiddenCount, myFirstHiddenFrame, asyncStackFrames, myAddedAsync, separator));
     }
 
     void appendRelatedStack(@NotNull SuspendContextImpl suspendContext, List<? extends StackFrameItem> asyncStack) {
@@ -367,10 +381,20 @@ public class JavaExecutionStack extends XExecutionStack {
           continue;
         }
         XStackFrame newFrame = stackFrame.createFrame(myDebugProcess);
-        if (newFrame != null && showFrame(newFrame)) {
-          StackFrameItem.setWithSeparator(newFrame, mySeparator);
-          if (addFrameIfNeeded(newFrame, false)) {
-            mySeparator = false;
+        if (newFrame != null) {
+          if (showFrame(newFrame)) {
+            StackFrameItem.setWithSeparator(newFrame, mySeparator);
+            if (addFrameIfNeeded(newFrame, false)) {
+              mySeparator = false;
+            }
+            myHiddenCount = 0;
+            myFirstHiddenFrame = null;
+          }
+          else {
+            if (myHiddenCount == 0) {
+              myFirstHiddenFrame = newFrame;
+            }
+            myHiddenCount++;
           }
         }
         schedule(suspendContext, null, myAsyncStack, mySeparator);

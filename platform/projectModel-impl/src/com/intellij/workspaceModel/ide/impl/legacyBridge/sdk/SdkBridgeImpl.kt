@@ -22,10 +22,9 @@ import com.intellij.platform.workspace.jps.serialization.impl.JpsGlobalEntitiesS
 import com.intellij.platform.workspace.jps.serialization.impl.JpsSdkEntitySerializer
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.ModifiableWorkspaceEntityBase
-import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.util.EventDispatcher
 import com.intellij.util.concurrency.ThreadingAssertions
-import com.intellij.workspaceModel.ide.getGlobalInstance
+import com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModel
 import org.jdom.Element
 import org.jetbrains.annotations.ApiStatus
 import java.util.function.Function
@@ -120,7 +119,7 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
 
   override fun readExternal(element: Element) {
     val sdkSerializer = createSerializer()
-    val sdkEntity = sdkSerializer.loadSdkEntity(element, VirtualFileUrlManager.getGlobalInstance())
+    val sdkEntity = sdkSerializer.loadSdkEntity(element, GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager())
 
     sdkEntityBuilder.applyChangesFrom(sdkEntity)
     reloadAdditionalData()
@@ -136,7 +135,7 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
 
   private fun createSerializer(): JpsSdkEntitySerializer {
     val sortedRootTypes = OrderRootType.getSortedRootTypes().mapNotNull { it.sdkRootName }
-    return JpsGlobalEntitiesSerializers.createSdkSerializer(VirtualFileUrlManager.getGlobalInstance(), sortedRootTypes)
+    return JpsGlobalEntitiesSerializers.createSdkSerializer(GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager(), sortedRootTypes)
   }
 
   fun getRawSdkAdditionalData(): String = sdkEntityBuilder.additionalData
@@ -173,7 +172,7 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
   }
 
   companion object {
-    private const val SDK_BRIDGE_MAPPING_ID = "intellij.sdk.bridge"
+    private val SDK_BRIDGE_MAPPING_ID = ExternalMappingKey.create<ProjectJdkImpl>("intellij.sdk.bridge")
 
     val EntityStorage.sdkMap: ExternalEntityMapping<ProjectJdkImpl>
       get() = getExternalMapping(SDK_BRIDGE_MAPPING_ID)
@@ -182,16 +181,17 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
 
     fun createEmptySdkEntity(name: String, type: String, homePath: String = "", version: String? = null): SdkEntity.Builder {
       val sdkEntitySource = createEntitySourceForSdk()
-      val virtualFileUrlManager = VirtualFileUrlManager.getGlobalInstance()
-      val homePathVfu = virtualFileUrlManager.fromUrl(homePath)
+      val virtualFileUrlManager = GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager()
+      val homePathVfu = virtualFileUrlManager.getOrCreateFromUri(homePath)
       return SdkEntity(name, type, emptyList(), "", sdkEntitySource) {
         this.homePath = homePathVfu
+        this.version = version
       } as SdkEntity.Builder
     }
 
     fun createEntitySourceForSdk(): EntitySource {
-      val virtualFileUrlManager = VirtualFileUrlManager.getGlobalInstance()
-      val globalLibrariesFile = virtualFileUrlManager.fromUrl(
+      val virtualFileUrlManager = GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager()
+      val globalLibrariesFile = virtualFileUrlManager.getOrCreateFromUri(
         PathManager.getOptionsFile(JpsGlobalEntitiesSerializers.SDK_FILE_NAME).absolutePath)
       return JpsGlobalFileEntitySource(globalLibrariesFile)
     }

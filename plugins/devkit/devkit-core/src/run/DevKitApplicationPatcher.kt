@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.run
 
 import com.intellij.execution.RunConfigurationExtension
@@ -10,6 +10,7 @@ import com.intellij.execution.configurations.RunnerSettings
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.util.PlatformUtils
+import com.intellij.util.lang.UrlClassLoader
 import com.intellij.util.system.CpuArch
 import org.jetbrains.idea.devkit.util.PsiUtil
 import java.nio.file.Files
@@ -41,31 +42,46 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
       val qualifiedName = "com.intellij.util.lang.PathClassLoader"
       if (JUnitDevKitPatcher.loaderValid(project, module, qualifiedName)) {
         vmParameters.addProperty(JUnitDevKitPatcher.SYSTEM_CL_PROPERTY, qualifiedName)
+        vmParameters.addProperty(UrlClassLoader.CLASSPATH_INDEX_PROPERTY_NAME, "true")
       }
     }
 
     JUnitDevKitPatcher.appendAddOpensWhenNeeded(project, jdk, vmParameters)
 
-    if (!isDev) {
-      return
+    val is17 = javaParameters.jdk?.versionString?.contains("17") == true
+    if (!vmParametersAsList.any { it.contains("CICompilerCount") || it.contains("TieredCompilation") }) {
+      if (is17) {
+        vmParameters.addAll("-XX:CICompilerCount=2")
+      }
+      else {
+        vmParameters.addAll("-XX:-TieredCompilation")
+        vmParameters.addAll("-XX:+SegmentedCodeCache")
+      }
     }
+
+    vmParameters.addAll(
+      "-XX:MaxJavaStackTraceDepth=10000",
+      "-ea",
+    )
 
     vmParameters.addProperty("kotlinx.coroutines.debug.enable.creation.stack.trace", "false")
 
     if (vmParametersAsList.none { it.startsWith("-Xmx") }) {
       vmParameters.add("-Xmx2g")
     }
-    if (vmParametersAsList.none { it.startsWith("-XX:ReservedCodeCacheSize") }) {
-      vmParameters.add("-XX:ReservedCodeCacheSize=512m")
+    if (vmParametersAsList.none { it.startsWith("-Xmx") }) {
+      vmParameters.add("-Xmx2g")
     }
-    vmParameters.addAll(
-      "-XX:+UseG1GC",
-      "-XX:SoftRefLRUPolicyMSPerMB=50",
-      "-XX:MaxJavaStackTraceDepth=10000",
-      "-ea",
-      "-XX:CICompilerCount=2",
-      "-XX:PrintIdealGraphLevel=3"
-    )
+    if (is17 && vmParametersAsList.none { it.startsWith("-XX:SoftRefLRUPolicyMSPerMB") }) {
+      vmParameters.add("-XX:SoftRefLRUPolicyMSPerMB=50")
+    }
+    if (vmParametersAsList.none { it.startsWith("-XX:ReservedCodeCacheSize") }) {
+      vmParameters.add("-XX:ReservedCodeCacheSize=${if (is17) 512 else 240}m")
+    }
+
+    if (!isDev) {
+      return
+    }
 
     var productClassifier = vmParameters.getPropertyValue("idea.platform.prefix")
     productClassifier = when (productClassifier) {
@@ -138,7 +154,5 @@ private fun getIdeSystemProperties(runDir: Path): Map<String, String> {
     // require bundled JNA dispatcher lib
     "jna.nosys" to "true",
     "jna.noclasspath" to "true",
-    "skiko.library.path" to "$libDir/skiko-awt-runtime-all",
-    "compose.swing.render.on.graphics" to "true",
   )
 }

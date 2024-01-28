@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.io.dev.mmapped;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -92,7 +92,7 @@ public final class MMappedFileStorage implements Closeable, Unmappable, Cleanabl
   //     how we use them, and issue the alarm early on as we start to use too many
 
   /** Log warn if > PAGES_TO_WARN_THRESHOLD pages were mapped */
-  private static final int PAGES_TO_WARN_THRESHOLD = getIntProperty("vfs.memory-mapped-storage.pages-to-warn-threshold", 256);
+  private static final int PAGES_TO_WARN_THRESHOLD = getIntProperty("vfs.memory-mapped-storage.pages-to-warn-threshold", 512);
 
   private static volatile int openedStoragesCount = 0;
   private static final AtomicInteger totalPagesMapped = new AtomicInteger();
@@ -224,29 +224,6 @@ public final class MMappedFileStorage implements Closeable, Unmappable, Cleanabl
       page = pageByIndexLocked(pageIndex);
     }
     return page;
-  }
-
-  /**
-   * Truncates the file so that it has size=0, and all previous content is lost.
-   * This method is unsafe and should be used with caution: it should be no chance storage is used by other
-   * threads concurrently, nobody should keep any {@link Page} reference. This is because writing to a buffer
-   * mapped over a non-existing file region (e.g. after truncation) is 'undefined behavior', and could lead
-   * to all sorts of weird behaviors -- immediate/delayed JVM crash (#SIGBUS), immediate/delayed data loss, etc.
-   * <p/>
-   * Basically, the main safe use-case for this method is to call it immediately after the storage instance
-   * is opened -- and no reference to it is ever leaked. E.g., one opens the file, reads the header, and
-   * finds out file content is corrupted -- so .truncate() the storage, and use as-if it was a new file
-   * just created.
-   *
-   * @deprecated to be removed: it doesn't work on Windows, but Windows was the main reason to introduce
-   * the method in the first place, so better get rid of it before it got more usages.
-   */
-  @ApiStatus.Obsolete
-  public void truncate() throws IOException {
-    synchronized (pagesLock) {
-      channel.truncate(0L);
-      pages = new Page[0];
-    }
   }
 
   public int pageIndexByOffset(long offsetInFile) {

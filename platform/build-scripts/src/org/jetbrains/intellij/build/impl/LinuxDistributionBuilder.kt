@@ -1,10 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScopeBlocking
+import com.intellij.platform.diagnostic.telemetry.helpers.use
 import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -21,6 +21,7 @@ import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import kotlin.io.path.exists
 import kotlin.io.path.name
 import kotlin.io.path.nameWithoutExtension
 import kotlin.time.Duration.Companion.minutes
@@ -28,7 +29,7 @@ import kotlin.time.Duration.Companion.minutes
 class LinuxDistributionBuilder(override val context: BuildContext,
                                private val customizer: LinuxDistributionCustomizer,
                                private val ideaProperties: CharSequence?) : OsSpecificDistributionBuilder {
-  internal companion object {
+  private companion object {
     const val NO_RUNTIME_SUFFIX = "-no-jbr"
   }
 
@@ -156,7 +157,7 @@ class LinuxDistributionBuilder(override val context: BuildContext,
     if (runtimeDir != null) {
       dirs.add(runtimeDir)
       val javaExecutablePath = "jbr/bin/java"
-      check(Files.exists(runtimeDir.resolve(javaExecutablePath))) { "${javaExecutablePath} was not found under ${runtimeDir}" }
+      check(Files.exists(runtimeDir.resolve(javaExecutablePath))) { "$javaExecutablePath was not found under $runtimeDir" }
     }
 
     val productJsonDir = context.paths.tempDir.resolve("linux.dist.product-info.json${suffix}")
@@ -181,7 +182,7 @@ class LinuxDistributionBuilder(override val context: BuildContext,
     "${appInfo.majorVersion}.${appInfo.minorVersion}${if (versionSuffix.isEmpty()) "" else "-${versionSuffix}"}"
   }
 
-  internal val snapArtifactName: String? by lazy {
+  private val snapArtifactName: String? by lazy {
     "${customizer.snapName ?: return@lazy null}_${snapVersion}_amd64.snap"
   }
 
@@ -200,10 +201,10 @@ class LinuxDistributionBuilder(override val context: BuildContext,
     val snapDir = context.paths.buildOutputDir.resolve("dist.snap")
     spanBuilder("build Linux .snap package")
       .setAttribute("snapName", snapName)
-      .useWithScopeBlocking { span ->
+      .use { span ->
         if (SystemInfoRt.isWindows) {
           span.addEvent(".snap cannot be built on Windows, skipped")
-          return@useWithScopeBlocking
+          return@use
         }
         check(iconPngPath != null) { context.messages.error("'iconPngPath' not set") }
         check(!customizer.snapDescription.isNullOrBlank()) { context.messages.error("'snapDescription' not set") }
@@ -293,6 +294,22 @@ class LinuxDistributionBuilder(override val context: BuildContext,
     return unSquashed.resolve("squashfs-root")
   }
 
+  override fun distributionFilesBuilt(arch: JvmArchitecture): List<Path> {
+    val archSuffix = suffix(arch)
+    return sequenceOf(
+      "$archSuffix.tar.gz",
+      "$NO_RUNTIME_SUFFIX$archSuffix.tar.gz"
+    ).map { suffix ->
+      context.productProperties.getBaseArtifactName(context) + suffix
+    }.plus(snapArtifactName).filterNotNull()
+      .map(context.paths.artifactDir::resolve)
+      .filter { it.exists() }
+      .toList()
+  }
+
+  override fun isRuntimeBundled(file: Path): Boolean {
+    return !file.name.contains(NO_RUNTIME_SUFFIX)
+  }
 }
 
 private fun generateProductJson(targetDir: Path, context: BuildContext, arch: JvmArchitecture, withRuntime: Boolean = true): String {
@@ -415,7 +432,7 @@ private fun writeLinuxVmOptions(distBinDir: Path, context: BuildContext): Path {
   val vmOptions = VmOptionsGenerator.computeVmOptions(context) +
                   listOf("-Dsun.tools.attach.tmp.only=true",
                          "-Dawt.lock.fair=true")
-  VmOptionsGenerator.writeVmOptions(vmOptionsPath, vmOptions, "\n")
+  writeVmOptions(file = vmOptionsPath, vmOptions = vmOptions, separator = "\n")
 
   return vmOptionsPath
 }

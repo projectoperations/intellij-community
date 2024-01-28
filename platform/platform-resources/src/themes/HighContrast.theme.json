@@ -477,13 +477,22 @@
       "Badge.newLessonForeground": "#000000"
     },
 
+    "GotItTooltip": {
+      "codeBackground": "#000000",
+      "shortcutBackground": "#000000",
+      "shortcutBorderColor": "#1AEBFF"
+    },
+
     "Tooltip.Learning": {
       "background": "#000080",
       "borderColor": "#FFFFFF",
       "spanBackground": "#1AEBFF",
       "spanForeground": "#000000",
       "foreground": "#FFFFFF",
-      "stepNumberForeground": "#FFFFFF"
+      "stepNumberForeground": "#FFFFFF",
+      "secondaryActionForeground": "#FFFFFF",
+      "iconFillColor": "#35538F",
+      "iconBorderColor": "#FFFFFF"
     },
 
     "WelcomeScreen": {

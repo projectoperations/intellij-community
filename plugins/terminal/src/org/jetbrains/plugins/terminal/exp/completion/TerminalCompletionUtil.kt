@@ -12,6 +12,7 @@ import org.jetbrains.terminal.completion.BaseSuggestion
 import org.jetbrains.terminal.completion.ShellArgument
 import org.jetbrains.terminal.completion.ShellCommand
 import org.jetbrains.terminal.completion.ShellOption
+import java.io.File
 import javax.swing.Icon
 
 internal object TerminalCompletionUtil {
@@ -62,19 +63,21 @@ internal object TerminalCompletionUtil {
 
   private fun ShellArgumentSuggestion.findIcon(): Icon {
     return if (argument.isFilePath() || argument.isFolder()) {
-      getFileIcon(names.first())
+      getFileOrFolderIcon(names.first())
     }
     else TerminalIcons.Other
   }
 
-  private fun getFileIcon(fileName: String): Icon {
-    return if (fileName.endsWith("/") || fileName == "~" || fileName == "-") {
+  private fun getFileOrFolderIcon(fileName: String): Icon {
+    return if (fileName.endsWith(File.separatorChar) || fileName == "~" || fileName == "-") {
       AllIcons.Nodes.Folder
     }
-    else {
-      val fileType = FileTypeRegistry.getInstance().getFileTypeByFileName(fileName)
-      val fileIcon = fileType.icon ?: TerminalIcons.OtherFile
-      if (fileType is UnknownFileType) TerminalIcons.OtherFile else fileIcon
-    }
+    else getFileIcon(fileName)
+  }
+
+  fun getFileIcon(fileName: String): Icon {
+    val fileType = FileTypeRegistry.getInstance().getFileTypeByFileName(fileName)
+    val fileIcon = fileType.icon ?: TerminalIcons.OtherFile
+    return if (fileType is UnknownFileType) TerminalIcons.OtherFile else fileIcon
   }
 }

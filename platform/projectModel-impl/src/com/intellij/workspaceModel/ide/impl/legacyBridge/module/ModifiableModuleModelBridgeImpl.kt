@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplacePutWithAssignment")
 
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module
@@ -13,19 +13,18 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.jps.JpsMetrics
 import com.intellij.platform.workspace.jps.entities.*
 import com.intellij.platform.workspace.jps.serialization.impl.ModulePath
 import com.intellij.platform.workspace.storage.MutableEntityStorage
-import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.projectModel.ProjectModelBundle
 import com.intellij.util.PathUtil
 import com.intellij.util.containers.BidirectionalMap
 import com.intellij.util.io.systemIndependentPath
 import com.intellij.workspaceModel.ide.NonPersistentEntitySource
-import com.intellij.workspaceModel.ide.getInstance
 import com.intellij.workspaceModel.ide.impl.LegacyBridgeJpsEntitySourceFactory
 import com.intellij.workspaceModel.ide.impl.legacyBridge.LegacyBridgeModifiableBase
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.ModuleManagerBridgeImpl.Companion.mutableModuleMap
@@ -89,9 +88,11 @@ internal class ModifiableModuleModelBridgeImpl(
       throw ModuleWithNameAlreadyExists("Module already exists: $moduleName", moduleName)
     }
 
+    val parentPath = PathUtil.getParentPath(canonicalPath)
+    val baseModuleDir = WorkspaceModel.getInstance(project).getVirtualFileUrlManager().getOrCreateFromUri(VfsUtilCore.pathToUrl(parentPath))
     val entitySource = LegacyBridgeJpsEntitySourceFactory.createEntitySourceForModule(
       project = project,
-      baseModuleDir = VirtualFileUrlManager.getInstance(project).fromPath(PathUtil.getParentPath(canonicalPath)),
+      baseModuleDir = baseModuleDir,
       externalSource = null,
     )
 
@@ -234,7 +235,7 @@ internal class ModifiableModuleModelBridgeImpl(
     val diff = collectChanges()
 
     WorkspaceModel.getInstance(project).updateProjectModel("Module model commit") {
-      it.addDiff(diff)
+      it.applyChangesFrom(diff)
     }
   }
 

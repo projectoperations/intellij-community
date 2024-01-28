@@ -15,6 +15,9 @@ import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider
 import org.jetbrains.plugins.terminal.exp.TerminalDataContextUtils.IS_PROMPT_EDITOR_KEY
 import org.jetbrains.plugins.terminal.exp.completion.IJShellRuntimeDataProvider
+import org.jetbrains.plugins.terminal.exp.completion.ShellCommandExecutor
+import org.jetbrains.plugins.terminal.exp.completion.ShellCommandExecutorImpl
+import org.jetbrains.plugins.terminal.exp.history.CommandHistoryManager
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.properties.Delegates
 
@@ -49,7 +52,9 @@ class TerminalPromptController(
     editor.putUserData(IS_PROMPT_EDITOR_KEY, true)
     editor.putUserData(BlockTerminalSession.KEY, session)
 
-    val runtimeDataProvider = IJShellRuntimeDataProvider(session)
+    val shellCommandExecutor = ShellCommandExecutorImpl(session)
+    editor.putUserData(ShellCommandExecutor.KEY, shellCommandExecutor)
+    val runtimeDataProvider = IJShellRuntimeDataProvider(session, shellCommandExecutor)
     editor.putUserData(IJShellRuntimeDataProvider.KEY, runtimeDataProvider)
 
     commandHistoryManager = CommandHistoryManager(session)
@@ -79,7 +84,7 @@ class TerminalPromptController(
 
   private fun computePromptText(directory: String): @NlsSafe String {
     return if (directory != SystemProperties.getUserHome()) {
-      FileUtil.getLocationRelativeToUserHome(directory)
+      FileUtil.getLocationRelativeToUserHome(directory, false)
     }
     else "~"
   }
@@ -105,6 +110,11 @@ class TerminalPromptController(
     listeners.forEach { it.commandHistoryStateChanged(showing = false) }
   }
 
+  @RequiresEdt
+  fun showCommandSearch() {
+    listeners.forEach { it.commandSearchRequested() }
+  }
+
   fun addDocumentListener(listener: DocumentListener, disposable: Disposable? = null) {
     if (disposable != null) {
       editor.document.addDocumentListener(listener, disposable)
@@ -115,6 +125,7 @@ class TerminalPromptController(
   interface PromptStateListener {
     fun promptLabelChanged(newText: @NlsSafe String) {}
     fun commandHistoryStateChanged(showing: Boolean) {}
+    fun commandSearchRequested() {}
     fun promptVisibilityChanged(visible: Boolean) {}
   }
 

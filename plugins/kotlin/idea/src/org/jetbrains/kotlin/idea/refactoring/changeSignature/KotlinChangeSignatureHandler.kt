@@ -2,6 +2,7 @@
 
 package org.jetbrains.kotlin.idea.refactoring.changeSignature
 
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiClass
@@ -37,13 +38,14 @@ class KotlinChangeSignatureHandler : KotlinChangeSignatureHandlerBase() {
         element: KtElement,
         context: PsiElement,
         project: Project,
-        editor: Editor?
+        editor: Editor?,
+        dataContext: DataContext?
     ){
         val callableDescriptor = findDescriptor(element)
         if (!checkDescriptor(callableDescriptor, project, editor)) return
 
         require(callableDescriptor is CallableDescriptor)
-        runChangeSignature(project, editor, callableDescriptor, KotlinChangeSignatureConfiguration.Empty, context, null)
+        runChangeSignature(project, editor, callableDescriptor, KotlinChangeSignatureConfiguration.Empty, element, null)
     }
 
     fun findDescriptor(element: KtElement): CallableDescriptor? {

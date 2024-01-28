@@ -24,13 +24,9 @@ import com.intellij.util.ui.update.MergingUpdateQueue
 import com.intellij.util.ui.update.Update
 import java.util.concurrent.atomic.AtomicInteger
 
-open class CombinedDiffModelImpl(protected val project: Project,
-                                 parentDisposable: Disposable? = null) : CombinedDiffModel {
-  override val haveParentDisposable = parentDisposable != null
-
-  override val ourDisposable = Disposer.newCheckedDisposable().also {
-    if (parentDisposable != null) Disposer.register(parentDisposable, it)
-  }
+class CombinedDiffModelImpl(val project: Project,
+                            override val haveParentDisposable: Boolean = false) : CombinedDiffModel {
+  override val ourDisposable = Disposer.newCheckedDisposable()
 
   private val modelListeners = EventDispatcher.create(CombinedDiffModelListener::class.java)
 
@@ -39,11 +35,11 @@ open class CombinedDiffModelImpl(protected val project: Project,
 
   private val pendingUpdatesCount = AtomicInteger()
 
-  private var _requests: Map<CombinedBlockId, DiffRequestProducer> = emptyMap()
+  private var _requests: Map<CombinedBlockId, CombinedBlockProducer> = emptyMap()
 
   private val loadedRequests = mutableMapOf<CombinedBlockId, DiffRequest>()
 
-  override val requests: Map<CombinedBlockId, DiffRequestProducer> get() = _requests
+  override val requests: List<CombinedBlockProducer> get() = _requests.values.toList()
 
   override val context: DiffContext = CombinedDiffContext(project)
 
@@ -64,14 +60,14 @@ open class CombinedDiffModelImpl(protected val project: Project,
     }
   }
 
-  override fun setBlocks(requests: Map<CombinedBlockId, DiffRequestProducer>) {
+  override fun setBlocks(requests: List<CombinedBlockProducer>) {
     cleanLoadedRequests()
-    _requests = requests.toMutableMap()
+    _requests = requests.associateBy { it.id }
     modelListeners.multicaster.onModelReset()
   }
 
-  override fun getCurrentRequest(): DiffRequest? {
-    return context.getUserData(COMBINED_DIFF_VIEWER_KEY)?.getCurrentBlockId()?.let(loadedRequests::get)
+  override fun getLoadedRequest(blockId: CombinedBlockId): DiffRequest? {
+    return loadedRequests[blockId]
   }
 
   override fun getLoadedRequests(): List<DiffRequest> = loadedRequests.values.toList()
@@ -111,8 +107,8 @@ open class CombinedDiffModelImpl(protected val project: Project,
           continue
         }
 
-        val requestProducer = requests[blockId] ?: continue
-        val loadedRequest = loadRequest(indicator, blockId, requestProducer)
+        val requestProducer = _requests[blockId] ?: continue
+        val loadedRequest = loadRequest(indicator, blockId, requestProducer.producer)
         runInEdt { modelListeners.multicaster.onRequestsLoaded(blockId, loadedRequest) }
       }
     }, indicator)

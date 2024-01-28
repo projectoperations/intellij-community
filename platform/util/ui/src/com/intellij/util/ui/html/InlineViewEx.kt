@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.ui.html
 
+import com.intellij.util.asSafely
 import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
 import java.awt.Graphics
@@ -12,10 +13,14 @@ import javax.swing.text.TabExpander
 import javax.swing.text.View
 import javax.swing.text.html.CSS
 import javax.swing.text.html.HTMLDocument
-import javax.swing.text.html.HTMLDocument.BlockElement
 import javax.swing.text.html.InlineView
 import javax.swing.text.html.StyleSheet
 import kotlin.math.max
+
+private val CAPTION_SIDE = CSS.Attribute::class.java
+  .getDeclaredField("CAPTION_SIDE")
+  .apply { isAccessible = true }
+  .get(null)
 
 /**
  * Supports paddings and margins for inline elements, like `<span>`. Due to limitations of [HTMLDocument],
@@ -27,22 +32,45 @@ class InlineViewEx(elem: Element) : InlineView(elem) {
   private lateinit var margin: JBInsets
   private lateinit var insets: JBInsets
 
+  // With private fields Java clone doesn't work well
+  @Suppress("ProtectedInFinal")
+  @JvmField
+  protected var borderRadius: Int = -1
+
+  @Suppress("ProtectedInFinal")
+  @JvmField
+  protected var startView: Boolean = false
+
+  @Suppress("ProtectedInFinal")
+  @JvmField
+  protected var endView: Boolean = false
+
   override fun setPropertiesFromAttributes() {
     super.setPropertiesFromAttributes()
 
-    val parent = element.parentElement as BlockElement
-    val index = parent.getElementIndex(element.startOffset)
+    val parentView = parent
+    val index = (0..parentView.viewCount).firstOrNull { parentView.getView(it) === this } ?: -1
+
 
     // Heuristics to determine whether we are within the same inline (e.g. <span>) element with paddings.
     // Nested inline element insets are not supported, because hierarchy of inline elements is not preserved.
-    val prevSibling = if (index > 0) parent.getElement(index - 1) else null
-    val nextSibling = if (index < parent.elementCount - 1) parent.getElement(index + 1) else null
+    val prevSibling = if (index > 0) parentView.getView(index - 1) else null
+    val nextSibling = if (index < parentView.viewCount - 1) parentView.getView(index + 1) else null
 
-    padding = element.padding
-    margin = element.margin
+    padding = attributes.padding
+    margin = attributes.margin
 
-    val startView = prevSibling?.padding != padding || prevSibling.margin != margin
-    val endView = nextSibling?.padding != padding || nextSibling.margin != margin
+    startView = prevSibling?.attributes?.padding != padding || prevSibling.attributes.margin != margin
+    endView = nextSibling?.attributes?.padding != padding || nextSibling.attributes.margin != margin
+
+    // "caption-side" is used as "border-radius"
+    borderRadius = attributes.getAttribute(CAPTION_SIDE)
+                     ?.asSafely<String>()
+                     ?.takeIf { it.endsWith("px") }
+                     ?.removeSuffix("px")
+                     ?.toIntOrNull()
+                     ?.let { JBUI.scale(it) }
+                   ?: 0
 
     padding.set(
       padding.top,
@@ -66,25 +94,25 @@ class InlineViewEx(elem: Element) : InlineView(elem) {
     )
   }
 
-  private val Element.padding: JBInsets
+  private val AttributeSet.padding: JBInsets
     get() {
       val styleSheet = getStyleSheet()
       return JBUI.insets(
-        attributes.getLength(CSS.Attribute.PADDING_TOP, styleSheet).toInt(),
-        attributes.getLength(CSS.Attribute.PADDING_LEFT, styleSheet).toInt(),
-        attributes.getLength(CSS.Attribute.PADDING_BOTTOM, styleSheet).toInt(),
-        attributes.getLength(CSS.Attribute.PADDING_RIGHT, styleSheet).toInt(),
+        getLength(CSS.Attribute.PADDING_TOP, styleSheet).toInt(),
+        getLength(CSS.Attribute.PADDING_LEFT, styleSheet).toInt(),
+        getLength(CSS.Attribute.PADDING_BOTTOM, styleSheet).toInt(),
+        getLength(CSS.Attribute.PADDING_RIGHT, styleSheet).toInt(),
       )
     }
 
-  private val Element.margin: JBInsets
+  private val AttributeSet.margin: JBInsets
     get() {
       val styleSheet = getStyleSheet()
       return JBUI.insets(
-        attributes.getLength(CSS.Attribute.MARGIN_TOP, styleSheet).toInt(),
-        attributes.getLength(CSS.Attribute.MARGIN_LEFT, styleSheet).toInt(),
-        attributes.getLength(CSS.Attribute.MARGIN_BOTTOM, styleSheet).toInt(),
-        attributes.getLength(CSS.Attribute.MARGIN_RIGHT, styleSheet).toInt(),
+        getLength(CSS.Attribute.MARGIN_TOP, styleSheet).toInt(),
+        getLength(CSS.Attribute.MARGIN_LEFT, styleSheet).toInt(),
+        getLength(CSS.Attribute.MARGIN_BOTTOM, styleSheet).toInt(),
+        getLength(CSS.Attribute.MARGIN_RIGHT, styleSheet).toInt(),
       )
     }
 
@@ -133,7 +161,18 @@ class InlineViewEx(elem: Element) : InlineView(elem) {
     val bg = getBackground()
     if (bg != null) {
       g.color = bg
-      g.fillRect(alloc.x, alloc.y, alloc.width, alloc.height)
+      if (borderRadius > 0 && (startView || endView)) {
+        g.fillRoundRect(alloc.x, alloc.y, alloc.width, alloc.height, borderRadius, borderRadius)
+        if (!startView) {
+          g.fillRect(alloc.x, alloc.y, alloc.width - borderRadius, alloc.height)
+        }
+        else if (!endView) {
+          g.fillRect(alloc.x + borderRadius, alloc.y, alloc.width, alloc.height)
+        }
+      }
+      else {
+        g.fillRect(alloc.x, alloc.y, alloc.width, alloc.height)
+      }
     }
     // Shrink by padding
     alloc.setBounds(alloc.x + padding.left, alloc.y + padding.top,

@@ -10,14 +10,13 @@ import com.intellij.refactoring.suggested.createSmartPointer
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KtDeclarationSymbol
-import org.jetbrains.kotlin.idea.searching.kmp.matchesWithActual
+import org.jetbrains.kotlin.idea.base.psi.isEffectivelyActual
 import org.jetbrains.kotlin.idea.stubindex.KotlinFullClassNameIndex
 import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelFunctionFqnNameIndex
 import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelPropertyFqnNameIndex
 import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelTypeAliasFqNameIndex
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
-import org.jetbrains.kotlin.psi.psiUtil.hasActualModifier
 import kotlin.collections.any
 import kotlin.let
 
@@ -38,6 +37,16 @@ fun KtDeclaration.findAllActualForExpect(searchScope: SearchScope = runReadActio
         return targetDeclarations.asSequence().mapNotNull { targetDeclaration ->
             when (declaration) {
                 is KtClassOrObject -> targetDeclaration
+                is KtConstructor<*> -> {
+                    if (targetDeclaration is KtClass) {
+                        val primaryConstructor = targetDeclaration.primaryConstructor
+                        if (primaryConstructor?.matchesWithActual(declaration) == true) {
+                            primaryConstructor
+                        } else {
+                            targetDeclaration.secondaryConstructors.find { it.matchesWithActual(declaration) }
+                        }
+                    } else null
+                }
                 is KtNamedDeclaration ->
                     when (targetDeclaration) {
                         is KtClassOrObject -> targetDeclaration.declarations.firstOrNull {
@@ -73,7 +82,7 @@ fun KtDeclaration.findAllActualForExpect(searchScope: SearchScope = runReadActio
 
 private fun KtDeclaration.matchesWithActual(actualDeclaration: KtDeclaration): Boolean {
     val declaration = this
-    return declaration.hasActualModifier() && analyze(declaration) {
+    return declaration.isEffectivelyActual() && analyze(declaration) {
         val symbol: KtDeclarationSymbol = declaration.getSymbol()
         return symbol.getExpectsForActual().any { it.psi == actualDeclaration }
     }

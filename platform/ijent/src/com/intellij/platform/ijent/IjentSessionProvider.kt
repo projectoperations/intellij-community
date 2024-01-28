@@ -13,6 +13,7 @@ import com.intellij.util.io.copyToAsync
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.OverrideOnly
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
@@ -77,8 +78,14 @@ interface IjentSessionProvider {
           if (process.waitFor(10, TimeUnit.MILLISECONDS)) {
             val exitValue = process.exitValue()
             LOG.debug { "$ijentId exit code $exitValue" }
-            check(exitValue == 0) { "Process has exited with code $exitValue" }
-            cancel()
+            val message = "Process has exited with code $exitValue"
+            if (exitValue == 0) {
+              cancel(message)
+            }
+            else {
+              LOG.error(message)
+              error(message)
+            }
             break
           }
           delay(100)
@@ -177,16 +184,25 @@ internal class DefaultIjentSessionProvider(override val epCoroutineScope: Corout
   }
 }
 
+@OptIn(DelicateCoroutinesApi::class)
 private suspend fun doBootstrapOverShellSession(shellProcess: Process, communicationCoroutineScope: CoroutineScope) =
   withContext(Dispatchers.IO) {
-    val stderrLogger = launch {
+    // stderr logger should outlive the current scope. In case if an error appears, the scope is cancelled immediately, but the whole
+    // intention of the stderr logger is to write logs of the remote process, which come from the remote machine to the local one with
+    // a delay.
+    val stderrLoggerScope = GlobalScope
+
+    val stderrLogger = stderrLoggerScope.launch {
       val line = StringBuilder()
       try {
-        while (isActive) {
+        while (true) {
           readLineWithoutBuffering(shellProcess.errorStream, line)
           LOG.debug { "IJent bootstrap shell session stderr: $line" }
           line.clear()
         }
+      }
+      catch (err: IOException) {
+        LOG.debug { "IJent bootstrap shell session got an error: $err" }
       }
       finally {
         if (line.isNotEmpty()) {
@@ -202,8 +218,20 @@ private suspend fun doBootstrapOverShellSession(shellProcess: Process, communica
       }
     }
 
-    val (remoteIjentPath, targetPlatform) = bootstrapOverShellSession(shellProcess.outputStream, shellProcess.inputStream)
-    stderrLogger.cancel()
+    val (remoteIjentPath, targetPlatform) =
+      try {
+        bootstrapOverShellSession(shellProcess.outputStream, shellProcess.inputStream)
+      }
+      finally {
+        stderrLoggerScope.launch {
+          try {
+            delay(5.seconds)  // A random timeout.
+          }
+          finally {
+            stderrLogger.cancel()
+          }
+        }
+      }
     exitCodeAwaiter.cancel()
 
     try {

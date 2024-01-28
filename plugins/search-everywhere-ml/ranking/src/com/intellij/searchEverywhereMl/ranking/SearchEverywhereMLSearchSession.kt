@@ -13,6 +13,7 @@ import com.intellij.searchEverywhereMl.ranking.features.FeaturesProviderCacheDat
 import com.intellij.searchEverywhereMl.ranking.features.SearchEverywhereContextFeaturesProvider
 import com.intellij.searchEverywhereMl.ranking.features.statistician.SearchEverywhereStatisticianService
 import com.intellij.searchEverywhereMl.ranking.features.statistician.increaseContributorUseCount
+import com.intellij.searchEverywhereMl.ranking.id.MissingKeyProviderCollector
 import com.intellij.searchEverywhereMl.ranking.id.SearchEverywhereMlOrderedItemIdProvider
 import com.intellij.searchEverywhereMl.ranking.model.SearchEverywhereModelProvider
 import com.intellij.searchEverywhereMl.ranking.performance.PerformanceTracker
@@ -23,7 +24,8 @@ internal class SearchEverywhereMLSearchSession(project: Project?,
                                                val mixedListInfo: SearchEverywhereMixedListInfo,
                                                private val sessionId: Int,
                                                private val loggingRandomisation: FeaturesLoggingRandomisation) {
-  val itemIdProvider = SearchEverywhereMlOrderedItemIdProvider()
+  val itemIdProvider = SearchEverywhereMlOrderedItemIdProvider { MissingKeyProviderCollector.addMissingProviderForClass(it::class.java) }
+
   private val sessionStartTime: Long = System.currentTimeMillis()
   private val providersCache = FeaturesProviderCacheDataProvider().getDataToCache(project)
   private val modelProviderWithCache: SearchEverywhereModelProvider = SearchEverywhereModelProvider()
@@ -34,7 +36,7 @@ internal class SearchEverywhereMLSearchSession(project: Project?,
   // search state is updated on each typing, tab or setting change
   // element features & ML score are also re-calculated on each typing because some of them might change, e.g. matching degree
   private val currentSearchState: AtomicReference<SearchEverywhereMlSearchState?> = AtomicReference<SearchEverywhereMlSearchState?>()
-  private val logger: SearchEverywhereMLStatisticsCollector = SearchEverywhereMLStatisticsCollector()
+  private val logger: SearchEverywhereMLStatisticsCollector = SearchEverywhereMLStatisticsCollector
 
   private val performanceTracker = PerformanceTracker()
 
@@ -100,6 +102,10 @@ internal class SearchEverywhereMLSearchSession(project: Project?,
         elementsProvider
       )
     }
+
+    if (closePopup) {
+      MissingKeyProviderCollector.report(sessionId)
+    }
   }
 
   fun onSearchFinished(project: Project?,
@@ -114,6 +120,8 @@ internal class SearchEverywhereMLSearchSession(project: Project?,
         elementsProvider
       )
     }
+
+    MissingKeyProviderCollector.report(sessionId)
   }
 
   fun notifySearchResultsUpdated() {

@@ -1,19 +1,22 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.ui.laf
 
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.options.Scheme
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.util.ui.StartupUiUtil
 import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
 import javax.swing.UIDefaults
 
-@Internal
+@Experimental
 interface UIThemeLookAndFeelInfo  {
   val id: String
 
   @get:NlsSafe
   val name: String
+
+  val author: String?
 
   val isDark: Boolean
 
@@ -51,4 +54,6 @@ class UIThemeExportableBean(
 
 @Internal
 fun EditorColorsScheme.isDefaultForTheme(theme: UIThemeLookAndFeelInfo?): Boolean =
-  theme?.editorSchemeId == Scheme.getBaseName(name)
+  (theme?.editorSchemeId ?: defaultNonLaFSchemeName()) == Scheme.getBaseName(name)
+
+private fun defaultNonLaFSchemeName() = if (StartupUiUtil.isDarkTheme) "Darcula" else "Default"

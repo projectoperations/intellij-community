@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.collaboration.async
 
+import com.intellij.collaboration.util.ComputedResult
 import com.intellij.collaboration.util.HashingUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
@@ -12,9 +13,14 @@ import com.intellij.util.containers.HashingStrategy
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.future.await
 import org.jetbrains.annotations.ApiStatus
+import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
+
+
+inline fun <reified T> T.classAsCoroutineName() = CoroutineName(T::class.java.name)
 
 /**
  * Prefer creating a service to supply a parent scope
@@ -128,6 +134,35 @@ fun <T, M> StateFlow<T>.mapState(
   mapper: (value: T) -> M
 ): StateFlow<M> = map { mapper(it) }.stateIn(scope, SharingStarted.Eagerly, mapper(value))
 
+@ApiStatus.Experimental
+fun <T, M> StateFlow<T>.mapState(mapper: (value: T) -> M): StateFlow<M> = DerivedStateFlow(map(mapper)) { mapper(value) }
+
+@ApiStatus.Experimental
+fun <T1, T2, R> StateFlow<T1>.combineState(other: StateFlow<T2>, combiner: (T1, T2) -> R): StateFlow<R> =
+  DerivedStateFlow(combine(other, combiner)) { combiner(value, other.value) }
+
+/**
+ * Special state flow which value is supplied by [valueSupplier] and collection is delegated to [source]
+ *
+ * [valueSupplier] should NEVER THROW to avoid contract violation
+ *
+ *
+ * https://github.com/Kotlin/kotlinx.coroutines/issues/2631#issuecomment-870565860
+ */
+private class DerivedStateFlow<T>(
+  private val source: Flow<T>,
+  private val valueSupplier: () -> T
+) : StateFlow<T> {
+
+  override val value: T get() = valueSupplier()
+  override val replayCache: List<T> get() = listOf(value)
+
+  @InternalCoroutinesApi
+  override suspend fun collect(collector: FlowCollector<T>): Nothing {
+    coroutineScope { source.distinctUntilChanged().stateIn(this).collect(collector) }
+  }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @ApiStatus.Experimental
 fun <T, R> Flow<T>.mapScoped(mapper: CoroutineScope.(T) -> R): Flow<R> {
@@ -192,6 +227,19 @@ suspend fun <T> Flow<T>.collectWithPrevious(initial: T, collector: suspend (prev
 fun <T> Flow<T>.withInitial(initial: T): Flow<T> = flow {
   emit(initial)
   emitAll(this@withInitial)
+}
+
+/**
+ * In principle, it is an analogue of [stateIn] with [SharingStarted.Eagerly],
+ * with a notable difference being that a [defaultValue] may never be emitted if a value is already available in the source flow
+ */
+@ApiStatus.Internal
+fun <T> Flow<T>.stateInNow(cs: CoroutineScope, defaultValue: T): StateFlow<T> {
+  val result = MutableStateFlow(defaultValue)
+  cs.launchNow {
+    collect(result)
+  }
+  return result.asStateFlow()
 }
 
 /**
@@ -337,6 +385,7 @@ private class ReferentiallyComparedValue<T : Any>(val value: T) {
  *
  * This acts as a replacement of consecutive `asResultFlow` and `throwFailure` and avoids that exceptions cancel the flow.
  */
+@JvmName("transformConsecutiveResultSuccesses")
 fun <T, R> Flow<Result<T>>.transformConsecutiveSuccesses(
   resetOnFailure: Boolean = true,
   transformer: suspend Flow<T>.() -> Flow<R>
@@ -367,6 +416,80 @@ fun <T, R> Flow<Result<T>>.transformConsecutiveSuccesses(
       )
     }
   }
+
+/**
+ * Transforms a flow of consecutive successes. The flow is reset when a failure is encountered if [resetOnFailure] is `true`.
+ * This means that, if [resetOnFailure] is `true`, the [transformer] block is called once for every series of consecutive
+ * successes. If it is `false`, the [transformer] block is called only once with a flow that receives every success value.
+ */
+fun <T, R> Flow<ComputedResult<T>>.transformConsecutiveSuccesses(
+  resetOnFailure: Boolean = true,
+  transformer: suspend Flow<T>.() -> Flow<R>
+): Flow<ComputedResult<R>> =
+  channelFlow {
+    val successFlows = MutableStateFlow(ReferentiallyComparedValue(MutableSharedFlow<T>(1)))
+
+    launchNow {
+      successFlows
+        .collectLatest { successes ->
+          successes.value
+            .transformer()
+            .collect {
+              send(ComputedResult.success(it))
+            }
+        }
+    }
+
+    collect {
+      it.result?.fold(
+        onSuccess = { v -> successFlows.value.value.emit(v) },
+        onFailure = { ex ->
+          if (resetOnFailure) {
+            successFlows.value = ReferentiallyComparedValue(MutableSharedFlow(1))
+          }
+          send(ComputedResult.failure(ex))
+        }
+      )
+    }
+  }
+
+/**
+ * Transforms the flow of some computation requests to a flow of computation states of this request
+ * Will not emit "loading" state if the computation was completed before handling its state
+ */
+fun <T> Flow<CompletableFuture<T>>.computationStateIn(cs: CoroutineScope): StateFlow<ComputedResult<T>> {
+  val loadingRequestFlow = this
+  val state = MutableStateFlow<ComputedResult<T>>(ComputedResult.loading())
+  cs.launchNow {
+    loadingRequestFlow.collectLatest { request ->
+      if (!request.isDone) {
+        state.value = ComputedResult.loading()
+      }
+      try {
+        val value = request.await()
+        state.value = ComputedResult.success(value)
+      }
+      catch (e: Exception) {
+        if (!CompletableFutureUtil.isCancellation(e)) {
+          state.value = ComputedResult.failure(e)
+        }
+      }
+    }
+  }
+  return state
+}
+
+/**
+ * Maps the flow of requests to a flow of successfully computed values
+ */
+fun <T> Flow<CompletableFuture<T>>.values(): Flow<T> = mapNotNull {
+  try {
+    it.await()
+  }
+  catch (_: Throwable) {
+    null
+  }
+}
 
 /**
  * Maps values in the flow to successful results and catches and wraps any exception into a failure result.
@@ -403,5 +526,18 @@ suspend fun Job.cancelAndJoinSilently() {
     job.cancelAndJoin()
   }
   catch (ignored: Exception) {
+  }
+}
+
+/**
+ * Await the deferred value and cancel if the waiting was canceled
+ */
+suspend fun <T> Deferred<T>.awaitCancelling(): T {
+  return try {
+    await()
+  }
+  catch (ce: CancellationException) {
+    if (!isCompleted) cancel()
+    throw ce
   }
 }

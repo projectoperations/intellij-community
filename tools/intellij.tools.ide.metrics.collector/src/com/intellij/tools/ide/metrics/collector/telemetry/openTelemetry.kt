@@ -3,7 +3,6 @@ package com.intellij.tools.ide.metrics.collector.telemetry
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.tools.ide.metrics.collector.metrics.PerformanceMetrics.Metric
 import com.intellij.tools.ide.metrics.collector.metrics.standardDeviation
-import com.intellij.util.alsoIfNull
 import java.nio.file.Path
 
 const val TOTAL_TEST_TIMER_NAME: String = "test"
@@ -16,6 +15,7 @@ private val logger = logger<OpentelemetryJsonParser>()
 
 /**
  * Reports duration of `nameSpan` and all its children spans.
+ * Replaces the names with an alias, if one was passed.
  * Besides, all attributes are reported as counters.
  * If there are multiple values with the same name:
  * 1. They will be re-numbered `<value>_1`, `<value>_2`, etc. and the sum will be recorded as `<value>`.
@@ -25,8 +25,16 @@ private val logger = logger<OpentelemetryJsonParser>()
  */
 fun getMetricsFromSpanAndChildren(file: Path,
                                   filter: SpanFilter,
-                                  metricSpanProcessor: MetricSpanProcessor = MetricSpanProcessor()): List<Metric> {
-  val spanElements = OpentelemetryJsonParser(filter).getSpanElements(file).toList()
+                                  metricSpanProcessor: MetricSpanProcessor = MetricSpanProcessor(),
+                                  aliases: Map<String, String> = mapOf()): List<Metric> {
+  val spanElements = OpentelemetryJsonParser(filter).getSpanElements(file).toList().toList().map {
+    val name = aliases.getOrDefault(it.name, it.name)
+    if (name != it.name) {
+      return@map it.copy(name = name)
+    }
+    return@map it
+  }
+
   val spanToMetricMap = spanElements.mapNotNull { metricSpanProcessor.process(it) }
     .groupBy { it.metric.id.name }
   return combineMetrics(spanToMetricMap)
@@ -43,23 +51,23 @@ fun getMetricsFromSpanAndChildren(file: Path,
  * @throws IllegalStateException if the fromSpan or toSpan is null.
  * @throws IllegalArgumentException if the size of the toSpans is not greater than or equal to the size of the fromSpans.
  */
-fun getMetricsBasedOnDiffBetweenSpans(name: String, file: Path, fromSpanName: String, toSpanName: String) : List<Metric> {
+fun getMetricsBasedOnDiffBetweenSpans(name: String, file: Path, fromSpanName: String, toSpanName: String): List<Metric> {
   val betweenSpanProcessor = SpanInfoProcessor()
   val spanElements = OpentelemetryJsonParser(SpanFilter.containsNameIn(listOf(fromSpanName, toSpanName))).getSpanElements(file)
   val spanToMetricMap = spanElements
     .map { betweenSpanProcessor.process(it) }
     .filterNotNull()
     .groupBy { it.name }
-  val fromSpanMetrics = spanToMetricMap[fromSpanName].alsoIfNull { throw IllegalStateException("Spans $fromSpanName is null") }!!
-  val toSpanMetrics = spanToMetricMap[toSpanName].alsoIfNull { throw IllegalStateException("Spans $toSpanName is null") }!!
+  val fromSpanMetrics = spanToMetricMap[fromSpanName] ?: throw IllegalStateException("Spans $fromSpanName is null")
+  val toSpanMetrics = spanToMetricMap[toSpanName] ?: throw IllegalStateException("Spans $toSpanName is null")
   assert(toSpanMetrics.size >= fromSpanMetrics.size) {
     "Size of toSpans (${toSpanMetrics.size}) must be >= size of fromSpans(${fromSpanMetrics.size})"
   }
   val metrics = mutableListOf<MetricWithAttributes>()
   val sortedFromSpans = fromSpanMetrics.sortedByDescending { info -> info.startTimestamp }
   val spanIds = sortedFromSpans.map { it.spanId }.toSet()
-  val sortedToSpans = toSpanMetrics.sortedByDescending { info -> info.startTimestamp }.filter { spanIds.contains(it.parentSpanId)  }
-  for(i in fromSpanMetrics.indices) {
+  val sortedToSpans = toSpanMetrics.sortedByDescending { info -> info.startTimestamp }.filter { spanIds.contains(it.parentSpanId) }
+  for (i in fromSpanMetrics.indices) {
     val currentToSpan = sortedToSpans[i]
     val currentFromSpan = sortedFromSpans[i]
     if (currentFromSpan.spanId != currentToSpan.parentSpanId) {
@@ -142,13 +150,16 @@ private fun combineMetrics(metrics: Map<String, List<MetricWithAttributes>>): Li
           continue
         }
 
+        result.add(Metric.newCounter(attr.key + "#count", attr.value.size.toLong()))
         result.add(Metric.newDuration(attr.key + "#mean_value", attr.value.average().toLong()))
         result.add(Metric.newDuration(attr.key + "#standard_deviation", attr.value.standardDeviation()))
       }
       val sum = entry.value.sumOf { it.metric.value }
-      val mean = sum / entry.value.size
+      val count = entry.value.size
+      val mean = sum / count
       val standardDeviation = entry.value.map { it.metric.value }.standardDeviation()
       result.add(Metric.newDuration(entry.key, sum))
+      result.add(Metric.newCounter(entry.key + "#count", count.toLong()))
       result.add(Metric.newDuration(entry.key + "#mean_value", mean))
       result.add(Metric.newDuration(entry.key + "#standard_deviation", standardDeviation))
     }

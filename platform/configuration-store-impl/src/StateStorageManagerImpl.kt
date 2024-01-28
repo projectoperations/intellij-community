@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet")
 
 package com.intellij.configurationStore
@@ -218,7 +218,7 @@ open class StateStorageManagerImpl(
       throw IllegalArgumentException("Extension is missing for storage file: $collapsedPath")
     }
 
-    val storage = createFileBasedStorage(path = filePath,
+    val storage = createFileBasedStorage(file = filePath,
                                          collapsedPath = collapsedPath,
                                          roamingType = effectiveRoamingType,
                                          usePathMacroManager = usePathMacroManager,
@@ -229,20 +229,20 @@ open class StateStorageManagerImpl(
     return storage
   }
 
-  protected open fun createFileBasedStorage(path: Path,
+  protected open fun createFileBasedStorage(file: Path,
                                             collapsedPath: String,
                                             roamingType: RoamingType,
                                             usePathMacroManager: Boolean,
                                             rootTagName: String?): StateStorage {
     compoundStreamProvider.deleteIfObsolete(collapsedPath, roamingType)
     if (roamingType == RoamingType.DISABLED && settingsController != null) {
-      settingsController.createStateStorage(collapsedPath)?.let {
+      settingsController.createStateStorage(collapsedPath, file)?.let {
         return it  as StateStorage
       }
     }
 
     return MyFileStorage(storageManager = this,
-                         file = path,
+                         file = file,
                          fileSpec = collapsedPath,
                          rootElementName = rootTagName,
                          roamingType = roamingType,
@@ -372,6 +372,7 @@ open class StateStorageManagerImpl(
 
   internal fun disposed() {
     virtualFileTracker?.remove { it.storageManager === this }
+    settingsController?.release()
   }
 }
 

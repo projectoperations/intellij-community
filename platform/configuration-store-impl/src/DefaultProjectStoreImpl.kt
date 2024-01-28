@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.application.ApplicationManager
@@ -6,7 +6,6 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.serviceContainer.ComponentManagerImpl
-import com.intellij.util.LineSeparator
 import org.jdom.Element
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
@@ -15,14 +14,10 @@ import java.nio.file.Path
 
 @NonNls private const val FILE_SPEC = "${APP_CONFIG}/project.default.xml"
 
-private class DefaultProjectStorage(file: Path, fileSpec: String, pathMacroManager: PathMacroManager) : FileBasedStorage(file, fileSpec, "defaultProject", pathMacroManager.createTrackingSubstitutor(), RoamingType.DISABLED) {
-  override val configuration = object: FileBasedStorageConfiguration {
-    override val isUseVfsForRead: Boolean
-      get() = false
-
-    override val isUseVfsForWrite: Boolean
-      get() = false
-  }
+private class DefaultProjectStorage(file: Path, fileSpec: String, pathMacroManager: PathMacroManager) :
+  FileBasedStorage(file, fileSpec, "defaultProject", pathMacroManager.createTrackingSubstitutor(), RoamingType.DISABLED)
+{
+  override val configuration = appFileBasedStorageConfiguration
 
   public override fun loadLocalData(): Element? {
     val element = super.loadLocalData() ?: return null
@@ -35,7 +30,7 @@ private class DefaultProjectStorage(file: Path, fileSpec: String, pathMacroManag
     }
   }
 
-  override fun createSaveSession(states: StateMap) = object : FileBasedStorage.FileSaveSessionProducer(states, this) {
+  override fun createSaveSession(states: StateMap) = object : FileSaveSessionProducer(states, this) {
     override fun saveLocally(dataWriter: DataWriter?) {
       super.saveLocally(when (dataWriter) {
         null -> null
@@ -90,7 +85,7 @@ internal class DefaultProjectStoreImpl(override val project: Project) : Componen
 
     override fun getStateStorage(storageSpec: Storage) = storage
 
-    override fun expandMacro(path: String) = throw UnsupportedOperationException()
+    override fun expandMacro(collapsedPath: String) = throw UnsupportedOperationException()
 
     override fun getOldStorage(component: Any, componentName: String, operation: StateStorageOperation) = storage
   }
@@ -111,6 +106,7 @@ internal class DefaultProjectStoreImpl(override val project: Project) : Componen
 }
 
 // ExportSettingsAction checks only "State" annotation presence, but doesn't require PersistentStateComponent implementation, so, we can just specify annotation
+@Service
 @State(name = "ProjectManager", storages = [(Storage(FILE_SPEC))])
 internal class DefaultProjectExportableAndSaveTrigger {
   suspend fun save(forceSavingAllSettings: Boolean): SaveResult {

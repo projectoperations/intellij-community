@@ -25,6 +25,9 @@ import org.jetbrains.plugins.gitlab.util.GitLabApiRequestName
 import org.jetbrains.plugins.gitlab.util.GitLabStatistics
 
 interface GitLabMergeRequestDiscussionsContainer {
+  val nonEmptyDiscussionsData: SharedFlow<Result<List<GitLabDiscussionDTO>>>
+  val draftNotesData: SharedFlow<Result<List<GitLabMergeRequestDraftNoteRestDTO>>>
+
   val discussions: Flow<Result<Collection<GitLabMergeRequestDiscussion>>>
   val systemNotes: Flow<Result<Collection<GitLabNote>>>
   val draftNotes: Flow<Result<Collection<GitLabMergeRequestDraftNote>>>
@@ -53,6 +56,7 @@ class GitLabMergeRequestDiscussionsContainerImpl(
   private val api: GitLabApi,
   private val glMetadata: GitLabServerMetadata?,
   private val glProject: GitLabProjectCoordinates,
+  private val currentUser: GitLabUserDTO,
   private val mr: GitLabMergeRequest
 ) : GitLabMergeRequestDiscussionsContainer {
 
@@ -70,7 +74,7 @@ class GitLabMergeRequestDiscussionsContainerImpl(
   private val updateRequests = MutableSharedFlow<Unit>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
   private val discussionEvents = MutableSharedFlow<GitLabDiscussionEvent>()
-  private val nonEmptyDiscussionsData: Flow<Result<List<GitLabDiscussionDTO>>> =
+  override val nonEmptyDiscussionsData: SharedFlow<Result<List<GitLabDiscussionDTO>>> =
     reloadRequests.transformLatest { collectNonEmptyDiscussions() }.modelFlow(cs, LOG)
 
   private suspend fun FlowCollector<Result<List<GitLabDiscussionDTO>>>.collectNonEmptyDiscussions() {
@@ -141,7 +145,7 @@ class GitLabMergeRequestDiscussionsContainerImpl(
             GitLabDiscussionDTO::id,
             { disc ->
               LoadedGitLabDiscussion(this,
-                                     project, api, glMetadata, glProject,
+                                     api, glMetadata, glProject, currentUser,
                                      { discussionEvents.emit(it) }, { draftNotesEvents.emit(it) },
                                      mr, disc, getDiscussionDraftNotes(disc.id).throwFailure())
             },
@@ -166,18 +170,16 @@ class GitLabMergeRequestDiscussionsContainerImpl(
 
   private val draftNotesEvents = MutableSharedFlow<GitLabNoteEvent<GitLabMergeRequestDraftNoteRestDTO>>()
 
-  private val draftNotesData = reloadRequests.transformLatest { collectDraftNotes() }.modelFlow(cs, LOG)
+  override val draftNotesData: SharedFlow<Result<List<GitLabMergeRequestDraftNoteRestDTO>>> =
+    reloadRequests.transformLatest { collectDraftNotes() }.modelFlow(cs, LOG)
 
-  private suspend fun FlowCollector<Result<List<DraftNoteWithAuthor>>>.collectDraftNotes() {
+  private suspend fun FlowCollector<Result<List<GitLabMergeRequestDraftNoteRestDTO>>>.collectDraftNotes() {
     runCatching {
       supervisorScope {
         if (glMetadata == null || glMetadata.version < GitLabVersion(15, 9)) {
           emit(Result.success(listOf()))
           currentCoroutineContext().cancel()
         }
-
-        // we shouldn't get another user's draft notes
-        val currentUser = api.graphQL.getCurrentUser()
 
         val notesGuard = Mutex()
         val draftNotes = LinkedHashMap<GitLabId, GitLabMergeRequestDraftNoteRestDTO>()
@@ -210,7 +212,7 @@ class GitLabMergeRequestDiscussionsContainerImpl(
                   for (note in newNotes) {
                     draftNotes[note.id] = note
                   }
-                  emit(Result.success(draftNotes.values.map { DraftNoteWithAuthor(it, currentUser) }))
+                  emit(Result.success(draftNotes.values.toList()))
                 }
               }
               lastETag = response.headers().firstValue("ETag").orElse(null)
@@ -229,29 +231,29 @@ class GitLabMergeRequestDiscussionsContainerImpl(
                 is GitLabNoteEvent.AllDeleted -> draftNotes.clear()
                 else -> Unit
               }
-              emit(Result.success(draftNotes.values.map { DraftNoteWithAuthor(it, currentUser) }))
+              emit(Result.success(draftNotes.values.toList()))
             }
           }
         }
         notesGuard.withLock {
-          emit(Result.success(draftNotes.values.map { DraftNoteWithAuthor(it, currentUser) }))
+          emit(Result.success(draftNotes.values.toList()))
         }
       }
     }
   }
 
-  override val draftNotes: Flow<Result<Collection<GitLabMergeRequestDraftNote>>> =
+  override val draftNotes: Flow<Result<Collection<GitLabMergeRequestDraftNote>>> = flow {
+    // we shouldn't get another user's draft notes
+    val currentUser = api.graphQL.getCurrentUser()
     draftNotesData
       .transformConsecutiveSuccesses {
         mapDataToModel(
-          { it.note.id },
-          { (note, author) -> GitLabMergeRequestDraftNoteImpl(this, api, glMetadata, glProject, mr, { draftNotesEvents::emit }, note, author) },
-          { update(it.note) }
+          GitLabMergeRequestDraftNoteRestDTO::id,
+          { GitLabMergeRequestDraftNoteImpl(this, api, glMetadata, glProject, mr, { draftNotesEvents::emit }, it, currentUser) },
+          { update(it) }
         )
-      }
-      .modelFlow(cs, LOG)
-
-  private data class DraftNoteWithAuthor(val note: GitLabMergeRequestDraftNoteRestDTO, val author: GitLabUserDTO)
+      }.collect(this)
+  }.modelFlow(cs, LOG)
 
   private fun getDiscussionDraftNotes(discussionId: GitLabId): Flow<Result<List<GitLabMergeRequestDraftNote>>> {
     // Convert discussion ID down to REST ID as it's safer than converting from REST to GQL

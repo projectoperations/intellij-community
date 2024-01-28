@@ -34,7 +34,10 @@ import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
@@ -121,8 +124,11 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
 
   @Override
   public CoverageSuitesBundle getCurrentSuitesBundle() {
-    CoverageSuitesBundle openedSuite = CoverageViewManager.getInstance(myProject).getOpenedSuite();
-    if (openedSuite != null) return openedSuite;
+    CoverageViewManager manager = CoverageViewManager.getInstanceIfCreated(myProject);
+    if (manager != null) {
+      CoverageSuitesBundle openedSuite = manager.getOpenedSuite();
+      if (openedSuite != null) return openedSuite;
+    }
     return myActiveBundles.values().stream().findFirst().orElse(null);
   }
 
@@ -142,9 +148,12 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
                                         @NotNull CoverageRunner coverageRunner,
                                         boolean coverageByTestEnabled,
                                         boolean branchCoverage) {
-    return CoverageDataSuitesManager.getInstance(myProject)
-      .addSuite(coverageRunner, name, fileProvider, filters, lastCoverageTimeStamp, suiteToMergeWith, coverageByTestEnabled,
-                branchCoverage);
+    CoverageDataSuitesManager manager = CoverageDataSuitesManager.getInstance(myProject);
+    CoverageSuite suite = manager.createCoverageSuite(name, coverageRunner, fileProvider, lastCoverageTimeStamp);
+    if (suite != null) {
+      manager.addSuite(suite, suiteToMergeWith);
+    }
+    return suite;
   }
 
   /**
@@ -161,7 +170,7 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
                                                 @NotNull CoverageRunner coverageRunner,
                                                 @NotNull CoverageFileProvider fileProvider) {
     return CoverageDataSuitesManager.getInstance(myProject)
-      .addExternalCoverageSuite(coverageRunner, selectedFileName, fileProvider, timeStamp);
+      .addExternalCoverageSuite(selectedFileName, coverageRunner, fileProvider, timeStamp);
   }
 
   @Override

@@ -123,6 +123,7 @@
     <textEditorInitializer implementation="com.intellij.openapi.fileEditor.impl.text.FoldingTextEditorInitializer"/>
     <textEditorInitializer implementation="com.intellij.codeInsight.hints.codeVision.CodeVisionTextEditorInitializer"/>
     <textEditorInitializer implementation="com.intellij.codeInsight.daemon.impl.InlayHintsEditorInitializer"/>
+    <textEditorInitializer implementation="com.intellij.codeInsight.daemon.impl.DeclarativeHintsEditorInitializer"/>
     <textEditorInitializer implementation="com.intellij.codeInsight.hints.ParameterHintsEditorInitializer"/>
     <textEditorInitializer implementation="com.intellij.openapi.fileEditor.impl.text.DocRenderTextEditorInitializer"/>
     <textEditorInitializer implementation="com.intellij.openapi.fileEditor.impl.text.FocusZoneTextEditorInitializer"/>
@@ -147,6 +148,8 @@
     <projectService serviceImplementation="com.intellij.ide.navigationToolbar.experimental.NewToolbarRootPaneManager"/>
 
     <idePerformanceListener implementation="com.intellij.diagnostic.IdeaFreezeReporter"/>
+
+    <applicationService serviceImplementation="com.intellij.codeInsight.inline.completion.tooltip.onboarding.InlineCompletionOnboardingComponent"/>
   </extensions>
 
   <!--suppress PluginXmlDynamicPlugin -->

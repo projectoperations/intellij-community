@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.SystemInfoRt
@@ -19,7 +19,9 @@ import org.jetbrains.intellij.build.io.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import kotlin.io.path.exists
 import kotlin.io.path.extension
+import kotlin.io.path.name
 
 internal class WindowsDistributionBuilder(
   override val context: BuildContext,
@@ -291,6 +293,23 @@ internal class WindowsDistributionBuilder(
         }
     }
   }
+
+  override fun distributionFilesBuilt(arch: JvmArchitecture): List<Path> {
+    val archSuffix = suffix(arch)
+    return sequenceOf(
+      "$archSuffix.exe",
+      archSuffix + customizer.zipArchiveWithBundledJreSuffix + ".zip",
+      archSuffix + customizer.zipArchiveWithoutBundledJreSuffix + ".zip"
+    ).map { suffix ->
+      context.productProperties.getBaseArtifactName(context) + suffix
+    }.map(context.paths.artifactDir::resolve)
+      .filter { it.exists() }
+      .toList()
+  }
+
+  override fun isRuntimeBundled(file: Path): Boolean {
+    return !file.name.contains(customizer.zipArchiveWithoutBundledJreSuffix)
+  }
 }
 
 private fun computeIcoPath(context: BuildContext): Path? {
@@ -429,7 +448,7 @@ private suspend fun checkThatExeInstallerAndZipWithJbrAreTheSame(zipPath: Path,
 private fun writeWindowsVmOptions(distBinDir: Path, context: BuildContext): Path {
   val vmOptionsPath = distBinDir.resolve("${context.productProperties.baseFileName}64.exe.vmoptions")
   val vmOptions = VmOptionsGenerator.computeVmOptions(context)
-  VmOptionsGenerator.writeVmOptions(vmOptionsPath, vmOptions, "\r\n")
+  writeVmOptions(file = vmOptionsPath, vmOptions = vmOptions, separator = "\r\n")
 
   return vmOptionsPath
 }

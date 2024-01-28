@@ -35,6 +35,7 @@ import git4idea.i18n.GitBundle;
 import git4idea.merge.GitConflictResolver;
 import git4idea.merge.GitMergeCommittingConflictResolver;
 import git4idea.merge.GitMerger;
+import git4idea.rebase.GitRebaseUtils;
 import git4idea.rebase.GitRebaser;
 import git4idea.repo.*;
 import git4idea.util.GitPreservingProcess;
@@ -467,7 +468,7 @@ public final class GitUpdateProcess {
     GitConflictResolver.Params params = new GitConflictResolver.Params(myProject);
     params.setErrorNotificationTitle(GitBundle.message("update.process.generic.error.title"));
     params.setMergeDescription(GitBundle.message("update.process.error.message.unfinished.merge"));
-    return !new GitMergeCommittingConflictResolver(myProject, myGit, myMerger, mergingRoots, params, false).merge();
+    return !new GitMergeCommittingConflictResolver(myProject, mergingRoots, params, false).merge();
   }
 
   /**
@@ -479,7 +480,7 @@ public final class GitUpdateProcess {
     GitConflictResolver.Params params = new GitConflictResolver.Params(myProject);
     params.setErrorNotificationTitle(GitBundle.message("update.process.generic.error.title"));
     params.setMergeDescription(GitBundle.message("update.process.error.message.unmerged.files"));
-    return !new GitMergeCommittingConflictResolver(myProject, myGit, myMerger, getRootsFromRepositories(myRepositories),
+    return !new GitMergeCommittingConflictResolver(myProject, getRootsFromRepositories(myRepositories),
                                                    params, false).merge();
   }
 
@@ -489,8 +490,7 @@ public final class GitUpdateProcess {
    */
   private boolean checkRebaseInProgress() {
     LOG.info("checkRebaseInProgress: checking if there is an unfinished rebase process...");
-    final GitRebaser rebaser = new GitRebaser(myProject, myGit, myProgressIndicator);
-    final Collection<VirtualFile> rebasingRoots = rebaser.getRebasingRoots();
+    Collection<VirtualFile> rebasingRoots = ContainerUtil.map(GitRebaseUtils.getRebasingRepositories(myProject), repo -> repo.getRoot());
     if (rebasingRoots.isEmpty()) {
       return false;
     }
@@ -502,12 +502,14 @@ public final class GitUpdateProcess {
     params.setErrorNotificationAdditionalDescription(GitBundle.message("update.process.error.additional.description.unfinished.rebase"));
     params.setReverse(true);
     return !new GitConflictResolver(myProject, rebasingRoots, params) {
-      @Override protected boolean proceedIfNothingToMerge() {
-        return rebaser.continueRebase(rebasingRoots);
+      @Override
+      protected boolean proceedIfNothingToMerge() {
+        return new GitRebaser(myProject, myGit, myProgressIndicator).continueRebase(rebasingRoots);
       }
 
-      @Override protected boolean proceedAfterAllMerged() {
-        return rebaser.continueRebase(rebasingRoots);
+      @Override
+      protected boolean proceedAfterAllMerged() {
+        return new GitRebaser(myProject, myGit, myProgressIndicator).continueRebase(rebasingRoots);
       }
     }.merge();
   }

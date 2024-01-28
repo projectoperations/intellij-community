@@ -10,7 +10,6 @@ import org.junit.Test
 import java.io.File
 
 class MavenProjectsManagerSettingsXmlTest : MavenMultiVersionImportingTestCase() {
-  
   override fun setUp() {
     super.setUp()
     initProjectsManager(true)
@@ -129,7 +128,7 @@ class MavenProjectsManagerSettingsXmlTest : MavenMultiVersionImportingTestCase()
   }
 
   private suspend fun deleteSettingsXmlAndWaitForImport() {
-    val f = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(File(myDir, "settings.xml"))!!
+    val f = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(File(dir, "settings.xml"))!!
     waitForImportWithinTimeout {
       writeAction {
         f.delete(this)

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "LeakingThis", "ReplaceJavaStaticMethodWithKotlinAnalog")
 
 package com.intellij.serviceContainer
@@ -156,7 +156,7 @@ abstract class ComponentManagerImpl(
 
   private val scopeHolder = ScopeHolder(
     parentScope,
-    additionalContext,
+    additionalContext + this.asContextElement(),
     containerName = debugString(true),
   )
 
@@ -212,6 +212,10 @@ abstract class ComponentManagerImpl(
   @Volatile
   private var isServicePreloadingCancelled = false
 
+  internal fun debugString(): String {
+    return debugString(short = true)
+  }
+
   protected open fun debugString(short: Boolean = false): String {
     return "${if (short) javaClass.simpleName else javaClass.name}@${System.identityHashCode(this)}"
   }
@@ -228,8 +232,8 @@ abstract class ComponentManagerImpl(
   @JvmField
   internal var componentContainerIsReadonly: String? = null
 
-  @Suppress("MemberVisibilityCanBePrivate")
-  fun getCoroutineScope(): CoroutineScope {
+  @Suppress("UsagesOfObsoleteApi")
+  override fun getCoroutineScope(): CoroutineScope {
     if (parent?.parent == null) {
       return scopeHolder.containerScope
     }
@@ -823,7 +827,9 @@ abstract class ComponentManagerImpl(
   /**
    * Use only if approved by core team.
    */
-  fun <T : Any> registerServiceInstance(serviceInterface: Class<T>, instance: T, @Suppress("UNUSED_PARAMETER") pluginDescriptor: PluginDescriptor) {
+  fun <T : Any> registerServiceInstance(serviceInterface: Class<T>,
+                                        instance: T,
+                                        @Suppress("UNUSED_PARAMETER") pluginDescriptor: PluginDescriptor) {
     serviceContainer.replaceInstance(serviceInterface, instance)
   }
 
@@ -1221,7 +1227,13 @@ abstract class ComponentManagerImpl(
   }
 
   fun processAllImplementationClasses(processor: (componentClass: Class<*>, plugin: PluginDescriptor?) -> Unit) {
-    fun process(holder: InstanceHolder) {
+    processAllHolders { _, componentClass, plugin ->
+      processor(componentClass, plugin)
+    }
+  }
+
+  fun processAllHolders(processor: (keyClass: String, componentClass: Class<*>, plugin: PluginDescriptor?) -> Unit) {
+    fun process(key: String, holder: InstanceHolder) {
       val clazz = try {
         holder.instanceClass()
       }
@@ -1232,7 +1244,7 @@ abstract class ComponentManagerImpl(
       try {
         val descriptor = (clazz.classLoader as? PluginAwareClassLoader)?.pluginDescriptor
                          ?: fakeCorePluginDescriptor
-        processor(clazz, descriptor)
+        processor(key, clazz, descriptor)
       }
       catch (pce: ProcessCanceledException) {
         throw pce
@@ -1241,11 +1253,11 @@ abstract class ComponentManagerImpl(
         LOG.error(t)
       }
     }
-    for (holder in serviceContainer.instanceHolders()) {
-      process(holder)
+    for ((key, holder) in serviceContainer.instanceHoldersAndKeys()) {
+      process(key, holder)
     }
-    for (holder in componentContainer.instanceHolders()) {
-      process(holder)
+    for ((key, holder) in componentContainer.instanceHoldersAndKeys()) {
+      process(key, holder)
     }
   }
 

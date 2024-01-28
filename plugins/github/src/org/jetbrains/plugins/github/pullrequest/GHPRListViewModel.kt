@@ -20,6 +20,7 @@ import org.jetbrains.plugins.github.pullrequest.data.GHPRDataContext
 import org.jetbrains.plugins.github.pullrequest.ui.filters.GHPRListPersistentSearchHistory
 import org.jetbrains.plugins.github.pullrequest.ui.filters.GHPRSearchHistoryModel
 import org.jetbrains.plugins.github.pullrequest.ui.filters.GHPRSearchPanelViewModel
+import org.jetbrains.plugins.github.ui.avatars.GHAvatarIconsProvider
 import javax.swing.ListModel
 
 @ApiStatus.Experimental
@@ -44,9 +45,7 @@ class GHPRListViewModel internal constructor(
       }
 
       override fun onDataUpdated(idx: Int) = model.setElementAt(listLoader.loadedData[idx], idx)
-      override fun onDataRemoved(data: Any) {
-        (data as? GHPullRequestShort)?.let { model.remove(it) }
-      }
+      override fun onDataRemoved(idx: Int) = model.remove(idx)
 
       override fun onAllDataRemoved() = model.removeAll()
     })
@@ -83,6 +82,8 @@ class GHPRListViewModel internal constructor(
 
   private val _focusRequests = Channel<Unit>(1)
   internal val focusRequests: Flow<Unit> = _focusRequests.receiveAsFlow()
+
+  val avatarIconsProvider: GHAvatarIconsProvider = dataContext.avatarIconsProvider
 
   init {
     cs.launchNow {

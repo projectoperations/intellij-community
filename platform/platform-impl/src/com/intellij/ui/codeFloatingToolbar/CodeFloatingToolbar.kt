@@ -18,6 +18,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.options.advanced.AdvancedSettings
+import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupListener
 import com.intellij.openapi.ui.popup.LightweightWindowEvent
@@ -164,14 +165,9 @@ class CodeFloatingToolbar(
     val contextAwareActionGroupId = getContextAwareGroupId(editor) ?: return null
     val mainActionGroup = CustomActionsSchema.getInstance().getCorrectedAction(contextAwareActionGroupId) ?: error("Can't find groupId action")
     val configurationGroup = createConfigureGroup(contextAwareActionGroupId)
-    if (Registry.get("floating.codeToolbar.hideIntentionsButton").asBoolean()) {
-      return DefaultActionGroup(mainActionGroup, configurationGroup)
-    }
-    else {
-      val showIntentionsAction = CustomActionsSchema.getInstance().getCorrectedAction("ShowIntentionActions")
-                                 ?: error("Can't find ShowIntentionActions action")
-      return DefaultActionGroup(showIntentionsAction, mainActionGroup, configurationGroup)
-    }
+    val showIntentionAction = CustomActionsSchema.getInstance().getCorrectedAction("ShowIntentionActions")
+                              ?: error("Can't find ShowIntentionActions action")
+    return DefaultActionGroup(showIntentionAction, mainActionGroup, configurationGroup)
   }
 
   override suspend fun createHint(): LightweightHint {
@@ -309,7 +305,9 @@ class CodeFloatingToolbar(
             cancel()
           }
           withContext(Dispatchers.EDT) {
-            if (isPopupButton) button.click() else activeMenuPopup?.cancel()
+            blockingContext {
+              if (isPopupButton) button.click() else activeMenuPopup?.cancel()
+            }
           }
         }
       }

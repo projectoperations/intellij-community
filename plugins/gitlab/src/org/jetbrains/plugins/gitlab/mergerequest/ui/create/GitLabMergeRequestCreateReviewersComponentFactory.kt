@@ -4,7 +4,7 @@ package org.jetbrains.plugins.gitlab.mergerequest.ui.create
 import com.intellij.collaboration.ui.ComponentListPanelFactory
 import com.intellij.collaboration.ui.HorizontalListPanel
 import com.intellij.collaboration.ui.VerticalListPanel
-import com.intellij.collaboration.ui.codereview.Avatar
+import com.intellij.collaboration.ui.codereview.avatar.Avatar
 import com.intellij.collaboration.ui.codereview.comment.CodeReviewCommentUIUtil
 import com.intellij.collaboration.ui.codereview.details.CodeReviewDetailsStatusComponentFactory
 import com.intellij.collaboration.ui.util.bindTextIn
@@ -42,11 +42,10 @@ internal object GitLabMergeRequestCreateReviewersComponentFactory {
       add(editButton)
     }
     val reviewersComponent = ComponentListPanelFactory.createVertical(
-      parentCs = cs,
-      items = createVm.adjustedReviewers,
-      itemKeyExtractor = { reviewer -> reviewer.id },
+      cs,
+      createVm.adjustedReviewers,
       gap = REVIEWERS_GAP,
-      componentFactory = { _, reviewer -> createReviewerComponent(createVm, reviewer) }
+      componentFactory = { reviewer -> createReviewerComponent(createVm, reviewer) }
     )
 
     return VerticalListPanel(gap = COMPONENTS_GAP).apply {

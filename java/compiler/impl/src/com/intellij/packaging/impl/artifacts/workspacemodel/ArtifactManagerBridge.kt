@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.packaging.impl.artifacts.workspacemodel
 
 import com.intellij.compiler.server.BuildManager
@@ -23,11 +23,15 @@ import com.intellij.packaging.impl.artifacts.ArtifactPointerManagerImpl
 import com.intellij.packaging.impl.artifacts.DefaultPackagingElementResolvingContext
 import com.intellij.packaging.impl.artifacts.InvalidArtifact
 import com.intellij.packaging.impl.artifacts.workspacemodel.packaging.elements
+import com.intellij.platform.backend.workspace.impl.internal
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.diagnostic.telemetry.Compiler
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.storage.*
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.ImmutableEntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.concurrency.annotations.RequiresWriteLock
 import com.intellij.util.containers.BidirectionalMap
@@ -156,6 +160,7 @@ class ArtifactManagerBridge(private val project: Project) : ArtifactManager(), D
     return modificationTracker
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   @RequiresWriteLock
   fun commit(artifactModel: ArtifactModifiableModelBridge) = commitMs.addMeasuredTimeMillis {
     // XXX @RequiresReadLock annotation doesn't work for kt now
@@ -164,7 +169,7 @@ class ArtifactManagerBridge(private val project: Project) : ArtifactManager(), D
     updateCustomElements(artifactModel.diff)
 
     val current = project.workspaceModel.currentSnapshot
-    val changes = artifactModel.diff.collectChanges()[ArtifactEntity::class.java] ?: emptyList()
+    val changes = (artifactModel.diff as MutableEntityStorageInstrumentation).collectChanges()[ArtifactEntity::class.java] ?: emptyList()
 
     val removed = mutableSetOf<ArtifactBridge>()
     val added = mutableListOf<ArtifactBridge>()
@@ -205,7 +210,7 @@ class ArtifactManagerBridge(private val project: Project) : ArtifactManager(), D
     (ArtifactPointerManager.getInstance(project) as ArtifactPointerManagerImpl).disposePointers(changedArtifacts)
 
     project.workspaceModel.updateProjectModel("Commit artifact manager") {
-      it.addDiff(artifactModel.diff)
+      it.applyChangesFrom(artifactModel.diff)
     }
 
     modificationTracker.incModificationCount()
@@ -227,7 +232,7 @@ class ArtifactManagerBridge(private val project: Project) : ArtifactManager(), D
     artifactWithDiffs.forEach { it.setActualStorage() }
     artifactWithDiffs.clear()
 
-    val entityStorage = project.workspaceModel.entityStorage
+    val entityStorage = project.workspaceModel.internal.entityStorage
     added.forEach { bridge ->
       bridge.elementsWithDiff.forEach { it.setStorage(entityStorage, project, HashSet(), PackagingElementInitializer) }
       bridge.elementsWithDiff.clear()
@@ -269,25 +274,26 @@ class ArtifactManagerBridge(private val project: Project) : ArtifactManager(), D
   }
 
   // Initialize all artifact bridges
+  @OptIn(EntityStorageInstrumentationApi::class)
   @RequiresReadLock
   private fun initBridges() = initBridgesMs.addMeasuredTimeMillis {
     // XXX @RequiresReadLock annotation doesn't work for kt now
     ApplicationManager.getApplication().assertReadAccessAllowed()
     val workspaceModel = project.workspaceModel
-    val current = workspaceModel.currentSnapshot
-    if (current.entitiesAmount(ArtifactEntity::class.java) != current.artifactsMap.size()) {
+    val current = workspaceModel.currentSnapshot as ImmutableEntityStorageInstrumentation
+    if (current.entityCount(ArtifactEntity::class.java) != current.artifactsMap.size()) {
 
       synchronized(lock) {
-        val currentInSync = workspaceModel.currentSnapshot
+        val currentInSync = workspaceModel.currentSnapshot as ImmutableEntityStorageInstrumentation
         val artifactsMap = currentInSync.artifactsMap
 
         // Double check
-        if (currentInSync.entitiesAmount(ArtifactEntity::class.java) != artifactsMap.size()) {
+        if (currentInSync.entityCount(ArtifactEntity::class.java) != artifactsMap.size()) {
           val newBridges = currentInSync
             .entities(ArtifactEntity::class.java)
             .mapNotNull {
               if (artifactsMap.getDataByEntity(it) == null) {
-                createArtifactBridge(it, workspaceModel.entityStorage, project)
+                createArtifactBridge(it, workspaceModel.internal.entityStorage, project)
               }
               else null
             }
@@ -303,7 +309,7 @@ class ArtifactManagerBridge(private val project: Project) : ArtifactManager(), D
 
   companion object {
     private val lock = Any()
-    private const val ARTIFACT_BRIDGE_MAPPING_ID = "intellij.artifacts.bridge"
+    private val ARTIFACT_BRIDGE_MAPPING_ID = ExternalMappingKey.create<ArtifactBridge>("intellij.artifacts.bridge")
 
     val EntityStorage.artifactsMap: ExternalEntityMapping<ArtifactBridge>
       get() = getExternalMapping(ARTIFACT_BRIDGE_MAPPING_ID)

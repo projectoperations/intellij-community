@@ -1,17 +1,18 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.workspace.storage.impl.query
 
-import com.intellij.platform.workspace.storage.EntityStorageSnapshot
+import com.intellij.platform.workspace.storage.ImmutableEntityStorage
 import com.intellij.platform.workspace.storage.WorkspaceEntity
-import com.intellij.platform.workspace.storage.impl.asBase
+import com.intellij.platform.workspace.storage.impl.*
 import com.intellij.platform.workspace.storage.impl.cache.PropagationResult
 import com.intellij.platform.workspace.storage.impl.cache.UpdateType
-import com.intellij.platform.workspace.storage.impl.clazz
-import com.intellij.platform.workspace.storage.impl.containers.PersistentMultiOccurenceMap
-import com.intellij.platform.workspace.storage.impl.findWorkspaceEntity
+import com.intellij.platform.workspace.storage.query.entities
 import com.intellij.platform.workspace.storage.trace.ReadTrace
 import com.intellij.platform.workspace.storage.trace.ReadTraceHashSet
 import com.intellij.platform.workspace.storage.trace.ReadTracker
+import it.unimi.dsi.fastutil.longs.LongArrayList
+import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.mutate
 import kotlin.reflect.KClass
 
 /**
@@ -21,11 +22,11 @@ import kotlin.reflect.KClass
  *   Cells can be chained in [CellChain] to represent all parts of the query.
  */
 internal sealed class Cell<T>(val id: CellId) {
-  open fun snapshotInput(snapshot: EntityStorageSnapshot): PropagationResult<T> {
+  open fun snapshotInput(snapshot: ImmutableEntityStorage): PropagationResult<T> {
     throw NotImplementedError()
   }
 
-  abstract fun input(prevData: TokenSet, newSnapshot: EntityStorageSnapshot): PropagationResult<T>
+  abstract fun input(prevData: MatchSet, newSnapshot: ImmutableEntityStorage): PropagationResult<T>
   abstract fun data(): T
 }
 
@@ -36,30 +37,38 @@ internal class EntityCell<T : WorkspaceEntity>(
   id: CellId,
   val type: KClass<T>,
 ) : Cell<List<T>>(id) {
-  override fun snapshotInput(snapshot: EntityStorageSnapshot): PropagationResult<List<T>> {
+  override fun snapshotInput(snapshot: ImmutableEntityStorage): PropagationResult<List<T>> {
     val newCell = EntityCell(this.id, this.type)
-    val tokens = snapshot
-      .entities(type.java)
-      .map { value -> Token.WithEntityId(Operation.ADDED, value.asBase().id) } // Maybe we can get ids directly without creating an entity
+    val snapshotImpl = snapshot as ImmutableEntityStorageImpl
+    val toClassId = type.java.toClassId()
+    val ids = snapshotImpl.entitiesByType[toClassId]?.entities?.asSequence()
+                ?.mapIndexedNotNull { index, workspaceEntityData ->
+                  if (workspaceEntityData == null) null else createEntityId(index, toClassId)
+                } ?: emptySequence()
+    val matches = ids
+      .map { value -> MatchWithEntityId(value) }
       .toList()
     val traces = ReadTraceHashSet()
     traces.add(ReadTrace.EntitiesOfType(type.java).hash)
-    return PropagationResult(newCell, TokenSet(tokens), listOf(traces to UpdateType.DIFF))
+    val matchSet = MatchSet().also { set -> matches.forEach { set.addedMatch(it) } }
+    return PropagationResult(newCell, matchSet, listOf(traces to UpdateType.DIFF))
   }
 
-  override fun input(prevData: TokenSet,
-                     newSnapshot: EntityStorageSnapshot): PropagationResult<List<T>> {
-    val tokenSet = TokenSet()
-    prevData.addedTokens()
-      .filter { (it as Token.WithEntityId).entityId.clazz.findWorkspaceEntity().kotlin == type }
-      .forEach { tokenSet.add(it) }
-    prevData.removedTokens()
-      .filter { (it as Token.WithEntityId).entityId.clazz.findWorkspaceEntity().kotlin == type }
-      .forEach { tokenSet.add(it) }
+  override fun input(prevData: MatchSet,
+                     newSnapshot: ImmutableEntityStorage): PropagationResult<List<T>> {
+    val matchSet = MatchSet()
+    prevData.addedMatches()
+      .asSequence()
+      .filter { (it as MatchWithEntityId).entityId.clazz.findWorkspaceEntity().kotlin == type }
+      .forEach { matchSet.addedMatch(it) }
+    prevData.removedMatches()
+      .asSequence()
+      .filter { (it as MatchWithEntityId).entityId.clazz.findWorkspaceEntity().kotlin == type }
+      .forEach { matchSet.removedMatch(it) }
 
     val traces = ReadTraceHashSet()
     traces.add(ReadTrace.EntitiesOfType(type.java).hash)
-    return PropagationResult(EntityCell(this.id, this.type), tokenSet,
+    return PropagationResult(EntityCell(this.id, this.type), matchSet,
                              listOf(traces to UpdateType.DIFF))
   }
 
@@ -71,41 +80,43 @@ internal class EntityCell<T : WorkspaceEntity>(
 @Suppress("UNCHECKED_CAST")
 internal class FlatMapCell<T, K>(
   id: CellId,
-  val mapping: (T, EntityStorageSnapshot) -> Iterable<K>,
-  private val memory: PersistentMultiOccurenceMap<Any?, Iterable<K>>,
+  val mapping: (T, ImmutableEntityStorage) -> Iterable<K>,
+  private val memory: PersistentMap<Match, Iterable<K>>,
 ) : Cell<List<K>>(id) {
 
   private var dataCache: List<K>? = null
 
-  override fun input(prevData: TokenSet,
-                     newSnapshot: EntityStorageSnapshot): PropagationResult<List<K>> {
-    val generatedTokens = TokenSet()
+  override fun input(prevData: MatchSet,
+                     newSnapshot: ImmutableEntityStorage): PropagationResult<List<K>> {
+    val generatedMatches = MatchSet()
     val traces = ArrayList<Pair<ReadTraceHashSet, UpdateType>>()
     val newMemory = memory.mutate { mutableMemory ->
-      prevData.removedTokens().forEach { token ->
-        val removedValue = mutableMemory.remove(token.key()) ?: error("Value expected to exist in memory: $token")
-        removedValue.forEach {
-          generatedTokens += it.toToken(Operation.REMOVED)
+      prevData.removedMatches().forEach { match ->
+        val removedValue = mutableMemory.remove(match)
+        removedValue?.forEach {
+          generatedMatches.removedMatch(it.toMatch(match))
         }
       }
-      prevData.addedTokens().forEach { token ->
-        val (newTraces, mappedValues) = ReadTracker.traceHashes(newSnapshot) {
-          val mappingTarget = token.getData(it)
-          mapping(mappingTarget as T, it)
-        }
-        mutableMemory[token.key()] = mappedValues
+      val target = LongArrayList()
+      val tracker = ReadTracker.tracedSnapshot(newSnapshot, target)
+      val res = HashMap<Match, Iterable<K>>()
+      prevData.addedMatches().forEach { match ->
+        target.clear()
+        val mappingTarget = match.getData(tracker)
+        val mappedValues = mapping(mappingTarget as T, tracker)
+        val newTraces = ReadTraceHashSet(target)
+
+        res[match] = mappedValues
 
         mappedValues.forEach {
-          generatedTokens += it.toToken(Operation.ADDED)
+          generatedMatches.addedMatch(it.toMatch(match))
         }
-        val recalculate = when (token) {
-          is Token.WithEntityId -> UpdateType.RECALCULATE(null, token.entityId)
-          is Token.WithInfo -> UpdateType.RECALCULATE(token.info, null)
-        }
+        val recalculate = UpdateType.RECALCULATE(match)
         traces += newTraces to recalculate
       }
+      mutableMemory.putAll(res)
     }
-    return PropagationResult(FlatMapCell(id, mapping, newMemory), generatedTokens, traces)
+    return PropagationResult(FlatMapCell(id, mapping, newMemory), generatedMatches, traces)
   }
 
   override fun data(): List<K> {
@@ -115,7 +126,62 @@ internal class FlatMapCell<T, K>(
       return existingData
     }
 
-    val res = memory.values().flatten()
+    val res = memory.values.flatten()
+    this.dataCache = res
+    return res
+  }
+}
+
+@Suppress("UNCHECKED_CAST")
+internal class MapCell<T, K>(
+  id: CellId,
+  val mapping: (T, ImmutableEntityStorage) -> K,
+  private val memory: PersistentMap<Match, K>,
+) : Cell<List<K>>(id) {
+
+  private var dataCache: List<K>? = null
+
+  override fun input(prevData: MatchSet,
+                     newSnapshot: ImmutableEntityStorage): PropagationResult<List<K>> {
+    val generatedMatches = MatchSet()
+    val traces = ArrayList<Pair<ReadTraceHashSet, UpdateType>>()
+    val newMemory = memory.mutate { mutableMemory ->
+      prevData.removedMatches().forEach { match ->
+        val removedValue = mutableMemory.remove(match)
+        removedValue?.let {
+          generatedMatches.removedMatch(it.toMatch(match))
+        }
+      }
+      val target = LongArrayList()
+      val tracker = ReadTracker.tracedSnapshot(newSnapshot, target)
+      val res = HashMap<Match, K>()
+      prevData.addedMatches().forEach { match ->
+        target.clear()
+        val mappingTarget = match.getData(tracker)
+        val mappedValues = mapping(mappingTarget as T, tracker)
+        val newTraces = ReadTraceHashSet(target)
+
+        res[match] = mappedValues
+
+        mappedValues.let {
+          generatedMatches.addedMatch(it.toMatch(match))
+        }
+        val recalculate = UpdateType.RECALCULATE(match)
+        traces += newTraces to recalculate
+      }
+      mutableMemory.putAll(res)
+    }
+    return PropagationResult(MapCell(id, mapping, newMemory), generatedMatches, traces)
+  }
+
+  override fun data(): List<K> {
+    // There is no synchronization as this is okay to calculate data twice
+    val existingData = dataCache
+    if (existingData != null) {
+      return existingData
+    }
+
+    val res = memory.values.toList()
     this.dataCache = res
     return res
   }
@@ -126,40 +192,39 @@ internal class GroupByCell<T, K, V>(
   id: CellId,
   val keySelector: (T) -> K,
   val valueTransform: (T) -> V,
-  private val myMemory: PersistentMultiOccurenceMap<Any?, Pair<K, V>>,
+  private val myMemory: PersistentMap<Match, Pair<K, V>>,
 ) : Cell<Map<K, List<V>>>(id) {
 
   private var mapCache: Map<K, List<V>>? = null
 
-  override fun input(prevData: TokenSet,
-                     newSnapshot: EntityStorageSnapshot): PropagationResult<Map<K, List<V>>> {
-    val generatedTokens = TokenSet()
+  override fun input(prevData: MatchSet,
+                     newSnapshot: ImmutableEntityStorage): PropagationResult<Map<K, List<V>>> {
+    val generatedMatches = MatchSet()
     val traces = ArrayList<Pair<ReadTraceHashSet, UpdateType>>()
     val newMemory = myMemory.mutate { mutableMemory ->
-      prevData.removedTokens().forEach { token ->
-        val removedValue = mutableMemory.remove(token.key()) ?: error("Value expected to exist in memory: $token")
-        generatedTokens += removedValue.toToken(Operation.REMOVED)
+      prevData.removedMatches().forEach { match ->
+        val removedValue = mutableMemory.remove(match)
+        if (removedValue != null) {
+          generatedMatches.removedMatch(removedValue.toMatch(match))
+        }
       }
-      prevData.addedTokens().forEach { token ->
-        val (newTraces, keyToValue) = ReadTracker.traceHashes(newSnapshot) {
-          val origData = token.getData(it)
-          val key = keySelector(origData as T)
-          val value = valueTransform(origData as T)
-          key to value
-        }
+      val target = LongArrayList()
+      val tracker = ReadTracker.tracedSnapshot(newSnapshot, target)
+      prevData.addedMatches().forEach { match ->
+        target.clear()
+        val origData = match.getData(tracker)
+        val keyToValue = keySelector(origData as T) to valueTransform(origData as T)
+        val newTraces = ReadTraceHashSet(target)
 
-        mutableMemory[token.key()] = keyToValue
+        mutableMemory[match] = keyToValue
 
-        generatedTokens += keyToValue.toToken(Operation.ADDED)
+        generatedMatches.addedMatch(keyToValue.toMatch(match))
 
-        val recalculate = when (token) {
-          is Token.WithEntityId -> UpdateType.RECALCULATE(null, token.entityId)
-          is Token.WithInfo -> UpdateType.RECALCULATE(token.info, null)
-        }
+        val recalculate = UpdateType.RECALCULATE(match)
         traces += newTraces to recalculate
       }
     }
-    return PropagationResult(GroupByCell(id, keySelector, valueTransform, newMemory), generatedTokens, traces)
+    return PropagationResult(GroupByCell(id, keySelector, valueTransform, newMemory), generatedMatches, traces)
   }
 
   override fun data(): Map<K, List<V>> = buildAndGetMap()
@@ -168,7 +233,7 @@ internal class GroupByCell<T, K, V>(
     val myMapCache = mapCache
     if (myMapCache != null) return myMapCache
     val res = mutableMapOf<K, MutableList<V>>()
-    myMemory.values().forEach { (k, v) ->
+    myMemory.values.forEach { (k, v) ->
       res.getOrPut(k) { ArrayList() }.add(v)
     }
     mapCache = res

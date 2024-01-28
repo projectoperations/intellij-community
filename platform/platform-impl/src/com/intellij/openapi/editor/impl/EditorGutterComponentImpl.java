@@ -463,10 +463,11 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx implements
   private void debugGutterAreas(Graphics2D g) {
     if (!debug()) return;
     Point p = MouseInfo.getPointerInfo().getLocation();
-    SwingUtilities.convertPointFromScreen(p, this.myEditor.getComponent());
+    SwingUtilities.convertPointFromScreen(p, this);
     if (p.x >= 0 && p.x <= getWidth()) {
       int off = 0;
-      for (EditorGutterLayout.GutterArea area : myLayout.getLayout()) {
+      List<EditorGutterLayout.GutterArea> layout = isMirrored() ? ContainerUtil.reverse(myLayout.getLayout()) : myLayout.getLayout();
+      for (EditorGutterLayout.GutterArea area : layout) {
         int x = off;
         off += area.width();
         if (off >= p.x) {
@@ -476,6 +477,8 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx implements
           g.setFont(JBUI.Fonts.smallFont().lessOn(2f));
           int y = SwingUtilities.convertPoint(myEditor.getComponent(), p, myEditor.getScrollPane()).y;
           g.drawString(String.valueOf(area.width()), x, y + g.getClipBounds().y - 10);
+
+          showToolTip(area.toString(), p, Balloon.Position.below); //NON-NLS
           break;
         }
       }
@@ -1301,10 +1304,17 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx implements
   private boolean isLineMarkerVisible(RangeHighlighter highlighter) {
     int startOffset = highlighter.getStartOffset();
     int endOffset = highlighter.getEndOffset();
-
     FoldRegion startFoldRegion = myEditor.getFoldingModel().getCollapsedRegionAtOffset(startOffset);
+    if (startFoldRegion == null) return true; // Marker is visible if start of the region is not folded
+
     FoldRegion endFoldRegion = myEditor.getFoldingModel().getCollapsedRegionAtOffset(endOffset);
-    return startFoldRegion == null || !startFoldRegion.equals(endFoldRegion);
+    if (!startFoldRegion.equals(endFoldRegion)) return true; // Start and end are folded, but the middle highlighter part is visible
+
+    if (startOffset == endOffset) {
+      // Show highlighters at the edge of the folded area
+      return startFoldRegion.getStartOffset() == startOffset || startFoldRegion.getEndOffset() == startOffset;
+    }
+    return false; // Marker is folded
   }
 
   @Override
@@ -2854,11 +2864,13 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx implements
   }
 
   @Override
-  public @Nullable UiInspectorInfo getUiInspectorContext(@NotNull MouseEvent event) {
+  public @NotNull UiInspectorInfo getUiInspectorContext(@NotNull MouseEvent event) {
+    List<PropertyBean> result = new ArrayList<>();
+    result.add(new PropertyBean("Use 'ide.debug.gutter.area' Registry to debug painting areas", null, true));
+
     Point point = event.getPoint();
     PointInfo pointInfo = getPointInfo(point);
     if (pointInfo != null) {
-      List<PropertyBean> result = new ArrayList<>();
       result.add(new PropertyBean("Clicked Renderer", pointInfo.renderer, true));
       result.add(new PropertyBean("Clicked Renderer Class", UiInspectorUtil.getClassPresentation(pointInfo.renderer), true));
       result.add(new PropertyBean("Accessible Name", pointInfo.renderer.getAccessibleName()));
@@ -2875,13 +2887,12 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx implements
 
     ActiveGutterRenderer gutterRenderer = getActiveRendererByMouseEvent(event);
     if (gutterRenderer != null) {
-      List<PropertyBean> result = new ArrayList<>();
       result.add(new PropertyBean("Clicked Renderer", gutterRenderer));
       result.add(new PropertyBean("Clicked Renderer Class", UiInspectorUtil.getClassPresentation(gutterRenderer)));
       return new UiInspectorInfo("ActiveGutterRenderer", result, null);
     }
 
-    return null;
+    return new UiInspectorInfo(null, result, null);
   }
 
   private final class LineNumbersRepainter implements CaretListener {

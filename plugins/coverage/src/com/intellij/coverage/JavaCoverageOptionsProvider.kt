@@ -15,8 +15,17 @@ import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 class JavaCoverageOptionsProvider(private val project: Project) : PersistentStateComponent<JavaCoverageOptionsProvider.State?> {
   private val state = State()
 
+  var branchCoverage: Boolean by state::myBranchCoverage
+  var testTracking: Boolean by state::myTestTracking
+  var testModulesCoverage: Boolean by state::myTestModulesCoverage
+  var calculateExactHits: Boolean by state::myCalculateExactHits
   var ignoreImplicitConstructors: Boolean by state::myIgnoreImplicitConstructors
   var excludeAnnotationPatterns: List<String> by state::myExcludeAnnotationPatterns
+  var coverageRunner: CoverageRunner?
+    get() = state.myRunnerId?.let { CoverageRunner.getInstanceById(it) }
+    set(value) {
+      state.myRunnerId = value?.id
+    }
 
   @RequiresBackgroundThread
   fun isGeneratedConstructor(qualifiedName: String, methodSignature: String): Boolean {
@@ -31,11 +40,21 @@ class JavaCoverageOptionsProvider(private val project: Project) : PersistentStat
 
   override fun getState(): State = state
   override fun loadState(loaded: State) {
+    state.myRunnerId = loaded.myRunnerId
+    state.myBranchCoverage = loaded.myBranchCoverage
+    state.myTestTracking = loaded.myTestTracking
+    state.myTestModulesCoverage = loaded.myTestModulesCoverage
+    state.myCalculateExactHits = loaded.myCalculateExactHits
     state.myIgnoreImplicitConstructors = loaded.myIgnoreImplicitConstructors
     state.myExcludeAnnotationPatterns = listWithDefaultAnnotations(loaded.myExcludeAnnotationPatterns)
   }
 
   class State {
+    internal var myRunnerId: String? = CoverageRunner.getInstance(IDEACoverageRunner::class.java).id
+    internal var myBranchCoverage: Boolean = true
+    internal var myTestTracking: Boolean = false
+    internal var myTestModulesCoverage: Boolean = false
+    internal var myCalculateExactHits: Boolean = true
     internal var myIgnoreImplicitConstructors: Boolean = true
     internal var myExcludeAnnotationPatterns: List<String> = defaultExcludeAnnotationPatterns
   }

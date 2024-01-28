@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.MarkupEditorFilter;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.SeparatorPlacement;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NlsContexts;
@@ -42,7 +43,7 @@ public class LineMarkerInfo<T extends PsiElement> {
   public int updatePass;
   private final Function<? super T, @NlsContexts.Tooltip String> myTooltipProvider;
   private final Supplier<@Nls @NotNull String> myAccessibleNameProvider;
-  private AnAction myNavigateAction = new NavigateAction<>(this);
+  private AnAction myNavigateAction;
   private final @NotNull GutterIconRenderer.Alignment myIconAlignment;
   private final GutterIconNavigationHandler<T> myNavigationHandler;
 
@@ -138,6 +139,9 @@ public class LineMarkerInfo<T extends PsiElement> {
     myIconAlignment = alignment;
     this.elementRef = elementRef;
     myNavigationHandler = navHandler;
+    if (navHandler != null) {
+      myNavigateAction = new NavigateAction<>(this);
+    }
     startOffset = range.getStartOffset();
     endOffset = range.getEndOffset();
     updatePass = 11; //Pass.LINE_MARKERS;
@@ -202,7 +206,7 @@ public class LineMarkerInfo<T extends PsiElement> {
     return MarkupEditorFilter.EMPTY;
   }
 
-  public GutterIconNavigationHandler<T> getNavigationHandler() {
+  public final GutterIconNavigationHandler<T> getNavigationHandler() {
     return myNavigationHandler;
   }
 
@@ -210,7 +214,7 @@ public class LineMarkerInfo<T extends PsiElement> {
     return myAccessibleNameProvider;
   }
 
-  public static class LineMarkerGutterIconRenderer<T extends PsiElement> extends GutterIconRenderer {
+  public static class LineMarkerGutterIconRenderer<T extends PsiElement> extends GutterIconRenderer implements DumbAware {
     private final LineMarkerInfo<T> myInfo;
 
     public LineMarkerGutterIconRenderer(@NotNull LineMarkerInfo<T> info) {

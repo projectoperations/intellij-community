@@ -103,9 +103,9 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
     assertSources("m3", "user-sources")
     assertSources("m4", "user-sources", "src/main/java")
 
-    val mFour = WorkspaceModel.getInstance(myProject).currentSnapshot.resolve(ModuleId("m4"))
+    val mFour = WorkspaceModel.getInstance(project).currentSnapshot.resolve(ModuleId("m4"))
     assertNotNull(mFour)
-    val sourceEntitySource = mFour!!.contentRoots.first().sourceRoots.filter { it.url.url.endsWith("java") }.first().entitySource
+    val sourceEntitySource = mFour!!.contentRoots.first().sourceRoots.first { it.url.url.endsWith("java") }.entitySource
     assertTrue(sourceEntitySource is FileInDirectory)
   }
 
@@ -167,7 +167,7 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
 
     val userModuleWithConflictingRoot = createModule("userModuleWithConflictingRoot")
     PsiTestUtil.removeAllRoots(userModuleWithConflictingRoot, null)
-    PsiTestUtil.addContentRoot(userModuleWithConflictingRoot, myProjectRoot)
+    PsiTestUtil.addContentRoot(userModuleWithConflictingRoot, projectRoot)
     val anotherContentRoot = createProjectSubFile("m1/user-content")
     PsiTestUtil.addContentRoot(userModuleWithConflictingRoot, anotherContentRoot)
     assertContentRoots(userModuleWithConflictingRoot.getName(), projectPath, anotherContentRoot.getPath())
@@ -190,7 +190,7 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
 
     val userModuleWithConflictingRoot = createModule("userModuleWithConflictingRoot")
     PsiTestUtil.removeAllRoots(userModuleWithConflictingRoot, null)
-    PsiTestUtil.addContentRoot(userModuleWithConflictingRoot, myProjectRoot)
+    PsiTestUtil.addContentRoot(userModuleWithConflictingRoot, projectRoot)
     assertContentRoots(userModuleWithConflictingRoot.getName(), projectPath)
 
     val userModuleWithUniqueRoot = createModule("userModuleWithUniqueRoot")
@@ -526,7 +526,7 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
                        <name>Maven archetype Test create-2-subModule</name>
                        <packaging>pom</packaging>
                        """.trimIndent())
-    importProjectWithErrors()
+    importProjectAsync()
   }
 
   @Test
@@ -647,7 +647,7 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
   @Test
   fun testParentInRemoteRepository() = runBlocking {
     val pathToJUnit = "asm/asm-parent/3.0"
-    val parentDir = File(getRepositoryPath(), pathToJUnit)
+    val parentDir = File(repositoryPath, pathToJUnit)
 
     removeFromLocalRepository(pathToJUnit)
     assertFalse(parentDir.exists())
@@ -944,7 +944,7 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
       </dependencies>
       """.trimIndent())
 
-    doImportProjects(listOf(myProjectPom), false, "profile-test")
+    doImportProjectsAsync(listOf(projectPom), false, "profile-test")
   }
 
   @Test
@@ -1034,7 +1034,7 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
                        """.trimIndent())
 
     val disabledProfiles = listOf("one")
-    doImportProjects(listOf(myProjectPom), true, disabledProfiles)
+    doImportProjectsAsync(listOf(projectPom), true, disabledProfiles)
     assertModules("project-two")
   }
 }

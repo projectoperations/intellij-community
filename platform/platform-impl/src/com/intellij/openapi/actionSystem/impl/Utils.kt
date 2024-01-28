@@ -4,6 +4,7 @@
 package com.intellij.openapi.actionSystem.impl
 
 import com.intellij.CommonBundle
+import com.intellij.codeWithMe.ClientId
 import com.intellij.concurrency.ContextAwareRunnable
 import com.intellij.concurrency.resetThreadContext
 import com.intellij.diagnostic.PluginException
@@ -69,6 +70,8 @@ import java.awt.event.FocusEvent
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
@@ -127,7 +130,7 @@ private var lastFailedFastTrackCount = 0
  *    A progress icon is shown while expecting the results.
  *
  * 3. Blocking with the ability to unblock via [Utils.runUpdateSessionForInputEvent].
- *    It is only used in **keyborard, mouse, and gesture shortcuts** processing.
+ *    It is only used in **keyboard, mouse, and gesture shortcuts** processing.
  *    It fully blocks the UI while it chooses the action to invoke because the user expects actions
  *    to perform on the exact UI state at the time shortcut is pressed.
  *    In case of a long wait, [PotemkinOverlayProgress] is shown with the ability to cancel the shortcut.
@@ -250,8 +253,8 @@ object Utils {
                              place: String,
                              isToolbarAction: Boolean,
                              fastTrack: Boolean): CancellablePromise<List<AnAction>> {
-    return service<CoreUiCoroutineScopeHolder>().coroutineScope.async(Dispatchers.EDT + ModalityState.any().asContextElement(),
-                                                                      CoroutineStart.UNDISPATCHED) {
+    return service<CoreUiCoroutineScopeHolder>().coroutineScope.async(Dispatchers.EDT + ModalityState.any().asContextElement() +
+                                                                      ClientId.coroutineContext(), CoroutineStart.UNDISPATCHED) {
       expandActionGroupSuspend(group, presentationFactory, context, place, isToolbarAction, fastTrack)
     }.asCompletableFuture().asCancellablePromise()
   }
@@ -278,10 +281,7 @@ object Utils {
     val updater = ActionUpdater(presentationFactory, asyncDataContext, place, isContextMenu, isToolbarAction, edtDispatcher)
     val deferred = async(edtDispatcher, CoroutineStart.UNDISPATCHED) {
       updater.runUpdateSession(updaterContext(place, fastTrackTime, isContextMenu, isToolbarAction)) {
-        ActionUpdaterInterceptor.expandActionGroup(presentationFactory, asyncDataContext, place, group, isToolbarAction,
-                                                   updater.asUpdateSession()) {
-          updater.expandActionGroup(group, group is CompactActionGroup)
-        }
+        updater.expandActionGroup(group, group is CompactActionGroup)
       }
     }
     if (fastTrackTime > 0) {
@@ -357,10 +357,7 @@ object Utils {
       val edtDispatcher = coroutineContext[CoroutineDispatcher]!!
       val updater = ActionUpdater(presentationFactory, asyncDataContext, place, isContextMenu, false, edtDispatcher)
       updater.runUpdateSession(updaterContext(place, fastTrackTime, isContextMenu, false)) {
-        ActionUpdaterInterceptor.expandActionGroup(presentationFactory, asyncDataContext, place, group, false,
-                                                   updater.asUpdateSession()) {
-          updater.expandActionGroup(group, group is CompactActionGroup)
-        }
+        updater.expandActionGroup(group, group is CompactActionGroup)
       }
     }
     finally {
@@ -629,7 +626,8 @@ object Utils {
     LOG.error("Invisible menu item for $operationName")
   }
 
-  private fun reportEmptyTextMenuItem(action: AnAction, place: String) {
+  @JvmStatic
+  fun reportEmptyTextMenuItem(action: AnAction, place: String) {
     val operationName = operationName(action, null, place)
     var message = "Empty menu item text for $operationName"
     if (action.getTemplatePresentation().text.isNullOrEmpty()) {
@@ -828,13 +826,17 @@ object Utils {
 
   @JvmStatic
   fun showPopupElapsedMillisIfConfigured(startNanos: Long, comp: Component) {
-    if (startNanos > 0 && Registry.`is`("ide.diagnostics.show.context.menu.invocation.time")) {
-      UiNotifyConnector.doWhenFirstShown(comp) {
-        val time = TimeoutUtil.getDurationMillis(startNanos)
-        @Suppress("DEPRECATION", "removal", "HardCodedStringLiteral")
-        Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, "Popup invocation took $time ms",
-                     NotificationType.INFORMATION).notify(null)
-      }
+    if (startNanos <= 0 || !Registry.`is`("ide.diagnostics.show.context.menu.invocation.time")) return
+    UiNotifyConnector.doWhenFirstShown(comp) {
+      UIUtil.getWindow(comp)?.addWindowListener(object : WindowAdapter() {
+        override fun windowOpened(e: WindowEvent) {
+          e.window.removeWindowListener(this)
+          val time = TimeoutUtil.getDurationMillis(startNanos)
+          @Suppress("DEPRECATION", "removal", "HardCodedStringLiteral")
+          Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, "Popup invocation took $time ms",
+                       NotificationType.INFORMATION).notify(null)
+        }
+      })
     }
   }
 
@@ -923,7 +925,7 @@ object Utils {
                                                 factory: PresentationFactory,
                                                 function: suspend (List<AnAction>,
                                                                    suspend (AnAction) -> Presentation,
-                                                                   Map<Presentation, AnActionEvent>) -> T): T? = withContext(
+                                                                   Map<Presentation, AnActionEvent>) -> T): T = withContext(
     CoroutineName("runUpdateSessionForInputEvent")) {
     checkAsyncDataContext(dataContext, place)
     val start = System.nanoTime()
@@ -1059,6 +1061,8 @@ private class PotemkinElement(val potemkin: PotemkinOverlayProgress) : ThreadCon
   override fun restoreThreadContext(context: CoroutineContext, oldState: AccessToken) {
     oldState.finish()
   }
+
+  override fun toString(): String = "PotemkinElement@" + potemkin.hashCode()
 }
 
 private fun updaterContext(place: String, fastTrackTime: Int, isContextMenu: Boolean, isToolbarAction: Boolean): CoroutineContext {
@@ -1076,20 +1080,18 @@ suspend fun runEdtLoop(mainJob: Job, expire: (() -> Boolean)?, contextComponent:
   val window: Window? = if (contextComponent == null) null else SwingUtilities.getWindowAncestor(contextComponent)
   ourExpandActionGroupImplEDTLoopLevel++
   try {
-    resetThreadContext().use {
-      ThreadingAssertions.assertEventDispatchThread()
-      while (true) {
-        // we need `suspend getNextEvent()` API, or at least `getNextEventOrNull(timeout)`
-        // because blocking `getNextEvent` prevents "computeOnEDT" blocks from executing.
-        // `peekEvent()` + `delay(10)` would do but editor scrolling became noticeably less smooth.
-        val event = queue.getNextEvent()
-        queue.dispatchEvent(event)
-        if (isCancellingExpandEvent(event, window, menuItem) || // TODO can we push back and unwind here?
-            expire?.invoke() == true) {
-          mainJob.cancel()
-        }
-        yield()
+    ThreadingAssertions.assertEventDispatchThread()
+    while (true) {
+      // we need `suspend getNextEvent()` API, or at least `getNextEventOrNull(timeout)`
+      // because blocking `getNextEvent` prevents "computeOnEDT" blocks from executing.
+      // `peekEvent()` + `delay(10)` would do but editor scrolling became noticeably less smooth.
+      val event = queue.getNextEvent()
+      queue.dispatchEvent(event)
+      if (isCancellingExpandEvent(event, window, menuItem) || // TODO can we push back and unwind here?
+          expire?.invoke() == true) {
+        mainJob.cancel()
       }
+      yield()
     }
   }
   finally {
@@ -1196,9 +1198,10 @@ internal suspend inline fun <R> readActionUndispatchedForActionExpand(noinline b
 @ApiStatus.Internal
 interface SuspendingUpdateSession: UpdateSession {
   suspend fun presentationSuspend(action: AnAction): Presentation
+  suspend fun childrenSuspend(actionGroup: ActionGroup): List<AnAction>
   suspend fun expandSuspend(action: ActionGroup): List<AnAction>
 
-  suspend fun <T : Any?> sharedDataSuspend(key: Key<T>, supplier: suspend () -> T): T
+  fun <T : Any?> sharedDataSuspend(key: Key<T>, supplier: suspend () -> T): T
 
   fun visitCaches(visitor: (AnAction, String, Any) -> Unit)
   fun dropCaches(predicate: (AnAction) -> Boolean)

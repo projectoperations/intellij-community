@@ -9,11 +9,9 @@ import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.roots.PersistentOrderRootType
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar
 import com.intellij.platform.workspace.jps.entities.*
-import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.testFramework.ApplicationRule
 import com.intellij.testFramework.DisposableRule
 import com.intellij.testFramework.UsefulTestCase
-import com.intellij.workspaceModel.ide.getGlobalInstance
 import com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModel
 import com.intellij.workspaceModel.ide.impl.legacyBridge.library.GlobalLibraryTableBridgeImpl
 import com.intellij.workspaceModel.ide.legacyBridge.GlobalSdkTableBridge
@@ -49,16 +47,16 @@ class JpsGlobalEntitiesSavingTest {
       val workspaceModel = GlobalWorkspaceModel.getInstance()
       Assert.assertEquals(0, workspaceModel.currentSnapshot.entities(LibraryEntity::class.java).toList().size)
 
-      val virtualFileManager = VirtualFileUrlManager.getGlobalInstance()
+      val virtualFileManager = workspaceModel.getVirtualFileUrlManager()
       val globalLibraryTableId = LibraryTableId.GlobalLibraryTableId(LibraryTablesRegistrar.APPLICATION_LEVEL)
       ApplicationManager.getApplication().invokeAndWait {
         runWriteAction {
           workspaceModel.updateModel("Test update") { builder ->
-            var libraryRoot = LibraryRoot(virtualFileManager.fromUrl("/a/b/one.txt"), LibraryRootTypeId.COMPILED)
+            var libraryRoot = LibraryRoot(virtualFileManager.getOrCreateFromUri("/a/b/one.txt"), LibraryRootTypeId.COMPILED)
             val gradleLibraryEntity = LibraryEntity(librariesNames.get(0), globalLibraryTableId, listOf(libraryRoot), entitySource)
             builder.addEntity(gradleLibraryEntity)
 
-            libraryRoot = LibraryRoot(virtualFileManager.fromUrl("/a/c/test.jar"), LibraryRootTypeId.SOURCES)
+            libraryRoot = LibraryRoot(virtualFileManager.getOrCreateFromUri("/a/c/test.jar"), LibraryRootTypeId.SOURCES)
             val mavenLibraryEntity = LibraryEntity(librariesNames.get(1), globalLibraryTableId, listOf(libraryRoot), entitySource)
             builder.addEntity(mavenLibraryEntity)
           }
@@ -86,20 +84,20 @@ class JpsGlobalEntitiesSavingTest {
       val workspaceModel = GlobalWorkspaceModel.getInstance()
       Assert.assertEquals(0, workspaceModel.currentSnapshot.entities(SdkEntity::class.java).toList().size)
 
-      val virtualFileManager = VirtualFileUrlManager.getGlobalInstance()
+      val virtualFileManager = workspaceModel.getVirtualFileUrlManager()
       ApplicationManager.getApplication().invokeAndWait {
         runWriteAction {
           workspaceModel.updateModel("Test update") { builder ->
-            var sdkRoots = listOf(SdkRoot(virtualFileManager.fromUrl("/Contents/Home!/java.compiler"), SdkRootTypeId(OrderRootType.CLASSES.customName)),
-                                  SdkRoot(virtualFileManager.fromUrl("/lib/src.zip!/java.se"), SdkRootTypeId(OrderRootType.SOURCES.customName)))
+            var sdkRoots = listOf(SdkRoot(virtualFileManager.getOrCreateFromUri("/Contents/Home!/java.compiler"), SdkRootTypeId(OrderRootType.CLASSES.customName)),
+                                  SdkRoot(virtualFileManager.getOrCreateFromUri("/lib/src.zip!/java.se"), SdkRootTypeId(OrderRootType.SOURCES.customName)))
             val jbrSdkEntity = SdkEntity(sdkNames[0], "JavaSDK", sdkRoots, "", entitySource) {
-              this.homePath = virtualFileManager.fromUrl("/Library/Java/JavaVirtualMachines/jbr-2048/Contents/Home")
+              this.homePath = virtualFileManager.getOrCreateFromUri("/Library/Java/JavaVirtualMachines/jbr-2048/Contents/Home")
             }
             builder.addEntity(jbrSdkEntity)
 
-            sdkRoots = listOf(SdkRoot(virtualFileManager.fromUrl("/Contents/plugins/java/lib/resources/jdkAnnotations.jar"), SdkRootTypeId(AnnotationOrderRootType.getInstance().customName)))
+            sdkRoots = listOf(SdkRoot(virtualFileManager.getOrCreateFromUri("/Contents/plugins/java/lib/resources/jdkAnnotations.jar"), SdkRootTypeId(AnnotationOrderRootType.getInstance().customName)))
             val amazonSdkEntity = SdkEntity(sdkNames[1], "JavaSDK", sdkRoots, "", entitySource) {
-              this.homePath = virtualFileManager.fromUrl("/Library/Java/JavaVirtualMachines/amazon.crevetto/Contents/Home")
+              this.homePath = virtualFileManager.getOrCreateFromUri("/Library/Java/JavaVirtualMachines/amazon.crevetto/Contents/Home")
             }
             builder.addEntity(amazonSdkEntity)
           }

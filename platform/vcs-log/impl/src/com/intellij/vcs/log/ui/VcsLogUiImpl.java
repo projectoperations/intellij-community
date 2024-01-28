@@ -8,7 +8,6 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.changes.ui.ChangesBrowserBase;
-import com.intellij.util.PairFunction;
 import com.intellij.vcs.log.VcsLogBundle;
 import com.intellij.vcs.log.VcsLogFilterCollection;
 import com.intellij.vcs.log.VcsLogHighlighter;
@@ -36,6 +35,7 @@ import javax.swing.*;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 public class VcsLogUiImpl extends AbstractVcsLogUi implements MainVcsLogUi {
@@ -101,7 +101,7 @@ public class VcsLogUiImpl extends AbstractVcsLogUi implements MainVcsLogUi {
   @Override
   protected <T> void handleCommitNotFound(@NotNull T commitId,
                                           boolean commitExists,
-                                          @NotNull PairFunction<? super VisiblePack, ? super T, Integer> rowGetter) {
+                                          @NotNull BiFunction<? super VisiblePack, ? super T, Integer> rowGetter) {
     if (getFilterUi().getFilters().isEmpty() || !commitExists) {
       super.handleCommitNotFound(commitId, commitExists, rowGetter);
       return;
@@ -110,8 +110,8 @@ public class VcsLogUiImpl extends AbstractVcsLogUi implements MainVcsLogUi {
     List<NotificationAction> actions = new ArrayList<>();
     actions.add(NotificationAction.createSimple(VcsLogBundle.message("vcs.log.commit.does.not.match.view.and.reset.link"), () -> {
       getFilterUi().clearFilters();
-      invokeOnChange(() -> jumpTo(commitId, rowGetter, SettableFuture.create(), false, true),
-                     pack -> pack.getFilters().isEmpty());
+      VcsLogUtil.invokeOnChange(this, () -> jumpTo(commitId, rowGetter, SettableFuture.create(), false, true),
+                                pack -> pack.getFilters().isEmpty());
     }));
     VcsProjectLog projectLog = VcsProjectLog.getInstance(myProject);
     if (projectLog.getDataManager() == myLogData) {

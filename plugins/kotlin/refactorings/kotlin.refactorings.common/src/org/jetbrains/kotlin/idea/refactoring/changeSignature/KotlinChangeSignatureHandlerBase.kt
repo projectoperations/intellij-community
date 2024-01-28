@@ -15,6 +15,7 @@ import com.intellij.refactoring.RefactoringBundle
 import com.intellij.refactoring.changeSignature.ChangeSignatureHandler
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
+import org.jetbrains.kotlin.idea.codeinsight.utils.KotlinSupportAvailability
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.utils.checkWithAttachment
 
@@ -29,7 +30,7 @@ abstract class KotlinChangeSignatureHandlerBase : ChangeSignatureHandler {
     }
 
     abstract fun asInvokeOperator(call: KtCallElement?): PsiElement?
-    abstract fun invokeChangeSignature(element: KtElement, context: PsiElement, project: Project, editor: Editor?)
+    abstract fun invokeChangeSignature(element: KtElement, context: PsiElement, project: Project, editor: Editor?, dataContext: DataContext?)
 
     override fun findTargetMember(element: PsiElement) = findTargetForRefactoring(element)
 
@@ -42,7 +43,9 @@ abstract class KotlinChangeSignatureHandlerBase : ChangeSignatureHandler {
             it.withAttachment("element", element)
         }
 
-        invokeChangeSignature(element, elementAtCaret as KtElement, project, editor)
+        if (!KotlinSupportAvailability.isSupported(element)) return
+
+        invokeChangeSignature(element, elementAtCaret as KtElement, project, editor, dataContext)
     }
 
     override fun invoke(project: Project, elements: Array<PsiElement>, dataContext: DataContext?) {
@@ -51,9 +54,11 @@ abstract class KotlinChangeSignatureHandlerBase : ChangeSignatureHandler {
             it.withAttachment("element", element)
         }
 
+        if (!KotlinSupportAvailability.isSupported(element)) return
+
         val editor = dataContext?.let { CommonDataKeys.EDITOR.getData(it) }
         val context = dataContext?.let { CommonDataKeys.PSI_FILE.getData(it) } ?: element
-        invokeChangeSignature(element, context, project, editor)
+        invokeChangeSignature(element, context, project, editor, dataContext)
     }
 
     override fun getTargetNotFoundMessage() = KotlinBundle.message("error.wrong.caret.position.function.or.constructor.name")

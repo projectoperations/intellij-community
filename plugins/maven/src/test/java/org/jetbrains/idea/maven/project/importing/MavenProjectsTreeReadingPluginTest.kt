@@ -31,9 +31,9 @@ class MavenProjectsTreeReadingPluginTest : MavenProjectsTreeTestCase() {
                                 """.trimIndent())
     val listener = MyLoggingListener()
     tree.addListener(listener, getTestRootDisposable())
-    updateAll(myProjectPom, child)
-    val parentProject = tree.findProject(myProjectPom)!!
-    val embeddersManager = MavenEmbeddersManager(myProject)
+    updateAll(projectPom, child)
+    val parentProject = tree.findProject(projectPom)!!
+    val embeddersManager = MavenEmbeddersManager(project)
     try {
       val nativeProject = arrayOfNulls<NativeMavenProjectHolder>(1)
       tree.addListener(object : MavenProjectsTree.Listener {
@@ -42,12 +42,10 @@ class MavenProjectsTreeReadingPluginTest : MavenProjectsTreeTestCase() {
           nativeProject[0] = nativeMavenProject
         }
       }, getTestRootDisposable())
-      resolve(myProject,
+      resolve(project,
               parentProject,
               mavenGeneralSettings,
-              embeddersManager,
-              mavenProgressIndicator
-      )
+              embeddersManager)
       val pluginResolver = MavenPluginResolver(tree)
       val progressReporter = object : RawProgressReporter {}
       pluginResolver.resolvePlugins(listOf(MavenProjectWithHolder(parentProject, nativeProject[0]!!, MavenProjectChanges.ALL)),

@@ -7,7 +7,6 @@ import com.intellij.diff.actions.AllLinesIterator;
 import com.intellij.diff.actions.BufferedLineIterator;
 import com.intellij.diff.comparison.DiffTooBigException;
 import com.intellij.diff.fragments.LineFragment;
-import com.intellij.diff.impl.ui.DifferencesLabel;
 import com.intellij.diff.requests.ContentDiffRequest;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.tools.util.*;
@@ -49,12 +48,12 @@ import java.util.List;
 
 import static com.intellij.diff.util.DiffUtil.getLineCount;
 
-public class SimpleDiffViewer extends TwosideTextDiffViewer implements DifferencesLabel.DifferencesCounter {
+public class SimpleDiffViewer extends TwosideTextDiffViewer {
   @NotNull private final SyncScrollSupport.SyncScrollable mySyncScrollable;
   @NotNull private final PrevNextDifferenceIterable myPrevNextDifferenceIterable;
   @NotNull protected final StatusPanel myStatusPanel;
 
-  @NotNull protected final SimpleDiffModel myModel = new SimpleDiffModel(this);
+  @NotNull protected SimpleDiffModel myModel = new SimpleDiffModel(this);
   @NotNull private final AlignedDiffModel myAlignedDiffModel;
 
   @NotNull private final MyFoldingModel myFoldingModel;
@@ -63,9 +62,13 @@ public class SimpleDiffViewer extends TwosideTextDiffViewer implements Differenc
 
   @NotNull protected final TwosideTextDiffProvider myTextDiffProvider;
 
+  protected boolean aligningViewModeSupported;
+
+
   public SimpleDiffViewer(@NotNull DiffContext context, @NotNull DiffRequest request) {
     super(context, (ContentDiffRequest)request);
 
+    this.aligningViewModeSupported = true;
     mySyncScrollable = new MySyncScrollable();
     myAlignedDiffModel = new SimpleAlignedDiffModel(this);
 
@@ -94,6 +97,11 @@ public class SimpleDiffViewer extends TwosideTextDiffViewer implements Differenc
   protected void onDispose() {
     Disposer.dispose(myAlignedDiffModel);
     super.onDispose();
+  }
+
+  @ApiStatus.Internal
+  protected void setModel(@NotNull SimpleDiffModel model) {
+    this.myModel = model;
   }
 
   @NotNull
@@ -176,6 +184,7 @@ public class SimpleDiffViewer extends TwosideTextDiffViewer implements Differenc
 
   @ApiStatus.Internal
   public boolean needAlignChanges() {
+    if (!aligningViewModeSupported) return false;
     return myAlignedDiffModel.needAlignChanges();
   }
 
@@ -371,11 +380,6 @@ public class SimpleDiffViewer extends TwosideTextDiffViewer implements Differenc
     return myStatusPanel;
   }
 
-  @Override
-  public int getTotalDifferences() {
-    return getNonSkippedDiffChanges().size();
-  }
-
   @NotNull
   public KeyboardModifierListener getModifierProvider() {
     return myModifierProvider;
@@ -390,6 +394,10 @@ public class SimpleDiffViewer extends TwosideTextDiffViewer implements Differenc
 
   protected boolean isEditable(@NotNull Side side) {
     return DiffUtil.isEditable(getEditor(side));
+  }
+
+  public boolean isAligningViewModeSupported() {
+    return aligningViewModeSupported;
   }
 
   //

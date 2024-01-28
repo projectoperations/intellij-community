@@ -5,7 +5,6 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.NlsContexts
-import com.intellij.psi.JavaDirectoryService
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiElement
 import com.intellij.refactoring.RefactoringBundle
@@ -14,7 +13,9 @@ import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RowLayout
 import com.intellij.ui.dsl.builder.bindSelected
 import org.jetbrains.annotations.Nls
+import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
+import org.jetbrains.kotlin.idea.core.getFqNameWithImplicitPrefixOrRoot
 import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveDescriptor
 import org.jetbrains.kotlin.idea.refactoring.KotlinCommonRefactoringSettings
 import org.jetbrains.kotlin.name.FqName
@@ -43,6 +44,17 @@ sealed class K2MoveModel {
     val searchReferences: Setting = Setting.SEARCH_REFERENCES
 
     abstract fun toDescriptor(): K2MoveDescriptor
+
+    fun isValidRefactoring(): Boolean {
+        fun KtFile.isTargetFile(): Boolean {
+            return (target as? K2MoveTargetModel.File)?.let { fileTarget ->
+                containingDirectory == fileTarget.directory && name == fileTarget.fileName
+            } ?: false
+        }
+        if (source.elements.isEmpty()) return false
+        val files = source.elements.map { it.containingKtFile }.toSet()
+        return files.size != 1 || !files.single().isTargetFile()
+    }
 
     enum class Setting(private val text: @NlsContexts.Checkbox String, val setting: KMutableProperty0<Boolean>) {
         SEARCH_FOR_TEXT(
@@ -161,8 +173,8 @@ sealed class K2MoveModel {
                 elementsToMove.all { it is KtFile } && correctedTarget !is KtFile -> {
                     val source = K2MoveSourceModel.FileSource(elementsToMove.filterIsInstance<KtFile>().toSet())
                     val target = if (correctedTarget is PsiDirectory) {
-                        val pkg = JavaDirectoryService.getInstance().getPackage(correctedTarget) ?: error("No package was found")
-                        K2MoveTargetModel.SourceDirectory(FqName(pkg.qualifiedName), correctedTarget)
+                        val pkg = correctedTarget.getFqNameWithImplicitPrefixOrRoot()
+                        K2MoveTargetModel.SourceDirectory(pkg, correctedTarget)
                     } else { // no default target is provided, happens when invoking refactoring via keyboard instead of drag-and-drop
                         val file = elementsToMove.firstOrNull()?.containingKtFile ?: error("No default target found")
                         val directory = file.containingDirectory ?: error("No default target found")
@@ -184,8 +196,11 @@ sealed class K2MoveModel {
                     val target = if (correctedTarget is KtFile) {
                         K2MoveTargetModel.File(correctedTarget)
                     } else { // no default target is provided, happens when invoking refactoring via keyboard instead of drag-and-drop
-                        val file = elementsFromFiles.firstOrNull()?.containingKtFile ?: error("No default target found")
-                        K2MoveTargetModel.File(file)
+                        val element = elementsToMove.firstOrNull() as KtNamedDeclaration
+                        val elementName = "${element.name}.${KotlinLanguage.INSTANCE.associatedFileType?.defaultExtension}"
+                        val containingFile = element.containingKtFile
+                        val psiDirectory = containingFile.containingDirectory ?: error("No directory found")
+                        K2MoveTargetModel.File(elementName, containingFile.packageFqName, psiDirectory)
                     }
                     Members(project, source, target, inSourceRoot)
                 }

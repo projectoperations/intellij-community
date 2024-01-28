@@ -69,6 +69,13 @@
                      key="jvm.inspection.logging.placeholder.count.matches.argument.count.display.name"
                      implementationClass="com.intellij.codeInspection.logging.LoggingPlaceholderCountMatchesArgumentCountInspection"/>
     <inspectionElementsMerger implementation="com.intellij.codeInspection.logging.LoggingPlaceholderCountMatchesArgumentCountInspectionMerger"/>
+    <localInspection language="UAST" enabledByDefault="true" level="WEAK WARNING" shortName="LoggingSimilarMessage"
+                     groupBundle="messages.JvmAnalysisBundle" bundle="messages.JvmAnalysisBundle"
+                     groupPathKey="jvm.inspections.group.name" groupKey="jvm.inspections.logging.frameworks.group.name"
+                     key="jvm.inspection.logging.similar.message.display.name"
+                     implementationClass="com.intellij.codeInspection.logging.LoggingSimilarMessageInspection"
+                     runForWholeFile="true"
+    />
 
     <!-- Performance -->
     <localInspection language="UAST" enabledByDefault="true" level="WARNING" shortName="UrlHashCode"
@@ -152,6 +159,11 @@
                     serviceImplementation="com.intellij.psi.UastAnnotationCacheOwnerNormalizer"/>
 
     <inspectionCustomComponent implementation="com.intellij.codeInsight.options.JavaInspectionButtons"/>
+
+    <!--console filter-->
+    <consoleFilterProvider implementation="com.intellij.analysis.customization.console.ClassLoggingConsoleFilterProvider"/>
+    <advancedSetting id="process.console.output.to.find.class.names" default="true" groupKey="group.advanced.settings.jvm" bundle="messages.JvmAnalysisBundle"/>
+    <statistics.counterUsagesCollector implementationClass="com.intellij.analysis.customization.console.LogConsoleLogHandlerCollectors"/>
   </extensions>
   <extensions defaultExtensionNs="com.intellij.codeInsight">
     <blockingMethodChecker implementation="com.intellij.codeInspection.blockingCallsDetection.ThrowsTypeBlockingMethodChecker"/>

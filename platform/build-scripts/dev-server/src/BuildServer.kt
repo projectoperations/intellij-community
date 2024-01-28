@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "LiftReturnOrAssignment")
 
 package org.jetbrains.intellij.build.devServer
@@ -49,9 +49,7 @@ fun getIdeSystemProperties(runDir: Path): Map<String, String> {
       // require bundled JNA dispatcher lib
       "jna.nosys" to "true",
       "jna.noclasspath" to "true",
-      "jb.vmOptionsFile" to "${runDir.parent.listDirectoryEntries(glob = "*.vmoptions").singleOrNull()}",
-      "skiko.library.path" to "$libDir/skiko-awt-runtime-all",
-      "compose.swing.render.on.graphics" to "true",
+      "jb.vmOptionsFile" to "${runDir.parent.listDirectoryEntries(glob = "*.vmoptions").singleOrNull()}"
   ))
 }
 
@@ -88,18 +86,7 @@ private fun getProductPropertiesPath(homePath: Path): Path {
   if (customPath != null && customPath.exists()) {
     return customPath
   }
-
-  val projectPropertiesPath = homePath.resolve(PRODUCTS_PROPERTIES_PATH)
-
-  // Handle Rider repository layout
-  if (!projectPropertiesPath.exists() && homePath.parent?.parent?.resolve(".dotnet-products.root.marker")?.exists() == true) {
-    val riderSpecificProjectPropertiesPath = homePath.parent.resolve("ultimate").resolve(PRODUCTS_PROPERTIES_PATH)
-    if (riderSpecificProjectPropertiesPath.exists()) {
-      return riderSpecificProjectPropertiesPath
-    }
-  }
-
-  return projectPropertiesPath
+  return homePath.resolve(PRODUCTS_PROPERTIES_PATH)
 }
 
 private fun getProductConfiguration(configuration: Configuration, platformPrefix: String): ProductConfiguration {

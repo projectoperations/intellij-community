@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.jb
 
 import com.intellij.ide.plugins.DescriptorListLoadingContext
@@ -15,7 +15,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.jetbrains.rd.util.remove
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -96,6 +95,7 @@ class JbChildSetting(override val id: String,
 @Service
 class JbImportServiceImpl(private val coroutineScope: CoroutineScope) : JbService {
 
+  override fun hasDataToImport() = products().any()
 
   private val productsLazy: Lazy<Map<String, JbProductInfo>> = lazy {
     doListProducts()
@@ -261,7 +261,7 @@ class JbImportServiceImpl(private val coroutineScope: CoroutineScope) : JbServic
         }
         LOG.info("Options migrated in ${System.currentTimeMillis() - startTime} ms.")
         progressIndicator.fraction = 0.1
-        storeImportConfig(productInfo.configDirPath, filteredCategories)
+        storeImportConfig(productInfo.configDirPath, filteredCategories, plugins2import)
         LOG.info("Plugins imported in ${System.currentTimeMillis() - startTime} ms. ")
         LOG.info("Calling restart...")
         // restart if we install plugins

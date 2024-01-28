@@ -13,7 +13,7 @@ import com.intellij.util.ReflectionUtil
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
-private class ConfigurationScriptProjectStoreFactory : ProjectStoreFactoryImpl() {
+private class ConfigurationScriptProjectStoreFactory : ProjectStoreFactoryBase() {
   override fun createStore(project: Project) = MyProjectStore(project)
 }
 
@@ -122,9 +122,6 @@ private class ReadOnlyStorage(val configurationSchemaKey: String,
     @Suppress("UNCHECKED_CAST")
     return state as T
   }
-
-  // never called for read-only storage
-  override fun hasState(componentName: String, reloadData: Boolean) = false
 
   override fun createSaveSessionProducer(): SaveSessionProducer? = null
 

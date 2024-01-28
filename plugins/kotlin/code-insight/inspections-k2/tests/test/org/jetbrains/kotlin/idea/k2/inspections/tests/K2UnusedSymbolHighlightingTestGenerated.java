@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.k2.inspections.tests;
 
@@ -252,6 +252,11 @@ public abstract class K2UnusedSymbolHighlightingTestGenerated extends AbstractK2
         @TestMetadata("dataInlineClassDeclarationk2.kt")
         public void testDataInlineClassDeclarationk2() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/dataInlineClassDeclarationk2.kt");
+        }
+
+        @TestMetadata("effectivelyFinalFunctionParameter.kt")
+        public void testEffectivelyFinalFunctionParameter() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/effectivelyFinalFunctionParameter.kt");
         }
 
         @TestMetadata("entryPoint.kt")

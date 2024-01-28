@@ -5,12 +5,9 @@ package org.jetbrains.intellij.build
 
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
-import org.jetbrains.intellij.build.impl.BundledMavenDownloader
-import org.jetbrains.intellij.build.impl.LibraryPackMode
-import org.jetbrains.intellij.build.impl.PluginLayout
+import org.jetbrains.intellij.build.impl.*
 import org.jetbrains.intellij.build.impl.PluginLayout.Companion.plugin
 import org.jetbrains.intellij.build.impl.PluginLayout.Companion.pluginAuto
-import org.jetbrains.intellij.build.impl.SupportedDistribution
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.copyFileToDir
 import org.jetbrains.intellij.build.kotlin.KotlinPluginBuilder
@@ -22,13 +19,20 @@ import java.util.*
 
 object CommunityRepositoryModules {
   /**
-   * Specifies non-trivial layout for all plugins which sources are located in 'community' and 'contrib' repositories
+   * Specifies non-trivial layout for all plugins that sources are located in 'community' and 'contrib' repositories
    */
-  @Suppress("SpellCheckingInspection")
   val COMMUNITY_REPOSITORY_PLUGINS: PersistentList<PluginLayout> = persistentListOf(
     plugin("intellij.ant") { spec ->
       spec.mainJarName = "antIntegration.jar"
       spec.withModule("intellij.ant.jps", "ant-jps.jar")
+
+      spec.withGeneratedResources { path, buildContext ->
+        val antDir = path.resolve("dist")
+        Files.createDirectories(antDir)
+
+        val antTargetFile = antDir.resolve("ant.jar")
+        copyAnt(antDir, antTargetFile, buildContext)
+      }
     },
     plugin("intellij.laf.macos") { spec ->
       spec.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.MACOS)
@@ -211,6 +215,7 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.java.decompiler.engine", spec.mainJarName)
     },
     javaFXPlugin("intellij.javaFX.community"),
+    aeDatabasePlugin("intellij.ae.database.community"),
     plugin("intellij.terminal") { spec ->
       spec.withModule("intellij.terminal.completion")
       spec.withModule("intellij.terminal.sh")
@@ -300,8 +305,10 @@ object CommunityRepositoryModules {
     ) { spec ->
       spec.withModule("intellij.turboComplete.languages.kotlin")
     },
-    plugin("intellij.ae.database"),
-    plugin("intellij.ae.database.counters.community")
+    pluginAuto(listOf("intellij.performanceTesting", "intellij.performanceTesting.remoteDriver")) { spec ->
+      spec.withModule("intellij.driver.model")
+      spec.withModule("intellij.driver.impl")
+    }
   )
 
   @Suppress("SpellCheckingInspection")
@@ -823,6 +830,32 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.javaFX.sceneBuilder", "rt/sceneBuilderBridge.jar")
     }
   }
+
+  fun aeDatabasePlugin(mainModuleName: String, extraModules: List<String> = emptyList()): PluginLayout {
+    return plugin(mainModuleName) { spec ->
+      spec.directoryName = "ae-database"
+      spec.mainJarName = "ae-database.jar"
+      spec.withModules(listOf(
+        "intellij.ae.database.core",
+        "intellij.ae.database.counters.community"
+      ))
+      spec.bundlingRestrictions.includeInDistribution = PluginDistribution.ALL
+      if (extraModules.isNotEmpty()) {
+        spec.withModules(extraModules)
+      }
+    }
+  }
+
+  fun githubPlugin(mainModuleName: String): PluginLayout {
+    return plugin(mainModuleName) { spec ->
+      spec.directoryName = "vcs-github"
+      spec.mainJarName = "vcs-github.jar"
+      spec.withModules(listOf(
+        "intellij.vcs.github"
+      ))
+    }
+  }
+
 
   @JvmStatic
   @JvmOverloads

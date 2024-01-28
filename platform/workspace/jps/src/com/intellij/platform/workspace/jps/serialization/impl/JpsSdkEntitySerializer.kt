@@ -52,10 +52,11 @@ private val ELEMENT_HOMEPATH = "homePath"
 const val ELEMENT_ADDITIONAL = "additional"
 
 
-class JpsSdkEntitySerializer(val entitySource: JpsGlobalFileEntitySource, private val sortedRootTypes: List<String>): JpsFileEntitiesSerializer<SdkEntity> {
+class JpsSdkEntitySerializer(val entitySource: JpsGlobalFileEntitySource, private val sortedRootTypes: List<String>): JpsFileEntityTypeSerializer<SdkEntity> {
   private val LOG = logger<JpsSdkEntitySerializer>()
   private val rootTypes = ConcurrentFactoryMap.createMap<String, SdkRootTypeId> { SdkRootTypeId(it) }
-
+  override val isExternalStorage: Boolean
+    get() = false
   override val internalEntitySource: JpsFileEntitySource
     get() = entitySource
   override val fileUrl: VirtualFileUrl
@@ -81,7 +82,7 @@ class JpsSdkEntitySerializer(val entitySource: JpsGlobalFileEntitySource, privat
     }
     val sdkVersion = sdkElement.getChild(ELEMENT_VERSION)?.getAttributeValue(ATTRIBUTE_VALUE)
     val homePath = sdkElement.getChild(ELEMENT_HOMEPATH).getAttributeValueStrict(ATTRIBUTE_VALUE)
-    val homePathVfu = virtualFileManager.fromUrl(homePath)
+    val homePathVfu = virtualFileManager.getOrCreateFromUri(homePath)
 
     val roots = readRoots(sdkElement.getChildTagStrict(ELEMENT_ROOTS), virtualFileManager)
 
@@ -114,7 +115,7 @@ class JpsSdkEntitySerializer(val entitySource: JpsGlobalFileEntitySource, privat
       val composite = composites[0]
       for (rootTag in composite.getChildren(JpsJavaModelSerializerExtension.ROOT_TAG)) {
         val url = rootTag.getAttributeValueStrict(JpsModuleRootModelSerializer.URL_ATTRIBUTE)
-        result.add(SdkRoot(virtualFileManager.fromUrl(url), rootTypes[rootType]!!))
+        result.add(SdkRoot(virtualFileManager.getOrCreateFromUri(url), rootTypes[rootType]!!))
       }
     }
     return result
@@ -185,5 +186,9 @@ class JpsSdkEntitySerializer(val entitySource: JpsGlobalFileEntitySource, privat
     val element = Element(rootType)
     element.addContent(composite)
     return element
+  }
+
+  override fun deleteObsoleteFile(fileUrl: String, writer: JpsFileContentWriter) {
+    writer.saveComponent(fileUrl, SDK_TABLE_COMPONENT_NAME, null)
   }
 }

@@ -1,10 +1,13 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("ApplicationLoader")
 @file:Internal
 @file:Suppress("RAW_RUN_BLOCKING")
 package com.intellij.platform.ide.bootstrap
 
+import com.intellij.diagnostic.COROUTINE_DUMP_HEADER
 import com.intellij.diagnostic.LoadingState
+import com.intellij.diagnostic.dumpCoroutines
+import com.intellij.diagnostic.enableCoroutineDump
 import com.intellij.ide.*
 import com.intellij.ide.bootstrap.InitAppContext
 import com.intellij.ide.gdpr.EndUserAgreement
@@ -47,6 +50,7 @@ import com.intellij.util.PlatformUtils
 import com.intellij.util.io.URLUtil
 import com.intellij.util.io.createDirectories
 import com.intellij.util.lang.ZipFilePool
+import com.jetbrains.JBR
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.VisibleForTesting
@@ -106,7 +110,8 @@ internal suspend fun loadApp(app: ApplicationImpl,
 
     val initTelemetryJob = launch(CoroutineName("opentelemetry configuration")) {
       try {
-        TelemetryManager.setTelemetryManager(TelemetryManagerImpl(coroutineScope = app.coroutineScope, isUnitTestMode = app.isUnitTestMode))
+        TelemetryManager.setTelemetryManager(
+          TelemetryManagerImpl(coroutineScope = app.getCoroutineScope(), isUnitTestMode = app.isUnitTestMode))
       }
       catch (e: CancellationException) {
         throw e
@@ -116,7 +121,7 @@ internal suspend fun loadApp(app: ApplicationImpl,
       }
     }
 
-    app.coroutineScope.launch {
+    app.getCoroutineScope().launch {
       // precompute after plugin model loaded
       ideFingerprint()
     }
@@ -170,21 +175,31 @@ internal suspend fun loadApp(app: ApplicationImpl,
     appRegisteredJob.join()
     initConfigurationStoreJob.join()
 
+    __coroutineDebugJob = launch(CoroutineName("coroutine debug probes init")) {
+      enableCoroutineDump().onFailure { e ->
+        LOG.error("Cannot enable coroutine debug dump", e)
+      }
+      enableJstack()
+    }
+
     val appInitializedListenerJob = launch {
       val appInitializedListeners = appInitListeners.await()
       span("app initialized callback") {
         // An async scope here is intended for FLOW. FLOW!!! DO NOT USE the surrounding main scope.
-        callAppInitialized(listeners = appInitializedListeners, asyncScope = app.coroutineScope)
+        callAppInitialized(listeners = appInitializedListeners, asyncScope = app.getCoroutineScope())
       }
     }
 
     asyncScope.launch {
-      launch(CoroutineName("checkThirdPartyPluginsAllowed")) {
+      // do not use launch here - don't overload CPU, let some room for JIT and other CPU-intensive tasks during start-up
+      __coroutineDebugJob?.join()
+
+      span("checkThirdPartyPluginsAllowed") {
         checkThirdPartyPluginsAllowed()
       }
 
       // doesn't block app start-up
-      launch(CoroutineName("post app init tasks")) {
+      span("post app init tasks") {
         runPostAppInitTasks()
       }
 
@@ -194,6 +209,23 @@ internal suspend fun loadApp(app: ApplicationImpl,
     appInitializedListenerJob.join()
 
     applicationStarter.await()
+  }
+}
+
+// todo remove when will be clear what's wrong with out tests / when we will remove byte-buddy usage
+@Suppress("ObjectPropertyName")
+@Internal
+@JvmField
+var __coroutineDebugJob: Job? = null
+
+private suspend fun enableJstack() {
+  span("coroutine jstack configuration") {
+    JBR.getJstack()?.includeInfoFrom {
+      """
+$COROUTINE_DUMP_HEADER
+${dumpCoroutines(stripDump = false)}
+"""
+    }
   }
 }
 

@@ -5,6 +5,7 @@ import com.intellij.ide.IdeDeprecatedMessagesBundle
 import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiElement
 import com.intellij.refactoring.BaseRefactoringProcessor
+import com.intellij.refactoring.listeners.RefactoringEventData
 import com.intellij.refactoring.move.MoveMultipleElementsViewDescriptor
 import com.intellij.usageView.UsageInfo
 import com.intellij.usageView.UsageViewDescriptor
@@ -33,13 +34,13 @@ class K2MoveMembersRefactoringProcessor(val descriptor: K2MoveDescriptor.Members
     override fun findUsages(): Array<UsageInfo> {
         if (!descriptor.searchReferences) return emptyArray()
         return descriptor.source.elements.flatMap {
-            it.findUsages(descriptor.searchInComments, descriptor.searchForText, descriptor.target.file.packageFqName)
+            it.findUsages(descriptor.searchInComments, descriptor.searchForText, descriptor.target.pkgName)
         }.toTypedArray()
     }
 
     @OptIn(KtAllowAnalysisOnEdt::class)
     override fun performRefactoring(usages: Array<out UsageInfo>) = allowAnalysisOnEdt {
-      val targetFile = descriptor.target.file
+      val targetFile = descriptor.target.getOrCreateTarget()
 
       val sourceFiles = descriptor.source.elements.map { it.containingKtFile }.distinct()
 
@@ -53,5 +54,9 @@ class K2MoveMembersRefactoringProcessor(val descriptor: K2MoveDescriptor.Members
       for (sourceFile in sourceFiles) {
         if (sourceFile.declarations.isEmpty()) sourceFile.delete()
       }
+    }
+
+    override fun getBeforeData(): RefactoringEventData = RefactoringEventData().apply {
+        addElements(descriptor.source.elements)
     }
 }

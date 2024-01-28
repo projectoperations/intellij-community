@@ -20,6 +20,7 @@ import com.intellij.codeInspection.actions.UnimplementInterfaceAction;
 import com.intellij.codeInspection.dataFlow.fix.DeleteSwitchLabelFix;
 import com.intellij.codeInspection.ex.EntryPointsManagerBase;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
+import com.intellij.codeInspection.ex.QuickFixWrapper;
 import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.diagnostic.CoreAttachmentFactory;
 import com.intellij.ide.scratch.ScratchUtil;
@@ -411,6 +412,7 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
   public IntentionAction createRenameFix(@NotNull PsiElement element) {
     PsiFile file = element.getContainingFile();
     if (file == null) return null;
+    if(!element.isPhysical()) return null;
     ProblemDescriptor descriptor = new ProblemDescriptorBase(element,
                                          element,
                                          "",
@@ -420,7 +422,7 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
                                          null,
                                          true,
                                          false);
-    return new LocalQuickFixAsIntentionAdapter(new RenameFix(), descriptor);
+    return QuickFixWrapper.wrap(descriptor, new RenameFix());
   }
 
   @NotNull
@@ -1122,11 +1124,12 @@ public final class QuickFixFactoryImpl extends QuickFixFactory {
   }
 
   @Override
-  public @NotNull IntentionAction createDeleteDefaultFix(@NotNull PsiFile file, @NotNull PsiElement duplicateElement) {
+  public @Nullable IntentionAction createDeleteDefaultFix(@NotNull PsiFile file, @NotNull PsiElement defaultElement) {
+    if(!file.isPhysical()) return null;
     ProblemDescriptor descriptor =
-      new ProblemDescriptorBase(duplicateElement, duplicateElement, "", null, ProblemHighlightType.GENERIC_ERROR_OR_WARNING, false, null,
+      new ProblemDescriptorBase(defaultElement, defaultElement, "", null, ProblemHighlightType.GENERIC_ERROR_OR_WARNING, false, null,
                                 false, false);
-    return new LocalQuickFixAsIntentionAdapter(new UnnecessaryDefaultInspection.DeleteDefaultFix(), descriptor);
+    return QuickFixWrapper.wrap(descriptor, new UnnecessaryDefaultInspection.DeleteDefaultFix());
   }
 
 

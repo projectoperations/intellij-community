@@ -21,7 +21,7 @@ interface CombinedDiffComponentFactoryProvider {
   fun create(model: CombinedDiffModel): CombinedDiffComponentFactory
 }
 
-abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
+open class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
 
   internal val ourDisposable = Disposer.newCheckedDisposable()
 
@@ -40,6 +40,8 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
     mainUi = createMainUI()
 
     combinedViewer = createCombinedViewer(true)
+
+    model.cleanBlocks()
   }
 
   internal fun getPreferredFocusedComponent() = mainUi.getPreferredFocusedComponent()
@@ -47,7 +49,7 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
   internal fun getMainComponent() = mainUi.getComponent()
 
   private fun createMainUI(): CombinedDiffMainUI {
-    return CombinedDiffMainUI(model, ::createGoToChangeAction).also { ui ->
+    return CombinedDiffMainUI(model, createGoToChangeAction()).also { ui ->
       Disposer.register(ourDisposable, ui)
       model.context.putUserData(COMBINED_DIFF_MAIN_UI, ui)
     }
@@ -55,19 +57,21 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
 
   private fun createCombinedViewer(initialFocusRequest: Boolean): CombinedDiffViewer? {
     val context = model.context
-    val blocks = model.requests.keys.toList()
+    val blocks = model.requests.toList()
     val blockToSelect = model.context.getUserData(COMBINED_DIFF_SCROLL_TO_BLOCK)
     if (blocks.isEmpty()) return null
 
-    return CombinedDiffViewer(context, blocks, blockToSelect, MyBlockListener()).also { viewer ->
+    val blockState = BlockState(blocks.map { it.id }, blockToSelect ?: blocks.first().id)
+
+    return CombinedDiffViewer(context, MyBlockListener(), blockState).also { viewer ->
       Disposer.register(ourDisposable, viewer)
       context.putUserData(COMBINED_DIFF_VIEWER_KEY, viewer)
       context.putUserData(COMBINED_DIFF_VIEWER_INITIAL_FOCUS_REQUEST, initialFocusRequest)
-      mainUi.setContent(viewer)
+      mainUi.setContent(viewer, blockState)
     }
   }
 
-  protected abstract fun createGoToChangeAction(): AnAction?
+  protected open fun createGoToChangeAction(): AnAction? = null
 
   private inner class ModelListener : CombinedDiffModelListener {
     override fun onModelReset() {
@@ -83,7 +87,6 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
     override fun onRequestsLoaded(blockId: CombinedBlockId, request: DiffRequest) {
       val viewer = combinedViewer ?: return
       buildBlockContent(mainUi, model.context, request, blockId)?.let { newContent ->
-        mainUi.countDifferences(blockId, newContent.viewer)
         viewer.updateBlockContent(newContent)
         request.onAssigned(true)
       }
@@ -126,10 +129,10 @@ abstract class CombinedDiffComponentFactory(val model: CombinedDiffModel) {
       val orderedDiffTools = getOrderedDiffTools(diffSettings, diffTools, mainUi.isUnified())
 
       val diffTool = orderedDiffTools
-        .filter { it.canShow(context, request) }
-        .toList()
-        .let(DiffUtil::filterSuppressedTools)
-        .firstOrNull() ?: ErrorDiffTool.INSTANCE
+                       .filter { it.canShow(context, request) }
+                       .toList()
+                       .let(DiffUtil::filterSuppressedTools)
+                       .firstOrNull() ?: ErrorDiffTool.INSTANCE
 
       val childViewer = diffTool
                           ?.let { findSubstitutor(it, context, request) }

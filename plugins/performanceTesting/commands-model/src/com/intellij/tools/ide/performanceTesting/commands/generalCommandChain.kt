@@ -22,6 +22,10 @@ fun <T : CommandChain> T.replaceBrowser(): T = apply {
   addCommand("${CMD_PREFIX}replaceBrowser")
 }
 
+fun <T : CommandChain> T.logout(): T = apply {
+  addCommand("${CMD_PREFIX}logout")
+}
+
 fun <T : CommandChain> T.action(id: String): T = apply {
   addCommand("${CMD_PREFIX}action $id")
 }
@@ -475,6 +479,10 @@ fun <T : CommandChain> T.addFile(path: String, fileName: String): T = apply {
   addCommand("${CMD_PREFIX}addFile ${path}, ${fileName}")
 }
 
+fun <T : CommandChain> T.renameFile(path: String, oldFileName: String, newFileName: String): T = apply {
+  addCommand("${CMD_PREFIX}renameFile ${path}, ${oldFileName}, ${newFileName}")
+}
+
 fun <T : CommandChain> T.call(method: KFunction<String?>, vararg args: String): T = apply {
   val javaMethod = method.javaMethod ?: error("Failed to resolve Java Method from the declaration")
   require(Modifier.isStatic(javaMethod.modifiers)) { "Method $method must be static" }
@@ -539,6 +547,14 @@ fun <T : CommandChain> T.unlinkMavenProject(projectPath: Path): T = apply {
   addCommand("${CMD_PREFIX}unlinkMavenProject ${projectPath}")
 }
 
+fun <T : CommandChain> T.downloadGradleSources(): T = apply {
+  addCommand("${CMD_PREFIX}downloadGradleSources")
+}
+
+fun <T : CommandChain> T.downloadMavenArtifacts(sources: Boolean = true, docs: Boolean = true): T = apply {
+  addCommand("${CMD_PREFIX}downloadMavenArtifacts $sources $docs")
+}
+
 fun <T : CommandChain> T.inlineRename(to: String): T = apply {
   startInlineRename()
   delayType(150, to)
@@ -572,6 +588,10 @@ fun <T : CommandChain> T.assertOpenedFileInRoot(path: String): T = apply {
 
 fun <T : CommandChain> T.importGradleProject(): T = apply {
   addCommand("${CMD_PREFIX}importGradleProject")
+}
+
+fun <T : CommandChain> T.setGradleJdk(jdk: SdkObject): T = apply {
+  addCommand("${CMD_PREFIX}setGradleJdk ${jdk.sdkName}|${jdk.sdkType}|${jdk.sdkPath}")
 }
 
 fun <T : CommandChain> T.showEvaluateExpression(expression: String = "",
@@ -617,8 +637,17 @@ fun <T : CommandChain> T.showFileHistory(): T = apply {
   addCommand("${CMD_PREFIX}showFileHistory")
 }
 
-fun <T : CommandChain> T.filterVcsLogTab(userName: String): T = apply {
-  addCommand("${CMD_PREFIX}filterVcsLogTab $userName")
+fun <T : CommandChain> T.filterVcsLogTab(params: Map<String, String>): T = apply {
+  val cmdParams = params.map { "-${it.key} '${it.value}'" }.joinToString(" ")
+  addCommand("${CMD_PREFIX}filterVcsLogTab $cmdParams")
+}
+
+fun <T : CommandChain> T.showBranchWidget(): T = apply {
+  addCommand("${CMD_PREFIX}gitShowBranchWidget")
+}
+
+fun <T : CommandChain> T.showFileAnnotations(): T = apply {
+  addCommand("${CMD_PREFIX}showFileAnnotation")
 }
 
 fun <T : CommandChain> T.chooseCompletionCommand(completionName: String): T = apply {
@@ -789,6 +818,10 @@ fun <T : CommandChain> T.registerCompletionMockResponse(code: String, language: 
 
 fun <T : CommandChain> T.waitInlineCompletion(): T = apply {
   addCommand("${CMD_PREFIX}waitInlineCompletion")
+}
+
+fun <T : CommandChain> T.waitInlineCompletionWarmup(): T = apply {
+  addCommand("${CMD_PREFIX}waitInlineCompletion WARMUP")
 }
 
 fun <T : CommandChain> T.clearLLMInlineCompletionCache(): T = apply {

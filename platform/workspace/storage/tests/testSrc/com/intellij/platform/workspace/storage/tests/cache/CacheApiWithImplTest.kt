@@ -1,15 +1,16 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.workspace.storage.tests.cache
 
-import com.intellij.platform.workspace.storage.EntityStorageSnapshot
+import com.intellij.platform.workspace.storage.ImmutableEntityStorage
 import com.intellij.platform.workspace.storage.MutableEntityStorage
-import com.intellij.platform.workspace.storage.impl.EntityStorageSnapshotImpl
+import com.intellij.platform.workspace.storage.impl.ImmutableEntityStorageImpl
 import com.intellij.platform.workspace.storage.impl.asBase
 import com.intellij.platform.workspace.storage.impl.cache.CellUpdateInfo
+import com.intellij.platform.workspace.storage.impl.cache.TracedSnapshotCache
 import com.intellij.platform.workspace.storage.impl.cache.TracedSnapshotCacheImpl
 import com.intellij.platform.workspace.storage.impl.cache.UpdateType
-import com.intellij.platform.workspace.storage.impl.query.CellChainId
 import com.intellij.platform.workspace.storage.impl.query.CellId
+import com.intellij.platform.workspace.storage.impl.query.QueryId
 import com.intellij.platform.workspace.storage.query.entities
 import com.intellij.platform.workspace.storage.query.map
 import com.intellij.platform.workspace.storage.testEntities.entities.MySource
@@ -71,16 +72,16 @@ class CacheApiWithImplTest {
     builder.toSnapshot() // First snapshot
     val snapshotTwo = builder.toSnapshot() // Second snapshot
 
-    val changelogSize = ((snapshotTwo as EntityStorageSnapshotImpl).snapshotCache as TracedSnapshotCacheImpl).getChangeQueue().entries.single().value
+    val changelogSize = ((snapshotTwo as ImmutableEntityStorageImpl).snapshotCache as TracedSnapshotCacheImpl).getChangeQueue().entries.single().value
     assertEquals(2, changelogSize.size)
   }
 
   @Test
   fun `update request is a data class`() {
-    val cellChainId = CellChainId()
+    val queryId = QueryId()
     val cellId = CellId()
-    val first = CellUpdateInfo(cellChainId, cellId, UpdateType.DIFF)
-    val second = CellUpdateInfo(cellChainId, cellId, UpdateType.DIFF)
+    val first = CellUpdateInfo(queryId, cellId, UpdateType.DIFF)
+    val second = CellUpdateInfo(queryId, cellId, UpdateType.DIFF)
     assertEquals(first, second)
   }
 
@@ -96,57 +97,53 @@ class CacheApiWithImplTest {
 
     snapshot.cached(query1)
     snapshot.cached(query2)
-    val tracedCache = ((snapshot as EntityStorageSnapshotImpl).snapshotCache as TracedSnapshotCacheImpl)
+    val tracedCache = ((snapshot as ImmutableEntityStorageImpl).snapshotCache as TracedSnapshotCacheImpl)
     assertEquals(0, tracedCache.getChangeQueue().size)
-    assertEquals(2, tracedCache.getQueryToCellChainId().size)
-    assertEquals(2, tracedCache.getChainIdToChainIndex().size)
-    assertEquals(2, tracedCache.getCellChainToCellIndex().size)
+    assertEquals(2, tracedCache.getQueryIdToChain().size)
+    assertEquals(2, tracedCache.getQueryIdToTraceIndex().size)
 
     val snapshot2 = snapshot.update {
       it addEntity NamedEntity("Y", MySource)
     }
 
-    val tracedCache2 = ((snapshot2 as EntityStorageSnapshotImpl).snapshotCache as TracedSnapshotCacheImpl)
+    val tracedCache2 = ((snapshot2 as ImmutableEntityStorageImpl).snapshotCache as TracedSnapshotCacheImpl)
     assertEquals(2, tracedCache2.getChangeQueue().size)
-    assertEquals(2, tracedCache2.getQueryToCellChainId().size)
-    assertEquals(2, tracedCache2.getChainIdToChainIndex().size)
-    assertEquals(2, tracedCache2.getCellChainToCellIndex().size)
+    assertEquals(2, tracedCache2.getQueryIdToChain().size)
+    assertEquals(2, tracedCache2.getQueryIdToTraceIndex().size)
 
     snapshot2.cached(query1)
     assertEquals(1, tracedCache2.getChangeQueue().size)
-    assertEquals(2, tracedCache2.getQueryToCellChainId().size)
-    assertEquals(2, tracedCache2.getChainIdToChainIndex().size)
-    assertEquals(2, tracedCache2.getCellChainToCellIndex().size)
+    assertEquals(2, tracedCache2.getQueryIdToChain().size)
+    assertEquals(2, tracedCache2.getQueryIdToTraceIndex().size)
 
     // Now we'll make two updates by half of limit. In the middle of updates, we'll update one of the caches.
     // In this way, one of caches should remain and the second will reset
     val tempSnapshot = snapshot2.update {  builder ->
-      repeat(TracedSnapshotCacheImpl.LOG_QUEUE_MAX_SIZE / 2) {
+      repeat(TracedSnapshotCache.LOG_QUEUE_MAX_SIZE / 2) {
         builder addEntity NamedEntity("MyEntity$it", MySource)
       }
     }
     tempSnapshot.cached(query1)
     val snapshot3 = tempSnapshot.update {  builder ->
-      repeat(TracedSnapshotCacheImpl.LOG_QUEUE_MAX_SIZE / 2 + 10) {
+      repeat(TracedSnapshotCache.LOG_QUEUE_MAX_SIZE / 2 + 10) {
         builder addEntity NamedEntity("MyEntityX$it", MySource)
       }
     }
 
-    val tracedCache3 = ((snapshot3 as EntityStorageSnapshotImpl).snapshotCache as TracedSnapshotCacheImpl)
+    val tracedCache3 = ((snapshot3 as ImmutableEntityStorageImpl).snapshotCache as TracedSnapshotCacheImpl)
     assertEquals(1, tracedCache3.getChangeQueue().size)
-    assertEquals(1, tracedCache3.getQueryToCellChainId().size)
-    assertEquals(1, tracedCache3.getChainIdToChainIndex().size)
-    assertEquals(1, tracedCache3.getCellChainToCellIndex().size)
+    assertEquals(1, tracedCache3.getQueryIdToChain().size)
+    assertEquals(1, tracedCache3.getQueryIdToTraceIndex().size)
   }
 
-  private fun createNamedEntity(also: MutableEntityStorage.() -> Unit = {}): EntityStorageSnapshot {
+  private fun createNamedEntity(also: MutableEntityStorage.() -> Unit = {}): ImmutableEntityStorage {
     val builder = createEmptyBuilder()
     builder addEntity NamedEntity("MyName", MySource)
     builder.also()
     return builder.toSnapshot()
   }
 
-  private fun EntityStorageSnapshot.update(fc: (MutableEntityStorage) -> Unit): EntityStorageSnapshot {
+  private fun ImmutableEntityStorage.update(fc: (MutableEntityStorage) -> Unit): ImmutableEntityStorage {
     return this.toBuilder().also(fc).toSnapshot()
   }
 }

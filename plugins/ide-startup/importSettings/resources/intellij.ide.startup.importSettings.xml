@@ -2,9 +2,11 @@
   <actions>
     <!--suppress PluginXmlI18n -->
     <action id="ImportSettingDialogAction" class="com.intellij.ide.startup.importSettings.chooser.testActions.ImportSettingDialogAction" text="[INTERNAL] 3 Transfer: ONE" internal="true"/>
+    <action id="StartWizardAction" class="com.intellij.ide.startup.importSettings.wizard.testActions.StartWizardAction" text="[INTERNAL] 5 Transfer: StartWizardAction" internal="true"/>
     <action id="ErrorTestDialogAction" class="com.intellij.ide.startup.importSettings.chooser.testActions.ErrorTestDialogAction" text="[INTERNAL] 4 Transfer: Error Dispatcher Dialog Single" internal="true"/>
+    <!--suppress PluginXmlCapitalization -->
     <action id="TransferSettingsDemoAction" class="com.intellij.ide.startup.importSettings.TransferSettingsDemoAction"
-            internal="true"/>
+            internal="true" text="Test transfer settings"/>
   </actions>
 
   <extensionPoints>
@@ -16,12 +18,11 @@
   <extensions defaultExtensionNs="com.intellij">
     <!--suppress PluginXmlDynamicPlugin -->
     <ideStartupWizard implementation="com.intellij.ide.startup.importSettings.IdeStartupWizardImpl"/>
-    <applicationInitializedListener implementation="com.intellij.ide.startup.importSettings.jb.JbAfterRestartSettingsApplier"/>
 
     <applicationService serviceInterface="com.intellij.ide.startup.importSettings.data.SettingsService"
                         serviceImplementation="com.intellij.ide.startup.importSettings.data.SettingsServiceImpl"/>
     <applicationService serviceInterface="com.intellij.ide.startup.importSettings.data.WizardProvider"
-                        serviceImplementation="com.intellij.ide.startup.importSettings.data.WizardMockData"/>
+                        serviceImplementation="com.intellij.ide.startup.importSettings.data.WizardProviderImpl"/>
     <registryKey defaultValue="true" description="Hide import settings sync in unlogged mode" key="import.setting.unlogged.sync.hide" restartRequired="false" />
 
     <transferSettings.vscode.pluginMapping id="CommonPluginMapping"
@@ -30,4 +31,7 @@
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.startup.importSettings.fus.TransferSettingsCollector"/>
     <statistics.validation.customValidationRule implementation="com.intellij.ide.startup.importSettings.fus.KnownPluginValidationRule"/>
   </extensions>
+  <applicationListeners>
+    <listener class="com.intellij.ide.startup.importSettings.jb.JbAfterRestartSettingsApplier" topic="com.intellij.ide.AppLifecycleListener" activeInHeadlessMode="false" activeInTestMode="false"/>
+  </applicationListeners>
 </idea-plugin>

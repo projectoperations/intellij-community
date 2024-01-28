@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "OVERRIDE_DEPRECATION", "LiftReturnOrAssignment")
 
 package com.intellij.ide
@@ -14,10 +14,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.application.ex.ApplicationManagerEx
-import com.intellij.openapi.components.PersistentStateComponent
-import com.intellij.openapi.components.RoamingType
-import com.intellij.openapi.components.State
-import com.intellij.openapi.components.Storage
+import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.advanced.AdvancedSettings
@@ -36,6 +33,7 @@ import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.*
 import com.intellij.platform.diagnostic.telemetry.impl.span
+import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer
 import com.intellij.project.stateStore
 import com.intellij.util.PathUtilRt
 import com.intellij.util.io.createParentDirectories
@@ -71,7 +69,10 @@ private val LOG = logger<RecentProjectsManager>()
  * Used directly by IntelliJ IDEA.
  */
 @OptIn(FlowPreview::class)
-@State(name = "RecentProjectsManager", storages = [Storage(value = "recentProjects.xml", roamingType = RoamingType.DISABLED)])
+@State(name = "RecentProjectsManager",
+       category = SettingsCategory.SYSTEM,
+       exportable = true,
+       storages = [Storage(value = "recentProjects.xml", roamingType = RoamingType.DISABLED)])
 open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   RecentProjectsManager, PersistentStateComponent<RecentProjectManagerState>, ModificationTracker {
   companion object {
@@ -268,7 +269,6 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
   }
 
-  // for Rider
   protected open fun getRecentProjectMetadata(path: String, project: Project): String? = null
 
   open fun getProjectPath(projectStoreBaseDir: Path): String? {
@@ -285,7 +285,6 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     return runBlocking { openProject(projectFile, openProjectOptions) }
   }
 
-  // open for Rider
   open suspend fun openProject(projectFile: Path, options: OpenProjectTask): Project? {
     var effectiveOptions = options
     if (options.implOptions == null) {
@@ -297,9 +296,11 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       }
     }
 
+    FUSProjectHotStartUpMeasurer.reportProjectPath(projectFile)
     if (isValidProjectPath(projectFile)) {
       val projectManager = ProjectManagerEx.getInstanceEx()
       projectManager.openProjects.firstOrNull { isSameProject(projectFile = projectFile, project = it) }?.let { project ->
+        FUSProjectHotStartUpMeasurer.reportAlreadyOpenedProject()
         withContext(Dispatchers.EDT) {
           ProjectUtil.focusProjectWindow(project = project)
         }
@@ -465,6 +466,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     disableUpdatingRecentInfo.set(true)
     try {
       if (openPaths.size == 1 || isOpenProjectsOneByOneRequired()) {
+        FUSProjectHotStartUpMeasurer.reportReopeningProjects(openPaths)
         return openOneByOne(openPaths, index = 0, someProjectWasOpened = false)
       }
 
@@ -474,6 +476,9 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
           if (isValidProjectPath(path)) Pair(path, entry.value) else null
         }.getOrLogException(LOG)
       }
+
+      FUSProjectHotStartUpMeasurer.reportReopeningProjects(toOpen)
+
       if (toOpen.size == 1) {
         val pair = toOpen.get(0)
         val pathsToOpen = listOf(AbstractMap.SimpleEntry(pair.first.toString(), pair.second))
@@ -488,7 +493,6 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
   }
 
-  // open for Rider
   protected open fun isOpenProjectsOneByOneRequired(): Boolean {
     return ApplicationManager.getApplication().isHeadlessEnvironment || WindowManagerEx.getInstanceEx().getFrameHelper(null) != null
   }

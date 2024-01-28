@@ -4,7 +4,9 @@ package org.jetbrains.plugins.github.pullrequest.ui.toolwindow
 import com.intellij.collaboration.async.nestedDisposable
 import com.intellij.collaboration.ui.CollaborationToolsUIUtil
 import com.intellij.collaboration.ui.LoadingLabel
+import com.intellij.collaboration.ui.codereview.CodeReviewProgressTreeModelFromDetails
 import com.intellij.collaboration.ui.codereview.changes.CodeReviewChangeListComponentFactory
+import com.intellij.collaboration.ui.codereview.details.model.CodeReviewChangeListViewModel
 import com.intellij.collaboration.ui.codereview.list.error.ErrorStatusPanelFactory
 import com.intellij.collaboration.ui.codereview.list.error.ErrorStatusPresenter
 import com.intellij.collaboration.ui.util.bindContentIn
@@ -15,7 +17,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.FilePath
 import com.intellij.openapi.vcs.changes.Change
 import com.intellij.openapi.vcs.changes.ChangesUtil
-import com.intellij.openapi.vcs.changes.EditorTabDiffPreviewManager.Companion.EDITOR_TAB_DIFF_PREVIEW
 import com.intellij.openapi.vcs.changes.ui.ChangesTree
 import com.intellij.openapi.vcs.changes.ui.VcsTreeModelData
 import com.intellij.ui.ClientProperty
@@ -30,6 +31,7 @@ import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.action.GHPRActionKeys
 import org.jetbrains.plugins.github.pullrequest.ui.details.GHPRDetailsComponentFactory
 import org.jetbrains.plugins.github.pullrequest.ui.details.model.GHPRChangeListViewModel
+import org.jetbrains.plugins.github.pullrequest.ui.details.model.GHPRDetailsLoadingViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.details.model.impl.GHPRChangesViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.details.model.impl.GHPRDetailsViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.toolwindow.model.GHPRInfoViewModel
@@ -46,7 +48,9 @@ internal class GHPRViewComponentFactory(actionManager: ActionManager,
     cs.createInfoLoadingComponent().apply {
       DataManager.registerDataProvider(this) { dataId ->
         when {
-          GHPRActionKeys.PULL_REQUEST_DATA_PROVIDER.`is`(dataId) -> vm.dataProvider
+          GHPRActionKeys.PULL_REQUEST_ID.`is`(dataId) -> vm.pullRequest
+          GHPRActionKeys.PULL_REQUEST_URL.`is`(dataId) -> vm.pullRequestUrl
+          GHPRDetailsLoadingViewModel.DATA_KEY.`is`(dataId) -> vm
           else -> null
         }
       }
@@ -59,24 +63,22 @@ internal class GHPRViewComponentFactory(actionManager: ActionManager,
       background = UIUtil.getListBackground()
 
       bindContentIn(cs, vm.detailsVm) { result ->
-        result.fold(
-          onSuccess = { createInfoComponent(vm, it) },
+        result.result?.fold(
+          onSuccess = { createInfoComponent(it) },
           onFailure = { createInfoErrorComponent(it) }
-        )
+        ) ?: LoadingLabel()
       }
     }
   }
 
-  private fun CoroutineScope.createInfoComponent(vm: GHPRInfoViewModel, detailsVm: GHPRDetailsViewModel): JComponent {
+  private fun CoroutineScope.createInfoComponent(detailsVm: GHPRDetailsViewModel): JComponent {
     return GHPRDetailsComponentFactory.create(this,
                                               project,
                                               detailsVm,
-                                              vm.dataProvider,
-                                              vm.securityService, vm.avatarIconsProvider,
                                               createChangesComponent(detailsVm.changesVm)).apply {
       reloadDetailsAction.registerCustomShortcutSet(this, nestedDisposable())
     }.let {
-      CollaborationToolsUIUtil.wrapWithProgressStripe(this, vm.isLoading, it)
+      CollaborationToolsUIUtil.wrapWithProgressStripe(this, detailsVm.isUpdating, it)
     }
   }
 
@@ -93,20 +95,22 @@ internal class GHPRViewComponentFactory(actionManager: ActionManager,
   private fun CoroutineScope.createChangesComponent(changesVm: GHPRChangesViewModel): JComponent {
     val cs = this
     return Wrapper(LoadingLabel()).apply {
-      isOpaque = false
-
-      bindContentIn(cs, changesVm.changeListVm) { result ->
-        result.fold(
-          onSuccess = { createChangesPanel(changesVm, it) },
-          onFailure = { createChangesErrorComponent(changesVm, it) }
-        )
+      bindContentIn(cs, changesVm.changeListVm) { res ->
+        res.result?.let {
+          it.fold(onSuccess = {
+            createChangesPanel(changesVm, it)
+          }, onFailure = {
+            createChangesErrorComponent(changesVm, it)
+          })
+        } ?: LoadingLabel()
       }
     }
   }
 
   private fun CoroutineScope.createChangesPanel(changesVm: GHPRChangesViewModel,
                                                 changeListVm: GHPRChangeListViewModel): JComponent {
-    val tree = CodeReviewChangeListComponentFactory.createIn(this, changeListVm, changeListVm.progressModel,
+    val progressModel = CodeReviewProgressTreeModelFromDetails(this, changeListVm)
+    val tree = CodeReviewChangeListComponentFactory.createIn(this, changeListVm, progressModel,
                                                              GithubBundle.message("pull.request.does.not.contain.changes"))
     ClientProperty.put(tree, GHPRCommitBrowserComponentController.KEY, changesVm)
 
@@ -116,11 +120,11 @@ internal class GHPRViewComponentFactory(actionManager: ActionManager,
 
     DataManager.registerDataProvider(stripe) { dataId ->
       when {
-        EDITOR_TAB_DIFF_PREVIEW.`is`(dataId) -> changeListVm
         tree.isShowing ->
           when {
             GHPRActionKeys.PULL_REQUEST_FILES.`is`(dataId) -> tree.getPullRequestFiles()
             GHPRChangeListViewModel.DATA_KEY.`is`(dataId) -> changeListVm
+            CodeReviewChangeListViewModel.DATA_KEY.`is`(dataId) -> changeListVm
             else -> null
           } ?: tree.getData(dataId)
         else -> null

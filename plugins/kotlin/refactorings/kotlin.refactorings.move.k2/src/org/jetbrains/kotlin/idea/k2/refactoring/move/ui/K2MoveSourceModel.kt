@@ -11,6 +11,7 @@ import com.intellij.ui.dsl.builder.BottomGap
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.TopGap
 import com.intellij.ui.list.createTargetPresentationRenderer
+import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveSourceDescriptor
 import org.jetbrains.kotlin.idea.refactoring.memberInfo.KotlinMemberInfo
 import org.jetbrains.kotlin.idea.refactoring.memberInfo.KotlinMemberSelectionPanel
@@ -23,10 +24,10 @@ import javax.swing.JComponent
 sealed interface K2MoveSourceModel<T : KtElement> {
     val elements: Set<T>
 
-    fun toDescriptor(): K2MoveSourceDescriptor<T>
+    fun toDescriptor(): K2MoveSourceDescriptor<T>?
 
     context(Panel)
-    fun buildPanel(onError: (String?, JComponent) -> Unit)
+    fun buildPanel(onError: (String?, JComponent) -> Unit, revalidateButtons: () -> Unit)
 
     class FileSource(files: Set<KtFile>) : K2MoveSourceModel<KtFile> {
         override var elements: Set<KtFile> = files
@@ -35,7 +36,7 @@ sealed interface K2MoveSourceModel<T : KtElement> {
         override fun toDescriptor(): K2MoveSourceDescriptor.FileSource = K2MoveSourceDescriptor.FileSource(elements)
 
         context(Panel)
-        override fun buildPanel(onError: (String?, JComponent) -> Unit) {
+        override fun buildPanel(onError: (String?, JComponent) -> Unit, revalidateButtons: () -> Unit) {
             val project = elements.firstOrNull()?.project ?: return
 
             class PresentableFile(val file: KtFile, val presentation: TargetPresentation)
@@ -68,10 +69,12 @@ sealed interface K2MoveSourceModel<T : KtElement> {
         override var elements: Set<KtNamedDeclaration> = declarations
             private set
 
+        private lateinit var memberSelectionPanel: KotlinMemberSelectionPanel
+
         override fun toDescriptor(): K2MoveSourceDescriptor.ElementSource = K2MoveSourceDescriptor.ElementSource(elements)
 
         context(Panel)
-        override fun buildPanel(onError: (String?, JComponent) -> Unit) {
+        override fun buildPanel(onError: (String?, JComponent) -> Unit, revalidateButtons: () -> Unit) {
             fun getDeclarationsContainers(elementsToMove: Collection<KtNamedDeclaration>): Set<KtDeclarationContainer> = elementsToMove
                 .mapNotNull { it.parent as? KtDeclarationContainer }
                 .toSet()
@@ -98,13 +101,21 @@ sealed interface K2MoveSourceModel<T : KtElement> {
                 return@underModalProgress memberInfos(elements, allDeclarations.toList())
             }
 
-            lateinit var memberSelectionPanel: KotlinMemberSelectionPanel
-            row {
-                memberSelectionPanel = cell(KotlinMemberSelectionPanel(memberInfo = memberInfos)).align(Align.FILL).component
-            }.resizableRow()
-            onApply {
-                elements = memberSelectionPanel.table.selectedMemberInfos.map { it.member }.toSet()
-            }
+            group(RefactoringBundle.message("move.declarations.group"), indent = false) {
+                row {
+                    memberSelectionPanel = cell(KotlinMemberSelectionPanel(memberInfo = memberInfos)).align(Align.FILL).component
+                    val table = memberSelectionPanel.table
+                    table.addMemberInfoChangeListener {
+                        elements = table.selectedMemberInfos.map { it.member }.toSet()
+                        if (elements.isEmpty()) {
+                            onError(KotlinBundle.message("text.no.elements.to.move.are.selected"), memberSelectionPanel.table)
+                        } else {
+                            onError(null, memberSelectionPanel.table)
+                        }
+                        revalidateButtons()
+                    }
+                }.resizableRow()
+            }.topGap(TopGap.NONE).bottomGap(BottomGap.SMALL).resizableRow()
         }
     }
 }

@@ -1,6 +1,8 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.terminal.exp
 
+import com.intellij.execution.impl.EditorHyperlinkSupport
+import com.intellij.execution.impl.ExpirableTokenProvider
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.application.ModalityState
@@ -9,6 +11,7 @@ import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
@@ -19,6 +22,7 @@ import org.jetbrains.plugins.terminal.exp.TerminalUiUtils.toTextAttributes
 import java.awt.Font
 
 class TerminalOutputController(
+  project: Project,
   private val editor: EditorEx,
   private val session: BlockTerminalSession,
   private val settings: JBTerminalSystemSettingsProviderBase
@@ -36,6 +40,9 @@ class TerminalOutputController(
 
   @Volatile
   private var mouseAndContentListenersDisposable: Disposable? = null
+
+  private val hyperlinkFilterWrapper: CompositeFilterWrapper = CompositeFilterWrapper(project, session)
+  private var lastBlockWithHyperlinks: Pair<CommandBlock, ExpirableTokenProvider>? = null
 
   init {
     editor.putUserData(IS_OUTPUT_EDITOR_KEY, true)
@@ -186,8 +193,6 @@ class TerminalOutputController(
     val block = outputModel.getLastBlock() ?: error("No active block")
     val wasAtBottom = editor.scrollingModel.visibleArea.let { it.y + it.height } == editor.contentComponent.height
 
-    editor.document.replaceString(block.outputStartOffset, block.endOffset, output.text)
-
     // highlightings are collected only for output, so add prompt and command highlightings to the first place
     val highlightings = if (block.withPrompt || block.withCommand) {
       output.highlightings.toMutableList().also { highlightings ->
@@ -202,6 +207,9 @@ class TerminalOutputController(
     else output.highlightings
 
     outputModel.putHighlightings(block, highlightings)
+    editor.document.replaceString(block.outputStartOffset, block.endOffset, output.text)
+    highlightHyperlinks(block)
+
     // Install decorations lazily, only if there is some text.
     // ZSH prints '%' character on startup and then removing it immediately, so ignore this character to avoid blinking.
     // This hack can be solved by debouncing the update text requests.
@@ -221,12 +229,27 @@ class TerminalOutputController(
     caretPainter?.repaint()
   }
 
+  private fun highlightHyperlinks(block: CommandBlock) {
+    val document = editor.document
+    val startLine = document.getLineNumber(block.outputStartOffset)
+    val endLine = document.getLineNumber(block.endOffset)
+    lastBlockWithHyperlinks?.let {
+      if (it.first == block) {
+        it.second.invalidateAll() // stop the previous highlighting of the same block
+      }
+    }
+    val expirableTokenProvider = ExpirableTokenProvider()
+    lastBlockWithHyperlinks = block to expirableTokenProvider
+    EditorHyperlinkSupport.get(editor).highlightHyperlinksLater(hyperlinkFilterWrapper.compositeFilter, startLine, endLine,
+                                                                expirableTokenProvider.createExpirable())
+  }
+
   private fun TextStyle.toTextAttributes(): TextAttributes = this.toTextAttributes(session.colorPalette)
 
   private fun appendLineToBlock(block: CommandBlock, text: String, highlighting: HighlightingInfo) {
-    editor.document.insertString(block.endOffset, text + "\n")
     val existingHighlightings = outputModel.getHighlightings(block) ?: emptyList()
     outputModel.putHighlightings(block, existingHighlightings + highlighting)
+    editor.document.insertString(block.endOffset, text + "\n")
   }
 
   /** It is implied that [CommandBlock.prompt] is not null */

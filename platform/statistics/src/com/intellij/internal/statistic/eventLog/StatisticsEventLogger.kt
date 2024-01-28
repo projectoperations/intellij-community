@@ -8,7 +8,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.util.Disposer
-import org.jetbrains.annotations.ApiStatus
 import java.io.File
 import java.util.*
 import java.util.concurrent.CompletableFuture
@@ -34,12 +33,6 @@ abstract class StatisticsEventLoggerProvider(val recorderId: String,
                                              private val maxFileSizeInBytes: Int,
                                              val sendLogsOnIdeClose: Boolean = false,
                                              val isCharsEscapingRequired: Boolean = true) {
-  @ApiStatus.ScheduledForRemoval
-  @Deprecated(message = "Use primary constructor instead")
-  constructor(recorderId: String,
-              version: Int,
-              sendFrequencyMs: Long = TimeUnit.HOURS.toMillis(1),
-              maxFileSize: String = "200KB") : this(recorderId, version, sendFrequencyMs, parseFileSize(maxFileSize))
 
   @Deprecated(message = "Use primary constructor instead")
   constructor(recorderId: String,
@@ -82,11 +75,11 @@ abstract class StatisticsEventLoggerProvider(val recorderId: String,
     }
   }
 
-  private val emptyLogger: StatisticsEventLogger by lazy { EmptyStatisticsEventLogger() }
+  private val localLogger: StatisticsEventLogger by lazy { createLocalLogger() }
   private val actualLogger: StatisticsEventLogger by lazy { createLogger() }
 
   open val logger: StatisticsEventLogger
-    get() = if (isLoggingEnabled()) actualLogger else emptyLogger
+    get() = if (isLoggingEnabled()) actualLogger else localLogger
 
   abstract fun isRecordEnabled() : Boolean
   abstract fun isSendEnabled() : Boolean
@@ -139,19 +132,27 @@ abstract class StatisticsEventLoggerProvider(val recorderId: String,
     Disposer.register(ApplicationManager.getApplication(), logger)
     return logger
   }
+
+  private fun createLocalLogger(): StatisticsEventLogger {
+    val eventLogConfiguration = EventLogConfiguration.getInstance()
+
+    val logger = LocalStatisticsFileEventLogger(recorderId, eventLogConfiguration.build, version.toString(), createEventsMergeStrategy())
+    Disposer.register(ApplicationManager.getApplication(), logger)
+    return logger
+  }
 }
 
 /**
  * For internal use only.
  *
  * Holds default implementation of StatisticsEventLoggerProvider.isLoggingAlwaysActive
- * to connect logger with com.intellij.internal.statistic.eventLog.ExternalEventLogSettings
+ * to connect logger with [com.intellij.internal.statistic.eventLog.ExternalEventLogSettings] and
+ * [com.intellij.internal.statistic.eventLog.ExternalEventLogListenerProviderExtension]
  * */
 abstract class StatisticsEventLoggerProviderExt(recorderId: String, version: Int, sendFrequencyMs: Long,
                                                 maxFileSizeInBytes: Int, sendLogsOnIdeClose: Boolean = false) :
   StatisticsEventLoggerProvider(recorderId, version, sendFrequencyMs, maxFileSizeInBytes, sendLogsOnIdeClose) {
-  override fun isLoggingAlwaysActive(): Boolean =
-    StatisticsEventLogProviderUtil.getExternalEventLogSettings()?.forceLoggingAlwaysEnabled() ?: false
+  override fun isLoggingAlwaysActive(): Boolean = StatisticsEventLogProviderUtil.forceLoggingAlwaysEnabled()
 }
 
 internal class EmptyStatisticsEventLoggerProvider(recorderId: String): StatisticsEventLoggerProvider(recorderId, 0, -1, DEFAULT_MAX_FILE_SIZE_BYTES) {

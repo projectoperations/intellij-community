@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.actionSystem.ex
 
 import com.intellij.openapi.Disposable
@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.extensions.PluginId
@@ -40,7 +41,7 @@ abstract class ActionManagerEx : ActionManager() {
       var result = try {
         KeyStroke.getKeyStroke(s)
       }
-      catch (ignore: Exception) {
+      catch (_: Exception) {
         null
       }
 
@@ -49,7 +50,7 @@ abstract class ActionManagerEx : ActionManager() {
           val s1 = s.substring(0, s.length - 1) + s[s.length - 1].uppercaseChar()
           result = KeyStroke.getKeyStroke(s1)
         }
-        catch (ignored: Exception) {
+        catch (_: Exception) {
         }
       }
       return result
@@ -66,8 +67,7 @@ abstract class ActionManagerEx : ActionManager() {
       val app = ApplicationManager.getApplication()
       val created = app.serviceIfCreated<ActionManager>()
       if (created == null) {
-        @Suppress("DEPRECATION")
-        (scope ?: app.coroutineScope).launch {
+        (scope ?: (app as ComponentManagerEx).getCoroutineScope()).launch {
           val actionManager = app.serviceAsync<ActionManager>()
           withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
             task(actionManager)
@@ -101,13 +101,17 @@ abstract class ActionManagerEx : ActionManager() {
   @Internal
   abstract fun fireAfterActionPerformed(action: AnAction, event: AnActionEvent, result: AnActionResult)
 
-  @Deprecated("use {@link #fireBeforeActionPerformed(AnAction, AnActionEvent)} instead")
-  fun fireBeforeActionPerformed(action: AnAction, dataContext: DataContext, event: AnActionEvent) {
+  @Deprecated("use {@link #fireBeforeActionPerformed(AnAction, AnActionEvent)} instead",
+              ReplaceWith("fireBeforeActionPerformed(action, event)"),
+              DeprecationLevel.ERROR)
+  fun fireBeforeActionPerformed(action: AnAction, @Suppress("unused") dataContext: DataContext, event: AnActionEvent) {
     fireBeforeActionPerformed(action, event)
   }
 
-  @Deprecated("use {@link #fireAfterActionPerformed(AnAction, AnActionEvent, AnActionResult)} instead")
-  fun fireAfterActionPerformed(action: AnAction, dataContext: DataContext, event: AnActionEvent) {
+  @Deprecated("use {@link #fireAfterActionPerformed(AnAction, AnActionEvent, AnActionResult)} instead",
+              ReplaceWith("fireAfterActionPerformed(action, event, AnActionResult.PERFORMED)"),
+              DeprecationLevel.ERROR)
+  fun fireAfterActionPerformed(action: AnAction, @Suppress("unused") dataContext: DataContext, event: AnActionEvent) {
     fireAfterActionPerformed(action, event, AnActionResult.PERFORMED)
   }
 
@@ -173,7 +177,7 @@ interface ActionRuntimeRegistrar {
 
   fun getUnstubbedAction(actionId: String): AnAction?
 
-  fun addToGroup(group: AnAction, action: AnAction, last: Constraints)
+  fun addToGroup(group: AnAction, action: AnAction, constraints: Constraints)
 
   fun replaceAction(actionId: String, newAction: AnAction)
 
@@ -181,5 +185,4 @@ interface ActionRuntimeRegistrar {
 
   fun getBaseAction(overridingAction: OverridingAction): AnAction?
 
-  fun isGroup(actionId: String): Boolean
 }

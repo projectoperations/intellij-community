@@ -1,10 +1,11 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.workspace.storage.impl.external
 
 import com.google.common.collect.HashBiMap
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.platform.workspace.storage.ExternalEntityMapping
+import com.intellij.platform.workspace.storage.ExternalMappingKey
 import com.intellij.platform.workspace.storage.MutableExternalEntityMapping
 import com.intellij.platform.workspace.storage.WorkspaceEntity
 import com.intellij.platform.workspace.storage.impl.*
@@ -143,7 +144,7 @@ internal class MutableExternalEntityMappingImpl<T> private constructor(
 
     if (target.entityDataById(id) == null) return null
 
-    // It's possible that before addDiff there was a gup in this particular id. If it's so, replaceMap should not have a mapping to it
+    // It's possible that before 'applyChangesFrom' there was a gup in this particular id. If it's so, replaceMap should not have a mapping to it
     val sourceId = replaceMap.inverse()[id.asThis()]
     return if (sourceId != null) null else id
   }
@@ -205,17 +206,18 @@ internal class MutableExternalEntityMappingImpl<T> private constructor(
   }
 
   companion object {
-    fun fromMap(other: Map<String, ExternalEntityMappingImpl<*>>): MutableMap<String, MutableExternalEntityMappingImpl<*>> {
-      val result = mutableMapOf<String, MutableExternalEntityMappingImpl<*>>()
+    fun fromMap(other: Map<ExternalMappingKey<*>, ExternalEntityMappingImpl<*>>): MutableMap<ExternalMappingKey<*>, MutableExternalEntityMappingImpl<*>> {
+      val result = mutableMapOf<ExternalMappingKey<*>, MutableExternalEntityMappingImpl<*>>()
       other.forEach { (identifier, index) ->
         if (index is MutableExternalEntityMappingImpl) error("Cannot create mutable index from mutable index")
-        result[identifier] = MutableExternalEntityMappingImpl((index.index as PersistentBidirectionalMap.Immutable).builder(), IndexLog(LinkedHashMap()))
+        result[identifier] = MutableExternalEntityMappingImpl((index.index as PersistentBidirectionalMap.Immutable).builder(),
+                                                              IndexLog(LinkedHashMap()))
       }
       return result
     }
 
-    fun toImmutable(other: MutableMap<String, MutableExternalEntityMappingImpl<*>>): Map<String, ExternalEntityMappingImpl<*>> {
-      val result = mutableMapOf<String, ExternalEntityMappingImpl<*>>()
+    fun toImmutable(other: MutableMap<ExternalMappingKey<*>, MutableExternalEntityMappingImpl<*>>): Map<ExternalMappingKey<*>, ExternalEntityMappingImpl<*>> {
+      val result = mutableMapOf<ExternalMappingKey<*>, ExternalEntityMappingImpl<*>>()
       other.forEach { (identifier, index) ->
         result[identifier] = index.toImmutable()
       }

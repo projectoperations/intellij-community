@@ -2,12 +2,16 @@
 package org.jetbrains.plugins.terminal.exp
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.util.containers.nullize
 import com.intellij.util.execution.ParametersListUtil
+import com.jediterm.core.input.InputEvent.CTRL_MASK
+import com.jediterm.core.input.KeyEvent.VK_HOME
 import kotlinx.coroutines.CompletableDeferred
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.plugins.terminal.TerminalUtil
 import org.jetbrains.plugins.terminal.exp.ShellCommandManager.Companion.LOG
+import org.jetbrains.plugins.terminal.util.ShellType
 import java.util.*
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CopyOnWriteArrayList
@@ -81,11 +85,13 @@ internal class ShellCommandExecutionManager(private val session: BlockTerminalSe
   }
 
   fun sendCommandToExecute(shellCommand: String) {
+    // in the IDE we use '\n' line separator, but Windows requires '\r\n'
+    val command = shellCommand.replace("\n", System.lineSeparator())
     lock.withLock {
       if (isCommandRunning) {
-        LOG.warn("Command '$shellCommand' execution is postponed until currently running command is finished")
+        LOG.warn("Command '$command' execution is postponed until currently running command is finished")
       }
-      scheduledCommands.offer(shellCommand)
+      scheduledCommands.offer(command)
     }
     processQueueIfReady()
   }
@@ -151,20 +157,33 @@ internal class ShellCommandExecutionManager(private val session: BlockTerminalSe
 
   private fun doSendCommandToExecute(shellCommand: String) {
     commandSentListeners.forEach { it(shellCommand) }
-    // Simulate pressing Ctrl+U in the terminal to clear all typings in the prompt (IDEA-337692)
-    val fullCommand = "\u0015" + shellCommand
-    session.terminalStarterFuture.thenAccept {
-      if (it != null) {
-        TerminalUtil.sendCommandToExecute(fullCommand, it)
+    session.terminalStarterFuture.thenAccept { starter ->
+      starter ?: return@thenAccept
+      val clearPrompt: String = when (session.shellIntegration.shellType) {
+        ShellType.POWERSHELL -> {
+          // Simulate pressing Ctrl+Home to delete all the characters from
+          // the cursor's position to the beginning of a line.
+          starter.terminal.getCodeForKey(VK_HOME, CTRL_MASK)!!.toString(Charsets.UTF_8)
+        }
+        // Simulate pressing Ctrl+U in the terminal to clear all typings in the prompt (IDEA-337692)
+        else -> "\u0015"
       }
+      TerminalUtil.sendCommandToExecute(clearPrompt + shellCommand, starter)
     }
   }
 
-  private class Generator(val name: String, val parameters: List<String>) {
+  private inner class Generator(val name: String, val parameters: List<String>) {
     val requestId: Int = NEXT_REQUEST_ID.incrementAndGet()
     val deferred: CompletableDeferred<String> = CompletableDeferred()
 
-    fun shellCommand(): String = "$name $requestId ${ParametersListUtil.join(parameters)}"
+    fun shellCommand(): String {
+      val joinedParams = when (session.shellIntegration.shellType) {
+        ShellType.POWERSHELL -> parameters.joinToString(" ") { StringUtil.wrapWithDoubleQuote(escapePowerShellParameter(it)) }
+        else -> ParametersListUtil.join(parameters)
+      }
+      return "$name $requestId $joinedParams"
+    }
+
     override fun toString(): String = "Generator($name, parameters=$parameters, requestId=$requestId)"
   }
 
@@ -188,6 +207,28 @@ internal class ShellCommandExecutionManager(private val session: BlockTerminalSe
 
   companion object {
     private val NEXT_REQUEST_ID = AtomicInteger(0)
+
+    private val pwshCharsToEscape: Map<Char, String> = mapOf(
+      '`' to "``",
+      '\"' to "`\"",
+      '\u0000' to "`0",
+      '\u0007' to "`a",
+      '\u0008' to "`b",
+      '\u000c' to "`f",
+      '\n' to "`n",
+      '\r' to "`r",
+      '\t' to "`t",
+      '\u000B' to "'v",
+      '$' to "`$"
+    )
+
+    private fun escapePowerShellParameter(parameter: String): String {
+      return buildString(parameter.length) {
+        for (ch in parameter) {
+          append(pwshCharsToEscape[ch] ?: ch)
+        }
+      }
+    }
   }
 }
 

@@ -27,6 +27,8 @@ import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence
 import com.intellij.util.io.*
 import com.intellij.util.ui.IoErrorText
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.VisibleForTesting
@@ -49,6 +51,7 @@ import java.util.function.Supplier
 import javax.xml.parsers.ParserConfigurationException
 import javax.xml.parsers.SAXParserFactory
 import kotlin.io.path.exists
+import kotlin.time.Duration.Companion.seconds
 
 private val LOG = logger<MarketplaceRequests>()
 
@@ -56,7 +59,7 @@ private val PLUGIN_NAMES_IN_COMMUNITY_EDITION: Map<String, String> = mapOf(
   "com.intellij.database" to "Database Tools and SQL"
 )
 
-private val objectMapper by lazy { ObjectMapper() }
+private val objectMapper: ObjectMapper by lazy { ObjectMapper() }
 
 @ApiStatus.Internal
 class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginInfoProvider {
@@ -64,6 +67,7 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
     @JvmStatic
     fun getInstance(): MarketplaceRequests = PluginInfoProvider.getInstance() as MarketplaceRequests
 
+    @Suppress("HttpUrlsUsage")
     @JvmStatic
     fun parsePluginList(input: InputStream): List<PluginNode> {
       try {
@@ -216,8 +220,7 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
     }
   }
 
-  @OptIn(ExperimentalCoroutinesApi::class)
-  private val limitedDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1)
+  private val mutex: Mutex = Mutex()
 
   val marketplaceTagsSupplier: Supplier<Set<String>> = TimeoutCachedValue(1, TimeUnit.HOURS) {
     getAllPluginsTags()
@@ -547,32 +550,34 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
     }
   }
 
+  private var jetbrainsPluginsIds: Set<PluginId>? = null // guarded by mutex
+
   @RequiresBackgroundThread
-  private fun loadJetBrainsMarketplacePlugins(indicator: ProgressIndicator? = null): Set<PluginId> {
-    return runCatching {
-      readOrUpdateFile(
+  private fun loadJetBrainsMarketplacePlugins(indicator: ProgressIndicator? = null) {
+    if (jetbrainsPluginsIds != null) return
+
+    try {
+      jetbrainsPluginsIds = readOrUpdateFile(
         Path.of(PathManager.getPluginTempPath(), MarketplaceUrls.JB_PLUGINS_XML_IDS_FILENAME),
         MarketplaceUrls.getJBPluginsXmlIdsUrl(),
         indicator,
         IdeBundle.message("progress.downloading.available.plugins"),
         ::parseXmlIds,
       )
-    }.getOrElse {
-      LOG.infoOrDebug("Cannot get the list of JetBrains plugins from Marketplace", it)
-      emptySet()
     }
-  }
-
-  internal suspend fun updatePluginIdsAndExtensionData() {
-    withContext(limitedDispatcher) {
-      loadJetBrainsMarketplacePlugins()
-      loadExtensionsForIdes()
+    catch (e: Throwable) {
+      LOG.infoOrDebug("Cannot get the list of JetBrains plugins from Marketplace", e)
     }
   }
 
   private fun schedulePluginIdsUpdate() {
     coroutineScope.launch {
-      updatePluginIdsAndExtensionData()
+      delay(30.seconds)
+
+      mutex.withLock {
+        loadJetBrainsMarketplacePlugins()
+        loadExtensionsForIdes()
+      }
     }
   }
 
@@ -589,11 +594,34 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
     return null
   }
 
-  var extensionsForIdes: Map<String, List<String>>? = null
-    private set
+  @Volatile
+  private var extensionsFromServer: Map<String, List<String>>? = null
+  @Volatile
+  private var extensionsFromBackup: Map<String, List<String>>? = null
+
+  val extensionsForIdes: Map<String, List<String>>?
+    get() {
+      if (extensionsFromServer != null) return extensionsFromServer
+      if (extensionsFromBackup != null) return extensionsFromBackup
+
+      try {
+        val extensionsBackupFile = Path.of(PathManager.getTempPath(), MarketplaceUrls.EXTENSIONS_BACKUP_FILENAME)
+        if (Files.exists(extensionsBackupFile)) {
+          extensionsFromBackup = objectMapper.readValue(extensionsBackupFile.toFile(),
+                                                        object : TypeReference<Map<String, List<String>>>() {})
+        }
+      }
+      catch (e: Exception) {
+        LOG.infoOrDebug("Cannot read extensions from local cache file", e)
+        extensionsFromBackup = emptyMap()
+      }
+
+      schedulePluginIdsUpdate()
+      return extensionsFromBackup
+    }
 
   private fun loadExtensionsForIdes() {
-    if (extensionsForIdes != null) {
+    if (extensionsFromServer != null) {
       return
     }
 
@@ -604,21 +632,34 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
         .setHeadersViaTuner()
         .throwStatusCodeException(false)
         .connect {
-          deserializeExtensionsForIdes(it.inputStream)
+          val newExtensions = deserializeExtensionsForIdes(it.inputStream)
+
+          if (newExtensions != null) {
+            val extensionsBackupFile = Path.of(PathManager.getTempPath(), MarketplaceUrls.EXTENSIONS_BACKUP_FILENAME)
+            try {
+              objectMapper.writeValue(extensionsBackupFile.toFile(), newExtensions)
+            }
+            catch (e: Exception) {
+              LOG.infoOrDebug("Cannot save supported extensions from Marketplace", e)
+            }
+          }
         }
     }
     catch (e: Exception) {
-      LOG.infoOrDebug("Can not get supported extensions from Marketplace", e)
-      extensionsForIdes = null
+      LOG.infoOrDebug("Cannot get supported extensions from Marketplace", e)
+      extensionsFromServer = emptyMap()
     }
   }
 
   @VisibleForTesting
-  fun deserializeExtensionsForIdes(stream: InputStream) {
-    extensionsForIdes = objectMapper.readValue(stream, object : TypeReference<Map<String, List<String>>>() {})
+  fun deserializeExtensionsForIdes(stream: InputStream): Map<String, List<String>>? {
+    extensionsFromServer = objectMapper.readValue(stream, object : TypeReference<Map<String, List<String>>>() {})
+    return extensionsFromServer
   }
 
-  private fun parseXmlIds(input: InputStream) = objectMapper.readValue(input, object : TypeReference<Set<PluginId>>() {})
+  private fun parseXmlIds(input: InputStream): Set<PluginId> {
+    return objectMapper.readValue(input, object : TypeReference<Set<PluginId>>() {})
+  }
 
   @RequiresBackgroundThread
   @RequiresReadLockAbsence

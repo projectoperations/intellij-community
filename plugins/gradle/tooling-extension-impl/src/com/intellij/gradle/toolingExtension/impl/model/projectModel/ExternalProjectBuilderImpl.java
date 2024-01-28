@@ -6,12 +6,12 @@ import com.intellij.gradle.toolingExtension.impl.model.sourceSetModel.GradleSour
 import com.intellij.gradle.toolingExtension.impl.model.taskModel.GradleTaskCache;
 import com.intellij.gradle.toolingExtension.impl.modelBuilder.Messages;
 import com.intellij.gradle.toolingExtension.impl.util.GradleObjectUtil;
+import com.intellij.gradle.toolingExtension.impl.util.GradleProjectUtil;
 import com.intellij.gradle.toolingExtension.impl.util.GradleTaskUtil;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.tasks.testing.AbstractTestTask;
 import org.gradle.api.tasks.testing.Test;
-import org.gradle.util.GradleVersion;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,16 +29,13 @@ import java.util.Map;
 import java.util.Objects;
 
 import static com.intellij.gradle.toolingExtension.impl.util.GradleIdeaPluginUtil.getIdeaModuleName;
-import static com.intellij.gradle.toolingExtension.util.GradleNegotiationUtil.getProjectIdentityPath;
+import static com.intellij.gradle.toolingExtension.impl.util.GradleProjectUtil.getProjectIdentityPath;
 
 /**
  * @author Vladislav.Soroka
  */
 @ApiStatus.Internal
 public class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
-
-  private static final GradleVersion gradleBaseVersion = GradleVersion.current().getBaseVersion();
-  public static final boolean is44OrBetter = gradleBaseVersion.compareTo(GradleVersion.version("4.4")) >= 0;
 
   @Override
   public boolean canBuild(@NotNull String modelName) {
@@ -77,7 +74,7 @@ public class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
     externalProject.setIdentityPath(projectIdentityPath);
     externalProject.setVersion(wrap(project.getVersion()));
     externalProject.setDescription(project.getDescription());
-    externalProject.setBuildDir(project.getBuildDir());
+    externalProject.setBuildDir(GradleProjectUtil.getBuildDirectory(project));
     externalProject.setBuildFile(project.getBuildFile());
     externalProject.setGroup(wrap(project.getGroup()));
     externalProject.setProjectDir(project.getProjectDir());
@@ -106,7 +103,7 @@ public class ExternalProjectBuilderImpl extends AbstractModelBuilderService {
         boolean isInternalTest = GradleTaskUtil.getBooleanProperty(task, "idea.internal.test", false);
         boolean isEffectiveTest = "check".equals(taskName) && "verification".equals(task.getGroup());
         boolean isJvmTest = task instanceof Test;
-        boolean isAbstractTest = is44OrBetter && task instanceof AbstractTestTask;
+        boolean isAbstractTest = task instanceof AbstractTestTask;
         externalTask.setTest(isJvmTest || isAbstractTest || isInternalTest || isEffectiveTest);
         externalTask.setJvmTest(isJvmTest || isAbstractTest);
         externalTask.setType(ProjectExtensionsDataBuilderImpl.getType(task));

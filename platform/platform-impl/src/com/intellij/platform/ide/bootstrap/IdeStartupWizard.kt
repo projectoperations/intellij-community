@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.bootstrap
 
 import com.intellij.diagnostic.PluginException
@@ -10,6 +10,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ConfigImportHelper
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ex.ApplicationManagerEx
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.extensions.impl.ExtensionPointImpl
@@ -21,17 +22,17 @@ import org.jetbrains.annotations.ApiStatus.Internal
 import java.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
-private val log = logger<IdeStartupWizard>()
+private val LOG: Logger
+  get() = logger<IdeStartupWizard>()
 
 val isIdeStartupWizardEnabled: Boolean
-  get() = !ApplicationManagerEx.isInIntegrationTest()
-          && System.getProperty ("intellij.startup.wizard", "true").toBoolean()
-          && IdeStartupExperiment.isExperimentEnabled()
+  get() = !ApplicationManagerEx.isInIntegrationTest() &&
+          System.getProperty ("intellij.startup.wizard", "true").toBoolean() &&
+          IdeStartupExperiment.isExperimentEnabled()
 
 @ExperimentalCoroutinesApi
 internal suspend fun runStartupWizard(isInitialStart: Job, app: Application) {
-
-  log.info("Entering startup wizard workflow.")
+  LOG.info("Entering startup wizard workflow.")
 
   val point = app.extensionArea
     .getExtensionPoint<IdeStartupWizard>("com.intellij.ideStartupWizard") as ExtensionPointImpl<IdeStartupWizard>
@@ -39,7 +40,7 @@ internal suspend fun runStartupWizard(isInitialStart: Job, app: Application) {
   for (adapter in sortedAdapters) {
     val pluginDescriptor = adapter.pluginDescriptor
     if (!pluginDescriptor.isBundled) {
-      log.error(PluginException("ideStartupWizard extension can be implemented only by a bundled plugin", pluginDescriptor.pluginId))
+      LOG.error(PluginException("ideStartupWizard extension can be implemented only by a bundled plugin", pluginDescriptor.pluginId))
       continue
     }
 
@@ -56,7 +57,7 @@ internal suspend fun runStartupWizard(isInitialStart: Job, app: Application) {
           IdeStartupWizardCollector.logInitialStartSuccess()
         }
         catch (_: TimeoutCancellationException) {
-          log.warn("Timeout on waiting for initial start, proceeding the startup flow without waiting.")
+          LOG.warn("Timeout on waiting for initial start, proceeding the startup flow without waiting.")
           IdeStartupWizardCollector.logInitialStartTimeout()
         }
         finally {
@@ -67,14 +68,14 @@ internal suspend fun runStartupWizard(isInitialStart: Job, app: Application) {
         }
       }
 
-      log.info("Passing execution control to $wizard.")
+      LOG.info("Passing execution control to $wizard.")
       span("${adapter.assignableToClassName}.run", Dispatchers.EDT) block@{
         val startupStatus = com.intellij.platform.ide.bootstrap.isInitialStart
         try {
           if (startupStatus != null && startupStatus.isCompleted && !startupStatus.isCancelled) {
             val wasSuccessful = startupStatus.getCompleted()
             if (!wasSuccessful) {
-              log.info("Initial start was unsuccessful, terminating the wizard flow.")
+              LOG.info("Initial start was unsuccessful, terminating the wizard flow.")
               return@block
             }
           }
@@ -82,7 +83,7 @@ internal suspend fun runStartupWizard(isInitialStart: Job, app: Application) {
           startupStatus?.cancel()
         }
 
-        log.info("Passing execution control to $wizard.")
+        LOG.info("Passing execution control to $wizard.")
         wizard.run()
       }
 
@@ -90,7 +91,7 @@ internal suspend fun runStartupWizard(isInitialStart: Job, app: Application) {
       break
     }
     catch (e: Throwable) {
-      log.error(PluginException(e, pluginDescriptor.pluginId))
+      LOG.error(PluginException(e, pluginDescriptor.pluginId))
     }
   }
   point.reset()
@@ -106,12 +107,15 @@ enum class StartupWizardStage {
   ProductChoicePage,
   SettingsToSyncPage,
   SettingsToImportPage,
-  ImportProgressPage
+  ImportProgressPage,
+  WizardThemePage,
+  WizardKeymapPage,
+  WizardPluginPage,
+  WizardProgressPage
 }
 
 object IdeStartupWizardCollector : CounterUsagesCollector() {
-
-  val GROUP = EventLogGroup("wizard.startup", 4)
+  val GROUP = EventLogGroup("wizard.startup", 6)
   override fun getGroup() = GROUP
 
   private val initialStartSucceeded = GROUP.registerEvent("initial_start_succeeded")
@@ -130,16 +134,18 @@ object IdeStartupWizardCollector : CounterUsagesCollector() {
     EventFields.Int("group"),
     EventFields.Boolean("enabled")
   )
-  fun logExperimentState() {
-    if (ConfigImportHelper.isFirstSession()) {
-      val isEnabled = IdeStartupExperiment.isExperimentEnabled()
-      log.info("IDE startup isEnabled = $isEnabled, IDEStartupKind = ${IdeStartupExperiment.experimentGroupKind}, IDEStartup = ${IdeStartupExperiment.experimentGroup}")
-      experimentState.log(
-        IdeStartupExperiment.experimentGroupKind,
-        IdeStartupExperiment.experimentGroup,
-        isEnabled
-      )
-    }
+
+  internal fun logExperimentState() {
+    assert(ConfigImportHelper.isFirstSession())
+    val isEnabled = IdeStartupExperiment.isExperimentEnabled()
+    LOG.info("IDE startup isEnabled = $isEnabled," +
+             " IDEStartupKind = ${IdeStartupExperiment.experimentGroupKind}, " +
+             "IDEStartup = ${IdeStartupExperiment.experimentGroup}")
+    experimentState.log(
+      IdeStartupExperiment.experimentGroupKind,
+      IdeStartupExperiment.experimentGroup,
+      isEnabled
+    )
   }
 
   private val wizardStageEnded = GROUP.registerEvent(
@@ -147,13 +153,13 @@ object IdeStartupWizardCollector : CounterUsagesCollector() {
     EventFields.Enum<StartupWizardStage>("stage"),
     EventFields.DurationMs
   )
+
   fun logStartupStageTime(stage: StartupWizardStage, duration: Duration) {
     wizardStageEnded.log(stage, duration.toMillis())
   }
 }
 
-object IdeStartupExperiment {
-
+private object IdeStartupExperiment {
   enum class GroupKind {
     Experimental,
     Control,
@@ -168,9 +174,9 @@ object IdeStartupExperiment {
 
   @Suppress("DEPRECATION")
   private fun getGroupKind(group: Int) = when {
-    PlatformUtils.isIdeaUltimate() || PlatformUtils.isPyCharmPro() -> when {
-      group >= 0 && group <= 7 -> GroupKind.Experimental
-      group == 8 || group == 9 -> GroupKind.Control
+    PlatformUtils.isIdeaUltimate() || PlatformUtils.isPyCharmPro() -> when (group) {
+      in 0..7 -> GroupKind.Experimental
+      8, 9 -> GroupKind.Control
       else -> GroupKind.Undefined
     }
     else -> when (group) {
@@ -180,12 +186,13 @@ object IdeStartupExperiment {
     }
   }
 
-  private fun String.asBucket() = MathUtil.nonNegativeAbs(this.hashCode()) % 256
+  private fun asBucket(s: String) = MathUtil.nonNegativeAbs(s.hashCode()) % 256
+
   private fun getBucket(): Int {
-    val deviceId = log.runAndLogException {
+    val deviceId = LOG.runAndLogException {
       DeviceIdManager.getOrGenerateId(object : DeviceIdManager.DeviceIdToken {}, "FUS")
     } ?: return 0
-    return deviceId.asBucket()
+    return asBucket(deviceId)
   }
 
   val experimentGroup by lazy {
@@ -198,7 +205,7 @@ object IdeStartupExperiment {
     experimentGroup
   }
 
-  val experimentGroupKind by lazy {
+  val experimentGroupKind: GroupKind by lazy {
     getGroupKind(experimentGroup)
   }
 

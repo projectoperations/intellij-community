@@ -1251,7 +1251,7 @@ public class MavenUtil {
    * @param wait      if true, then maven server(s) restarted synchronously
    * @param condition only connectors satisfied for this predicate will be restarted
    */
-  public static void restartMavenConnectors(@NotNull Project project, boolean wait, Predicate<MavenServerConnector> condition) {
+  public static void restartMavenConnectors(@NotNull Project project, boolean wait, Predicate<@NotNull MavenServerConnector> condition) {
     MavenServerManager.getInstance().restartMavenConnectors(project, wait, condition);
   }
 
@@ -1604,7 +1604,12 @@ public class MavenUtil {
       if (StringUtil.isEmptyOrSpaces(javaHome)) {
         throw new InvalidJavaHomeException(javaHome);
       }
-      return JavaSdk.getInstance().createJdk("", javaHome);
+      try {
+        return JavaSdk.getInstance().createJdk("", javaHome);
+      }
+      catch (IllegalArgumentException e) {
+        throw new InvalidJavaHomeException(javaHome);
+      }
     }
 
     Sdk projectJdk = getSdkByExactName(name);
@@ -1720,6 +1725,11 @@ public class MavenUtil {
     if (Registry.is("maven.always.reset")) return true;
     MavenProjectProblem unrecoverable = ContainerUtil.find(readingProblems, it -> !it.isRecoverable());
     return unrecoverable == null;
+  }
+
+  @ApiStatus.Internal
+  public static boolean shouldKeepPreviousResolutionResults(Collection<MavenProjectProblem> readingProblems) {
+    return !shouldResetDependenciesAndFolders(readingProblems);
   }
 
   public static @Nullable VirtualFile getEffectiveSuperPom(Project project, @NotNull String workingDir) {

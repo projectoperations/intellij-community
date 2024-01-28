@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.packaging.impl.artifacts.workspacemodel
 
 import com.intellij.java.workspace.entities.ArtifactEntity
@@ -7,6 +7,7 @@ import com.intellij.java.workspace.entities.CompositePackagingElementEntity
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectModelExternalSource
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.packaging.artifacts.*
 import com.intellij.packaging.elements.CompositePackagingElement
 import com.intellij.packaging.elements.PackagingElement
@@ -16,19 +17,20 @@ import com.intellij.packaging.impl.artifacts.workspacemodel.ArtifactManagerBridg
 import com.intellij.packaging.impl.artifacts.workspacemodel.ArtifactManagerBridge.Companion.artifactsMap
 import com.intellij.packaging.impl.artifacts.workspacemodel.ArtifactManagerBridge.Companion.mutableArtifactsMap
 import com.intellij.platform.backend.workspace.WorkspaceModel
+import com.intellij.platform.backend.workspace.impl.internal
 import com.intellij.platform.diagnostic.telemetry.Compiler
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.storage.EntityChange
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.impl.VersionedEntityStorageOnBuilder
-import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
 import com.intellij.util.EventDispatcher
 import com.intellij.util.concurrency.annotations.RequiresWriteLock
 import com.intellij.util.containers.BidirectionalMap
 import com.intellij.util.containers.mapInPlace
 import com.intellij.util.text.UniqueNameGenerator
-import com.intellij.workspaceModel.ide.getInstance
 import com.intellij.workspaceModel.ide.impl.LegacyBridgeJpsEntitySourceFactory
 import io.opentelemetry.api.metrics.Meter
 import java.util.concurrent.atomic.AtomicLong
@@ -126,7 +128,7 @@ class ArtifactModifiableModelBridge(
 
     val outputPath = ArtifactUtil.getDefaultArtifactOutputPath(uniqueName, project)
 
-    val fileManager = VirtualFileUrlManager.getInstance(project)
+    val fileManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
 
     val source = LegacyBridgeJpsEntitySourceFactory.createEntitySourceForArtifact(project, externalSource)
 
@@ -138,7 +140,7 @@ class ArtifactModifiableModelBridge(
       }
     }
 
-    val outputUrl = outputPath?.let { fileManager.fromPath(it) }
+    val outputUrl = outputPath?.let { fileManager.getOrCreateFromUri(VfsUtilCore.pathToUrl(it)) }
     val artifactEntity = diff addEntity ArtifactEntity(uniqueName, artifactType.id, false, source) {
       this.outputUrl = outputUrl
       this.rootElement = rootElementEntity
@@ -201,9 +203,10 @@ class ArtifactModifiableModelBridge(
     eventDispatcher.removeListener(listener)
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   override fun isModified(): Boolean {
     // TODO: 03.02.2021 May give a wrong result
-    return diff.hasChanges()
+    return (diff as MutableEntityStorageInstrumentation).hasChanges()
   }
 
   @RequiresWriteLock
@@ -213,6 +216,7 @@ class ArtifactModifiableModelBridge(
     manager.commit(this)
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   override fun dispose() = disposeMs.addMeasuredTimeMillis {
     val artifacts: MutableList<Artifact> = ArrayList()
 
@@ -227,7 +231,7 @@ class ArtifactModifiableModelBridge(
     (ArtifactPointerManager.getInstance(project) as ArtifactPointerManagerImpl).disposePointers(artifacts)
 
     val current = WorkspaceModel.getInstance(project).currentSnapshot
-    val changes = diff.collectChanges()[ArtifactEntity::class.java] ?: emptyList()
+    val changes = (diff as MutableEntityStorageInstrumentation).collectChanges()[ArtifactEntity::class.java] ?: emptyList()
 
     val added = mutableListOf<ArtifactBridge>()
     val changed = mutableListOf<ArtifactBridge>()
@@ -255,7 +259,7 @@ class ArtifactModifiableModelBridge(
       }
     }
 
-    val entityStorage = WorkspaceModel.getInstance(project).entityStorage
+    val entityStorage = WorkspaceModel.getInstance(project).internal.entityStorage
     added.forEach { bridge ->
       bridge.elementsWithDiff.forEach { it.setStorage(entityStorage, project, HashSet(), PackagingElementInitializer) }
       bridge.elementsWithDiff.clear()

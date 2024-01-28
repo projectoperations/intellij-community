@@ -184,8 +184,8 @@ public class ActionPopupStep implements ListPopupStepEx<PopupFactoryImpl.ActionI
   public void setEmptyText(@NotNull StatusText emptyText) { }
 
   @Override
-  public @Nullable String getValueFor(PopupFactoryImpl.ActionItem item) {
-    return item.getValue();
+  public @Nullable String getSecondaryTextFor(PopupFactoryImpl.ActionItem item) {
+    return item.getClientProperty(ActionUtil.SECONDARY_TEXT);
   }
 
   @Override

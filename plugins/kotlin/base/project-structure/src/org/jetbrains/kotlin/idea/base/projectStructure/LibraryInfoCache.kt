@@ -2,6 +2,7 @@
 package org.jetbrains.kotlin.idea.base.projectStructure
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
@@ -28,6 +29,7 @@ import org.jetbrains.kotlin.idea.base.platforms.isKlibLibraryRootForPlatform
 import org.jetbrains.kotlin.idea.base.platforms.platform
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.*
 import org.jetbrains.kotlin.idea.base.util.caching.SynchronizedFineGrainedEntityCache
+import org.jetbrains.kotlin.idea.base.util.caching.getChanges
 import org.jetbrains.kotlin.platform.IdePlatformKind
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.idePlatformKind
@@ -37,6 +39,7 @@ import org.jetbrains.kotlin.utils.KotlinExceptionWithAttachments
 import org.jetbrains.kotlin.utils.addIfNotNull
 import org.jetbrains.kotlin.utils.addToStdlib.flattenTo
 
+@Service(Service.Level.PROJECT)
 class LibraryInfoCache(project: Project) : Disposable {
 
     private val libraryInfoCache = LibraryInfoInnerCache(project)
@@ -318,8 +321,8 @@ class LibraryInfoCache(project: Project) : Disposable {
 
         fun beforeWorkspaceModelChanged(event: VersionedStorageChange) {
             val storageBefore = event.storageBefore
-            val libraryChanges = event.getChanges(LibraryEntity::class.java)
-            val moduleChanges = event.getChanges(ModuleEntity::class.java)
+            val libraryChanges = event.getChanges<LibraryEntity>()
+            val moduleChanges = event.getChanges<ModuleEntity>()
 
             if (libraryChanges.none() && moduleChanges.none()) return
 

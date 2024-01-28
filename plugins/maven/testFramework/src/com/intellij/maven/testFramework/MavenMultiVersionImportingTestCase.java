@@ -31,7 +31,7 @@ public abstract class MavenMultiVersionImportingTestCase extends MavenImportingT
   @Override
   public boolean runInDispatchThread() { return false; }
 
-  public static final String[] MAVEN_VERSIONS = new String[]{"bundled", "4.0.0-alpha-9"};
+  public static final String[] MAVEN_VERSIONS = new String[]{"bundled", "4.0.0-alpha-12"};
   @Parameterized.Parameter(0)
   public String myMavenVersion;
   @Nullable
@@ -68,7 +68,7 @@ public abstract class MavenMultiVersionImportingTestCase extends MavenImportingT
     if ("bundled".equals(myMavenVersion)) {
       return;
     }
-    myWrapperTestFixture = new MavenWrapperTestFixture(myProject, myMavenVersion);
+    myWrapperTestFixture = new MavenWrapperTestFixture(getProject(), myMavenVersion);
     myWrapperTestFixture.setUp();
   }
 

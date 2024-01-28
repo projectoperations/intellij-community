@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.intentions;
 
@@ -11079,39 +11079,6 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
-    @TestMetadata("testData/intentions/inlayHints")
-    public static class InlayHints extends AbstractK1IntentionTest {
-        private void runTest(String testDataFilePath) throws Exception {
-            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-        }
-
-        @TestMetadata("lambdaParameterType.kt")
-        public void testLambdaParameterType() throws Exception {
-            runTest("testData/intentions/inlayHints/lambdaParameterType.kt");
-        }
-
-        @TestMetadata("lambdaReturnExpression.kt")
-        public void testLambdaReturnExpression() throws Exception {
-            runTest("testData/intentions/inlayHints/lambdaReturnExpression.kt");
-        }
-
-        @TestMetadata("localVariable.kt")
-        public void testLocalVariable() throws Exception {
-            runTest("testData/intentions/inlayHints/localVariable.kt");
-        }
-
-        @TestMetadata("property.kt")
-        public void testProperty() throws Exception {
-            runTest("testData/intentions/inlayHints/property.kt");
-        }
-
-        @TestMetadata("range.kt")
-        public void testRange() throws Exception {
-            runTest("testData/intentions/inlayHints/range.kt");
-        }
-    }
-
-    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/intentions/insertCurlyBracesToTemplate")
     public static class InsertCurlyBracesToTemplate extends AbstractK1IntentionTest {
         private void runTest(String testDataFilePath) throws Exception {
@@ -17479,6 +17446,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             runTest("testData/intentions/specifyTypeExplicitly/constructor.kt");
         }
 
+        @TestMetadata("constructorParameter.kt")
+        public void testConstructorParameter() throws Exception {
+            runTest("testData/intentions/specifyTypeExplicitly/constructorParameter.kt");
+        }
+
         @TestMetadata("definitelyNonNullType.kt")
         public void testDefinitelyNonNullType() throws Exception {
             runTest("testData/intentions/specifyTypeExplicitly/definitelyNonNullType.kt");
@@ -17527,6 +17499,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("forAsExpression.kt")
         public void testForAsExpression() throws Exception {
             runTest("testData/intentions/specifyTypeExplicitly/forAsExpression.kt");
+        }
+
+        @TestMetadata("functionParameter.kt")
+        public void testFunctionParameter() throws Exception {
+            runTest("testData/intentions/specifyTypeExplicitly/functionParameter.kt");
         }
 
         @TestMetadata("functionType.kt")
@@ -17672,6 +17649,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("unitType.kt")
         public void testUnitType() throws Exception {
             runTest("testData/intentions/specifyTypeExplicitly/unitType.kt");
+        }
+
+        @TestMetadata("variableWithoutInitializer.kt")
+        public void testVariableWithoutInitializer() throws Exception {
+            runTest("testData/intentions/specifyTypeExplicitly/variableWithoutInitializer.kt");
         }
     }
 

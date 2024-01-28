@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.k2.refactoring.bindToElement;
 
@@ -374,6 +374,11 @@ public abstract class K2BindToElementTestGenerated extends AbstractK2BindToEleme
     public static class TopLevelFunctionCall extends AbstractK2BindToElementTest {
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("ExtensionOverload.kt")
+        public void testExtensionOverload() throws Exception {
+            runTest("../../idea/tests/testData/refactoring/bindToElement/topLevelFunctionCall/ExtensionOverload.kt");
         }
 
         @TestMetadata("Qualified.kt")

@@ -103,10 +103,18 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
         if (myEditor.isDisposed()) return at;
         VisualPosition magnificationPosition = myEditor.xyToVisualPosition(at);
         float currentSize = myEditor.getColorsScheme().getEditorFontSize2D();
-        float defaultFontSize = EditorColorsManager.getInstance().getGlobalScheme().getEditorFontSize2D();
+        boolean isChangePersistent = EditorSettingsExternalizable.getInstance().isWheelFontChangePersistent();
+        float defaultFontSize;
+        if (isChangePersistent) {
+          defaultFontSize = UISettings.getInstance().getFontSize();
+        }
+        else {
+          defaultFontSize = EditorColorsManager.getInstance().getGlobalScheme().getEditorFontSize2D();
+        }
+
         float size = Math.max((float)(currentSize * scale), defaultFontSize);
         myEditor.setFontSize(size);
-        if (EditorSettingsExternalizable.getInstance().isWheelFontChangePersistent()) {
+        if (isChangePersistent) {
           myEditor.adjustGlobalFontSize(UISettingsUtils.scaleFontSize(size, 1 / UISettingsUtils.getInstance().getCurrentIdeScale()));
         }
 
@@ -381,11 +389,6 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
   public void addCaretListener(javax.swing.event.CaretListener listener) {
     super.addCaretListener(listener);
     setupEditorSwingCaretUpdatesCourierIfRequired();
-  }
-
-  @Override
-  public void removeCaretListener(javax.swing.event.CaretListener listener) {
-    super.removeCaretListener(listener);
   }
 
 
@@ -1227,6 +1230,9 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
       final Integer pos = event.getOffset();
       if (ApplicationManager.getApplication().isDispatchThread()) {
         firePropertyChange(ACCESSIBLE_TEXT_PROPERTY, null, pos);
+        // Fire caret changed event when the document changes because caretPositionChanged might not be called in some cases
+        // (e.g., when deleting text or adding/removing tab indentation, see CaretListener#caretPositionChanged).
+        firePropertyChange(ACCESSIBLE_CARET_PROPERTY, null, pos);
         if (SystemInfo.isMac) {
           // For MacOSX we also need to fire a JTextComponent event to anyone listening
           // to our Document, since *that* rather than the accessible property
@@ -1236,6 +1242,7 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
       } else {
         ApplicationManager.getApplication().invokeLater(() -> {
           firePropertyChange(ACCESSIBLE_TEXT_PROPERTY, null, pos);
+          firePropertyChange(ACCESSIBLE_CARET_PROPERTY, null, pos);
           fireJTextComponentDocumentChange(event);
         });
       }

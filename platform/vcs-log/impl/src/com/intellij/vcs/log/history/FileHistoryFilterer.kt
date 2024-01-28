@@ -1,11 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.log.history
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProgressIndicator
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.UnorderedPair
 import com.intellij.openapi.util.registry.Registry
@@ -17,15 +16,10 @@ import com.intellij.openapi.vcs.telemetry.VcsTelemetrySpan.*
 import com.intellij.openapi.vcs.telemetry.VcsTelemetrySpanAttribute
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScopeBlocking
-import com.intellij.util.alsoIfNull
-import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.platform.diagnostic.telemetry.helpers.use
 import com.intellij.util.containers.MultiMap
 import com.intellij.vcs.log.*
-import com.intellij.vcs.log.data.CompressedRefs
-import com.intellij.vcs.log.data.DataPack
-import com.intellij.vcs.log.data.VcsLogData
-import com.intellij.vcs.log.data.VcsLogProgress
+import com.intellij.vcs.log.data.*
 import com.intellij.vcs.log.data.index.IndexDataGetter
 import com.intellij.vcs.log.graph.GraphCommitImpl
 import com.intellij.vcs.log.graph.PermanentGraph
@@ -35,6 +29,7 @@ import com.intellij.vcs.log.history.FileHistoryPaths.fileHistory
 import com.intellij.vcs.log.history.FileHistoryPaths.withFileHistory
 import com.intellij.vcs.log.statistics.VcsLogRepoSizeCollector
 import com.intellij.vcs.log.ui.frame.CommitPresentationUtil
+import com.intellij.vcs.log.util.RevisionCollectorTask
 import com.intellij.vcs.log.util.StopWatch
 import com.intellij.vcs.log.util.VcsLogUtil
 import com.intellij.vcs.log.util.findBranch
@@ -43,12 +38,6 @@ import com.intellij.vcs.log.visible.filters.VcsLogFilterObject
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap
 import it.unimi.dsi.fastutil.ints.Int2ObjectMaps
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.Future
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.time.TimeSource.Monotonic.markNow
 
 internal class FileHistoryFilterer(private val logData: VcsLogData, private val logId: String) : VcsLogFilterer, Disposable {
   private val project = logData.project
@@ -96,25 +85,10 @@ internal class FileHistoryFilterer(private val logData: VcsLogData, private val 
 
     cancelLastTask(false)
 
-    val factory = vcsLogObjectsFactory
-    val newHistoryTask = object : FileHistoryTask(project, historyHandler, root, filePath, hash, createProgressIndicator()) {
-      override fun createCommitMetadataWithPath(revision: VcsFileRevision): CommitMetadataWithPath {
-        return factory.createCommitMetadataWithPath(revision as VcsFileRevisionEx, root)
-      }
-    }
+    val newHistoryTask = FileHistoryTask(project, historyHandler, storage, vcsLogObjectsFactory, root,
+                                         filePath, hash, createProgressIndicator())
     fileHistoryTask = newHistoryTask
     return newHistoryTask
-  }
-
-  private fun VcsLogObjectsFactory.createCommitMetadataWithPath(revision: VcsFileRevisionEx, root: VirtualFile): CommitMetadataWithPath {
-    val commitHash = createHash(revision.revisionNumber.asString())
-    val metadata = createCommitMetadata(commitHash, emptyList(), revision.revisionDate.time, root,
-                                        CommitPresentationUtil.getSubject(revision.commitMessage!!),
-                                        revision.author!!, revision.authorEmail!!,
-                                        revision.commitMessage!!,
-                                        revision.committerName!!, revision.committerEmail!!, revision.authorDate!!.time)
-    return CommitMetadataWithPath(storage.getCommitIndex(commitHash, root), metadata,
-                                  MaybeDeletedFilePath(revision.path, revision.isDeleted))
   }
 
   private fun createProgressIndicator(): ProgressIndicator {
@@ -137,7 +111,7 @@ internal class FileHistoryFilterer(private val logData: VcsLogData, private val 
                filters: VcsLogFilterCollection,
                commitCount: CommitCountStage): Pair<VisiblePack, CommitCountStage> {
       val start = System.currentTimeMillis()
-      TelemetryManager.getInstance().getTracer(VcsScope).spanBuilder(LogHistory.Computing.getName()).useWithScopeBlocking { scope ->
+      TelemetryManager.getInstance().getTracer(VcsScope).spanBuilder(LogHistory.Computing.getName()).use { scope ->
         val isInitial = commitCount == CommitCountStage.INITIAL
 
         scope.setAttribute("filePath", filePath.toString())
@@ -148,8 +122,11 @@ internal class FileHistoryFilterer(private val logData: VcsLogData, private val 
         if (indexDataGetter != null && index.isIndexed(root) && dataPack.isFull && Registry.`is`("vcs.history.use.index")) {
           cancelLastTask(false)
           val visiblePack = filterWithIndex(indexDataGetter, dataPack, oldVisiblePack, sortType, filters, isInitial)
+
           LOG.debug(StopWatch.formatTime(System.currentTimeMillis() - start) + " for computing history for $filePath with index")
           scope.setAttribute(VcsTelemetrySpanAttribute.FILE_HISTORY_TYPE.key, "index")
+          scope.setAttribute("commitCount", visiblePack.visibleGraph.visibleCommitCount.toString())
+
           if (checkNotEmpty(dataPack, visiblePack, true)) {
             return Pair(visiblePack, commitCount)
           }
@@ -157,9 +134,12 @@ internal class FileHistoryFilterer(private val logData: VcsLogData, private val 
 
         try {
           val visiblePack = filterWithVcs(dataPack, sortType, filters, commitCount)
+
           scope.setAttribute(VcsTelemetrySpanAttribute.FILE_HISTORY_TYPE.key, "history provider")
+          scope.setAttribute("commitCount", visiblePack.visibleGraph.visibleCommitCount.toString())
           LOG.debug(StopWatch.formatTime(System.currentTimeMillis() - start) +
-                    " for computing history for $filePath with history provider")
+                    " for computing history for $filePath with history handler ${fileHistoryHandler.javaClass.name}")
+
           checkNotEmpty(dataPack, visiblePack, false)
           return@filter Pair(visiblePack, commitCount)
         }
@@ -187,22 +167,17 @@ internal class FileHistoryFilterer(private val logData: VcsLogData, private val 
                               sortType: PermanentGraph.SortType,
                               filters: VcsLogFilterCollection,
                               commitCount: CommitCountStage): VisiblePack {
-      val isFastStart = commitCount == CommitCountStage.INITIAL
-      val start = markNow()
+      val isFastStart = commitCount == CommitCountStage.INITIAL && fileHistoryHandler.isFastStartSupported
 
       val (revisions, isDone) = if (isFastStart) {
         cancelLastTask(false)
         fileHistoryHandler.getHistoryFast(root, filePath, hash, commitCount.count).map {
-          vcsLogObjectsFactory.createCommitMetadataWithPath(it, root)
+          vcsLogObjectsFactory.createCommitMetadataWithPath(storage, it, root)
         } to false
       }
       else {
-        createFileHistoryTask(fileHistoryHandler, root, filePath, hash, commitCount == CommitCountStage.FIRST_STEP).waitForRevisions()
-      }
-
-      val finish = start.elapsedNow()
-      FileHistoryPerformanceListener.EP_NAME.extensionList.forEach {
-        it.onFileHistoryFinished(project, root, filePath, finish)
+        createFileHistoryTask(fileHistoryHandler, root, filePath, hash, commitCount == CommitCountStage.FIRST_STEP)
+          .waitForRevisions(100)
       }
 
       if (revisions.isEmpty()) return VisiblePack.EMPTY
@@ -297,7 +272,7 @@ internal class FileHistoryFilterer(private val logData: VcsLogData, private val 
     private fun collectRenamesFromProvider(fileHistory: FileHistory): MultiMap<UnorderedPair<Int>, Rename> {
       if (fileHistory.unmatchedAdditionsDeletions.isEmpty()) return MultiMap.empty()
 
-      TelemetryManager.getInstance().getTracer(VcsScope).spanBuilder(LogHistory.CollectingRenames.getName()).useWithScopeBlocking { span ->
+      TelemetryManager.getInstance().getTracer(VcsScope).spanBuilder(LogHistory.CollectingRenames.getName()).use { span ->
         val renames = fileHistory.unmatchedAdditionsDeletions.mapNotNull { ad ->
           val parentHash = storage.getCommitId(ad.parent)!!.hash
           val childHash = storage.getCommitId(ad.child)!!.hash
@@ -385,80 +360,50 @@ private fun <K : Any, V : Any?> MultiMap<K, V>.union(map: MultiMap<K, V>): Multi
 
 private data class CommitMetadataWithPath(@JvmField val commit: Int, @JvmField val metadata: VcsCommitMetadata, @JvmField val path: MaybeDeletedFilePath)
 
-private abstract class FileHistoryTask(val project: Project, val handler: VcsLogFileHistoryHandler, val root: VirtualFile,
-                                       val filePath: FilePath, val hash: Hash?, val indicator: ProgressIndicator) {
-  private val future: Future<*>
-  private val _revisions = ConcurrentLinkedQueue<CommitMetadataWithPath>()
-  private val exception = AtomicReference<VcsException>()
-
-  @Volatile
-  private var lastSize = 0
-
-  val isCancelled get() = indicator.isCanceled
-
-  init {
-    future = AppExecutorUtil.getAppExecutorService().submit {
-      ProgressManager.getInstance().runProcess(Runnable {
-        try {
-          val consumer: (VcsFileRevision) -> Unit = { revision ->
-            _revisions.add(createCommitMetadataWithPath(revision))
-          }
-          try {
-            handler.collectHistory(root, filePath, hash, consumer)
-          }
-          catch (_: UnsupportedOperationException) {
-            val revisionNumber = if (hash != null) VcsLogUtil.convertToRevisionNumber(hash) else null
-            val vcs = ProjectLevelVcsManager.getInstance(project).getVcsFor(root)?.alsoIfNull {
-              @Suppress("HardCodedStringLiteral")
-              throw VcsException("Could not find vcs for $root")
-            }
-            VcsCachingHistory.collect(vcs!!, filePath, revisionNumber, consumer)
-          }
-        }
-        catch (e: VcsException) {
-          exception.set(e)
-        }
-      }, indicator)
-    }
-  }
-
-  protected abstract fun createCommitMetadataWithPath(revision: VcsFileRevision): CommitMetadataWithPath
+private class FileHistoryTask(project: Project, val handler: VcsLogFileHistoryHandler, val storage: VcsLogStorage,
+                              val factory: VcsLogObjectsFactory, val root: VirtualFile, val filePath: FilePath, val hash: Hash?,
+                              indicator: ProgressIndicator) :
+  RevisionCollectorTask<CommitMetadataWithPath>(project, indicator) {
 
   @Throws(VcsException::class)
-  fun waitForRevisions(): Pair<List<CommitMetadataWithPath>, Boolean> {
-    throwOnError()
-    while (_revisions.size == lastSize) {
+  override fun collectRevisions(consumer: (CommitMetadataWithPath) -> Unit) {
+    TelemetryManager.getInstance().getTracer(VcsScope).spanBuilder(LogHistory.CollectingRevisionsFromHandler.getName()).use { span ->
+      span.setAttribute(VcsTelemetrySpanAttribute.VCS_NAME.key, VcsLogRepoSizeCollector.getVcsKeySafe(handler.supportedVcs))
+      span.setAttribute("handlerClass", handler.javaClass.name)
+
       try {
-        future.get(100, TimeUnit.MILLISECONDS)
-        ProgressManager.checkCanceled()
-        throwOnError()
-        return Pair(getRevisionsSnapshot(), true)
+        handler.collectHistory(root, filePath, hash) { revision ->
+          consumer(createCommitMetadataWithPath(revision))
+        }
       }
-      catch (_: TimeoutException) {
+      catch (_: UnsupportedOperationException) {
+        val revisionNumber = if (hash != null) VcsLogUtil.convertToRevisionNumber(hash) else null
+        val vcs = ProjectLevelVcsManager.getInstance(project).getVcsFor(root) ?: run {
+          @Suppress("HardCodedStringLiteral")
+          throw VcsException("Could not find vcs for $root")
+        }
+        VcsCachingHistory.collect(vcs, filePath, revisionNumber) { revision ->
+          consumer(createCommitMetadataWithPath(revision))
+        }
       }
-    }
-    return Pair(getRevisionsSnapshot(), false)
-  }
 
-  private fun getRevisionsSnapshot(): List<CommitMetadataWithPath> {
-    val list = _revisions.toList()
-    lastSize = list.size
-    return list
-  }
-
-  @Throws(VcsException::class)
-  private fun throwOnError() {
-    if (exception.get() != null) throw VcsException(exception.get())
-  }
-
-  fun cancel(wait: Boolean) {
-    indicator.cancel()
-    if (wait) {
-      try {
-        future.get(20, TimeUnit.MILLISECONDS)
-      }
-      catch (_: Throwable) {
-      }
+      span.setAttribute("commitCount", revisionsCount.toString())
     }
   }
+
+  fun createCommitMetadataWithPath(revision: VcsFileRevision): CommitMetadataWithPath {
+    return factory.createCommitMetadataWithPath(storage, revision as VcsFileRevisionEx, root)
+  }
+}
+
+private fun VcsLogObjectsFactory.createCommitMetadataWithPath(storage: VcsLogStorage, revision: VcsFileRevisionEx,
+                                                              root: VirtualFile): CommitMetadataWithPath {
+  val commitHash = createHash(revision.revisionNumber.asString())
+  val metadata = createCommitMetadata(commitHash, emptyList(), revision.revisionDate.time, root,
+                                      CommitPresentationUtil.getSubject(revision.commitMessage!!),
+                                      revision.author!!, revision.authorEmail!!,
+                                      revision.commitMessage!!,
+                                      revision.committerName!!, revision.committerEmail!!, revision.authorDate!!.time)
+  return CommitMetadataWithPath(storage.getCommitIndex(commitHash, root), metadata,
+                                MaybeDeletedFilePath(revision.path, revision.isDeleted))
 }

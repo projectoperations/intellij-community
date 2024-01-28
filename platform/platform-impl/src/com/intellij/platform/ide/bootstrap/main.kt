@@ -1,14 +1,13 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("StartupUtil")
-@file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE", "INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
+@file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE")
+
 package com.intellij.platform.ide.bootstrap
 
 import com.intellij.BundleBase
-import com.intellij.accessibility.enableScreenReaderSupportIfNecessary
 import com.intellij.diagnostic.*
 import com.intellij.ide.*
 import com.intellij.ide.bootstrap.*
-import com.intellij.ide.gdpr.EndUserAgreement
 import com.intellij.ide.instrument.WriteIntentLockInstrumenter
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.idea.*
@@ -21,10 +20,8 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.ShutDownTracker
 import com.intellij.openapi.util.SystemInfoRt
-import com.intellij.openapi.util.registry.EarlyAccessRegistryManager
 import com.intellij.platform.diagnostic.telemetry.impl.OpenTelemetryConfigurator
 import com.intellij.platform.diagnostic.telemetry.impl.TelemetryManagerImpl
 import com.intellij.platform.diagnostic.telemetry.impl.span
@@ -40,8 +37,6 @@ import com.intellij.util.lang.ZipFilePool
 import com.jetbrains.JBR
 import io.opentelemetry.sdk.OpenTelemetrySdkBuilder
 import kotlinx.coroutines.*
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.debug.internal.DebugProbesImpl
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.Toolkit
 import java.lang.invoke.MethodHandles
@@ -58,7 +53,6 @@ import java.util.function.BiConsumer
 import java.util.function.BiFunction
 import java.util.logging.ConsoleHandler
 import java.util.logging.Level
-import kotlin.concurrent.Volatile
 import kotlin.system.exitProcess
 
 internal const val IDE_STARTED: String = "------------------------------------------------------ IDE STARTED ------------------------------------------------------"
@@ -88,6 +82,10 @@ private val commandProcessor: AtomicReference<(List<String>) -> Deferred<CliResu
 // checked - using a Deferred type doesn't lead to loading this class on StartupUtil init
 internal var shellEnvDeferred: Deferred<Boolean?>? = null
   private set
+
+@Volatile
+@JvmField
+internal var isInitialStart: CompletableDeferred<Boolean>? = null
 
 // the main thread's dispatcher is sequential - use it with care
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -133,6 +131,7 @@ fun CoroutineScope.startApplication(args: List<String>,
   val initBaseLafJob = launch {
     initUi(initAwtToolkitJob = initAwtToolkitJob, isHeadless = isHeadless, asyncScope = this@startApplication)
   }
+
   if (!isHeadless) {
     val initUiScale = launch {
       if (SystemInfoRt.isMac) {
@@ -147,7 +146,10 @@ fun CoroutineScope.startApplication(args: List<String>,
       }
     }
 
-    scheduleShowSplashIfNeeded(initUiScale = initUiScale, appInfoDeferred = appInfoDeferred, args = args)
+    scheduleShowSplashIfNeeded(lockSystemDirsJob = lockSystemDirsJob,
+                               initUiScale = initUiScale,
+                               appInfoDeferred = appInfoDeferred,
+                               args = args)
     scheduleUpdateFrameClassAndWindowIconAndPreloadSystemFonts(initAwtToolkitJob = initAwtToolkitJob,
                                                                initUiScale = initUiScale,
                                                                appInfoDeferred = appInfoDeferred)
@@ -200,49 +202,24 @@ fun CoroutineScope.startApplication(args: List<String>,
     }
   }
 
-  scheduleLoadSystemLibsAndLogInfoAndInitMacApp(logDeferred, appInfoDeferred, initLafJob, args, mainScope)
+  scheduleLoadSystemLibsAndLogInfoAndInitMacApp(logDeferred = logDeferred,
+                                                appInfoDeferred = appInfoDeferred,
+                                                initUiDeferred = initLafJob,
+                                                args = args,
+                                                mainScope = mainScope)
 
   val euaDocumentDeferred = async { loadEuaDocument(appInfoDeferred) }
 
   val configImportDeferred: Deferred<Job?> = async {
-    if (isHeadless) {
-      if (configImportNeededDeferred.await()) {
-        // make sure we lock the dir before writing
-        lockSystemDirsJob.join()
-        enableNewUi(logDeferred)
-      }
-      return@async null
-    }
-
-    if (AppMode.isRemoteDevHost() || !configImportNeededDeferred.await()) {
-      return@async null
-    }
-
-    initLafJob.join()
-    val log = logDeferred.await()
-    importConfig(
-      args = args,
-      targetDirectoryToImportConfig = targetDirectoryToImportConfig ?: PathManager.getConfigDir(),
-      log = log,
-      appStarter = appStarterDeferred.await(),
-      euaDocumentDeferred = euaDocumentDeferred,
-    )
-
-    if (ConfigImportHelper.isNewUser()) {
-      enableNewUi(logDeferred)
-
-      if (isIdeStartupWizardEnabled) {
-        log.info("Will enter initial app wizard flow.")
-        val result = CompletableDeferred<Boolean>()
-        isInitialStart = result
-        result
-      } else {
-        null
-      }
-    }
-    else {
-      null
-    }
+    importConfigIfNeeded(isHeadless = isHeadless,
+                         configImportNeededDeferred = configImportNeededDeferred,
+                         lockSystemDirsJob = lockSystemDirsJob,
+                         logDeferred = logDeferred,
+                         args = args,
+                         targetDirectoryToImportConfig = targetDirectoryToImportConfig,
+                         appStarterDeferred = appStarterDeferred,
+                         euaDocumentDeferred = euaDocumentDeferred,
+                         initLafJob =initLafJob)
   }
 
   val pluginSetDeferred = async {
@@ -276,7 +253,7 @@ fun CoroutineScope.startApplication(args: List<String>,
     Class.forName(OpenTelemetrySdkBuilder::class.java.name, true, classLoader)
   }
 
-  val appLoaded = launch {
+  val appLoaded = async {
     val initEventQueueJob = scheduleInitIdeEventQueue(initAwtToolkit = initAwtToolkitJob, isHeadless = isHeadless)
 
     checkSystemDirJob.join()
@@ -293,35 +270,17 @@ fun CoroutineScope.startApplication(args: List<String>,
       ApplicationImpl(CoroutineScope(mainScope.coroutineContext.job).namedChildScope("Application"), isInternal)
     }
 
-    val starter = loadApp(app = app,
-                          initAwtToolkitAndEventQueueJob = initEventQueueJob,
-                          pluginSetDeferred = pluginSetDeferred,
-                          appInfoDeferred = appInfoDeferred,
-                          euaDocumentDeferred = euaDocumentDeferred,
-                          asyncScope = this@startApplication,
-                          initLafJob = initLafJob,
-                          logDeferred = logDeferred,
-                          appRegisteredJob = appRegisteredJob,
-                          args = args.filterNot { CommandLineArgs.isKnownArgument(it) })
-    // out of appLoaded scope
-    this@startApplication.launch {
-      val isInitialStart = configImportDeferred.await()
-      // appLoaded not only provides starter, but also loads app, that's why it is here
-      IdeStartupWizardCollector.logExperimentState()
-      if (isInitialStart != null) {
-        LoadingState.compareAndSetCurrentState(LoadingState.COMPONENTS_LOADED, LoadingState.APP_READY)
-        val log = logDeferred.await()
-        runCatching {
-          span("startup wizard run") {
-            runStartupWizard(isInitialStart = isInitialStart, app = ApplicationManager.getApplication())
-          }
-        }.getOrLogException(log)
-      }
-      executeApplicationStarter(starter = starter, args = args)
-    }
+    loadApp(app = app,
+            initAwtToolkitAndEventQueueJob = initEventQueueJob,
+            pluginSetDeferred = pluginSetDeferred,
+            appInfoDeferred = appInfoDeferred,
+            euaDocumentDeferred = euaDocumentDeferred,
+            asyncScope = this@startApplication,
+            initLafJob = initLafJob,
+            logDeferred = logDeferred,
+            appRegisteredJob = appRegisteredJob,
+            args = args.filterNot { CommandLineArgs.isKnownArgument(it) })
   }
-
-  scheduleEnableCoroutineDumpAndJstack()
 
   launch {
     // required for appStarter.prepareStart
@@ -343,57 +302,31 @@ fun CoroutineScope.startApplication(args: List<String>,
       appStarter.start(InitAppContext(appRegistered = appRegisteredJob, appLoaded = appLoaded))
     }
   }
-}
 
-private suspend fun enableNewUi(logDeferred: Deferred<Logger>) {
-  if (System.getProperty("ide.experimental.ui") == null) {
-    try {
-      EarlyAccessRegistryManager.setAndFlush(mapOf("ide.experimental.ui" to "true"))
-    }
-    catch (e: CancellationException) {
-      throw e
-    }
-    catch (e: Throwable) {
-      logDeferred.await().error(e)
-    }
-  }
-}
-
-@Volatile
-@JvmField
-internal var isInitialStart: CompletableDeferred<Boolean>? = null
-
-private fun CoroutineScope.scheduleEnableCoroutineDumpAndJstack() {
-  if (!System.getProperty("idea.enable.coroutine.dump", "true").toBoolean()) {
-    return
-  }
-
+  // out of appLoaded scope
   launch {
-    span("coroutine debug probes init") {
-      try {
-        if (System.getProperty("idea.enable.coroutine.dump.using.classloader", "false").toBoolean()) {
-          DebugProbesImpl.install()
-        }
-        else {
-          enableCoroutineDump()
-        }
-      }
-      catch (ignore: NoClassDefFoundError) {
-        // if for some reason, the class loader has ByteBuddy in the classpath
-        // (it is an error, and should be fixed - our dev mode and production behaves correctly)
-      }
-      catch (e: Exception) {
-        e.printStackTrace()
+    // starter is used later, but we need to wait for appLoaded completion
+    val starter = appLoaded.await()
+
+    val isInitialStart = configImportDeferred.await()
+    // appLoaded not only provides starter, but also loads app, that's why it is here
+    launch {
+      if (ConfigImportHelper.isFirstSession()) {
+        IdeStartupWizardCollector.logExperimentState()
       }
     }
-    span("coroutine jstack configuration") {
-      JBR.getJstack()?.includeInfoFrom {
-        """
-$COROUTINE_DUMP_HEADER
-${dumpCoroutines(stripDump = false)}
-"""
-      }
+
+    if (isInitialStart != null) {
+      LoadingState.compareAndSetCurrentState(LoadingState.COMPONENTS_LOADED, LoadingState.APP_READY)
+      val log = logDeferred.await()
+      runCatching {
+        span("startup wizard run") {
+          runStartupWizard(isInitialStart = isInitialStart, app = ApplicationManager.getApplication())
+        }
+      }.getOrLogException(log)
     }
+
+    executeApplicationStarter(starter = starter, args = args)
   }
 }
 
@@ -460,8 +393,9 @@ private fun CoroutineScope.scheduleLoadSystemLibsAndLogInfoAndInitMacApp(logDefe
   }
 }
 
-fun processWindowsLauncherCommandLine(currentDirectory: String, args: Array<String>): Int =
-  EXTERNAL_LISTENER.apply(currentDirectory, args)
+fun processWindowsLauncherCommandLine(currentDirectory: String, args: Array<String>): Int {
+  return EXTERNAL_LISTENER.apply(currentDirectory, args)
+}
 
 @get:Internal
 val isImplicitReadOnEDTDisabled: Boolean
@@ -487,30 +421,6 @@ private suspend fun runPreAppClass(args: List<String>, classBeforeAppProperty: S
     catch (e: Exception) {
       logger<AppStarter>().error("Failed pre-app class init for class $classBeforeAppProperty", e)
     }
-  }
-}
-
-private suspend fun importConfig(args: List<String>,
-                                 targetDirectoryToImportConfig: Path,
-                                 log: Logger,
-                                 appStarter: AppStarter,
-                                 euaDocumentDeferred: Deferred<EndUserAgreement.Document?>) {
-  span("screen reader checking") {
-    runCatching {
-      enableScreenReaderSupportIfNecessary()
-    }.getOrLogException(log)
-  }
-
-  span("config importing") {
-    appStarter.beforeImportConfigs()
-
-    val veryFirstStartOnThisComputer = euaDocumentDeferred.await() != null
-    withContext(RawSwingDispatcher) {
-      ConfigImportHelper.importConfigsTo(veryFirstStartOnThisComputer, targetDirectoryToImportConfig, args, log)
-    }
-    appStarter.importFinished(targetDirectoryToImportConfig)
-    EarlyAccessRegistryManager.invalidate()
-    IconLoader.clearCache()
   }
 }
 
@@ -604,7 +514,8 @@ private fun checkDirectory(directory: Path, kind: String, property: String, chec
     try {
       tempFile?.let { Files.deleteIfExists(tempFile) }
     }
-    catch (_: Exception) { }
+    catch (_: Exception) {
+    }
   }
 }
 

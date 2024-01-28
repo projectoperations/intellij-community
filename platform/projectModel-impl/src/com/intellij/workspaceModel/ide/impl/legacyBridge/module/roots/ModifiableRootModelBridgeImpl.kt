@@ -1,8 +1,10 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots
 
 import com.intellij.configurationStore.serializeStateInto
 import com.intellij.openapi.components.PersistentStateComponent
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
@@ -18,7 +20,6 @@ import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.workspace.WorkspaceModel
-import com.intellij.platform.backend.workspace.useNewWorkspaceModelApi
 import com.intellij.platform.workspace.jps.CustomModuleEntitySource
 import com.intellij.platform.workspace.jps.JpsFileDependentEntitySource
 import com.intellij.platform.workspace.jps.JpsFileEntitySource
@@ -28,11 +29,11 @@ import com.intellij.platform.workspace.storage.CachedValue
 import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.MutableEntityStorage
-import com.intellij.platform.workspace.storage.query.*
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.util.ArrayUtilRt
-import com.intellij.workspaceModel.ide.getInstance
 import com.intellij.workspaceModel.ide.impl.legacyBridge.LegacyBridgeModifiableBase
 import com.intellij.workspaceModel.ide.impl.legacyBridge.library.LibraryBridge
 import com.intellij.workspaceModel.ide.impl.legacyBridge.library.LibraryBridgeImpl
@@ -78,11 +79,12 @@ class ModifiableRootModelBridgeImpl(
     return current.resolve(myModuleBridge.moduleEntityId) ?: myModuleBridge.findModuleEntity(current)
   }
 
-  override fun getModificationCount(): Long = diff.modificationCount
+  @OptIn(EntityStorageInstrumentationApi::class)
+  override fun getModificationCount(): Long = (diff as MutableEntityStorageInstrumentation).modificationCount
 
   private val extensionsDisposable = Disposer.newDisposable()
 
-  private val virtualFileManager: VirtualFileUrlManager = VirtualFileUrlManager.getInstance(project)
+  private val virtualFileManager: VirtualFileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
 
   private val extensionsDelegate = lazy {
     RootModelBridgeImpl.loadExtensions(storage = entityStorageOnDiff, module = module, diff = diff, writable = true,
@@ -204,13 +206,15 @@ class ModifiableRootModelBridgeImpl(
   override fun addContentEntry(url: String, useSourceOfModule: Boolean): ContentEntry {
     assertModelIsLive()
 
+    LOG.debugWithTrace { "Add content entry for url: $url, useSourceOfModule: $useSourceOfModule" }
+
     val finalSource = if (useSourceOfModule) moduleEntity.entitySource
     else getInternalFileSource(moduleEntity.entitySource) ?: moduleEntity.entitySource
     return addEntityAndContentEntry(url, finalSource)
   }
 
   private fun addEntityAndContentEntry(url: String, entitySource: EntitySource): ContentEntry {
-    val virtualFileUrl = virtualFileManager.fromUrl(url)
+    val virtualFileUrl = virtualFileManager.getOrCreateFromUri(url)
     val existingEntry = contentEntries.firstOrNull { it.contentEntryUrl == virtualFileUrl }
     if (existingEntry != null) {
       return existingEntry
@@ -230,6 +234,8 @@ class ModifiableRootModelBridgeImpl(
 
   override fun removeContentEntry(entry: ContentEntry) {
     assertModelIsLive()
+
+    LOG.debugWithTrace { "Remove content entry for url: ${entry.url}" }
 
     val entryImpl = entry as ModifiableContentEntryBridge
     val contentEntryUrl = entryImpl.contentEntryUrl
@@ -565,12 +571,12 @@ class ModifiableRootModelBridgeImpl(
     val diff = collectChangesAndDispose() ?: return
     val moduleDiff = module.diff
     if (moduleDiff != null) {
-      moduleDiff.addDiff(diff)
+      moduleDiff.applyChangesFrom(diff)
       postCommit()
     }
     else {
       WorkspaceModel.getInstance(project).updateProjectModel("Root model commit") {
-        it.addDiff(diff)
+        it.applyChangesFrom(diff)
       }
       postCommit()
     }
@@ -636,8 +642,9 @@ class ModifiableRootModelBridgeImpl(
   }
 
   // TODO compare by actual values
+  @OptIn(EntityStorageInstrumentationApi::class)
   override fun isChanged(): Boolean {
-    if (diff.hasChanges()) return true
+    if ((diff as MutableEntityStorageInstrumentation).hasChanges()) return true
 
     if (extensionsDelegate.isInitialized() && extensions.any { it.isChanged }) return true
 
@@ -741,4 +748,12 @@ internal fun getInternalFileSource(source: EntitySource) = when (source) {
   is CustomModuleEntitySource -> source.internalSource
   is JpsFileEntitySource -> source
   else -> null
+}
+
+/**
+ * Print a debug message and add a stack trace if trace logging is enabled
+ */
+private fun Logger.debugWithTrace(msg: () -> String) {
+  val e = if (this.isTraceEnabled) RuntimeException("Stack trace of the log entry:") else null
+  this.debug(e, msg)
 }

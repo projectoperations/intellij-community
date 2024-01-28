@@ -9,11 +9,10 @@ import com.intellij.util.xmlb.annotations.OptionTag
 import com.intellij.util.xmlb.annotations.Property
 import java.awt.Font
 
-@Service(Service.Level.APP)
 @State(name = "NotRoamableUiSettings",
        category = SettingsCategory.UI,
-       roamingType = RoamingType.LOCAL,
-       storages = [(Storage(StoragePathMacros.NON_ROAMABLE_FILE))])
+       exportable = true,
+       storages = [(Storage(StoragePathMacros.NON_ROAMABLE_FILE, roamingType = RoamingType.DISABLED))])
 class NotRoamableUiSettings : SerializablePersistentStateComponent<NotRoamableUiOptions>(NotRoamableUiOptions()) {
   private var initialConfigurationLoaded = false
   

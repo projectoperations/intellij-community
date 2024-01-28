@@ -2,6 +2,8 @@
 package org.jetbrains.plugins.gradle.tooling.builder
 
 import com.intellij.gradle.toolingExtension.impl.modelBuilder.Messages
+import com.intellij.gradle.toolingExtension.impl.util.GradleProjectUtil
+import com.intellij.gradle.toolingExtension.util.GradleVersionUtil
 import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
 import org.gradle.api.Project
@@ -11,7 +13,6 @@ import org.gradle.api.java.archives.Manifest
 import org.gradle.api.java.archives.internal.ManifestInternal
 import org.gradle.plugins.ear.Ear
 import org.gradle.plugins.ear.EarPlugin
-import org.gradle.util.GradleVersion
 import org.jetbrains.annotations.NotNull
 import org.jetbrains.annotations.Nullable
 import org.jetbrains.plugins.gradle.model.ear.EarConfiguration
@@ -24,8 +25,8 @@ import org.jetbrains.plugins.gradle.tooling.internal.ear.EarResourceImpl
 import org.jetbrains.plugins.gradle.tooling.util.DependencyResolver
 import org.jetbrains.plugins.gradle.tooling.util.resolve.DependencyResolverImpl
 
-import static com.intellij.gradle.toolingExtension.util.GradleNegotiationUtil.getTaskArchiveFile
-import static com.intellij.gradle.toolingExtension.util.GradleNegotiationUtil.getTaskArchiveFileName
+import static com.intellij.gradle.toolingExtension.impl.util.GradleTaskUtil.getTaskArchiveFile
+import static com.intellij.gradle.toolingExtension.impl.util.GradleTaskUtil.getTaskArchiveFileName
 import static com.intellij.gradle.toolingExtension.util.GradleReflectionUtil.reflectiveCall
 import static com.intellij.gradle.toolingExtension.util.GradleReflectionUtil.reflectiveGetProperty
 
@@ -36,10 +37,7 @@ import static com.intellij.gradle.toolingExtension.util.GradleReflectionUtil.ref
 class EarModelBuilderImpl extends AbstractModelBuilderService {
 
   private static final String APP_DIR_PROPERTY = "appDirName"
-  // Manifest.writeTo(Writer) was deprecated since 2.14.1 version
-  // https://github.com/gradle/gradle/commit/b435112d1baba787fbe4a9a6833401e837df9246
-  private static boolean is2_14_1_OrBetter = GradleVersion.current().baseVersion >= GradleVersion.version("2.14.1")
-  private static is82OrBetter = GradleVersion.current().baseVersion >= GradleVersion.version("8.2")
+  private static final boolean is82OrBetter = GradleVersionUtil.isCurrentGradleAtLeast("8.2")
 
   @Override
   boolean canBuild(String modelName) {
@@ -62,7 +60,7 @@ class EarModelBuilderImpl extends AbstractModelBuilderService {
 
     def deployDependencies = dependencyResolver.resolveDependencies(deployConfiguration)
     def earlibDependencies = dependencyResolver.resolveDependencies(earlibConfiguration)
-    def buildDirPath = project.getBuildDir().absolutePath
+    def buildDirPath = GradleProjectUtil.getBuildDirectory(project).absolutePath
 
     for (task in project.tasks) {
       if (task instanceof Ear) {
@@ -119,20 +117,11 @@ class EarModelBuilderImpl extends AbstractModelBuilderService {
         earModel.archivePath = getTaskArchiveFile(earTask)
 
         Manifest manifest = earTask.manifest
-        if (manifest != null) {
-          if (is2_14_1_OrBetter) {
-            if (manifest instanceof ManifestInternal) {
-              OutputStream outputStream = new ByteArrayOutputStream()
-              writeToOutputStream(manifest, outputStream)
-              def contentCharset = (manifest as ManifestInternal).contentCharset
-              earModel.manifestContent = outputStream.toString(contentCharset)
-            }
-          }
-          else {
-            Writer writer = new StringWriter()
-            writeToWriter(manifest, writer)
-            earModel.manifestContent = writer.toString()
-          }
+        if (manifest instanceof ManifestInternal) {
+          OutputStream outputStream = new ByteArrayOutputStream()
+          writeToOutputStream(manifest, outputStream)
+          def contentCharset = (manifest as ManifestInternal).contentCharset
+          earModel.manifestContent = outputStream.toString(contentCharset)
         }
 
         earModels.add(earModel)
@@ -161,11 +150,6 @@ class EarModelBuilderImpl extends AbstractModelBuilderService {
   @CompileDynamic
   private static Manifest writeToOutputStream(Manifest manifest, OutputStream outputStream) {
     return manifest.writeTo(outputStream)
-  }
-
-  @CompileDynamic
-  private static Manifest writeToWriter(Manifest manifest, StringWriter writer) {
-    return manifest.writeTo((Writer)writer)
   }
 
   private static void addPath(String buildDirPath,

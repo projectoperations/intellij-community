@@ -22,7 +22,10 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
-import com.intellij.psi.search.*;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.LocalSearchScope;
+import com.intellij.psi.search.PsiSearchHelper;
+import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.rename.inplace.VariableInplaceRenameHandler;
@@ -44,8 +47,8 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class RenameDialog extends RefactoringDialog implements RenameRefactoringDialog {
   private SuggestedNameInfo mySuggestedNameInfo;
@@ -73,11 +76,6 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
     myPsiElement = psiElement;
     myNameSuggestionContext = nameSuggestionContext;
     myEditor = editor;
-    myHelpID = RenamePsiElementProcessor.forElement(psiElement).getHelpID(psiElement);
-  }
-
-  protected void initUI() {
-    if (myNameSuggestionsField != null) return;
     setTitle(getRefactoringName());
 
     createNewNameComponent();
@@ -93,6 +91,7 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
     }
 
     if (!ApplicationManager.getApplication().isUnitTestMode()) validateButtons();
+    myHelpID = RenamePsiElementProcessor.forElement(psiElement).getHelpID(psiElement);
   }
 
   public static void showRenameDialog(DataContext dataContext, RenameDialog dialog) {
@@ -104,12 +103,6 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
     else {
       dialog.show();
     }
-  }
-
-  @Override
-  public void show() {
-    initUI();
-    super.show();
   }
 
   @NotNull
@@ -129,9 +122,7 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
 
   @Override
   protected void dispose() {
-    if (myNameSuggestionsField != null) {
-      myNameSuggestionsField.removeDataChangedListener(myNameChangedListener);
-    }
+    myNameSuggestionsField.removeDataChangedListener(myNameChangedListener);
     super.dispose();
   }
 
@@ -153,6 +144,11 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
     String[] suggestedNames = getSuggestedNames();
     myOldName = UsageViewUtil.getShortName(myPsiElement);
     myNameSuggestionsField = new NameSuggestionsField(suggestedNames, myProject, FileTypes.PLAIN_TEXT, myEditor) {
+      @Override
+      protected boolean forceCombobox() {
+        return true;
+      }
+
       @Override
       protected boolean shouldSelectAll() {
         return myEditor == null || myEditor.getSettings().isPreselectRename();
@@ -202,7 +198,7 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
 
   @NotNull
   public SearchScope getRefactoringScope() {
-    SearchScope scope = myScopeCombo == null ? null : myScopeCombo.getSelectedScope();
+    SearchScope scope = myScopeCombo.getSelectedScope();
     return scope != null ? scope : GlobalSearchScope.projectScope(myProject);
   }
 
@@ -322,7 +318,19 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
 
   @Nullable
   protected JComponent createSearchScopePanel() {
-    myScopeCombo = new ScopeChooserCombo(myProject, false, true, ProjectScope.getProjectFilesScopeName());
+    var scopeService = RenameScopeService.getInstance(myProject);
+    var preselectedScopeName = scopeService.load();
+    myScopeCombo = new ScopeChooserCombo();
+    myScopeCombo.initialize(myProject, false, true, preselectedScopeName, null)
+      .onSuccess(dummy -> {
+        var selectedScopeName = myScopeCombo.getSelectedScopeName();
+        if (!Objects.equals(selectedScopeName, preselectedScopeName)) { // saved scope not found, fall back to default
+          myScopeCombo.selectItem(scopeService.defaultValue());
+        }
+      });
+    myScopeCombo.getComboBox().addItemListener(e -> {
+      scopeService.save(myScopeCombo.getSelectedScopeName());
+    });
     Disposer.register(myDisposable, myScopeCombo);
 
     // do not show scope chooser for local variables
@@ -350,7 +358,6 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
 
   @Override
   public void performRename(@NotNull String newName) {
-    initUI();
     final RenamePsiElementProcessor elementProcessor = RenamePsiElementProcessor.forElement(myPsiElement);
     elementProcessor.setToSearchInComments(myPsiElement, isSearchInComments());
     if (isSearchForTextOccurrencesEnabled()) {
@@ -377,12 +384,10 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
   }
 
   public RenameProcessor createRenameProcessorEx(@NotNull String newName) {
-    initUI();
     return createRenameProcessor(newName);
   }
 
   protected RenameProcessor createRenameProcessor(@NotNull String newName) {
-    initUI();
     return new RenameProcessor(getProject(), myPsiElement, newName, getRefactoringScope(), isSearchInComments(), isSearchInNonJavaFiles());
   }
 

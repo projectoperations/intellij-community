@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.packaging.impl.artifacts.workspacemodel
 
 import com.intellij.java.workspace.entities.*
@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectModelExternalSource
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.UserDataHolderBase
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.packaging.artifacts.*
 import com.intellij.packaging.elements.CompositePackagingElement
@@ -16,6 +17,7 @@ import com.intellij.packaging.impl.artifacts.workspacemodel.packaging.elements
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
 import com.intellij.platform.backend.workspace.WorkspaceModelTopics
+import com.intellij.platform.backend.workspace.impl.internal
 import com.intellij.platform.backend.workspace.virtualFile
 import com.intellij.platform.diagnostic.telemetry.Compiler
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
@@ -23,9 +25,7 @@ import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.jps.JpsImportedEntitySource
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.VersionedEntityStorageOnBuilder
-import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.util.EventDispatcher
-import com.intellij.workspaceModel.ide.getInstance
 import com.intellij.workspaceModel.ide.toExternalSource
 import io.opentelemetry.api.metrics.Meter
 import org.jetbrains.annotations.NonNls
@@ -172,7 +172,9 @@ open class ArtifactBridge(
   }
 
   override fun setOutputPath(outputPath: String?) {
-    val outputUrl = outputPath?.let { VirtualFileUrlManager.getInstance(project).fromPath(it) }
+    val outputUrl = outputPath?.let {
+      WorkspaceModel.getInstance(project).getVirtualFileUrlManager().getOrCreateFromUri(VfsUtilCore.pathToUrl(it))
+    }
     val entity = diff.get(artifactId)
     diff.modifyEntity(entity) {
       this.outputUrl = outputUrl
@@ -264,7 +266,7 @@ open class ArtifactBridge(
 
   fun setActualStorage() {
     if (entityStorage is VersionedEntityStorageOnBuilder) {
-      entityStorage = WorkspaceModel.getInstance(project).entityStorage
+      entityStorage = WorkspaceModel.getInstance(project).internal.entityStorage
     }
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "OverridingDeprecatedMember", "ReplaceNegatedIsEmptyWithIsNotEmpty",
                "PrivatePropertyName")
 
@@ -59,8 +59,7 @@ import com.intellij.openapi.wm.ex.ToolWindowEx
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener.ToolWindowManagerEventType
-import com.intellij.openapi.wm.ex.ToolWindowManagerListener.ToolWindowManagerEventType.MoreButtonUpdated
-import com.intellij.openapi.wm.ex.ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener.ToolWindowManagerEventType.*
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.serviceContainer.NonInjectable
 import com.intellij.toolWindow.*
@@ -98,7 +97,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   val project: Project,
   @field:JvmField internal val isNewUi: Boolean,
   private val isEdtRequired: Boolean,
-  private val coroutineScope: CoroutineScope,
+  internal @JvmField val coroutineScope: CoroutineScope,
 ) : ToolWindowManagerEx(), Disposable {
   private val dispatcher = EventDispatcher.create(ToolWindowManagerListener::class.java)
 
@@ -1526,6 +1525,32 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     }
 
     fireStateChanged(MoreButtonUpdated)
+  }
+
+  override fun setShowNames(value: Boolean) {
+    if (isNewUi) {
+      for (pane in toolWindowPanes.values) {
+        val buttonManager = pane.buttonManager
+        if (buttonManager is ToolWindowPaneNewButtonManager) {
+          buttonManager.updateResizeState(null)
+        }
+      }
+    }
+
+    fireStateChanged(ShowNames)
+  }
+
+  override fun setSideCustomWidth(toolbar: ToolWindowToolbar, width: Int) {
+    if (isNewUi) {
+      for (pane in toolWindowPanes.values) {
+        val buttonManager = pane.buttonManager
+        if (buttonManager is ToolWindowPaneNewButtonManager) {
+          buttonManager.updateResizeState(toolbar)
+        }
+      }
+    }
+
+    fireStateChanged(SideCustomWidth)
   }
 
   override fun invokeLater(runnable: Runnable) {

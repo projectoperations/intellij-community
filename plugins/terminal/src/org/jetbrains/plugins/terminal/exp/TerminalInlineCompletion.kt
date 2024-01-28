@@ -24,9 +24,11 @@ import com.intellij.openapi.util.TextRange
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import org.jetbrains.plugins.terminal.exp.TerminalDataContextUtils.editor
 import org.jetbrains.plugins.terminal.exp.TerminalDataContextUtils.isPromptEditor
+import org.jetbrains.plugins.terminal.exp.history.CommandHistoryPresenter.Companion.isTerminalCommandHistory
+import org.jetbrains.plugins.terminal.exp.history.CommandSearchPresenter.Companion.isTerminalCommandSearch
 
 @Service(Service.Level.PROJECT)
 class TerminalInlineCompletion(private val scope: CoroutineScope) {
@@ -43,10 +45,12 @@ class TerminalInlineCompletionProvider : InlineCompletionProvider {
   override val id: InlineCompletionProviderID = InlineCompletionProviderID("TerminalInlineCompletionProvider")
   override suspend fun getSuggestion(request: InlineCompletionRequest): InlineCompletionSuggestion {
     val flow = flow {
-      getCompletionElement(request.editor)?.let {
+      withContext(Dispatchers.EDT) {
+        getCompletionElement(request.editor)
+      }?.let {
         emit(it)
       }
-    }.flowOn(Dispatchers.EDT)
+    }
     return InlineCompletionSuggestion.Default(flow)
   }
 
@@ -59,10 +63,18 @@ class TerminalInlineCompletionProvider : InlineCompletionProvider {
     if (!isAtTheEnd) return null
 
     val lookup = LookupManager.getActiveLookup(editor) ?: return null
+    if (lookup.isTerminalCommandHistory || lookup.isTerminalCommandSearch) {
+      return null
+    }
+
     val item = lookup.currentItem ?: return null
     val itemPrefix = lookup.itemPattern(item)
     if (SystemInfo.isFileSystemCaseSensitive && !item.lookupString.startsWith(itemPrefix)) {
-      // do not show inline completion if prefix is written in different case in case-sensitive file system
+      // do not show inline completion if a prefix is written in a different case in the case-sensitive file system
+      return null
+    }
+    if (!item.lookupString.startsWith(itemPrefix, ignoreCase = !SystemInfo.isFileSystemCaseSensitive)) {
+      // do not show inline completion if insert string is not match the typed prefix
       return null
     }
     val itemSuffix = item.lookupString.removeRange(0, itemPrefix.length)

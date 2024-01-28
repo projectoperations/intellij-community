@@ -13,6 +13,7 @@ import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.ConfigImportHelper
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.bootstrap.initMarketplace
 import com.intellij.platform.diagnostic.telemetry.impl.rootTask
 import com.intellij.platform.diagnostic.telemetry.impl.span
@@ -174,9 +175,7 @@ private suspend fun startApp(args: List<String>, mainScope: CoroutineScope, busy
 internal var customTargetDirectoryToImportConfig: Path? = null
 
 internal fun isConfigImportNeeded(configPath: Path): Boolean {
-  return !Files.exists(configPath) ||
-         Files.exists(configPath.resolve(ConfigImportHelper.CUSTOM_MARKER_FILE_NAME)) ||
-         customTargetDirectoryToImportConfig != null
+  return ConfigImportHelper.isConfigImportExpected(configPath) || customTargetDirectoryToImportConfig != null
 }
 
 private fun initRemoteDev(args: List<String>) {
@@ -186,6 +185,10 @@ private fun initRemoteDev(args: List<String>) {
 
   if (args.firstOrNull() == AppMode.SPLIT_MODE_COMMAND) {
     System.setProperty("idea.initially.ask.config", "never")
+  }
+  if (SystemInfo.isMac) { // avoid icon jumping in dock for the backend process
+    System.setProperty("apple.awt.BackgroundOnly", "true") // this makes sure that the following call doesn't create an icon in Dock
+    Toolkit.getDefaultToolkit() // this will tell the operating system, that app initialization is finished
   }
   initRemoteDevGraphicsEnvironment()
   initLux()

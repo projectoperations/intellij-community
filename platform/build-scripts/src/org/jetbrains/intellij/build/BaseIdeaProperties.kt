@@ -64,7 +64,6 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + per
   "intellij.vcs.git",
   "intellij.vcs.svn",
   "intellij.vcs.hg",
-  "intellij.vcs.github",
   "intellij.vcs.gitlab",
   "intellij.groovy",
   "intellij.junit",
@@ -172,7 +171,5 @@ abstract class BaseIdeaProperties : JetBrainsProductProperties() {
     )
     additionalModulesToCompile = persistentListOf("intellij.tools.jps.build.standalone")
     modulesToCompileTests = persistentListOf("intellij.platform.jps.build.tests")
-
-    isAntRequired = true
   }
 }

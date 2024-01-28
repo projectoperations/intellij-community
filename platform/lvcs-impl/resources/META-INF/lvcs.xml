@@ -37,6 +37,20 @@
     <action internal="true" id="ValidateLocalHistory" class="com.intellij.history.integration.ValidateHistoryAction">
       <add-to-group group-id="Internal.VFS"/>
     </action>
+
+    <!--Activity View-->
+    <action id="ActivityView.Revert" class="com.intellij.platform.lvcs.impl.actions.RevertAction" icon="AllIcons.Actions.Rollback"/>
+    <action id="ActivityView.CreatePatch" class="com.intellij.platform.lvcs.impl.actions.CreatePatchAction" icon="AllIcons.Vcs.Patch"/>
+
+    <group id="ActivityView.Toolbar">
+      <reference id="ActivityView.Revert"/>
+      <reference id="ActivityView.CreatePatch"/>
+    </group>
+    <group id="ActivityView.Popup">
+      <reference id="ActivityView.Revert"/>
+      <reference id="ActivityView.CreatePatch"/>
+      <reference id="Diff.ShowDiff"/>
+    </group>
   </actions>
   <extensions defaultExtensionNs="com.intellij">
     <undoProvider implementation="com.intellij.openapi.command.impl.FileUndoProvider"/>

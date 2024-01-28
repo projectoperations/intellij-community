@@ -208,6 +208,10 @@
     </group>
 
     <group id="Git.Branches.Popup.Settings" class="git4idea.ui.branch.popup.GitBranchesTreePopupSettings" icon="AllIcons.Actions.More">
+      <action class="git4idea.ui.branch.popup.GitBranchesTreePopupFilterSeparatorWithText"/>
+      <action id="git.branches.popup.filter.by.action" class="git4idea.ui.branch.popup.GitBranchesTreePopupFilterByAction"/>
+      <action id="git.branches.popup.filter.by.repository" class="git4idea.ui.branch.popup.GitBranchesTreePopupFilterByRepository"/>
+      <separator/>
       <action class="git4idea.ui.branch.popup.GitBranchesTreePopupGroupByPrefixAction"/>
       <action class="git4idea.ui.branch.popup.GitBranchesTreePopupTrackReposSynchronouslyAction"/>
       <action class="git4idea.ui.branch.popup.GitBranchesTreePopupShowRecentBranchesAction"/>
@@ -489,7 +493,17 @@
 
     <group id="MainToolbarVCSGroup">
       <action id="main.toolbar.git.Branches" class="git4idea.ui.toolbar.GitToolbarWidgetAction" />
+      <action id="main.toolbar.git.MergeRebase" class="git4idea.ui.toolbar.GitMergeRebaseWidget"/>
       <add-to-group group-id="MainToolbarLeft" relative-to-action="MainToolbarGeneralActionsGroup" anchor="before"/>
+    </group>
+
+    <group id="GitMergeRebaseWidgetGroup">
+      <reference id="Git.ResolveConflicts"/>
+      <reference id="Git.Rebase.Continue"/>
+      <reference id="Git.Rebase.Abort"/>
+      <reference id="Git.Merge.Abort"/>
+      <reference id="Git.CherryPick.Abort"/>
+      <reference id="Git.Revert.Abort"/>
     </group>
 
     <group id="GitMainToolbarQuickActions" searchable="false" popup="false">
@@ -609,8 +623,6 @@
     <registryKey key="git.show.recent.checkout.branches" defaultValue="5"
                  description="Max count of recently checkout branches to show (e.g. in branches tree popup)"/>
     <registryKey key="git.log.index.inexact.renames" description="Detect and store inexact renames during indexing" defaultValue="false"/>
-    <registryKey key="git.experimental.compose.branches.popup" defaultValue="false"
-                 description="Introduce new experimental branches popup written in Compose"/>
 
     <search.projectOptionsTopHitProvider implementation="git4idea.config.GitOptionsTopHitProvider"/>
     <vcs name="Git" vcsClass="git4idea.GitVcs" displayName="Git" administrativeAreaName=".git"/>
@@ -657,11 +669,9 @@
     <projectService serviceImplementation="git4idea.config.GitMergeSettings"/>
     <projectService serviceImplementation="git4idea.config.GitPullSettings"/>
     <projectService serviceImplementation="git4idea.config.GitSharedSettings"/>
-    <projectService serviceImplementation="git4idea.rebase.interactive.GitRewordedCommitMessageProvider"/>
     <projectService serviceInterface="git4idea.branch.GitBrancher"
                     serviceImplementation="git4idea.branch.GitBrancherImpl"/>
     <projectService serviceInterface="git4idea.fetch.GitFetchSupport" serviceImplementation="git4idea.fetch.GitFetchSupportImpl"/>
-    <projectService serviceImplementation="git4idea.actions.GitQuickActionsToolbarService"/>
 
     <applicationService serviceImplementation="git4idea.config.GitVcsApplicationSettings"/>
     <applicationService serviceInterface="git4idea.commands.GitHttpAuthService"
@@ -677,7 +687,7 @@
     <applicationService serviceImplementation="git4idea.DialogManager"/>
     <applicationService serviceImplementation="git4idea.log.GitExternalLogTabsProperties"/>
 
-    <applicationService serviceImplementation="git4idea.light.LightGitTracker"/>
+    <applicationService serviceImplementation="git4idea.index.ui.GitStageUiApplicationSettings"/>
 
     <vcs.taskHandler implementation="git4idea.GitTaskHandler"/>
 
@@ -763,7 +773,6 @@
 
     <backgroundPostStartupActivity implementation="git4idea.index.GitStageStartupActivity"/>
 
-    <projectService serviceImplementation="git4idea.index.vfs.GitIndexFileSystemRefresher"/>
     <virtualFileSystem implementationClass="git4idea.index.vfs.GitIndexFileSystem" key="gitIndexFs" physical="true"/>
 
     <vcs.baseContentProvider implementation="git4idea.index.vfs.GitIndexVirtualFileBaseContentProvider"/>
@@ -786,13 +795,13 @@
                         displayNameSupplierClassName="git4idea.stash.ui.GitStashDisplayNameSupplier"
                         isInCommitToolWindow="true"/>
     <projectService serviceImplementation="git4idea.stash.GitStashTracker"/>
-    <projectService serviceImplementation="git4idea.stash.GitStashCache"/>
     <postStartupActivity implementation="git4idea.stash.ui.GitStashStartupActivity"/>
 
     <vcs.consoleFolding implementation="git4idea.console.GitConsoleFolding"/>
     <console.folding implementation="git4idea.console.GitProgressOutputConsoleFolding"/>
 
-    <searchEverywhereContributor implementation="git4idea.search.GitSearchEverywhereContributor$Companion$Factory"/>
+    <advancedSetting default="false" id="git.search.everywhere.tab.enabled" groupKey="advanced.settings.git"/>
+    <searchEverywhereContributor implementation="git4idea.search.GitSearchEverywhereContributor$Factory"/>
     <projectOriginInfoProvider implementation="git4idea.repo.GitProjectOriginInfoProvider"/>
 
     <warmupConfigurator implementation="git4idea.log.GitWarmupConfigurator"/>
@@ -824,6 +833,10 @@
     <settingsEntryPointActionProvider os="windows" implementation="git4idea.config.GitVersionUpdateSettingsEntryProvider"/>
   </extensions>
 
+  <extensions defaultExtensionNs="Git4Idea">
+    <gitRawAnnotationProvider implementation="git4idea.annotate.GitAnnotationProvider$DefaultGitAnnotationProvider"/>
+  </extensions>
+
   <extensionPoints>
     <extensionPoint interface="git4idea.remote.GitHttpAuthDataProvider" name="GitHttpAuthDataProvider" dynamic="true"/>
     <extensionPoint interface="git4idea.remote.GitRepositoryHostingService" name="gitRepositoryHostingService" dynamic="true"/>
@@ -836,6 +849,8 @@
     <extensionPoint interface="git4idea.ui.branch.GitCurrentBranchPresenter" name="gitCurrentBranchPresenter" dynamic="true"/>
     <extensionPoint interface="git4idea.instant.InstantGitTokenProvider" name="instantGitTokenProvider" dynamic="true"/>
     <extensionPoint interface="git4idea.annotate.GitAnnotationPerformanceListener" name="gitAnnotationPerformanceListener" dynamic="true"/>
+    <extensionPoint interface="git4idea.annotate.GitAnnotationProvider$GitRawAnnotationProvider" name="gitRawAnnotationProvider"
+                    dynamic="true" area="IDEA_PROJECT"/>
   </extensionPoints>
 
   <projectListeners>

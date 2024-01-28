@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application;
 
 import com.intellij.configurationStore.StoreUtilKt;
@@ -82,6 +82,7 @@ import static com.intellij.platform.ide.bootstrap.SplashManagerKt.hideSplash;
 
 @ApiStatus.Internal
 public final class ConfigImportHelper {
+  public static final String ALLOW_HEADLESS_AUTOMATIC_CONFIG_IMPORT = "intellij.allow.headless.auto.config.import";
   public static final String CONFIG_IMPORTED_FROM_OTHER_PRODUCT_KEY = "intellij.config.imported.from.other.product";
   public static final String CONFIG_IMPORTED_FROM_PREVIOUS_VERSION_KEY = "intellij.config.imported.from.previous.version";
   public static final Pattern SELECTOR_PATTERN = Pattern.compile("\\.?(\\D+)(\\d+(?:\\.\\d+)*)");
@@ -105,16 +106,66 @@ public final class ConfigImportHelper {
 
   private ConfigImportHelper() { }
 
+  public static boolean isConfigImportExpected(@NotNull Path configPath) {
+    return !Files.exists(configPath) || Files.exists(configPath.resolve(CUSTOM_MARKER_FILE_NAME));
+  }
+
+  public static boolean isHeadlessAutomaticConfigImportAllowed() {
+    return SystemProperties.getBooleanProperty(ALLOW_HEADLESS_AUTOMATIC_CONFIG_IMPORT, false);
+  }
+
   public static void importConfigsTo(boolean veryFirstStartOnThisComputer,
                                      @NotNull Path newConfigDir,
                                      @NotNull List<String> args,
                                      @NotNull Logger log) {
+    try {
+      importConfigsTo(veryFirstStartOnThisComputer, newConfigDir, args, log, false);
+    }
+    catch (UnsupportedOperationException e) {
+      throw new AssertionError("unexpected fail of importConfigs with mustBeAutomaticMigration=false", e);
+    }
+  }
+
+  /**
+   * @throws UnsupportedOperationException only if {@param mustBeAutomaticMigration} is true and config import without interaction with user is not possible
+   */
+  public static void importConfigsTo(boolean veryFirstStartOnThisComputer,
+                                     @NotNull Path newConfigDir,
+                                     @NotNull List<String> args,
+                                     @NotNull Logger log,
+                                     boolean mustBeAutomaticMigration) throws UnsupportedOperationException {
     log.info("Importing configs to " + newConfigDir);
     System.setProperty(FIRST_SESSION_KEY, Boolean.TRUE.toString());
 
     var customMigrationOption = CustomConfigMigrationOption.readCustomConfigMigrationOptionAndRemoveMarkerFile(newConfigDir);
     log.info("Custom migration option: " + customMigrationOption);
 
+    try {
+      importConfigsToImpl(veryFirstStartOnThisComputer, newConfigDir, args, log, mustBeAutomaticMigration, customMigrationOption);
+    }
+    catch (UnsupportedOperationException e) {
+      // return marker if failed
+      log.error("UnsupportedOperationException during importConfigsTo " + newConfigDir, e);
+      try {
+        if (customMigrationOption != null) {
+          log.info("Automatic migration has failed, returning the marker back");
+          customMigrationOption.writeConfigMarkerFile(newConfigDir);
+        }
+      }
+      catch (Exception ex) {
+        e.addSuppressed(ex);
+      }
+      assert mustBeAutomaticMigration;
+      throw e;
+    }
+  }
+
+  private static void importConfigsToImpl(boolean veryFirstStartOnThisComputer,
+                                          @NotNull Path newConfigDir,
+                                          @NotNull List<String> args,
+                                          @NotNull Logger log,
+                                          boolean mustBeAutomaticMigration,
+                                          CustomConfigMigrationOption customMigrationOption) throws UnsupportedOperationException {
     if (customMigrationOption instanceof CustomConfigMigrationOption.SetProperties sp) {
       List<String> properties = sp.getProperties();
       log.info("Enabling system properties after restart: " + properties);
@@ -129,6 +180,7 @@ public final class ConfigImportHelper {
     ConfigDirsSearchResult guessedOldConfigDirs = findConfigDirectories(newConfigDir, settings, otherProductPrefixes);
     Path tempBackup = null;
     boolean vmOptionFileChanged = false;
+    @Nullable List<String> vmOptionsLines = null;
     ImportOldConfigsState.InitialImportScenario importScenarioStatistics = null;
 
     try {
@@ -138,8 +190,15 @@ public final class ConfigImportHelper {
         vmOptionFileChanged = doesVmOptionsFileExist(newConfigDir);
         try {
           if (customMigrationOption instanceof CustomConfigMigrationOption.MigrateFromCustomPlace mcp) {
-            tempBackup = backupCurrentConfigToTempAndDelete(newConfigDir, log, false, settings);
             oldConfigDirAndOldIdePath = findConfigDirectoryByPath(mcp.getLocation());
+            if (oldConfigDirAndOldIdePath != null && oldConfigDirAndOldIdePath.first != null) {
+              if (doesVmOptionsFileExist(newConfigDir) && !vmOptionsRequiresMerge(oldConfigDirAndOldIdePath.first, newConfigDir, log)) {
+                //save old lines for the new file
+                vmOptionsLines = Files.readAllLines(newConfigDir.resolve(VMOptions.getFileName()), VMOptions.getFileCharset());
+                vmOptionFileChanged = false;
+              }
+            }
+            tempBackup = backupCurrentConfigToTempAndDelete(newConfigDir, log, false, settings);
             importScenarioStatistics = IMPORT_SETTINGS_ACTION;
           }
           else {
@@ -166,7 +225,7 @@ public final class ConfigImportHelper {
       else {
         boolean askForConfig = shouldAskForConfig();
         if (askForConfig) {
-          oldConfigDirAndOldIdePath = showDialogAndGetOldConfigPath(guessedOldConfigDirs.getPaths());
+          oldConfigDirAndOldIdePath = showDialogAndGetOldConfigPath(guessedOldConfigDirs.getPaths(), mustBeAutomaticMigration);
           importScenarioStatistics = SHOW_DIALOG_REQUESTED_BY_PROPERTY;
         }
         else if (guessedOldConfigDirs.isEmpty()) {
@@ -180,7 +239,7 @@ public final class ConfigImportHelper {
             }
           }
           if (!importedFromCloud && !veryFirstStartOnThisComputer) {
-            oldConfigDirAndOldIdePath = showDialogAndGetOldConfigPath(guessedOldConfigDirs.getPaths());
+            oldConfigDirAndOldIdePath = showDialogAndGetOldConfigPath(guessedOldConfigDirs.getPaths(), mustBeAutomaticMigration);
             importScenarioStatistics = SHOW_DIALOG_NO_CONFIGS_FOUND;
           }
         }
@@ -188,7 +247,7 @@ public final class ConfigImportHelper {
           Pair<Path, FileTime> bestConfigGuess = guessedOldConfigDirs.getFirstItem();
           if (isConfigOld(bestConfigGuess.second)) {
             log.info("The best config guess [" + bestConfigGuess.first + "] is too old, it won't be used for importing.");
-            oldConfigDirAndOldIdePath = showDialogAndGetOldConfigPath(guessedOldConfigDirs.getPaths());
+            oldConfigDirAndOldIdePath = showDialogAndGetOldConfigPath(guessedOldConfigDirs.getPaths(), mustBeAutomaticMigration);
             importScenarioStatistics = SHOW_DIALOG_CONFIGS_ARE_TOO_OLD;
           }
           else {
@@ -200,9 +259,9 @@ public final class ConfigImportHelper {
           }
         }
       }
-
+      Path oldConfigDir;
       if (oldConfigDirAndOldIdePath != null) {
-        Path oldConfigDir = oldConfigDirAndOldIdePath.first;
+        oldConfigDir = oldConfigDirAndOldIdePath.first;
         Path oldIdeHome = oldConfigDirAndOldIdePath.second;
 
         var configImportOptions = new ConfigImportOptions(log);
@@ -224,6 +283,7 @@ public final class ConfigImportHelper {
         setConfigImportedInThisSession();
       }
       else {
+        oldConfigDir = null;
         log.info("No configs imported, starting with clean configs at " + newConfigDir);
         if (importScenarioStatistics == null) {
           importScenarioStatistics = CLEAN_CONFIGS;
@@ -235,7 +295,18 @@ public final class ConfigImportHelper {
       }
 
       ImportOldConfigsState.Companion.getInstance().reportImportScenario(importScenarioStatistics);
-      vmOptionFileChanged |= doesVmOptionsFileExist(newConfigDir);
+      if (importScenarioStatistics == IMPORT_SETTINGS_ACTION && vmOptionsLines != null) {
+        Path vmOptionsFile = newConfigDir.resolve(VMOptions.getFileName());
+        try {
+          Files.write(vmOptionsFile, vmOptionsLines, VMOptions.getFileCharset());
+          vmOptionFileChanged = false;
+        }
+        catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      } else {
+        vmOptionFileChanged |= doesVmOptionsFileExist(newConfigDir);
+      }
     }
     finally {
       if (tempBackup != null) {
@@ -260,7 +331,7 @@ public final class ConfigImportHelper {
       }
 
       if (settings == null || settings.shouldRestartAfterVmOptionsChange()) {
-        new CustomConfigMigrationOption.SetProperties(properties).writeConfigMarkerFile();
+        new CustomConfigMigrationOption.SetProperties(properties).writeConfigMarkerFile(newConfigDir);
         restart(args);
       }
     }
@@ -373,7 +444,13 @@ public final class ConfigImportHelper {
            "true".equals(showImportDialog);
   }
 
-  private static @Nullable Pair<Path, Path> showDialogAndGetOldConfigPath(List<Path> guessedOldConfigDirs) {
+  /**
+   * @param automaticMigrationIsExpected this parameter is to remember about {@link ConfigImportHelper#isHeadlessAutomaticConfigImportAllowed()}
+   *                                     case with automatic migration.
+   * @throws UnsupportedOperationException if {@param automaticMigrationIsExpected} is true
+   */
+  private static @Nullable Pair<Path, Path> showDialogAndGetOldConfigPath(List<Path> guessedOldConfigDirs, boolean automaticMigrationIsExpected) {
+    if (automaticMigrationIsExpected) throw new UnsupportedOperationException("User decision is required for config import");
     String showImportDialog = System.getProperty(SHOW_IMPORT_CONFIG_DIALOG_PROPERTY);
     if ("never".equals(showImportDialog)) {
       return null;
@@ -1158,40 +1235,12 @@ public final class ConfigImportHelper {
    * When both files set the same property, the value from an external tool is supposed to be more actual.
    * When both files set `-Xmx`, a higher value is preferred.
    */
-  private static void mergeVmOptions(Path importFile, Path currentFile, Logger log) {
+  public static void mergeVmOptions(Path importFile, Path currentFile, Logger log) {
     try {
       var cs = VMOptions.getFileCharset();
       var importLines = Files.readAllLines(importFile, cs);
       var currentLines = Files.readAllLines(currentFile, cs);
-      var result = new ArrayList<String>(importLines.size() + currentLines.size());
-      var preferCurrentXmx = false;
-
-      nextLine:
-      for (var line : importLines) {
-        if (line.startsWith("-D")) {
-          var p = line.indexOf('=');
-          if (p > 0) {
-            var prefix = line.substring(0, p + 1);
-            for (var l : currentLines) {
-              if (l.startsWith(prefix)) {
-                continue nextLine;
-              }
-            }
-          }
-        }
-        else if (line.startsWith("-Xmx") && isLowerValue("-Xmx", line.substring(4), currentLines)) {
-          preferCurrentXmx = true;
-          continue nextLine;
-        }
-        result.add(line);
-      }
-
-      for (var line : currentLines) {
-        if (preferCurrentXmx || !line.startsWith("-Xmx")) {
-          result.add(line);
-        }
-      }
-
+      ArrayList<String> result = mergeVmOptionsLines(importLines, currentLines, log);
       Files.write(currentFile, result, cs);
     }
     catch (IOException e) {
@@ -1199,33 +1248,76 @@ public final class ConfigImportHelper {
     }
   }
 
+  private static boolean vmOptionsRequiresMerge(@Nullable Path oldConfigDir, Path newConfigDir, Logger log){
+    if (oldConfigDir == null) {
+      return false;
+    }
+    if (newConfigDir == null) {
+      return true;
+    }
+    Path importFile = oldConfigDir.resolve(VMOptions.getFileName());
+    Path currentFile = newConfigDir.resolve(VMOptions.getFileName());
+    try {
+      if (!Files.isRegularFile(importFile))
+        return false;
+      if (!Files.isRegularFile(currentFile))
+        return true;
+
+      var cs = VMOptions.getFileCharset();
+      var importLines = Files.readAllLines(importFile, cs);
+      var currentLines = Files.readAllLines(currentFile, cs);
+      currentLines.sort(String::compareTo);
+      ArrayList<String> result = mergeVmOptionsLines(importLines, currentLines, log);
+      updateVMOptionsLines(newConfigDir, result, log);
+      result.sort(String::compareTo);
+      return !currentLines.equals(result);
+    }
+    catch (IOException e) {
+      log.warn("Failed to merge VM option files " + importFile + " and " + currentFile, e);
+      return true;
+    }
+  }
+
+  private static ArrayList<String> mergeVmOptionsLines(List<String> importLines, List<String> currentLines, Logger log) {
+    var result = new ArrayList<String>(importLines.size() + currentLines.size());
+    var preferCurrentXmx = false;
+
+    nextLine:
+    for (var line : importLines) {
+      if (line.startsWith("-D")) {
+        var p = line.indexOf('=');
+        if (p > 0) {
+          var prefix = line.substring(0, p + 1);
+          for (var l : currentLines) {
+            if (l.startsWith(prefix)) {
+              continue nextLine;
+            }
+          }
+        }
+      }
+      else if (line.startsWith("-Xmx") && isLowerValue("-Xmx", line.substring(4), currentLines)) {
+        preferCurrentXmx = true;
+        continue nextLine;
+      }
+      result.add(line);
+    }
+
+    for (var line : currentLines) {
+      if (preferCurrentXmx || !line.startsWith("-Xmx")) {
+        result.add(line);
+      }
+    }
+    return result;
+  }
+
   /* Fix VM options in the custom *.vmoptions file that won't work with the current IDE version or duplicate/undercut platform ones. */
   @SuppressWarnings("SpellCheckingInspection")
-  private static void updateVMOptions(Path newConfigDir, Logger log) {
+  public static void updateVMOptions(Path newConfigDir, Logger log) {
     Path vmOptionsFile = newConfigDir.resolve(VMOptions.getFileName());
     if (Files.exists(vmOptionsFile)) {
       try {
         List<String> lines = Files.readAllLines(vmOptionsFile, VMOptions.getFileCharset());
-        Path platformVmOptionsFile = newConfigDir.getFileSystem().getPath(VMOptions.getPlatformOptionsFile().toString());
-        Collection<String> platformLines = new LinkedHashSet<>(readPlatformOptions(platformVmOptionsFile, log));
-        boolean updated = false;
-
-        for (ListIterator<String> i = lines.listIterator(); i.hasNext(); ) {
-          String line = i.next().trim();
-          if (line.equals("-XX:MaxJavaStackTraceDepth=-1")) {
-            i.set("-XX:MaxJavaStackTraceDepth=10000"); updated = true;
-          }
-          else if ("-XX:+UseConcMarkSweepGC".equals(line) ||
-                   "-Xverify:none".equals(line) || "-noverify".equals(line) ||
-                   "-XX:+UseCompressedOops".equals(line) ||
-                   line.startsWith("-agentlib:yjpagent") ||
-                   line.startsWith("-agentpath:") && line.contains("yjpagent") ||
-                   "-Dsun.io.useCanonPrefixCache=false".equals(line) ||
-                   "-Dfile.encoding=UTF-8".equals(line) && SystemInfoRt.isMac ||
-                   isDuplicateOrLowerValue(line, platformLines)) {
-            i.remove(); updated = true;
-          }
-        }
+        boolean updated = updateVMOptionsLines(newConfigDir, lines, log);
 
         if (updated) {
           Files.write(vmOptionsFile, lines, VMOptions.getFileCharset());
@@ -1237,7 +1329,32 @@ public final class ConfigImportHelper {
     }
   }
 
-  private static List<String> readPlatformOptions(Path platformVmOptionsFile, Logger log) {
+  private static boolean updateVMOptionsLines(Path newConfigDir, List<String> lines, Logger log) {
+    Path platformVmOptionsFile = newConfigDir.getFileSystem().getPath(VMOptions.getPlatformOptionsFile().toString());
+    Collection<String> platformLines = new LinkedHashSet<>(readPlatformOptions(platformVmOptionsFile, log));
+    boolean updated = false;
+
+    for (ListIterator<String> i = lines.listIterator(); i.hasNext(); ) {
+      String line = i.next().trim();
+      if (line.equals("-XX:MaxJavaStackTraceDepth=-1")) {
+        i.set("-XX:MaxJavaStackTraceDepth=10000"); updated = true;
+      }
+      else if ("-XX:+UseConcMarkSweepGC".equals(line) ||
+               "-Xverify:none".equals(line) || "-noverify".equals(line) ||
+               "-XX:+UseCompressedOops".equals(line) ||
+               line.startsWith("-agentlib:yjpagent") ||
+               line.startsWith("-agentpath:") && line.contains("yjpagent") ||
+               "-Dsun.io.useCanonPrefixCache=false".equals(line) ||
+               "-Dfile.encoding=UTF-8".equals(line) && SystemInfoRt.isMac ||
+               isDuplicateOrLowerValue(line, platformLines)) {
+        i.remove(); updated = true;
+      }
+    }
+    return updated;
+  }
+
+  @VisibleForTesting
+  static List<String> readPlatformOptions(Path platformVmOptionsFile, Logger log) {
     try {
       return Files.readAllLines(platformVmOptionsFile, VMOptions.getFileCharset());
     }

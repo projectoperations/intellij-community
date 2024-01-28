@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.highlighter;
 
@@ -248,6 +248,16 @@ public abstract class K1HighlightingMetaInfoTestGenerated extends AbstractK1High
         @TestMetadata("PropertiesWithPropertyDeclarationsInDumbMode.kt")
         public void testPropertiesWithPropertyDeclarationsInDumbMode() throws Exception {
             runTest("testData/highlighterMetaInfo/PropertiesWithPropertyDeclarationsInDumbMode.kt");
+        }
+
+        @TestMetadata("RepeatableAnnotation.kt")
+        public void testRepeatableAnnotation() throws Exception {
+            runTest("testData/highlighterMetaInfo/RepeatableAnnotation.kt");
+        }
+
+        @TestMetadata("RepeatableAsAliasAnnotation.kt")
+        public void testRepeatableAsAliasAnnotation() throws Exception {
+            runTest("testData/highlighterMetaInfo/RepeatableAsAliasAnnotation.kt");
         }
 
         @TestMetadata("script.kts")

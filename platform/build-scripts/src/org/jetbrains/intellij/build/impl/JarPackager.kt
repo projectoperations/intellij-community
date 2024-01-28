@@ -1,11 +1,11 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "ReplaceJavaStaticMethodWithKotlinAnalog")
 
 package org.jetbrains.intellij.build.impl
 
 import com.dynatrace.hash4j.hashing.HashStream64
 import com.dynatrace.hash4j.hashing.Hashing
-import com.intellij.platform.diagnostic.telemetry.helpers.use
+import com.intellij.platform.diagnostic.telemetry.helpers.useWithoutActiveScope
 import com.intellij.util.PathUtilRt
 import com.intellij.util.io.URLUtil
 import com.intellij.util.io.sanitizeFileName
@@ -20,6 +20,7 @@ import org.jetbrains.intellij.build.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_CLIENT_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_JAR
 import org.jetbrains.intellij.build.impl.projectStructureMapping.*
+import org.jetbrains.intellij.build.proguard.OptimizeLibraryContext
 import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsModule
@@ -64,7 +65,7 @@ private val libsThatUsedInJps = java.util.Set.of(
 
 @Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
 private val presignedLibNames = java.util.Set.of(
-  "pty4j", "jna", "sqlite-native", "async-profiler", "jetbrains.skiko.awt.runtime.all"
+  "pty4j", "jna", "sqlite-native", "async-profiler"
 )
 
 private val notImportantKotlinLibs = java.util.Set.of(
@@ -79,6 +80,8 @@ private val predefinedMergeRules = HashMap<String, (String, JetBrainsClientModul
   map.put("rd.jar") { it, _ -> it.startsWith("rd-") }
   // all grpc garbage into one jar
   map.put("grpc.jar") { it, _ -> it.startsWith("grpc-") }
+  // separate file to use in Gradle Daemon classpath
+  map.put("opentelemetry.jar") { it, _ -> it == "opentelemetry" || it == "opentelemetry-semconv" || it.startsWith("opentelemetry-exporter-otlp") }
   map.put("bouncy-castle.jar") { it, _ -> it.startsWith("bouncy-castle-") }
   map.put(PRODUCT_JAR) { name, filter -> name.startsWith("License") && !filter.isProjectLibraryIncluded(name) }
   map.put(PRODUCT_CLIENT_JAR) { name, filter -> name.startsWith("License") && filter.isProjectLibraryIncluded(name) }
@@ -131,7 +134,6 @@ class JarPackager private constructor(private val outputDir: Path,
                      dryRun: Boolean,
                      moduleWithSearchableOptions: Set<String> = emptySet(),
                      context: BuildContext): Collection<DistributionFileEntry> {
-
       val packager = JarPackager(outputDir = outputDir, platformLayout = platformLayout, isRootDir = isRootDir, context = context)
       packager.computeModuleSources(includedModules = includedModules,
                                     moduleOutputPatcher = moduleOutputPatcher,
@@ -491,8 +493,9 @@ class JarPackager private constructor(private val outputDir: Path,
       libToMetadata.put(library, libraryData)
       val libName = library.name
       var packMode = libraryData.packMode
-      if (packMode == LibraryPackMode.MERGED && !predefinedMergeRules.values.any { it(libName, clientModuleFilter) } && !isLibraryMergeable(
-          libName)) {
+      if (packMode == LibraryPackMode.MERGED &&
+          !predefinedMergeRules.values.any { it(libName, clientModuleFilter) } &&
+          !isLibraryMergeable(libName)) {
         packMode = LibraryPackMode.STANDALONE_MERGED
       }
 
@@ -531,10 +534,12 @@ class JarPackager private constructor(private val outputDir: Path,
 
   private fun filesToSourceWithMapping(sources: MutableList<Source>, files: List<Path>, library: JpsLibrary) {
     val moduleName = (library.createReference().parentReference as? JpsModuleReference)?.moduleName
-    val isPreSignedCandidate = isRootDir && presignedLibNames.contains(library.name)
+    val libraryName = library.name
+    val isPreSignedCandidate = isRootDir && presignedLibNames.contains(libraryName)
     for (file in files) {
       sources.add(ZipSource(file = file,
                             isPreSignedAndExtractedCandidate = isPreSignedCandidate,
+                            optimizeConfigId = libraryName.takeIf { isRootDir && (libraryName == "jsvg") },
                             distributionFileEntryProducer = { size, hash,  targetFile ->
                               moduleName?.let {
                                 ModuleLibraryFileEntry(
@@ -547,7 +552,7 @@ class JarPackager private constructor(private val outputDir: Path,
                                 )
                               } ?: ProjectLibraryEntry(
                                 path = targetFile,
-                                data = libToMetadata.get(library) ?: throw IllegalStateException("Metadata not found for ${library.name}"),
+                                data = libToMetadata.get(library) ?: throw IllegalStateException("Metadata not found for $libraryName"),
                                 libraryFile = file,
                                 hash = hash,
                                 size = size,
@@ -620,7 +625,7 @@ private fun nameToJarFileName(name: String): String {
   return "${sanitizeFileName(name.lowercase(), replacement = "-")}.jar"
 }
 
-@Suppress("SpellCheckingInspection")
+@Suppress("SpellCheckingInspection", "RedundantSuppression")
 private val excludedFromMergeLibs = java.util.Set.of(
   "async-profiler",
   "dexlib2", // android-only lib
@@ -670,6 +675,7 @@ private suspend fun buildJars(descriptors: Collection<AssetDescriptor>,
     }
   }
 
+  val optimizeLibraryContext = OptimizeLibraryContext(tempDir = context.paths.tempDir, javaHome = context.getStableJdkHome())
   val list = withContext(Dispatchers.IO) {
     descriptors.map { item ->
       async {
@@ -684,7 +690,7 @@ private suspend fun buildJars(descriptors: Collection<AssetDescriptor>,
         spanBuilder("build jar")
           .setAttribute("jar", file.toString())
           .setAttribute(AttributeKey.stringArrayKey("sources"), sources.map(Source::toString))
-          .use { span ->
+          .useWithoutActiveScope { span ->
             if (sources.isEmpty()) {
               return@async emptyMap()
             }
@@ -710,7 +716,11 @@ private suspend fun buildJars(descriptors: Collection<AssetDescriptor>,
                   }
 
                   override suspend fun produce() {
-                    buildJar(targetFile = file, sources = sources, nativeFileHandler = nativeFileHandler, notify = false)
+                    buildJar(targetFile = file,
+                             sources = sources,
+                             nativeFileHandler = nativeFileHandler,
+                             notify = false,
+                             optimizeLibraryContext = optimizeLibraryContext)
                   }
                 }
               )
@@ -743,8 +753,7 @@ private class NativeFileHandlerImpl(private val context: BuildContext) : NativeF
     // we allow to use .so for macOS binraries (binaries/macos/libasyncProfiler.so), but removing obvious linux binaries
     // (binaries/linux-aarch64/libasyncProfiler.so) to avoid detecting by binary content
     if (
-      name.endsWith(".dll") || name.endsWith(".exe") || name.contains("/linux/") || name.contains("/linux-") ||
-      name.contains("icudtl.dat")
+      name.endsWith(".dll") || name.endsWith(".exe") || name.contains("/linux/") || name.contains("/linux-")
     ) {
       return null
     }

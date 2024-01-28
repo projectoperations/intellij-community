@@ -2,6 +2,7 @@
 package com.intellij.platform.workspace.storage.tests
 
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerImpl
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -179,10 +180,10 @@ class VirtualFileUrlManagerTest {
 
   @Test
   fun `check from path`() {
-    assertEquals("file://", virtualFileManager.fromPath("").url)
+    assertEquals("file://", virtualFileManager.getOrCreateFromUri(VfsUtilCore.pathToUrl("")).url)
 
     fun assertUrlFromPath(path: String) {
-      assertEquals(VfsUtil.pathToUrl(path), virtualFileManager.fromPath(path).url)
+      assertEquals(VfsUtil.pathToUrl(path), virtualFileManager.getOrCreateFromUri(VfsUtilCore.pathToUrl(path)).url)
     }
 
     assertUrlFromPath("/main/a.jar")
@@ -193,14 +194,14 @@ class VirtualFileUrlManagerTest {
 
   @Test
   fun `check normalize slashes`() {
-    assertEquals("jar://C:/Users/X/a.txt", virtualFileManager.fromUrl("jar://C:/Users\\X\\a.txt").url)
+    assertEquals("jar://C:/Users/X/a.txt", virtualFileManager.getOrCreateFromUri("jar://C:/Users\\X\\a.txt").url)
   }
 
   private fun assertFilePath(expectedResult: String?, url: String) {
-    assertEquals(expectedResult, virtualFileManager.fromUrl(url).presentableUrl)
+    assertEquals(expectedResult, virtualFileManager.getOrCreateFromUri(url).presentableUrl)
   }
 
   private fun roundTrip(url: String) {
-    assertEquals(url, virtualFileManager.fromUrl(url).url)
+    assertEquals(url, virtualFileManager.getOrCreateFromUri(url).url)
   }
 }

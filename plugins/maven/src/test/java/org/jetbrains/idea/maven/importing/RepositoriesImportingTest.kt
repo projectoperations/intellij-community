@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class RepositoriesImportingTest : MavenMultiVersionImportingTestCase() {
+
   @Test
   fun testMirrorCentralImport() = runBlocking {
     val oldSettingsFile = mavenGeneralSettings.userSettingsFile
@@ -21,7 +22,7 @@ class RepositoriesImportingTest : MavenMultiVersionImportingTestCase() {
               <name>mirror</name>
               <url>https://example.com/maven2</url>
               <mirrorOf>central</mirrorOf>
-            </mirror>
+            </mirror> 
           </mirrors>
         </settings>
         """.trimIndent())
@@ -108,7 +109,7 @@ class RepositoriesImportingTest : MavenMultiVersionImportingTestCase() {
 
   private fun assertDoNotHaveRepositories(vararg repos: String) {
     val actual = ContainerUtil.map(
-      RemoteRepositoriesConfiguration.getInstance(myProject).repositories) { it: RemoteRepositoryDescription -> it.url }
+      RemoteRepositoriesConfiguration.getInstance(project).repositories) { it: RemoteRepositoryDescription -> it.url }
 
     assertDoNotContain(actual, *repos)
   }
@@ -116,7 +117,7 @@ class RepositoriesImportingTest : MavenMultiVersionImportingTestCase() {
 
   private fun assertHaveRepositories(vararg repos: String) {
     val actual = ContainerUtil.map(
-      RemoteRepositoriesConfiguration.getInstance(myProject).repositories) { it: RemoteRepositoryDescription -> it.url }
+      RemoteRepositoriesConfiguration.getInstance(project).repositories) { it: RemoteRepositoryDescription -> it.url }
 
     assertContain(actual, *repos)
   }

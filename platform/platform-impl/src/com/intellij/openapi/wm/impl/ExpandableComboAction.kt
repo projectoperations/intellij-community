@@ -2,6 +2,7 @@
 package com.intellij.openapi.wm.impl
 
 import com.intellij.ide.DataManager
+import com.intellij.ide.IdeEventQueue
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
@@ -24,7 +25,7 @@ abstract class ExpandableComboAction : AnAction(), CustomComponentAction {
   override fun createCustomComponent(presentation: Presentation, place: String): JComponent {
     val model = MyPopupModel()
     model.addActionListener { actionEvent ->
-      val start = System.nanoTime()
+      val start = IdeEventQueue.getInstance().popupTriggerTime
       val combo = (actionEvent.source as? ToolbarComboButton) ?: return@addActionListener
       val dataContext = DataManager.getInstance().getDataContext(combo)
       val anActionEvent = AnActionEvent.createFromDataContext(place, presentation, dataContext)
@@ -42,6 +43,24 @@ abstract class ExpandableComboAction : AnAction(), CustomComponentAction {
       popup.showUnderneathOf(combo)
     }
     return createToolbarComboButton(model)
+  }
+
+  override fun updateCustomComponent(component: JComponent, presentation: Presentation) {
+    super.updateCustomComponent(component, presentation)
+    component.isEnabled = presentation.isEnabled
+    (component as? AbstractToolbarCombo)?.let {
+      it.text = presentation.text
+      it.toolTipText = presentation.description
+      val pLeftIcons = presentation.getClientProperty(LEFT_ICONS_KEY)
+      val pRightIcons = presentation.getClientProperty(RIGHT_ICONS_KEY)
+      it.leftIcons = when {
+        pLeftIcons != null -> pLeftIcons
+        !presentation.isEnabled && presentation.disabledIcon != null -> listOf(presentation.disabledIcon)
+        presentation.icon != null -> listOf(presentation.icon)
+        else -> emptyList()
+      }
+      if (pRightIcons != null) it.rightIcons = pRightIcons
+    }
   }
 
   protected open fun createToolbarComboButton(model: ToolbarComboButtonModel): ToolbarComboButton {

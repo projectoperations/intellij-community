@@ -8,8 +8,10 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class TextMatePersistentBundle(val name: String, val enabled: Boolean)
 
-@State(name = "TextMateUserBundlesSettings", storages = [Storage(value = "textmate.xml", roamingType = RoamingType.DISABLED)])
-@Service
+@State(name = "TextMateUserBundlesSettings",
+       category = SettingsCategory.TOOLS,
+       exportable = true,
+       storages = [Storage(value = "textmate.xml", roamingType = RoamingType.DISABLED)])
 class TextMateUserBundlesSettings : SerializablePersistentStateComponent<TextMateUserBundlesSettings.State>(State()) {
   val bundles: Map<String, TextMatePersistentBundle>
     get() = state.bundles

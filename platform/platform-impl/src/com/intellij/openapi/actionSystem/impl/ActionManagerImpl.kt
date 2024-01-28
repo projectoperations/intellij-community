@@ -437,7 +437,11 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
 
   @Experimental
   @Internal
-  fun unstubbedActions(): Sequence<AnAction> = actionPostInitRegistrar.unstubbedActions()
+  fun unstubbedActions(filter: (String) -> Boolean): Sequence<AnAction> = actionPostInitRegistrar.unstubbedActions(filter)
+
+  @Experimental
+  @Internal
+  fun groupIds(actionId: String): List<String> = actionPostInitRegistrar.groupIds(actionId)
 
   /**
    * @return instance of ActionGroup or ActionStub. The method never returns real subclasses of `AnAction`.
@@ -1723,10 +1727,14 @@ private class PostInitActionRegistrar(
 
   fun actionsOrStubs(): Sequence<AnAction> = idToAction.values.asSequence()
 
-  fun unstubbedActions(): Sequence<AnAction> {
-    return idToAction.keys.asSequence().mapNotNull {
+  fun unstubbedActions(filter: (String) -> Boolean): Sequence<AnAction> {
+    return idToAction.keys.asSequence().filter(filter).mapNotNull {
       getAction(id = it, canReturnStub = false, actionRegistrar = this)
     }
+  }
+
+  fun groupIds(actionId: String): List<String> {
+    return state.idToDescriptor[actionId]?.groupIds ?: emptyList()
   }
 
   fun getBoundActions(): Set<String> = boundShortcuts.keys
@@ -1774,10 +1782,10 @@ private class PreInitActionRuntimeRegistrar(
     return getAction(id = actionId, canReturnStub = false, actionRegistrar = actionRegistrar)
   }
 
-  override fun addToGroup(group: AnAction, action: AnAction, last: Constraints) {
+  override fun addToGroup(group: AnAction, action: AnAction, constraints: Constraints) {
     addToGroup(group = group,
                action = action,
-               constraints = last,
+               constraints = constraints,
                module = null,
                state = actionRegistrar.state,
                secondary = false)
@@ -1795,10 +1803,6 @@ private class PreInitActionRuntimeRegistrar(
   override fun getBaseAction(overridingAction: OverridingAction): AnAction? {
     val id = getId(overridingAction as AnAction) ?: return null
     return actionRegistrar.state.baseActions.get(id)
-  }
-
-  override fun isGroup(actionId: String): Boolean {
-    return getAction(id = actionId, canReturnStub = true, actionRegistrar) is ActionGroup
   }
 
   override fun registerAction(actionId: String, action: AnAction) {
@@ -1842,10 +1846,10 @@ private class PostInitActionRuntimeRegistrar(private val actionPostInitRegistrar
     return getAction(id = actionId, canReturnStub = false, actionRegistrar = actionPostInitRegistrar)
   }
 
-  override fun addToGroup(group: AnAction, action: AnAction, last: Constraints) {
+  override fun addToGroup(group: AnAction, action: AnAction, constraints: Constraints) {
     addToGroup(group = group as DefaultActionGroup,
                action = action,
-               constraints = last,
+               constraints = constraints,
                module = null,
                state = actionPostInitRegistrar.state,
                secondary = false)
@@ -1862,9 +1866,6 @@ private class PostInitActionRuntimeRegistrar(private val actionPostInitRegistrar
 
   override fun getBaseAction(overridingAction: OverridingAction): AnAction? = actionPostInitRegistrar.getBaseAction(overridingAction)
 
-  override fun isGroup(actionId: String): Boolean {
-    return getAction(id = actionId, canReturnStub = true, actionPostInitRegistrar) is ActionGroup
-  }
 }
 
 private fun getActionBinding(actionId: String, boundShortcuts: Map<String, String>): String? {
@@ -1999,7 +2000,8 @@ private fun registerAction(actionId: String,
                            pluginId: PluginId?,
                            projectType: ProjectType?,
                            actionRegistrar: ActionRegistrar,
-                           oldIndex: Int = -1) {
+                           oldIndex: Int = -1,
+                           oldGroups: List<String>? = null) {
   val state = actionRegistrar.state
   if (state.prohibitedActionIds.contains(actionId)) {
     return
@@ -2034,6 +2036,9 @@ private fun registerAction(actionId: String,
   descriptor.index = if (oldIndex >= 0) oldIndex else state.registeredActionCount++
   if (pluginId != null) {
     descriptor.pluginId = pluginId
+  }
+  if (oldGroups != null) {
+    descriptor.groupIds = oldGroups
   }
 
   actionRegistrar.actionRegistered(actionId, action)
@@ -2156,7 +2161,8 @@ private fun replaceAction(actionId: String, newAction: AnAction, pluginId: Plugi
                  pluginId = pluginId,
                  projectType = null,
                  actionRegistrar = actionRegistrar,
-                 oldIndex = oldIndex)
+                 oldIndex = oldIndex,
+                 oldGroups = actionItemDescriptor?.groupIds)
   return oldAction
 }
 

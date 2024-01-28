@@ -1,10 +1,9 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ConstPropertyName")
 
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.util.PathUtilRt
-import org.apache.commons.compress.archivers.ArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.jetbrains.intellij.build.BuildOptions
@@ -107,30 +106,31 @@ fun ZipArchiveOutputStream.dir(startDir: Path,
       if (attributes.isDirectory) {
         dirCandidates.add(file)
       }
-      else if (attributes.isSymbolicLink) {
-        val entry = zipArchiveEntry(prefix + startDir.relativize(file).toString().replace('\\', '/'))
-        entry.method = ZipEntry.STORED
-        entry.lastModifiedTime = buildTime
-        entry.unixMode = Files.readAttributes(file, "unix:mode", LinkOption.NOFOLLOW_LINKS)["mode"] as Int
-        val path = Files.readSymbolicLink(file).let { if (it.isAbsolute) prefix + startDir.relativize(it) else it.toString() }
-        val data = path.toByteArray()
-        entry.size = data.size.toLong()
-        putArchiveEntry(entry)
-        write(data)
-        closeArchiveEntry()
-      }
       else {
-        assert(attributes.isRegularFile)
-
         val relativePath = startDir.relativize(file).toString().replace('\\', '/')
         if (fileFilter != null && !fileFilter(file, relativePath)) {
           continue
         }
 
         val entry = zipArchiveEntry(prefix + relativePath)
-        entry.size = attributes.size()
-        entryCustomizer?.invoke(entry, file, relativePath)
-        writeFileEntry(file, entry, this)
+        if (attributes.isSymbolicLink) {
+          entry.method = ZipEntry.STORED
+          entry.lastModifiedTime = buildTime
+          entry.unixMode = Files.readAttributes(file, "unix:mode", LinkOption.NOFOLLOW_LINKS)["mode"] as Int
+          val path = Files.readSymbolicLink(file).let { if (it.isAbsolute) prefix + startDir.relativize(it) else it.toString() }
+          val data = path.toByteArray()
+          entry.size = data.size.toLong()
+          putArchiveEntry(entry)
+          write(data)
+          closeArchiveEntry()
+        }
+        else {
+          assert(attributes.isRegularFile)
+
+          entry.size = attributes.size()
+          entryCustomizer?.invoke(entry, file, relativePath)
+          writeFileEntry(file, entry, this)
+        }
       }
     }
   }
@@ -216,7 +216,7 @@ internal class NoDuplicateZipArchiveOutputStream(channel: SeekableByteChannel, c
     }
   }
 
-  override fun putArchiveEntry(archiveEntry: ArchiveEntry) {
+  override fun putArchiveEntry(archiveEntry: ZipArchiveEntry) {
     val entryName = archiveEntry.name
     assertRelativePathIsCorrectForPackaging(entryName)
     if (!existingNames.add(entryName)) {

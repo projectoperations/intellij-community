@@ -1,11 +1,14 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.platform.workspace.storage.tests.impl
 
+import com.intellij.platform.workspace.storage.ExternalMappingKey
 import com.intellij.platform.workspace.storage.impl.ChangeEntry
 import com.intellij.platform.workspace.storage.impl.MutableEntityStorageImpl
 import com.intellij.platform.workspace.storage.impl.asBase
 import com.intellij.platform.workspace.storage.impl.assertConsistency
 import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerImpl
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.instrumentation
 import com.intellij.platform.workspace.storage.testEntities.entities.*
 import com.intellij.platform.workspace.storage.tests.createEmptyBuilder
 import com.intellij.platform.workspace.storage.tests.from
@@ -20,6 +23,8 @@ import kotlin.test.*
 class WorkspaceBuilderChangeLogTest {
   internal lateinit var builder: MutableEntityStorageImpl
   internal lateinit var another: MutableEntityStorageImpl
+
+  private val externalMappingKey = ExternalMappingKey.create<Any>("test.my.mapping")
 
   @BeforeEach
   fun setUp() {
@@ -696,6 +701,7 @@ class WorkspaceBuilderChangeLogTest {
     assertTrue(builder.hasSameEntities())
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   @Test
   fun `join remove plus add content root`() {
     val moduleTestEntity = ModuleTestEntity("data", MySource) {
@@ -709,7 +715,7 @@ class WorkspaceBuilderChangeLogTest {
     newBuilder.addEntity(ContentRootTestEntity(MySource) {
       module = moduleTestEntity
     })
-    assertTrue(newBuilder.hasSameEntities())
+    assertTrue(newBuilder.instrumentation.hasSameEntities())
   }
 
   @Test
@@ -722,7 +728,7 @@ class WorkspaceBuilderChangeLogTest {
     builder.addEntity(moduleTestEntity)
     builder.changeLog.clear()
     val contentRoot = builder.entities(ModuleTestEntity::class.java).single().contentRoots.single()
-    builder.getMutableExternalMapping<Any>("data").addMapping(contentRoot, 1)
+    builder.getMutableExternalMapping(externalMappingKey).addMapping(contentRoot, 1)
     val original = builder.toSnapshot()
     builder.removeEntity(contentRoot)
     builder.addEntity(ContentRootTestEntity(MySource) {
@@ -747,7 +753,7 @@ class WorkspaceBuilderChangeLogTest {
       module = moduleTestEntity
     }
     builder.addEntity(newContentRoot)
-    builder.getMutableExternalMapping<Any>("data").addMapping(newContentRoot, 1)
+    builder.getMutableExternalMapping(externalMappingKey).addMapping(newContentRoot, 1)
     assertFalse(builder.hasSameEntities())
   }
 
@@ -778,7 +784,7 @@ class WorkspaceBuilderChangeLogTest {
   fun updateParentOfOneToOneChild() {
     val child = builder addEntity ChildSampleEntity("data", MySource)
     val newBuilder = builder.toSnapshot().toBuilder() as MutableEntityStorageImpl
-    newBuilder addEntity SampleEntity(true, "", listOf(), emptyMap(), VirtualFileUrlManagerImpl().fromUrl("file:///tmp"), MySource) {
+    newBuilder addEntity SampleEntity(true, "", listOf(), emptyMap(), VirtualFileUrlManagerImpl().getOrCreateFromUri("file:///tmp"), MySource) {
       this.children = listOf(child)
     }
 

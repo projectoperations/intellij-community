@@ -466,7 +466,6 @@ public class GitRebaseProcess {
       untrackedPaths,
       GitBundle.message("rebase.git.operation.name"),
       message,
-      null,
       actions.toArray(new NotificationAction[0])
     );
   }
@@ -503,12 +502,12 @@ public class GitRebaseProcess {
     return true;
   }
 
-  private boolean isRebasingPublishedCommit(@NotNull GitRepository repository,
-                                            @Nullable String baseBranch,
-                                            @NotNull String rebasingBranch) {
+  public static boolean isRebasingPublishedCommit(@NotNull GitRepository repository,
+                                                  @Nullable String baseBranch,
+                                                  @NotNull String rebasingBranch) {
     try {
       String range = GitRebaseUtils.getCommitsRangeToRebase(baseBranch, rebasingBranch);
-      List<? extends TimedVcsCommit> commits = GitHistoryUtils.collectTimedCommits(myProject, repository.getRoot(), range);
+      List<? extends TimedVcsCommit> commits = GitHistoryUtils.collectTimedCommits(repository.getProject(), repository.getRoot(), range);
       return exists(commits, commit -> GitProtectedBranchesKt.isCommitPublished(repository, commit.getId()));
     }
     catch (VcsException e) {
@@ -517,7 +516,7 @@ public class GitRebaseProcess {
     }
   }
 
-  private static boolean askIfShouldRebasePublishedCommit() {
+  public static boolean askIfShouldRebasePublishedCommit() {
     Ref<Boolean> rebaseAnyway = Ref.create(false);
     String message = new HtmlBuilder()
       .append(GitBundle.message("rebase.confirmation.dialog.published.commits.message.first")).br()

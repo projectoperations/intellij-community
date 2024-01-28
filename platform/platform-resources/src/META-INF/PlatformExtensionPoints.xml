@@ -207,6 +207,7 @@
     <extensionPoint name="statistic.eventLog.eventLoggerProvider" interface="com.intellij.internal.statistic.eventLog.StatisticsEventLoggerProvider"/>
     <extensionPoint name="statistic.eventLog.fusStateEventTracker" interface="com.intellij.internal.statistic.eventLog.fus.FeatureUsageStateEventTracker"/>
     <extensionPoint name="statistic.eventLog.externalEventLogSettings" interface="com.intellij.internal.statistic.eventLog.ExternalEventLogSettings" dynamic="true"/>
+    <extensionPoint name="statistic.eventLog.externalListenerProvider" interface="com.intellij.internal.statistic.eventLog.ExternalEventLogListenerProviderExtension" dynamic="true"/>
 
     <extensionPoint name="productivityFeaturesProvider" interface="com.intellij.featureStatistics.ProductivityFeaturesProvider"
                     dynamic="true"/>
@@ -367,7 +368,6 @@
     <extensionPoint name="jbProtocolCommand" interface="com.intellij.openapi.application.JBProtocolCommand" dynamic="true"/>
 
     <extensionPoint name="vfs.local.pluggableFileWatcher" interface="com.intellij.openapi.vfs.local.PluggableFileWatcher" />
-    <extensionPoint name="vfs.local.pluggableContentLoader" interface="com.intellij.openapi.vfs.impl.local.PluggableLocalFileSystemContentLoader" />
     <extensionPoint name="vfs.local.fileOperationsHandler" interface="com.intellij.openapi.vfs.LocalFileOperationsHandler" dynamic="true" />
 
     <extensionPoint name="gutterMarkPreprocessor" interface="com.intellij.openapi.editor.GutterMarkPreprocessor" />
@@ -470,12 +470,11 @@
     <extensionPoint name="documentationActionProvider" interface="com.intellij.codeInsight.documentation.DocumentationActionProvider" dynamic="true"/>
 
     <extensionPoint name="newProjectWizard.language" interface="com.intellij.ide.wizard.LanguageNewProjectWizard" dynamic="true"/>
+    <extensionPoint name="newProjectWizard.languageGenerator" interface="com.intellij.ide.wizard.language.LanguageGeneratorNewProjectWizard" dynamic="true"/>
 
     <extensionPoint name="newProject.onboarding.tips" interface="com.intellij.ide.wizard.NewProjectOnboardingTips" dynamic="true"/>
 
     <extensionPoint name="projectOriginInfoProvider" interface="com.intellij.ide.impl.ProjectOriginInfoProvider" dynamic="true"/>
-    <extensionPoint name="trustedHostsConfigurablePanelProvider" interface="com.intellij.ide.impl.TrustedHostsConfigurablePanelProvider"
-                    dynamic="true"/>
     <extensionPoint name="trustedHostsConfigurableProvider" interface="com.intellij.ide.impl.TrustedHostsConfigurableProvider"
                     dynamic="true"/>
     <extensionPoint name="trustedProjectsLocator" interface="com.intellij.ide.trustedProjects.TrustedProjectsLocator"

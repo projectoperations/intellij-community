@@ -11,6 +11,7 @@ import com.intellij.ide.HelpTooltip
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.QuickChangeLookAndFeel
 import com.intellij.ide.ui.*
+import com.intellij.ide.ui.LafReference.Companion.SEPARATOR
 import com.intellij.ide.ui.laf.SystemDarkThemeDetector.Companion.createDetector
 import com.intellij.ide.ui.laf.darcula.DarculaLaf
 import com.intellij.ide.ui.laf.intellij.IdeaPopupMenuUI
@@ -41,6 +42,7 @@ import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.ide.bootstrap.createBaseLaF
 import com.intellij.ui.*
 import com.intellij.ui.popup.HeavyWeightPopup
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.ui.scale.JBUIScale.getFontScale
 import com.intellij.ui.scale.JBUIScale.scale
 import com.intellij.ui.scale.JBUIScale.scaleFontSize
@@ -63,6 +65,7 @@ import org.jetbrains.annotations.TestOnly
 import java.awt.*
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Supplier
 import javax.swing.*
@@ -139,6 +142,7 @@ class LafManagerImpl(private val coroutineScope: CoroutineScope) : LafManager(),
 
   companion object {
     private var ourTestInstance: LafManagerImpl? = null
+    private val LANGUAGE_WITH_PACK_LIST = listOf(Locale.CHINESE.language, Locale.KOREAN.language, Locale.JAPANESE.language)
 
     @OptIn(DelicateCoroutinesApi::class)
     @TestOnly
@@ -629,8 +633,15 @@ class LafManagerImpl(private val coroutineScope: CoroutineScope) : LafManager(),
   private val defaultInterFont: FontUIResource
     get() {
       val userScaleFactor = defaultUserScaleFactor
-      return getFontWithFallback(INTER_NAME, Font.PLAIN, scaleFontSize(INTER_SIZE.toFloat(), userScaleFactor).toFloat())
+      val fontName =
+        if (shouldFallbackToSystemFont) JBUIScale.getSystemFontDataIfInitialized()?.first ?: INTER_NAME
+        else INTER_NAME
+
+      return getFontWithFallback(fontName, Font.PLAIN, scaleFontSize(INTER_SIZE.toFloat(), userScaleFactor).toFloat())
     }
+
+  private val shouldFallbackToSystemFont: Boolean get() =
+    LANGUAGE_WITH_PACK_LIST.contains(Locale.getDefault().language)
 
   private val storedLafFont: Font?
     get() = storedDefaults.get(currentTheme?.id)?.get("Label.font") as Font?
@@ -850,8 +861,6 @@ private class LafCellRenderer : SimpleListCellRenderer<LafReference>() {
     text = value.name
   }
 }
-
-private val SEPARATOR = LafReference(name = "", themeId = "")
 
 private class OurPopupFactory(private val delegate: PopupFactory) : PopupFactory() {
   companion object {
@@ -1083,116 +1092,33 @@ private fun repaintUI(window: Window) {
   }
 }
 
-private fun applyDensityOnUpdateUi(defaults: UIDefaults) {
+private fun applyDensityOnUpdateUi(uiDefaults: UIDefaults) {
   val densityKey = "ui.density"
-  val oldDensityName = defaults.get(densityKey) as? String
+  val oldDensityName = uiDefaults.get(densityKey) as? String
   val newDensity = UISettings.getInstance().uiDensity
   if (oldDensityName == newDensity.name) {
     // re-applying the same density would break HiDPI-scalable values like Tree.rowHeight
     return
   }
 
-  defaults.put(densityKey, newDensity.name)
+  uiDefaults.put(densityKey, newDensity.name)
   if (newDensity == UIDensity.DEFAULT) {
     // Special case: we need to set this one to its default value even in non-compact mode, UNLESS it was already set by the theme.
     // If it's null, it can't be properly patched in patchRowHeight, which looks ugly with larger UI fonts.
-    val vcsLogHeight = defaults.get(JBUI.CurrentTheme.VersionControl.Log.rowHeightKey())
+    val vcsLogHeight = uiDefaults.get(JBUI.CurrentTheme.VersionControl.Log.rowHeightKey())
     // don't want to rely on putIfAbsent here, as UIDefaults is a rather messy combination of multiple hash tables
     if (vcsLogHeight == null) {
-      defaults.put(JBUI.CurrentTheme.VersionControl.Log.rowHeightKey(), JBUI.CurrentTheme.VersionControl.Log.defaultRowHeight())
+      uiDefaults.put(JBUI.CurrentTheme.VersionControl.Log.rowHeightKey(), JBUI.CurrentTheme.VersionControl.Log.defaultRowHeight())
     }
   }
 
   if (newDensity == UIDensity.COMPACT) {
-    // toolbars
-    defaults.put(JBUI.CurrentTheme.Toolbar.horizontalInsetsKey(), cmInsets(2, 4))
-    defaults.put(JBUI.CurrentTheme.Toolbar.verticalInsetsKey(), cmInsets(2, 4))
-    // main toolbar
-    defaults.put(JBUI.CurrentTheme.Toolbar.experimentalToolbarButtonSizeKey(), cmSize(26, 26))
-    defaults.put(JBUI.CurrentTheme.Toolbar.mainToolbarButtonInsetsKey(), cmInsets(3, 4))
-    defaults.put(JBUI.CurrentTheme.Toolbar.experimentalToolbarButtonIconSizeKey(), 16)
-    defaults.put(JBUI.CurrentTheme.Toolbar.experimentalToolbarFontKey(), Supplier { JBFont.medium().asUIResource() })
-    defaults.put(JBUI.CurrentTheme.TitlePane.buttonPreferredSizeKey(), cmSize(44, 32))
-    // tool window stripes
-    defaults.put(JBUI.CurrentTheme.Toolbar.stripeToolbarButtonSizeKey(), cmSize(32, 32))
-    defaults.put(JBUI.CurrentTheme.Toolbar.stripeToolbarButtonIconSizeKey(), 16)
-    defaults.put(JBUI.CurrentTheme.Toolbar.stripeToolbarButtonIconPaddingKey(), cmInsets(4))
-    // Run Widget
-    defaults.put(JBUI.CurrentTheme.RunWidget.toolbarHeightKey(), 26)
-    defaults.put(JBUI.CurrentTheme.RunWidget.actionButtonWidthKey(), 26)
-    defaults.put(JBUI.CurrentTheme.RunWidget.toolbarBorderDirectionalGapKey(), 4)
-    defaults.put(JBUI.CurrentTheme.RunWidget.toolbarBorderHeightKey(), 3)
-    defaults.put(JBUI.CurrentTheme.RunWidget.configurationSelectorFontKey(), Supplier { JBFont.medium().asUIResource() })
-    // trees
-    defaults.put(JBUI.CurrentTheme.Tree.rowHeightKey(), 22)
-    // lists
-    defaults.put("List.rowHeight", 22)
-    // popups
-    defaults.put(JBUI.CurrentTheme.Popup.headerInsetsKey(), cmInsets(8, 10, 8, 10))
-    defaults.put(JBUI.CurrentTheme.Advertiser.borderInsetsKey(), cmInsets(4, 20, 5, 20))
-    defaults.put(JBUI.CurrentTheme.BigPopup.advertiserBorderInsetsKey(), cmInsets(4, 20, 5, 20))
-    defaults.put(JBUI.CurrentTheme.CompletionPopup.Advertiser.borderInsetsKey(), cmInsets(2, 12, 2, 8))
-    defaults.put(JBUI.CurrentTheme.CompletionPopup.selectionInnerInsetsKey(), cmInsets(0, 2, 0, 2))
-    defaults.put(JBUI.CurrentTheme.FindPopup.scopesPanelInsetsKey(), cmInsets(1, 20))
-    defaults.put(JBUI.CurrentTheme.FindPopup.bottomPanelInsetsKey(), cmInsets(1, 18))
-    defaults.put(JBUI.CurrentTheme.ComplexPopup.headerInsetsKey(), cmInsets(10, 20, 8, 15))
-    defaults.put(JBUI.CurrentTheme.ComplexPopup.textFieldInputInsetsKey(), cmInsets(4, 2))
-    defaults.put(
-      JBUI.CurrentTheme.ComplexPopup.innerBorderInsetsKey(),
-      JBUI.CurrentTheme.ComplexPopup.innerBorderInsets().withTopAndBottom(2)
-    )
-    defaults.put(JBUI.CurrentTheme.TabbedPane.tabHeightKey(), 36)
-    // status bar
-    defaults.put(JBUI.CurrentTheme.StatusBar.Widget.insetsKey(), cmInsets(4, 8, 3, 8))
-    defaults.put(JBUI.CurrentTheme.StatusBar.Breadcrumbs.navBarInsetsKey(), cmInsets(1, 0, 1, 4))
-    defaults.put(JBUI.CurrentTheme.StatusBar.fontKey(), Supplier { JBFont.medium().asUIResource() })
-    // separate navbar
-    defaults.put(JBUI.CurrentTheme.NavBar.itemInsetsKey(), cmInsets(2))
-    // editor search/replace
-    defaults.put(JBUI.CurrentTheme.Editor.SearchField.borderInsetsKey(), cmInsets(3, 10, 3, 8))
-    defaults.put(JBUI.CurrentTheme.Editor.SearchToolbar.borderInsetsKey(), cmInsets(0))
-    defaults.put(JBUI.CurrentTheme.Editor.ReplaceToolbar.borderInsetsKey(), cmInsets(1, 0))
-    defaults.put(JBUI.CurrentTheme.Editor.SearchReplaceModePanel.borderInsetsKey(), cmInsets(3))
-    // editor tabs
-    defaults.put(JBUI.CurrentTheme.EditorTabs.tabInsetsKey(), cmInsets(-2, 4, -2, 4))
-    defaults.put(JBUI.CurrentTheme.EditorTabs.verticalTabInsetsKey(), cmInsets(2, 8, 1, 6))
-    defaults.put(JBUI.CurrentTheme.EditorTabs.tabContentInsetsActionsRightKey(), cmInsets(0))
-    defaults.put(JBUI.CurrentTheme.EditorTabs.tabContentInsetsActionsLeftKey(), cmInsets(0))
-    defaults.put(JBUI.CurrentTheme.EditorTabs.tabContentInsetsActionsNoneKey(), cmInsets(0))
-    defaults.put(JBUI.CurrentTheme.EditorTabs.fontKey(), Supplier { JBFont.medium().asUIResource() })
-    defaults.put(JBUI.CurrentTheme.EditorTabs.underlineHeightKey(), 3)
-    // banner
-    defaults.put(JBUI.CurrentTheme.Editor.Notification.borderInsetsKey(), cmInsets(6, 12))
-    defaults.put(JBUI.CurrentTheme.Editor.Notification.borderInsetsKeyWithoutStatus(), cmInsets(6, 16))
-    // toolwindows
-    defaults.put(JBUI.CurrentTheme.ToolWindow.headerHeightKey(), 32)
-    defaults.put(JBUI.CurrentTheme.ToolWindow.headerFontKey(), Supplier { JBFont.medium().asUIResource() })
-    // run, debug tabs
-    defaults.put(JBUI.CurrentTheme.DebuggerTabs.tabHeightKey(), 32)
-    defaults.put(JBUI.CurrentTheme.DebuggerTabs.fontKey(), Supplier { JBFont.medium().asUIResource() })
-    // VCS log
-    defaults.put(JBUI.CurrentTheme.VersionControl.Log.rowHeightKey(), 24)
-    defaults.put(JBUI.CurrentTheme.VersionControl.Log.verticalPaddingKey(), 4)
-    // VCS Combined Diff
-    defaults.put(JBUI.CurrentTheme.VersionControl.CombinedDiff.mainToolbarInsetsKey(), cmInsets(1, 10))
-    defaults.put(JBUI.CurrentTheme.VersionControl.CombinedDiff.fileToolbarInsetsKey(), cmInsets(7, 10))
-    defaults.put(JBUI.CurrentTheme.VersionControl.CombinedDiff.gapBetweenBlocksKey(), 4)
-    defaults.put(JBUI.CurrentTheme.VersionControl.CombinedDiff.leftRightBlockInsetKey(), 6)
+    val compactValues = uiDefaults.asSequence()
+      .filter { (it.key as? String?)?.endsWith(".compact") == true }
+      .associate { (it.key as String).removeSuffix(".compact") to it.value }
+    uiDefaults.putAll(compactValues)
   }
 }
-
-private fun cmSize(width: Int, height: Int): Dimension = Dimension(width, height)
-
-@Suppress("UseDPIAwareInsets")
-private fun cmInsets(all: Int): Insets = Insets(all, all, all, all)
-
-@Suppress("UseDPIAwareInsets")
-private fun cmInsets(topAndBottom: Int, leftAndRight: Int): Insets = Insets(topAndBottom, leftAndRight, topAndBottom, leftAndRight)
-
-@Suppress("UseDPIAwareInsets")
-private fun cmInsets(top: Int, left: Int, bottom: Int, right: Int): Insets = Insets(top, left, bottom, right)
-
-private fun JBInsets.withTopAndBottom(topAndBottom: Int) = JBInsets(topAndBottom, unscaled.left, topAndBottom, unscaled.right)
 
 private fun defaultNonLaFSchemeName(dark: Boolean) = if (dark) DarculaLaf.NAME else EditorColorsScheme.DEFAULT_SCHEME_NAME
 

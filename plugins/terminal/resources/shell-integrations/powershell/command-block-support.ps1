@@ -5,7 +5,8 @@ if ([string]::IsNullOrEmpty($Env:INTELLIJ_TERMINAL_COMMAND_BLOCKS)) {
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Global:__JetBrainsIntellijEncode([string]$value) {
-  -Join ([System.Text.Encoding]::UTF8.GetBytes($value) | ForEach-Object ToString X2)
+  $Bytes = [System.Text.Encoding]::UTF8.GetBytes($value)
+  return [System.BitConverter]::ToString($Bytes).Replace("-", "")
 }
 
 function Global:__JetBrainsIntellijOSC([string]$body) {
@@ -16,14 +17,34 @@ function Global:__JetBrainsIntellijOSC([string]$body) {
   # return "$([char]0x9D)1341;$body$([char]0x9C)"
 }
 
+function Global:__JetBrainsIntellijGetCommandEndMarker() {
+  $CommandEndMarker = $Env:JETBRAINS_INTELLIJ_COMMAND_END_MARKER
+  if ($CommandEndMarker -eq $null) {
+    $CommandEndMarker = ""
+  }
+  return $CommandEndMarker
+}
+
 $Global:__JetBrainsIntellijTerminalInitialized=$false
+$Global:__JetBrainsIntellijGeneratorRunning=$false
 
 $Global:__JetBrainsIntellijOriginalPrompt = $function:Prompt
 
 function Global:Prompt() {
   $Success = $?
+  if ($Global:__JetBrainsIntellijGeneratorRunning) {
+    $Global:__JetBrainsIntellijGeneratorRunning = $false
+    # Hide internal command in the built-in session history.
+    # See "Set-PSReadLineOption -AddToHistoryHandler" for hiding same commands in the PSReadLine history.
+    Clear-History -CommandLine "__JetBrainsIntellijGetCompletions*",`
+                               "__jetbrains_intellij_get_environment*",`
+                               "__jetbrains_intellij_get_directory_files*"
+    return ""
+  }
+
   $OriginalPrompt = $Global:__JetBrainsIntellijOriginalPrompt.Invoke()
   $Result = ""
+  $CommandEndMarker = Global:__JetBrainsIntellijGetCommandEndMarker
   if ($__JetBrainsIntellijTerminalInitialized) {
     $ExitCode = "0"
     if ($LASTEXITCODE -ne $null) {
@@ -36,16 +57,79 @@ function Global:Prompt() {
     if ($Env:JETBRAINS_INTELLIJ_TERMINAL_DEBUG_LOG_LEVEL) {
       [Console]::WriteLine("command_finished exit_code=$ExitCode, current_directory=$CurrentDirectory")
     }
-    $Result = Global:__JetBrainsIntellijOSC "command_finished;exit_code=$ExitCode;current_directory=$(__JetBrainsIntellijEncode $CurrentDirectory)"
+    $CommandFinishedEvent = Global:__JetBrainsIntellijOSC "command_finished;exit_code=$ExitCode;current_directory=$(__JetBrainsIntellijEncode $CurrentDirectory)"
+    $Result = $CommandEndMarker + $CommandFinishedEvent
   }
   else {
+    # For some reason there is no error if I delete the history file, just an empty string returned.
+    # There can be a check for file existence using Test-Path cmdlet, but if I add it, the prompt is failed to initialize.
+    $History = Get-Content -Raw (Get-PSReadlineOption).HistorySavePath
+    $HistoryOSC = Global:__JetBrainsIntellijOSC "command_history;history_string=$(__JetBrainsIntellijEncode $History)"
+
     $Global:__JetBrainsIntellijTerminalInitialized = $true
     if ($Env:JETBRAINS_INTELLIJ_TERMINAL_DEBUG_LOG_LEVEL) {
       [Console]::WriteLine("initialized")
     }
-    $Result = Global:__JetBrainsIntellijOSC "initialized"
+    $InitializedEvent = Global:__JetBrainsIntellijOSC "initialized"
+    $Result = $CommandEndMarker + $HistoryOSC + $InitializedEvent
   }
-  return $Result + $OriginalPrompt
+  return $Result
+}
+
+function Global:__JetBrainsIntellij_ClearAllAndMoveCursorToTopLeft() {
+  [Console]::Clear()
+}
+
+function Global:__JetBrainsIntellijGetCompletions([int]$RequestId, [string]$Command, [int]$CursorIndex) {
+  $Global:__JetBrainsIntellijGeneratorRunning = $true
+  $Completions = TabExpansion2 -inputScript $Command -cursorColumn $CursorIndex
+  if ($null -ne $Completions) {
+    $CompletionsJson = $Completions | ConvertTo-Json -Compress
+  }
+  else {
+    $CompletionsJson = ""
+  }
+  $CompletionsOSC = Global:__JetBrainsIntellijOSC "generator_finished;request_id=$RequestId;result=$(__JetBrainsIntellijEncode $CompletionsJson)"
+  $CommandEndMarker = Global:__JetBrainsIntellijGetCommandEndMarker
+  [Console]::Write($CommandEndMarker + $CompletionsOSC)
+}
+
+function Global:__jetbrains_intellij_get_directory_files([int]$RequestId, [string]$Path) {
+  $Global:__JetBrainsIntellijGeneratorRunning = $true
+  $Files = Get-ChildItem -Force -Path $Path | Where { $_ -is [System.IO.FileSystemInfo] }
+  $Separator = [System.IO.Path]::DirectorySeparatorChar
+  $FileNames = $Files | ForEach-Object { if ($_ -is [System.IO.DirectoryInfo]) { $_.Name + $Separator } else { $_.Name } }
+  $FilesString = $FileNames -join "`n"
+  $FilesOSC = Global:__JetBrainsIntellijOSC "generator_finished;request_id=$RequestId;result=$(__JetBrainsIntellijEncode $FilesString)"
+  $CommandEndMarker = Global:__JetBrainsIntellijGetCommandEndMarker
+  [Console]::Write($CommandEndMarker + $FilesOSC)
+}
+
+function Global:__jetbrains_intellij_get_environment([int]$RequestId) {
+  $Global:__JetBrainsIntellijGeneratorRunning = $true
+  $Functions = Get-Command -CommandType "Function, Filter, ExternalScript, Script, Workflow"
+  $Cmdlets = Get-Command -CommandType Cmdlet
+  $Commands = Get-Command -CommandType Application
+  $Aliases = Get-Alias | ForEach-Object { [PSCustomObject]@{ name = $_.Name; definition = $_.Definition } }
+
+  $EnvObject = [PSCustomObject]@{
+    envs = ""
+    keywords = ""
+    builtins = ($Cmdlets | ForEach-Object { $_.Name }) -join "`n"
+    functions = ($Functions | ForEach-Object { $_.Name }) -join "`n"
+    commands = ($Commands | ForEach-Object { $_.Name }) -join "`n"
+    aliases = $Aliases | ConvertTo-Json -Compress
+  }
+  $EnvJson = $EnvObject | ConvertTo-Json -Compress
+  $EnvOSC = Global:__JetBrainsIntellijOSC "generator_finished;request_id=$RequestId;result=$(__JetBrainsIntellijEncode $EnvJson)"
+  $CommandEndMarker = Global:__JetBrainsIntellijGetCommandEndMarker
+  [Console]::Write($CommandEndMarker + $EnvOSC)
+}
+
+function Global:__JetBrainsIntellijIsGeneratorCommand([string]$Command) {
+  return $Command -like "__JetBrainsIntellijGetCompletions*" `
+         -or $Command -like "__jetbrains_intellij_get_environment*" `
+         -or $Command -like "__jetbrains_intellij_get_directory_files*"
 }
 
 if (Get-Module -Name PSReadLine) {
@@ -53,6 +137,9 @@ if (Get-Module -Name PSReadLine) {
 
   function Global:PSConsoleHostReadLine {
     $OriginalReadLine = $Global:__JetBrainsIntellijOriginalPSConsoleHostReadLine.Invoke()
+    if (__JetBrainsIntellijIsGeneratorCommand $OriginalReadLine) {
+      return $OriginalReadLine
+    }
 
     $CurrentDirectory = (Get-Location).Path
     if ($Env:JETBRAINS_INTELLIJ_TERMINAL_DEBUG_LOG_LEVEL) {
@@ -60,7 +147,20 @@ if (Get-Module -Name PSReadLine) {
     }
     $CommandStartedOSC = Global:__JetBrainsIntellijOSC "command_started;command=$(__JetBrainsIntellijEncode $OriginalReadLine);current_directory=$(__JetBrainsIntellijEncode $CurrentDirectory)"
     [Console]::Write($CommandStartedOSC)
-    [Console]::Clear()
+    Global:__JetBrainsIntellij_ClearAllAndMoveCursorToTopLeft
     return $OriginalReadLine
+  }
+
+  $Global:__JetBrainsIntellijOriginalAddToHistoryHandler = (Get-PSReadLineOption).AddToHistoryHandler
+
+  Set-PSReadLineOption -AddToHistoryHandler {
+    param([string]$Command)
+    if (__JetBrainsIntellijIsGeneratorCommand $Command) {
+      return $false
+    }
+    if ($Global:__JetBrainsIntellijOriginalAddToHistoryHandler -ne $null) {
+      return $Global:__JetBrainsIntellijOriginalAddToHistoryHandler.Invoke($Command)
+    }
+    return $true
   }
 }

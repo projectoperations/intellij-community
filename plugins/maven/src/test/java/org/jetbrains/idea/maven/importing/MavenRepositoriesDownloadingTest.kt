@@ -11,9 +11,16 @@ import org.jetbrains.idea.maven.MavenCustomRepositoryHelper
 import org.jetbrains.idea.maven.model.MavenProjectProblem
 import org.jetbrains.idea.maven.server.MavenServerManager
 import org.jetbrains.idea.maven.server.MisconfiguredPlexusDummyEmbedder
+import org.jetbrains.idea.maven.utils.MavenLog
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.io.BufferedReader
 import java.io.File
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.stream.Collectors
+
 
 class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
   
@@ -26,6 +33,29 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
     myUrl = httpServerFixture.url()
   }
 
+  private fun sendGetRequest(urlString: String) {
+    MavenLog.LOG.warn("Get $urlString")
+    val url = URL(urlString)
+    val connection: HttpURLConnection = url.openConnection() as HttpURLConnection
+    connection.setRequestMethod("GET")
+    connection.connect()
+    val response = getResponse(connection)
+    MavenLog.LOG.warn("Response $response")
+    val responseCode = connection.responseCode
+    connection.disconnect()
+
+    assertEquals(200, responseCode)
+  }
+
+  private fun getResponse(conn: HttpURLConnection): String {
+    val br = if (conn.responseCode in 100..399) {
+      BufferedReader(InputStreamReader(conn.inputStream))
+    }
+    else {
+      return ""
+    }
+    return br.lines().collect(Collectors.joining())
+  }
 
   public override fun tearDown() {
     try {
@@ -41,7 +71,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDownloadedFromRepository() = runBlocking {
-    val helper = MavenCustomRepositoryHelper(myDir, "local1", "remote")
+    val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     val remoteRepoPath = helper.getTestDataPath("remote")
     val localRepoPath = helper.getTestDataPath("local1")
     httpServerFixture.startRepositoryFor(remoteRepoPath)
@@ -64,7 +94,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDownloadSourcesFromRepository() = runBlocking {
-    val helper = MavenCustomRepositoryHelper(myDir, "local1", "remote")
+    val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     val remoteRepoPath = helper.getTestDataPath("remote")
     val localRepoPath = helper.getTestDataPath("local1")
     httpServerFixture.startRepositoryFor(remoteRepoPath)
@@ -87,7 +117,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testPluginDownloadedFromRepository() = runBlocking {
-    val helper = MavenCustomRepositoryHelper(myDir, "local1", "remote")
+    val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     val remoteRepoPath = helper.getTestDataPath("remote")
     val localRepoPath = helper.getTestDataPath("local1")
     httpServerFixture.startRepositoryFor(remoteRepoPath)
@@ -109,7 +139,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDownloadedFromRepositoryWithAuthentification() = runBlocking {
-    val helper = MavenCustomRepositoryHelper(myDir, "local1", "remote")
+    val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     val remoteRepoPath = helper.getTestDataPath("remote")
     val localRepoPath = helper.getTestDataPath("local1")
     httpServerFixture.startRepositoryFor(File(remoteRepoPath), USERNAME, PASSWORD)
@@ -140,7 +170,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
   @Test
   fun testDownloadedFromRepositoryWithWrongAuthentificationLeadsToError() = runBlocking {
     assumeTrue(isWorkspaceImport)
-    val helper = MavenCustomRepositoryHelper(myDir, "local1", "remote")
+    val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     val remoteRepoPath = helper.getTestDataPath("remote")
     val localRepoPath = helper.getTestDataPath("local1")
     httpServerFixture.startRepositoryFor(File(remoteRepoPath), USERNAME, PASSWORD)
@@ -165,7 +195,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
     removeFromLocalRepository("org/mytest/myartifact/")
     assertFalse(helper.getTestData("local1/org/mytest/myartifact/1.0/myartifact-1.0.jar").isFile)
     createProjectPom(pom())
-    doImportProjects(listOf(myProjectPom), false)
+    doImportProjectsAsync(listOf(projectPom), false)
     TestCase.assertEquals(1, projectsManager.rootProjects.size)
     TestCase.assertEquals("status code: 401, reason phrase: Unauthorized (401)",
                           projectsManager.rootProjects[0].problems.single { it.type == MavenProjectProblem.ProblemType.REPOSITORY }.description)
@@ -173,7 +203,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun `settings xml respected at the very start of the container`() = runBlocking {
-    val helper = MavenCustomRepositoryHelper(myDir, "local1", "remote")
+    val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     val remoteRepoPath = helper.getTestDataPath("remote")
     val localRepoPath = helper.getTestDataPath("local1")
     httpServerFixture.startRepositoryFor(File(remoteRepoPath), USERNAME, PASSWORD)
@@ -235,7 +265,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
     Registry.get("maven.server.debug").setValue(false)
     removeFromLocalRepository("org/mytest/myartifact/")
     assertFalse(helper.getTestData("local1/org/mytest/myartifact/1.0/myartifact-1.0.jar").isFile)
-    val embedderWrapper = MavenServerManager.getInstance().createEmbedder(myProject, true, myProjectRoot.toNioPath().toString())
+    val embedderWrapper = MavenServerManager.getInstance().createEmbedder(project, true, projectRoot.toNioPath().toString())
     val embedder = embedderWrapper.getEmbedder()
     assertTrue("Embedder should be remote object: got class ${embedder.javaClass.name}", embedder.javaClass.name.contains("\$Proxy"))
     assertFalse(embedder.javaClass.isAssignableFrom(MisconfiguredPlexusDummyEmbedder::class.java))
@@ -275,13 +305,13 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
       TestCase.assertEquals(1, projectsManager.rootProjects.size)
       TestCase.assertEquals(projectsManager.rootProjects[0].problems.joinToString{it.toString()},0, projectsManager.rootProjects[0].problems.size)
     }
-    val helper = MavenCustomRepositoryHelper(myDir, "local1", "remote")
+    val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     removeFromLocalRepository("org/mytest/myartifact/")
     assertFalse(helper.getTestData("local1/org/mytest/myartifact/1.0/myartifact-1.0.jar").isFile)
   }
 
   private fun doLastUpdatedTest(updateSnapshots: Boolean, pomContent: String, checks: () -> Unit) = runBlocking {
-    val helper = MavenCustomRepositoryHelper(myDir, "local1", "remote")
+    val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     val remoteRepoPath = helper.getTestDataPath("remote")
     val localRepoPath = helper.getTestDataPath("local1")
     httpServerFixture.startRepositoryFor(remoteRepoPath)
@@ -307,6 +337,11 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
 
     File(dir, "myartifact-1.0.jar.lastUpdated").writeText(lastUpdatedText)
     File(dir, "myartifact-1.0.pom.lastUpdated").writeText(lastUpdatedText)
+
+    sendGetRequest("$myUrl/org/mytest/myartifact/1.0/myartifact-1.0.pom")
+    sendGetRequest("$myUrl/org/mytest/myartifact/1.0/myartifact-1.0.pom.sha1")
+    sendGetRequest("$myUrl/org/mytest/myartifact/1.0/myartifact-1.0.jar")
+    sendGetRequest("$myUrl/org/mytest/myartifact/1.0/myartifact-1.0.jar.sha1")
 
     importProjectAsync(pomContent)
     checks()

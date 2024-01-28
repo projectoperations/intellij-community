@@ -21,10 +21,10 @@ import com.intellij.util.io.ZipUtil
 import com.intellij.util.io.systemIndependentPath
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.kotlin.idea.core.script.ScriptDefinitionContributor
-import org.jetbrains.kotlin.idea.test.InTextDirectivesUtils
+import org.jetbrains.kotlin.idea.base.test.InTextDirectivesUtils
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils
-import org.jetbrains.kotlin.test.util.addDependency
+import org.jetbrains.kotlin.idea.test.addDependency
 import org.jetbrains.kotlin.test.util.jarRoot
 import org.jetbrains.kotlin.test.util.projectLibrary
 import org.junit.runner.RunWith
@@ -88,7 +88,7 @@ abstract class AbstractScriptTemplatesFromDependenciesTest : HeavyPlatformTestCa
         val provider = ScriptDefinitionContributor.find<ScriptTemplatesFromDependenciesProvider>(project)
             ?: error("Cannot find ScriptTemplatesFromDependenciesProvider")
 
-        val (templates, classpath) = provider.getTemplateClassPath(roots.toList(), EmptyProgressIndicator())
+        val (templates, classpath) = provider.getTemplateClassPath(roots.toList())
 
         checkTemplateNames(fileText, templates)
         checkTemplateClasspath(fileText, classpath)

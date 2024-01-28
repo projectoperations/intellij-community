@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.data
 
 import com.intellij.icons.AllIcons
@@ -198,6 +198,8 @@ class TestJbService : JbService {
     }
   }
 
+  override fun hasDataToImport() = true
+
   override fun importSettings(productId: String, data: List<DataForSave>): DialogImportData {
     LOG.info("${IMPORT_SERVICE} importSettings product: $productId data: ${data.size}")
     return importFromProduct
@@ -229,6 +231,8 @@ class TestExternalService : ExternalService {
     private val LOG = logger<TestExternalService>()
   }
 
+  override suspend fun hasDataToImport() = true
+
   override suspend fun warmUp() {}
 
   override fun products(): List<Product> {
@@ -254,6 +258,8 @@ class TestSyncService : SyncService {
   companion object {
     private val LOG = logger<TestSyncService>()
   }
+
+  override fun hasDataToImport() = true
 
   override fun baseProduct(id: String): Boolean {
     return id == TestJbService.main.id
@@ -341,11 +347,11 @@ class TestChildrenSettings(override val name: String,
 class TestSimpleImport(override val message: String, override val progress: ImportProgress) : DialogImportData
 
 class TestImportFromProduct(
-  override val from: DialogImportItem,
+  override val  from: DialogImportItem,
   override val to: DialogImportItem,
   override val progress: ImportProgress, override val message: String? = "From ${from.item.name}") : ImportFromProduct
 
-class TestImportProgress(lifetime: Lifetime) : ImportProgress {
+open class TestImportProgress(lifetime: Lifetime) : ImportProgress {
   override val progressMessage = Property<String?>(null)
   override val progress = OptProperty<Int>()
 

@@ -144,8 +144,15 @@ fun KtExpression.safeDeparenthesize(): KtExpression = KtPsiUtil.safeDeparenthesi
 fun KtDeclaration.isExpectDeclaration(): Boolean =
     when {
         hasExpectModifier() -> true
+        this is KtParameter -> ownerFunction?.isExpectDeclaration() == true
         else -> containingClassOrObject?.isExpectDeclaration() == true
     }
+
+fun KtDeclaration.isEffectivelyActual(checkConstructor: Boolean = true): Boolean = when {
+    hasActualModifier() -> true
+    this is KtEnumEntry || checkConstructor && this is KtConstructor<*> -> containingClass()?.hasActualModifier() == true
+    else -> false
+}
 
 fun KtPropertyAccessor.deleteBody() {
     val leftParenthesis = leftParenthesis ?: return

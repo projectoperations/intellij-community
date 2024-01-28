@@ -4,7 +4,7 @@ package com.intellij.ide.startup.importSettings.chooser.settingChooser
 import com.intellij.CommonBundle
 import com.intellij.ide.startup.importSettings.ImportSettingsBundle
 import com.intellij.ide.startup.importSettings.chooser.ui.ImportSettingsController
-import com.intellij.ide.startup.importSettings.chooser.ui.ImportSettingsPage
+import com.intellij.ide.startup.importSettings.chooser.ui.OnboardingPage
 import com.intellij.ide.startup.importSettings.data.*
 import com.intellij.openapi.application.ApplicationBundle
 import com.intellij.openapi.ui.DialogWrapper
@@ -19,7 +19,6 @@ import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
-import com.intellij.ui.util.preferredWidth
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import java.awt.*
@@ -30,11 +29,11 @@ import javax.swing.ScrollPaneConstants
 
 abstract class SettingChooserPage(private val provider: ActionsDataProvider<*>,
                                   val product: SettingsContributor,
-                                  controller: ImportSettingsController) : ImportSettingsPage {
+                                  controller: ImportSettingsController) : OnboardingPage {
   companion object {
     fun createPage(provider: ActionsDataProvider<*>,
                    product: SettingsContributor,
-                   controller: ImportSettingsController): ImportSettingsPage {
+                   controller: ImportSettingsController): OnboardingPage {
       if (provider is SyncActionsDataProvider && provider.productService.baseProduct(product.id)) {
         return SyncSettingChooserPage(provider, product, controller)
       }
@@ -90,7 +89,8 @@ abstract class SettingChooserPage(private val provider: ActionsDataProvider<*>,
         }
       }.align(AlignY.TOP)
     }.apply {
-      preferredWidth = JBUI.scale(200)
+      preferredSize = Dimension(JBUI.scale(200), preferredSize.height)
+
       border = JBUI.Borders.empty(20, 20, 0, 0)
     }, BorderLayout.WEST)
 
@@ -103,7 +103,6 @@ abstract class SettingChooserPage(private val provider: ActionsDataProvider<*>,
         add(st.component())
       }
     }
-
     add(
       JBScrollPane(listPane).apply {
         viewport.isOpaque = false

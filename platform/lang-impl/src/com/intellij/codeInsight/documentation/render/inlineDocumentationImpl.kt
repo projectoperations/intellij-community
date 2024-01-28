@@ -1,7 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.documentation.render
 
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
 import com.intellij.platform.backend.documentation.InlineDocumentation
 import com.intellij.platform.backend.documentation.InlineDocumentationProvider.EP_NAME
@@ -26,23 +27,23 @@ internal fun inlineDocumentationItems(file: PsiFile): List<InlineDocumentation> 
 @RequiresReadLock
 @RequiresBackgroundThread
 internal fun findInlineDocumentation(file: PsiFile, textRange: TextRange): InlineDocumentation? {
-  return EP_NAME.extensionList.mapNotNull { it.findInlineDocumentation(file, textRange) }.firstOrNull()
+  return EP_NAME.extensionList.firstNotNullOfOrNull {
+    it.findInlineDocumentation(file, textRange)
+  }
 }
 
-@Nls
-@JvmField
-val START_TIP_PREFIX = "<tip>"
+@NlsSafe
+const val START_TIP_PREFIX = "<tip>"
 
-@Nls
-@JvmField
-val END_TIP_SUFFIX = "</tip>"
+@NlsSafe
+const val END_TIP_SUFFIX = "</tip>"
 
 internal fun unwrapTipsText(text: @Nls String): @Nls String {
   if (!text.startsWith(START_TIP_PREFIX) || !text.endsWith(END_TIP_SUFFIX)) error("Invalid text: $text")
   return text.substring(START_TIP_PREFIX.length, text.length - END_TIP_SUFFIX.length)
 }
 
-fun createAdditionalStylesForTips(editor: Editor): String {
+internal fun createAdditionalStylesForTips(editor: Editor): String {
   val defaultBackground = ColorUtil.toHtmlColor(editor.colorsScheme.getDefaultBackground())
   val foreground = ColorUtil.toHtmlColor(JBUI.CurrentTheme.StatusBar.Widget.FOREGROUND)
   val border = ColorUtil.toHtmlColor(JBUI.CurrentTheme.Button.disabledOutlineColor())

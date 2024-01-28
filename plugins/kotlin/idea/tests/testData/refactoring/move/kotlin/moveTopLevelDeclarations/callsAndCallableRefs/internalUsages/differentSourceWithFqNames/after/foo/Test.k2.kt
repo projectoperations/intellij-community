@@ -1,7 +1,6 @@
 package foo
 
-import foo.A.Companion.companionExtensionMember
-import foo.O.objectExtensionMember1
+import foo.O.objectExtensionMember2
 
 fun test() {
     foo.A().classMember()
@@ -14,9 +13,9 @@ fun test() {
     foo.J().javaClassMember()
     foo.J.javaClassStaticMember()
     foo.topLevel()
-    with(O) { 1.objectExtensionMember1() }
+    with(foo.O) { 1.objectExtensionMember1() }
     1.objectExtensionMember2()
-    with(A) { 1.companionExtensionMember() }
+    with(foo.A) { 1.companionExtensionMember() }
 
     foo.A()::classMember
     foo.A::classMember
@@ -34,7 +33,7 @@ fun test() {
     foo.J::javaClassStaticMember
     //::topLevel // not usable without import
 
-    with(A()) {
+    with(foo.A()) {
         classMember()
         this.classMember()
         classExtension()
@@ -44,7 +43,7 @@ fun test() {
         this::classExtension
     }
 
-    with(J()) {
+    with(foo.J()) {
         javaClassMember()
         this.javaClassMember()
 

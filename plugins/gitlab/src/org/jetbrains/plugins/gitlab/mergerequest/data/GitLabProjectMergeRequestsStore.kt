@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.plugins.gitlab.api.GitLabApi
 import org.jetbrains.plugins.gitlab.api.GitLabProjectCoordinates
 import org.jetbrains.plugins.gitlab.api.GitLabServerMetadata
+import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.api.request.getCurrentUser
 import org.jetbrains.plugins.gitlab.mergerequest.api.dto.GitLabMergeRequestByBranchDTO
 import org.jetbrains.plugins.gitlab.mergerequest.api.dto.GitLabMergeRequestDTO
@@ -49,9 +50,12 @@ interface GitLabProjectMergeRequestsStore {
   suspend fun reloadMergeRequest(iid: String)
 
   /**
-   * Find merge requests on a remote with a source branch name [sourceBranchName] and a target branch name [targetBranchName]
+   * Find merge requests in specified [state] on a remote
+   * with a source branch name [sourceBranchName] and a target branch name [targetBranchName]
    */
-  suspend fun findByBranches(sourceBranchName: String, targetBranchName: String? = null): List<GitLabMergeRequestByBranchDTO>
+  suspend fun findByBranches(state: GitLabMergeRequestState,
+                             sourceBranchName: String,
+                             targetBranchName: String? = null): List<GitLabMergeRequestByBranchDTO>
 }
 
 class CachingGitLabProjectMergeRequestsStore(private val project: Project,
@@ -59,6 +63,7 @@ class CachingGitLabProjectMergeRequestsStore(private val project: Project,
                                              private val api: GitLabApi,
                                              private val glMetadata: GitLabServerMetadata?,
                                              private val projectMapping: GitLabProjectMapping,
+                                             private val currentUser: GitLabUserDTO,
                                              private val tokenRefreshFlow: Flow<Unit>) : GitLabProjectMergeRequestsStore {
 
   private val cs = parentCs.childScope()
@@ -90,16 +95,18 @@ class CachingGitLabProjectMergeRequestsStore(private val project: Project,
         .withInitial(iid)
         .map { mrId -> runCatchingUser { loadMergeRequest(mrId) } } // TODO: create from cached details
         .transformConsecutiveSuccesses {
-          mapScoped { mrData -> LoadedGitLabMergeRequest(project, this, api, glMetadata, projectMapping, mrData) }
+          mapScoped { mrData -> LoadedGitLabMergeRequest(project, this, api, glMetadata, projectMapping, currentUser, mrData) }
         }
         .shareIn(cs, SharingStarted.WhileSubscribed(0, 0), 1)
       // this the model will only be alive while it's needed
     }
   }
 
-  override suspend fun findByBranches(sourceBranchName: String, targetBranchName: String?): List<GitLabMergeRequestByBranchDTO> =
+  override suspend fun findByBranches(state: GitLabMergeRequestState,
+                                      sourceBranchName: String,
+                                      targetBranchName: String?): List<GitLabMergeRequestByBranchDTO> =
     withContext(Dispatchers.IO) {
-      api.graphQL.findMergeRequestsByBranch(projectMapping.repository, sourceBranchName, targetBranchName).body()!!.nodes
+      api.graphQL.findMergeRequestsByBranch(projectMapping.repository, state, sourceBranchName, targetBranchName).body()!!.nodes
     }
 
   override fun findCachedDetails(iid: String): GitLabMergeRequestDetails? = detailsCache.getIfPresent(iid)

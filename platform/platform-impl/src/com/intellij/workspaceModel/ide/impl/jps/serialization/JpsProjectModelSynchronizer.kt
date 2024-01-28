@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.jps.serialization
 
 import com.intellij.configurationStore.StoreReloadManager
@@ -32,6 +32,7 @@ import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
 import com.intellij.platform.backend.workspace.WorkspaceModelTopics
 import com.intellij.platform.backend.workspace.WorkspaceModelUnloadedStorageChangeListener
+import com.intellij.platform.backend.workspace.impl.internal
 import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
 import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.jps.*
@@ -42,13 +43,15 @@ import com.intellij.platform.workspace.storage.DummyParentEntitySource
 import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.VersionedStorageChange
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.project.stateStore
 import com.intellij.util.PlatformUtils.*
 import com.intellij.workspaceModel.ide.EntitiesOrphanage
-import com.intellij.workspaceModel.ide.getInstance
 import com.intellij.workspaceModel.ide.getJpsProjectConfigLocation
 import com.intellij.workspaceModel.ide.impl.*
+import com.intellij.workspaceModel.ide.impl.legacyBridge.library.LegacyCustomLibraryEntitySource
 import io.opentelemetry.api.metrics.Meter
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.jps.util.JpsPathUtil
@@ -95,7 +98,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
   }
 
   private val incomingChanges = Collections.synchronizedList(ArrayList<JpsConfigurationFilesChange>())
-  private val virtualFileManager: VirtualFileUrlManager = VirtualFileUrlManager.getInstance(project)
+  private val virtualFileManager: VirtualFileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
   private lateinit var fileContentReader: JpsFileContentReaderWithCache
   private val serializers = AtomicReference<JpsProjectSerializers?>()
   private val sourcesToSave = Collections.synchronizedSet(HashSet<EntitySource>())
@@ -112,6 +115,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
     }
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   suspend fun reloadProjectEntities() = reloadProjectEntitiesTimeMs.addMeasuredTimeMillis {
     if (StoreReloadManager.getInstance(project).isReloadBlocked()) {
       LOG.debug("Skip reloading because it's blocked")
@@ -141,9 +145,9 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
     LOG.debugValues("Changed entity sources", reloadingResult.affectedSources)
 
     if (reloadingResult.affectedSources.isEmpty() &&
-        !reloadingResult.builder.hasChanges() &&
-        !reloadingResult.unloadedEntityBuilder.hasChanges() &&
-        !reloadingResult.orphanageBuilder.hasChanges()) {
+        !(reloadingResult.builder as MutableEntityStorageInstrumentation).hasChanges() &&
+        !(reloadingResult.unloadedEntityBuilder as MutableEntityStorageInstrumentation).hasChanges() &&
+        !(reloadingResult.orphanageBuilder as MutableEntityStorageInstrumentation).hasChanges()) {
       return@addMeasuredTimeMillis
     }
 
@@ -156,13 +160,13 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       val description = "Reload entities after changes in JPS configuration files"
 
       // Update builder of unloaded entities
-      if (reloadingResult.unloadedEntityBuilder.hasChanges()) {
-        WorkspaceModel.getInstance(project).updateUnloadedEntities(description) { builder ->
+      if ((reloadingResult.unloadedEntityBuilder as MutableEntityStorageInstrumentation).hasChanges()) {
+        WorkspaceModel.getInstance(project).internal.updateUnloadedEntities(description) { builder ->
           builder.replaceBySource(affectedEntityFilter, reloadingResult.unloadedEntityBuilder.toSnapshot())
         }
       }
 
-      val unloadedBuilder = MutableEntityStorage.from(WorkspaceModel.getInstance(project).currentSnapshotOfUnloadedEntities)
+      val unloadedBuilder = MutableEntityStorage.from(WorkspaceModel.getInstance(project).internal.currentSnapshotOfUnloadedEntities)
       WorkspaceModel.getInstance(project).updateProjectModel(description) { updater ->
         val storage = reloadingResult.builder.toSnapshot()
         updater.replaceBySource(affectedEntityFilter, storage)
@@ -171,8 +175,8 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       addUnloadedModuleEntities(unloadedBuilder)
       sourcesToSave.removeAll(reloadingResult.affectedSources)
 
-      if (reloadingResult.orphanageBuilder.hasChanges()) {
-        EntitiesOrphanage.getInstance(project).update { it.addDiff(reloadingResult.orphanageBuilder) }
+      if ((reloadingResult.orphanageBuilder as MutableEntityStorageInstrumentation).hasChanges()) {
+        EntitiesOrphanage.getInstance(project).update { it.applyChangesFrom(reloadingResult.orphanageBuilder) }
       }
     }
   }
@@ -295,7 +299,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       childActivity = childActivity?.endAndStart("applying entities from global storage")
       val mutableStorage = MutableEntityStorage.create()
       GlobalWorkspaceModel.getInstance().applyStateToProjectBuilder(project, mutableStorage)
-      builder.addDiff(mutableStorage)
+      builder.applyChangesFrom(mutableStorage)
       childActivity = childActivity?.endAndStart("applying loaded changes (in queue)")
       LoadedProjectEntities(builder, orphanage, unloadedEntitiesBuilder, sourcesToUpdate)
     }
@@ -312,6 +316,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
     return loadedProjectEntities
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   suspend fun applyLoadedStorage(projectEntities: LoadedProjectEntities?) = applyLoadedStorageTimeMs.addMeasuredTimeMillis {
     if (projectEntities == null) {
       return@addMeasuredTimeMillis
@@ -321,16 +326,17 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       // add logs
       childActivity = childActivity?.endAndStart("applying loaded changes")
       val description = "Apply JPS storage (iml files)"
-      val sourceFilter = { entitySource: EntitySource ->
-        entitySource is JpsFileEntitySource || entitySource is JpsFileDependentEntitySource || entitySource is CustomModuleEntitySource
-        || entitySource is DummyParentEntitySource
+      val sourceFilter = { entitySource: EntitySource -> entitySource is JpsFileEntitySource // covers all global SDK and libraries
+        || entitySource is JpsFileDependentEntitySource
+        || entitySource is CustomModuleEntitySource || entitySource is DummyParentEntitySource // covers CIDR related entities
+        || entitySource is LegacyCustomLibraryEntitySource // covers custom libraries
       }
-      if (projectEntities.unloadedEntitiesBuilder.hasChanges()) {
-        WorkspaceModel.getInstance(project).updateUnloadedEntities(description) { updater ->
+      if ((projectEntities.unloadedEntitiesBuilder as MutableEntityStorageInstrumentation).hasChanges()) {
+        WorkspaceModel.getInstance(project).internal.updateUnloadedEntities(description) { updater ->
           updater.replaceBySource(sourceFilter, projectEntities.unloadedEntitiesBuilder)
         }
       }
-      val unloadedBuilder = MutableEntityStorage.from(WorkspaceModel.getInstance(project).currentSnapshotOfUnloadedEntities)
+      val unloadedBuilder = MutableEntityStorage.from(WorkspaceModel.getInstance(project).internal.currentSnapshotOfUnloadedEntities)
       WorkspaceModel.getInstance(project).updateProjectModel(description) { updater ->
         updater.replaceBySource(sourceFilter, projectEntities.builder)
         childActivity = childActivity?.endAndStart("unloaded modules loading")
@@ -339,7 +345,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       addUnloadedModuleEntities(unloadedBuilder)
 
       EntitiesOrphanage.getInstance(project).update {
-        it.addDiff(projectEntities.orphanageBuilder)
+        it.applyChangesFrom(projectEntities.orphanageBuilder)
       }
       childActivity?.end()
       childActivity = null
@@ -359,10 +365,11 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
     ModuleManagerEx.getInstanceEx(project).unloadNewlyAddedModulesIfPossible(builder, unloadedEntitiesBuilder)
   }
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   private fun addUnloadedModuleEntities(diff: MutableEntityStorage) {
-    if (diff.hasChanges()) {
-      WorkspaceModel.getInstance(project).updateUnloadedEntities("Add new unloaded modules") { updater ->
-        updater.addDiff(diff)
+    if ((diff as MutableEntityStorageInstrumentation).hasChanges()) {
+      WorkspaceModel.getInstance(project).internal.updateUnloadedEntities("Add new unloaded modules") { updater ->
+        updater.applyChangesFrom(diff)
       }
     }
   }
@@ -403,7 +410,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       return@addMeasuredTimeMillis
     }
     val storage = WorkspaceModel.getInstance(project).currentSnapshot
-    val unloadedEntitiesStorage = WorkspaceModel.getInstance(project).currentSnapshotOfUnloadedEntities
+    val unloadedEntitiesStorage = WorkspaceModel.getInstance(project).internal.currentSnapshotOfUnloadedEntities
     val affectedSources = synchronized(sourcesToSave) {
       val copy = HashSet(sourcesToSave)
       sourcesToSave.clear()
@@ -419,7 +426,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       newSerializers.changeEntitySourcesToDirectoryBasedFormat(it)
     }
     val moduleSources = WorkspaceModel.getInstance(project).currentSnapshot.entities(ModuleEntity::class.java).map { it.entitySource }
-    val unloadedModuleSources = WorkspaceModel.getInstance(project).currentSnapshotOfUnloadedEntities.entities(
+    val unloadedModuleSources = WorkspaceModel.getInstance(project).internal.currentSnapshotOfUnloadedEntities.entities(
       ModuleEntity::class.java).map { it.entitySource }
     synchronized(sourcesToSave) {
       // trigger save for modules.xml
@@ -431,8 +438,9 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
 
   @TestOnly
   fun markAllEntitiesAsDirty() {
-    val allSources = WorkspaceModel.getInstance(project).currentSnapshot.entitiesBySource { true }.keys +
-                     WorkspaceModel.getInstance(project).currentSnapshotOfUnloadedEntities.entitiesBySource { true }.keys
+    val allSources = WorkspaceModel.getInstance(project).currentSnapshot.entitiesBySource { true }.mapTo(HashSet()) { it.entitySource } +
+                     WorkspaceModel.getInstance(project).internal.currentSnapshotOfUnloadedEntities.entitiesBySource { true }.mapTo(
+                       HashSet()) { it.entitySource }
     synchronized(sourcesToSave) {
       sourcesToSave.addAll(allSources)
     }

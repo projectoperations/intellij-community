@@ -1,12 +1,13 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:OptIn(EntityStorageInstrumentationApi::class)
 
 package com.intellij.platform.workspace.storage.tests.trace
 
-import com.intellij.platform.workspace.storage.EntityStorageSnapshot
+import com.intellij.platform.workspace.storage.ImmutableEntityStorage
 import com.intellij.platform.workspace.storage.annotations.Child
 import com.intellij.platform.workspace.storage.impl.asBase
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.ImmutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.testEntities.entities.*
 import com.intellij.platform.workspace.storage.tests.createEmptyBuilder
 import com.intellij.platform.workspace.storage.toBuilder
@@ -21,7 +22,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class TraceTest {
-  lateinit var snapshot: EntityStorageSnapshot
+  lateinit var snapshot: ImmutableEntityStorage
 
   @BeforeEach
   fun setUp() {
@@ -64,7 +65,7 @@ class TraceTest {
   fun `traced storage creates traced entities for resolve reference`() {
     ReadTracker.trace(snapshot) {
       val entity = it.resolve(NameId("name"))!!
-      val entityRef = entity.createReference<NamedEntity>()
+      val entityRef = entity.createPointer<NamedEntity>()
       val resolvedEntity = entityRef.resolve(it)
       val createdSnapshot = resolvedEntity!!.asBase().snapshot
       assertIs<ReadTracker>(createdSnapshot)
@@ -81,9 +82,10 @@ class TraceTest {
   }
 
   @Test
+  @OptIn(EntityStorageInstrumentationApi::class)
   fun `get entities amount`() {
     val traces = ReadTracker.trace(snapshot) {
-      it.entitiesAmount(NamedEntity::class.java)
+      (it as ImmutableEntityStorageInstrumentation).entityCount(NamedEntity::class.java)
     }
 
     assertEquals(ReadTrace.EntitiesOfType(NamedEntity::class.java), traces.single())

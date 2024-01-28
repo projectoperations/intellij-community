@@ -9,30 +9,23 @@ import org.jetbrains.plugins.gradle.settings.GradleSettings
 import org.jetbrains.plugins.gradle.testFramework.util.importProject
 import org.junit.Test
 
-@Suppress("GrUnresolvedAccess")
 class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImportingTestCase() {
 
   @Test
   fun `test build script errors on Sync`() {
     createSettingsFile("include 'api', 'impl' ")
+    createProjectSubDir("api")
     createProjectSubFile("impl/build.gradle",
                          "dependencies {\n" +
                          "   ghostConf project(':api')\n" +
                          "}")
     importProject("subprojects { apply plugin: 'java' }")
 
-    val expectedExecutionTree = when {
-      isGradleOlderThan("2.14") ->
-        "-\n" +
-        " -failed\n" +
-        "  -build.gradle\n" +
-        "   Could not find method ghostConf() for arguments [project ':api'] on project ':impl'"
-      else ->
-        "-\n" +
-        " -failed\n" +
-        "  -build.gradle\n" +
-        "   Could not find method ghostConf() for arguments [project ':api'] on object of type org.gradle.api.internal.artifacts.dsl.dependencies.DefaultDependencyHandler"
-    }
+    val expectedExecutionTree =
+      "-\n" +
+      " -failed\n" +
+      "  -build.gradle\n" +
+      "   Could not find method ghostConf() for arguments [project ':api'] on object of type org.gradle.api.internal.artifacts.dsl.dependencies.DefaultDependencyHandler"
     assertSyncViewTreeEquals(expectedExecutionTree)
   }
 
@@ -53,57 +46,44 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
                          """.trimIndent())
     importProject("apply plugin: example.SomePlugin")
 
-    var expectedExecutionTree: String = "-\n" +
-                                        " -failed\n"
-    if (isGradleNewerOrSameAs("3.3") &&
-        isGradleOlderThan("4.5")) {
-      expectedExecutionTree += "  :buildSrc:clean\n"
+    assertSyncViewTree {
+      assertNode("failed") {
+        assertNode(":buildSrc:compileJava")
+        assertNode(":buildSrc:compileGroovy")
+        assertNode(":buildSrc:processResources")
+        assertNode(":buildSrc:classes")
+        assertNode(":buildSrc:jar")
+        if (isGradleOlderThan("8.0")) {
+          assertNode(":buildSrc:assemble")
+          assertNode(":buildSrc:compileTestJava")
+          assertNode(":buildSrc:compileTestGroovy")
+          assertNode(":buildSrc:processTestResources")
+          assertNode(":buildSrc:testClasses")
+          assertNode(":buildSrc:test")
+          assertNode(":buildSrc:check")
+          assertNode(":buildSrc:build")
+        }
+        assertNode("build.gradle") {
+          assertNode("Something's wrong!")
+        }
+      }
     }
-
-    if (isGradleNewerOrSameAs("3.3") && isGradleOlderThan("8.0")) {
-      expectedExecutionTree += "  :buildSrc:compileJava\n" +
-                               "  :buildSrc:compileGroovy\n" +
-                               "  :buildSrc:processResources\n" +
-                               "  :buildSrc:classes\n" +
-                               "  :buildSrc:jar\n" +
-                               "  :buildSrc:assemble\n" +
-                               "  :buildSrc:compileTestJava\n" +
-                               "  :buildSrc:compileTestGroovy\n" +
-                               "  :buildSrc:processTestResources\n" +
-                               "  :buildSrc:testClasses\n" +
-                               "  :buildSrc:test\n" +
-                               "  :buildSrc:check\n" +
-                               "  :buildSrc:build\n"
-    }
-
-    if (isGradleNewerOrSameAs("8.0")) {
-      expectedExecutionTree += "  :buildSrc:compileJava\n" +
-                               "  :buildSrc:compileGroovy\n" +
-                               "  :buildSrc:processResources\n" +
-                               "  :buildSrc:classes\n" +
-                               "  :buildSrc:jar\n"
-    }
-
-    expectedExecutionTree += "  -build.gradle\n" +
-                             "   Something's wrong!"
-    assertSyncViewTreeEquals(expectedExecutionTree)
 
     val filePath = FileUtil.toSystemDependentName(myProjectConfig.path)
-    val tryScanSuggestion = if (isGradleNewerOrSameAs("4.10")) " Run with --scan to get full insights." else ""
-    val className = if (isGradleNewerOrSameAs("6.8")) "class 'example.SomePlugin'." else "[class 'example.SomePlugin']"
+    val className = if (isGradleAtLeast("6.8")) "class 'example.SomePlugin'." else "[class 'example.SomePlugin']"
 
     val tryText = when {
-      isGradleNewerOrSameAs("8.2") ->
-                              """|> Run with --stacktrace option to get the stack trace.
+      isGradleAtLeast("8.2") ->
+        """|> Run with --stacktrace option to get the stack trace.
                                  |> Run with --debug option to get more log output.
                                  |> Run with --scan to get full insights.
                                  |> Get more help at https://help.gradle.org."""
-      isGradleNewerOrSameAs("7.4") ->
-                              """|> Run with --stacktrace option to get the stack trace.
+      isGradleAtLeast("7.4") ->
+        """|> Run with --stacktrace option to get the stack trace.
                                  |> Run with --debug option to get more log output.
                                  |> Run with --scan to get full insights."""
       else ->
-      """|Run with --stacktrace option to get the stack trace. Run with --debug option to get more log output.$tryScanSuggestion"""
+        """|Run with --stacktrace option to get the stack trace. Run with --debug option to get more log output. Run with --scan to get full insights."""
     }
     assertSyncViewSelectedNode("Something's wrong!",
                                """
@@ -145,11 +125,8 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     }
     assertSyncViewSelectedNode("Could not resolve junit:junit:4.12 for project:test",
                                "project:test: Cannot resolve external dependency junit:junit:4.12 because no repositories are defined.\n" +
-                               when {
-                                 isNewDependencyResolutionApplicable -> "Required by:\n" +
-                                                                        "    project :\n"
-                                 else -> ""
-                               } +
+                               "Required by:\n" +
+                               "    project :\n" +
                                "\n" +
                                "Possible solution:\n" +
                                " - Declare repository providing the artifact, see the documentation at https://docs.gradle.org/current/userguide/declaring_repositories.html\n" +
@@ -159,7 +136,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     importProject {
       withJavaPlugin()
       withRepository {
-        mavenRepository(MAVEN_REPOSITORY, isGradleNewerOrSameAs("6.0"))
+        mavenRepository(MAVEN_REPOSITORY, isGradleAtLeast("6.0"))
       }
       addTestImplementationDependency("junit:junit:4.12")
     }
@@ -174,7 +151,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     importProject {
       withJavaPlugin()
       withRepository {
-        mavenRepository(MAVEN_REPOSITORY, isGradleNewerOrSameAs("6.0"))
+        mavenRepository(MAVEN_REPOSITORY, isGradleAtLeast("6.0"))
       }
       addTestImplementationDependency("junit:junit:4.12")
       addTestImplementationDependency("junit:junit:99.99")
@@ -186,10 +163,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
       }
     }
     assertSyncViewSelectedNode("Could not resolve junit:junit:99.99 for project:test",
-                               when {
-                                 isNewDependencyResolutionApplicable -> "project:test: No cached version of junit:junit:99.99 available for offline mode.\n"
-                                 else -> "project:test: Could not resolve junit:junit:99.99.\n"
-                               } +
+                               "project:test: No cached version of junit:junit:99.99 available for offline mode.\n" +
                                "\n" +
                                "Possible solution:\n" +
                                " - Disable offline mode and reload the project\n" +
@@ -201,7 +175,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     importProject {
       withJavaPlugin()
       withRepository {
-        mavenRepository(MAVEN_REPOSITORY, isGradleNewerOrSameAs("6.0"))
+        mavenRepository(MAVEN_REPOSITORY, isGradleAtLeast("6.0"))
       }
       addTestImplementationDependency("junit:junit:4.12")
       addTestImplementationDependency("junit:junit:99.99")
@@ -226,7 +200,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     importProject {
       withJavaPlugin()
       withRepository {
-        mavenRepository(MAVEN_REPOSITORY, isGradleNewerOrSameAs("6.0"))
+        mavenRepository(MAVEN_REPOSITORY, isGradleAtLeast("6.0"))
       }
       addTestImplementationDependency("junit:junit:4.12")
       addTestImplementationDependency("junit:junit:99.99")
@@ -242,11 +216,8 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
                                "Searched in the following locations:\n" +
                                "  $itemLinePrefix $MAVEN_REPOSITORY/junit/junit/99.99/junit-99.99.pom\n" +
                                "  $itemLinePrefix $MAVEN_REPOSITORY/junit/junit/99.99/junit-99.99.jar\n" +
-                               when {
-                                 isNewDependencyResolutionApplicable -> "Required by:\n" +
-                                                                        "    project :\n"
-                                 else -> ""
-                               } +
+                               "Required by:\n" +
+                               "    project :\n" +
                                "\n" +
                                "Possible solution:\n" +
                                " - Declare repository providing the artifact, see the documentation at https://docs.gradle.org/current/userguide/declaring_repositories.html\n" +
@@ -255,10 +226,8 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
 
   @Test
   fun `test unresolved build script dependencies errors on Sync`() {
-    val requiredByProject = if (isGradleOlderThan("3.1")) ":project:unspecified" else "project :"
     val artifacts = when {
-      isGradleOlderThan("4.0") -> "dependencies"
-      isGradleNewerOrSameAs("4.6") && isGradleOlderThan("7.4") -> "artifacts"
+      isGradleAtLeast("4.6") && isGradleOlderThan("7.4") -> "artifacts"
       else -> "files"
     }
 
@@ -274,7 +243,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
                                "> Could not resolve all $artifacts for configuration ':classpath'.\n" +
                                "   > Cannot resolve external dependency junit:junit:4.12 because no repositories are defined.\n" +
                                "     Required by:\n" +
-                               "         $requiredByProject\n" +
+                               "         project :\n" +
                                "\n" +
                                "Possible solution:\n" +
                                " - Declare repository providing the artifact, see the documentation at https://docs.gradle.org/current/userguide/declaring_repositories.html\n" +
@@ -283,7 +252,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     // successful import when repository is added
     importProject {
       withBuildScriptRepository {
-        mavenRepository(MAVEN_REPOSITORY, isGradleNewerOrSameAs("6.0"))
+        mavenRepository(MAVEN_REPOSITORY, isGradleAtLeast("6.0"))
       }
       addBuildScriptDependency("classpath 'junit:junit:4.12'")
     }
@@ -297,7 +266,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     GradleSettings.getInstance(myProject).isOfflineWork = true
     importProject {
       withBuildScriptRepository {
-        mavenRepository(MAVEN_REPOSITORY, isGradleNewerOrSameAs("6.0"))
+        mavenRepository(MAVEN_REPOSITORY, isGradleAtLeast("6.0"))
       }
       addBuildScriptDependency("classpath 'junit:junit:4.12'")
       addBuildScriptDependency("classpath 'junit:junit:99.99'")
@@ -310,11 +279,11 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
                                "> Could not resolve all $artifacts for configuration ':classpath'.\n" +
                                "   > Could not resolve junit:junit:99.99.\n" +
                                "     Required by:\n" +
-                               "         $requiredByProject\n" +
+                               "         project :\n" +
                                "      > No cached version of junit:junit:99.99 available for offline mode.\n" +
                                "   > Could not resolve junit:junit:99.99.\n" +
                                "     Required by:\n" +
-                               "         $requiredByProject\n" +
+                               "         project :\n" +
                                "      > No cached version of junit:junit:99.99 available for offline mode.\n" +
                                "\n" +
                                "Possible solution:\n" +
@@ -327,7 +296,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     GradleSettings.getInstance(myProject).isOfflineWork = false
     importProject {
       withBuildScriptRepository {
-        mavenRepository(MAVEN_REPOSITORY, isGradleNewerOrSameAs("6.0"))
+        mavenRepository(MAVEN_REPOSITORY, isGradleAtLeast("6.0"))
       }
       addBuildScriptDependency("classpath 'junit:junit:4.12'")
       addBuildScriptDependency("classpath 'junit:junit:99.99'")
@@ -343,13 +312,13 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
                                "       $itemLinePrefix $MAVEN_REPOSITORY/junit/junit/99.99/junit-99.99.pom\n" +
                                "       $itemLinePrefix $MAVEN_REPOSITORY/junit/junit/99.99/junit-99.99.jar\n" +
                                "     Required by:\n" +
-                               "         $requiredByProject\n" +
+                               "         project :\n" +
                                "   > Could not find junit:junit:99.99.\n" +
                                "     Searched in the following locations:\n" +
                                "       $itemLinePrefix $MAVEN_REPOSITORY/junit/junit/99.99/junit-99.99.pom\n" +
                                "       $itemLinePrefix $MAVEN_REPOSITORY/junit/junit/99.99/junit-99.99.jar\n" +
                                "     Required by:\n" +
-                               "         $requiredByProject\n" +
+                               "         project :\n" +
                                "\n" +
                                "Possible solution:\n" +
                                " - Declare repository providing the artifact, see the documentation at https://docs.gradle.org/current/userguide/declaring_repositories.html\n" +
@@ -396,7 +365,7 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
                              " -failed\n" +
                              "  -build.gradle\n" +
                              "   only buildscript {}" +
-                             (if (isGradleNewerOrSameAs("7.4")) {", pluginManagement {}"} else {""}) +
+                             (if (isGradleAtLeast("7.4")) {", pluginManagement {}"} else {""}) +
                              " and other plugins {} script blocks are allowed before plugins {} blocks, no other statements are allowed")
 
   }
@@ -416,20 +385,15 @@ class GradleOutputParsersMessagesImportingTest : GradleOutputParsersMessagesImpo
     val filePath = FileUtil.toSystemDependentName(myProjectConfig.path)
     assertSyncViewSelectedNode("Cannot get property 'foo' on null object", true) {
       val trySuggestion = when {
-        isGradleNewerOrSameAs("8.2") ->
+        isGradleAtLeast("8.2") ->
           """|> Run with --debug option to get more log output.
              |> Run with --scan to get full insights.
              |> Get more help at https://help.gradle.org."""
-
-        isGradleNewerOrSameAs("7.4") ->
+        isGradleAtLeast("7.4") ->
           """|> Run with --debug option to get more log output.
              |> Run with --scan to get full insights."""
-
-        isGradleNewerOrSameAs("4.10") ->
-          "|Run with --debug option to get more log output. Run with --scan to get full insights."
-
         else ->
-          "|Run with --debug option to get more log output."
+          "|Run with --debug option to get more log output. Run with --scan to get full insights."
       }
       assertThat(it).startsWith("""|Build file '$filePath' line: 1
                                    |

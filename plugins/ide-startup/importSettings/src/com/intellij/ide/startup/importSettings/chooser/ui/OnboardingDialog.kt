@@ -2,7 +2,9 @@
 package com.intellij.ide.startup.importSettings.chooser.ui
 
 import com.intellij.ide.startup.importSettings.data.*
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.util.Disposer
 import com.intellij.platform.ide.bootstrap.StartupWizardStage
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
@@ -15,18 +17,17 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-class OnboardingDialog(cancelCallback: () -> Unit) : DialogWrapper(null, null, true, IdeModalityType.IDE,
-                                                                   false) {
+class OnboardingDialog(val cancelCallback: () -> Unit) : DialogWrapper(null, null, true, IdeModalityType.IDE,
+                                                                       false) {
 
-  val cancelCallback = cancelCallback
   private val tracker = WizardPageTracker()
 
   private val pane = JPanel(BorderLayout()).apply {
     border = JBUI.Borders.empty()
-    preferredSize = JBDimension(640, 457)
+    preferredSize = JBDimension(640, 467)
   }
 
-  private var currentPage: ImportSettingsPage = object  : ImportSettingsPage {
+  private var currentPage: OnboardingPage = object  : OnboardingPage {
     override val content: JComponent = JPanel()
     override val stage: StartupWizardStage = StartupWizardStage.InitialStart
     override fun confirmExit(parentComponent: Component?): Boolean = true
@@ -35,21 +36,29 @@ class OnboardingDialog(cancelCallback: () -> Unit) : DialogWrapper(null, null, t
   override fun doCancelAction() {
     val shouldExit = currentPage.confirmExit(peer.contentPane)
 
-    if (shouldExit != false) {
+    if (shouldExit) {
       super.doCancelAction()
       tracker.onLeave()
       cancelCallback()
     }
   }
 
-  fun doClose(code: Int) {
+  fun dialogClose() {
+    if(isShowing && isVisible) {
+      doClose(CANCEL_EXIT_CODE)
+    }
+  }
+
+  private fun doClose(code: Int) {
     tracker.onLeave()
     close(code)
   }
 
-  fun changePage(page: ImportSettingsPage) {
+  fun changePage(page: OnboardingPage) {
     overlay.clearNotifications()
     pane.remove(currentPage.content)
+    Disposer.dispose(currentPage)
+
     tracker.onLeave()
 
     val content = page.content
@@ -100,9 +109,11 @@ class OnboardingDialog(cancelCallback: () -> Unit) : DialogWrapper(null, null, t
   }
 }
 
-interface ImportSettingsPage {
+interface OnboardingPage: Disposable {
   val content: JComponent
   val stage: StartupWizardStage?
 
-  fun confirmExit(parentComponent: Component?): Boolean?
+  override fun dispose() {}
+
+  fun confirmExit(parentComponent: Component?): Boolean
 }

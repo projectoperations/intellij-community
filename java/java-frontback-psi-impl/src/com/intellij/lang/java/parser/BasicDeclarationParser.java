@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.lang.java.parser;
 
 import com.intellij.core.JavaPsiBundle;
@@ -420,7 +420,7 @@ public class BasicDeclarationParser {
            PsiKeyword.SEALED.equals(builder.getTokenText());
   }
 
-  private static boolean isNonSealedToken(PsiBuilder builder, IElementType tokenType) {
+   static boolean isNonSealedToken(PsiBuilder builder, IElementType tokenType) {
     if (!getLanguageLevel(builder).isAtLeast(LanguageLevel.JDK_17) ||
         tokenType != JavaTokenType.IDENTIFIER ||
         !"non".equals(builder.getTokenText()) ||
@@ -484,7 +484,7 @@ public class BasicDeclarationParser {
                                                        boolean constructor) {
     parseParameterList(builder);
 
-    eatBrackets(builder, constructor ? "expected.semicolon" : null);
+    eatBrackets(builder, constructor ? "expected.lbrace" : null);
 
     myParser.getReferenceParser()
       .parseReferenceList(builder, JavaTokenType.THROWS_KEYWORD, myJavaElementTypeContainer.THROWS_LIST, JavaTokenType.COMMA);

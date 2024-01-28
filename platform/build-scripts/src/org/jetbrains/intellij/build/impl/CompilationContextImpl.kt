@@ -4,7 +4,7 @@ package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.io.NioFiles
-import com.intellij.platform.diagnostic.telemetry.helpers.use
+import com.intellij.platform.diagnostic.telemetry.helpers.useWithoutActiveScope
 import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
 import com.intellij.util.PathUtilRt
 import com.intellij.util.SystemProperties
@@ -22,6 +22,7 @@ import org.jetbrains.intellij.build.dependencies.JdkDownloader
 import org.jetbrains.intellij.build.impl.JdkUtils.defineJdk
 import org.jetbrains.intellij.build.impl.JdkUtils.readModulesFromReleaseFile
 import org.jetbrains.intellij.build.impl.compilation.CompiledClasses
+import org.jetbrains.intellij.build.impl.compilation.PortableCompilationCache
 import org.jetbrains.intellij.build.impl.logging.BuildMessagesHandler
 import org.jetbrains.intellij.build.impl.logging.BuildMessagesImpl
 import org.jetbrains.intellij.build.io.logFreeDiskSpace
@@ -40,7 +41,7 @@ import org.jetbrains.jps.model.serialization.JpsProjectLoader.loadProject
 import org.jetbrains.jps.util.JpsPathUtil
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.io.path.name
+import kotlin.io.path.relativeToOrNull
 
 @Obsolete
 fun createCompilationContextBlocking(communityHome: BuildDependenciesCommunityRoot,
@@ -105,6 +106,9 @@ class CompilationContextImpl private constructor(
   override val dependenciesProperties: DependenciesProperties
   override val bundledRuntime: BundledRuntime
   override lateinit var compilationData: JpsCompilationData
+  override val portableCompilationCache: PortableCompilationCache by lazy {
+    PortableCompilationCache(this)
+  }
 
   @Volatile
   private var cachedJdkHome: Path? = null
@@ -247,7 +251,13 @@ class CompilationContextImpl private constructor(
     }
     suppressWarnings(project)
     ConsoleSpanExporter.setPathRoot(paths.buildOutputDir)
-    cleanOutput(keepCompilationState = CompiledClasses.keepCompilationState(options))
+    if (options.cleanOutputFolder || options.forceRebuild)
+      cleanOutput()
+    else {
+      Span.current().addEvent("skip output cleaning", Attributes.of(
+        AttributeKey.stringKey("dir"), "${paths.buildOutputDir}",
+      ))
+    }
   }
 
   private fun overrideClassesOutputDirectory() {
@@ -349,7 +359,6 @@ private fun suppressWarnings(project: JpsProject) {
   val compilerOptions = JpsJavaExtensionService.getInstance().getCompilerConfiguration(project).currentCompilerOptions
   compilerOptions.GENERATE_NO_WARNINGS = true
   compilerOptions.DEPRECATION = false
-  @Suppress("SpellCheckingInspection")
   compilerOptions.ADDITIONAL_OPTIONS_STRING = compilerOptions.ADDITIONAL_OPTIONS_STRING.replace("-Xlint:unchecked", "")
 }
 
@@ -403,39 +412,43 @@ private fun readModulesFromReleaseFile(model: JpsModel, sdkName: String, sdkHome
   }
 }
 
-private fun CompilationContext.cleanOutput(keepCompilationState: Boolean) {
-  val outDir = paths.buildOutputDir
-  if (!options.cleanOutputFolder) {
-    Span.current().addEvent("skip output cleaning", Attributes.of(
-      AttributeKey.stringKey("dir"), "$outDir",
-    ))
-    return
+internal fun CompilationContext.cleanOutput(keepCompilationState: Boolean = CompiledClasses.keepCompilationState(options)) {
+  val compilationState = setOf(
+    compilationData.dataStorageRoot,
+    classesOutputDirectory,
+    paths.jpsArtifacts,
+  )
+  val outputDirectoriesToKeep = buildSet {
+    add(paths.logDir)
+    if (keepCompilationState) {
+      addAll(compilationState)
+    }
   }
-  val outputDirectoriesToKeep = HashSet<String>(4)
-  outputDirectoriesToKeep.add("log")
-  if (keepCompilationState) {
-    outputDirectoriesToKeep.add(compilationData.dataStorageRoot.name)
-    outputDirectoriesToKeep.add("classes")
-    outputDirectoriesToKeep.add(paths.jpsArtifacts.name)
-  }
-  spanBuilder("clean output")
-    .setAttribute("path", outDir.toString())
-    .setAttribute(AttributeKey.stringArrayKey("outputDirectoriesToKeep"), java.util.List.copyOf(outputDirectoriesToKeep))
-    .use { span ->
-      Files.newDirectoryStream(outDir).use { dirStream ->
-        for (file in dirStream) {
-          val attributes = Attributes.of(AttributeKey.stringKey("dir"), outDir.relativize(file).toString())
-          if (outputDirectoriesToKeep.contains(file.name)) {
-            span.addEvent("skip cleaning", attributes)
-          }
-          else {
-            span.addEvent("delete", attributes)
-            NioFiles.deleteRecursively(file)
+  spanBuilder("clean output").useWithoutActiveScope { span ->
+    val outDir = paths.buildOutputDir
+    outputDirectoriesToKeep.forEach {
+      val path = it.relativeToOrNull(outDir) ?: it
+      span.addEvent("skip cleaning", Attributes.of(AttributeKey.stringKey("dir"), path.toString()))
+    }
+    Files.newDirectoryStream(outDir).use { dirStream ->
+      var pathsToBeCleanedStream = dirStream - outputDirectoriesToKeep
+      if (!keepCompilationState) {
+        pathsToBeCleanedStream = pathsToBeCleanedStream + compilationState
+      }
+      for (path in pathsToBeCleanedStream) {
+        val pathToBeCleaned = outDir.relativize(path)
+        span.addEvent("delete", Attributes.of(AttributeKey.stringKey("dir"), "$pathToBeCleaned"))
+        outputDirectoriesToKeep.forEach {
+          check(!it.startsWith(path)) {
+            val outputDirectoryToKeep = outDir.relativize(it)
+            "'$outputDirectoryToKeep' is going to be cleaned together with '$pathToBeCleaned'. " +
+            "Please configure a different location for '$outputDirectoryToKeep'"
           }
         }
+        NioFiles.deleteRecursively(path)
       }
-      null
     }
+  }
 }
 
 private fun printEnvironmentDebugInfo() {

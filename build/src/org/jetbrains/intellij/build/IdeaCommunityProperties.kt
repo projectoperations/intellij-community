@@ -57,7 +57,7 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
       "intellij.idea.community.customization",
     )
     productLayout.bundledPluginModules = IDEA_BUNDLED_PLUGINS
-      .add("intellij.javaFX.community")
+      .addAll(listOf("intellij.javaFX.community", "intellij.ae.database.community", "intellij.vcs.github.community"))
       .toMutableList()
 
     productLayout.prepareCustomPluginRepositoryForPublishedPlugins = false
@@ -65,7 +65,8 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
     productLayout.pluginLayouts = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS.addAll(listOf(
       JavaPluginLayout.javaPlugin(),
       CommunityRepositoryModules.androidPlugin(allPlatforms = true),
-      CommunityRepositoryModules.groovyPlugin()
+      CommunityRepositoryModules.groovyPlugin(),
+      CommunityRepositoryModules.githubPlugin("intellij.vcs.github.community"),
     ))
 
     productLayout.addPlatformSpec { layout, _ ->
@@ -93,7 +94,7 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
       .include("LICENSE.txt")
       .include("NOTICE.txt")
       .copyToDir(Path.of(targetDirectory))
-     FileSet(context.paths.communityHomeDir.resolve("build/conf/ideaCE/common/bin"))
+    FileSet(context.paths.communityHomeDir.resolve("build/conf/ideaCE/common/bin"))
       .includeAll()
       .copyToDir(Path.of(targetDirectory, "bin"))
     bundleExternalPlugins(context, targetDirectory)
@@ -178,7 +179,7 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
     return "IdeaIC${appInfo.majorVersion}.${appInfo.minorVersionMainPart}"
   }
 
-  override fun getBaseArtifactName(appInfo: ApplicationInfoProperties, buildNumber: String) =  "ideaIC-$buildNumber"
+  override fun getBaseArtifactName(appInfo: ApplicationInfoProperties, buildNumber: String) = "ideaIC-$buildNumber"
 
   override fun getOutputDirectoryName(appInfo: ApplicationInfoProperties) = "idea-ce"
 }

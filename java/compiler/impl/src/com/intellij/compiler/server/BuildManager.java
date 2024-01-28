@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.compiler.server;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -28,7 +28,6 @@ import com.intellij.ide.PowerSaveMode;
 import com.intellij.ide.actions.RevealFileAction;
 import com.intellij.ide.file.BatchFileChangeListener;
 import com.intellij.ide.impl.TrustedProjects;
-import com.intellij.java.workspace.entities.JavaModuleSettingsEntity;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
@@ -71,13 +70,6 @@ import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.wm.IdeFrame;
-import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener;
-import com.intellij.platform.backend.workspace.WorkspaceModelTopics;
-import com.intellij.platform.workspace.jps.entities.ModuleEntity;
-import com.intellij.platform.workspace.jps.entities.SourceRootEntity;
-import com.intellij.platform.workspace.storage.EntityChange;
-import com.intellij.platform.workspace.storage.VersionedStorageChange;
-import com.intellij.platform.workspace.storage.WorkspaceEntity;
 import com.intellij.serviceContainer.AlreadyDisposedException;
 import com.intellij.ui.ComponentUtil;
 import com.intellij.util.*;
@@ -140,7 +132,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.*;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage.ParametersMessage.TargetTypeBuildScope;
@@ -810,6 +803,10 @@ public final class BuildManager implements Disposable {
     }
   }
 
+  public void cancelPreloadedBuilds(@NotNull Project project) {
+    cancelPreloadedBuilds(getProjectPath(project));
+  }
+
   private void cancelPreloadedBuilds(@NotNull String projectPath) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("Cancel preloaded build for " + projectPath + "\n" + getThreadTrace(Thread.currentThread(), 50));
@@ -1329,6 +1326,7 @@ public final class BuildManager implements Disposable {
     int listenPort = ensureListening(cmdLine.getListenAddress());
 
     boolean profileWithYourKit = false;
+    boolean isAgentpathSet = false;
     String userDefinedHeapSize = null;
     final List<String> userAdditionalOptionsList = new SmartList<>();
     final String userAdditionalVMOptions = config.COMPILER_PROCESS_ADDITIONAL_VM_OPTIONS;
@@ -1347,6 +1345,9 @@ public final class BuildManager implements Disposable {
           //noinspection SpellCheckingInspection
           if (option.startsWith("-Dprofiling.mode=") && !option.equals("-Dprofiling.mode=false")) {
             profileWithYourKit = true;
+          }
+          if (option.startsWith("-agentpath:")) {
+            isAgentpathSet = true;
           }
           userAdditionalOptionsList.add(option);
         }
@@ -1439,25 +1440,29 @@ public final class BuildManager implements Disposable {
     }
 
     if (profileWithYourKit) {
-      YourKitProfilerService service = null;
-      try {
-        service = ApplicationManager.getApplication().getService(YourKitProfilerService.class);
-        if (service == null) {
-          throw new IOException("Performance Plugin is missing or disabled");
+      YourKitProfilerService service = ApplicationManager.getApplication().getService(YourKitProfilerService.class);
+      if (service != null) {
+        try {
+          service.copyYKLibraries(hostWorkingDirectory);
         }
-        service.copyYKLibraries(hostWorkingDirectory);
+        catch (IOException e) {
+          LOG.warn("Failed to copy YK libraries", e);
+        }
+        @SuppressWarnings("SpellCheckingInspection")
+        final StringBuilder parameters = new StringBuilder().append("-agentpath:").append(cmdLine.getYjpAgentPath(service)).append("=disablealloc,delay=10000,sessionname=ExternalBuild");
+        final String buildSnapshotPath = System.getProperty("build.snapshots.path");
+        if (buildSnapshotPath != null) {
+          parameters.append(",dir=").append(buildSnapshotPath);
+        }
+        cmdLine.addParameter(parameters.toString());
+        showSnapshotNotificationAfterFinish(project);
       }
-      catch (IOException e) {
-        LOG.warn("Failed to copy YK libraries", e);
+      else {
+        LOG.warn("Performance Plugin is missing or disabled; skipping YJP agent configuration");
+        if (isAgentpathSet) {
+          showSnapshotNotificationAfterFinish(project);
+        }
       }
-      @SuppressWarnings("SpellCheckingInspection")
-      final StringBuilder parameters = new StringBuilder().append("-agentpath:").append(cmdLine.getYjpAgentPath(service)).append("=disablealloc,delay=10000,sessionname=ExternalBuild");
-      final String buildSnapshotPath = System.getProperty("build.snapshots.path");
-      if (buildSnapshotPath != null) {
-        parameters.append(",dir=").append(buildSnapshotPath);
-      }
-      cmdLine.addParameter(parameters.toString());
-      showSnapshotNotificationAfterFinish(project);
     }
 
     // debugging
@@ -1646,6 +1651,9 @@ public final class BuildManager implements Disposable {
       try {
         WinProcess winProcess = new WinProcess((int)processHandler.getProcess().pid());
         winProcess.setPriority(Priority.IDLE);
+      }
+      catch (UnsupportedOperationException ignored) {
+        // Process.pid may throw this error. Just ignoring it.
       }
       catch (Throwable e) {
         LOG.error("Cannot set priority", e);
@@ -1977,20 +1985,6 @@ public final class BuildManager implements Disposable {
       }
 
       MessageBusConnection connection = project.getMessageBus().connect();
-      connection.subscribe(WorkspaceModelTopics.CHANGED, new WSModelChangeListener(project));
-
-      connection.subscribe(ModuleRootListener.TOPIC, new ModuleRootListener() {
-        @Override
-        public void rootsChanged(@NotNull ModuleRootEvent event) {
-          if (!event.isCausedByWorkspaceModelChangesOnly()) {
-            // only process events that are not covered by events from the workspace model
-            final Object source = event.getSource();
-            if (source instanceof Project) {
-              getInstance().clearState((Project)source);
-            }
-          }
-        }
-      });
       connection.subscribe(ExecutionManager.EXECUTION_TOPIC, new ExecutionListener() {
         @Override
         public void processStarting(@NotNull String executorId, @NotNull ExecutionEnvironment env) {
@@ -2470,99 +2464,5 @@ public final class BuildManager implements Disposable {
         getInstance().scheduleProjectSave();
       }
     }
-  }
-
-  static final class WSModelChangeListener implements WorkspaceModelChangeListener {
-
-    private final Project myProject;
-
-    WSModelChangeListener(Project project) {
-      myProject = project;
-    }
-
-    @Override
-    public void changed(@NotNull VersionedStorageChange event) {
-      boolean needFSRescan =
-        processEntityChanges(event, SourceRootEntity.class, ChangeProcessor.anyChange(true, false)) ||
-        processEntityChanges(event, ModuleEntity.class, (before, after) -> before.getDependencies().equals(after.getDependencies()), ChangeProcessor.anyChange(true, false)) ||
-        processEntityChanges(event, JavaModuleSettingsEntity.class, ChangeProcessor.anyChange(true, false));
-
-      if (needFSRescan) {
-        getInstance().clearState(myProject);
-      }
-      else if (event.getAllChanges().iterator().hasNext()) {
-        getInstance().cancelPreloadedBuilds(getProjectPath(myProject));
-      }
-    }
-
-    interface ChangeProcessor<T, R> {
-      default boolean added(T newData) {
-        return true;
-      }
-      default boolean changed(T oldData, T newData) {
-        return true;
-      }
-      default boolean removed(T oldData) {
-        return true;
-      }
-      default R getResult() {
-        return null;
-      }
-
-      static <T, R> ChangeProcessor<T, R> anyChange(R onChangesDetected, R noChanges) {
-        return new ChangeProcessor<>() {
-          private R myResult = noChanges;
-          @Override
-          public boolean added(Object newEntity) {
-            myResult = onChangesDetected;
-            return false;
-          }
-          @Override
-          public boolean changed(Object oldEntity, Object newEntity) {
-            myResult = onChangesDetected;
-            return false;
-          }
-          @Override
-          public boolean removed(Object oldEntity) {
-            myResult = onChangesDetected;
-            return false;
-          }
-          @Override
-          public R getResult() {
-            return myResult;
-          }
-        };
-      }
-    }
-
-    private static <T extends WorkspaceEntity, R> R processEntityChanges(@NotNull VersionedStorageChange event, Class<T> entityClass, ChangeProcessor<T, R> proc) {
-      return processEntityChanges(event, entityClass, Object::equals, proc);
-    }
-
-    private static <T extends WorkspaceEntity, R> R processEntityChanges(@NotNull VersionedStorageChange event, Class<T> entityClass, BiFunction<T, T, Boolean> equalsBy, ChangeProcessor<T, R> proc) {
-      for (EntityChange<T> change : event.getChanges(entityClass)) {
-        final T before = change.getOldEntity();
-        final T after = change.getNewEntity();
-        boolean shouldContinue = true;
-        if (after != null) {
-          if (before != null) {
-            if (!equalsBy.apply(before, after)) {
-              shouldContinue = proc.changed(before, after);
-            }
-          }
-          else {
-            shouldContinue = proc.added(after);
-          }
-        }
-        else if (before != null) {
-          shouldContinue = proc.removed(before);
-        }
-        if (!shouldContinue) {
-          return proc.getResult();
-        }
-      }
-      return proc.getResult();
-    }
-
   }
 }

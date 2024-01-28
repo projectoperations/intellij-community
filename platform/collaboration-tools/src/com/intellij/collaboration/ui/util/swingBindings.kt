@@ -6,6 +6,7 @@ import com.intellij.collaboration.ui.ComboBoxWithActionsModel
 import com.intellij.collaboration.ui.setHtmlBody
 import com.intellij.collaboration.ui.setItems
 import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
@@ -16,16 +17,17 @@ import com.intellij.ui.MutableCollectionComboBoxModel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.panels.Wrapper
 import com.intellij.ui.dsl.builder.Cell
-import com.intellij.util.awaitCancellationAndInvoke
 import com.intellij.util.ui.update.Activatable
 import com.intellij.util.ui.update.UiNotifyConnector
-import com.intellij.vcs.log.ui.frame.ProgressStripe
+import com.intellij.vcs.ui.ProgressStripe
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import org.jetbrains.annotations.Nls
+import java.awt.Color
 import javax.swing.*
+import javax.swing.border.Border
 import javax.swing.event.ListDataEvent
 import javax.swing.event.ListDataListener
 import javax.swing.text.JTextComponent
@@ -135,6 +137,22 @@ fun JComponent.bindDisabledIn(scope: CoroutineScope, disabledFlow: Flow<Boolean>
   }
 }
 
+fun JComponent.bindBorderIn(scope: CoroutineScope, borderFlow: Flow<Border>) {
+  scope.launch(start = CoroutineStart.UNDISPATCHED) {
+    borderFlow.collect {
+      border = it
+    }
+  }
+}
+
+fun JComponent.bindBackgroundIn(scope: CoroutineScope, backgroundFlow: Flow<Color>) {
+  scope.launch(start = CoroutineStart.UNDISPATCHED) {
+    backgroundFlow.collect {
+      background = it
+    }
+  }
+}
+
 fun JTextComponent.bindTextIn(scope: CoroutineScope, textFlow: Flow<@Nls String>) {
   scope.launch(start = CoroutineStart.UNDISPATCHED) {
     textFlow.collect {
@@ -213,7 +231,9 @@ fun Document.bindTextIn(cs: CoroutineScope, textFlow: MutableStateFlow<String>) 
     textFlow.collect {
       if (text != it) {
         writeAction {
-          setText(it)
+          CommandProcessor.getInstance().runUndoTransparentAction {
+            setText(it)
+          }
         }
       }
     }
@@ -304,17 +324,18 @@ fun <D> JPanel.bindChildIn(scope: CoroutineScope, dataFlow: Flow<D>,
 }
 
 fun JCheckBox.bindSelectedIn(scope: CoroutineScope, flow: MutableStateFlow<Boolean>) {
-  val listener = { _: Any -> flow.value = model.isSelected }
-  model.addChangeListener(listener)
-
   scope.launchNow {
-    flow.collect {
-      model.isSelected = it
+    val listener = { _: Any? -> flow.value = model.isSelected }
+    model.addChangeListener(listener)
+    listener(null)
+    try {
+      flow.collect {
+        model.isSelected = it
+      }
     }
-  }
-
-  scope.awaitCancellationAndInvoke {
-    model.removeChangeListener(listener)
+    finally {
+      model.removeChangeListener(listener)
+    }
   }
 }
 

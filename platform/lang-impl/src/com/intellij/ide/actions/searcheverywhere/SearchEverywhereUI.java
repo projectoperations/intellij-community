@@ -19,18 +19,25 @@ import com.intellij.ide.actions.searcheverywhere.footer.ExtendedInfoImpl;
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector;
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchFieldStatisticsCollector;
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchPerformanceTracker;
+import com.intellij.ide.structureView.StructureView;
+import com.intellij.ide.structureView.StructureViewBuilder;
+import com.intellij.ide.structureView.StructureViewTreeElement;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.laf.darcula.ui.TextFieldWithPopupHandlerUI;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.ide.util.gotoByName.QuickSearchComponent;
 import com.intellij.ide.util.scopeChooser.ScopeDescriptor;
+import com.intellij.ide.util.treeView.smartTree.TreeElement;
 import com.intellij.internal.statistic.eventLog.events.EventFields;
 import com.intellij.internal.statistic.eventLog.events.EventPair;
+import com.intellij.lang.LanguageStructureViewBuilder;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.impl.ActionMenu;
 import com.intellij.openapi.application.*;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.impl.FontInfo;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.options.advanced.AdvancedSettings;
@@ -56,6 +63,7 @@ import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.MinusculeMatcher;
 import com.intellij.psi.codeStyle.NameUtil;
 import com.intellij.psi.search.EverythingGlobalScope;
@@ -148,6 +156,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
   private final SearchListener topicPublisher = ApplicationManager.getApplication().getMessageBus().syncPublisher(SEARCH_EVENTS);
 
   private UsagePreviewPanel myUsagePreviewPanel;
+  private final List<Disposable> myUsagePreviewDisposableList = new ArrayList<>();
   private UsageViewPresentation myUsageViewPresentation;
   private static final String SPLITTER_SERVICE_KEY = "search.everywhere.splitter";
   static final String PREVIEW_PROPERTY_KEY = "SearchEverywhere.previewPropertyKey";
@@ -245,7 +254,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
 
     SearchPerformanceTracker performanceTracker = new SearchPerformanceTracker(() -> myHeader.getSelectedTab().getID());
     addSearchListener(performanceTracker);
-    Disposer.register(this, SearchFieldStatisticsCollector.createAndStart(mySearchField, performanceTracker, myProject));
+    Disposer.register(this, SearchFieldStatisticsCollector.createAndStart(mySearchField, performanceTracker, myMlService, myProject));
   }
 
   public void addSearchListener(SearchListener listener) {
@@ -447,6 +456,10 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     if (myMlService != null) {
       myMlService.onDialogClose();
     }
+
+    for (Disposable disposable : myUsagePreviewDisposableList) {
+      Disposer.dispose(disposable);
+    }
   }
 
   @Nullable
@@ -647,7 +660,24 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
       public Dimension getPreferredSize() {
         return new Dimension(myHeader.getComponent().getWidth(), Math.max(getHeight(), getLineHeight() * 10));
       }
+
+      @Override
+      protected void onEditorCreated(@NotNull Editor editor) {
+        if (editor instanceof EditorEx) {
+          ((EditorEx)editor).setRendererMode(true);
+        }
+
+        editor.getContentComponent().addFocusListener(new FocusAdapter() {
+          @Override
+          public void focusLost(FocusEvent e) {
+            onFocusLost(e);
+          }
+        });
+      }
     };
+    Disposer.register(this, myUsagePreviewPanel);
+
+    myUsagePreviewPanel.setBackground(JBUI.CurrentTheme.Popup.BACKGROUND);
 
     updatePreviewVisibility();
 
@@ -951,23 +981,29 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
     mySearchField.addFocusListener(new FocusAdapter() {
       @Override
       public void focusLost(FocusEvent e) {
-        if (StartupUiUtil.isWaylandToolkit()) {
-          // In Wayland focus is always lost when the window is being moved.
-          return;
-        }
-        Component oppositeComponent = e.getOppositeComponent();
-        if (!isHintComponent(oppositeComponent) && !UIUtil.haveCommonOwner(SearchEverywhereUI.this, oppositeComponent)) {
-          sendStatisticsAndClose();
-        }
+        onFocusLost(e);
       }
     });
+  }
+
+  private void onFocusLost(FocusEvent e) {
+    if (StartupUiUtil.isWaylandToolkit()) {
+      // In Wayland focus is always lost when the window is being moved.
+      return;
+    }
+    Component oppositeComponent = e.getOppositeComponent();
+    if (!isHintComponent(oppositeComponent) && !UIUtil.haveCommonOwner(SearchEverywhereUI.this, oppositeComponent)) {
+      sendStatisticsAndClose();
+    }
   }
 
   private void schedulePreview(@NotNull Object selectedValue) {
     new Task.Backgroundable(myProject, IdeBundle.message("search.everywhere.preview.showing"), true) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
-        UsageInfo usageInfo = ReadAction.compute(() -> SearchEverywherePreview.getFileFirstUsage(selectedValue));
+        UsageInfo usageInfo = ReadAction.compute(() -> {
+          return findFirstChild();
+        });
 
         List<UsageInfo2UsageAdapter> usages = new ArrayList<>();
         if (usageInfo != null) {
@@ -993,6 +1029,36 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
               .submit(AppExecutorUtil.getAppExecutorService());
           });
         }
+      }
+
+      @Nullable
+      private UsageInfo findFirstChild() {
+        if (myProject == null) return null;
+
+        PsiElement psiElement = toPsi(selectedValue);
+        if (psiElement == null) return null;
+
+        PsiFile psiFile = psiElement instanceof PsiFile ? (PsiFile)psiElement : null;
+        if (psiFile == null) return new UsageInfo(psiElement);
+
+        StructureViewBuilder structureViewBuilder = LanguageStructureViewBuilder.INSTANCE.getStructureViewBuilder(psiFile);
+        if (structureViewBuilder == null) return new UsageInfo(psiElement);
+
+        StructureView structureView = structureViewBuilder.createStructureView(null, myProject);
+        myUsagePreviewDisposableList.add(new Disposable() {
+          @Override
+          public void dispose() {
+            Disposer.dispose(structureView);
+          }
+        });
+
+        TreeElement firstChild = ContainerUtil.getFirstItem(Arrays.stream(structureView.getTreeModel().getRoot().getChildren()).toList());
+        if (!(firstChild instanceof StructureViewTreeElement)) return new UsageInfo(psiFile);
+
+        Object firstChildElement = ((StructureViewTreeElement)firstChild).getValue();
+        if (!(firstChildElement instanceof PsiElement)) return new UsageInfo(psiFile);
+
+        return new UsageInfo((PsiElement)firstChildElement);
       }
     }.queue();
   }

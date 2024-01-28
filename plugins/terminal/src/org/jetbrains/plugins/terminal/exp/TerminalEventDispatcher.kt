@@ -1,23 +1,18 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.terminal.exp
 
-import com.intellij.ide.GeneralSettings
 import com.intellij.ide.IdeEventQueue
-import com.intellij.ide.SaveAndSyncHandler
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.actionSystem.KeyboardShortcut
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.event.EditorMouseListener
 import com.intellij.openapi.editor.event.EditorMouseMotionListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.FocusChangeListener
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.observable.util.addKeyListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
@@ -207,23 +202,12 @@ internal fun setupKeyEventDispatcher(editor: EditorEx,
 
   editor.addFocusListener(object : FocusChangeListener {
     override fun focusGained(editor: Editor) {
-      if (settings.overrideIdeShortcuts()) {
-        val actionsToSkip = TerminalEventDispatcher.getActionsToSkip()
-        eventDispatcher.register(actionsToSkip)
-      }
-      else {
-        eventDispatcher.unregister()
-      }
-      if (GeneralSettings.getInstance().isSaveOnFrameDeactivation) {
-        invokeLater(ModalityState.nonModal()) {
-          FileDocumentManager.getInstance().saveAllDocuments()
-        }
-      }
+      val actionsToSkip = TerminalEventDispatcher.getActionsToSkip()
+      eventDispatcher.register(actionsToSkip)
     }
 
     override fun focusLost(editor: Editor) {
       eventDispatcher.unregister()
-      SaveAndSyncHandler.getInstance().scheduleRefresh()
     }
   }, disposable)
 }

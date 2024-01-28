@@ -4,10 +4,10 @@ package org.jetbrains.kotlin.idea.base.analysis.api.utils
 
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
+import com.intellij.psi.SmartPsiElementPointer
 import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.analyzeInDependedAnalysisSession
 import org.jetbrains.kotlin.analysis.api.components.ShortenCommand
 import org.jetbrains.kotlin.analysis.api.components.ShortenOptions
 import org.jetbrains.kotlin.analysis.api.components.ShortenStrategy
@@ -22,6 +22,7 @@ import org.jetbrains.kotlin.kdoc.psi.impl.KDocName
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.allChildren
+import org.jetbrains.kotlin.psi.psiUtil.createSmartPointer
 import org.jetbrains.kotlin.resolve.calls.util.getCalleeExpressionIfAny
 
 /**
@@ -39,6 +40,51 @@ fun shortenReferences(
     classShortenStrategy,
     callableShortenStrategy
 )
+
+
+/**
+ * Shortens multiple references at the same time, making sure that references that are already imported will be prioritized over references
+ * that aren't imported yet, for example:
+ * ```
+ * package pack
+ *
+ * class A
+ *
+ * fun usage(a: other.A) {}
+ *
+ * fun usage(a: pack.A) {}
+ * ```
+ * Here `pack.A` should be shortened and processed first because it can be shortened without adding imports. It is generally prefered to use
+ * this API instead of calling `shortenReferences` multiple times on individual references.
+ */
+fun shortenReferences(
+    elements: Iterable<KtElement>,
+    shortenOptions: ShortenOptions = ShortenOptions.DEFAULT,
+    classShortenStrategy: (KtClassLikeSymbol) -> ShortenStrategy = defaultClassShortenStrategy,
+    callableShortenStrategy: (KtCallableSymbol) -> ShortenStrategy = defaultCallableShortenStrategy
+) {
+    val elementPointers = elements.map { it.createSmartPointer() }
+    elementPointers.forEach { ptr ->
+        shortenReferencesIfValid(
+            ptr,
+            shortenOptions,
+            { symbol -> classShortenStrategy(symbol).coerceAtMost(ShortenStrategy.SHORTEN_IF_ALREADY_IMPORTED) },
+            { symbol -> callableShortenStrategy(symbol).coerceAtMost(ShortenStrategy.SHORTEN_IF_ALREADY_IMPORTED) }
+        )
+    }
+    elementPointers.forEach { ptr ->
+        shortenReferencesIfValid(ptr, shortenOptions, classShortenStrategy, callableShortenStrategy)
+    }
+}
+
+private fun shortenReferencesIfValid(
+    ptr: SmartPsiElementPointer<KtElement>,
+    shortenOptions: ShortenOptions,
+    classShortenStrategy: (KtClassLikeSymbol) -> ShortenStrategy,
+    callableShortenStrategy: (KtCallableSymbol) -> ShortenStrategy
+): PsiElement? = ptr.element?.let { elem ->
+    shortenReferences(elem, shortenOptions, classShortenStrategy, callableShortenStrategy)
+}
 
 /**
  * Shorten references in the given [file] and [range].
@@ -69,33 +115,15 @@ fun shortenReferencesInRange(
     return shortenCommand.invokeShortening().firstOrNull()
 }
 
-@OptIn(KtAllowAnalysisOnEdt::class)
 fun shortenReferencesInRange(
-    elementToReanalyze: KtElement,
-    range: TextRange = elementToReanalyze.containingFile.originalFile.textRange,
+    element: KtElement,
+    range: TextRange = element.containingFile.originalFile.textRange,
     shortenOptions: ShortenOptions = ShortenOptions.DEFAULT,
     classShortenStrategy: (KtClassLikeSymbol) -> ShortenStrategy = defaultClassShortenStrategy,
     callableShortenStrategy: (KtCallableSymbol) -> ShortenStrategy = defaultCallableShortenStrategy
 ): PsiElement? {
-    val ktFile = elementToReanalyze.containingFile as KtFile
-    val originalFile = ktFile.originalFile as KtFile
-    val shortenCommand =
-        if (!elementToReanalyze.isPhysical && originalFile.isPhysical) {
-            analyzeInDependedAnalysisSession(originalFile, elementToReanalyze) {
-                collectPossibleReferenceShortenings(elementToReanalyze.containingKtFile, range, shortenOptions, classShortenStrategy, callableShortenStrategy)
-            }
-        } else {
-            allowAnalysisOnEdt {
-                @OptIn(KtAllowAnalysisFromWriteAction::class)
-                allowAnalysisFromWriteAction {
-                    analyze(ktFile) {
-                        collectPossibleReferenceShortenings(ktFile, range, shortenOptions, classShortenStrategy, callableShortenStrategy)
-                    }
-                }
-            }
-        }
-
-    return shortenCommand.invokeShortening().firstOrNull()
+    val ktFile = element.containingKtFile
+    return shortenReferencesInRange(ktFile, range, shortenOptions, classShortenStrategy, callableShortenStrategy)
 }
 
 /**

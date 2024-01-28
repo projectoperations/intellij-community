@@ -3,6 +3,7 @@ package org.jetbrains.idea.maven.utils
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.util.coroutines.namedChildScope
@@ -12,20 +13,35 @@ import kotlinx.coroutines.sync.Semaphore
 @Service(Service.Level.PROJECT)
 class ParallelRunner(val project: Project, val cs: CoroutineScope) {
 
+  fun <T> runInParallelBlocking(collection: Collection<T>, method: (T) -> Unit) =
+    runBlockingMaybeCancellable {
+      runInParallel(collection, method)
+    }
+
   suspend fun <T> runInParallel(collection: Collection<T>, method: suspend (T) -> Unit) {
-    if (collection.isEmpty()) return;
+    if (collection.isEmpty()) return
     if (collection.size == 1) {
       method.invoke(collection.first())
     }
     else {
-      val maxParallel = getMaxParallel()
+      val maxParallel = Registry.intValue("maven.max.parallel.tasks", -1)
       if (maxParallel == 1) {
         collection.forEach {
           method(it)
         }
       }
+      else if (maxParallel <= 0) {
+        val runScope = cs.namedChildScope("ParallelRunner.runInParallel-unbounded", Dispatchers.IO, true)
+        collection.map {
+          runScope.async {
+            method(it)
+          }
+        }.awaitAll()
+        runScope.cancel()
+
+      }
       else {
-        val runScope = cs.namedChildScope("ParallelRunner.runInParallel", Dispatchers.IO, true)
+        val runScope = cs.namedChildScope("ParallelRunner.runInParallel-bounded", Dispatchers.IO, true)
         val semaphore = Semaphore(maxParallel)
         collection.map {
           semaphore.acquire()
@@ -38,15 +54,6 @@ class ParallelRunner(val project: Project, val cs: CoroutineScope) {
       }
 
     }
-
-  }
-
-  private fun getMaxParallel(): Int {
-    val registryValue = Registry.intValue("maven.max.parallel.tasks")
-    if (registryValue <= 0) {
-      return Math.max(Runtime.getRuntime().availableProcessors() - 1, 1)
-    }
-    return registryValue
   }
 
   companion object {

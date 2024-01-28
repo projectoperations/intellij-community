@@ -12,11 +12,15 @@ sealed <error descr="Repeated modifier 'sealed'">sealed</error> class SealedSeal
 sealed interface IA permits IB, IC {}
 final class IB implements IA {}
 sealed interface IC extends IA {}
-class <error descr="sealed, non-sealed or final modifiers expected">ICSameFile</error> implements IC {}
+class <error descr="Modifier 'sealed', 'non-sealed' or 'final' expected">ICSameFile</error> implements IC {}
+sealed interface Foos {
+  interface <error descr="Modifier 'sealed' or 'non-sealed' expected">Bar</error> extends Foos { // here
+  }
+}
 
 sealed interface ID0 {}
 non-sealed interface ID1 extends ID0 {}
-<error descr="Modifier 'non-sealed' not allowed here">non-sealed</error> interface ID extends ID1 {}
+<error descr="Modifier 'non-sealed' not allowed on classes that do not have a sealed superclass">non-sealed</error> interface ID extends ID1 {}
 
 enum ImplicitlySealedEnum {
   A {}

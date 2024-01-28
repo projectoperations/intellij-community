@@ -5,7 +5,6 @@ import com.intellij.java.workspace.entities.*
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.JDOMUtil
-import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
 import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
 import com.intellij.platform.workspace.jps.*
 import com.intellij.platform.workspace.jps.entities.LibraryId
@@ -15,6 +14,7 @@ import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.WorkspaceEntity
+import com.intellij.platform.workspace.storage.impl.url.toVirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.util.xmlb.SkipDefaultsSerializationFilter
@@ -37,7 +37,7 @@ internal class JpsArtifactsDirectorySerializerFactory(override val directoryUrl:
   override fun createSerializer(fileUrl: String,
                                 entitySource: JpsProjectFileEntitySource.FileInDirectory,
                                 virtualFileManager: VirtualFileUrlManager): JpsArtifactEntitiesSerializer {
-    return JpsArtifactEntitiesSerializer(virtualFileManager.fromUrl(fileUrl), entitySource, false, virtualFileManager)
+    return JpsArtifactEntitiesSerializer(virtualFileManager.getOrCreateFromUri(fileUrl), entitySource, false, virtualFileManager)
   }
 
   override fun getDefaultFileName(entity: ArtifactEntity): String {
@@ -168,7 +168,7 @@ internal open class JpsArtifactEntitiesSerializer(override val fileUrl: VirtualF
         runCatchingXmlIssues {
           val entitySource = createEntitySource(artifactElement) ?: return@mapNotNull null
           val state = XmlSerializer.deserialize(artifactElement, ArtifactState::class.java)
-          val outputUrl = state.outputPath?.let { path -> if (path.isNotEmpty()) virtualFileManager.fromPath(path) else null }
+          val outputUrl = state.outputPath?.let { path -> if (path.isNotEmpty()) path.toVirtualFileUrl(virtualFileManager)  else null }
           val rootElement = loadPackagingElement(state.rootElement, entitySource)
           val artifactEntity = ArtifactEntity(state.name, state.artifactType, state.isBuildOnMake, entitySource) {
             this.outputUrl = outputUrl
@@ -227,7 +227,7 @@ internal open class JpsArtifactEntitiesSerializer(override val fileUrl: VirtualF
     fun loadElementChildren() = element.children.mapTo(ArrayList()) { loadPackagingElement(it, source) }
     fun getAttribute(name: String) = element.getAttributeValue(name)!!
     fun getOptionalAttribute(name: String) = element.getAttributeValue(name)
-    fun getPathAttribute(name: String) = element.getAttributeValue(name)!!.let { virtualFileManager.fromPath(it) }
+    fun getPathAttribute(name: String) = element.getAttributeValue(name)!!.let { it.toVirtualFileUrl(virtualFileManager) }
     return when (val typeId = getAttribute("id")) {
       "root" -> ArtifactRootElementEntity(source) {
         this.children = loadElementChildren()

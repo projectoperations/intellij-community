@@ -1378,7 +1378,11 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     }
   }
 
-  public void updateButtons() {
+  public void updateAll() {
+    showPluginImpl(myPlugin, myUpdateDescriptor);
+  }
+
+  private void updateButtons() {
     if (!myIsPluginAvailable) {
       myRestartButton.setVisible(false);
       myInstallButton.setVisible(false);
@@ -1597,6 +1601,7 @@ public final class PluginDetailsPageComponent extends MultiPanel {
       }
     }
 
+    updateNotifications();
     updateEnableForNameAndIcon();
     updateErrors();
     updateEnabledForProject();
@@ -1618,6 +1623,10 @@ public final class PluginDetailsPageComponent extends MultiPanel {
     if (!showRestart && InstalledPluginsState.getInstance().wasUninstalledWithoutRestart(getDescriptorForActions().getPluginId())) {
       myInstallButton.setVisible(true);
       myInstallButton.setEnabled(false, IdeBundle.message("plugins.configurable.uninstalled"));
+    }
+
+    if (!showRestart) {
+      updateNotifications();
     }
   }
 

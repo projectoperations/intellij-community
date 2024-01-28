@@ -2,10 +2,7 @@
 package com.intellij.codeInsight.daemon;
 
 import com.intellij.ide.IdeBundle;
-import com.intellij.openapi.actionSystem.ActionGroup;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
-import com.intellij.openapi.actionSystem.Separator;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -32,6 +29,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
+import java.awt.event.InputEvent;
 import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.function.Supplier;
@@ -197,16 +195,18 @@ public abstract class MergeableLineMarkerInfo<T extends PsiElement> extends Line
         GutterIconRenderer renderer = marker.createGutterRenderer();
         if (renderer != null) {
           ActionGroup actions = renderer.getPopupMenuActions();
-          if (actions != null) {
-            if (commonActionGroup == null) {
-              commonActionGroup = new DefaultActionGroup();
-            }
-            if (!first) {
-              commonActionGroup.add(Separator.getInstance());
-            }
-            first = false;
-            commonActionGroup.addAll(actions);
+          boolean popup = actions != null;
+          if (actions == null) {
+            actions = new DefaultActionGroup(marker.getNavigateAction());
           }
+          if (commonActionGroup == null) {
+            commonActionGroup = new DefaultActionGroup();
+          }
+          if (!first && popup) {
+            commonActionGroup.add(Separator.getInstance());
+          }
+          first = false;
+          commonActionGroup.addAll(actions);
         }
       }
       return commonActionGroup;
@@ -307,5 +307,31 @@ public abstract class MergeableLineMarkerInfo<T extends PsiElement> extends Line
         }
       }).createPopup().show(new RelativePoint(e));
     }
+  }
+
+  private AnAction getNavigateAction() {
+    return new AnAction() {
+      @Override
+      public void actionPerformed(@NotNull AnActionEvent e) {
+        InputEvent event = e.getInputEvent();
+        MouseEvent mouseEvent = event instanceof MouseEvent ? (MouseEvent)event : null;
+        getNavigationHandler().navigate(mouseEvent, getElement());
+      }
+
+      @Override
+      public void update(@NotNull AnActionEvent e) {
+        PsiElement element = getElement();
+        if (element != null) {
+          Presentation presentation = e.getPresentation();
+          presentation.setIcon(getIcon());
+          presentation.setText(getElementPresentation(element));
+        }
+      }
+
+      @Override
+      public @NotNull ActionUpdateThread getActionUpdateThread() {
+        return ActionUpdateThread.BGT;
+      }
+    };
   }
 }

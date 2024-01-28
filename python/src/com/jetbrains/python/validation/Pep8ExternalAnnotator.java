@@ -6,8 +6,9 @@ import com.google.common.collect.Lists;
 import com.intellij.application.options.CodeStyle;
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
+import com.intellij.codeInsight.intention.CommonIntentionAction;
 import com.intellij.codeInsight.intention.IntentionAction;
-import com.intellij.codeInspection.InspectionProfile;
+import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ex.CustomEditInspectionToolsSettingsAction;
 import com.intellij.codeInspection.ex.InspectionProfileModifiableModelKt;
 import com.intellij.execution.configurations.GeneralCommandLine;
@@ -16,6 +17,7 @@ import com.intellij.lang.annotation.AnnotationBuilder;
 import com.intellij.lang.annotation.AnnotationHolder;
 import com.intellij.lang.annotation.ExternalAnnotator;
 import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.modcommand.ModCommandAction;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
@@ -192,7 +194,9 @@ public final class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalA
     }
 
     return new State(homePath,
-                     LanguageLevel.forElement(file),
+                     // The local SDK used to launch the pycodestyle.py script is not necessarily of the same version as the project SDK, 
+                     // so LanguageLevel.forElement(file) might lead to launching the script incompatible with the "runner" interpreter.
+                     PySdkUtil.getLanguageLevelForSdk(sdk),
                      file.getText(),
                      profile.getErrorLevel(key, file),
                      ignoredErrors,
@@ -322,7 +326,7 @@ public final class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalA
         else {
           severity = HighlightSeverity.WEAK_WARNING;
         }
-        IntentionAction fix;
+        CommonIntentionAction fix;
         boolean universal;
         if (problem.myCode.equals("E401")) {
           fix = new OptimizeImportsQuickFix();

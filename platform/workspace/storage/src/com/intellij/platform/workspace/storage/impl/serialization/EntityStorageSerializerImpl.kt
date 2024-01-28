@@ -89,8 +89,8 @@ public class EntityStorageSerializerImpl(
     return kryo to classCache
   }
 
-  override fun serializeCache(file: Path, storage: EntityStorageSnapshot): SerializationResult {
-    storage as EntityStorageSnapshotImpl
+  override fun serializeCache(file: Path, storage: ImmutableEntityStorage): SerializationResult {
+    storage as ImmutableEntityStorageImpl
 
     val output = createKryoOutput(file)
     return try {
@@ -192,7 +192,7 @@ public class EntityStorageSerializerImpl(
 
         val storageIndexes = StorageIndexes(softLinks, virtualFileIndex, entitySourceIndex, symbolicIdIndex)
 
-        val storage = EntityStorageSnapshotImpl(entitiesBarrel, refsTable, storageIndexes)
+        val storage = ImmutableEntityStorageImpl(entitiesBarrel, refsTable, storageIndexes)
         val builder = MutableEntityStorageImpl(storage)
 
         builder.entitiesByType.entityFamilies.forEach { family ->
@@ -216,7 +216,7 @@ public class EntityStorageSerializerImpl(
   }
 
 
-  private fun writeAndRegisterClasses(kryo: Kryo, output: Output, entityStorage: EntityStorageSnapshotImpl,
+  private fun writeAndRegisterClasses(kryo: Kryo, output: Output, entityStorage: ImmutableEntityStorageImpl,
                                       cacheMetadata: CacheMetadata, classCache: Object2IntWithDefaultMap<TypeInfo>) {
     registerEntitiesClasses(kryo, cacheMetadata, typesResolver, classCache)
 

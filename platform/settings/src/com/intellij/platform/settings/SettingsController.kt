@@ -1,8 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.settings
 
+import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import org.jetbrains.annotations.ApiStatus.*
+import java.nio.file.Path
 import java.util.*
 
 @NonExtendable
@@ -15,29 +17,61 @@ interface SettingsController {
    * The actual controller implementation may rely on runtime rules. Therefore, handle [ReadOnlySettingException] where necessary.
    */
   @Throws(ReadOnlySettingException::class)
-  suspend fun <T : Any> setItem(key: SettingDescriptor<T>, value: T?)
+  @RequiresBackgroundThread(generateAssertion = false)
+  fun <T : Any> setItem(key: SettingDescriptor<T>, value: T?)
 
   @Internal
-  fun createStateStorage(collapsedPath: String): Any?
+  @IntellijInternalApi
+  fun createStateStorage(collapsedPath: String, file: Path): Any?
+
+  @Internal
+  @IntellijInternalApi
+  fun release()
+}
+
+@JvmInline
+value class GetResult<out T : Any?> @PublishedApi internal constructor(@PublishedApi internal val value: Any?) {
+  val isResolved: Boolean
+    get() = value !is Inapplicable
+
+  @Suppress("UNCHECKED_CAST")
+  fun get(): T? = if (value is Inapplicable) null else value as T
+
+  override fun toString(): String = if (value is Inapplicable) "Inapplicable" else "Applicable($value)"
+
+  companion object {
+    @Suppress("INAPPLICABLE_JVM_NAME")
+    @JvmName("success")
+    fun <T> resolved(value: T?): GetResult<T> = GetResult(value)
+
+    @JvmName("failure")
+    fun <T : Any> inapplicable(): GetResult<T> = GetResult(Inapplicable)
+  }
+
+  internal object Inapplicable
 }
 
 /**
  * Caveat: do not touch telemetry API during init, it is not ready yet.
  */
 @Internal
-interface ChainedSettingsController : SettingsControllerInternal {
-  fun <T : Any> getItem(key: SettingDescriptor<T>, chain: List<ChainedSettingsController>): T?
+interface DelegatedSettingsController {
+  /**
+   * `null` if not applicable.
+   *
+   */
+  fun <T : Any> getItem(key: SettingDescriptor<T>): GetResult<T?>
 
+  /**
+   * Return `true` to continue calling of `setItem` on other settings controllers or `false` to stop.
+   *
+   * Throw [ReadOnlySettingException] if setting must be not modified.
+   */
   @Throws(ReadOnlySettingException::class)
-  suspend fun <T : Any> setItem(key: SettingDescriptor<T>, value: T?, chain: List<ChainedSettingsController>)
+  fun <T : Any> setItem(key: SettingDescriptor<T>, value: T?): Boolean
 
-  // advanced API
-  fun <T : Any> putIfDiffers(key: SettingDescriptor<T>, value: T?, chain: List<ChainedSettingsController>)
-}
-
-@Internal
-interface SettingsControllerInternal {
-  fun hasKeyStartsWith(key: String): Boolean
+  fun close() {
+  }
 }
 
 class ReadOnlySettingException(val key: SettingDescriptor<*>) : IllegalStateException()

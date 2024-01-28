@@ -20,7 +20,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Document
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
@@ -82,22 +81,12 @@ class MavenDomSoftReferencesInParentTest : MavenDomTestCase() {
                     </build>
                     """.trimIndent())
 
-    setFileContent(myProjectPom, createPomXml("""
-                       <groupId>test</groupId>
-                       <artifactId>project</artifactId>
-                       <version>1</version>
-                       <packaging>jar</packaging>
-                       <build>
-                       <sourceDirectory><error>foo1</error></sourceDirectory>
-                       <testSourceDirectory><error>foo2</error></testSourceDirectory>
-                       <scriptSourceDirectory><error>foo3</error></scriptSourceDirectory>
-                       </build>
-                       """.trimIndent()), false)
 
-    checkHighlighting()
+    checkHighlighting(projectPom,
+                      Highlight(text = "foo1"),
+                      Highlight(text = "foo2"),
+                      Highlight(text = "foo3"))
 
-    val documentSaved = !FileDocumentManager.getInstance().isDocumentUnsaved(getDocument(myProjectPom))
-    assertTrue(documentSaved)
   }
 
   private suspend fun getDocument(f: VirtualFile): Document {

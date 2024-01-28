@@ -2,14 +2,12 @@
 package com.intellij.gradle.toolingExtension.impl.modelBuilder;
 
 import com.intellij.gradle.toolingExtension.impl.model.projectModel.ExternalProjectBuilderImpl;
-import com.intellij.gradle.toolingExtension.util.GradleNegotiationUtil;
 import com.intellij.openapi.externalSystem.model.ExternalSystemException;
 import org.gradle.StartParameter;
 import org.gradle.api.Project;
 import org.gradle.api.invocation.Gradle;
 import org.gradle.internal.impldep.com.google.common.collect.Lists;
 import org.gradle.tooling.provider.model.ParameterizedToolingModelBuilder;
-import org.gradle.tooling.provider.model.ToolingModelBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.model.internal.DummyModel;
@@ -25,31 +23,17 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * @author Vladislav.Soroka
  */
-public class ExtraModelBuilder implements ToolingModelBuilder {
-
-  @SuppressWarnings("unused") // Used in JetGradlePlugin.gradle init script.
-  public static class ForGradle44 extends ExtraModelBuilder implements ParameterizedToolingModelBuilder<ModelBuilderService.Parameter> {
-    @NotNull
-    @Override
-    public Class<ModelBuilderService.Parameter> getParameterType() {
-      return ModelBuilderService.Parameter.class;
-    }
-
-    @Override
-    @SuppressWarnings("NullableProblems")
-    public @Nullable Object buildAll(
-      @NotNull String modelName,
-      @NotNull ModelBuilderService.Parameter parameter,
-      @NotNull Project project
-    ) {
-      return buildModel(modelName, parameter, project);
-    }
-  }
+public class ExtraModelBuilder implements ParameterizedToolingModelBuilder<ModelBuilderService.Parameter> {
 
   private final List<ModelBuilderService> modelBuilderServices =
     Lists.newArrayList(ServiceLoader.load(ModelBuilderService.class, ExtraModelBuilder.class.getClassLoader()));
 
   private final AtomicReference<DefaultModelBuilderContext> modelBuilderContext = new AtomicReference<>(null);
+
+  @Override
+  public @NotNull Class<ModelBuilderService.Parameter> getParameterType() {
+    return ModelBuilderService.Parameter.class;
+  }
 
   @Override
   public boolean canBuild(@NotNull String modelName) {
@@ -67,10 +51,12 @@ public class ExtraModelBuilder implements ToolingModelBuilder {
     @NotNull String modelName,
     @NotNull Project project
   ) {
-    return buildModel(modelName, null, project);
+    return buildAll(modelName, null, project);
   }
 
-  protected @Nullable Object buildModel(
+  @Override
+  @SuppressWarnings("NullableProblems")
+  public @Nullable Object buildAll(
     @NotNull String modelName,
     @Nullable ModelBuilderService.Parameter parameter,
     @NotNull Project project
@@ -153,7 +139,7 @@ public class ExtraModelBuilder implements ToolingModelBuilder {
     @NotNull String modelName,
     long timeInMs
   ) {
-    String projectName = GradleNegotiationUtil.getProjectDisplayName(project);
+    String projectName = project.getDisplayName();
     String serviceName = service.getClass().getSimpleName();
     String msg = String.format("%s: service %s imported '%s' in %d ms", projectName, serviceName, modelName, timeInMs);
     project.getLogger().error(msg);

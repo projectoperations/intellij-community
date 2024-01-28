@@ -2,11 +2,7 @@
 package com.intellij.util.io.dev.enumerator;
 
 import com.intellij.util.containers.hash.EqualityPolicy;
-import com.intellij.util.io.DataOutputStream;
-import com.intellij.util.io.UnsyncByteArrayInputStream;
-import com.intellij.util.io.UnsyncByteArrayOutputStream;
-import com.intellij.util.io.dev.appendonlylog.AppendOnlyLog;
-import com.intellij.util.io.KeyDescriptor;
+import com.intellij.util.io.*;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
@@ -19,7 +15,7 @@ import java.nio.ByteBuffer;
  * {@link java.io.OutputStream}
  */
 @ApiStatus.Internal
-public interface KeyDescriptorEx<K> extends EqualityPolicy<K> {
+public interface KeyDescriptorEx<K> extends EqualityPolicy<K>, DataExternalizerEx<K> {
   /** See {@link KeyDescriptor#getHashCode(Object)} docs */
   @Override
   int getHashCode(K value);
@@ -29,35 +25,12 @@ public interface KeyDescriptorEx<K> extends EqualityPolicy<K> {
   boolean isEqual(K key1, K key2);
 
 
-  K read(@NotNull ByteBuffer input) throws IOException;
-
-
-  /**
-   * Implementation should append the key to the log as single record, and return appended record id.
-   * E.g.
-   * <pre>
-   *   int recordSize = sizeOf(key); //calculate size of K's serialized form
-   *   long appendedRecordId = log.append(
-   *    buffer -> {
-   *      buffer.putInt(...);
-   *      buffer.put(...);
-   *      buffer.putShort(...);
-   *      ...
-   *    },
-   *    recordSize
-   *   );
-   *   return appendedRecordId;
-   * </pre>
-   */
-  long saveToLog(@NotNull K key,
-                 @NotNull AppendOnlyLog log) throws IOException;
-
   /**
    * Adapts old-school {@link KeyDescriptor} to new {@link KeyDescriptorEx}.
    * <p>
    * <p/>
    * Implementation is not 100% optimal -- it does unnecessary allocations and copying -- but usually good enough to
-   * start using new API (i.e. {@link com.intellij.util.io.DataEnumerator}), and see does it make any difference.
+   * start using new API (i.e. {@link DataEnumerator}), and see does it make any difference.
    * <p/>
    * Still, one could do better by using more 'idiomatic' API -- but it takes more effort.
    */
@@ -83,16 +56,15 @@ public interface KeyDescriptorEx<K> extends EqualityPolicy<K> {
         return oldSchoolDescriptor.read(new DataInputStream(new UnsyncByteArrayInputStream(contentAsArray)));
       }
 
+
       @Override
-      public long saveToLog(@NotNull K key,
-                            @NotNull AppendOnlyLog log) throws IOException {
+      public KnownSizeRecordWriter writerFor(@NotNull K key) throws IOException {
         UnsyncByteArrayOutputStream stream = new UnsyncByteArrayOutputStream(64);
         try (DataOutputStream os = new DataOutputStream(stream)) {
           oldSchoolDescriptor.save(os, key);
         }
 
-        long appendedRecordId = log.append(stream.toByteArray());
-        return appendedRecordId;
+        return new ByteArrayWriter(stream.toByteArray());
       }
 
       @Override

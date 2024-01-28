@@ -255,7 +255,6 @@ public class ExpectedHighlightingData {
                           "|effecttype=\"(?<effecttype>[A-Z]+)\"" +
                           "|fonttype=\"(?<fonttype>[0-9]+)\"" +
                           "|textAttributesKey=\"(?<textAttributesKey>(?:\\\\\"|[^\"])*)\"" +
-                          "|bundleMsg=\"(?<bundleMsg>(?:\\\\\"|[^\"])*)\"" +
                           "|tooltip=\"(?<tooltip>(?:\\\\\"|[^\"])*)\"" +
                           "))*" +
                           "\\s*(?<closed>/)?>";
@@ -281,7 +280,6 @@ public class ExpectedHighlightingData {
     String effectType = matcher.group("effecttype");
     String fontType = matcher.group("fonttype");
     String attrKey = matcher.group("textAttributesKey");
-    String bundleMessage = matcher.group("bundleMsg");
     @NlsSafe String tooltip = matcher.group("tooltip");
     boolean closed = matcher.group("closed") != null;
 
@@ -579,8 +577,8 @@ public class ExpectedHighlightingData {
                                     @NotNull HighlightInfo info,
                                     @NotNull String messageType) {
     String fileName = psiFile == null ? "" : psiFile.getName() + ": ";
-    int startOffset = info.startOffset;
-    int endOffset = info.endOffset;
+    int startOffset = info.getActualStartOffset();
+    int endOffset = info.getActualEndOffset();
     String s = text.substring(startOffset, endOffset);
     String desc = info.getDescription();
 

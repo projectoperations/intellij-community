@@ -16,6 +16,7 @@ import com.intellij.platform.workspace.storage.impl.containers.Object2LongWithDe
 import com.intellij.platform.workspace.storage.impl.indices.*
 import com.intellij.platform.workspace.storage.impl.serialization.*
 import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlImpl
+import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerImpl
 import com.intellij.platform.workspace.storage.url.UrlRelativizer
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
@@ -160,12 +161,12 @@ internal class StorageSerializerUtil(
 
       if (urlRelativizer == null) {
         val url = kryo.readObject(input, ArrayList::class.java) as List<String>
-        return virtualFileManager.fromUrlSegments(url)
+        return (virtualFileManager as VirtualFileUrlManagerImpl).fromUriSegments(url)
       }
       else {
         val serializedUrl = kryo.readObject(input, String::class.java) as String
         val convertedUrl = urlRelativizer.toAbsoluteUrl(serializedUrl)
-        return virtualFileManager.fromUrl(convertedUrl)
+        return virtualFileManager.getOrCreateFromUri(convertedUrl)
       }
     }
   }
@@ -341,4 +342,7 @@ internal class StorageSerializerUtil(
 
 public class UnsupportedClassException(
   pluginId: PluginId, entityClassFqn: String, unsupportedClassFqn: String
-): Exception("Unsupported class $unsupportedClassFqn in the entity $entityClassFqn with $pluginId plugin")
+): Exception(
+  "Unsupported class $unsupportedClassFqn in the entity $entityClassFqn with $pluginId plugin." +
+  "Please make sure that you do not use anonymous implementations of ${EntitySource::class.java.name} and ${SymbolicEntityId::class.java.name}"
+)

@@ -1,7 +1,9 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.tooling.util.resolve;
 
+import com.intellij.gradle.toolingExtension.impl.model.dependencyDownloadPolicyModel.GradleDependencyDownloadPolicy;
 import com.intellij.gradle.toolingExtension.impl.model.sourceSetModel.GradleSourceSetCachedFinder;
+import com.intellij.gradle.toolingExtension.util.GradleVersionUtil;
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
@@ -26,9 +28,7 @@ import org.gradle.internal.resolve.ModuleVersionResolveException;
 import org.gradle.jvm.JvmLibrary;
 import org.gradle.language.base.artifact.SourcesArtifact;
 import org.gradle.language.java.artifact.JavadocArtifact;
-import org.gradle.util.GradleVersion;
 import org.gradle.util.Path;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.model.ExternalDependency;
@@ -38,7 +38,6 @@ import org.jetbrains.plugins.gradle.tooling.ModelBuilderContext;
 import org.jetbrains.plugins.gradle.tooling.serialization.internal.adapter.Supplier;
 import org.jetbrains.plugins.gradle.tooling.util.DependencyResolver;
 import org.jetbrains.plugins.gradle.tooling.util.ModuleComponentIdentifierImpl;
-import org.jetbrains.plugins.gradle.tooling.util.resolve.deprecated.DeprecatedDependencyResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,14 +52,20 @@ import static java.util.Collections.*;
 public final class DependencyResolverImpl implements DependencyResolver {
   private static final Logger LOG = LoggerFactory.getLogger(DependencyResolverImpl.class);
 
-  private static final GradleVersion GRADLE_BASE_VERSION = GradleVersion.current().getBaseVersion();
-  private static final boolean IS_83_OR_BETTER = GRADLE_BASE_VERSION.compareTo(GradleVersion.version("8.3")) >= 0;
-  private static final boolean IS_NEW_DEPENDENCY_RESOLUTION_APPLICABLE = GRADLE_BASE_VERSION.compareTo(GradleVersion.version("4.5")) >= 0;
+  private static final boolean IS_83_OR_BETTER = GradleVersionUtil.isCurrentGradleAtLeast("8.3");
 
   private final @NotNull ModelBuilderContext myContext;
   private final @NotNull Project myProject;
   private final boolean myDownloadJavadoc;
   private final boolean myDownloadSources;
+
+  public DependencyResolverImpl(
+    @NotNull ModelBuilderContext context,
+    @NotNull Project project,
+    @NotNull GradleDependencyDownloadPolicy dependencyDownloadPolicy
+  ) {
+    this(context, project, dependencyDownloadPolicy.isDownloadJavadoc(), dependencyDownloadPolicy.isDownloadSources());
+  }
 
   public DependencyResolverImpl(
     @NotNull ModelBuilderContext context,
@@ -74,18 +79,8 @@ public final class DependencyResolverImpl implements DependencyResolver {
     myDownloadSources = downloadSources;
   }
 
-  @ApiStatus.Internal
-  public static boolean isIsNewDependencyResolutionApplicable() {
-    return IS_NEW_DEPENDENCY_RESOLUTION_APPLICABLE;
-  }
-
   @Override
   public Collection<ExternalDependency> resolveDependencies(@Nullable String configurationName) {
-    if (!IS_NEW_DEPENDENCY_RESOLUTION_APPLICABLE) {
-      //noinspection deprecation
-      return new DeprecatedDependencyResolver(myContext, myProject, false, myDownloadJavadoc, myDownloadSources)
-        .resolveDependencies(configurationName);
-    }
     if (configurationName == null) return emptyList();
     Collection<ExternalDependency> dependencies = resolveDependencies(myProject.getConfigurations().findByName(configurationName), null);
     int order = 0;
@@ -97,12 +92,6 @@ public final class DependencyResolverImpl implements DependencyResolver {
 
   @Override
   public Collection<ExternalDependency> resolveDependencies(@Nullable Configuration configuration) {
-    if (!IS_NEW_DEPENDENCY_RESOLUTION_APPLICABLE) {
-      //noinspection deprecation
-      return new DeprecatedDependencyResolver(myContext, myProject, false, myDownloadJavadoc, myDownloadSources)
-        .resolveDependencies(configuration);
-    }
-
     Collection<ExternalDependency> dependencies = resolveDependencies(configuration, null);
     int order = 0;
     for (ExternalDependency dependency : dependencies) {
@@ -113,12 +102,6 @@ public final class DependencyResolverImpl implements DependencyResolver {
 
   @Override
   public Collection<ExternalDependency> resolveDependencies(@NotNull final SourceSet sourceSet) {
-    if (!IS_NEW_DEPENDENCY_RESOLUTION_APPLICABLE) {
-      //noinspection deprecation
-      return new DeprecatedDependencyResolver(myContext, myProject, false, myDownloadJavadoc, myDownloadSources)
-        .resolveDependencies(sourceSet);
-    }
-
     Collection<ExternalDependency> result = new ArrayList<>();
 
     // resolve compile dependencies
@@ -168,11 +151,8 @@ public final class DependencyResolverImpl implements DependencyResolver {
       try {
         return ((AbstractCompile)compileTask).getClasspath();
       } catch (Exception e) {
-        LOG.warn("Error obtaining compile classpath for java compilation task for [" +
-                 sourceSet.getName() +
-                 "] in project [" +
-                 myProject.getPath() +
-                 "]", e);
+        LOG.warn("Error obtaining compile classpath for java compilation task for [{}] in project [{}]", sourceSet.getName(),
+                 myProject.getPath(), e);
       }
     }
     return sourceSet.getCompileClasspath();
@@ -220,7 +200,7 @@ public final class DependencyResolverImpl implements DependencyResolver {
             }
           }
         }
-        resolvedArtifacts.put(dependency, Collections.emptySet());
+        resolvedArtifacts.put(dependency, emptySet());
       }
       catch (Exception ignore) {
         // ignore other artifact resolution exceptions
@@ -290,8 +270,7 @@ public final class DependencyResolverImpl implements DependencyResolver {
             resolvedProjectDependencies.put(key, projectDependency);
           }
           dependency = projectDependency;
-          String projectName = projectComponentIdentifier.getProjectName(); // since 4.5
-          projectDependency.setName(projectName);
+          projectDependency.setName(projectComponentIdentifier.getProjectName());
           projectDependency.setGroup(resolvedDependency.getModuleGroup());
           projectDependency.setVersion(resolvedDependency.getModuleVersion());
           projectDependency.setScope(scope);
@@ -677,10 +656,6 @@ public final class DependencyResolverImpl implements DependencyResolver {
 
   public static ModuleComponentIdentifier toComponentIdentifier(ModuleVersionIdentifier id) {
     return new ModuleComponentIdentifierImpl(id.getGroup(), id.getName(), id.getVersion());
-  }
-
-  public static ModuleComponentIdentifier toComponentIdentifier(@NotNull String group, @NotNull String module, @NotNull String version) {
-    return new ModuleComponentIdentifierImpl(group, module, version);
   }
 
   private static final class MyModuleVersionSelector {

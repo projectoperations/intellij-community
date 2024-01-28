@@ -9,10 +9,7 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.FUSEventSource
-import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginAdvertiserService
-import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginSuggestionProvider
-import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.installAndEnable
+import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.*
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
@@ -69,12 +66,9 @@ private class OpenApiPluginSuggestion(val project: Project,
     }
     else {
       panel.text = IdeBundle.message("plugins.advertiser.extensions.supported.in.ultimate", OPENAPI_FILES, suggestedCommercialIde.name)
-
-      panel.createActionLabel(IdeBundle.message("plugins.advertiser.action.try.ultimate", suggestedCommercialIde.name)) {
-        FUSEventSource.EDITOR.openDownloadPageAndLog(project, suggestedCommercialIde.downloadUrl, PluginId.getId(OPENAPI_PLUGIN_ID))
-      }
+      panel.createTryUltimateActionLabel(suggestedCommercialIde, project, PluginId.getId(OPENAPI_PLUGIN_ID))
     }
-
+    
     panel.createActionLabel(IdeBundle.message("plugins.advertiser.action.ignore.ultimate")) {
       FUSEventSource.EDITOR.logIgnoreExtension(project)
       dismissPluginSuggestion()

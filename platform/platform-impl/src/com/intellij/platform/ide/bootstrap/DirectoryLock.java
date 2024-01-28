@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.bootstrap;
 
 import com.intellij.execution.process.ProcessIOExecutorService;
@@ -92,9 +92,7 @@ final class DirectoryLock {
     if (!myFallbackMode && myPortFile.toString().length() > UDS_PATH_LENGTH_LIMIT) {
       var baseDir = SystemInfoRt.isWindows ? Path.of(System.getenv("SystemRoot"), "Temp") : Path.of("/tmp");
       myRedirectedPortFile = baseDir.resolve(".ij_redirected_port_" + myPid + "_" + COUNT.incrementAndGet());
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("redirectedPortFile=" + myRedirectedPortFile);
-      }
+      if (LOG.isDebugEnabled()) LOG.debug("redirectedPortFile=" + myRedirectedPortFile);
     }
     else {
       myRedirectedPortFile = null;
@@ -103,7 +101,7 @@ final class DirectoryLock {
     myProcessor = processor;
   }
 
-  private static boolean areUdsSupported(@NotNull Path file) {
+  private static boolean areUdsSupported(Path file) {
     var fs = file.getFileSystem();
     if (fs.getClass().getModule() != Object.class.getModule()) {
       if (!System.getProperty("java.vm.vendor", "").contains("JetBrains") ||
@@ -222,6 +220,7 @@ final class DirectoryLock {
         if (selector.select(myTimeoutMs) == 0) throw new SocketTimeoutException(BootstrapBundle.message("bootstrap.error.timeout", address));
         socketChannel.finishConnect();
       }
+      if (LOG.isDebugEnabled()) LOG.debug("connected to " + address);
       socketChannel.register(selector, SelectionKey.OP_READ);
 
       allowActivation();
@@ -231,7 +230,11 @@ final class DirectoryLock {
       request.addAll(args);
       sendLines(socketChannel, request);
 
-      if (selector.select(myTimeoutMs) == 0) throw new SocketTimeoutException(BootstrapBundle.message("bootstrap.error.timeout", address));
+      if (selector.select(myTimeoutMs) == 0) {
+        var e = new SocketTimeoutException(BootstrapBundle.message("bootstrap.error.timeout", address));
+        e.addSuppressed(new Exception("response was not received"));
+        throw e;
+      }
       var response = readLines(socketChannel);
       if (response.size() != 2) throw new IOException(BootstrapBundle.message("bootstrap.error.malformed.response", response));
       var exitCode = Integer.parseInt(response.get(0));
@@ -329,6 +332,7 @@ final class DirectoryLock {
     while (true) {
       try {
         var socketChannel = serverChannel.accept();
+        if (LOG.isDebugEnabled()) LOG.debug("accepted connection " + socketChannel);
         ProcessIOExecutorService.INSTANCE.execute(() -> handleConnection(socketChannel));
       }
       catch (ClosedChannelException e) { break; }
@@ -418,7 +422,6 @@ final class DirectoryLock {
       buffer.get(bytes);
       lines.add(new String(bytes, StandardCharsets.UTF_8));
     }
-    if (LOG.isDebugEnabled()) LOG.debug("received: " + lines);
     return lines;
   }
   //</editor-fold>

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.k2.quickfix.tests;
 
@@ -75,6 +75,11 @@ public abstract class K2MultiFileQuickFixTestGenerated extends AbstractK2MultiFi
         @TestMetadata("companionMember.before.Main.java")
         public void testCompanionMember() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/fromJava/companionMember.before.Main.java");
+        }
+
+        @TestMetadata("libraryFunction.before.Main.java")
+        public void testLibraryFunction() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/fromJava/libraryFunction.before.Main.java");
         }
 
         @TestMetadata("nullType.before.Main.java")

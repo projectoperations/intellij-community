@@ -14,6 +14,7 @@ import com.intellij.openapi.ui.validation.DialogValidationRequestor
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.dsl.builder.Panel
 import com.jetbrains.python.PyBundle.message
+import com.jetbrains.python.icons.PythonIcons
 import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.sdk.PyDetectedSdk
 import com.jetbrains.python.sdk.installSdkIfNeeded
@@ -21,8 +22,6 @@ import com.jetbrains.python.sdk.pipenv.PIPENV_ICON
 import com.jetbrains.python.sdk.poetry.POETRY_ICON
 import com.jetbrains.python.sdk.setup
 import com.jetbrains.python.statistics.InterpreterTarget
-import icons.PythonIcons
-import icons.PythonSdkIcons
 import kotlinx.coroutines.CoroutineScope
 import javax.swing.Icon
 
@@ -55,7 +54,7 @@ enum class PythonSupportedEnvironmentManagers(val nameKey: String, val icon: Ico
   CONDA("sdk.create.custom.conda", PythonIcons.Python.Anaconda),
   POETRY("sdk.create.custom.poetry", POETRY_ICON),
   PIPENV("sdk.create.custom.pipenv", PIPENV_ICON),
-  PYTHON("sdk.create.custom.python", PythonSdkIcons.Python)
+  PYTHON("sdk.create.custom.python", com.jetbrains.python.psi.icons.PythonPsiApiIcons.Python)
 }
 
 enum class PythonInterpreterSelectionMode(val nameKey: String) {
@@ -82,7 +81,7 @@ enum class PythonInterpreterSelectionMethod {
   CREATE_NEW, SELECT_EXISTING
 }
 
-internal fun setupBaseSdk(sdk: Sdk, existingSdks: List<Sdk>): Sdk? {
+internal fun installBaseSdk(sdk: Sdk, existingSdks: List<Sdk>): Sdk? {
   val installed = installSdkIfNeeded(sdk, null, existingSdks)
   if (installed == null) {
     val notification = NotificationGroupManager.getInstance()
@@ -91,16 +90,16 @@ internal fun setupBaseSdk(sdk: Sdk, existingSdks: List<Sdk>): Sdk? {
     notification.collapseDirection
 
     notification.addAction(NotificationAction.createSimple(message("python.sdk.installation.balloon.error.action")) {
-        notification.expire()
-        HelpManager.getInstance().invokeHelp("reference.settings.project.interpreter")
-      })
+      notification.expire()
+      HelpManager.getInstance().invokeHelp("create.python.interpreter")
+    })
 
     NotificationsManager
       .getNotificationsManager()
       .showNotification(notification, IdeFocusManager.getGlobalInstance().lastFocusedFrame?.project)
     return null
   }
-  return setupSdkIfDetected(installed, existingSdks)
+  return installed
 }
 
 internal fun setupSdkIfDetected(sdk: Sdk, existingSdks: List<Sdk>): Sdk = when (sdk) {

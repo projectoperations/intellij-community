@@ -7,16 +7,22 @@ import com.intellij.openapi.command.impl.FinishMarkAction
 import com.intellij.openapi.command.impl.StartMarkAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.Pass
+import com.intellij.openapi.util.TextRange
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
-import com.intellij.util.SlowOperations
-import com.intellij.util.SmartList
+import com.intellij.refactoring.introduce.inplace.OccurrencesChooser
 import com.intellij.util.application
-import com.intellij.util.containers.addIfNotNull
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisFromWriteAction
+import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KtDiagnosticCheckerFilter
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KtFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisFromWriteAction
+import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.symbols.KtAnonymousFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KtSymbolOrigin
+import org.jetbrains.kotlin.analysis.api.symbols.KtValueParameterSymbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
@@ -24,298 +30,102 @@ import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester.Companion.suggestNameByName
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggestionProvider
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
-import org.jetbrains.kotlin.idea.base.psi.moveInsideParenthesesAndReplaceWith
-import org.jetbrains.kotlin.idea.base.psi.shouldLambdaParameterBeNamed
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.utils.ConvertToBlockBodyUtils
 import org.jetbrains.kotlin.idea.codeinsight.utils.NamedArgumentUtils
 import org.jetbrains.kotlin.idea.codeinsight.utils.addTypeArguments
 import org.jetbrains.kotlin.idea.codeinsight.utils.getRenderedTypeArguments
 import org.jetbrains.kotlin.idea.refactoring.KotlinCommonRefactoringSettings
+import org.jetbrains.kotlin.idea.refactoring.introduce.KotlinIntroduceVariableContext
 import org.jetbrains.kotlin.idea.refactoring.introduce.KotlinIntroduceVariableHandler
 import org.jetbrains.kotlin.idea.refactoring.introduce.KotlinIntroduceVariableHelper.Containers
-import org.jetbrains.kotlin.idea.refactoring.introduce.findExpressionByCopyableDataAndClearIt
-import org.jetbrains.kotlin.idea.refactoring.introduce.mustBeParenthesizedInInitializerPosition
-import org.jetbrains.kotlin.idea.refactoring.introduce.removeTemplateEntryBracesIfPossible
+import org.jetbrains.kotlin.idea.refactoring.introduce.calculateAnchorForExpressions
+import org.jetbrains.kotlin.idea.refactoring.introduce.extractableSubstringInfo
+import org.jetbrains.kotlin.idea.refactoring.introduce.substringContextOrThis
+import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.idea.util.application.executeCommand
 import org.jetbrains.kotlin.idea.util.application.executeWriteCommand
 import org.jetbrains.kotlin.idea.util.application.isUnitTestMode
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.*
 import org.jetbrains.kotlin.types.Variance
-import org.jetbrains.kotlin.utils.sure
-import kotlin.math.min
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
+import org.jetbrains.kotlin.utils.exceptions.withPsiEntry
 
 object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
-    private val EXPRESSION_KEY = Key.create<Boolean>("EXPRESSION_KEY")
-
-    private var KtExpression.isOccurrence: Boolean by NotNullablePsiCopyableUserDataProperty(Key.create("OCCURRENCE"), false)
-
     private class IntroduceVariableContext(
-        private val expression: KtExpression,
-        private val nameSuggestions: List<Collection<String>>,
-        private val container: PsiElement,
-        private val replaceOccurrence: Boolean,
+        project: Project,
+        isVar: Boolean,
+        nameSuggestions: List<Collection<String>>,
+        replaceFirstOccurrence: Boolean,
+        isDestructuringDeclaration: Boolean,
         private val expressionRenderedType: String,
-        private val componentNames: List<String>,
-        renderedTypeArguments: String?,
-    ) {
-        private val psiFactory = KtPsiFactory(expression.project)
-
-        var propertyRef: KtDeclaration? = null
-        var reference: SmartPsiElementPointer<KtExpression>? = null
-        val references = ArrayList<SmartPsiElementPointer<KtExpression>>()
+        var renderedTypeArgumentsIfMightBeNeeded: String?,
+    ) : KotlinIntroduceVariableContext(project, isVar, nameSuggestions, replaceFirstOccurrence, isDestructuringDeclaration) {
         var mustSpecifyTypeExplicitly = false
-        var renderedTypeArgumentsIfMightBeNeeded: String? = renderedTypeArguments
 
-        private fun replaceExpression(
-            expressionToReplace: KtExpression,
-            addToReferences: Boolean,
-            lambdaArgumentName: Name?
-        ): KtExpression {
-            val isActualExpression = expression == expressionToReplace
-
-            val replacement = psiFactory.createExpression(nameSuggestions.single().first())
-            var result = when {
-                expressionToReplace.isLambdaOutsideParentheses() -> {
-                    val functionLiteralArgument = expressionToReplace.getStrictParentOfType<KtLambdaArgument>()!!
-                    val newCallExpression = functionLiteralArgument.moveInsideParenthesesAndReplaceWith(replacement, lambdaArgumentName)
-                    newCallExpression.valueArguments.last().getArgumentExpression()!!
-                }
-
-                else -> expressionToReplace.replace(replacement) as KtExpression
-            }
-
-            result = result.removeTemplateEntryBracesIfPossible()
-
-            if (addToReferences) {
-                references.addIfNotNull(SmartPointerManager.createPointer(result))
-            }
-
-            if (isActualExpression) {
-                reference = SmartPointerManager.createPointer(result)
-            }
-
-            return result
-        }
-
-        private fun runRefactoring(
-            isVar: Boolean,
-            expression: KtExpression,
-            container: PsiElement,
-        ) {
-            val initializer = (expression as? KtParenthesizedExpression)?.expression ?: expression
-            val initializerText = if (initializer.mustBeParenthesizedInInitializerPosition()) "(${initializer.text})" else initializer.text
-
-            val varOvVal = if (isVar) "var" else "val"
-
-            var property: KtDeclaration = if (componentNames.isNotEmpty()) {
-                buildString {
-                    componentNames.indices.joinTo(this, prefix = "$varOvVal (", postfix = ")") { nameSuggestions[it].first() }
-                    append(" = ")
-                    append(initializerText)
-                }.let { psiFactory.createDestructuringDeclaration(it) }
-            } else {
-                buildString {
-                    append("$varOvVal ")
-                    append(nameSuggestions.single().first())
-                    append(" = ")
-                    append(initializerText)
-                }.let { psiFactory.createProperty(it) }
-            }
-            val lambdaArgumentName = if (expression.isLambdaOutsideParentheses()) {
-                analyzeInModalWindow(expression, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
-                    getLambdaArgumentNameIfShouldBeNamed(expression.getStrictParentOfType<KtLambdaArgument>()!!)
-                }
-            } else null
-            var anchor = calculateAnchor(expression, container) ?: return
-            val needBraces = container !is KtBlockExpression && container !is KtClassBody && container !is KtFile
-            val shouldReplaceOccurrence = !needBraces && expression.shouldReplaceOccurrence(container)
-            application.runWriteAction {
-                if (!needBraces) {
-                    property = container.addBefore(property, anchor) as KtDeclaration
-                    container.addBefore(psiFactory.createNewLine(), anchor)
-                } else {
-                    var emptyBody: KtExpression = psiFactory.createEmptyBody()
-                    val firstChild = emptyBody.firstChild
-                    emptyBody.addAfter(psiFactory.createNewLine(), firstChild)
-
-                    if (replaceOccurrence) {
-                        val exprAfterReplace = replaceExpression(expression, addToReferences = false, lambdaArgumentName)
-                        exprAfterReplace.isOccurrence = true
-                        if (anchor == expression) {
-                            anchor = exprAfterReplace
-                        }
-
-                        var oldElement: PsiElement = container
-                        if (container is KtWhenEntry) {
-                            val body = container.expression
-                            if (body != null) {
-                                oldElement = body
-                            }
-                        } else if (container is KtContainerNode) {
-                            val children = container.children
-                            for (child in children) {
-                                if (child is KtExpression) {
-                                    oldElement = child
-                                }
-                            }
-                        } //ugly logic to make sure we are working with right actual expression
-                        var actualExpression = reference?.element ?: return@runWriteAction
-                        var diff = actualExpression.textRange.startOffset - oldElement.textRange.startOffset
-                        var actualExpressionText = actualExpression.text
-                        val newElement = emptyBody.addAfter(oldElement, firstChild)
-                        var elem: PsiElement? = findElementByOffsetAndText(diff, actualExpressionText, newElement)
-                        if (elem != null) {
-                            reference = SmartPointerManager.createPointer(elem as KtExpression)
-                        }
-                        emptyBody.addAfter(psiFactory.createNewLine(), firstChild)
-                        property = emptyBody.addAfter(property, firstChild) as KtDeclaration
-                        emptyBody.addAfter(psiFactory.createNewLine(), firstChild)
-                        actualExpression = reference?.element ?: return@runWriteAction
-                        diff = actualExpression.textRange.startOffset - emptyBody.textRange.startOffset
-                        actualExpressionText = actualExpression.text
-                        emptyBody = anchor.replace(emptyBody) as KtBlockExpression
-                        elem = findElementByOffsetAndText(diff, actualExpressionText, emptyBody)
-                        if (elem != null) {
-                            reference = SmartPointerManager.createPointer(elem as KtExpression)
-                        }
-
-                        emptyBody.accept(object : KtTreeVisitorVoid() {
-                            override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
-                                if (!expression.isOccurrence) return
-                                expression.isOccurrence = false
-                            }
-                        })
-                    } else {
-                        val parent = anchor.parent
-                        val copyTo = parent.lastChild
-                        val copyFrom = anchor.nextSibling
-
-                        property = emptyBody.addAfter(property, firstChild) as KtDeclaration
-                        emptyBody.addAfter(psiFactory.createNewLine(), firstChild)
-                        if (copyFrom != null && copyTo != null) {
-                            emptyBody.addRangeAfter(copyFrom, copyTo, property)
-                            parent.deleteChildRange(copyFrom, copyTo)
-                        }
-                        emptyBody = anchor.replace(emptyBody) as KtBlockExpression
-                    }
-                    for (child in emptyBody.children) {
-                        if (child is KtProperty) {
-                            property = child
-                        }
-                    }
-                    if (container is KtContainerNode) {
-                        if (container.parent is KtIfExpression) {
-                            val next = container.nextSibling
-                            if (next != null) {
-                                val nextNext = next.nextSibling
-                                if (nextNext != null && nextNext.node.elementType == KtTokens.ELSE_KEYWORD) {
-                                    if (next is PsiWhiteSpace) {
-                                        next.replace(psiFactory.createWhiteSpace())
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if (!needBraces) {
-                    if (shouldReplaceOccurrence) {
-                        replaceExpression(expression, addToReferences = true, lambdaArgumentName)
-                    } else {
-                        val sibling = PsiTreeUtil.skipSiblingsBackward(expression, PsiWhiteSpace::class.java)
-                        if (sibling == property) {
-                            expression.parent.deleteChildRange(property.nextSibling, expression)
-                        }
-                        else {
-                            expression.delete()
-                        }
-                    }
-                }
-                propertyRef = property
-            }
-
-            specifyTypeIfNeeded(property)
-
-            val addedTypeReference = (property as? KtProperty)?.typeReference
-            if (addedTypeReference != null) {
-                application.runWriteAction {
-                    shortenReferences(addedTypeReference)
-                }
-            }
-        }
-
-        context(KtAnalysisSession)
-        private fun getLambdaArgumentNameIfShouldBeNamed(argument: KtLambdaArgument): Name? {
-            return if (shouldLambdaParameterBeNamed(argument)) {
-                NamedArgumentUtils.getStableNameFor(argument)
-            } else null
-        }
-
-        private fun specifyTypeIfNeeded(declaration: KtDeclaration) {
+        override fun analyzeDeclarationAndSpecifyTypeIfNeeded(declaration: KtDeclaration) {
             if (declaration !is KtProperty) return
             assert(declaration.typeReference == null)
             analyzeIfExplicitTypeOrArgumentsAreNeeded(declaration)
             if (KotlinCommonRefactoringSettings.getInstance().INTRODUCE_SPECIFY_TYPE_EXPLICITLY || mustSpecifyTypeExplicitly) {
-                application.runWriteAction {
-                    declaration.typeReference = psiFactory.createType(expressionRenderedType)
+                declaration.typeReference = psiFactory.createType(expressionRenderedType)
+                declaration.typeReference?.let { shortenReferences(it) }
+            }
+        }
+
+        @OptIn(KtAllowAnalysisOnEdt::class)
+        override fun KtLambdaArgument.getLambdaArgumentNameByAnalyze(): Name? = allowAnalysisOnEdt {
+            @OptIn(KtAllowAnalysisFromWriteAction::class)
+            allowAnalysisFromWriteAction {
+                analyze(this) {
+                    NamedArgumentUtils.getStableNameFor(this@getLambdaArgumentNameByAnalyze)
                 }
             }
         }
 
         private fun analyzeIfExplicitTypeOrArgumentsAreNeeded(property: KtProperty) {
             val initializer = property.initializer ?: return
-            val propertyRenderedType = analyzeInModalWindow(property, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
-                property.getReturnKtType().render(position = Variance.INVARIANT)
-            }
-            if (propertyRenderedType == expressionRenderedType) {
-                renderedTypeArgumentsIfMightBeNeeded = null
-            } else if (!areTypeArgumentsNeededForCorrectTypeInference(initializer)) {
-                mustSpecifyTypeExplicitly = true
-            }
-        }
 
-        fun runRefactoring(project: Project, editor: Editor?, isVar: Boolean) {
-            if (container !is KtDeclarationWithBody) return runRefactoring(
-                isVar,
-                expression,
-                container,
-            )
-
-            container.bodyExpression.sure { "Original body is not found: $container" }
-
-            expression.putCopyableUserData(EXPRESSION_KEY, true)
-
-            analyzeInModalWindow(container, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
-                ConvertToBlockBodyUtils.createContext(container, ShortenReferencesFacility.getInstance(), reformat = false)
-            }?.let { context ->
-                application.runWriteAction {
-                    ConvertToBlockBodyUtils.convert(container, context)
+            @OptIn(KtAllowAnalysisOnEdt::class)
+            allowAnalysisOnEdt {
+                @OptIn(KtAllowAnalysisFromWriteAction::class)
+                allowAnalysisFromWriteAction {
+                    analyze(property) {
+                        val propertyRenderedType = property.getReturnKtType().render(position = Variance.INVARIANT)
+                        if (propertyRenderedType == expressionRenderedType) {
+                            renderedTypeArgumentsIfMightBeNeeded = null
+                        } else if (!areTypeArgumentsNeededForCorrectTypeInference(initializer)) {
+                            mustSpecifyTypeExplicitly = true
+                        }
+                    }
                 }
             }
-
-            val newContainer = container.bodyBlockExpression ?: return showErrorHint(
-                project,
-                editor,
-                KotlinBundle.message("cannot.refactor.not.expression")
-            )
-
-            val newExpression = newContainer.findExpressionByCopyableDataAndClearIt(EXPRESSION_KEY)
-
-            runRefactoring(
-                isVar,
-                newExpression ?: return,
-                newContainer,
-            )
         }
-    }
 
-    private fun calculateAnchor(expression: PsiElement, container: PsiElement): PsiElement? {
-        if (expression != container) return expression.parentsWithSelf.firstOrNull { it.parent == container }
-        val startOffset = min(container.endOffset, expression.startOffset)
-        return container.allChildren.lastOrNull { it.textRange.contains(startOffset) }
+        override fun convertToBlockBodyAndSpecifyReturnTypeByAnalyze(declaration: KtDeclarationWithBody): KtDeclarationWithBody {
+            @OptIn(KtAllowAnalysisOnEdt::class)
+            val convertToBlockBodyContext = allowAnalysisOnEdt {
+                @OptIn(KtAllowAnalysisFromWriteAction::class)
+                allowAnalysisFromWriteAction {
+                    analyze(declaration) {
+                        ConvertToBlockBodyUtils.createContext(
+                            declaration,
+                            ShortenReferencesFacility.getInstance(),
+                            reformat = false,
+                            isErrorReturnTypeAllowed = true,
+                        )
+                    }
+                }
+            } ?: errorWithAttachment("Failed to create context for converting expression body to block body") {
+                withPsiEntry("declaration", declaration)
+            }
+
+            ConvertToBlockBodyUtils.convert(declaration, convertToBlockBodyContext)
+
+            return declaration
+        }
     }
 
     private fun KtExpression.shouldReplaceOccurrence(container: PsiElement?): Boolean {
@@ -382,32 +192,7 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
         occurrencesToReplace: List<KtExpression>?,
         onNonInteractiveFinish: ((KtDeclaration) -> Unit)?
     ) {
-        val parent = expression.parent
-
-        when {
-            parent is KtQualifiedExpression -> {
-                if (parent.receiverExpression != expression) {
-                    return showErrorHint(project, editor, KotlinBundle.message("cannot.refactor.no.expression"))
-                }
-            }
-
-            expression is KtStatementExpression ->
-                return showErrorHint(project, editor, KotlinBundle.message("cannot.refactor.no.expression"))
-
-            parent is KtOperationExpression && parent.operationReference == expression ->
-                return showErrorHint(project, editor, KotlinBundle.message("cannot.refactor.no.expression"))
-        }
-
-        PsiTreeUtil.getNonStrictParentOfType(
-            expression,
-            KtTypeReference::class.java,
-            KtConstructorCalleeExpression::class.java,
-            KtSuperExpression::class.java,
-            KtConstructorDelegationReferenceExpression::class.java,
-            KtAnnotationEntry::class.java
-        )?.let {
-            return showErrorHint(project, editor, KotlinBundle.message("cannot.refactor.no.container"))
-        }
+        if (!isRefactoringApplicableByPsi(project, editor, expression)) return
 
         val expressionRenderedType = analyzeInModalWindow(expression, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
             val expressionType = expression.getKtType()
@@ -421,14 +206,32 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
             }
         }
 
-        val isInplaceAvailable = editor != null && !isUnitTestMode()
+        val isInplaceAvailable = editor != null
 
-        val callback = {
-            val replaceOccurrence = expression.shouldReplaceOccurrence(containers.targetContainer)
+        val allOccurrences = listOf(expression) // TODO: KTIJ-27861
+        val callback = Pass.create { replaceChoice: OccurrencesChooser.ReplaceChoice ->
+            val allReplaces = when (replaceChoice) {
+                OccurrencesChooser.ReplaceChoice.ALL -> allOccurrences
+                else -> listOf(expression)
+            }
+            val commonParent = PsiTreeUtil.findCommonParent(allReplaces.map { it.substringContextOrThis }) as KtElement
 
-            expression.chooseApplicableComponentNamesForVariableDeclaration(replaceOccurrence, editor) { componentNames ->
-                val anchor = calculateAnchor(expression, containers.targetContainer) as? KtElement
+            var commonContainer = commonParent as? KtFile
+                ?: commonParent.getContainer()
+                ?: errorWithAttachment("Failed to find container for parent") { withPsiEntry("parent", commonParent) }
+
+            if (commonContainer != containers.targetContainer && containers.targetContainer.isAncestor(commonContainer, true)) {
+                commonContainer = containers.targetContainer
+            }
+            val replaceFirstOccurrence = allReplaces.firstOrNull()?.shouldReplaceOccurrence(commonContainer) == true
+
+            expression.chooseApplicableComponentNamesForVariableDeclaration(
+                haveOccurrencesToReplace = replaceFirstOccurrence || allReplaces.size > 1,
+                editor,
+            ) { componentNames ->
+                val anchor = calculateAnchorForExpressions(commonParent, commonContainer, allReplaces)
                     ?: return@chooseApplicableComponentNamesForVariableDeclaration
+                val isDestructuringDeclaration = componentNames.isNotEmpty()
                 val suggestedNames = analyzeInModalWindow(expression, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
                     val nameValidator = KotlinDeclarationNameValidator(
                         anchor,
@@ -436,7 +239,7 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
                         KotlinNameSuggestionProvider.ValidatorTarget.VARIABLE,
                         this,
                     )
-                    if (componentNames.isNotEmpty()) {
+                    if (isDestructuringDeclaration) {
                         componentNames.map { componentName -> suggestNameByName(componentName, nameValidator).let(::listOf) }
                     } else {
                         with(KotlinNameSuggester()) {
@@ -446,19 +249,26 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
                 }
 
                 val introduceVariableContext = IntroduceVariableContext(
-                    expression,
+                    project,
+                    isVar,
                     suggestedNames,
-                    containers.targetContainer,
-                    replaceOccurrence,
+                    replaceFirstOccurrence,
+                    isDestructuringDeclaration,
                     expressionRenderedType,
-                    componentNames,
                     renderedTypeArguments,
                 )
 
                 project.executeCommand(INTRODUCE_VARIABLE, null) {
-                    introduceVariableContext.runRefactoring(project, editor, isVar)
+                    application.runWriteAction {
+                        introduceVariableContext.convertToBlockIfNeededAndRunRefactoring(
+                            expression,
+                            commonContainer,
+                            commonParent,
+                            allReplaces
+                        )
+                    }
 
-                    val property = introduceVariableContext.propertyRef ?: return@executeCommand
+                    val property = introduceVariableContext.introducedVariablePointer?.element ?: return@executeCommand
 
                     if (editor == null) {
                         return@executeCommand
@@ -483,7 +293,7 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
                             }
                         }
 
-                        if (editor != null && !replaceOccurrence) {
+                        if (editor != null && !replaceFirstOccurrence) {
                             editor.caretModel.moveToOffset(declaration.endOffset)
                         }
                     }
@@ -492,6 +302,8 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
                         postProcess(property, editor)
                         return@executeCommand
                     }
+
+                    PsiDocumentManager.getInstance(project).doPostponedOperationsAndUnblockDocument(editor.document)
 
                     when (property) {
                         is KtProperty -> {
@@ -519,12 +331,17 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
             }
 
         }
-        if (isInplaceAvailable) {
+        if (isInplaceAvailable && occurrencesToReplace == null && !isUnitTestMode()) {
+            val chooser = object : OccurrencesChooser<KtExpression>(editor) {
+                override fun getOccurrenceRange(occurrence: KtExpression): TextRange? {
+                    return occurrence.extractableSubstringInfo?.contentRange ?: occurrence.textRange
+                }
+            }
             application.invokeLater {
-                SlowOperations.startSection(SlowOperations.ACTION_PERFORM).use { callback() }
+                chooser.showChooser(expression, allOccurrences, callback)
             }
         } else {
-            callback()
+            callback.accept(OccurrencesChooser.ReplaceChoice.ALL)
         }
     }
 
@@ -538,26 +355,28 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
         return (diagnostics.any { diagnostic -> diagnostic is KtFirDiagnostic.NewInferenceNoInformationForParameter })
     }
 
-    override fun KtExpression.getCandidateContainers(): List<Containers> {
-        val firstContainer = getContainer() ?: return emptyList()
+    override fun filterContainersWithContainedLambdasByAnalyze(
+        containersWithContainedLambdas: Sequence<ContainerWithContained>,
+        physicalExpression: KtExpression,
+        referencesFromExpressionToExtract: List<KtReferenceExpression>,
+    ): Sequence<ContainerWithContained> {
+        return analyzeInModalWindow(physicalExpression, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
+            val psiToCheck = referencesFromExpressionToExtract.mapNotNull { reference ->
+                // in case of an unresolved reference consider all containers applicable
+                val symbol = reference.mainReference.resolveToSymbol() ?: return@mapNotNull null
 
-        val containers = SmartList(firstContainer)
+                if (symbol.origin == KtSymbolOrigin.SOURCE) {
+                    symbol.psi
+                } else if (symbol is KtValueParameterSymbol && symbol.isImplicitLambdaParameter) {
+                    (symbol.getContainingSymbol() as? KtAnonymousFunctionSymbol)?.psi as? KtFunctionLiteral
+                } else null
+            }
 
-        if (!firstContainer.isFunExpressionOrLambdaBody()) return listOf(Containers(firstContainer, firstContainer))
-
-        val lambdasAndContainers = ArrayList<Pair<KtExpression, KtElement>>().apply {
-            var container = firstContainer
-            do {
-                var lambda: KtExpression = container.getNonStrictParentOfType<KtFunction>()!!
-                if (lambda is KtFunctionLiteral) {
-                    lambda = lambda.parent as? KtLambdaExpression ?: return@apply
-                }
-                container = lambda.getContainer() ?: return@apply
-                add(lambda to container)
-            } while (container.isFunExpressionOrLambdaBody())
+            containersWithContainedLambdas.takeWhile { (container, contained) ->
+                // `contained` is among parents of expression to extract;
+                // if reference is resolved and its psi is not inside `contained` then it will be accessible next to `contained`
+                psiToCheck.all { psi -> !psi.isInsideOf(listOf(contained)) }
+            }
         }
-
-        lambdasAndContainers.mapTo(containers) { it.second }
-        return containers.map { Containers(it, it) } // TODO: fix occurence container (currently it is not used in K2-implementation)
     }
 }

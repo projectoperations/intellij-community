@@ -9,7 +9,6 @@ import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.JBColor;
-import com.intellij.util.PairFunction;
 import com.intellij.vcs.log.*;
 import com.intellij.vcs.log.data.DataPack;
 import com.intellij.vcs.log.data.DataPackBase;
@@ -24,6 +23,7 @@ import com.intellij.vcs.log.ui.highlighters.CurrentBranchHighlighter;
 import com.intellij.vcs.log.ui.highlighters.MyCommitsHighlighter;
 import com.intellij.vcs.log.ui.table.VcsLogGraphTable;
 import com.intellij.vcs.log.ui.table.column.TableColumnWidthProperty;
+import com.intellij.vcs.log.util.VcsLogUtil;
 import com.intellij.vcs.log.visible.VisiblePack;
 import com.intellij.vcs.log.visible.VisiblePackRefresher;
 import org.jetbrains.annotations.NotNull;
@@ -33,6 +33,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.List;
 import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
 import static com.intellij.ui.JBColor.namedColor;
@@ -107,7 +108,7 @@ public class FileHistoryUi extends AbstractVcsLogUi {
 
   @Override
   protected <T> void handleCommitNotFound(@NotNull T commitId, boolean commitExists,
-                                          @NotNull PairFunction<? super VisiblePack, ? super T, Integer> rowGetter) {
+                                          @NotNull BiFunction<? super VisiblePack, ? super T, Integer> rowGetter) {
     if (!commitExists) {
       super.handleCommitNotFound(commitId, false, rowGetter);
       return;
@@ -121,7 +122,7 @@ public class FileHistoryUi extends AbstractVcsLogUi {
     if (hasBranchFilter) {
       actions.add(NotificationAction.createSimple(VcsLogBundle.message("file.history.commit.not.found.view.and.show.all.branches.link"), () -> {
         myUiProperties.set(FileHistoryUiProperties.SHOW_ALL_BRANCHES, true);
-        invokeOnChange(() -> jumpTo(commitId, rowGetter, SettableFuture.create(), false, true));
+        VcsLogUtil.invokeOnChange(this, () -> jumpTo(commitId, rowGetter, SettableFuture.create(), false, true));
       }));
     }
     actions.add(NotificationAction.createSimple(VcsLogBundle.message("file.history.commit.not.found.view.in.log.link"), () -> {
@@ -162,11 +163,6 @@ public class FileHistoryUi extends AbstractVcsLogUi {
   @Override
   public @NotNull FileHistoryUiProperties getProperties() {
     return myUiProperties;
-  }
-
-  @Override
-  public void dispose() {
-    super.dispose();
   }
 
   private class MyPropertiesChangeListener implements VcsLogUiProperties.PropertiesChangeListener {

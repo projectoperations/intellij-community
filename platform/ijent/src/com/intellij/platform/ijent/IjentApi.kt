@@ -21,19 +21,21 @@ interface IjentApi : AutoCloseable {
    * Checks if the API is active and is safe to use. If it returns false, IJent on the other side is certainly unavailable.
    * If it returns true, it's likely available.
    *
-   * The methods must return true as soon as [close] is called.
+   * The property must return true as soon as [close] is called.
    *
-   * The method must not perform any blocking operation and must work fast.
+   * The property must not perform any blocking operation and must work fast.
    */
-  fun isRunning(): Boolean
+  val isRunning: Boolean
 
   /**
    * Returns basic info about the process that doesn't change during the lifetime of the process.
    */
-  suspend fun info(): Info
+  val info: Info
 
   /**
    * Explicitly terminates the process on the remote machine.
+   *
+   * The method is not supposed to block the current thread.
    */
   override fun close()
 
@@ -54,9 +56,13 @@ interface IjentApi : AutoCloseable {
   }
 
   /**
+   * [architecture] is the remote architecture of the built binary. Intended to be used for debugging purposes.
    * [remotePid] is a process ID of IJent running on the remote machine.
+   * [version] is the version of the IJent binary. Intended to be used for debugging purposes.
    */
   interface Info {
+    val architecture: String
     val remotePid: Pid
+    val version: String
   }
 }

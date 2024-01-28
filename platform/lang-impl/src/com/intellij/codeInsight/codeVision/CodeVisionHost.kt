@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.codeVision
 
 import com.intellij.codeInsight.codeVision.settings.CodeVisionGroupDefaultSettingModel
@@ -11,7 +11,7 @@ import com.intellij.codeInsight.codeVision.ui.model.richText.RichText
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.impl.grave.CodeVisionGrave
 import com.intellij.codeInsight.hints.InlayGroup
-import com.intellij.codeInsight.hints.codeVision.CodeVisionPassFactory
+import com.intellij.codeInsight.hints.codeVision.ModificationStampUtil
 import com.intellij.codeInsight.hints.settings.language.isInlaySettingsEditor
 import com.intellij.codeInsight.hints.settings.showInlaySettings
 import com.intellij.ide.plugins.DynamicPluginListener
@@ -19,6 +19,7 @@ import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.lang.Language
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.*
+import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.editor.Editor
@@ -168,7 +169,7 @@ open class CodeVisionHost(val project: Project) {
             override fun providerAvailabilityChanged(id: String, isEnabled: Boolean) {
               PsiManager.getInstance(project).dropPsiCaches()
               for (editor in EditorFactory.getInstance().allEditors) {
-                CodeVisionPassFactory.clearModificationStamp(editor)
+                ModificationStampUtil.clearModificationStamp(editor)
               }
               DaemonCodeAnalyzer.getInstance(project).restart()
               invalidateProviderSignal.fire(LensInvalidateSignal(null))
@@ -292,7 +293,9 @@ open class CodeVisionHost(val project: Project) {
   }
 
   private fun getAnchorForProvider(provider: CodeVisionProvider<*>): CodeVisionAnchorKind {
-    return lifeSettingModel.codeVisionGroupToPosition[provider.groupId].nullIfDefault() ?: lifeSettingModel.defaultPosition.value
+    return lifeSettingModel.codeVisionGroupToPosition[provider.groupId].nullIfDefault()
+           ?: provider.defaultAnchor.nullIfDefault()
+           ?: lifeSettingModel.defaultPosition.value
   }
 
   private fun getPriorityForId(id: String): Int {
@@ -356,7 +359,7 @@ open class CodeVisionHost(val project: Project) {
       mergingQueueFront.cancelAllUpdates()
       mergingQueueFront.queue(object : Update("") {
         override fun run() {
-          project.coroutineScope.launch(Dispatchers.EDT + ModalityState.stateForComponent(editor.contentComponent).asContextElement()) {
+          (project as ComponentManagerEx).getCoroutineScope().launch(Dispatchers.EDT + ModalityState.stateForComponent(editor.contentComponent).asContextElement()) {
             blockingContext {
               recalculateLenses(if (shouldRecalculateAll) emptyList() else providersToRecalculate)
             }
@@ -487,7 +490,7 @@ open class CodeVisionHost(val project: Project) {
         AppExecutorUtil.getAppExecutorService()
       )
 
-      lifetime.onTermination {
+      lifetime.onTerminationIfAlive {
         if (indicator.isRunning) indicator.cancel()
       }
     }

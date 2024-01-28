@@ -102,7 +102,7 @@ public class NewItemSimplePopupPanel extends JBPanel implements Disposable {
   }
 
   protected @NotNull ExtendableTextField createTextField(boolean liveErrorValidation) {
-    ExtendableTextField res = createNonCustomizedTextField();
+    ExtendableTextField res = new ExtendableTextField();
 
     Dimension minSize = res.getMinimumSize();
     Dimension prefSize = res.getPreferredSize();
@@ -119,15 +119,11 @@ public class NewItemSimplePopupPanel extends JBPanel implements Disposable {
 
     res.putClientProperty(TextComponentEmptyText.STATUS_VISIBLE_FUNCTION, (Predicate<JBTextField>)field -> field.getText().isEmpty());
     res.getEmptyText().setText(IdeBundle.message("action.create.new.class.name.field"));
+    res.getAccessibleContext().setAccessibleName(IdeBundle.message("action.create.new.class.name.field"));
     res.addKeyListener(new KeyAdapter() {
       @Override
       public void keyPressed(KeyEvent e) {
-        if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-          if (myApplyAction == null) return;
-          try (AccessToken ignore = SlowOperations.startSection(SlowOperations.ACTION_PERFORM)) {
-            myApplyAction.consume(e);
-          }
-        }
+        performApplyActionOnEnter(e);
       }
     });
 
@@ -141,10 +137,15 @@ public class NewItemSimplePopupPanel extends JBPanel implements Disposable {
     return res;
   }
 
-  protected ExtendableTextField createNonCustomizedTextField() {
-    return new ExtendableTextField();
+  protected void performApplyActionOnEnter(KeyEvent e) {
+    if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+      if (myApplyAction == null) return;
+      try (AccessToken ignore = SlowOperations.startSection(SlowOperations.ACTION_PERFORM)) {
+        myApplyAction.consume(e);
+      }
+    }
   }
-  
+
   public boolean hasError() {
     return myErrorPopup != null;
   }

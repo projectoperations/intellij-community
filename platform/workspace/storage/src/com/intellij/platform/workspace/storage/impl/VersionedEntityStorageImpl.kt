@@ -1,13 +1,18 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.workspace.storage.impl
 
 import com.github.benmanes.caffeine.cache.Cache
 import com.github.benmanes.caffeine.cache.Caffeine
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.diagnostic.telemetry.WorkspaceModel
-import com.intellij.platform.diagnostic.telemetry.helpers.*
+import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeNanosec
+import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeNanosec
+import com.intellij.platform.diagnostic.telemetry.helpers.fromNanosecToMillis
 import com.intellij.platform.workspace.storage.*
+import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
+import com.intellij.platform.workspace.storage.instrumentation.instrumentation
 import io.opentelemetry.api.metrics.Meter
+import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -16,7 +21,7 @@ private class ValuesCache {
   private val cachedValuesWithParameter: Cache<Pair<CachedValueWithParameter<*, *>, *>, Any?> =
     Caffeine.newBuilder().build()
 
-  fun <R> cachedValue(value: CachedValue<R>, storage: EntityStorageSnapshot): R {
+  fun <R> cachedValue(value: CachedValue<R>, storage: ImmutableEntityStorage): R {
     val start = System.nanoTime()
     val o: Any? = cachedValues.getIfPresent(value)
     var valueToReturn: R? = null
@@ -37,7 +42,7 @@ private class ValuesCache {
     return requireNotNull(valueToReturn) { "Cached value must not be null" }
   }
 
-  fun <P, R> cachedValue(value: CachedValueWithParameter<P, R>, parameter: P, storage: EntityStorageSnapshot): R {
+  fun <P, R> cachedValue(value: CachedValueWithParameter<P, R>, parameter: P, storage: ImmutableEntityStorage): R {
     val start = System.nanoTime()
     // recursive update - loading get cannot be used
     val o = cachedValuesWithParameter.getIfPresent(value to parameter)
@@ -118,15 +123,17 @@ private class ValuesCache {
   }
 }
 
+@ApiStatus.Internal
 public class VersionedEntityStorageOnBuilder(private val builder: MutableEntityStorage) : VersionedEntityStorage {
   private val currentSnapshot: AtomicReference<StorageSnapshotCache> = AtomicReference()
   private val valuesCache: ValuesCache
     get() = getCurrentSnapshot().cache
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   override val version: Long
-    get() = builder.modificationCount
+    get() = builder.instrumentation.modificationCount
 
-  override val current: EntityStorageSnapshot
+  override val current: ImmutableEntityStorage
     get() = getCurrentSnapshot().storage
 
   override val base: MutableEntityStorage
@@ -141,10 +148,11 @@ public class VersionedEntityStorageOnBuilder(private val builder: MutableEntityS
   override fun <P, R> clearCachedValue(value: CachedValueWithParameter<P, R>, parameter: P): Unit =
     valuesCache.clearCachedValue(value, parameter)
 
+  @OptIn(EntityStorageInstrumentationApi::class)
   private fun getCurrentSnapshot(): StorageSnapshotCache {
     val snapshotCache = currentSnapshot.get()
-    if (snapshotCache == null || builder.modificationCount != snapshotCache.storageVersion) {
-      val storageSnapshotCache = StorageSnapshotCache(builder.modificationCount, ValuesCache(), builder.toSnapshot())
+    if (snapshotCache == null || builder.instrumentation.modificationCount != snapshotCache.storageVersion) {
+      val storageSnapshotCache = StorageSnapshotCache(builder.instrumentation.modificationCount, ValuesCache(), builder.toSnapshot())
       currentSnapshot.set(storageSnapshotCache)
       return storageSnapshotCache
     }
@@ -152,13 +160,14 @@ public class VersionedEntityStorageOnBuilder(private val builder: MutableEntityS
   }
 }
 
-public class VersionedEntityStorageOnSnapshot(private val storage: EntityStorageSnapshot) : VersionedEntityStorage {
+@ApiStatus.Internal
+public class VersionedEntityStorageOnSnapshot(private val storage: ImmutableEntityStorage) : VersionedEntityStorage {
   private val valuesCache = ValuesCache()
 
   override val version: Long
     get() = 0
 
-  override val current: EntityStorageSnapshot
+  override val current: ImmutableEntityStorage
     get() = storage
 
   override val base: EntityStorage
@@ -174,9 +183,11 @@ public class VersionedEntityStorageOnSnapshot(private val storage: EntityStorage
     valuesCache.clearCachedValue(value, parameter)
 }
 
+@ApiStatus.Internal
 public class DummyVersionedEntityStorage(private val builder: MutableEntityStorage) : VersionedEntityStorage {
+  @OptIn(EntityStorageInstrumentationApi::class)
   override val version: Long
-    get() = builder.modificationCount
+    get() = builder.instrumentation.modificationCount
 
   override val current: EntityStorage
     get() = builder
@@ -190,7 +201,8 @@ public class DummyVersionedEntityStorage(private val builder: MutableEntityStora
   override fun <P, R> clearCachedValue(value: CachedValueWithParameter<P, R>, parameter: P) {}
 }
 
-public open class VersionedEntityStorageImpl(initialStorage: EntityStorageSnapshot) : VersionedEntityStorage {
+@ApiStatus.Internal
+public open class VersionedEntityStorageImpl(initialStorage: ImmutableEntityStorage) : VersionedEntityStorage {
   private val currentSnapshot: AtomicReference<StorageSnapshotCache> = AtomicReference()
   private val valuesCache: ValuesCache
     get() {
@@ -203,7 +215,7 @@ public open class VersionedEntityStorageImpl(initialStorage: EntityStorageSnapsh
       return snapshotCache.cache
     }
 
-  override val current: EntityStorageSnapshot
+  override val current: ImmutableEntityStorage
     get() = currentPointer.storage
 
   override val base: EntityStorage
@@ -225,7 +237,7 @@ public open class VersionedEntityStorageImpl(initialStorage: EntityStorageSnapsh
   override fun <P, R> clearCachedValue(value: CachedValueWithParameter<P, R>, parameter: P): Unit =
     valuesCache.clearCachedValue(value, parameter)
 
-  public class Current(public val version: Long, public val storage: EntityStorageSnapshot)
+  public class Current(public val version: Long, public val storage: ImmutableEntityStorage)
 
   @Volatile
   private var currentPointer: Current = Current(0, initialStorage)
@@ -238,7 +250,7 @@ public open class VersionedEntityStorageImpl(initialStorage: EntityStorageSnapsh
    * We may calculate the change in this function as we won't need the changes for bridges initialization.
    */
   @Synchronized
-  public fun replace(newStorage: EntityStorageSnapshot, changes: Map<Class<*>, List<EntityChange<*>>>,
+  public fun replace(newStorage: ImmutableEntityStorage, changes: Map<Class<*>, List<EntityChange<*>>>,
                      beforeChanged: (VersionedStorageChange) -> Unit, afterChanged: (VersionedStorageChange) -> Unit) {
     val oldCopy = currentPointer
     if (oldCopy.storage == newStorage) return
@@ -251,8 +263,8 @@ public open class VersionedEntityStorageImpl(initialStorage: EntityStorageSnapsh
 
 private class VersionedStorageChangeImpl(
   entityStorage: VersionedEntityStorage,
-  override val storageBefore: EntityStorageSnapshot,
-  override val storageAfter: EntityStorageSnapshot,
+  override val storageBefore: ImmutableEntityStorage,
+  override val storageAfter: ImmutableEntityStorage,
   private val changes: Map<Class<*>, List<EntityChange<*>>>
 ) : VersionedStorageChange(entityStorage) {
   @Suppress("UNCHECKED_CAST")
@@ -263,4 +275,4 @@ private class VersionedStorageChangeImpl(
   override fun getAllChanges(): Sequence<EntityChange<*>> = changes.values.asSequence().flatten()
 }
 
-private data class StorageSnapshotCache(val storageVersion: Long, val cache: ValuesCache, val storage: EntityStorageSnapshot)
+private data class StorageSnapshotCache(val storageVersion: Long, val cache: ValuesCache, val storage: ImmutableEntityStorage)
