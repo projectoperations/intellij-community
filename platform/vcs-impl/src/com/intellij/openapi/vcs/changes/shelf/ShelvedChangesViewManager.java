@@ -78,7 +78,6 @@ import java.util.stream.Collectors;
 
 import static com.intellij.openapi.util.Predicates.nonNull;
 import static com.intellij.openapi.vcs.VcsNotificationIdsHolder.SHELVE_DELETION_UNDO;
-import static com.intellij.openapi.vcs.changes.ChangesViewManager.isEditorPreview;
 import static com.intellij.openapi.vcs.changes.ui.ChangesGroupingSupport.REPOSITORY_GROUPING;
 import static com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager.SHELF;
 import static com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager.getToolWindowFor;
@@ -763,7 +762,7 @@ public class ShelvedChangesViewManager implements Disposable {
     }
 
     private void setDiffPreview() {
-      boolean isEditorPreview = isEditorPreview(myProject);
+      boolean isEditorPreview = true;
       boolean hasSplitterPreview = !isCommitToolWindowShown(myProject);
 
       //noinspection DoubleNegation
@@ -774,6 +773,7 @@ public class ShelvedChangesViewManager implements Disposable {
       if (myEditorChangeProcessor != null) Disposer.dispose(myEditorChangeProcessor);
       if (mySplitterChangeProcessor != null) Disposer.dispose(mySplitterChangeProcessor);
 
+      //noinspection ConstantValue
       if (isEditorPreview) {
         myEditorChangeProcessor = new MyShelvedPreviewProcessor(myProject, myTree, true);
         Disposer.register(this, myEditorChangeProcessor);

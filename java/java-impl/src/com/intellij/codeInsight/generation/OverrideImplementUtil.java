@@ -41,6 +41,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
@@ -55,6 +56,7 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.MultiMap;
 import com.intellij.util.ui.EDT;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -108,14 +110,14 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     if (superMethod.isConstructor() || superMethod.hasModifierProperty(PsiModifier.STATIC)) {
       return false;
     }
-    if (!PsiUtil.isLanguageLevel5OrHigher(targetClass)) {
+    if (!PsiUtil.isAvailable(JavaFeature.ANNOTATIONS, targetClass)) {
       return false;
     }
     if (targetClass.isRecord() && superMethod.getParameterList().isEmpty()) {
       PsiMethod method = targetClass.findMethodBySignature(superMethod, false);
       if (method != null && !method.isPhysical()) return false;
     }
-    if (PsiUtil.isLanguageLevel6OrHigher(targetClass)) return true;
+    if (PsiUtil.isAvailable(JavaFeature.OVERRIDE_INTERFACE, targetClass)) return true;
     PsiClass superClass = superMethod.getContainingClass();
     return superClass != null && !superClass.isInterface();
   }
@@ -155,12 +157,125 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
       }
       Consumer<PsiMethod> decorator = createDefaultDecorator(aClass, method, toCopyJavaDoc, insertOverrideIfPossible);
       decorator.consume(result);
+      //result can be annotated in different order, let's reorder annotations in order as method has
+      reorderAnnotations(result, method);
       results.add(result);
     }
 
     results.removeIf(m -> aClass.findMethodBySignature(m, false) != null);
 
     return results;
+  }
+
+
+  private record AnnotationOrder(@NotNull MultiMap<String, Integer> beforeKeywords, PsiKeyword firstKeyword,
+                                 @NotNull MultiMap<String, Integer> afterKeywords, PsiKeyword lastKeyword,
+                                 @NotNull Set<String> notUsed) {
+
+  }
+
+  /**
+   * Reorders the annotations of the given resultMethod based on the order of annotations in the sourceMethod.
+   * Support two places: before all keywords or after all keywords.
+   *
+   * @param resultMethod the method whose annotations should be reordered
+   * @param sourceMethod the method from which the order of annotations should be taken
+   */
+  private static void reorderAnnotations(PsiMethod resultMethod, PsiMethod sourceMethod) {
+    AnnotationOrder resultOrder = getAnnotationOrder(resultMethod);
+    AnnotationOrder sourceOrder = getAnnotationOrder(sourceMethod);
+    if (sourceOrder.firstKeyword == null || sourceOrder.lastKeyword == null) return;
+    PsiModifierList modifierList = resultMethod.getModifierList();
+    PsiElement[] toAddBefore = new PsiElement[sourceOrder.beforeKeywords.size()];
+    PsiElement[] toAddAfter = new PsiElement[sourceOrder.afterKeywords.size()];
+    for (PsiElement element : modifierList.getChildren()) {
+      if (element instanceof PsiAnnotation) {
+        String text = element.getText();
+        if (resultOrder.notUsed.contains(text) || sourceOrder.notUsed.contains(text)) {
+          continue;
+        }
+        if (sourceOrder.beforeKeywords().containsKey(text)) {
+          Collection<Integer> indexes = sourceOrder.beforeKeywords.get(text);
+          if (!indexes.isEmpty()) {
+            Iterator<Integer> iterator = indexes.iterator();
+            Integer next = iterator.next();
+            iterator.remove();
+            toAddBefore[next] = element.copy();
+            element.delete();
+          }
+        }
+        if (sourceOrder.afterKeywords().containsKey(text)) {
+          Collection<Integer> indexes = sourceOrder.afterKeywords.get(text);
+          if (!indexes.isEmpty()) {
+            Iterator<Integer> iterator = indexes.iterator();
+            Integer next = iterator.next();
+            iterator.remove();
+            toAddAfter[next] = element.copy();
+            element.delete();
+          }
+        }
+      }
+    }
+    for (int i = toAddBefore.length - 1; i >= 0; i--) {
+      PsiElement element = toAddBefore[i];
+      if (element == null) {
+        continue;
+      }
+      PsiElement[] children = modifierList.getChildren();
+      if (children.length == 0) {
+        modifierList.add(element);
+      }
+      else {
+        modifierList.addBefore(element, children[0]);
+      }
+    }
+    for (PsiElement element : toAddAfter) {
+      if (element == null) {
+        continue;
+      }
+      PsiElement[] children = modifierList.getChildren();
+      if (children.length == 0) {
+        modifierList.add(element);
+      }
+      else {
+        modifierList.addAfter(element, children[children.length - 1]);
+      }
+    }
+  }
+
+  @NotNull
+  private static AnnotationOrder getAnnotationOrder(@NotNull PsiMethod method) {
+    MultiMap<String, Integer> beforeKeywords = MultiMap.create();
+    int sizeBefore = 0;
+    PsiKeyword firstKeyword = null;
+
+    MultiMap<String, Integer> afterKeywords = MultiMap.create();
+    int sizeAfter = 0;
+    PsiKeyword lastKeyword = null;
+    Set<String> notUsed = new HashSet<>();
+    @NotNull PsiElement @NotNull [] children = method.getModifierList().getChildren();
+    for (int i = 0, length = children.length; i < length; i++) {
+      PsiElement element = children[i];
+      if (element instanceof PsiAnnotation annotation) {
+        String text = annotation.getText();
+        if (firstKeyword == null) {
+          beforeKeywords.putValue(text, sizeBefore++);
+        }
+        else {
+          afterKeywords.putValue(text, sizeAfter++);
+        }
+      }
+      else if (element instanceof PsiKeyword keyword) {
+        if (firstKeyword == null) {
+          firstKeyword = keyword;
+        }
+        lastKeyword = keyword;
+        sizeAfter = 0;
+        notUsed.addAll(afterKeywords.keySet());
+        afterKeywords.clear();
+      }
+    }
+    return new AnnotationOrder(beforeKeywords, firstKeyword, afterKeywords, lastKeyword, notUsed);
   }
 
   @NotNull
@@ -430,7 +545,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
   }
 
   private static boolean isImplementInterfaceInJava8Interface(@NotNull PsiClass targetClass) {
-    if (!PsiUtil.isLanguageLevel8OrHigher(targetClass)){
+    if (!PsiUtil.isAvailable(JavaFeature.EXTENSION_METHODS, targetClass)){
       return false;
     }
     String commandName = CommandProcessor.getInstance().getCurrentCommandName();
@@ -674,13 +789,13 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     try {
       int offset = editor.getCaretModel().getOffset();
       PsiElement brace = aClass.getLBrace();
-      if (brace == null) {
+      if (brace == null && !(aClass instanceof PsiImplicitClass)) {
         PsiClass psiClass = JavaPsiFacade.getElementFactory(aClass.getProject()).createClass("X");
         brace = aClass.addRangeAfter(psiClass.getLBrace(), psiClass.getRBrace(), aClass.getLastChild());
         LOG.assertTrue(brace != null, aClass.getLastChild());
       }
 
-      int lbraceOffset = brace.getTextOffset();
+      int lbraceOffset = brace == null ? 0 : brace.getTextOffset();
       List<PsiGenerationInfo<PsiMethod>> resultMembers;
       if (offset <= lbraceOffset || aClass.isEnum()) {
         resultMembers = new ArrayList<>();
@@ -789,6 +904,13 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
 
     final PsiClass aClass = (PsiClass)element;
     if (aClass instanceof PsiSyntheticClass) return null;
+    if (file instanceof PsiJavaFile javaFile) {
+      PsiClass[] classes = javaFile.getClasses();
+      if (classes.length == 1 && classes[0] instanceof PsiImplicitClass implicitClass &&
+          implicitClass.getFirstChild() != null && PsiMethodUtil.hasMainMethod(implicitClass)) {
+        return classes[0];
+      }
+    }
     return aClass == null || !allowInterface && aClass.isInterface() ? null : aClass;
   }
 

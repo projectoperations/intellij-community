@@ -21,7 +21,6 @@ import org.jetbrains.intellij.build.impl.PlatformJarNames.TEST_FRAMEWORK_JAR
 import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.jps.model.java.JpsJavaClasspathKind
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
-import org.jetbrains.jps.model.module.JpsLibraryDependency
 import org.jetbrains.jps.model.module.JpsModuleDependency
 import org.jetbrains.jps.model.module.JpsModuleReference
 import java.util.*
@@ -78,6 +77,7 @@ private val PLATFORM_IMPLEMENTATION_MODULES = persistentListOf(
   "intellij.platform.usageView.impl",
   "intellij.platform.ml.impl",
 
+  "intellij.platform.runtime.product",
   "intellij.platform.bootstrap",
 
   "intellij.relaxng",
@@ -92,6 +92,7 @@ private val PLATFORM_IMPLEMENTATION_MODULES = persistentListOf(
   "intellij.smart.update",
 
   "intellij.platform.collaborationTools",
+  "intellij.platform.collaborationTools.auth.base",
   "intellij.platform.collaborationTools.auth",
 
   "intellij.platform.markdown.utils",
@@ -144,7 +145,8 @@ private fun addModule(relativeJarPath: String,
                       layout: PlatformLayout) {
   layout.withModules(moduleNames.asSequence()
                        .filter { !productLayout.excludedModuleNames.contains(it) }
-                       .map { ModuleItem(moduleName = it, relativeOutputFile = relativeJarPath, reason = "addModule") }.toList())
+                       .map { ModuleItem(moduleName = it, relativeOutputFile = relativeJarPath, reason = "addModule") }
+                       .toList())
 }
 
 suspend fun createPlatformLayout(pluginsToPublish: Set<PluginLayout>, context: BuildContext): PlatformLayout {
@@ -182,6 +184,9 @@ internal suspend fun createPlatformLayout(addPlatformCoverage: Boolean,
 
   addModule(UTIL_RT_JAR, listOf(
     "intellij.platform.util.rt",
+  ), productLayout = productLayout, layout = layout)
+  // trove is not used by JB Client - fix RuntimeModuleRepositoryChecker assert
+  addModule("trove.jar", listOf(
     "intellij.platform.util.trove",
   ), productLayout = productLayout, layout = layout)
   layout.withProjectLibrary(libraryName = "ion", jarName = UTIL_8_JAR)
@@ -195,6 +200,9 @@ internal suspend fun createPlatformLayout(addPlatformCoverage: Boolean,
     "intellij.platform.diagnostic",
     "intellij.platform.util",
     "intellij.platform.core",
+    // it has package `kotlin.coroutines.jvm.internal` - should be packed into the same JAR as coroutine lib,
+    // to ensure that package index will not report one more JAR in a search path
+    "intellij.platform.bootstrap.coroutine",
   ), productLayout = productLayout, layout = layout)
   // used by jdom - pack to the same JAR
   layout.withProjectLibrary(libraryName = "aalto-xml", jarName = UTIL_8_JAR)
@@ -315,34 +323,36 @@ internal suspend fun createPlatformLayout(addPlatformCoverage: Boolean,
   return layout
 }
 
+fun isLibraryAlwaysPackedIntoPlugin(name: String): Boolean = name == "flexmark" || name == "okhttp"
+
 internal fun computeProjectLibsUsedByPlugins(enabledPluginModules: Set<String>, context: BuildContext): SortedSet<ProjectLibraryData> {
   val result = ObjectLinkedOpenHashSet<ProjectLibraryData>()
-  val jpsJavaExtensionService = JpsJavaExtensionService.getInstance()
-  val pluginLayoutsByJpsModuleNames = getPluginLayoutsByJpsModuleNames(modules = enabledPluginModules,
-                                                                       productLayout = context.productProperties.productLayout)
+  val pluginLayoutsByJpsModuleNames = getPluginLayoutsByJpsModuleNames(
+    modules = enabledPluginModules,
+    productLayout = context.productProperties.productLayout,
+  )
+
+  val helper = (context as BuildContextImpl).jarPackagerDependencyHelper
   for (plugin in pluginLayoutsByJpsModuleNames) {
     if (plugin.auto) {
       continue
     }
 
     for (moduleName in plugin.includedModules.asSequence().map { it.moduleName }.distinct()) {
-      for (element in context.findRequiredModule(moduleName).dependenciesList.dependencies) {
-        val libraryReference = (element as? JpsLibraryDependency)?.libraryReference ?: continue
-        if (libraryReference.parentReference is JpsModuleReference) {
+      val module = context.findRequiredModule(moduleName)
+      for (element in helper.getLibraryDependencies(module)) {
+        val libRef = element.libraryReference
+        if (libRef.parentReference is JpsModuleReference) {
           continue
         }
 
-        if (jpsJavaExtensionService.getDependencyExtension(element)?.scope?.isIncludedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME) != true) {
+        val libName = libRef.libraryName
+        if (plugin.hasLibrary(libName) || isLibraryAlwaysPackedIntoPlugin(libName)) {
           continue
         }
 
-        val libraryName = element.libraryReference.libraryName
-        if (plugin.hasLibrary(libraryName)) {
-          continue
-        }
-
-        val packMode = PLATFORM_CUSTOM_PACK_MODE.getOrDefault(libraryName, LibraryPackMode.MERGED)
-        result.addOrGet(ProjectLibraryData(libraryName, packMode, reason = "<- $moduleName"))
+        val packMode = PLATFORM_CUSTOM_PACK_MODE.getOrDefault(libName, LibraryPackMode.MERGED)
+        result.addOrGet(ProjectLibraryData(libName, packMode, reason = "<- $moduleName"))
           .dependentModules
           .computeIfAbsent(plugin.directoryName) { mutableListOf() }
           .add(moduleName)

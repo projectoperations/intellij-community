@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.internal.statistic.collectors.fus.actions.persistence
 
+import com.intellij.codeInsight.lookup.LookupManager
 import com.intellij.featureStatistics.FeatureUsageTracker
 import com.intellij.ide.actions.ActionsCollector
 import com.intellij.ide.plugins.IdeaPluginDescriptor
@@ -44,7 +45,7 @@ class ActionsCollectorImpl : ActionsCollector() {
   }
 
   override fun onActionConfiguredByActionId(action: AnAction, actionId: String) {
-    ourAllowedList.registerDynamicActionId(action, actionId)
+    ActionsBuiltInAllowedlist.getInstance().registerDynamicActionId(action, actionId)
   }
 
   override fun recordUpdate(action: AnAction, event: AnActionEvent, durationMs: Long) {
@@ -99,14 +100,13 @@ class ActionsCollectorImpl : ActionsCollector() {
 
   companion object {
     const val DEFAULT_ID: String = "third.party"
-    private val ourAllowedList = ActionsBuiltInAllowedlist.getInstance()
     private val ourStats: MutableMap<AnActionEvent, Stats> = WeakHashMap()
 
     /** @noinspection unused
      */
     @JvmStatic
     fun recordCustomActionInvoked(project: Project?, actionId: String?, event: InputEvent?, context: Class<*>) {
-      val recorded = if (StringUtil.isNotEmpty(actionId) && ourAllowedList.isCustomAllowedAction(actionId!!)) actionId
+      val recorded = if (StringUtil.isNotEmpty(actionId) && ActionsBuiltInAllowedlist.getInstance().isCustomAllowedAction(actionId!!)) actionId
       else DEFAULT_ID
       ActionsEventLogGroup.CUSTOM_ACTION_INVOKED.log(project, recorded, FusInputEvent(event, null))
     }
@@ -157,6 +157,11 @@ class ActionsCollectorImpl : ActionsCollector() {
             add(ActionsEventLogGroup.TOGGLE_ACTION.with(Toggleable.isSelected(event.presentation)))
           }
           addAll(actionEventData(event))
+          if (eventId == ActionsEventLogGroup.ACTION_FINISHED) {
+            val isLookupActive = event.dataContext.getData(CommonDataKeys.HOST_EDITOR)
+              ?.let { LookupManager.getActiveLookup(it) } != null
+            add(ActionsEventLogGroup.LOOKUP_ACTIVE.with(isLookupActive))
+          }
         }
         if (project != null && !project.isDisposed) {
           add(ActionsEventLogGroup.DUMB.with(DumbService.isDumb(project)))
@@ -220,22 +225,22 @@ class ActionsCollectorImpl : ActionsCollector() {
         return action.javaClass.name
       }
       if (actionId == null) {
-        actionId = ourAllowedList.getDynamicActionId(action)
+        actionId = ActionsBuiltInAllowedlist.getInstance().getDynamicActionId(action)
       }
       return actionId ?: action.javaClass.name
     }
 
     @JvmStatic
     fun canReportActionId(actionId: String): Boolean {
-      return ourAllowedList.isAllowedActionId(actionId)
+      return ActionsBuiltInAllowedlist.getInstance().isAllowedActionId(actionId)
     }
 
     internal fun onActionLoadedFromXml(actionId: String, plugin: IdeaPluginDescriptor?) {
-      ourAllowedList.addActionLoadedFromXml(actionId, plugin)
+      ActionsBuiltInAllowedlist.getInstance().addActionLoadedFromXml(actionId, plugin)
     }
 
     fun onActionsLoadedFromKeymapXml(keymap: Keymap, actionIds: Set<String?>) {
-      ourAllowedList.addActionsLoadedFromKeymapXml(keymap, actionIds)
+      ActionsBuiltInAllowedlist.getInstance().addActionsLoadedFromKeymapXml(keymap, actionIds)
     }
 
     /** @noinspection unused

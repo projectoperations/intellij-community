@@ -791,7 +791,7 @@ public class IdeTooltipManager implements Disposable {
     Ref<StyleSheet> currentDefaultStyleSheet = new Ref<>();
     updateHintPaneDefaultCssRules(pane, kit, currentDefaultStyleSheet);
     // Remove <style> rule for <code> added by prepareHintText() call above
-    text = text.replaceFirst("code \\{[^]]*;}", "");
+    text = text.replaceFirst("code \\{font-size:[0-9.]*pt;}", "");
     pane.addPropertyChangeListener(evt -> {
       var propertyName = evt.getPropertyName();
       if ("background".equals(propertyName) || "UI".equals(propertyName)) {
@@ -876,6 +876,7 @@ public class IdeTooltipManager implements Disposable {
     for (String rule : getHintPaneStyleSheetRules(editorPane.getBackground())) {
       newDefaultStyleSheet.addRule(rule);
     }
+    newDefaultStyleSheet.addRule("pre {white-space: pre-wrap;} code, pre {overflow-wrap: anywhere;}");
     editorStyleSheet.addStyleSheet(newDefaultStyleSheet);
     currentDefaultStyleSheet.set(newDefaultStyleSheet);
   }
@@ -884,6 +885,7 @@ public class IdeTooltipManager implements Disposable {
     EditorColorsScheme globalScheme = EditorColorsManager.getInstance().getGlobalScheme();
     return StyleSheetRulesProviderForCodeHighlighting.getRules(
       globalScheme, background, Collections.singletonList(""), Collections.emptyList(),
-      true, true, UIUtil.getToolTipActionBackground());
+      true, true, "5px 0 5px 0"
+    );
   }
 }

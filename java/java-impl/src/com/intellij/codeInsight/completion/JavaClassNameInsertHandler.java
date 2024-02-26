@@ -4,7 +4,6 @@ package com.intellij.codeInsight.completion;
 import com.intellij.codeInsight.AutoPopupController;
 import com.intellij.codeInsight.ExpectedTypesProvider;
 import com.intellij.codeInsight.NullableNotNullManager;
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.lookup.Lookup;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.PsiTypeLookupItem;
@@ -13,7 +12,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorModificationUtilEx;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
-import com.intellij.pom.java.LanguageLevel;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
@@ -116,7 +115,7 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
       }
     }
 
-    if (ref != null && HighlightingFeature.PATTERNS.isAvailable(ref) && psiClass.getTypeParameters().length > 0) {
+    if (ref != null && PsiUtil.isAvailable(JavaFeature.PATTERNS, ref) && psiClass.getTypeParameters().length > 0) {
       PsiExpression instanceOfOperand = JavaCompletionUtil.getInstanceOfOperand(ref);
       if (instanceOfOperand != null) {
         PsiClassType origType = JavaPsiFacade.getElementFactory(project).createType(psiClass);
@@ -141,7 +140,7 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
         context.commitDocument();
       }
       if (psiClass != null && ConstructorInsertHandler.insertParentheses(context, item, psiClass, false)) {
-        fillTypeArgs |= psiClass.hasTypeParameters() && PsiUtil.getLanguageLevel(file).isAtLeast(LanguageLevel.JDK_1_5);
+        fillTypeArgs |= psiClass.hasTypeParameters() && PsiUtil.isAvailable(JavaFeature.GENERICS, file);
       }
     }
     else if (insertingAnnotation(context, item)) {
@@ -162,7 +161,7 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
     }
     else if (context.getCompletionChar() == Lookup.COMPLETE_STATEMENT_SELECT_CHAR &&
              psiClass != null && psiClass.getTypeParameters().length == 1 &&
-             PsiUtil.getLanguageLevel(file).isAtLeast(LanguageLevel.JDK_1_5)) {
+             PsiUtil.isAvailable(JavaFeature.GENERICS, file)) {
       wrapFollowingTypeInGenerics(context, context.getOffset(refEnd));
     }
   }

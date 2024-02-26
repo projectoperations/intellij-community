@@ -3,7 +3,6 @@
 
 package com.intellij.ide.ui
 
-import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.svg.SvgAttributePatcher
 import com.intellij.ui.svg.newSvgPatcher
@@ -52,7 +51,7 @@ internal class UiThemePaletteScopeManager(theme: UIThemeBean) {
   private val ui = UiThemePaletteScopeImpl()
   private val checkBoxes = UiThemePaletteScopeImpl()
   private val trees = UiThemePaletteScopeImpl()
-  private val checkBoxesExperimentalThemes = UiThemePaletteCheckBoxScope(theme.dark)
+  private val checkBoxesExperimentalThemes = UiThemePaletteCheckBoxScope(theme)
 
   fun configureIcons(theme: UIThemeBean,
                      iconMap: Map<String, Any?>): SVGLoader.SvgElementColorPatcherProvider? {
@@ -117,10 +116,7 @@ internal class UiThemePaletteScopeManager(theme: UIThemeBean) {
       colorKey.startsWith("Objects.") -> ui
       colorKey.startsWith("Actions.") -> ui
       colorKey.startsWith('#') -> ui
-      else -> {
-        thisLogger().warn("No color scope defined for key: $colorKey")
-        null
-      }
+      else -> ui
     }
   }
 

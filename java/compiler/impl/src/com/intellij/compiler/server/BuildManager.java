@@ -35,6 +35,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.*;
 import com.intellij.openapi.compiler.*;
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.event.DocumentEvent;
@@ -49,11 +50,15 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.*;
 import com.intellij.openapi.projectRoots.*;
 import com.intellij.openapi.projectRoots.ex.JavaSdkUtil;
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
-import com.intellij.openapi.roots.*;
+import com.intellij.openapi.roots.GeneratedSourcesFilter;
+import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.roots.ProjectFileIndex;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
@@ -75,6 +80,7 @@ import com.intellij.ui.ComponentUtil;
 import com.intellij.util.*;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.AppJavaExecutorUtil;
+import com.intellij.util.concurrency.CoroutineDispatcherBackedExecutor;
 import com.intellij.util.concurrency.SequentialTaskExecutor;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
@@ -169,9 +175,9 @@ public final class BuildManager implements Disposable {
   private final Map<String, RequestFuture<?>> myBuildsInProgress = Collections.synchronizedMap(new HashMap<>());
   private final Map<String, Future<Pair<RequestFuture<PreloadedProcessMessageHandler>, OSProcessHandler>>> myPreloadedBuilds = Collections.synchronizedMap(new HashMap<>());
   private final BuildProcessClasspathManager myClasspathManager = new BuildProcessClasspathManager(this);
-  private final Executor myRequestsProcessor;
+  private final CoroutineDispatcherBackedExecutor myRequestsProcessor;
   private final List<VFileEvent> myUnprocessedEvents = new ArrayList<>();
-  private final Executor myAutomakeTrigger;
+  private final CoroutineDispatcherBackedExecutor myAutomakeTrigger;
   private final Map<String, ProjectData> myProjectDataMap = Collections.synchronizedMap(new HashMap<>());
   private final AtomicInteger mySuspendBackgroundTasksCounter = new AtomicInteger(0);
 
@@ -311,7 +317,7 @@ public final class BuildManager implements Disposable {
           synchronized (myUnprocessedEvents) {
             myUnprocessedEvents.addAll(events);
           }
-          myAutomakeTrigger.execute(() -> {
+          myAutomakeTrigger.schedule(() -> {
             if (!application.isDisposed()) {
               ReadAction.run(()-> {
                 if (application.isDisposed()) {
@@ -509,7 +515,7 @@ public final class BuildManager implements Disposable {
   }
 
   public void runCommand(@NotNull Runnable command) {
-    myRequestsProcessor.execute(command);
+    myRequestsProcessor.schedule(command);
   }
 
   private void doNotify(final Supplier<Collection<? extends File>> pathsProvider, final boolean notifyDeletion) {
@@ -950,7 +956,7 @@ public final class BuildManager implements Disposable {
         }
 
         try {
-          Future<?> buildFuture = projectTaskQueue.submit(() -> {
+          Future<?> buildFuture = BackgroundTaskUtil.submitTask(projectTaskQueue, ProjectDisposableService.getInstance(project), () -> {
             Throwable execFailure = null;
             try {
               if (project.isDisposed()) {
@@ -1047,7 +1053,7 @@ public final class BuildManager implements Disposable {
                 });
               }
             }
-          });
+          }).getFuture();
           delegatesToWait = List.of(future, new TaskFutureAdapter<>(buildFuture));
         }
         catch (Throwable e) {
@@ -1121,6 +1127,8 @@ public final class BuildManager implements Disposable {
   @Override
   public void dispose() {
     stopListening();
+    myAutomakeTrigger.cancel();
+    myRequestsProcessor.cancel();
   }
 
   public static @NotNull Pair<@NotNull Sdk, @Nullable JavaSdkVersion> getBuildProcessRuntimeSdk(@NotNull Project project) {
@@ -1211,7 +1219,7 @@ public final class BuildManager implements Disposable {
   private Future<Pair<RequestFuture<PreloadedProcessMessageHandler>, OSProcessHandler>> launchPreloadedBuildProcess(final Project project, ExecutorService projectTaskQueue, @Nullable WSLDistribution projectWslDistribution) {
 
     // launching the build process from projectTaskQueue ensures that no other build process for this project is currently running
-    return projectTaskQueue.submit(() -> {
+    return BackgroundTaskUtil.submitTask(projectTaskQueue, ProjectDisposableService.getInstance(project), () -> {
       if (project.isDisposed()) {
         return null;
       }
@@ -1220,7 +1228,8 @@ public final class BuildManager implements Disposable {
                             new CancelBuildSessionAction<>());
       try {
         myMessageDispatcher.registerBuildMessageHandler(future, null);
-        final OSProcessHandler processHandler = launchBuildProcess(project, future.getRequestID(), true, projectWslDistribution, null);
+        ProgressIndicator indicator = Objects.requireNonNull(ProgressManager.getGlobalProgressIndicator());
+        final OSProcessHandler processHandler = launchBuildProcess(project, future.getRequestID(), true, projectWslDistribution, indicator);
         final StringBuffer errors = new StringBuffer();
         processHandler.addProcessListener(new StdOutputCollector(errors));
         STDERR_OUTPUT.set(processHandler, errors);
@@ -1233,7 +1242,7 @@ public final class BuildManager implements Disposable {
         ExceptionUtil.rethrowUnchecked(e);
         throw new RuntimeException(e);
       }
-    });
+    }).getFuture();
   }
 
   private static @Nullable WSLDistribution findWSLDistribution(@NotNull Project project) {
@@ -1977,6 +1986,18 @@ public final class BuildManager implements Disposable {
     }
   }
 
+  @Service(Service.Level.PROJECT)
+  private static final class ProjectDisposableService implements Disposable {
+    static @NotNull ProjectDisposableService getInstance(@NotNull Project project) {
+      return project.getService(ProjectDisposableService.class);
+    }
+
+    @Override
+    public void dispose() {
+      // Nothing.
+    }
+  }
+
   static final class BuildManagerStartupActivity implements StartupActivity.DumbAware {
     @Override
     public void runActivity(@NotNull Project project) {
@@ -2037,7 +2058,7 @@ public final class BuildManager implements Disposable {
             return;
           }
 
-          ApplicationManager.getApplication().executeOnPooledThread(() -> {
+          BackgroundTaskUtil.submitTask(ProjectDisposableService.getInstance(project), () -> {
             if (project.isDisposed()) {
               return;
             }
@@ -2110,7 +2131,7 @@ public final class BuildManager implements Disposable {
       });
 
       String projectPath = getProjectPath(project);
-      Disposer.register(project, () -> {
+      Disposer.register(ProjectDisposableService.getInstance(project), () -> {
         BuildManager buildManager = getInstance();
         buildManager.cancelPreloadedBuilds(projectPath);
         buildManager.myProjectDataMap.remove(projectPath);
@@ -2119,7 +2140,16 @@ public final class BuildManager implements Disposable {
       BuildProcessParametersProvider.EP_NAME.addChangeListener(project, () -> getInstance().cancelAllPreloadedBuilds(), null);
 
       getInstance().runCommand(() -> {
-        updateUsageFile(project, getInstance().getProjectSystemDirectory(project));
+        try {
+          BackgroundTaskUtil
+            .submitTask(ProjectDisposableService.getInstance(project), () -> {
+              updateUsageFile(project, getInstance().getProjectSystemDirectory(project));
+            })
+            .awaitCompletion();
+        }
+        catch (java.util.concurrent.ExecutionException e) {
+          ExceptionUtil.rethrowAllAsUnchecked(e.getCause());
+        }
       });
       // run automake after a project opened
       getInstance().scheduleAutoMake();
@@ -2250,7 +2280,7 @@ public final class BuildManager implements Disposable {
      * @param path assuming a system-independent path with forward slashes
      */
     InternedPath(String path) {
-      List<CharSequence> list = new ArrayList<>();
+      List<String> list = new ArrayList<>();
       StringTokenizer tokenizer = new StringTokenizer(path, "/", false);
       while (tokenizer.hasMoreTokens()) {
         list.add(nameCache.get(tokenizer.nextToken()));

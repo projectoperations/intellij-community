@@ -36,6 +36,10 @@ public final class DocumentationSettings {
     return ClientDocumentationSettings.getCurrentInstance().getInlineCodeHighlightingMode();
   }
 
+  public static boolean autoShowQuickDocInModalDialogs() {
+    return ClientDocumentationSettings.getCurrentInstance().autoShowQuickDocInModalDialogs();
+  }
+
   /**
    * Allows reducing saturation of highlighting colors in order to lower distraction from the main code.
    * Here 100 is the normal saturation (bright tones) and 0 is zero saturation (grey tones)
@@ -52,17 +56,17 @@ public final class DocumentationSettings {
    * and even in not a cross-platform way.
    * So we have to do some hacks to align fonts.
    *
-   * @deprecated Use {@link QuickDocCodeHighlightingHelper} for adding code fragments to documentation
+   * @deprecated Use {@link QuickDocHighlightingHelper} for adding code fragments to documentation
    */
   @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated(forRemoval = true)
-  //TODO Move the code to QuickDocCodeHighlightingHelper once safe to remove
+  //TODO Move the code to QuickDocHighlightingHelper once safe to remove
   public static int getMonospaceFontSizeCorrection(boolean isForRenderedDoc) {
     if (isForRenderedDoc) {
       return SystemInfo.isWin10OrNewer && !ApplicationManager.getApplication().isUnitTestMode() ? 90 : 96;
     }
     else {
-      return SystemInfo.isWin10OrNewer && !ApplicationManager.getApplication().isUnitTestMode() ? 90 : 100;
+      return 100;
     }
   }
 

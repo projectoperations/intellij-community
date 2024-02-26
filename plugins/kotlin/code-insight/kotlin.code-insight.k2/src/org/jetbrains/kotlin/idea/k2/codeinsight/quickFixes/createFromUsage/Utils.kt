@@ -39,12 +39,12 @@ import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.getReceiverExpression
 
-fun PsiElement.isPartOfImportDirectiveOrAnnotation() = PsiTreeUtil.getParentOfType(
+fun PsiElement.isPartOfImportDirectiveOrAnnotation(): Boolean = PsiTreeUtil.getParentOfType(
     this,
     KtTypeReference::class.java, KtAnnotationEntry::class.java, KtImportDirective::class.java
 ) != null
 
-fun KtModifierList?.hasAbstractModifier() = this?.hasModifier(KtTokens.ABSTRACT_KEYWORD) == true
+fun KtModifierList?.hasAbstractModifier(): Boolean = this?.hasModifier(KtTokens.ABSTRACT_KEYWORD) == true
 
 context (KtAnalysisSession)
 internal fun KtType.hasAbstractDeclaration(): Boolean {
@@ -55,7 +55,7 @@ internal fun KtType.hasAbstractDeclaration(): Boolean {
 }
 
 context (KtAnalysisSession)
-internal fun KtType.canRefactor() = expandedClassSymbol?.psi?.canRefactorElement() == true
+internal fun KtType.canRefactor(): Boolean = expandedClassSymbol?.psi?.canRefactorElement() == true
 
 context (KtAnalysisSession)
 internal fun KtExpression.resolveExpression(): KtSymbol? {
@@ -68,9 +68,7 @@ context (KtAnalysisSession)
 internal fun KtType.convertToClass(): KtClass? = expandedClassSymbol?.psi as? KtClass
 
 context (KtAnalysisSession)
-internal fun KtElement.getExpectedJvmType(): JvmType? = getExpectedType()?.let { expectedType ->
-    expectedType.convertToJvmType(this)
-}
+internal fun KtElement.getExpectedJvmType(): JvmType? = getExpectedType()?.convertToJvmType(this)
 
 context (KtAnalysisSession)
 private fun KtType.convertToJvmType(useSitePosition: PsiElement): JvmType? = asPsiType(useSitePosition, allowErrorTypes = false)
@@ -82,16 +80,16 @@ internal fun KtExpression.getClassOfExpressionType(): PsiElement? = when (val sy
     else -> getKtType()?.expandedClassSymbol
 }?.psi
 
-internal data class ParameterInfo(val nameCandidates: MutableList<String>, val type: JvmType?)
+internal data class ParameterInfo(val nameCandidates: List<String>, val type: JvmType?)
 
 context (KtAnalysisSession)
 internal fun KtValueArgument.getExpectedParameterInfo(parameterIndex: Int): ParameterInfo {
     val parameterNameAsString = getArgumentName()?.asName?.asString()
     val argumentExpression = getArgumentExpression()
     val expectedArgumentType = argumentExpression?.getKtType()
-    val parameterName = parameterNameAsString?.let { sequenceOf(it) } ?: expectedArgumentType?.let { NAME_SUGGESTER.suggestTypeNames(it) }
+    val parameterNames = parameterNameAsString?.let { sequenceOf(it) } ?: expectedArgumentType?.let { NAME_SUGGESTER.suggestTypeNames(it) }
     val parameterType = expectedArgumentType?.convertToJvmType(argumentExpression)
-    return ParameterInfo(parameterName?.toMutableList() ?: mutableListOf("p$parameterIndex"), parameterType)
+    return ParameterInfo(parameterNames?.toList() ?: listOf("p$parameterIndex"), parameterType)
 }
 
 context (KtAnalysisSession)
@@ -140,12 +138,12 @@ val WITH_TYPE_NAMES_FOR_CREATE_ELEMENTS: KtTypeRenderer = KtTypeRendererForSourc
 }
 
 context (KtAnalysisSession)
-internal fun JvmType.toKtType(useSitePosition: PsiElement) = when (this) {
+internal fun JvmType.toKtType(useSitePosition: PsiElement): KtType? = when (this) {
     is PsiType -> if (isValid) {
         try {
             asKtType(useSitePosition)
         } catch (e: Error) {
-            // Some requests from Java side does not have a type. For example, in `var foo = dep.<caret>foo();`, we cannot guess
+            // Some requests from Java side do not have a type. For example, in `var foo = dep.<caret>foo();`, we cannot guess
             // the type of `foo()`. In this case, the request passes "PsiType:null" whose name is "null" as a text. The analysis
             // API cannot get a KtType from this weird type. We return `Any?` for this case.
             builtinTypes.NULLABLE_ANY

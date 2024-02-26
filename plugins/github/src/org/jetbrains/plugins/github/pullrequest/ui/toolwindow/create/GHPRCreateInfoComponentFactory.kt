@@ -213,7 +213,7 @@ internal class GHPRCreateInfoComponentFactory(private val project: Project,
         val headBranch = findCurrentRemoteHead(directionModel)
         if (baseBranch == null || headRepo == null || headBranch == null) existenceCheckLoadingModel.reset()
         else existenceCheckLoadingModel.load(ProgressWrapper.wrap(existenceCheckProgressIndicator)) {
-          dataContext.creationService.findPullRequest(it, baseBranch, headRepo, headBranch)?.prId
+          dataContext.creationService.findPullRequest(it, baseBranch, headRepo, headBranch)
         }
       }
       update()
@@ -280,9 +280,10 @@ internal class GHPRCreateInfoComponentFactory(private val project: Project,
           .thenCompose { adjustLabels(it, labels) }
           .successOnEdt {
             if (!progressIndicator.isCanceled) {
+              projectVm.closeTab(GHPRToolWindowTab.NewPullRequest)
               projectVm.viewPullRequest(it.prId)
               settings.recentNewPullRequestHead = headRepo.repository
-              projectVm.closeTab(GHPRToolWindowTab.NewPullRequest)
+              projectVm.refreshPrOnCurrentBranch()
             }
             it
           }
@@ -326,6 +327,7 @@ internal class GHPRCreateInfoComponentFactory(private val project: Project,
     val textPane = SimpleHtmlPane(addBrowserListener = false).apply {
       setHtmlBody(HtmlBuilder()
                     .append(GithubBundle.message("pull.request.create.already.exists"))
+                    .nbsp()
                     .appendLink("VIEW", GithubBundle.message("pull.request.create.already.exists.view"))
                     .toString())
       addHyperlinkListener(object : HyperlinkAdapter() {

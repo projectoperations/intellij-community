@@ -45,7 +45,7 @@ public abstract class LafManager {
   public abstract LafReference getLookAndFeelReference();
 
   @ApiStatus.Internal
-  public abstract ListCellRenderer<LafReference> getLookAndFeelCellRenderer();
+  public abstract ListCellRenderer<LafReference> getLookAndFeelCellRenderer(JComponent component);
 
   @ApiStatus.Internal
   public abstract @NotNull JComponent getSettingsToolbar();
@@ -80,6 +80,8 @@ public abstract class LafManager {
   public abstract void setPreferredDarkLaf(@NotNull UIThemeLookAndFeelInfo value);
 
   public abstract void setPreferredLightLaf(@NotNull UIThemeLookAndFeelInfo value);
+
+  public abstract void resetPreferredEditorColorScheme();
 
   @ApiStatus.Internal
   public abstract void setRememberSchemeForLaf(boolean rememberSchemeForLaf);

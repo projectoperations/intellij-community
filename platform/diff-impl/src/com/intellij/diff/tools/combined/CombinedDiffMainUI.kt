@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff.tools.combined
 
 import com.intellij.CommonBundle
@@ -10,6 +10,8 @@ import com.intellij.diff.impl.DiffRequestProcessor.getToolOrderFromSettings
 import com.intellij.diff.impl.DiffSettingsHolder.DiffSettings
 import com.intellij.diff.impl.ui.DiffToolChooser
 import com.intellij.diff.requests.DiffRequest
+import com.intellij.diff.tools.combined.search.CombinedDiffSearchContext
+import com.intellij.diff.tools.combined.search.CombinedDiffSearchController
 import com.intellij.diff.tools.util.DiffDataKeys
 import com.intellij.diff.util.DiffUserDataKeys
 import com.intellij.diff.util.DiffUserDataKeysEx
@@ -18,58 +20,67 @@ import com.intellij.ide.impl.DataManagerImpl
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.ActionUtil
-import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diff.DiffBundle
 import com.intellij.openapi.diff.impl.DiffUsageTriggerCollector
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy
-import com.intellij.ui.GuiUtils
+import com.intellij.platform.util.coroutines.namedChildScope
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBPanelWithEmptyText
 import com.intellij.ui.components.panels.Wrapper
 import com.intellij.ui.mac.touchbar.Touchbar
 import com.intellij.util.concurrency.annotations.RequiresEdt
-import com.intellij.util.ui.Centerizer
-import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import com.intellij.util.ui.components.BorderLayoutPanel
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
+import java.lang.Runnable
 import javax.swing.JComponent
-import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import kotlin.math.max
 
 class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToChangeAction: AnAction?) : Disposable {
   private val ourDisposable = Disposer.newCheckedDisposable().also { Disposer.register(this, it) }
 
+  @OptIn(DelicateCoroutinesApi::class)
+  private val cs: CoroutineScope = GlobalScope.namedChildScope("CombinedDiffMainUI", Dispatchers.EDT)
+
   private val context: DiffContext = model.context
   private val settings = DiffSettings.getSettings(context.getUserData(DiffUserDataKeys.PLACE))
 
   private val combinedToolOrder = arrayListOf<CombinedDiffTool>()
 
-  private val leftToolbarGroup = DefaultActionGroup()
-  private val rightToolbarGroup = DefaultActionGroup()
   private val popupActionGroup = DefaultActionGroup()
   private val touchbarActionGroup = DefaultActionGroup()
-
   private val mainPanel = MyMainPanel()
-  private val contentPanel = Wrapper()
-  private val topPanel: JPanel
-  private val leftToolbar: ActionToolbar
-  private val rightToolbar: ActionToolbar
-  private val leftToolbarWrapper: Centerizer
-  private val rightToolbarWrapper: Centerizer
-  private val diffInfoWrapper: Wrapper
-  private val toolbarStatusPanel = Wrapper()
 
-  private val diffToolChooser: MyDiffToolChooser
+  private val contentPanel = Wrapper()
+
+  private val diffToolChooser: MyDiffToolChooser = MyDiffToolChooser()
+
+  private val combinedDiffUIState = CombinedDiffUIState()
+
+  private val mainToolbar: CombinedDiffMainToolbar = CombinedDiffMainToolbar(
+    cs,
+    combinedDiffUIState,
+    mainPanel,
+    diffToolChooser,
+    goToChangeAction,
+    context
+  )
 
   private val combinedViewer get() = context.getUserData(COMBINED_DIFF_VIEWER_KEY)
 
@@ -84,31 +95,20 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     }
   }
 
+  private var searchController: CombinedDiffSearchController? = null
+
   init {
+    Disposer.register(ourDisposable) {
+      cs.cancel()
+    }
+
     Touchbar.setActions(mainPanel, touchbarActionGroup)
-
     updateAvailableDiffTools()
-    diffToolChooser = MyDiffToolChooser()
-
-    leftToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.DIFF_TOOLBAR, leftToolbarGroup, true)
-    context.putUserData(DiffUserDataKeysEx.LEFT_TOOLBAR, leftToolbar)
-    leftToolbar.layoutPolicy = ActionToolbar.NOWRAP_LAYOUT_POLICY
-    leftToolbar.targetComponent = mainPanel
-    leftToolbarWrapper = Centerizer(leftToolbar.component, Centerizer.TYPE.VERTICAL)
-
-    rightToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.DIFF_RIGHT_TOOLBAR, rightToolbarGroup, true)
-    rightToolbar.layoutPolicy = ActionToolbar.NOWRAP_LAYOUT_POLICY
-    rightToolbar.targetComponent = mainPanel
-
-    rightToolbarWrapper = Centerizer(rightToolbar.component, Centerizer.TYPE.VERTICAL)
-
-    diffInfoWrapper = Wrapper()
-    topPanel = buildTopPanel()
 
     val bottomContentSplitter = JBSplitter(true, "CombinedDiff.BottomComponentSplitter", 0.8f)
     bottomContentSplitter.firstComponent = contentPanel
 
-    mainPanel.add(topPanel, BorderLayout.NORTH)
+    mainPanel.add(mainToolbar.component, BorderLayout.NORTH)
     mainPanel.add(bottomContentSplitter, BorderLayout.CENTER)
 
     mainPanel.isFocusTraversalPolicyProvider = true
@@ -126,33 +126,46 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     clear()
     contentPanel.setContent(viewer.component)
     val toolbarComponents = viewer.init()
-    val diffInfo = toolbarComponents.diffInfo
-    if (diffInfo != null) {
-      val component = diffInfo.component
-      component.background = CombinedDiffUI.MAIN_HEADER_BACKGROUND
-      val centerizer = Centerizer(component, Centerizer.TYPE.BOTH)
-      diffInfoWrapper.setContent(centerizer)
-    }
-    else {
-      diffInfoWrapper.setContent(null)
-    }
-    buildToolbar(blockState, toolbarComponents.toolbarActions)
+    mainToolbar.updateToolbar(blockState, toolbarComponents.toolbarActions)
     buildActionPopup(toolbarComponents.popupActions)
-    toolbarStatusPanel.setContent(toolbarComponents.statusPanel)
   }
 
-  fun getPreferredFocusedComponent(): JComponent? {
-    val component = leftToolbar.component
-    return if (component.isShowing) component else null
+  fun setToolbarVerticalSizeReferent(component: JComponent) {
+    mainToolbar.setVerticalSizeReferent(component)
   }
+
+  @RequiresEdt
+  fun setSearchController(searchController: CombinedDiffSearchController) {
+    this.searchController = searchController
+    combinedDiffUIState.setSearchMode(true)
+    mainToolbar.setSearchComponent(searchController.searchComponent)
+  }
+
+  @RequiresEdt
+  fun updateSearch(context: CombinedDiffSearchContext) {
+    searchController?.update(context)
+  }
+
+  @RequiresEdt
+  fun closeSearch() {
+    searchController = null
+    mainToolbar.hideSearch()
+    combinedDiffUIState.setSearchMode(false)
+
+    val project = model.context.project ?: return
+    combinedViewer?.preferredFocusedComponent?.let { preferedFocusedComponent ->
+      IdeFocusManager.getInstance(project).requestFocus(preferedFocusedComponent, false)
+    }
+  }
+
+  fun getPreferredFocusedComponent(): JComponent? = mainToolbar.getPreferredFocusedComponent()
 
   fun getComponent(): JComponent = mainPanel
 
   fun isUnified() = diffToolChooser.getActiveTool() is CombinedUnifiedDiffTool
 
   fun isFocusedInWindow(): Boolean {
-    return DiffUtil.isFocusedComponentInWindow(contentPanel) ||
-           DiffUtil.isFocusedComponentInWindow(leftToolbar.component) || DiffUtil.isFocusedComponentInWindow(rightToolbar.component)
+    return DiffUtil.isFocusedComponentInWindow(contentPanel) || mainToolbar.isFocusedInWindow()
   }
 
   fun isWindowFocused(): Boolean {
@@ -164,78 +177,17 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     DiffUtil.requestFocusInWindow(getPreferredFocusedComponent())
   }
 
-  private fun buildActionPopup(viewerActions: List<AnAction?>?) {
-    collectPopupActions(viewerActions)
-    DiffUtil.registerAction(ShowActionGroupPopupAction(), mainPanel)
-  }
-
-  private fun collectPopupActions(viewerActions: List<AnAction?>?) {
+  private fun buildActionPopup(popupActions: List<AnAction?>?) {
     popupActionGroup.removeAll()
-
     DiffUtil.addActionBlock(popupActionGroup, diffToolChooser)
-    DiffUtil.addActionBlock(popupActionGroup, viewerActions)
-  }
-
-
-  private fun buildToolbar(blockState: BlockState, viewerActions: List<AnAction?>?) {
-    collectToolbarActions(blockState, viewerActions)
-    (leftToolbar as ActionToolbarImpl).reset()
-    leftToolbar.updateActionsImmediately()
-    leftToolbar.background = CombinedDiffUI.MAIN_HEADER_BACKGROUND
-    leftToolbar.border = JBUI.Borders.empty()
-    DiffUtil.recursiveRegisterShortcutSet(leftToolbarGroup, mainPanel, null)
-    (rightToolbar as ActionToolbarImpl).reset()
-    rightToolbar.updateActionsImmediately()
-    rightToolbar.background = CombinedDiffUI.MAIN_HEADER_BACKGROUND
-    rightToolbar.border = JBUI.Borders.empty()
-
-    DiffUtil.recursiveRegisterShortcutSet(rightToolbarGroup, mainPanel, null)
-  }
-
-  private fun collectToolbarActions(blockState: BlockState, viewerActions: List<AnAction?>?) {
-    leftToolbarGroup.removeAll()
-    val navigationActions = ArrayList<AnAction>(collectNavigationActions(blockState))
-
-    rightToolbarGroup.add(diffToolChooser)
-
-    DiffUtil.addActionBlock(leftToolbarGroup, navigationActions)
-
-    DiffUtil.addActionBlock(rightToolbarGroup, viewerActions, false)
-    val contextActions = context.getUserData(DiffUserDataKeys.CONTEXT_ACTIONS)
-    DiffUtil.addActionBlock(leftToolbarGroup, contextActions)
-  }
-
-  private fun collectNavigationActions(blockState: BlockState): List<AnAction> {
-    return listOfNotNull(
-      CombinedPrevBlockAction(context),
-      CombinedPrevDifferenceAction(context),
-      FilesLabelAction(goToChangeAction, leftToolbar.component, blockState),
-      CombinedNextDifferenceAction(context),
-      CombinedNextBlockAction(context),
-      openInEditorAction,
-    )
-  }
-
-  private fun buildTopPanel(): BorderLayoutPanel {
-    val topPanel = JBUI.Panels.simplePanel(diffInfoWrapper)
-      .andTransparent()
-      .addToLeft(leftToolbarWrapper)
-      .addToRight(rightToolbarWrapper)
-      .apply {
-        border = JBUI.Borders.empty(CombinedDiffUI.MAIN_HEADER_INSETS)
-      }
-    GuiUtils.installVisibilityReferent(topPanel, leftToolbar.component)
-    GuiUtils.installVisibilityReferent(topPanel, rightToolbar.component)
-
-    return topPanel
+    DiffUtil.addActionBlock(popupActionGroup, popupActions)
+    DiffUtil.registerAction(ShowActionGroupPopupAction(mainPanel, popupActionGroup), mainPanel)
   }
 
   private fun clear() {
-    toolbarStatusPanel.setContent(null)
+    combinedDiffUIState.reset()
     contentPanel.setContent(null)
-    diffInfoWrapper.setContent(null)
-    leftToolbarGroup.removeAll()
-    rightToolbarGroup.removeAll()
+    mainToolbar.clear()
     popupActionGroup.removeAll()
     ActionUtil.clearActions(mainPanel)
   }
@@ -316,7 +268,7 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
 
       return when {
         DiffDataKeys.DIFF_REQUEST.`is`(dataId) -> getCurrentRequest()
-        OpenInEditorAction.AFTER_NAVIGATE_CALLBACK.`is`(dataId) -> Runnable {  DiffUtil.minimizeDiffIfOpenedInWindow(this)}
+        OpenInEditorAction.AFTER_NAVIGATE_CALLBACK.`is`(dataId) -> Runnable { DiffUtil.minimizeDiffIfOpenedInWindow(this) }
         CommonDataKeys.PROJECT.`is`(dataId) -> context.project
         PlatformCoreDataKeys.HELP_ID.`is`(dataId) -> {
           if (context.getUserData(DiffUserDataKeys.HELP_ID) != null) {
@@ -338,25 +290,7 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     return model.getLoadedRequest(id)
   }
 
-  private inner class ShowActionGroupPopupAction : DumbAwareAction() {
-    init {
-      ActionUtil.copyFrom(this, "Diff.ShowSettingsPopup")
-    }
-
-    override fun getActionUpdateThread(): ActionUpdateThread {
-      return ActionUpdateThread.BGT
-    }
-
-    override fun update(e: AnActionEvent) {
-      e.presentation.isEnabled = popupActionGroup.childrenCount > 0
-    }
-
-    override fun actionPerformed(e: AnActionEvent) {
-      val popup = JBPopupFactory.getInstance().createActionGroupPopup(DiffBundle.message("diff.actions"), popupActionGroup, e.dataContext,
-                                                                      JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
-      popup.showInCenterOf(mainPanel)
-    }
-  }
+  fun getUiState(): CombinedDiffUIState = combinedDiffUIState
 
   private inner class MyFocusTraversalPolicy : IdeFocusTraversalPolicy() {
     override fun getDefaultComponent(focusCycleRoot: Container): Component? {
@@ -365,5 +299,67 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     }
 
     override fun getProject() = context.project
+  }
+}
+
+private class ShowActionGroupPopupAction(
+  private val parentComponent: JComponent,
+  private val popupActionGroup: DefaultActionGroup
+) : DumbAwareAction() {
+  init {
+    ActionUtil.copyFrom(this, "Diff.ShowSettingsPopup")
+  }
+
+  override fun getActionUpdateThread(): ActionUpdateThread {
+    return ActionUpdateThread.BGT
+  }
+
+  override fun update(e: AnActionEvent) {
+    e.presentation.isEnabled = popupActionGroup.childrenCount > 0
+  }
+
+  override fun actionPerformed(e: AnActionEvent) {
+    val popup = JBPopupFactory.getInstance().createActionGroupPopup(DiffBundle.message("diff.actions"), popupActionGroup, e.dataContext,
+                                                                    JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
+    popup.showInCenterOf(parentComponent)
+  }
+}
+
+/**
+ * Various ui states which shared between the main ui and the combined diff viewer
+ */
+class CombinedDiffUIState {
+  private val searchMode: MutableStateFlow<Boolean> = MutableStateFlow(false)
+  private val stickyHeaderUnderBorder: MutableStateFlow<Boolean> = MutableStateFlow(false)
+
+  private val _diffInfoState: MutableStateFlow<DiffInfoState> = MutableStateFlow(DiffInfoState.Empty)
+
+  val diffInfoStateFlow: StateFlow<DiffInfoState>
+    get() = _diffInfoState
+
+  val separatorState: Flow<Boolean> = combine(searchMode, stickyHeaderUnderBorder) { search, header -> search || header }
+
+  fun setSearchMode(isSearchMode: Boolean) {
+    searchMode.value = isSearchMode
+  }
+
+  fun setStickyHeaderUnderBorder(isHeaderUnderBorder: Boolean) {
+    stickyHeaderUnderBorder.value = isHeaderUnderBorder
+  }
+
+  fun reset() {
+    setStickyHeaderUnderBorder(false)
+    setSearchMode(false)
+    setDiffInfo(DiffInfoState.Empty)
+  }
+
+  fun setDiffInfo(diffInfoState: DiffInfoState) {
+    _diffInfoState.value = diffInfoState
+  }
+
+  sealed class DiffInfoState {
+    data object Empty : DiffInfoState()
+    data class SingleTitle(@Nls val title: String) : DiffInfoState()
+    data class TwoTitles(@Nls val leftTitle: String, @Nls val rightTitle: String) : DiffInfoState()
   }
 }

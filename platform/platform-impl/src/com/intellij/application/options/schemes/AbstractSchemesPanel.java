@@ -8,6 +8,7 @@ import com.intellij.ide.actions.NonTrivialActionGroup;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.editor.colors.Groups;
 import com.intellij.openapi.options.Scheme;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.ui.MessageType;
@@ -21,6 +22,7 @@ import com.intellij.ui.ContextHelpLabel;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.ActionLink;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.JBDimension;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.Nls;
@@ -47,6 +49,7 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
   private AbstractSchemeActions<T> myActions;
   private JComponent myToolbar;
   InfoComponent myInfoComponent;
+  private JPanel myActionLinkContainer;
 
   // region Colors (probably should be standard for platform UI)
   
@@ -103,6 +106,7 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
   private @NotNull JPanel createControlsPanel() {
     JPanel controlsPanel = new JPanel();
     controlsPanel.setLayout(new BoxLayout(controlsPanel, BoxLayout.LINE_AXIS));
+    controlsPanel.setOpaque(false);
     String label = getComboBoxLabel();
     if (label != null) {
       controlsPanel.add(new JLabel(label));
@@ -114,15 +118,15 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
     ActionToolbar toolbar = createToolbar();
     toolbar.setTargetComponent(mySchemesCombo.getComponent());
     myToolbar = toolbar.getComponent();
+    myToolbar.setOpaque(false);
     controlsPanel.add(Box.createRigidArea(new JBDimension(4, 0)));
     controlsPanel.add(myToolbar);
     controlsPanel.add(Box.createRigidArea(new JBDimension(9, 0)));
 
-    ActionLink actionLink = createActionLink();
-    if (actionLink != null) {
-      controlsPanel.add(actionLink);
-      controlsPanel.add(Box.createRigidArea(new JBDimension(4, 0)));
-    }
+    myActionLinkContainer = new JPanel();
+    myActionLinkContainer.setLayout(new BoxLayout(myActionLinkContainer, BoxLayout.LINE_AXIS));
+    controlsPanel.add(myActionLinkContainer);
+    updateActionLinkContainer();
 
     ContextHelpLabel contextHelpLabel = createContextHelpLabel();
     if (contextHelpLabel != null) {
@@ -134,11 +138,45 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
     controlsPanel.add(myInfoComponent);
     controlsPanel.add(Box.createHorizontalGlue());
 
-    mySchemesCombo.getComponent().setMaximumSize(mySchemesCombo.getComponent().getPreferredSize());
-
-    int height = mySchemesCombo.getComponent().getPreferredSize().height;
-    controlsPanel.setMaximumSize(new Dimension(controlsPanel.getMaximumSize().width, height));
+    updateComboboxMaximumSize();
     return controlsPanel;
+  }
+
+  @Override
+  public void updateUI() {
+    super.updateUI();
+    if (getParent() != null) {
+      updateComboboxMaximumSize();
+    }
+  }
+
+  private void updateComboboxMaximumSize() {
+    JComponent combobox = mySchemesCombo.getComponent();
+    Dimension preferredSize = combobox.getPreferredSize();
+
+    combobox.setMaximumSize(preferredSize);
+    Container container = combobox.getParent();
+    if (container != null) {
+      container.setMaximumSize(new Dimension(container.getMaximumSize().width,
+                                             preferredSize.height));
+    }
+    myToolbar.setMaximumSize(new Dimension(JBUIScale.scale(22), preferredSize.height));
+  }
+
+  private void updateActionLinkContainer() {
+    myActionLinkContainer.removeAll();
+
+    JLabel commentLabel = createActionLinkCommentLabel();
+    if (commentLabel != null) {
+      myActionLinkContainer.add(commentLabel);
+      myActionLinkContainer.add(Box.createRigidArea(new JBDimension(4, 0)));
+    }
+
+    ActionLink actionLink = createActionLink();
+    if (actionLink != null) {
+      myActionLinkContainer.add(actionLink);
+      myActionLinkContainer.add(Box.createRigidArea(new JBDimension(4, 0)));
+    }
   }
 
   private @NotNull ActionToolbar createToolbar() {
@@ -146,11 +184,8 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
     group.add(new ShowSchemesActionsListAction(myActions));
     ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("SchemesPanelToolbar", group, true);
     toolbar.setReservePlaceAutoPopupIcon(false);
-    toolbar.setLayoutPolicy(ActionToolbar.NOWRAP_LAYOUT_POLICY);
     JComponent toolbarComponent = toolbar.getComponent();
-    Dimension maxSize = toolbarComponent.getMaximumSize();
-    toolbarComponent.setMaximumSize(JBUI.size(22, maxSize.height));
-    toolbarComponent.setBorder(JBUI.Borders.empty(3));
+    toolbarComponent.setBorder(JBUI.Borders.empty());
     return toolbar;
   }
 
@@ -181,6 +216,10 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
   
   public final void resetSchemes(@NotNull Collection<? extends T> schemes) {
     mySchemesCombo.resetSchemes(schemes);
+  }
+
+  public final void resetGroupedSchemes(@NotNull Groups<? extends T> schemeGroups) {
+    mySchemesCombo.resetGroupedSchemes(schemeGroups);
   }
   
   public void disposeUIResources() {
@@ -233,6 +272,10 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
   protected abstract @NotNull InfoComponent createInfoComponent();
 
   protected @Nullable ActionLink createActionLink() {
+    return null;
+  }
+
+  protected @Nullable JLabel createActionLinkCommentLabel() {
     return null;
   }
 
@@ -314,6 +357,16 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
     }
 
     @Override
+    public void update(@NotNull AnActionEvent e) {
+      super.update(e);
+
+      Component component = e.getDataContext().getData(PlatformCoreDataKeys.CONTEXT_COMPONENT);
+      if (component != null) {
+        e.getPresentation().setEnabled(component.isEnabled());
+      }
+    }
+
+    @Override
     public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
       return mySchemeActions.getActions().toArray(EMPTY_ARRAY);
     }
@@ -343,5 +396,16 @@ public abstract class AbstractSchemesPanel<T extends Scheme, InfoComponent exten
       messageType == MessageType.ERROR ? ERROR_MESSAGE_FOREGROUND :
       messageType.getTitleForeground();
     infoComponent.setForeground(foreground);
+  }
+
+  @Override
+  public void setEnabled(boolean enabled) {
+    boolean oldEnabled = isEnabled();
+    super.setEnabled(enabled);
+
+    mySchemesCombo.setEnabled(enabled);
+    if (oldEnabled != isEnabled()) {
+      updateActionLinkContainer();
+    }
   }
 }

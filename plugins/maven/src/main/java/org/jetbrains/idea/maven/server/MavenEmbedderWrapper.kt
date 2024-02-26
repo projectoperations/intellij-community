@@ -17,6 +17,9 @@ import org.jetbrains.idea.maven.buildtool.MavenSyncConsole
 import org.jetbrains.idea.maven.model.*
 import org.jetbrains.idea.maven.project.MavenConsole
 import org.jetbrains.idea.maven.server.MavenEmbedderWrapper.LongRunningEmbedderTask
+import org.jetbrains.idea.maven.telemetry.getCurrentTelemetryIds
+import org.jetbrains.idea.maven.telemetry.scheduleExportTelemetryTrace
+import org.jetbrains.idea.maven.telemetry.tracer
 import org.jetbrains.idea.maven.utils.MavenLog
 import org.jetbrains.idea.maven.utils.MavenProcessCanceledException
 import java.io.File
@@ -79,7 +82,7 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
     )
 
     val results = runLongRunningTask(
-      LongRunningEmbedderTask { embedder, taskId -> embedder.resolveProjects(taskId, request, ourToken) },
+      LongRunningEmbedderTask { embedder, taskInput -> embedder.resolveProjects(taskInput, request, ourToken) },
       progressReporter, eventHandler)
     if (transformer !== RemotePathTransformerFactory.Transformer.ID) {
       for (result in results) {
@@ -124,24 +127,22 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
                                progressReporter: RawProgressReporter?,
                                eventHandler: MavenEventHandler): List<MavenArtifact> {
     return runLongRunningTask(
-      LongRunningEmbedderTask { embedder, taskId -> embedder.resolveArtifacts(taskId, ArrayList(requests), ourToken) },
+      LongRunningEmbedderTask { embedder, taskInput -> embedder.resolveArtifacts(taskInput, ArrayList(requests), ourToken) },
       progressReporter, eventHandler)
   }
 
-  @Deprecated("use {@link MavenEmbedderWrapper#resolveArtifactTransitively()}")
-  @Throws(MavenProcessCanceledException::class)
-  fun resolveTransitively(artifacts: List<MavenArtifactInfo>, remoteRepositories: List<MavenRemoteRepository>): List<MavenArtifact> {
-    return runBlockingMaybeCancellable {
-      getOrCreateWrappee().resolveArtifactsTransitively(ArrayList(artifacts), ArrayList(remoteRepositories), ourToken)
-    }.mavenResolvedArtifacts
-  }
-
+  @Deprecated("use {@link MavenEmbedderWrapper#resolveArtifactsTransitively()}")
   @Throws(MavenProcessCanceledException::class)
   fun resolveArtifactTransitively(artifacts: List<MavenArtifactInfo>,
                                   remoteRepositories: List<MavenRemoteRepository>): MavenArtifactResolveResult {
     return runBlockingMaybeCancellable {
       getOrCreateWrappee().resolveArtifactsTransitively(ArrayList(artifacts), ArrayList(remoteRepositories), ourToken)
     }
+  }
+
+  suspend fun resolveArtifactsTransitively(artifacts: List<MavenArtifactInfo>,
+                                           remoteRepositories: List<MavenRemoteRepository>): MavenArtifactResolveResult {
+    return getOrCreateWrappee().resolveArtifactsTransitively(ArrayList(artifacts), ArrayList(remoteRepositories), ourToken)
   }
 
   @Throws(MavenProcessCanceledException::class)
@@ -162,8 +163,8 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
       }
     }
     return runLongRunningTask(
-      LongRunningEmbedderTask { embedder, taskId ->
-        embedder.resolvePlugins(taskId, pluginResolutionRequests, forceUpdateSnapshots, ourToken)
+      LongRunningEmbedderTask { embedder, taskInput ->
+        embedder.resolvePlugins(taskInput, pluginResolutionRequests, forceUpdateSnapshots, ourToken)
       },
       progressReporter, eventHandler)
   }
@@ -190,7 +191,7 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
                           progressReporter: RawProgressReporter,
                           eventHandler: MavenEventHandler): List<MavenGoalExecutionResult> {
     return runLongRunningTask(
-      LongRunningEmbedderTask { embedder, taskId -> embedder.executeGoal(taskId, ArrayList(requests), goal, ourToken) },
+      LongRunningEmbedderTask { embedder, taskInput -> embedder.executeGoal(taskInput, ArrayList(requests), goal, ourToken) },
       progressReporter, eventHandler)
   }
 
@@ -270,12 +271,15 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
       }
 
       try {
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO + tracer.span("runLongRunningTask")) {
+          val telemetryIds = getCurrentTelemetryIds()
           blockingContext {
-            val response = task.run(embedder, longRunningTaskId)
+            val longRunningTaskInput = LongRunningTaskInput(longRunningTaskId, telemetryIds.traceId, telemetryIds.spanId)
+            val response = task.run(embedder, longRunningTaskInput)
             val status = response.status
             eventHandler.handleConsoleEvents(status.consoleEvents())
             eventHandler.handleDownloadEvents(status.downloadEvents())
+            scheduleExportTelemetryTrace(project, response.telemetryTrace)
             response.result
           }
         }
@@ -290,6 +294,6 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
   }
 
   protected fun interface LongRunningEmbedderTask<R : Serializable> {
-    fun run(embedder: MavenServerEmbedder, longRunningTaskId: String): MavenServerResponse<R>
+    fun run(embedder: MavenServerEmbedder, longRunningTaskInput: LongRunningTaskInput): MavenServerResponse<R>
   }
 }

@@ -2,6 +2,7 @@
 package com.intellij.ui.tree.ui;
 
 import com.intellij.ide.ui.UISettings;
+import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.ColoredItem;
@@ -157,7 +158,15 @@ public class DefaultTreeUI extends BasicTreeUI implements TreeUiBulkExpandCollap
 
   private static boolean isAutoExpandAllowed(@NotNull JTree tree, @NotNull Object node) {
     Function<Object, Boolean> filter = ClientProperty.get(tree, AUTO_EXPAND_FILTER);
-    return filter == null || !filter.apply(node);
+    if (filter != null) {
+      return !filter.apply(node);
+    }
+    else if (node instanceof AbstractTreeNode<?> treeNode) {
+      return treeNode.isAutoExpandAllowed();
+    }
+    else {
+      return true;
+    }
   }
 
   @SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
@@ -462,7 +471,7 @@ public class DefaultTreeUI extends BasicTreeUI implements TreeUiBulkExpandCollap
         @Override
         public void componentMoved(ComponentEvent event) {
           AbstractLayoutCache cache = treeState; // TODO: treeState ???
-          if (cache != null && tree.isLargeModel() && is("ide.tree.experimental.preferred.width")) {
+          if (cache != null && is("ide.tree.experimental.preferred.width", true)) {
             listener.componentMoved(event);
           }
         }
@@ -473,57 +482,86 @@ public class DefaultTreeUI extends BasicTreeUI implements TreeUiBulkExpandCollap
   }
 
   @Override
+  public Dimension getPreferredSize(JComponent c, boolean checkConsistency) {
+    if (treeState instanceof DefaultTreeLayoutCache cache) {
+      // If the cache decided to invalidate sizes, we need to propagate it here,
+      // so super() will query the cache again.
+      if (!cache.isCachedSizeValid$intellij_platform_ide_impl()) {
+        validCachedPreferredSize = false;
+      }
+      var result = super.getPreferredSize(c, checkConsistency);
+      cache.setCachedSizeValid$intellij_platform_ide_impl(true);
+      return result;
+    }
+    else {
+      return super.getPreferredSize(c, checkConsistency);
+    }
+  }
+
+  @Override
   protected void updateCachedPreferredSize() {
     JTree tree = getTree();
     AbstractLayoutCache cache = treeState;
-    if (tree != null && isValid(tree) && cache != null && tree.isLargeModel() && is("ide.tree.experimental.preferred.width")) {
+    if (tree == null || !isValid(tree) || cache == null) {
+      preferredSize.width = 0;
+      preferredSize.height = 0;
+      validCachedPreferredSize = true;
+    }
+    else if (is("ide.tree.experimental.preferred.width", true)) {
       Rectangle paintBounds = tree.getVisibleRect();
-      if (!paintBounds.isEmpty()) {
-        JScrollPane pane = UIUtil.getParentOfType(JScrollPane.class, tree);
-        if (pane != null) {
-          JScrollBar bar = pane.getHorizontalScrollBar();
-          if (bar != null && bar.isOpaque() && bar.isVisible()) {
-            paintBounds.height += bar.getPreferredSize().height;
-          }
-        }
-        Insets insets = tree.getInsets();
-        TreePath path = cache.getPathClosestTo(0, paintBounds.y - insets.top);
-        int row = cache.getRowForPath(path);
-        if (row >= 0) {
-          Rectangle buffer = new Rectangle();
-          int maxPaintX = paintBounds.x + paintBounds.width;
-          int maxPaintY = paintBounds.y + paintBounds.height;
-          int width = 0;
-          for (; path != null; path = cache.getPathForRow(++row)) {
-            Rectangle bounds = cache.getBounds(path, buffer);
-            if (bounds == null) {
-              LOG.warn("The bounds for the row " + row + " of the tree " + tree + " with model " + treeModel +
-                       " are null, looks like a bug in " + cache);
-              continue;
-            }
-            width = Math.max(width, bounds.x + bounds.width);
-            if ((bounds.y + bounds.height) >= maxPaintY) break;
-          }
-          width += insets.left + insets.right;
-          if (width < maxPaintX) {
-            if (!is("ide.tree.prefer.to.shrink.width.on.scroll")) {
-              width = maxPaintX;
-            }
-            else if (paintBounds.width < width || !is("ide.tree.prefer.aggressive.scrolling.to.the.left")) {
-              int margin = intValue("ide.tree.preferable.right.margin", 25);
-              if (margin > 0) {
-                width = Math.min(width + paintBounds.width * margin / 100, maxPaintX);
-              }
-            }
-          }
-          preferredSize.width = width;
-          preferredSize.height = insets.top + insets.bottom + cache.getPreferredHeight();
-          validCachedPreferredSize = true;
-          return;
+      Insets insets = tree.getInsets();
+      if (paintBounds.isEmpty()) {
+        // no valid bounds yet, fall back to something that will work at least, mimic DefaultTreeUI
+        paintBounds.width = 1 + insets.left + insets.right;
+        paintBounds.height = tree.getRowHeight() * tree.getVisibleRowCount() + insets.top + insets.bottom;
+      }
+      JScrollPane pane = UIUtil.getParentOfType(JScrollPane.class, tree);
+      if (pane != null) {
+        JScrollBar bar = pane.getHorizontalScrollBar();
+        if (bar != null && bar.isOpaque() && bar.isVisible()) {
+          paintBounds.height += bar.getPreferredSize().height;
         }
       }
+      TreePath path = cache.getPathClosestTo(0, paintBounds.y - insets.top);
+      int width = 0;
+      int row = cache.getRowForPath(path);
+      if (row >= 0) {
+        Rectangle buffer = new Rectangle();
+        int maxPaintX = paintBounds.x + paintBounds.width;
+        int maxPaintY = paintBounds.y + paintBounds.height;
+        for (; path != null; path = cache.getPathForRow(++row)) {
+          Rectangle bounds = cache.getBounds(path, buffer);
+          if (bounds == null) {
+            LOG.warn("The bounds for the row " + row + " of the tree " + tree + " with model " + treeModel +
+                     " are null, looks like a bug in " + cache);
+            continue;
+          }
+          width = Math.max(width, bounds.x + bounds.width);
+          if ((bounds.y + bounds.height) >= maxPaintY) break;
+        }
+        width += insets.left + insets.right;
+        if (width < maxPaintX) {
+          if (!is("ide.tree.prefer.to.shrink.width.on.scroll")) {
+            width = maxPaintX;
+          }
+          else if (paintBounds.width < width || !is("ide.tree.prefer.aggressive.scrolling.to.the.left")) {
+            int margin = intValue("ide.tree.preferable.right.margin", 25);
+            if (margin > 0) {
+              width = Math.min(width + paintBounds.width * margin / 100, maxPaintX);
+            }
+          }
+        }
+      }
+      else { // row == -1, the tree is empty
+        width = insets.left + insets.right;
+      }
+      preferredSize.width = width;
+      preferredSize.height = insets.top + insets.bottom + cache.getPreferredHeight();
+      validCachedPreferredSize = true;
     }
-    super.updateCachedPreferredSize();
+    else {
+      super.updateCachedPreferredSize();
+    }
   }
 
   @Override

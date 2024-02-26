@@ -2,47 +2,67 @@
 package org.jetbrains.plugins.gitlab.mergerequest.ui.details.model
 
 import com.intellij.collaboration.async.launchNow
+import com.intellij.collaboration.async.withInitial
 import com.intellij.collaboration.ui.codereview.details.model.CodeReviewChangeDetails
 import com.intellij.collaboration.ui.codereview.details.model.CodeReviewChangeList
 import com.intellij.collaboration.ui.codereview.details.model.CodeReviewChangeListViewModel
 import com.intellij.collaboration.ui.codereview.details.model.CodeReviewChangeListViewModelBase
 import com.intellij.collaboration.util.RefComparisonChange
+import com.intellij.collaboration.util.filePath
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import git4idea.changes.GitBranchComparisonResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.jetbrains.plugins.gitlab.api.GitLabId
-import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
-import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabNotePosition
-import org.jetbrains.plugins.gitlab.mergerequest.data.firstNote
-import org.jetbrains.plugins.gitlab.mergerequest.data.mapToLocation
+import org.jetbrains.plugins.gitlab.mergerequest.data.*
 import java.util.concurrent.ConcurrentHashMap
 
-interface GitLabMergeRequestChangeListViewModel : CodeReviewChangeListViewModel.WithDetails
+interface GitLabMergeRequestChangeListViewModel : CodeReviewChangeListViewModel.WithDetails {
+  val isOnLatest: Boolean
+
+  fun setViewedState(changes: Iterable<RefComparisonChange>, viewed: Boolean)
+}
 
 internal class GitLabMergeRequestChangeListViewModelImpl(
   override val project: Project,
   parentCs: CoroutineScope,
-  mergeRequest: GitLabMergeRequest,
-  changeList: CodeReviewChangeList
+  private val mergeRequest: GitLabMergeRequest,
+  private val parsedChanges: GitBranchComparisonResult,
+  changeList: CodeReviewChangeList,
 ) : CodeReviewChangeListViewModelBase(parentCs, changeList),
     GitLabMergeRequestChangeListViewModel {
+  private val persistentChangesViewedState = project.service<GitLabPersistentMergeRequestChangesViewedState>()
 
   private val _showDiffRequests = MutableSharedFlow<Unit>()
   val showDiffRequests: Flow<Unit> = _showDiffRequests.asSharedFlow()
 
+  override val isOnLatest: Boolean = selectedCommit == null || parsedChanges.commits.size == 1
+
   override val detailsByChange: StateFlow<Map<RefComparisonChange, CodeReviewChangeDetails>> =
-    combine(createUnresolvedDiscussionsPositionsFlow(mergeRequest),
-            createUnresolvedDraftsPositionsFlow(mergeRequest),
-            mergeRequest.changes.map { it.getParsedChanges() }.catch { }) { discPos, draftsPos, parsedChanges ->
+    combine(
+      createUnresolvedDiscussionsPositionsFlow(mergeRequest),
+      createUnresolvedDraftsPositionsFlow(mergeRequest),
+      persistentChangesViewedState.updatesFlow.withInitial(Unit),
+    ) { discPos, draftsPos, _ ->
       changes.associateWith { change ->
+        val sha = parsedChanges.findLatestCommitWithChangesTo(mergeRequest.gitRepository, change.filePath)
+        val isRead = !isOnLatest || sha?.let {
+          persistentChangesViewedState.isViewed(
+            mergeRequest.glProject, mergeRequest.iid,
+            mergeRequest.gitRepository,
+            change.filePath, it
+          )
+        } ?: false
+
         val patch = parsedChanges.patchesByChange[change]
         if (patch == null) {
-          CodeReviewChangeDetails(true, 0)
+          CodeReviewChangeDetails(isRead, 0)
         }
         else {
           //TODO: cache?
           val discussions = discPos.count { it.mapToLocation(patch) != null } + draftsPos.count { it.mapToLocation(patch) != null }
-          CodeReviewChangeDetails(true, discussions)
+          CodeReviewChangeDetails(isRead, discussions)
         }
       }
     }.stateIn(cs, SharingStarted.Eagerly, emptyMap())
@@ -55,6 +75,21 @@ internal class GitLabMergeRequestChangeListViewModelImpl(
 
   // TODO: separate diff
   override fun showDiff() = showDiffPreview()
+
+  override fun setViewedState(changes: Iterable<RefComparisonChange>, viewed: Boolean) {
+    val filePathsWithShas = changes.mapNotNull { change ->
+      val path = change.filePath
+      parsedChanges.findLatestCommitWithChangesTo(mergeRequest.gitRepository, path)?.let {
+        path to it
+      }
+    }
+    persistentChangesViewedState.markViewed(
+      mergeRequest.glProject, mergeRequest.iid,
+      mergeRequest.gitRepository,
+      filePathsWithShas,
+      viewed
+    )
+  }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

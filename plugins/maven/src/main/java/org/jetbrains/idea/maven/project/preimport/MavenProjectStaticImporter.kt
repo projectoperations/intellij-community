@@ -12,7 +12,7 @@ import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.findFile
+import com.intellij.openapi.vfs.findFileOrDirectory
 import com.intellij.openapi.vfs.isFile
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.ide.progress.withBackgroundProgress
@@ -218,6 +218,16 @@ class MavenProjectStaticImporter(val project: Project, val coroutineScope: Corou
         myDeferred.complete(project)
         return@async project
       }
+      else {
+        val mavenId = project.mavenId
+        var ancestorId = project.parentId
+        while (ancestorId != null) {
+          if (ancestorId == mavenId) {
+            throw RuntimeException("Cyclic dependency found: $mavenId")
+          }
+          ancestorId = tree.project(ancestorId)?.parentId
+        }
+      }
 
 
       val parentInterpolated = interpolate(parentInReactor, tree, interpolatedCache).await()
@@ -242,7 +252,7 @@ class MavenProjectStaticImporter(val project: Project, val coroutineScope: Corou
 
     }
     catch (e: Throwable) {
-      MavenLog.LOG.error(e)
+      MavenLog.LOG.warn(e)
 
     }
     myDeferred.complete(project)
@@ -327,7 +337,9 @@ class MavenProjectStaticImporter(val project: Project, val coroutineScope: Corou
     modulesList.forEach {
       this.launch {
         try {
-          val file = aggregatorProjectFile.parent.findFile("$it/pom.xml")
+          val file = aggregatorProjectFile.parent.findFileOrDirectory(it)?.let { fod ->
+            if (fod.isDirectory) fod.findChild(MavenConstants.POM_XML) else fod
+          }
           if (file == null) return@launch
           val rootModel = MavenJDOMUtil.read(file, null) ?: return@launch
           val mavenProjectData = readProject(rootModel, file)

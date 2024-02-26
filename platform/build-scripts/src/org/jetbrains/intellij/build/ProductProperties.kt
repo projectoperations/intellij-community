@@ -1,7 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
-import com.intellij.platform.runtime.repository.ProductMode
+import com.intellij.platform.runtime.product.ProductMode
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationFail
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationResult
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationSuccess
@@ -24,7 +24,7 @@ import java.util.function.BiPredicate
  */
 abstract class ProductProperties {
   /**
-   * The base name (i.e. a name without the extension and architecture suffix)
+   * The base name (i.e., a name without the extension and architecture suffix)
    * of launcher files (bin/xxx64.exe, bin/xxx.bat, bin/xxx.sh, MacOS/xxx),
    * usually a short product name in lower case (`"idea"` for IntelliJ IDEA, `"webstorm"` for WebStorm, etc.).
    *
@@ -231,7 +231,7 @@ abstract class ProductProperties {
   var versionCheckerConfig: Map<String, String> = java.util.Map.of()
 
   /**
-   * Strings which are forbidden as a part of resulting class file path. E.g.:
+   * Strings which are forbidden as a part of the resulting class file path. E.g.:
    * "license"
    */
   var forbiddenClassFileSubPaths: PersistentList<String> = persistentListOf()
@@ -324,7 +324,7 @@ abstract class ProductProperties {
   /**
    * Override this method to copy additional files to distributions of all operating systems.
    */
-  open suspend fun copyAdditionalFiles(context: BuildContext, targetDirectory: String) { }
+  open suspend fun copyAdditionalFiles(context: BuildContext, targetDir: Path) { }
 
   /**
    * Override this method if the product has several editions to ensure that their artifacts won't be mixed up.
@@ -338,6 +338,12 @@ abstract class ProductProperties {
    * They will be copied into the build, as well as included in the IDE classpath when launching it to build search index, .jar order, etc.
    */
   open fun getAdditionalPluginPaths(context: BuildContext): List<Path> = emptyList()
+
+  /**
+   * Override this function to provide additional JVM command line arguments which will be added to launchers along with 
+   * [additionalIdeJvmArguments].
+   */
+  open fun getAdditionalContextDependentIdeJvmArguments(context: BuildContext): List<String> = emptyList()
 
   /**
    * @return custom properties for [org.jetbrains.intellij.build.impl.productInfo.ProductInfoData].

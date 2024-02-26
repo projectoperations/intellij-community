@@ -1,4 +1,6 @@
-<idea-plugin>
+<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+
+  <xi:include href="/META-INF/PythonSyntaxCore.xml" xpointer="xpointer(/idea-plugin/*)"/>
 
   <extensions defaultExtensionNs="com.intellij">
     <readWriteAccessDetector implementation="com.jetbrains.python.findUsages.PyReadWriteAccessDetector"/>
@@ -10,16 +12,11 @@
     <!-- We run it before FilePathCompletionContributor (id="filePath") to get help text about full path results in the extended completion -->
     <psi.referenceContributor implementation="com.jetbrains.python.codeInsight.PySoftFileReferenceContributor" language="Python"
                               order="before filePath"/>
-    <fileType name="PythonStub"
-              language="PythonStub"
-              extensions="pyi"
-              implementationClass="com.jetbrains.python.pyi.PyiFileType"
-              fieldName="INSTANCE"/>
 
     <lang.elementManipulator forClass="com.jetbrains.python.psi.PyReferenceExpression"
                              implementationClass="com.jetbrains.python.psi.impl.PyReferenceExpressionManipulator"/>
 
-    <projectService serviceInterface="com.jetbrains.python.psi.PyElementGenerator"
+    <projectService serviceInterface="com.jetbrains.python.psi.PyAstElementGenerator"
                     serviceImplementation="com.jetbrains.python.psi.impl.PyElementGeneratorImpl"/>
 
     <projectService serviceInterface="com.jetbrains.python.psi.PyPsiFacade"
@@ -56,8 +53,6 @@
 
     <filePropertyPusher implementation="com.jetbrains.python.psi.impl.PythonLanguageLevelPusher"/>
 
-    <applicationService serviceImplementation="com.jetbrains.python.codeInsight.PyCodeInsightSettings"/>
-
     <weigher key="completion" implementationClass="com.jetbrains.python.codeInsight.completion.PythonCompletionWeigher" order="first"/>
 
     <referencesSearch implementation="com.jetbrains.python.psi.search.PyInitReferenceSearchExecutor"/>
@@ -72,12 +67,6 @@
                              implementationClass="com.jetbrains.python.psi.impl.references.PyKeywordPatternManipulator"/>
     <lang.parserDefinition language="Python" implementationClass="com.jetbrains.python.PythonParserDefinition"/>
 
-    <lang.formatter language="Python" implementationClass="com.jetbrains.python.formatter.PythonFormattingModelBuilder"/>
-    <preFormatProcessor implementation="com.jetbrains.python.formatter.PyPreFormatProcessor"/>
-    <postFormatProcessor implementation="com.jetbrains.python.formatter.PyTrailingBlankLinesPostFormatProcessor"/>
-    <postFormatProcessor implementation="com.jetbrains.python.formatter.PyFromImportPostFormatProcessor"/>
-    <lang.whiteSpaceFormattingStrategy language="Python"
-                                       implementationClass="com.jetbrains.python.formatter.PyWhiteSpaceFormattingStrategy"/>
     <lang.lineWrapStrategy language="Python" implementationClass="com.jetbrains.python.formatter.PyLineWrapPositionStrategy"/>
 
     <lang.commenter language="Python" implementationClass="com.jetbrains.python.PythonCommenter"/>
@@ -95,9 +84,6 @@
     <lang.documentationProvider language="Python" implementationClass="com.jetbrains.python.documentation.PythonDocumentationProvider" id="pythonDocumentationProvider"/>
 
     <applicationService serviceImplementation="com.jetbrains.python.documentation.PythonDocumentationMap"/>
-
-    <moduleService serviceImplementation="com.jetbrains.python.documentation.PyDocumentationSettings$ModuleService"/>
-    <applicationService serviceImplementation="com.jetbrains.python.documentation.PyDocumentationSettings$AppService"/>
 
     <applicationService serviceInterface="com.jetbrains.python.codeInsight.imports.ImportLocationHelper"
                         serviceImplementation="com.jetbrains.python.codeInsight.imports.PyImportLocationHelper"/>

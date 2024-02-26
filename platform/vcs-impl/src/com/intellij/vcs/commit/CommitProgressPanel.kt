@@ -2,11 +2,11 @@
 package com.intellij.vcs.commit
 
 import com.intellij.icons.AllIcons
-import com.intellij.ide.nls.NlsMessages.formatNarrowAndList
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.TooltipDescriptionProvider
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
+import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -14,12 +14,15 @@ import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.progress.impl.updateFromFlow
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase
 import com.intellij.openapi.progress.util.ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.util.text.plus
 import com.intellij.openapi.vcs.VcsBundle.message
 import com.intellij.openapi.vcs.VcsBundle.messagePointer
+import com.intellij.openapi.vcs.actions.commit.getContextCommitWorkflowHandler
 import com.intellij.openapi.vcs.changes.InclusionListener
 import com.intellij.openapi.wm.ex.ProgressIndicatorEx
 import com.intellij.openapi.wm.ex.StatusBarEx
@@ -364,7 +367,7 @@ private class FailuresDescriptionPanel : HtmlPanel() {
   private fun buildDescription(): HtmlChunk {
     if (failures.isEmpty()) return HtmlChunk.empty()
 
-    val failureLinks = formatNarrowAndList(failures.mapNotNull {
+    val failureLinks = failures.mapNotNull {
       when (val failure = it.value) {
         is CommitCheckFailure.WithDetails -> {
           if (failure.viewDetailsLinkText != null) {
@@ -378,9 +381,9 @@ private class FailuresDescriptionPanel : HtmlPanel() {
         is CommitCheckFailure.WithDescription -> HtmlChunk.text(failure.text)
         else -> null
       }
-    })
-    if (failureLinks.isBlank()) return HtmlChunk.text(message("label.commit.checks.failed.unknown.reason"))
-    return HtmlChunk.raw(failureLinks)
+    }
+    if (failureLinks.isEmpty()) return HtmlChunk.text(message("label.commit.checks.failed.unknown.reason"))
+    return HtmlBuilder().appendWithSeparators(HtmlChunk.raw("<br/><br/>"), failureLinks).toFragment()
   }
 
   private fun showDetails(event: HyperlinkEvent) {
@@ -401,16 +404,13 @@ private fun createCommitChecksToolbar(target: JComponent): ActionToolbar =
 
     (this as? ActionToolbarImpl)?.setForceMinimumSize(true) // for `BoxLayout`
     setReservePlaceAutoPopupIcon(false)
-    layoutPolicy = ActionToolbar.NOWRAP_LAYOUT_POLICY
+    layoutStrategy = ToolbarLayoutStrategy.NOWRAP_STRATEGY
 
     component.isOpaque = false
     component.border = null
   }
 
-private class RerunCommitChecksAction :
-  AnActionWrapper(ActionManager.getInstance().getAction("Vcs.RunCommitChecks")),
-  TooltipDescriptionProvider {
-
+private class RerunCommitChecksAction : DumbAwareAction(), TooltipDescriptionProvider {
   init {
     templatePresentation.apply {
       setText(Presentation.NULL_STRING)
@@ -419,5 +419,24 @@ private class RerunCommitChecksAction :
       icon = AllIcons.General.InlineRefresh
       hoveredIcon = AllIcons.General.InlineRefreshHover
     }
+  }
+
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+  override fun update(e: AnActionEvent) {
+    val workflowHandler = e.getContextCommitWorkflowHandler()
+    val executor = workflowHandler?.getExecutor(RunCommitChecksExecutor.ID)
+    e.presentation.isVisible = workflowHandler != null && executor != null
+    e.presentation.isEnabled = workflowHandler != null && executor != null && workflowHandler.isExecutorEnabled(executor)
+  }
+
+  /**
+   * See [com.intellij.openapi.vcs.changes.actions.CommitExecutorAction]
+   */
+  override fun actionPerformed(e: AnActionEvent) {
+    val workflowHandler = e.getContextCommitWorkflowHandler()!!
+    val executor = workflowHandler.getExecutor(RunCommitChecksExecutor.ID)!!
+
+    workflowHandler.execute(executor)
   }
 }

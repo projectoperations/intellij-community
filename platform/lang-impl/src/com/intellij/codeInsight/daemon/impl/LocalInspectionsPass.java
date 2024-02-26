@@ -90,14 +90,16 @@ public final class LocalInspectionsPass extends ProgressableTextEditorHighlighti
 
   @Override
   protected void collectInformationWithProgress(@NotNull ProgressIndicator progress) {
-    HighlightInfoUpdater highlightInfoUpdater = HighlightInfoUpdater.getInstance(myFile.getProject());
-    HighlightersRecycler invalidElementsRecycler = highlightInfoUpdater.removeOrRecycleInvalidPsiElements(getFile());
+    HighlightInfoUpdater highlightInfoUpdater = HighlightInfoUpdater.getInstance(getFile().getProject());
+    HighlightersRecycler invalidElementsRecycler = highlightInfoUpdater.removeOrRecycleInvalidPsiElements(getFile(), this, true, false);
     try {
       List<HighlightInfo> fileInfos = Collections.synchronizedList(new ArrayList<>());
       List<? extends LocalInspectionToolWrapper> toolWrappers = getInspectionTools(myProfileWrapper);
       List<? extends InspectionRunner.InspectionContext> resultContexts;
+      List<PsiFile> injectedFragments;
       if (toolWrappers.isEmpty()) {
         resultContexts = List.of();
+        injectedFragments = List.of();
       }
       else {
         InspectionRunner.ApplyIncrementallyCallback applyIncrementallyCallback = (descriptors, holder, visitingPsiElement, shortName) -> {
@@ -144,12 +146,13 @@ public final class LocalInspectionsPass extends ProgressableTextEditorHighlighti
                                         true,
                                         applyIncrementallyCallback,
                                         contextFinishedCallback,
-                                        wrapper -> !wrapper.getTool().isSuppressedFor(myFile));
+                                        wrapper -> !wrapper.getTool().isSuppressedFor(getFile()));
         myInfos = fileInfos;
+        injectedFragments = runner.getInjectedFragments();
       }
       Set<Pair<Object, PsiFile>> pairs = ContainerUtil.map2Set(resultContexts, context -> Pair.create(context.tool().getShortName(), context.psiFile()));
-      highlightInfoUpdater.recycleHighlightsForObsoleteTools(myFile, pairs, invalidElementsRecycler);
-      highlightInfoUpdater.removeWarningsInsideErrors(myHighlightingSession);  // must be the last
+      highlightInfoUpdater.recycleHighlightsForObsoleteTools(getFile(), getDocument(), injectedFragments, pairs, invalidElementsRecycler);
+      highlightInfoUpdater.removeWarningsInsideErrors(injectedFragments, getDocument(), myHighlightingSession);  // must be the last
     }
     finally {
       // incinerate range highlighters for invalid PSI elements even in the case of PCE, or otherwise these dangling range highlighters will stay onscreen forever
@@ -181,7 +184,7 @@ public final class LocalInspectionsPass extends ProgressableTextEditorHighlighti
     HighlightSeverity severity = highlightInfoType.getSeverity(psiElement);
     TextAttributesKey attributesKey = ((ProblemDescriptorBase)problemDescriptor).getEnforcedTextAttributes();
     if (problemDescriptor.getHighlightType() == ProblemHighlightType.GENERIC_ERROR_OR_WARNING && attributesKey == null) {
-      attributesKey = myProfileWrapper.getInspectionProfile().getEditorAttributes(key.toString(), myFile);
+      attributesKey = myProfileWrapper.getInspectionProfile().getEditorAttributes(key.toString(), getFile());
     }
     TextAttributes attributes = attributesKey == null || editorColorsScheme == null || severity.getName().equals(attributesKey.getExternalName())
                                 ? severityRegistrar.getTextAttributesBySeverity(severity)
@@ -416,7 +419,7 @@ public final class LocalInspectionsPass extends ProgressableTextEditorHighlighti
   }
 
   @NotNull
-  List<LocalInspectionToolWrapper> getInspectionTools(@NotNull InspectionProfileWrapper profile) {
+  private List<LocalInspectionToolWrapper> getInspectionTools(@NotNull InspectionProfileWrapper profile) {
     List<InspectionToolWrapper<?, ?>> toolWrappers = profile.getInspectionProfile().getInspectionTools(getFile());
 
     if (LOG.isDebugEnabled()) {
@@ -433,9 +436,6 @@ public final class LocalInspectionsPass extends ProgressableTextEditorHighlighti
 
       if (!isTests && !toolWrapper.isApplicable(projectTypes)) continue;
 
-      if (toolWrapper instanceof LocalInspectionToolWrapper local && !isAcceptableLocalTool(local)) {
-        continue;
-      }
       HighlightDisplayKey key = toolWrapper.getDisplayKey();
       if (!profile.isToolEnabled(key, getFile())) continue;
       if (HighlightDisplayLevel.DO_NOT_SHOW.equals(profile.getErrorLevel(key, getFile()))) continue;
@@ -445,7 +445,7 @@ public final class LocalInspectionsPass extends ProgressableTextEditorHighlighti
       }
       else {
         wrapper = ((GlobalInspectionToolWrapper)toolWrapper).getSharedLocalInspectionToolWrapper();
-        if (wrapper == null || !isAcceptableLocalTool(wrapper)) continue;
+        if (wrapper == null) continue;
       }
       String language = wrapper.getLanguage();
       if (language != null && Language.findLanguageByID(language) == null) {
@@ -462,10 +462,6 @@ public final class LocalInspectionsPass extends ProgressableTextEditorHighlighti
       enabled.add(wrapper);
     }
     return enabled;
-  }
-
-  protected boolean isAcceptableLocalTool(@NotNull LocalInspectionToolWrapper wrapper) {
-    return true;
   }
 
   @Override

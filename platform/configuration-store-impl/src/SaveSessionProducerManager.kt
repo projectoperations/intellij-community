@@ -3,18 +3,15 @@ package com.intellij.configurationStore
 
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.components.StateStorage
-import com.intellij.openapi.components.impl.stores.SaveSessionAndFile
 import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.progress.blockingContext
+import com.intellij.openapi.vfs.newvfs.RefreshQueue
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import kotlinx.coroutines.CancellationException
-import org.jetbrains.annotations.ApiStatus
 import java.util.*
 
-@ApiStatus.Internal
-open class SaveSessionProducerManager {
+internal open class SaveSessionProducerManager(private val isUseVfsForWrite: Boolean, private val collectVfsEvents: Boolean) {
   private val producers = Collections.synchronizedMap(LinkedHashMap<StateStorage, SaveSessionProducer>())
-
-  // withing a single component store, individual storages might be heterogeneous, hence computing on the fly
-  private var isVfsRequired = false
 
   fun getProducer(storage: StateStorage): SaveSessionProducer? {
     var producer = producers[storage]
@@ -22,44 +19,28 @@ open class SaveSessionProducerManager {
       producer = storage.createSaveSessionProducer() ?: return null
       val prev = producers.put(storage, producer)
       check(prev == null)
-      if (storage.isUseVfsForWrite) {
-        isVfsRequired = true
-      }
     }
     return producer
   }
 
   internal fun collectSaveSessions(result: MutableCollection<SaveSession>) {
-    if (producers.isEmpty()) {
-      return
-    }
-
     for (session in producers.values) {
       result.add(session.createSaveSession() ?: continue)
     }
   }
 
-  suspend fun save(): SaveResult {
-    if (producers.isEmpty()) {
-      return SaveResult.EMPTY
+  suspend fun save(saveResult: SaveResult) {
+    if (producers.isNotEmpty()) {
+      val saveSessions = ArrayList<SaveSession>()
+      collectSaveSessions(saveSessions)
+      if (saveSessions.isNotEmpty()) {
+        saveSessions(saveSessions, saveResult)
+      }
     }
-
-    val saveSessions = ArrayList<SaveSession>()
-    for (session in producers.values) {
-      saveSessions.add(session.createSaveSession() ?: continue)
-    }
-
-    if (saveSessions.isEmpty()) {
-      return SaveResult.EMPTY
-    }
-
-    val saveResult = SaveResult()
-    saveSessions(saveSessions, saveResult)
-    return saveResult
   }
 
   protected suspend fun saveSessions(saveSessions: Collection<SaveSession>, saveResult: SaveResult) {
-    if (isVfsRequired) {
+    if (isUseVfsForWrite) {
       writeAction {
         for (saveSession in saveSessions) {
           executeSaveBlocking(saveSession, saveResult)
@@ -67,15 +48,22 @@ open class SaveSessionProducerManager {
       }
     }
     else {
+      val events = if (collectVfsEvents) ArrayList<VFileEvent>() else null
+      val syncList = if (events != null) Collections.synchronizedList(events) else null
       for (saveSession in saveSessions) {
-        executeSave(saveSession, saveResult)
+        executeSave(saveSession, saveResult, syncList)
+      }
+      if (events != null && events.isNotEmpty()) {
+        blockingContext {
+          RefreshQueue.getInstance().processEvents(false, events)
+        }
       }
     }
   }
 
-  private suspend fun executeSave(session: SaveSession, result: SaveResult) {
+  private suspend fun executeSave(session: SaveSession, result: SaveResult, events: MutableList<VFileEvent>?) {
     try {
-      session.save()
+      session.save(events)
     }
     catch (e: ReadOnlyModificationException) {
       LOG.warn(e)

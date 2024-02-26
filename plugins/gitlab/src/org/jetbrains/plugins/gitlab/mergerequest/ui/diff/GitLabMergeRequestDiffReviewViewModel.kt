@@ -4,7 +4,12 @@ package org.jetbrains.plugins.gitlab.mergerequest.ui.diff
 import com.intellij.collaboration.ui.codereview.diff.DiffLineLocation
 import com.intellij.collaboration.ui.codereview.diff.DiscussionsViewOption
 import com.intellij.collaboration.ui.icon.IconsProvider
+import com.intellij.collaboration.util.RefComparisonChange
+import com.intellij.collaboration.util.filePath
 import com.intellij.diff.util.Side
+import com.intellij.openapi.components.service
+import com.intellij.openapi.project.Project
+import git4idea.changes.GitBranchComparisonResult
 import git4idea.changes.GitTextFilePatchWithHistory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,7 +17,9 @@ import kotlinx.coroutines.flow.map
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequestNewDiscussionPosition
+import org.jetbrains.plugins.gitlab.mergerequest.data.findLatestCommitWithChangesTo
 import org.jetbrains.plugins.gitlab.mergerequest.data.mapToLocation
+import org.jetbrains.plugins.gitlab.mergerequest.ui.details.model.GitLabPersistentMergeRequestChangesViewedState
 import org.jetbrains.plugins.gitlab.mergerequest.ui.review.GitLabMergeRequestDiscussionsViewModels
 import org.jetbrains.plugins.gitlab.mergerequest.ui.review.mapToLocation
 import org.jetbrains.plugins.gitlab.mergerequest.util.GitLabMergeRequestEditorCommentsUtil
@@ -30,15 +37,22 @@ interface GitLabMergeRequestDiffReviewViewModel {
 
   fun requestNewDiscussion(location: DiffLineLocation, focus: Boolean)
   fun cancelNewDiscussion(location: DiffLineLocation)
+
+  fun markViewed()
 }
 
 internal class GitLabMergeRequestDiffReviewViewModelImpl(
-  mergeRequest: GitLabMergeRequest,
+  project: Project,
+  private val mergeRequest: GitLabMergeRequest,
+  private val parsedChanges: GitBranchComparisonResult,
   private val diffData: GitTextFilePatchWithHistory,
+  private val change: RefComparisonChange,
   private val discussionsContainer: GitLabMergeRequestDiscussionsViewModels,
   discussionsViewOption: StateFlow<DiscussionsViewOption>,
   override val avatarIconsProvider: IconsProvider<GitLabUserDTO>
 ) : GitLabMergeRequestDiffReviewViewModel {
+
+  private val persistentChangesViewedState by lazy { project.service<GitLabPersistentMergeRequestChangesViewedState>() }
 
   override val isCumulativeChange: Boolean = diffData.isCumulative
 
@@ -74,5 +88,15 @@ internal class GitLabMergeRequestDiffReviewViewModelImpl(
       GitLabMergeRequestDiscussionsViewModels.NewDiscussionPosition(it, location.first)
     }
     discussionsContainer.cancelNewDiscussion(position)
+  }
+
+  override fun markViewed() {
+    val sha = parsedChanges.findLatestCommitWithChangesTo(mergeRequest.gitRepository, change.filePath) ?: return
+    persistentChangesViewedState.markViewed(
+      mergeRequest.glProject, mergeRequest.iid,
+      mergeRequest.gitRepository,
+      listOf(change.filePath to sha),
+      true
+    )
   }
 }

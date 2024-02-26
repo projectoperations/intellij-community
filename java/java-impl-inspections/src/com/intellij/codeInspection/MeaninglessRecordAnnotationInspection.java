@@ -2,9 +2,9 @@
 package com.intellij.codeInspection;
 
 import com.intellij.codeInsight.AnnotationTargetUtil;
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.daemon.impl.quickfix.DeleteElementFix;
 import com.intellij.java.JavaBundle;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.PsiAnnotation.TargetType;
 import com.intellij.psi.util.JavaPsiRecordUtil;
@@ -20,12 +20,14 @@ public final class MeaninglessRecordAnnotationInspection extends AbstractBaseJav
                TargetType.PARAMETER, TargetType.TYPE_USE);
   private static final Set<TargetType> ALWAYS_USEFUL_RECORD_TARGETS =
     EnumSet.of(TargetType.RECORD_COMPONENT, TargetType.FIELD, TargetType.TYPE_USE);
-  
+
+  @Override
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.RECORDS);
+  }
+
   @Override
   public @NotNull PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
-    if (!HighlightingFeature.RECORDS.isAvailable(holder.getFile())) {
-      return PsiElementVisitor.EMPTY_VISITOR;
-    }
     return new JavaElementVisitor() {
       @Override
       public void visitRecordComponent(@NotNull PsiRecordComponent recordComponent) {

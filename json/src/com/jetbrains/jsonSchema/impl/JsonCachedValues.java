@@ -125,7 +125,7 @@ public final class JsonCachedValues {
     if (schemaFile instanceof LightVirtualFile) return null;
 
     if (Registry.is("json.schema.object.v2")) {
-      JsonSchemaObject schemaRootOrNull = JsonSchemaObjectStorage.getInstance(project).getComputedSchemaRootOrNull(schemaFile);
+      JsonSchemaObject schemaRootOrNull = JsonSchemaObjectStorage.getInstance(project).getOrComputeSchemaRootObject(schemaFile);
       if (schemaRootOrNull != null) {
         return schemaRootOrNull.getId();
       }

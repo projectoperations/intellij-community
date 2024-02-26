@@ -3,10 +3,8 @@ package com.intellij.codeInsight.documentation;
 
 import com.intellij.lang.documentation.DocumentationImageResolver;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.editor.colors.ColorKey;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.editor.colors.EditorColorsUtil;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.colors.*;
 import com.intellij.openapi.editor.impl.EditorCssFontResolver;
 import com.intellij.openapi.options.FontSize;
 import com.intellij.openapi.util.registry.Registry;
@@ -17,6 +15,7 @@ import com.intellij.util.ui.HTMLEditorKitBuilder;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.accessibility.ScreenReader;
+import com.intellij.util.ui.html.UtilsKt;
 import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -35,13 +34,15 @@ import java.awt.event.KeyEvent;
 import java.util.Map;
 import java.util.function.Function;
 
-import static com.intellij.codeInsight.documentation.DocumentationHtmlUtil.getDocumentationPaneDefaultCssRules;
+import static com.intellij.codeInsight.documentation.DocumentationHtmlUtil.*;
+import static com.intellij.lang.documentation.DocumentationMarkup.*;
 import static com.intellij.util.ui.ExtendableHTMLViewFactory.Extensions;
+import static com.intellij.util.ui.html.UtilsKt.*;
 
 @Internal
 public abstract class DocumentationEditorPane extends JEditorPane implements Disposable {
   private static final Color BACKGROUND_COLOR = JBColor.lazy(() -> {
-    ColorKey colorKey = DocumentationComponent.COLOR_KEY;
+    ColorKey colorKey = EditorColors.DOCUMENTATION_COLOR;
     EditorColorsScheme scheme = EditorColorsUtil.getColorSchemeForBackground(null);
     Color color;
     color = scheme.getColor(colorKey);
@@ -59,6 +60,7 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
   private final @NotNull DocumentationImageResolver myImageResolver;
   private @Nls String myText = ""; // getText() surprisingly crashes…, let's cache the text
   private StyleSheet myCurrentDefaultStyleSheet = null;
+  private Dimension myCachedPreferredSize = null;
 
   protected DocumentationEditorPane(
     @NotNull Map<KeyStroke, ActionListener> keyboardActions,
@@ -79,8 +81,14 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
     }
     setBackground(BACKGROUND_COLOR);
     HTMLEditorKit editorKit = new HTMLEditorKitBuilder()
-      .replaceViewFactoryExtensions(DocumentationHtmlUtil.getIconsExtension(iconResolver), Extensions.BASE64_IMAGES,
-                                    Extensions.INLINE_VIEW_EX)
+      .replaceViewFactoryExtensions(getIconsExtension(iconResolver),
+                                    Extensions.BASE64_IMAGES,
+                                    Extensions.INLINE_VIEW_EX,
+                                    Extensions.PARAGRAPH_VIEW_EX,
+                                    Extensions.LINE_VIEW_EX,
+                                    Extensions.BLOCK_VIEW_EX,
+                                    Extensions.FIT_TO_WIDTH_IMAGES,
+                                    Extensions.WBR_SUPPORT)
       .withFontResolver(EditorCssFontResolver.getGlobalInstance()).build();
     updateDocumentationPaneDefaultCssRules(editorKit);
 
@@ -108,6 +116,7 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
   @Override
   public void setText(@Nls String t) {
     myText = t;
+    myCachedPreferredSize = null;
     super.setText(t);
   }
 
@@ -144,6 +153,7 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
   @Override
   public void setDocument(Document doc) {
     super.setDocument(doc);
+    myCachedPreferredSize = null;
     doc.putProperty("IgnoreCharsetDirective", Boolean.TRUE);
     if (doc instanceof StyledDocument) {
       doc.putProperty("imageCache", new DocumentationImageProvider(this, myImageResolver));
@@ -152,15 +162,22 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
 
   @NotNull
   Dimension getPackedSize(int minWidth, int maxWidth) {
-    int width = Math.max(Math.max(definitionPreferredWidth(), getMinimumSize().width), minWidth);
-    int height = getPreferredHeightByWidth(Math.min(width, maxWidth));
+    int width = Math.min(
+      Math.max(Math.max(definitionPreferredWidth(), getMinimumSize().width), minWidth),
+      maxWidth
+    );
+    int height = getPreferredHeightByWidth(width);
     return new Dimension(width, height);
   }
 
   private int getPreferredHeightByWidth(int width) {
-    getParent().setSize(width, Short.MAX_VALUE);
+    if (myCachedPreferredSize != null && myCachedPreferredSize.width == width) {
+      return myCachedPreferredSize.height;
+    }
     setSize(width, Short.MAX_VALUE);
-    return getPreferredSize().height;
+    Dimension result = getPreferredSize();
+    myCachedPreferredSize = new Dimension(width, result.height);
+    return myCachedPreferredSize.height;
   }
 
   int getPreferredWidth() {
@@ -170,8 +187,9 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
   }
 
   private int definitionPreferredWidth() {
-    int preferredDefinitionWidth = getPreferredSectionWidth("definition");
-    int preferredLocationWidth = Math.max(getPreferredSectionWidth("bottom-no-content"), getPreferredSectionWidth("bottom"));
+    int preferredDefinitionWidth = Math.max(getPreferredSectionWidth(CLASS_DEFINITION),
+                                            getPreferredSectionWidth(CLASS_DEFINITION_SEPARATED));
+    int preferredLocationWidth = getPreferredSectionWidth(CLASS_BOTTOM);
     if (preferredDefinitionWidth < 0) {
       return -1;
     }
@@ -181,7 +199,16 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
 
   private int getPreferredSectionWidth(String sectionClassName) {
     View definition = findSection(getUI().getRootView(this), sectionClassName);
-    return definition == null ? -1 : (int)definition.getPreferredSpan(View.X_AXIS);
+    var result = definition == null ? -1 : (int)definition.getPreferredSpan(View.X_AXIS);
+    if (result > 0) {
+      result += UtilsKt.getWidth(getCssMargin(definition));
+      var parent = definition.getParent();
+      while (parent != null) {
+        result += UtilsKt.getWidth(getCssMargin(parent)) + UtilsKt.getWidth(getCssPadding(parent));
+        parent = parent.getParent();
+      }
+    }
+    return result;
   }
 
   private static int getPreferredContentWidth(int textLength) {
@@ -191,15 +218,16 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
     // These values were calculated based on experiments with varied content and manual resizing to comfortable width.
     final int contentLengthPreferredSize;
     if (textLength < 200) {
-      contentLengthPreferredSize = JBUIScale.scale(300);
+      contentLengthPreferredSize = getDocPopupPreferredMinWidth();
     }
     else if (textLength > 200 && textLength < 1000) {
-      contentLengthPreferredSize = JBUIScale.scale(300) + JBUIScale.scale(1) * (textLength - 200) * (500 - 300) / (1000 - 200);
+      contentLengthPreferredSize = getDocPopupPreferredMinWidth() +
+                                   (textLength - 200) * (getDocPopupPreferredMaxWidth() - getDocPopupPreferredMinWidth()) / (1000 - 200);
     }
     else {
-      contentLengthPreferredSize = JBUIScale.scale(500);
+      contentLengthPreferredSize = getDocPopupPreferredMaxWidth();
     }
-    return contentLengthPreferredSize;
+    return JBUIScale.scale(contentLengthPreferredSize);
   }
 
   private static @Nullable View findSection(@NotNull View view, @NotNull String sectionClassName) {
@@ -260,11 +288,12 @@ public abstract class DocumentationEditorPane extends JEditorPane implements Dis
         setCaretPosition(startOffset);
         if (!ScreenReader.isActive()) {
           // scrolling to target location explicitly, as we've disabled auto-scrolling to caret
+          //noinspection deprecation
           scrollRectToVisible(modelToView(startOffset));
         }
       }
       catch (BadLocationException e) {
-        DocumentationManager.LOG.warn("Error highlighting link", e);
+        Logger.getInstance(DocumentationEditorPane.class).warn("Error highlighting link", e);
       }
     }
     else if (myHighlightedTag != null) {

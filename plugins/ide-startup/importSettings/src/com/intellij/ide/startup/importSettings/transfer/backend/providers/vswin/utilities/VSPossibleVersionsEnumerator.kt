@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.providers.vswin.utilities
 
 import com.intellij.ide.startup.importSettings.db.WindowsEnvVariables
@@ -8,12 +8,15 @@ import com.sun.jna.platform.win32.WinReg
 import java.io.File
 
 class VSPossibleVersionsEnumerator {
-  private val logger = logger<VSPossibleVersionsEnumerator>()
 
   fun get(): List<VSHive> {
     return (enumOldPossibleVersions() + enumNewPossibleVersions()).apply {
       logger.info("List of potential ides: ${this.joinToString(",") { it.hiveString }}")
     }
+  }
+
+  fun hasAny(): Boolean {
+    return enumNewPossibleVersions().isNotEmpty() || enumOldPossibleVersions().isNotEmpty()
   }
 
   private fun enumOldPossibleVersions(): List<VSHive> {
@@ -37,7 +40,6 @@ class VSPossibleVersionsEnumerator {
     val dir = File("${WindowsEnvVariables.localApplicationData}\\Microsoft\\VisualStudio")
 
     if (!dir.exists()) {
-      logger.warn("visual studio dir does not exist")
       return emptyList()
     }
 
@@ -58,3 +60,5 @@ class VSPossibleVersionsEnumerator {
 
   }
 }
+
+private val logger = logger<VSPossibleVersionsEnumerator>()

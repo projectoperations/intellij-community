@@ -22,10 +22,7 @@ import com.intellij.openapi.client.ClientAwareComponentManager;
 import com.intellij.openapi.components.impl.stores.IComponentStore;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.progress.EmptyProgressIndicator;
-import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.*;
 import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.openapi.progress.impl.ProgressResult;
 import com.intellij.openapi.progress.impl.ProgressRunner;
@@ -553,19 +550,34 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
   }
 
   private void doExit(int flags, boolean restart, String @NotNull [] beforeRestart, int exitCode) {
+    Integer actualExitCode = null;
+    try {
+      actualExitCode = destructApplication(flags, restart, beforeRestart, exitCode);
+    }
+    catch (Throwable err) {
+      logErrorDuringExit("Failed to destruct the application", err);
+    }
+    finally {
+      if (actualExitCode != null) {
+        System.exit(actualExitCode);
+      }
+    }
+  }
+
+  private @Nullable Integer destructApplication(int flags, boolean restart, String @NotNull [] beforeRestart, int exitCode) {
     IJTracer tracer = TelemetryManager.getInstance().getTracer(new com.intellij.platform.diagnostic.telemetry.Scope("exitApp", null));
     Span exitSpan = tracer.spanBuilder("application.exit").startSpan();
     boolean force = BitUtil.isSet(flags, FORCE_EXIT);
     try (Scope scope = exitSpan.makeCurrent()) {
       if (!force && !confirmExitIfNeeded(BitUtil.isSet(flags, EXIT_CONFIRMED))) {
-        return;
+        return null;
       }
 
       AppLifecycleListener lifecycleListener = getMessageBus().syncPublisher(AppLifecycleListener.TOPIC);
       lifecycleListener.appClosing();
 
       if (!force && !canExit()) {
-        return;
+        return null;
       }
 
       stopServicePreloading();
@@ -585,7 +597,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
         lifecycleListener.appWillBeClosed(restart);
       }
       catch (Throwable t) {
-        getLogger().error(t);
+        logErrorDuringExit("Failed to invoke lifecycle listeners", t);
       }
 
       LifecycleUsageTriggerCollector.onIdeClose(restart);
@@ -602,17 +614,17 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
           }
         }
         catch (Throwable e) {
-          getLogger().error(e);
+          logErrorDuringExit("Failed to close and dispose all projects", e);
         }
       }
-      try {
+      try (var ignored = Cancellation.withNonCancelableSection()) {
         scope.close();
         exitSpan.end();
         //noinspection TestOnlyProblems
         disposeContainer();
       }
       catch (Throwable t) {
-        getLogger().error(t);
+        logErrorDuringExit("Failed to dispose the container", t);
       }
 
       //noinspection SpellCheckingInspection
@@ -621,7 +633,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
         if (Boolean.getBoolean("idea.test.guimode")) {
           shutdown();
         }
-        return;
+        return null;
       }
 
       IdeaLogger.dropFrequentExceptionsCaches();
@@ -630,18 +642,36 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
           Restarter.scheduleRestart(BitUtil.isSet(flags, ELEVATE), beforeRestart);
         }
         catch (Throwable t) {
-          getLogger().error("Restart failed", t);
+          logErrorDuringExit("Failed to restart the application", t);
           StartupErrorReporter.showMessage(BootstrapBundle.message("restart.failed.title"), t);
           if (exitCode == 0) {
             exitCode = AppExitCodes.RESTART_FAILED;
           }
         }
       }
-      System.exit(exitCode);
+      return exitCode;
     }
     finally {
       exitSpan.end();
       myExitInProgress = false;
+    }
+  }
+
+  private static void logErrorDuringExit(String message, Throwable err) {
+    // A special class to bypass problems with logging ControlFlowException.
+    class ApplicationExitException extends RuntimeException {
+      ApplicationExitException(Throwable cause) {
+        super(cause);
+      }
+    }
+
+    if (err != null) {
+      try {
+        getLogger().error(message, new ApplicationExitException(err));
+      }
+      catch (Throwable ignored) {
+        // Do nothing.
+      }
     }
   }
 

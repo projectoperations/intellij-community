@@ -48,13 +48,15 @@ public class PythonDebuggerSteppingTest extends PyEnvTestCase {
 
     void assertSmartStepIntoVariants(@NotNull String @NotNull ... expectedFunctionNames) {
       getSmartStepIntoVariantsAsync().onSuccess(variants -> {
-        String[] arr = new String[variants.size()];
-        for(int i = 0; i < arr.length; i++) {
-          PySmartStepIntoVariant v = (PySmartStepIntoVariant) variants.get(i);
-          arr[i] = v.getFunctionName();
-        }
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+          String[] arr = new String[variants.size()];
+          for(int i = 0; i < arr.length; i++) {
+            PySmartStepIntoVariant v = (PySmartStepIntoVariant) variants.get(i);
+            arr[i] = v.getFunctionName();
+          }
 
-        Assert.assertArrayEquals(expectedFunctionNames, arr);
+          Assert.assertArrayEquals(expectedFunctionNames, arr);
+        });
       });
     }
 
@@ -310,7 +312,6 @@ public class PythonDebuggerSteppingTest extends PyEnvTestCase {
     });
   }
 
-  @EnvTestTagsRequired(tags = {"-python3.11", "-python3.12"})
   @Test
   public void testSmartStepIntoConstructor() {
     runPythonTest(new PySmartStepIntoDebuggerTask( "test_smart_step_into_constructor.py") {
@@ -388,7 +389,6 @@ public class PythonDebuggerSteppingTest extends PyEnvTestCase {
     });
   }
 
-  @EnvTestTagsRequired(tags = {"-python3.11", "-python3.12"})
   @Test
   public void testSmartStepIntoCondition() {
     runPythonTest(new PySmartStepIntoDebuggerTask( "test_smart_step_into_condition.py") {
@@ -444,7 +444,6 @@ public class PythonDebuggerSteppingTest extends PyEnvTestCase {
     });
   }
 
-  @EnvTestTagsRequired(tags = {"-python3.11", "-python3.12"})
   @Test
   public void testSmartStepIntoDecorator1() {
     runPythonTest(new PySmartStepIntoDebuggerTask( "test_smart_step_into_decorator1.py") {
@@ -657,7 +656,6 @@ public class PythonDebuggerSteppingTest extends PyEnvTestCase {
     });
   }
 
-  @EnvTestTagsRequired(tags = {"-python3.11", "-python3.12"})
   @Test
   public void testSmartStepIntoMultiline2Python3() {
     runPythonTest(new PySmartStepIntoDebuggerTask("test_smart_step_into_multiline2.py") {
@@ -764,7 +762,6 @@ public class PythonDebuggerSteppingTest extends PyEnvTestCase {
     });
   }
 
-  @EnvTestTagsRequired(tags = {"-python3.11", "-python3.12"})
   @Test
   public void testSmartStepIntoBinaryOperator3() {
     runPythonTest(new PySmartStepIntoDebuggerTask("test_smart_step_into_binary_operator3.py") {

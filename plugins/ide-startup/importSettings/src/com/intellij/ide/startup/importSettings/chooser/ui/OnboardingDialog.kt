@@ -5,6 +5,7 @@ import com.intellij.ide.startup.importSettings.data.*
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.platform.ide.bootstrap.StartupWizardStage
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
@@ -16,9 +17,10 @@ import javax.swing.Action
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.border.Border
 
-class OnboardingDialog(val cancelCallback: () -> Unit) : DialogWrapper(null, null, true, IdeModalityType.IDE,
-                                                                       false) {
+class OnboardingDialog(var titleGetter: (StartupWizardStage?) -> @NlsContexts.DialogTitle String?, val cancelCallback: () -> Unit) : DialogWrapper(null, null, true, IdeModalityType.IDE,
+                                                                                                                                            false) {
 
   private val tracker = WizardPageTracker()
 
@@ -37,9 +39,9 @@ class OnboardingDialog(val cancelCallback: () -> Unit) : DialogWrapper(null, nul
     val shouldExit = currentPage.confirmExit(peer.contentPane)
 
     if (shouldExit) {
-      super.doCancelAction()
       tracker.onLeave()
       cancelCallback()
+      super.doCancelAction()
     }
   }
 
@@ -56,21 +58,24 @@ class OnboardingDialog(val cancelCallback: () -> Unit) : DialogWrapper(null, nul
 
   fun changePage(page: OnboardingPage) {
     overlay.clearNotifications()
-    pane.remove(currentPage.content)
+    pane.removeAll()
     Disposer.dispose(currentPage)
 
     tracker.onLeave()
+    title = titleGetter(page.stage) ?: ""
 
     val content = page.content
     pane.add(content)
 
     currentPage = page
     tracker.onEnter(page.stage)
+
   }
 
-  override fun getStyle(): DialogStyle {
-    return DialogStyle.COMPACT
+  override fun createContentPaneBorder(): Border {
+    return JBUI.Borders.empty()
   }
+
 
   private val overlay = BannerOverlay(pane)
 

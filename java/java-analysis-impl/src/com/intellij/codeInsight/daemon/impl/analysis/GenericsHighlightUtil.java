@@ -22,6 +22,7 @@ import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiClassImplUtil;
@@ -689,7 +690,8 @@ public final class GenericsHighlightUtil {
     }
 
     if (superMethod.hasModifierProperty(PsiModifier.STATIC) && superContainingClass != null &&
-        superContainingClass.isInterface() && !checkEqualsSuper && PsiUtil.isLanguageLevel8OrHigher(superContainingClass)) {
+        superContainingClass.isInterface() && !checkEqualsSuper && 
+        PsiUtil.isAvailable(JavaFeature.STATIC_INTERFACE_CALLS, superContainingClass)) {
       return null;
     }
 
@@ -742,8 +744,10 @@ public final class GenericsHighlightUtil {
     String description = JavaErrorBundle.message(key, HighlightMethodUtil.createClashMethodMessage(method, superMethod, !sameClass));
     HighlightInfo.Builder info =
       HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(textRange).descriptionAndTooltip(description);
-    IntentionAction action = QuickFixFactory.getInstance().createSameErasureButDifferentMethodsFix(method, superMethod);
-    info.registerFix(action, null, null, null, null);
+    if (!(method instanceof SyntheticElement)) {
+      IntentionAction action = QuickFixFactory.getInstance().createSameErasureButDifferentMethodsFix(method, superMethod);
+      info.registerFix(action, null, null, null, null);
+    }
 
     return info;
   }
@@ -1034,7 +1038,7 @@ public final class GenericsHighlightUtil {
     PsiTypeElement checkTypeElement = InstanceOfUtils.findCheckTypeElement(expression);
     if (checkTypeElement == null) return null;
     PsiType checkType = checkTypeElement.getType();
-    if (HighlightingFeature.PATTERNS.isSufficient(languageLevel)) {
+    if (JavaFeature.PATTERNS.isSufficient(languageLevel)) {
       PsiPrimaryPattern pattern = expression.getPattern();
       if (pattern != null) {
         return PatternHighlightingModel.getUncheckedPatternConversionError(pattern);
@@ -1142,15 +1146,9 @@ public final class GenericsHighlightUtil {
         return builder;
       }
       PsiClass superClass = superMethod.getMethod().getContainingClass();
-      if (languageLevel == LanguageLevel.JDK_1_5 &&
-          superClass != null &&
-          superClass.isInterface()) {
-        String description = JavaErrorBundle.message("override.not.allowed.in.interfaces");
-        HighlightInfo.Builder info =
-          HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(overrideAnnotation).descriptionAndTooltip(description);
-        IntentionAction action = QuickFixFactory.getInstance().createIncreaseLanguageLevelFix(LanguageLevel.JDK_1_6);
-        info.registerFix(action, null, null, null, null);
-        return info;
+      if (superClass != null && superClass.isInterface()) {
+        return HighlightUtil.checkFeature(overrideAnnotation, JavaFeature.OVERRIDE_INTERFACE, languageLevel,
+                                   overrideAnnotation.getContainingFile());
       }
       return null;
     }

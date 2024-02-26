@@ -113,25 +113,60 @@
       "useMLRanking": true,
       "showArrows": false,
       "calculateFeatures": true
+    },
+    {
+      "number": 27,
+      "description": "Full Line - FIM and RAG",
+      "useMLRanking": true,
+      "showArrows": false,
+      "calculateFeatures": true
+    },
+    {
+      "number": 28,
+      "description": "Full Line - Llama + filter model",
+      "useMLRanking": true,
+      "showArrows": false,
+      "calculateFeatures": true
+    },
+    {
+      "number": 29,
+      "description": "Full Line - 150ms debounce",
+      "useMLRanking": true,
+      "showArrows": false,
+      "calculateFeatures": true
+    },
+    {
+      "number": 30,
+      "description": "Full Line - 50 ms debounce",
+      "useMLRanking": true,
+      "showArrows": false,
+      "calculateFeatures": true
+    },
+    {
+      "number": 31,
+      "description": "Full Line - RAG + Filter Model",
+      "useMLRanking": true,
+      "showArrows": false,
+      "calculateFeatures": true
     }
   ],
   "languages": [
     {
       "id": "java",
       "experimentBucketsCount": 4,
-      "includeGroups": [ 13, 22 ],
-      "shouldLogElementFeatures": true
+      "includeGroups": [ 8, 22, 24, 28 ],
+      "shouldLogElementFeatures": false
     },
     {
       "id": "python",
       "experimentBucketsCount": 4,
-      "includeGroups": [15, 26, 22, 24],
+      "includeGroups": [15, 24, 22, 30],
       "shouldLogElementFeatures": true
     },
     {
       "id": "kotlin",
-      "experimentBucketsCount": 8,
-      "includeGroups": [ 7, 8, 8, 8, 12, 17, 17, 17 ],
+      "experimentBucketsCount": 2,
+      "includeGroups": [ 8, 22 ],
       "shouldLogElementFeatures": true
     },
     {
@@ -143,26 +178,26 @@
     {
       "id": "php",
       "experimentBucketsCount": 4,
-      "includeGroups": [ 13, 22, 24 ],
+      "includeGroups": [ 8, 22, 24, 28 ],
       "shouldLogElementFeatures": false
     },
     {
       "id": "javascript",
       "experimentBucketsCount": 4,
-      "includeGroups": [ 13, 22, 23, 24 ],
+      "includeGroups": [ 8, 22, 28, 24 ],
       "shouldLogElementFeatures": true
     },
     {
       "id": "ruby",
-      "experimentBucketsCount": 4,
-      "includeGroups": [ 7, 8, 12, 13 ],
+      "experimentBucketsCount": 1,
+      "includeGroups": [ 22 ],
       "shouldLogElementFeatures": true
     },
     {
       "id": "go",
-      "experimentBucketsCount": 8,
-      "includeGroups": [ 7, 8, 11, 12, 13 ],
-      "shouldLogElementFeatures": false
+      "experimentBucketsCount": 2,
+      "includeGroups": [ 8, 22 ],
+      "shouldLogElementFeatures": true
     },
     {
       "id": "rust",
@@ -190,8 +225,8 @@
     },
     {
       "id": "objectivec",
-      "experimentBucketsCount": 4,
-      "includeGroups": [ 7, 8, 12 ],
+      "experimentBucketsCount": 2,
+      "includeGroups": [ 7, 22 ],
       "shouldLogElementFeatures": false
     },
     {
@@ -203,7 +238,13 @@
     {
       "id": "css",
       "experimentBucketsCount": 4,
-      "includeGroups": [ 13, 22, 23, 24 ],
+      "includeGroups": [ 7, 22, 28, 24 ],
+      "shouldLogElementFeatures": true
+    },
+    {
+      "id": "shell script",
+      "experimentBucketsCount": 4,
+      "includeGroups": [ 7, 12, 13 ],
       "shouldLogElementFeatures": true
     }
   ]

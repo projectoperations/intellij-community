@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xmlb;
 
 import com.intellij.openapi.util.text.StringUtilRt;
@@ -32,8 +32,8 @@ final class AccessorBindingWrapper implements MultiNodeBinding, NestedBinding {
   }
 
   @Override
-  public @Nullable Object serialize(@NotNull Object o, @Nullable Object context, @Nullable SerializationFilter filter) {
-    Object value = accessor.read(o);
+  public @Nullable Object serialize(@NotNull Object bean, @Nullable Object context, @Nullable SerializationFilter filter) {
+    Object value = accessor.read(bean);
     if (value == null) {
       return null;
     }
@@ -66,7 +66,7 @@ final class AccessorBindingWrapper implements MultiNodeBinding, NestedBinding {
     }
     else {
       Object deserializedValue;
-      if (beanStyle == Property.Style.ATTRIBUTE && binding instanceof BeanBinding && ((BeanBinding)binding).myBeanClass == Rectangle.class) {
+      if (beanStyle == Property.Style.ATTRIBUTE && binding instanceof BeanBinding && ((BeanBinding)binding).beanClass == Rectangle.class) {
         String xA = element.getAttributeValue("x");
         String yA = element.getAttributeValue("y");
         String wA = element.getAttributeValue("width");
@@ -103,7 +103,7 @@ final class AccessorBindingWrapper implements MultiNodeBinding, NestedBinding {
     }
     else {
       Object deserializedValue;
-      if (beanStyle == Property.Style.ATTRIBUTE && binding instanceof BeanBinding && ((BeanBinding)binding).myBeanClass == Rectangle.class) {
+      if (beanStyle == Property.Style.ATTRIBUTE && binding instanceof BeanBinding && ((BeanBinding)binding).beanClass == Rectangle.class) {
         String xA = element.getAttributeValue("x");
         String yA = element.getAttributeValue("y");
         String wA = element.getAttributeValue("width");
@@ -132,13 +132,13 @@ final class AccessorBindingWrapper implements MultiNodeBinding, NestedBinding {
   }
 
   @Override
-  public @NotNull Object deserializeList(@SuppressWarnings("NullableProblems") @NotNull Object context, @NotNull List<? extends Element> elements) {
+  public @NotNull Object deserializeJdomList(@SuppressWarnings("NullableProblems") @NotNull Object context, @NotNull List<? extends Element> elements) {
     Object currentValue = accessor.read(context);
     if (binding instanceof BeanBinding && !accessor.isWritable()) {
       ((BeanBinding)binding).deserializeInto(currentValue, elements.get(0));
     }
     else {
-      Object deserializedValue = Binding.deserializeList(binding, currentValue, elements);
+      Object deserializedValue = BindingKt.deserializeJdomList(binding, currentValue, elements);
       if (currentValue != deserializedValue) {
         accessor.set(context, deserializedValue);
       }
@@ -147,13 +147,13 @@ final class AccessorBindingWrapper implements MultiNodeBinding, NestedBinding {
   }
 
   @Override
-  public @NotNull Object deserializeList2(@SuppressWarnings("NullableProblems") @NotNull Object context, @NotNull List<XmlElement> elements) {
+  public @NotNull Object deserializeList(@SuppressWarnings("NullableProblems") @NotNull Object context, @NotNull List<XmlElement> elements) {
     Object currentValue = accessor.read(context);
     if (binding instanceof BeanBinding && !accessor.isWritable()) {
       ((BeanBinding)binding).deserializeInto(currentValue, elements.get(0));
     }
     else {
-      Object deserializedValue = Binding.deserializeList2(binding, currentValue, elements);
+      Object deserializedValue = BindingKt.deserializeList(binding, currentValue, elements);
       if (currentValue != deserializedValue) {
         accessor.set(context, deserializedValue);
       }

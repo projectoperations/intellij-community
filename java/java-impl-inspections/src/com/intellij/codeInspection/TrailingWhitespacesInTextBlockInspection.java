@@ -1,7 +1,6 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection;
 
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.java.JavaBundle;
 import com.intellij.modcommand.ModPsiUpdater;
@@ -9,6 +8,7 @@ import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.impl.source.tree.java.PsiFragmentImpl;
@@ -17,13 +17,19 @@ import com.siyeh.ig.PsiReplacementUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 
 
 public final class TrailingWhitespacesInTextBlockInspection extends AbstractBaseJavaLocalInspectionTool {
+
+  @Override
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.TEXT_BLOCKS);
+  }
+  
   @Override
   public @NotNull PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
-    if (!HighlightingFeature.TEXT_BLOCKS.isAvailable(holder.getFile())) return PsiElementVisitor.EMPTY_VISITOR;
     return new JavaElementVisitor() {
       @Override
       public void visitTemplate(@NotNull PsiTemplate template) {
@@ -47,7 +53,6 @@ public final class TrailingWhitespacesInTextBlockInspection extends AbstractBase
       private boolean checkTextBlock(@NotNull PsiElement textBlock, @NotNull String suffix) {
         String text = textBlock.getText();
         String[] lines = text.split("\n", -1);
-        if (lines.length < 2) return false;
         int indent = getIndent(textBlock);
         if (indent == -1) return false;
         int offset = 0;
@@ -200,13 +205,13 @@ public final class TrailingWhitespacesInTextBlockInspection extends AbstractBase
           if (suffix.equals("\\{")) return result.append(line).toString();
           line = line.substring(0, line.length() - suffix.length());
         }
-        String transformed = lineTransformation.apply(line);
+        String transformed = line.isEmpty() ? line : lineTransformation.apply(line);
         if (transformed == null) return null;
         if (last && hasUnescapedLastQuote(transformed)) {
           result.append(transformed, 0, transformed.length() - 1).append("\\\"");
         }
         else if (transformed.isEmpty()) {
-          result.append((line.length() < indent) ? line : " ".repeat(indent));
+          result.append((line.length() < indent) ? line : line.substring(0, indent));
         } else {
           result.append(transformed);
         }

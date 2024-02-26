@@ -1,15 +1,16 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.modcommand.ActionContext;
 import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.Presentation;
 import com.intellij.modcommand.PsiUpdateModCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,7 +28,7 @@ public abstract class MergeModuleStatementsFix<T extends PsiStatement> extends P
 
   @Override
   protected @Nullable Presentation getPresentation(@NotNull ActionContext context, @NotNull PsiJavaModule element) {
-    return HighlightingFeature.MODULES.isAvailable(element) ? Presentation.of(getText()) : null;
+    return PsiUtil.isAvailable(JavaFeature.MODULES, element) ? Presentation.of(getText()) : null;
   }
 
   @IntentionName

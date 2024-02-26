@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.j2k
 
@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.psi.*
 import com.intellij.psi.impl.source.DummyHolder
+import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.j2k.ast.Element
 import org.jetbrains.kotlin.j2k.usageProcessing.ExternalCodeProcessor
@@ -34,9 +35,9 @@ class OldJavaToKotlinConverter(
     override fun filesToKotlin(
         files: List<PsiJavaFile>,
         postProcessor: PostProcessor,
-        progress: ProgressIndicator
+        progressIndicator: ProgressIndicator
     ): FilesResult {
-        val withProgressProcessor = OldWithProgressProcessor(progress, files)
+        val withProgressProcessor = OldWithProgressProcessor(progressIndicator, files)
         val (results, externalCodeProcessing) = ApplicationManager.getApplication().runReadAction(Computable {
             elementsToKotlin(files, withProgressProcessor)
         })
@@ -130,7 +131,7 @@ class OldJavaToKotlinConverter(
         if (map.isEmpty()) return null
 
         return object : ExternalCodeProcessing {
-            override fun prepareWriteOperation(progress: ProgressIndicator?): (List<KtFile>) -> Unit {
+            override fun prepareWriteOperation(progress: ProgressIndicator?): () -> Unit {
                 if (progress == null) error("Progress should not be null for old J2K")
                 val refs = ArrayList<ReferenceInfo>()
 
@@ -157,6 +158,11 @@ class OldJavaToKotlinConverter(
                 }
 
                 return { processUsages(refs) }
+            }
+
+            context(KtAnalysisSession)
+            override fun bindJavaDeclarationsToConvertedKotlinOnes(files: List<KtFile>) {
+                // Do nothing in Old J2K
             }
         }
     }

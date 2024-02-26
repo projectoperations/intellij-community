@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing;
 
 import com.intellij.find.ngrams.TrigramIndex;
@@ -46,7 +46,6 @@ import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent;
-import com.intellij.openapi.vfs.newvfs.impl.VfsData;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileSystemEntry;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
@@ -589,7 +588,7 @@ public class IndexTest extends JavaCodeInsightFixtureTestCase {
   private void assertIsIndexed(VirtualFile vFile) {
     ScanningRequestToken indexingRequest = getProject().getService(ProjectIndexingDependenciesService.class).getReadOnlyTokenForTest();
     assertTrue(
-      IndexingFlag.isFileIndexed(vFile, indexingRequest.getFileIndexingStamp(vFile)) || VfsData.isIndexedFlagDisabled());
+      IndexingFlag.isFileIndexed(vFile, indexingRequest.getFileIndexingStamp(vFile)) || IndexingFlag.isIndexedFlagDisabled());
   }
 
   public void test_no_index_stamp_update_when_no_change_2() throws IOException {
@@ -965,7 +964,7 @@ public class IndexTest extends JavaCodeInsightFixtureTestCase {
     final String filename = "A.java";
     myFixture.addFileToProject("foo/bar/" + filename, "class A {}");
 
-    PlatformTestUtil.startPerformanceTest("Vfs Event Processing By Index", 1000, () -> {
+    PlatformTestUtil.newPerformanceTest("Vfs Event Processing By Index", () -> {
       PsiFile[] files = FilenameIndex.getFilesByName(getProject(), filename, GlobalSearchScope.moduleScope(getModule()));
       assertEquals(1, files.length);
 
@@ -991,7 +990,7 @@ public class IndexTest extends JavaCodeInsightFixtureTestCase {
 
       files = FilenameIndex.getFilesByName(getProject(), filename, GlobalSearchScope.moduleScope(getModule()));
       assertEquals(1, files.length);
-    }).assertTiming();
+    }).start();
   }
 
   public void test_class_file_in_src_content_isn_t_returned_from_index() throws IOException {
@@ -1290,6 +1289,7 @@ public class IndexTest extends JavaCodeInsightFixtureTestCase {
     final ExactFileNameMatcher matcher = new ExactFileNameMatcher("Foo.groovy");
     try {
       WriteCommandAction.runWriteCommandAction(getProject(), () -> FileTypeManager.getInstance().associate(JavaFileType.INSTANCE, matcher));
+      IndexingTestUtil.waitUntilIndexesAreReady(getProject());
 
       assertEquals(JavaFileType.INSTANCE, FileTypeIndex.getIndexedFileType(virtualFile, getProject()));
       stub = StubTreeLoader.getInstance().readFromVFile(getProject(), virtualFile);
@@ -1497,6 +1497,42 @@ public class IndexTest extends JavaCodeInsightFixtureTestCase {
     assertEmpty(fileBasedIndex.getIndex(trigramId).getIndexedFileData(fileId).values());
     IndexingRequestToken indexingRequest = getProject().getService(ProjectIndexingDependenciesService.class).getLatestIndexingRequestToken();
     assertFalse(IndexingFlag.isFileIndexed(file, indexingRequest.getFileIndexingStamp(file)));
+  }
+
+  public void test_modified_excluded_file_not_present_in_indexable_files_filter() throws IOException {
+    final VirtualFile file = myFixture.addFileToProject("src/to_be_excluded/A.java", "class A {}").getVirtualFile();
+    assertNotNull(findClass("A"));
+
+    FileBasedIndexImpl fileBasedIndex = (FileBasedIndexImpl)FileBasedIndex.getInstance();
+    int fileId = ((VirtualFileWithId)file).getId();
+
+    fileBasedIndex.getChangedFilesCollector().ensureUpToDate();
+    assertNotNull(fileBasedIndex.getIndexableFilesFilterHolder().findProjectForFile(fileId));
+
+    VirtualFile parentDir = file.getParent();
+    PsiTestUtil.addExcludedRoot(myFixture.getModule(), parentDir);
+    WriteAction.run(() -> VfsUtil.saveText(file, "class B {}"));
+
+    fileBasedIndex.getChangedFilesCollector().ensureUpToDate();
+    assertNull(fileBasedIndex.getIndexableFilesFilterHolder().findProjectForFile(fileId));
+  }
+
+  public void test_dirty_file_transfers_between_collectors_in_fbi() throws IOException {
+    final VirtualFile file = myFixture.addFileToProject("A.java", "class A {}").getVirtualFile();
+
+    FileBasedIndexImpl fileBasedIndex = (FileBasedIndexImpl)FileBasedIndex.getInstance();
+    int fileId = ((VirtualFileWithId)file).getId();
+
+    assertTrue(fileBasedIndex.getChangedFilesCollector().getDirtyFiles().getProjectDirtyFiles(null).containsFile(fileId));
+    assertFalse(fileBasedIndex.getFilesToUpdateCollector().getDirtyFiles().getProjectDirtyFiles(null).containsFile(fileId));
+    fileBasedIndex.getChangedFilesCollector().ensureUpToDate(); // schedule file for update
+    // now new file is already added to ProjectIndexableFilesFilter and should be moved to the dirty files queue of the project
+    assertFalse(fileBasedIndex.getChangedFilesCollector().getDirtyFiles().getProjectDirtyFiles(getProject()).containsFile(fileId));
+    assertTrue(fileBasedIndex.getFilesToUpdateCollector().getDirtyFiles().getProjectDirtyFiles(getProject()).containsFile(fileId));
+
+    WriteAction.run(() -> VfsUtil.saveText(file, "class B {}")); // add new file event
+    assertTrue(fileBasedIndex.getChangedFilesCollector().getDirtyFiles().getProjectDirtyFiles(getProject()).containsFile(fileId));
+    assertTrue(fileBasedIndex.getFilesToUpdateCollector().getDirtyFiles().getProjectDirtyFiles(getProject()).containsFile(fileId));
   }
 
   public void test_stub_index_updated_after_language_level_change() {

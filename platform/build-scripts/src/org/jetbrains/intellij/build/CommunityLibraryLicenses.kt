@@ -257,10 +257,6 @@ object CommunityLibraryLicenses {
     LibraryLicense(libraryName = "bouncy-castle-provider", url = "https://www.bouncycastle.org")
       .mit("https://www.bouncycastle.org/license.html")
       .suppliedByOrganizations("The Legion of the Bouncy Castle Inc."),
-    LibraryLicense(name = "Byte Buddy agent", libraryName = "byte-buddy-agent",
-                   url = "https://github.com/raphw/byte-buddy")
-      .apache("https://github.com/raphw/byte-buddy/blob/master/LICENSE")
-      .suppliedByPersons("Rafael Winterhalter"),
     LibraryLicense(name = "caffeine", libraryName = "caffeine",
                    url = "https://github.com/ben-manes/caffeine")
       .apache("https://github.com/ben-manes/caffeine/blob/master/LICENSE")
@@ -677,7 +673,7 @@ object CommunityLibraryLicenses {
       .suppliedByPersons("Atsuhiko Yamanaka"),
     LibraryLicense(name = "JSON", libraryName = "json.jar", license = "JSON License", licenseUrl = "https://www.json.org/license.html",
                    url = "https://www.json.org/", version = LibraryLicense.CUSTOM_REVISION),
-    LibraryLicense(name = "JSON in Java", libraryName = "org.json:json:20170516", license = "JSON License",
+    LibraryLicense(name = "JSON in Java", libraryName = "org.json:json", license = "JSON License",
                    licenseUrl = "https://www.json.org/license.html", url = "https://github.com/stleary/JSON-java"),
     LibraryLicense(name = "JSON Schema (schema.json)", attachedTo = "intellij.json", version = "draft-04",
                    url = "https://json-schema.org/draft-04/schema#").simplifiedBsd(),
@@ -1226,6 +1222,7 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("completion-ranking-ruby-exp"),
     jetbrainsLibrary("completion-ranking-rust-exp"),
     jetbrainsLibrary("completion-ranking-scala-exp"),
+    jetbrainsLibrary("completion-ranking-sh-exp"),
     jetbrainsLibrary("completion-ranking-swift-exp"),
     jetbrainsLibrary("completion-ranking-typescript-exp"),
     jetbrainsLibrary("debugger-agent"),

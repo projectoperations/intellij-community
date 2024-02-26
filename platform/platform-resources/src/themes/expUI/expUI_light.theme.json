@@ -212,6 +212,22 @@
       }
     },
 
+    "Code": {
+      "Inline": {
+        "backgroundColor": "Grey5",
+        "backgroundOpacity": 7
+      },
+      "Block": {
+        "backgroundOpacity": 100,
+        "borderColor":"Grey12",
+        "EditorPane": {
+          "backgroundColor": "Grey5",
+          "backgroundOpacity": 4,
+          "borderColor": "Grey12"
+        }
+      }
+    },
+
     "ComboPopup.border": {
       "os.windows": "1,1,1,1,#B9BDC9"
     },
@@ -223,7 +239,7 @@
     },
 
     "Component": {
-      "arc": "8",
+      "arc": 8,
       "arrowAreaWidth": "28",
       "borderColor": "Grey9",
       "focusedBorderColor": "Grey14",
@@ -521,11 +537,6 @@
       "iconTextGap": 4
     },
 
-    "SearchField": {
-      "errorForeground": "Red4",
-      "errorBackground": "Red9"
-    },
-
     "SearchEverywhere": {
       "Tab.selectedBackground": "Blue11",
       "SearchField.background": "Grey14",
@@ -534,6 +545,15 @@
         "foreground": "Grey7",
         "background": "Grey13"
       }
+    },
+
+    "SearchField": {
+      "errorForeground": "Red4",
+      "errorBackground": "Red9"
+    },
+
+    "SearchFieldWithExtension": {
+      "border": "com.intellij.ui.components.DarculaSearchFieldWithExtensionBorder"
     },
 
     "SearchMatch": {
@@ -629,7 +649,7 @@
       "codeBorderColor": "Grey6",
       "linkForeground": "Blue8",
       "linkUnderlineHoveredColor": "Blue8",
-      "linkUnderlineDefaultColor": "FFFFFF00",
+      "linkUnderlineDefaultColor": "#FFFFFF00",
       "imageBorderColor": "Grey4",
       "animationBackground": "Grey13",
       "Button": {
@@ -1040,6 +1060,17 @@
       }
     },
 
+    "ParameterInfo": {
+      "background": "Grey12",
+      "currentOverloadBackground": "Blue9",
+      "borderColor": "Grey8",
+      "foreground": "Grey3",
+      "currentParameterForeground": "Grey3",
+      "disabledForeground": "Grey8",
+      "infoForeground": "Grey3",
+      "lineSeparatorColor": "Grey12"
+    },
+
     "DataSummary.Chart.barColor": "Blue4",
 
     "ManagedIdeBadgeBorder": "Grey5",
@@ -1048,7 +1079,7 @@
     "ManagedIdeMenuItemHover": "Grey12",
 
     "InlineBanner.hoverBackground": "#0000000F",
-    "InlineBanner.pressedBackground": "00000019"
+    "InlineBanner.pressedBackground": "#00000019"
   },
 
   "icons": {

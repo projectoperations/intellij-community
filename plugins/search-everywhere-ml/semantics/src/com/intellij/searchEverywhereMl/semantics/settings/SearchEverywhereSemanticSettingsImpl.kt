@@ -41,7 +41,7 @@ class SearchEverywhereSemanticSettingsImpl : SearchEverywhereSemanticSettings,
       state.actionsTabManuallySet = true
       state.manualEnabledInActionsTab = newValue
       ProjectManager.getInstance().openProjects.firstOrNull()?.let {
-        ActionEmbeddingsStorage.getInstance().run { if (newValue) prepareForSearch(it) else tryStopGeneratingEmbeddings() }
+        ActionEmbeddingStorageManager.getInstance().run { if (newValue) prepareForSearch(it) }
       }
     }
 
@@ -52,14 +52,14 @@ class SearchEverywhereSemanticSettingsImpl : SearchEverywhereSemanticSettings,
       }
       val providerId = FileSearchEverywhereContributor::class.java.simpleName
       return AdvancedSettings.getDefaultBoolean("search.everywhere.ml.semantic.files.enable") ||
-             (isEAP && SearchEverywhereMlExperiment().getExperimentForTab(
+             isInternal || (isEAP && SearchEverywhereMlExperiment().getExperimentForTab(
                SearchEverywhereTabWithMlRanking.findById(providerId)!!) == ENABLE_SEMANTIC_SEARCH)
     }
     set(newValue) {
       state.filesTabManuallySet = true
       state.manualEnabledInFilesTab = newValue
-      ProjectManager.getInstance().openProjects.forEach {
-        FileEmbeddingsStorage.getInstance(it).run { if (newValue) prepareForSearch() else tryStopGeneratingEmbeddings() }
+      if (newValue) {
+        ProjectManager.getInstance().openProjects.forEach { FileBasedEmbeddingStoragesManager.getInstance(it).prepareForSearch() }
       }
     }
 
@@ -70,14 +70,14 @@ class SearchEverywhereSemanticSettingsImpl : SearchEverywhereSemanticSettings,
       }
       val providerId = ClassSearchEverywhereContributor::class.java.simpleName
       return AdvancedSettings.getDefaultBoolean("search.everywhere.ml.semantic.classes.enable") ||
-             (isEAP && SearchEverywhereMlExperiment().getExperimentForTab(
+             isInternal || (isEAP && SearchEverywhereMlExperiment().getExperimentForTab(
                SearchEverywhereTabWithMlRanking.findById(providerId)!!) == ENABLE_SEMANTIC_SEARCH)
     }
     set(newValue) {
       state.classesTabManuallySet = true
       state.manualEnabledInClassesTab = newValue
-      ProjectManager.getInstance().openProjects.forEach {
-        ClassEmbeddingsStorage.getInstance(it).run { if (newValue) prepareForSearch() else tryStopGeneratingEmbeddings() }
+      if (newValue) {
+        ProjectManager.getInstance().openProjects.forEach { FileBasedEmbeddingStoragesManager.getInstance(it).prepareForSearch() }
       }
     }
 
@@ -94,8 +94,8 @@ class SearchEverywhereSemanticSettingsImpl : SearchEverywhereSemanticSettings,
     set(newValue) {
       state.symbolsTabManuallySet = true
       state.manualEnabledInSymbolsTab = newValue
-      ProjectManager.getInstance().openProjects.forEach {
-        SymbolEmbeddingStorage.getInstance(it).run { if (newValue) prepareForSearch() else tryStopGeneratingEmbeddings() }
+      if (newValue) {
+        ProjectManager.getInstance().openProjects.forEach { FileBasedEmbeddingStoragesManager.getInstance(it).prepareForSearch() }
       }
     }
 

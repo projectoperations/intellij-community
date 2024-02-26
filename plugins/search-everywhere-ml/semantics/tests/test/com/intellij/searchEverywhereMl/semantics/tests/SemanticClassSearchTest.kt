@@ -3,23 +3,24 @@ package com.intellij.searchEverywhereMl.semantics.tests
 import com.intellij.ide.actions.searcheverywhere.PsiItemWithSimilarity
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereUI
 import com.intellij.ide.util.gotoByName.GotoClassModel2
-import com.intellij.platform.ml.embeddings.services.LocalArtifactsManager
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.util.Disposer
 import com.intellij.platform.ml.embeddings.search.services.ClassEmbeddingsStorage
+import com.intellij.platform.ml.embeddings.search.services.FileBasedEmbeddingStoragesManager
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.searchEverywhereMl.semantics.contributors.SemanticClassSearchEverywhereContributor
 import com.intellij.platform.ml.embeddings.search.services.IndexableClass
 import com.intellij.platform.ml.embeddings.search.utils.ScoredText
-import com.intellij.platform.ml.embeddings.search.services.SemanticSearchFileChangeListener
 import com.intellij.searchEverywhereMl.semantics.settings.SearchEverywhereSemanticSettings
 import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.utils.editor.commitToPsi
 import com.intellij.testFramework.utils.editor.saveToDisk
-import com.intellij.testFramework.utils.vfs.deleteRecursively
 import com.intellij.util.TimeoutUtil
 import org.jetbrains.kotlin.psi.KtClass
 import kotlinx.coroutines.test.runTest
+import kotlin.time.Duration.Companion.seconds
 
 class SemanticClassSearchTest : SemanticSearchBaseTestCase() {
   private val storage
@@ -47,10 +48,17 @@ class SemanticClassSearchTest : SemanticSearchBaseTestCase() {
     assertEquals(1, storage.index.size)
   }
 
-  fun `test search everywhere contributor`() = runTest {
+  fun `test search everywhere contributor`() = runTest(
+    timeout = 45.seconds // increased timeout because of a bug in class index
+  ) {
     setupTest("java/IndexProjectAction.java", "kotlin/ProjectIndexingTask.kt", "java/ScoresFileManager.java")
-    val searchEverywhereUI = SearchEverywhereUI(project, listOf(SemanticClassSearchEverywhereContributor(createEvent())),
-                                                { _ -> null }, null)
+    assertEquals(3, storage.index.size)
+
+    val contributor = SemanticClassSearchEverywhereContributor(createEvent())
+    Disposer.register(project, contributor)
+    val searchEverywhereUI = SearchEverywhereUI(project, listOf(contributor), { _ -> null }, null)
+    Disposer.register(project, searchEverywhereUI)
+
     val elements = PlatformTestUtil.waitForFuture(searchEverywhereUI.findElementsForPattern("index project job"))
     assertEquals(2, elements.size)
 
@@ -100,10 +108,7 @@ class SemanticClassSearchTest : SemanticSearchBaseTestCase() {
     neighbours = storage.streamSearchNeighbours("handle file with scores", 0.4).filterByModel()
     assertEquals(setOf("ScoresFileManager"), neighbours)
 
-    WriteCommandAction.runWriteCommandAction(project) {
-      myFixture.editor.virtualFile.deleteRecursively() // deletes the currently open file: java/IndexProjectAction.java
-    }
-
+    VfsTestUtil.deleteFile(myFixture.editor.virtualFile) // deletes the currently open file: java/IndexProjectAction.java
     TimeoutUtil.sleep(2000) // wait for two seconds for index update
 
     neighbours = storage.streamSearchNeighbours("index project job", 0.5).filterByModel()
@@ -122,11 +127,9 @@ class SemanticClassSearchTest : SemanticSearchBaseTestCase() {
   }
 
   private suspend fun setupTest(vararg filePaths: String) {
-    SemanticSearchFileChangeListener.getInstance(project).clearEvents()
     myFixture.configureByFiles(*filePaths)
-    LocalArtifactsManager.getInstance().downloadArtifactsIfNecessary()
     SearchEverywhereSemanticSettings.getInstance().enabledInClassesTab = true
-    storage.generateEmbeddingsIfNecessary().join()
-    SemanticSearchFileChangeListener.getInstance(project).changeEntityTracking(storage, true)
+    storage.index.clear()
+    FileBasedEmbeddingStoragesManager.getInstance(project).prepareForSearch().join()
   }
 }

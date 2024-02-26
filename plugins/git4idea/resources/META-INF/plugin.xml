@@ -53,7 +53,9 @@
     <action id="Git.Revert.In.Log" class="git4idea.revert.GitRevertAction"/>
     <action id="Git.Uncommit" class="git4idea.reset.GitUncommitAction"/>
     <action id="Git.Reword.Commit" class="git4idea.rebase.GitRewordAction"/>
-    <group id="Git.Reword.ToolbarActions"/>
+    <group id="Git.Reword.ToolbarActions">
+      <reference ref="Vcs.ShowMessageHistory" />
+    </group>
     <action id="Git.Squash.Commits" class="git4idea.rebase.log.squash.GitSquashLogAction"/>
     <action id="Git.Drop.Commits" class="git4idea.rebase.log.drop.GitDropLogAction"/>
     <action id="Git.Rename.Local.Branch" class="git4idea.ui.branch.dashboard.BranchesDashboardActions$RenameLocalBranch"/>
@@ -208,7 +210,7 @@
     </group>
 
     <group id="Git.Branches.Popup.Settings" class="git4idea.ui.branch.popup.GitBranchesTreePopupSettings" icon="AllIcons.Actions.More">
-      <action class="git4idea.ui.branch.popup.GitBranchesTreePopupFilterSeparatorWithText"/>
+      <group id="git.branches.popup.filter.by.separator" class="git4idea.ui.branch.popup.GitBranchesTreePopupFilterSeparatorWithText"/>
       <action id="git.branches.popup.filter.by.action" class="git4idea.ui.branch.popup.GitBranchesTreePopupFilterByAction"/>
       <action id="git.branches.popup.filter.by.repository" class="git4idea.ui.branch.popup.GitBranchesTreePopupFilterByRepository"/>
       <separator/>
@@ -369,7 +371,7 @@
     <action id="Git.Stage.Revert" class="git4idea.index.actions.GitRevertAction" use-shortcut-of="ChangesView.Revert"/>
     <action id="Git.Stage.AcceptTheirs" class="git4idea.index.actions.GitStageAcceptTheirsAction"/>
     <action id="Git.Stage.AcceptYours" class="git4idea.index.actions.GitStageAcceptYoursAction"/>
-    <action id="Git.Stage.Merge" class="git4idea.index.actions.GitStageMergeConflictAction"/>
+    <action id="Git.Stage.Merge" class="git4idea.index.actions.GitStageMergeConflictAction" icon="AllIcons.Vcs.Merge"/>
     <action id="Git.Stage.ThreeSideDiff" class="git4idea.index.actions.GitStageThreeSideDiffAction"/>
     <action id="Git.Stage.ToggleIgnored" class="git4idea.index.actions.GitToggleIgnoredFilesAction"/>
     <action id="Git.Stage.ToggleCommitAll" class="git4idea.index.actions.GitToggleCommitAllAction">
@@ -386,7 +388,7 @@
     <action id="Git.Stage.Stash.Files" class="git4idea.index.actions.GitStageStashFilesAction"/>
 
     <group id="Git.ChangesView.Conflicts">
-      <action id="Git.ChangesView.Merge" class="git4idea.merge.GitMergeConflictAction"/>
+      <action id="Git.ChangesView.Merge" class="git4idea.merge.GitMergeConflictAction" icon="AllIcons.Vcs.Merge"/>
       <action id="Git.ChangesView.AcceptTheirs" class="git4idea.merge.GitAcceptTheirsAction"/>
       <action id="Git.ChangesView.AcceptYours" class="git4idea.merge.GitAcceptYoursAction"/>
       <separator/>
@@ -600,8 +602,8 @@
                  description="If set to false, IDE will ignore configured WSL1 executables. See IDEA-242469"/>
     <registryKey key="git.detect.wsl.executables" defaultValue="true"
                  description="Search for available executables in WSL on Windows"/>
-    <registryKey key="git.enable.stash.toolwindow" defaultValue="false"
-                 description="Show toolwindow tab with stashes and shelves together"/>
+    <registryKey key="git.enable.stash.toolwindow" defaultValue="true"
+                 description="Show toolwindow tab with stashes"/>
     <registryKey key="git.can.use.restore.command" defaultValue="true"
                  description="Use 'git restore --staged --worktree --source=HEAD -- paths' instead of 'git reset --hard' to speed up worktree cleanup."/>
     <registryKey key="git.stage.separate.undo.stack" defaultValue="true"
@@ -622,7 +624,6 @@
                  description="Max amount of entry to process from Git reflog to parse recently checkout branches"/>
     <registryKey key="git.show.recent.checkout.branches" defaultValue="5"
                  description="Max count of recently checkout branches to show (e.g. in branches tree popup)"/>
-    <registryKey key="git.log.index.inexact.renames" description="Detect and store inexact renames during indexing" defaultValue="false"/>
 
     <search.projectOptionsTopHitProvider implementation="git4idea.config.GitOptionsTopHitProvider"/>
     <vcs name="Git" vcsClass="git4idea.GitVcs" displayName="Git" administrativeAreaName=".git"/>
@@ -634,7 +635,9 @@
     <vcsPopupProvider implementation="git4idea.actions.GitQuickListContentProvider"/>
     <vcsCheckinHandlerFactory implementation="git4idea.checkin.GitUserNameCheckinHandlerFactory"/>
     <vcsCheckinHandlerFactory implementation="git4idea.checkin.GitCRLFCheckinHandlerFactory"/>
+    <vcsCheckinHandlerFactory implementation="git4idea.checkin.GitLargeFileCheckinHandlerFactory"/>
     <vcsCheckinHandlerFactory implementation="git4idea.checkin.GitDetachedRootCheckinHandlerFactory"/>
+    <vcsCheckinHandlerFactory implementation="git4idea.checkin.GitFileNameCheckinHandlerFactory"/>
     <vcsCheckinHandlerFactory implementation="git4idea.rebase.GitRebaseCheckinHandlerFactory"/>
     <checkinHandlerFactory implementation="git4idea.checkin.GitSkipHooksCommitHandlerFactory" order="last"/>
     <unresolvedMergeCheckProvider implementation="git4idea.checkin.GitUnresolvedMergeCheckProvider"/>
@@ -652,6 +655,7 @@
     <statistics.counterUsagesCollector implementationClass="git4idea.GitRefreshUsageCollector"/>
     <statistics.counterUsagesCollector implementationClass="git4idea.GitOperationsCollector"/>
     <statistics.notificationIdsHolder implementation="git4idea.GitNotificationIdsHolder"/>
+    <statistics.actionIdsHolder implementation="git4idea.GitActionIdsHolder"/>
     <vcsRepositoryInitializer implementation="git4idea.repo.GitRepositoryInitializer"/>
     <gitRepositoryInitializer implementation="git4idea.repo.GitRepositoryInitializerImpl"/>
     <gitSilentFileAdder implementation="git4idea.repo.GitSilentFileAdderProviderImpl"/>
@@ -744,6 +748,7 @@
     <vcs.actions.ScheduleForAdditionActionExtension implementation="git4idea.actions.GitAdd"/>
     <completion.contributor language="TEXT" implementationClass="git4idea.commit.GitCommitCompletionContributor"
                             order="first, before commitCompletion"/>
+    <lookup.charFilter implementation="git4idea.commit.GitCommitCompletionCharFilter"/>
 
     <customVcsLogUiFactoryProvider implementation="git4idea.ui.branch.dashboard.BranchesInGitLogUiFactoryProvider"/>
     <virtualFileSystem key="git-compare-branches" implementationClass="git4idea.branch.GitCompareBranchesVirtualFileSystem"/>
@@ -831,6 +836,8 @@
                              -1 to disable check."/>
     <postStartupActivity os="windows" implementation="git4idea.config.GitNewVersionChecker$Starter"/>
     <settingsEntryPointActionProvider os="windows" implementation="git4idea.config.GitVersionUpdateSettingsEntryProvider"/>
+
+    <history.activityPresentationProvider implementation="git4idea.GitActivityPresentationProvider"/>
   </extensions>
 
   <extensions defaultExtensionNs="Git4Idea">
@@ -851,6 +858,10 @@
     <extensionPoint interface="git4idea.annotate.GitAnnotationPerformanceListener" name="gitAnnotationPerformanceListener" dynamic="true"/>
     <extensionPoint interface="git4idea.annotate.GitAnnotationProvider$GitRawAnnotationProvider" name="gitRawAnnotationProvider"
                     dynamic="true" area="IDEA_PROJECT"/>
+    <extensionPoint interface="git4idea.push.GitPushNotificationCustomizer"
+                    name="gitPushNotificationCustomizer"
+                    dynamic="true"
+                    area="IDEA_PROJECT"/>
   </extensionPoints>
 
   <projectListeners>
@@ -858,7 +869,7 @@
               topic="git4idea.status.GitStagingAreaHolder$StagingAreaListener"
               activeInHeadlessMode="false"/>
     <listener class="git4idea.conflicts.MergeConflictResolveUtil$MyStagingAreaListener"
-              topic="git4idea.status.GitStagingAreaHolder.StagingAreaListener"
+              topic="git4idea.status.GitStagingAreaHolder$StagingAreaListener"
               activeInHeadlessMode="false"/>
     <listener class="git4idea.conflicts.GitConflictsToolWindowManager$MyRepositoryListener"
               topic="com.intellij.dvcs.repo.VcsRepositoryMappingListener"

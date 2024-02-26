@@ -54,6 +54,10 @@ public class DataFlowInspection21Test extends DataFlowInspectionTestCase {
     doTest();
   }
   
+  public void testDeconstructionNullability() {
+    doTest();
+  }
+  
   public void testUnnamedPatterns() {
     doTest();
   }
@@ -82,6 +86,41 @@ public class DataFlowInspection21Test extends DataFlowInspectionTestCase {
   }
 
   public void testChronoRange() {
+    doTest();
+  }
+
+  public void testSealedClassCast() { doTest(); }
+  public void testCastToSealedInterface() { doTest(); }
+
+  public void testWhenPatterns() {
+    doTest();
+  }
+  public void testSwitchNullability() {
+    doTest();
+  }
+  public void testRecordPatterns() {
+    doTest();
+  }
+  public void testRecordPatternNested() {
+    doTest();
+  }
+  public void testRecordPatternAndWhen() {
+    doTest();
+  }
+  public void testNestedRecordPatterns() {
+    doTest();
+  }
+  public void testSuspiciousLabelElementsJava20() {
+    doTest();
+  }
+
+  public void testForEachPattern() {
+    myFixture.addClass("""
+                         package org.jetbrains.annotations;
+                         public @interface Range {
+                           long from();
+                           long to();
+                         }""");
     doTest();
   }
 }

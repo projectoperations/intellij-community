@@ -1,6 +1,8 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.ui.comment
 
+import com.intellij.collaboration.async.collectScoped
+import com.intellij.collaboration.async.launchNow
 import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.collaboration.ui.*
 import com.intellij.collaboration.ui.codereview.CodeReviewChatItemUIUtil
@@ -12,13 +14,23 @@ import com.intellij.collaboration.ui.util.bindChildIn
 import com.intellij.collaboration.ui.util.bindDisabledIn
 import com.intellij.collaboration.ui.util.bindTextIn
 import com.intellij.openapi.project.Project
+import com.intellij.util.ui.InlineIconButton
 import com.intellij.util.ui.UIUtil
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import icons.CollaborationToolsIcons
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import org.jetbrains.annotations.Nls
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.mergerequest.ui.emoji.GitLabReactionsComponentFactory
+import org.jetbrains.plugins.gitlab.mergerequest.ui.emoji.GitLabReactionsPickerComponentFactory
+import org.jetbrains.plugins.gitlab.mergerequest.ui.emoji.GitLabReactionsViewModel
 import org.jetbrains.plugins.gitlab.util.GitLabStatistics
+import java.awt.event.ActionListener
 import java.net.URL
 import javax.swing.JComponent
 
@@ -97,30 +109,58 @@ internal object GitLabNoteComponentFactory {
   fun createActions(cs: CoroutineScope, note: Flow<GitLabNoteViewModel>,
                     project: Project, place: GitLabStatistics.MergeRequestNoteActionPlace): JComponent {
     val panel = HorizontalListPanel(CodeReviewCommentUIUtil.Actions.HORIZONTAL_GAP).apply {
-      cs.launch {
-        note.mapNotNull { it.actionsVm }.collectLatest {
-          removeAll()
-          coroutineScope {
-            CodeReviewCommentUIUtil.createEditButton { _ -> it.startEditing() }.apply {
-              isEnabled = false
-              if (it.canEdit()) {
-                bindDisabledIn(this@coroutineScope, it.busy)
-              }
-            }.also(::add)
-            CodeReviewCommentUIUtil.createDeleteCommentIconButton { _ ->
-              it.delete()
-              GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.DELETE_NOTE, place)
-            }.apply {
-              bindDisabledIn(this@coroutineScope, it.busy)
-            }.also(::add)
-            repaint()
+      cs.launchNow {
+        note.collectScoped {
+          try {
+            val buttonsCs = this
+
+            val actionVm = it.actionsVm
+            if (actionVm != null) {
+              CodeReviewCommentUIUtil.createEditButton { _ -> actionVm.startEditing() }.apply {
+                isEnabled = false
+                if (actionVm.canEdit()) {
+                  bindDisabledIn(buttonsCs, actionVm.busy)
+                }
+              }.also(::add)
+              CodeReviewCommentUIUtil.createDeleteCommentIconButton { _ ->
+                actionVm.delete()
+                GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.DELETE_NOTE, place)
+              }.apply {
+                bindDisabledIn(buttonsCs, actionVm.busy)
+              }.also(::add)
+            }
+
+            val reactionsVm = it.reactionsVm
+            if (reactionsVm != null) {
+              createAddReactionButton(buttonsCs, reactionsVm).also(::add)
+            }
+
             revalidate()
+            repaint()
             awaitCancellation()
+          }
+          finally {
+            removeAll()
           }
         }
       }
     }
     return panel
+  }
+
+  private fun createAddReactionButton(cs: CoroutineScope, reactionsVm: GitLabReactionsViewModel): InlineIconButton {
+    val button = InlineIconButton(
+      CollaborationToolsIcons.AddEmoji,
+      CollaborationToolsIcons.AddEmojiHovered,
+      tooltip = CollaborationToolsBundle.message("review.comments.reaction.add.tooltip")
+    )
+    button.actionListener = ActionListener {
+      cs.launch {
+        GitLabReactionsPickerComponentFactory.showPopup(reactionsVm, button)
+      }
+    }
+
+    return button
   }
 
   fun createTextPanel(cs: CoroutineScope, textFlow: Flow<@Nls String>, baseUrl: URL): JComponent =

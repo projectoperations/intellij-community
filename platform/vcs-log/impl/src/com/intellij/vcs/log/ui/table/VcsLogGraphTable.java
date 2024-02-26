@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.log.ui.table;
 
 import com.google.common.primitives.Ints;
@@ -28,7 +28,6 @@ import com.intellij.ui.*;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.NamedColorUtil;
 import com.intellij.util.ui.UIUtil;
@@ -58,7 +57,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.border.Border;
 import javax.swing.event.CellEditorListener;
 import javax.swing.event.TableModelEvent;
 import javax.swing.table.*;
@@ -411,7 +409,8 @@ public class VcsLogGraphTable extends TableWithProgress implements VcsLogCommitL
       int width = fixedWidth.getFunction().invoke(this);
       if (width >= 0) {
         return width;
-      } else {
+      }
+      else {
         // negative values are returned because of the migration
         // from com.intellij.vcs.log.ui.table.VcsLogCellRenderer.getPreferredWidth(javax.swing.JTable)
         return column.getPreferredWidth();
@@ -747,11 +746,11 @@ public class VcsLogGraphTable extends TableWithProgress implements VcsLogCommitL
 
   @Override
   protected void paintFooter(@NotNull Graphics g, int x, int y, int width, int height) {
-    paintTopBottomBorder(g, x, y, width, height, false);
+    paintTopBottomBorder(g, x, y, width, height);
   }
 
-  private void paintTopBottomBorder(@NotNull Graphics g, int x, int y, int width, int height, boolean isTopBorder) {
-    int targetRow = isTopBorder ? 0 : getRowCount() - 1;
+  private void paintTopBottomBorder(@NotNull Graphics g, int x, int y, int width, int height) {
+    int targetRow = getRowCount() - 1;
     if (targetRow >= 0 && targetRow < getRowCount()) {
       g.setColor(getStyle(targetRow, getColumnViewIndex(Commit.INSTANCE), hasFocus(), false, false).getBackground());
     }
@@ -759,10 +758,6 @@ public class VcsLogGraphTable extends TableWithProgress implements VcsLogCommitL
       g.setColor(getBaseStyle(targetRow, getColumnViewIndex(Commit.INSTANCE), hasFocus(), false).getBackground());
     }
     g.fillRect(x, y, width, height);
-  }
-
-  public @NotNull Border createTopBottomBorder(int top, int bottom) {
-    return new MyTopBottomBorder(top, bottom);
   }
 
   public boolean isResizingColumns() {
@@ -803,7 +798,7 @@ public class VcsLogGraphTable extends TableWithProgress implements VcsLogCommitL
 
     @Override
     public void mouseClicked(MouseEvent e) {
-      if (myLinkListener.onClick(e, e.getClickCount())) {
+      if (getExpandableItemsHandler().isEnabled() && myLinkListener.onClick(e, e.getClickCount())) {
         return;
       }
 
@@ -857,11 +852,6 @@ public class VcsLogGraphTable extends TableWithProgress implements VcsLogCommitL
       if (isResizingColumns()) return;
       getExpandableItemsHandler().setEnabled(true);
 
-      if (myLinkListener.getTagAt(e) != null) {
-        swapCursor();
-        return;
-      }
-
       int row = rowAtPoint(e.getPoint());
       if (row >= 0 && row < getRowCount()) {
         VcsLogColumn<?> column = getVcsLogColumn(columnAtPoint(e.getPoint()));
@@ -869,12 +859,18 @@ public class VcsLogGraphTable extends TableWithProgress implements VcsLogCommitL
 
         VcsLogCellController controller = getController(column);
         if (controller != null) {
-          Cursor cursor = controller.performMouseMove(row, e);
-          handleCursor(cursor);
-          return;
+          VcsLogCellController.MouseMoveResult mouseMoveResult = controller.performMouseMove(row, e);
+          handleCursor(mouseMoveResult.getCursor());
+          if (!mouseMoveResult.getContinueProcessing()) {
+            return;
+          }
         }
       }
 
+      if (myLinkListener.getTagAt(e) != null) {
+        swapCursor();
+        return;
+      }
       restoreCursor();
     }
 
@@ -1026,30 +1022,6 @@ public class VcsLogGraphTable extends TableWithProgress implements VcsLogCommitL
       }
       super.moveColumn(columnIndex, newIndex);
       VcsLogColumnUtilKt.moveColumn(myProperties, column, newIndex);
-    }
-  }
-
-  private final class MyTopBottomBorder implements Border {
-    private final @NotNull JBInsets myInsets;
-
-    private MyTopBottomBorder(int top, int bottom) {
-      myInsets = JBUI.insets(top, 0, bottom, 0);
-    }
-
-    @Override
-    public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
-      if (myInsets.top > 0) paintTopBottomBorder(g, x, y, width, myInsets.top, true);
-      if (myInsets.bottom > 0) paintTopBottomBorder(g, x, y + height - myInsets.bottom, width, myInsets.bottom, false);
-    }
-
-    @Override
-    public Insets getBorderInsets(Component c) {
-      return myInsets;
-    }
-
-    @Override
-    public boolean isBorderOpaque() {
-      return true;
     }
   }
 

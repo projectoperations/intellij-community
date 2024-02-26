@@ -976,11 +976,11 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
       public TextEditorHighlightingPass createHighlightingPass(@NotNull PsiFile file, @NotNull Editor editor) {
         TextRange textRange = FileStatusMap.getDirtyTextRange(editor.getDocument(), file, Pass.UPDATE_ALL);
         if (textRange == null) return null;
-        return new MyPass(myProject);
+        return new TestFileStatusMapDirtyCachingWorksPass(myProject);
       }
 
-      final class MyPass extends TextEditorHighlightingPass {
-        private MyPass(Project project) {
+      final class TestFileStatusMapDirtyCachingWorksPass extends TextEditorHighlightingPass {
+        private TestFileStatusMapDirtyCachingWorksPass(Project project) {
           super(project, getEditor().getDocument(), false);
           creation[0]++;
         }
@@ -1593,8 +1593,8 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
   public void testHighlightingInSplittedWindowFinishesEventually() {
     myDaemonCodeAnalyzer.serializeCodeInsightPasses(true); // reproduced only for serialized passes
     try {
-      Collection<Editor> applied = ContainerUtil.createEmptyCOWList();
-      Collection<Editor> collected = ContainerUtil.createEmptyCOWList();
+      Collection<Editor> applied = ContainerUtil.createConcurrentList();
+      Collection<Editor> collected = ContainerUtil.createConcurrentList();
       registerFakePass(applied, collected);
 
       @Language("JAVA")
@@ -2122,11 +2122,11 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
       class DumbFac implements TextEditorHighlightingPassFactory, DumbAware {
         @Override
         public TextEditorHighlightingPass createHighlightingPass(@NotNull PsiFile file, @NotNull Editor editor) {
-          return new MyDumbPass(editor, file);
+          return new TestDumbAwareHighlightingPassesStartEvenInDumbModePass(editor, file);
         }
 
-        class MyDumbPass extends EditorBoundHighlightingPass implements DumbAware {
-          MyDumbPass(Editor editor, PsiFile file) {
+        class TestDumbAwareHighlightingPassesStartEvenInDumbModePass extends EditorBoundHighlightingPass implements DumbAware {
+          TestDumbAwareHighlightingPassesStartEvenInDumbModePass(Editor editor, PsiFile file) {
             super(editor, file, false);
           }
 
@@ -2266,11 +2266,11 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
     class MyCheckingConstructorTraceFac implements TextEditorHighlightingPassFactory {
       @Override
       public TextEditorHighlightingPass createHighlightingPass(@NotNull PsiFile file, @NotNull Editor editor) {
-        return new MyPass(myProject);
+        return new TestHighlightingPassesAreInstantiatedOutsideEDTToImproveResponsivenessPass(myProject);
       }
 
-      final class MyPass extends TextEditorHighlightingPass {
-        private MyPass(Project project) {
+      final class TestHighlightingPassesAreInstantiatedOutsideEDTToImproveResponsivenessPass extends TextEditorHighlightingPass {
+        private TestHighlightingPassesAreInstantiatedOutsideEDTToImproveResponsivenessPass(Project project) {
           super(project, getEditor().getDocument(), false);
           if (ApplicationManager.getApplication().isDispatchThread()) {
             violation.set(new Throwable());
@@ -2631,5 +2631,18 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
     HighlightingSettingsPerFile.getInstance(getProject()).setHighlightingSettingForRoot(getFile(), FileHighlightingSetting.SKIP_HIGHLIGHTING);
 
     assertEmpty(highlightErrors());
+  }
+
+  public void testTypingErrorElementMustHighlightIt() {
+    ThreadingAssertions.assertEventDispatchThread();
+    configureByText(JavaFileType.INSTANCE, "class X { void f() { } }<caret>");
+    assertEmpty(highlightErrors());
+    makeEditorWindowVisible(new Point(0, 1000), myEditor);
+
+    type("/");
+    waitForDaemon(myProject, myEditor.getDocument());
+    List<HighlightInfo> errors = DaemonCodeAnalyzerImpl.getHighlights(getEditor().getDocument(), HighlightSeverity.ERROR, getProject());
+    assertNotEmpty(errors);
+    assertTrue(errors.toString().contains("'class' or 'interface' expected"));
   }
 }

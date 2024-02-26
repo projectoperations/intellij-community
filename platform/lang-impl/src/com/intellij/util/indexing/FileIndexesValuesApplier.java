@@ -1,11 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.newvfs.impl.VfsData;
 import com.intellij.util.indexing.contentQueue.IndexUpdateWriter;
 import com.intellij.util.indexing.dependencies.FileIndexingStamp;
 import com.intellij.util.indexing.diagnostic.FileIndexingStatistics;
@@ -65,7 +64,7 @@ public final class FileIndexesValuesApplier {
     this.removers = removers;
     this.removeDataFromIndicesForFile = removeDataFromIndicesForFile;
     this.shouldMarkFileAsIndexed = shouldMarkFileAsIndexed;
-    fileStatusLockObject = shouldMarkFileAsIndexed && !VfsData.isIndexedFlagDisabled()
+    fileStatusLockObject = shouldMarkFileAsIndexed && !IndexingFlag.isIndexedFlagDisabled()
                            ? IndexingFlag.getOrCreateHash(file)
                            : IndexingFlag.getNonExistentHash();
     this._initialApplicationMode = applicationMode;
@@ -136,6 +135,9 @@ public final class FileIndexesValuesApplier {
     long startTime = System.nanoTime();
     if (removeDataFromIndicesForFile) {
       myIndex.removeDataFromIndicesForFile(fileId, file, "invalid_or_large_file");
+      if (!file.isValid()) {
+        myIndex.getIndexableFilesFilterHolder().removeFile(fileId);
+      }
     }
 
     if (appliers.isEmpty() && removers.isEmpty()) {
@@ -184,7 +186,7 @@ public final class FileIndexesValuesApplier {
                              () -> " updated_indexes=" + stats.getPerIndexerEvaluateIndexValueTimes().keySet() +
                                    " deleted_indexes=" + stats.getPerIndexerEvaluatingIndexValueRemoversTimes().keySet() +
                                    " " + debugString);
-      myIndex.getChangedFilesCollector().removeFileIdFromFilesScheduledForUpdate(fileId);
+      myIndex.getFilesToUpdateCollector().removeFileIdFromFilesScheduledForUpdate(fileId);
 
       if (shouldMarkFileAsIndexed) {
         IndexingFlag.setIndexedIfFileWithSameLock(file, fileStatusLockObject, indexingStamp);

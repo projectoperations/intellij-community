@@ -23,6 +23,7 @@ import com.intellij.platform.ide.bootstrap.startApplication
 import com.intellij.platform.impl.toolkit.IdeFontManager
 import com.intellij.platform.impl.toolkit.IdeGraphicsEnvironment
 import com.intellij.platform.impl.toolkit.IdeToolkit
+import com.intellij.util.ui.JBHtmlEditorKit
 import com.jetbrains.JBR
 import kotlinx.coroutines.*
 import sun.font.FontManagerFactory
@@ -175,7 +176,9 @@ private suspend fun startApp(args: List<String>, mainScope: CoroutineScope, busy
 internal var customTargetDirectoryToImportConfig: Path? = null
 
 internal fun isConfigImportNeeded(configPath: Path): Boolean {
-  return ConfigImportHelper.isConfigImportExpected(configPath) || customTargetDirectoryToImportConfig != null
+  return !Files.exists(configPath) ||
+         Files.exists(configPath.resolve(ConfigImportHelper.CUSTOM_MARKER_FILE_NAME)) ||
+         customTargetDirectoryToImportConfig != null
 }
 
 private fun initRemoteDev(args: List<String>) {
@@ -213,6 +216,9 @@ private fun initLux() {
   System.setProperty("keymap.current.os.only", false.toString())
   System.setProperty("awt.nativeDoubleBuffering", false.toString())
   System.setProperty("swing.bufferPerWindow", true.toString())
+  // disables AntiFlickeringPanel that slows down Lux rendering,
+  // see RDCT-1076 Debugger tree is rendered slowly under Lux
+  System.setProperty("debugger.anti.flickering.delay", 0.toString())
 
   setStaticField(Toolkit::class.java, "toolkit", IdeToolkit())
   System.setProperty("awt.toolkit", IdeToolkit::class.java.canonicalName)
@@ -220,6 +226,8 @@ private fun initLux() {
   setStaticField(FontManagerFactory::class.java, "instance", IdeFontManager())
   @Suppress("SpellCheckingInspection")
   System.setProperty("sun.font.fontmanager", IdeFontManager::class.java.canonicalName)
+
+  JBHtmlEditorKit.DISABLE_TEXT_LAYOUT = true
 }
 
 private fun addBootstrapTiming(name: String, startupTimings: MutableList<Any>) {

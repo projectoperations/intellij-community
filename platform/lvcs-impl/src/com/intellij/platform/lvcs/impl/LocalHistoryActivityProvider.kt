@@ -1,11 +1,15 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.lvcs.impl
 
+import com.intellij.history.ActivityPresentationProvider
 import com.intellij.history.core.LocalHistoryFacade
+import com.intellij.history.core.changes.ChangeSet
 import com.intellij.history.core.collectChanges
+import com.intellij.history.core.matches
 import com.intellij.history.core.processContents
 import com.intellij.history.integration.IdeaGateway
 import com.intellij.history.integration.LocalHistoryImpl
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.lvcs.impl.diff.createDiffData
@@ -18,8 +22,9 @@ internal const val USE_OLD_CONTENT = true
 internal class LocalHistoryActivityProvider(val project: Project, private val gateway: IdeaGateway) : ActivityProvider {
   private val facade = LocalHistoryImpl.getInstanceImpl().facade!!
 
-  override val activityItemsChanged: Flow<Unit>
-    get() = facade.onChangeSetFinished()
+  override fun getActivityItemsChanged(scope: ActivityScope): Flow<Unit> {
+    return facade.onChangeSetFinished(project, gateway, scope)
+  }
 
   override fun loadActivityList(scope: ActivityScope, scopeFilter: String?): List<ActivityItem> {
     val result = mutableListOf<ActivityItem>()
@@ -27,10 +32,24 @@ internal class LocalHistoryActivityProvider(val project: Project, private val ga
     if (scope is ActivityScope.File) {
       val path = gateway.getPathOrUrl(scope.file)
       gateway.registerUnsavedDocuments(facade)
-      facade.collectChanges(projectId, path, scopeFilter) { changeSet -> result.add(changeSet.toActivityItem(scope)) }
+      var lastLabel: ChangeSet? = null
+      facade.collectChanges(projectId, path, scopeFilter) { changeSet ->
+        if (changeSet.isSystemLabelOnly) return@collectChanges
+        if (changeSet.isLabelOnly) {
+          lastLabel = changeSet
+        }
+        else {
+          if (lastLabel != null) {
+            result.add(lastLabel!!.toActivityItem(scope))
+            lastLabel = null
+          }
+          result.add(changeSet.toActivityItem(scope))
+        }
+      }
     }
     else {
       for (changeSet in facade.changes) {
+        if (changeSet.isSystemLabelOnly) continue
         if (changeSet.isLabelOnly && !changeSet.changes.any { it.affectsProject(projectId) }) continue
         result.add(changeSet.toActivityItem(scope))
       }
@@ -75,23 +94,41 @@ internal class LocalHistoryActivityProvider(val project: Project, private val ga
   }
 
   override fun getPresentation(item: ActivityItem): ActivityPresentation? {
+    if (item !is ChangeSetActivityItem) return null
+
+    val activityId = item.activityId
+    val provider = activityId?.let { ACTIVITY_PRESENTATION_PROVIDER_EP.findFirstSafe { it.id == activityId.providerId } }
+    val icon = provider?.getIcon(activityId.kind)
     return when (item) {
-      is ChangeActivityItem -> ActivityPresentation(item.name ?: "", showBackground = true, highlightColor = null)
-      is LabelActivityItem -> ActivityPresentation(item.name ?: "", showBackground = false, highlightColor = item.color)
+      is ChangeActivityItem -> ActivityPresentation(item.name ?: "", icon)
+      is LabelActivityItem -> ActivityPresentation(item.name ?: "", icon)
       else -> null
     }
   }
 }
 
-private fun LocalHistoryFacade.onChangeSetFinished(): Flow<Unit> {
+private fun LocalHistoryFacade.onChangeSetFinished(project: Project, gateway: IdeaGateway, scope: ActivityScope): Flow<Unit> {
+  val condition: (ChangeSet) -> Boolean
+  if (scope is ActivityScope.File) {
+    val path = gateway.getPathOrUrl(scope.file)
+    condition = { changeSet -> changeSet.anyChangeMatches { change -> change.matches(project.locationHash, path, null) } }
+  }
+  else {
+    condition = { true }
+  }
+
   return callbackFlow {
     val listenerDisposable = Disposer.newDisposable()
     this@onChangeSetFinished.addListener(object : LocalHistoryFacade.Listener() {
-      override fun changeSetFinished() {
-        trySend(Unit)
+      override fun changeSetFinished(changeSet: ChangeSet) {
+        if (condition(changeSet)) {
+          trySend(Unit)
+        }
       }
     }, listenerDisposable)
     trySend(Unit)
     awaitClose { Disposer.dispose(listenerDisposable) }
   }
 }
+
+val ACTIVITY_PRESENTATION_PROVIDER_EP = ExtensionPointName.create<ActivityPresentationProvider>("com.intellij.history.activityPresentationProvider")

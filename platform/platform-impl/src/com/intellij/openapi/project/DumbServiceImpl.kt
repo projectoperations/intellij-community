@@ -140,6 +140,7 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
     myBalloon.dispose()
     scheduledTasksScope.cancel("On dispose of DumbService", ProcessCanceledException())
     myTaskQueue.disposePendingTasks()
+    mySyncDumbTaskRunner.disposePendingTasks()
   }
 
   override fun suspendIndexingAndRun(activityName: @NlsContexts.ProgressText String, activity: Runnable) {
@@ -397,7 +398,8 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
       // isRunning will be false eventually, because we are on EDT, and no new task can be queued outside the EDT
       // (we only wait for currently running task to terminate).
       myGuiDumbTaskRunner.cancelAllTasks()
-      while (myGuiDumbTaskRunner.isRunning.value && !myProject.isDisposed) {
+      mySyncDumbTaskRunner.cancelAllTasks()
+      while ((myGuiDumbTaskRunner.isRunning.value || mySyncDumbTaskRunner.isRunning.value) && !myProject.isDisposed) {
         PingProgress.interactWithEdtProgress()
         LockSupport.parkNanos(50000000)
       }
@@ -411,10 +413,10 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
   }
 
   override fun waitForSmartMode() {
-    waitForSmartMode(Long.MAX_VALUE)
+    waitForSmartMode(null)
   }
 
-  fun waitForSmartMode(milliseconds: Long): Boolean {
+  fun waitForSmartMode(milliseconds: Long?): Boolean {
     if (ALWAYS_SMART) return true
     val application = ApplicationManager.getApplication()
     if (application.isReadAccessAllowed) {
@@ -438,7 +440,7 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
       catch (ignored: InterruptedException) {
       }
       ProgressManager.checkCanceled()
-      if (startTime + milliseconds < System.currentTimeMillis()) return false
+      if (milliseconds != null && startTime + milliseconds < System.currentTimeMillis()) return false
     }
     return true
   }
@@ -570,6 +572,17 @@ open class DumbServiceImpl @NonInjectable @VisibleForTesting constructor(private
     fun tryIncrementDumbCounter(): DumbState = if (incrementWillChangeDumbState) this else incrementDumbCounter()
     fun tryDecrementDumbCounter(): DumbState = if (decrementWillChangeDumbState) this else decrementDumbCounter()
     val isSmart: Boolean get() = !isDumb
+  }
+
+  @TestOnly
+  suspend fun waitUntilFinished() {
+    myGuiDumbTaskRunner.waitUntilFinished()
+    mySyncDumbTaskRunner.isRunning.first { !it }
+  }
+
+  @TestOnly
+  fun isRunning(): Boolean {
+    return myGuiDumbTaskRunner.isRunning.value || mySyncDumbTaskRunner.isRunning.value
   }
 
   companion object {

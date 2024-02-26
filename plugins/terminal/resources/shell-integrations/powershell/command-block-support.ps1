@@ -28,10 +28,10 @@ function Global:__JetBrainsIntellijGetCommandEndMarker() {
 $Global:__JetBrainsIntellijTerminalInitialized=$false
 $Global:__JetBrainsIntellijGeneratorRunning=$false
 
-$Global:__JetBrainsIntellijOriginalPrompt = $function:Prompt
-
 function Global:Prompt() {
   $Success = $?
+  $ExitCode = $Global:LastExitCode
+  $Global:LastExitCode = 0
   if ($Global:__JetBrainsIntellijGeneratorRunning) {
     $Global:__JetBrainsIntellijGeneratorRunning = $false
     # Hide internal command in the built-in session history.
@@ -42,23 +42,18 @@ function Global:Prompt() {
     return ""
   }
 
-  $OriginalPrompt = $Global:__JetBrainsIntellijOriginalPrompt.Invoke()
   $Result = ""
   $CommandEndMarker = Global:__JetBrainsIntellijGetCommandEndMarker
+  $PromptStateOSC = Global:__JetBrainsIntellijCreatePromptStateOSC
   if ($__JetBrainsIntellijTerminalInitialized) {
-    $ExitCode = "0"
-    if ($LASTEXITCODE -ne $null) {
-      $ExitCode = $LASTEXITCODE
+    if (($ExitCode -eq $null) -or ($ExitCode -eq 0 -and -not $Success)) {
+      $ExitCode = if ($Success) { 0 } else { 1 }
     }
-    if (-not$Success -and $ExitCode -eq "0") {
-      $ExitCode = "1"
-    }
-    $CurrentDirectory = (Get-Location).Path
     if ($Env:JETBRAINS_INTELLIJ_TERMINAL_DEBUG_LOG_LEVEL) {
-      [Console]::WriteLine("command_finished exit_code=$ExitCode, current_directory=$CurrentDirectory")
+      [Console]::WriteLine("command_finished exit_code=$ExitCode")
     }
-    $CommandFinishedEvent = Global:__JetBrainsIntellijOSC "command_finished;exit_code=$ExitCode;current_directory=$(__JetBrainsIntellijEncode $CurrentDirectory)"
-    $Result = $CommandEndMarker + $CommandFinishedEvent
+    $CommandFinishedEvent = Global:__JetBrainsIntellijOSC "command_finished;exit_code=$ExitCode"
+    $Result = $CommandEndMarker + $PromptStateOSC + $CommandFinishedEvent
   }
   else {
     # For some reason there is no error if I delete the history file, just an empty string returned.
@@ -71,9 +66,37 @@ function Global:Prompt() {
       [Console]::WriteLine("initialized")
     }
     $InitializedEvent = Global:__JetBrainsIntellijOSC "initialized"
-    $Result = $CommandEndMarker + $HistoryOSC + $InitializedEvent
+    $Result = $CommandEndMarker + $PromptStateOSC + $HistoryOSC + $InitializedEvent
   }
   return $Result
+}
+
+function Global:__JetBrainsIntellijCreatePromptStateOSC() {
+  # Remember the exit code, because it can be changed in a result of git operations
+  $RealExitCode = $Global:LastExitCode
+
+  $CurrentDirectory = (Get-Location).Path
+  $GitBranch = ""
+  if (Get-Command "git.exe" -ErrorAction SilentlyContinue) {
+    $GitBranch = git.exe symbolic-ref --short HEAD 2>$null
+    if ($GitBranch -eq $null) {
+      # get the current revision hash, if not on the branch
+      $GitBranch = git.exe rev-parse --short HEAD 2>$null
+      if ($GitBranch -eq $null) {
+        $GitBranch = ""
+      }
+    }
+  }
+  $VirtualEnv = if ($Env:VIRTUAL_ENV -ne $null) { $Env:VIRTUAL_ENV } else { "" }
+  $CondaEnv = if ($Env:CONDA_DEFAULT_ENV -ne $null) { $Env:CONDA_DEFAULT_ENV } else { "" }
+  $StateOSC = Global:__JetBrainsIntellijOSC ("prompt_state_updated;" +
+    "current_directory=$(__JetBrainsIntellijEncode $CurrentDirectory);" +
+    "git_branch=$(__JetBrainsIntellijEncode $GitBranch);" +
+    "virtual_env=$(__JetBrainsIntellijEncode $VirtualEnv);" +
+    "conda_env=$(__JetBrainsIntellijEncode $CondaEnv)")
+
+  $Global:LastExitCode = $RealExitCode
+  return $StateOSC
 }
 
 function Global:__JetBrainsIntellij_ClearAllAndMoveCursorToTopLeft() {
@@ -130,6 +153,12 @@ function Global:__JetBrainsIntellijIsGeneratorCommand([string]$Command) {
   return $Command -like "__JetBrainsIntellijGetCompletions*" `
          -or $Command -like "__jetbrains_intellij_get_environment*" `
          -or $Command -like "__jetbrains_intellij_get_directory_files*"
+}
+
+# Override the clear cmdlet to handle it on IDE side and remove the blocks
+function Global:Clear-Host() {
+  $OSC = Global:__JetBrainsIntellijOSC "clear_invoked"
+  [Console]::Write($OSC)
 }
 
 if (Get-Module -Name PSReadLine) {

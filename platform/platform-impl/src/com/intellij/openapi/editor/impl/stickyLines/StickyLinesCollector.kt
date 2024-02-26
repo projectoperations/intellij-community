@@ -29,13 +29,11 @@ class StickyLinesCollector(private val project: Project, private val document: D
       val endOffset: Int = document.getLineEndOffset(line)
       val psiElements: List<PsiElement> = psiCollector.computePsiElements(vFile, document, endOffset)
       for (element: PsiElement in psiElements) {
-        if (!isInBanList(element)) {
-          infos.add(StickyLineInfo(
-            element.textOffset,
-            element.textRange.endOffset,
-            debugText(element)
-          ))
-        }
+        infos.add(StickyLineInfo(
+          element.textOffset,
+          element.textRange.endOffset,
+          debugText(element)
+        ))
       }
     }
     return infos
@@ -44,23 +42,28 @@ class StickyLinesCollector(private val project: Project, private val document: D
   fun applyLines(linesToAdd: MutableSet<StickyLineInfo>) {
     ThreadingAssertions.assertEventDispatchThread()
     val stickyModel: StickyLinesModel = StickyLinesModel.getModel(project, document) ?: return
-    val outdatedLines: List<StickyLine> = findOutdatedLines(stickyModel, linesToAdd) // mutates linesToAdd
+    // markup model could contain raised zombies on the first pass.
+    // we should burn them all here, otherwise an empty panel will appear
+    val outdatedLines: List<StickyLine> = mergeWithExistingLines(stickyModel, linesToAdd) // mutates linesToAdd
     for (toRemove: StickyLine in outdatedLines) {
       stickyModel.removeStickyLine(toRemove)
     }
     for (toAdd: StickyLineInfo in linesToAdd) {
-      stickyModel.addStickyLine(toAdd.textOffset, toAdd.endOffset, toAdd.debugText)
+      stickyModel.addStickyLine(STICKY_LINE_SOURCE, toAdd.textOffset, toAdd.endOffset, toAdd.debugText)
     }
     stickyModel.notifyListeners()
   }
 
-  private fun findOutdatedLines(stickyModel: StickyLinesModel, linesToAdd: MutableSet<StickyLineInfo>): List<StickyLine> {
+  private fun mergeWithExistingLines(
+    stickyModel: StickyLinesModel,
+    linesToAdd: MutableSet<StickyLineInfo>,
+  ): List<StickyLine> {
     val outdatedLines: MutableList<StickyLine> = mutableListOf()
-    stickyModel.processStickyLines { line: StickyLine ->
-      val existingLine = StickyLineInfo(line.textRange())
-      val keepExisting = linesToAdd.remove(existingLine)
+    stickyModel.processStickyLines(STICKY_LINE_SOURCE) { existingLine: StickyLine ->
+      val existing = StickyLineInfo(existingLine.textRange())
+      val keepExisting = linesToAdd.remove(existing)
       if (!keepExisting) {
-        outdatedLines.add(line)
+        outdatedLines.add(existingLine)
       }
       true
     }
@@ -75,22 +78,7 @@ class StickyLinesCollector(private val project: Project, private val document: D
     }
   }
 
-  private fun isInBanList(element: PsiElement): Boolean {
-    // TODO: provide extension point for suppressing/including psi elements
-    if (element.language.displayName == "Kotlin") {
-      // special handling for kotlin to exclude if/else, try/catch
-      // see org.jetbrains.kotlin.idea.codeInsight.KotlinBreadcrumbsInfoProvider.Holder,
-      // org.jetbrains.kotlin.KtNodeTypes.THEN, org.jetbrains.kotlin.KtNodeTypes.ELSE, etc
-      val debugName = element.toString()
-      return when (debugName) {
-        "THEN", "ELSE", "WHEN", "FINALLY" -> true
-        "BLOCK", "BODY" -> when (element.parent?.toString()) {
-          "TRY", "FOR", "DO_WHILE", "WHEN_ENTRY" -> true
-          else -> false
-        }
-        else -> false
-      }
-    }
-    return false
+  companion object {
+    private const val STICKY_LINE_SOURCE = "StickyLinesCollectorSource"
   }
 }

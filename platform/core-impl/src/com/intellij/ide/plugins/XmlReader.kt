@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("XmlReader")
 @file:Suppress("ReplaceNegatedIsEmptyWithIsNotEmpty", "ReplacePutWithAssignment", "ReplaceGetOrSet")
 package com.intellij.ide.plugins
@@ -12,7 +12,6 @@ import com.intellij.openapi.extensions.ExtensionDescriptor
 import com.intellij.openapi.extensions.ExtensionPointDescriptor
 import com.intellij.openapi.extensions.LoadingOrder
 import com.intellij.openapi.extensions.PluginId
-import com.intellij.util.lang.ZipFilePool
 import com.intellij.util.messages.ListenerDescriptor
 import com.intellij.util.xml.dom.NoOpXmlInterner
 import com.intellij.util.xml.dom.XmlInterner
@@ -43,42 +42,52 @@ private const val defaultXPointerValue = "xpointer(/idea-plugin/*)"
 /**
  * Do not use [java.io.BufferedInputStream] - buffer is used internally already.
  */
-fun readModuleDescriptor(input: InputStream,
-                         readContext: ReadModuleContext,
-                         pathResolver: PathResolver,
-                         dataLoader: DataLoader,
-                         includeBase: String?,
-                         readInto: RawPluginDescriptor?,
-                         locationSource: String?): RawPluginDescriptor {
-  return readModuleDescriptor(reader = createNonCoalescingXmlStreamReader(input, locationSource),
-                              readContext = readContext,
-                              pathResolver = pathResolver,
-                              dataLoader = dataLoader,
-                              includeBase = includeBase,
-                              readInto = readInto)
+fun readModuleDescriptor(
+  input: InputStream,
+  readContext: ReadModuleContext,
+  pathResolver: PathResolver,
+  dataLoader: DataLoader,
+  includeBase: String?,
+  readInto: RawPluginDescriptor?,
+  locationSource: String?,
+): RawPluginDescriptor {
+  return readModuleDescriptor(
+    reader = createNonCoalescingXmlStreamReader(input, locationSource),
+    readContext = readContext,
+    pathResolver = pathResolver,
+    dataLoader = dataLoader,
+    includeBase = includeBase,
+    readInto = readInto,
+  )
 }
 
-fun readModuleDescriptor(input: ByteArray,
-                         readContext: ReadModuleContext,
-                         pathResolver: PathResolver,
-                         dataLoader: DataLoader,
-                         includeBase: String?,
-                         readInto: RawPluginDescriptor?,
-                         locationSource: String?): RawPluginDescriptor {
-  return readModuleDescriptor(reader = createNonCoalescingXmlStreamReader(input, locationSource),
-                              readContext = readContext,
-                              pathResolver = pathResolver,
-                              dataLoader = dataLoader,
-                              includeBase = includeBase,
-                              readInto = readInto)
+fun readModuleDescriptor(
+  input: ByteArray,
+  readContext: ReadModuleContext,
+  pathResolver: PathResolver,
+  dataLoader: DataLoader,
+  includeBase: String?,
+  readInto: RawPluginDescriptor?,
+  locationSource: String?,
+): RawPluginDescriptor {
+  return readModuleDescriptor(
+    reader = createNonCoalescingXmlStreamReader(input, locationSource),
+    readContext = readContext,
+    pathResolver = pathResolver,
+    dataLoader = dataLoader,
+    includeBase = includeBase,
+    readInto = readInto,
+  )
 }
 
-internal fun readModuleDescriptor(reader: XMLStreamReader2,
-                                  readContext: ReadModuleContext,
-                                  pathResolver: PathResolver,
-                                  dataLoader: DataLoader,
-                                  includeBase: String?,
-                                  readInto: RawPluginDescriptor?): RawPluginDescriptor {
+internal fun readModuleDescriptor(
+  reader: XMLStreamReader2,
+  readContext: ReadModuleContext,
+  pathResolver: PathResolver,
+  dataLoader: DataLoader,
+  includeBase: String?,
+  readInto: RawPluginDescriptor?,
+): RawPluginDescriptor {
   try {
     if (reader.eventType != XMLStreamConstants.START_DOCUMENT) {
       throw XMLStreamException("State ${XMLStreamConstants.START_DOCUMENT} is expected, " +
@@ -125,9 +134,7 @@ fun readModuleDescriptorForTest(input: ByteArray): RawPluginDescriptor {
     },
     pathResolver = PluginXmlPathResolver.DEFAULT_PATH_RESOLVER,
     dataLoader = object : DataLoader {
-      override val pool: ZipFilePool? = null
-
-      override fun load(path: String) = throw UnsupportedOperationException()
+      override fun load(path: String, pluginDescriptorSourceOnly: Boolean) = throw UnsupportedOperationException()
 
       override fun toString() = ""
     },
@@ -883,7 +890,10 @@ private fun readInclude(reader: XMLStreamReader2,
     false
   }
   if (read) {
-    (readContext as? DescriptorListLoadingContext)?.debugData?.recordIncludedPath(readInto, PluginXmlPathResolver.toLoadPath(path, includeBase))
+    (readContext as? DescriptorListLoadingContext)?.debugData?.recordIncludedPath(
+      rawPluginDescriptor = readInto,
+      path = PluginXmlPathResolver.toLoadPath(relativePath = path, base = includeBase),
+    )
   }
 
   if (read || isOptional) {
@@ -917,7 +927,7 @@ private fun parseReleaseDate(dateString: String): LocalDate? {
 
   var formatter = dateTimeFormatter
   if (formatter == null) {
-    formatter = DateTimeFormatter.ofPattern("yyyyMMdd", Locale.US)
+    formatter = DateTimeFormatter.ofPattern("yyyyMMdd", Locale.US)!!
     dateTimeFormatter = formatter
   }
 

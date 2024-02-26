@@ -45,7 +45,6 @@ import com.intellij.serviceContainer.*
 import com.intellij.util.ExceptionUtil
 import com.intellij.util.TimedReference
 import com.intellij.util.concurrency.SynchronizedClearableLazy
-import com.intellij.util.io.systemIndependentPath
 import com.intellij.util.messages.impl.MessageBusEx
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus
@@ -59,6 +58,7 @@ import java.nio.file.ClosedFileSystemException
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.io.path.invariantSeparatorsPathString
 
 internal val projectMethodType: MethodType = MethodType.methodType(Void.TYPE, Project::class.java)
 internal val projectAndScopeMethodType: MethodType = MethodType.methodType(Void.TYPE, Project::class.java, CoroutineScope::class.java)
@@ -70,6 +70,7 @@ open class ProjectImpl(parent: ComponentManagerImpl, filePath: Path, projectName
   : ClientAwareComponentManager(parent), ProjectEx, ProjectStoreOwner {
   companion object {
     @Internal
+    @JvmField
     val RUN_START_UP_ACTIVITIES: Key<Boolean> = Key.create("RUN_START_UP_ACTIVITIES")
 
     @JvmField
@@ -95,16 +96,19 @@ open class ProjectImpl(parent: ComponentManagerImpl, filePath: Path, projectName
     // ("await" means "project component loading activity is completed only when all such services are completed")
     internal fun CoroutineScope.schedulePreloadServices(project: ProjectImpl) {
       launch(CoroutineName("project service preloading (sync)")) {
-        project.preloadServices(modules = PluginManagerCore.getPluginSet().getEnabledModules(),
-                                activityPrefix = "project ",
-                                syncScope = this,
-                                onlyIfAwait = project.isLight,
-                                asyncScope = project.asyncPreloadServiceScope)
+        project.preloadServices(
+          modules = PluginManagerCore.getPluginSet().getEnabledModules(),
+          activityPrefix = "project ",
+          syncScope = this,
+          onlyIfAwait = project.isLight,
+          asyncScope = project.asyncPreloadServiceScope,
+        )
       }
     }
   }
 
   // used by Rider
+  @Suppress("LeakingThis")
   @Internal
   @JvmField
   val asyncPreloadServiceScope: CoroutineScope = getCoroutineScope().childScope(supervisor = false)
@@ -158,13 +162,14 @@ open class ProjectImpl(parent: ComponentManagerImpl, filePath: Path, projectName
 
   override fun isInitialized(): Boolean {
     val containerState = containerState.get()
-    if ((containerState < ContainerState.COMPONENT_CREATED || containerState >= ContainerState.DISPOSE_IN_PROGRESS)
-        || isTemporarilyDisposed
-        || !isOpen) {
+    if ((containerState < ContainerState.COMPONENT_CREATED || containerState >= ContainerState.DISPOSE_IN_PROGRESS) ||
+        isTemporarilyDisposed ||
+        !isOpen
+    ) {
       return false
     }
     else if (ApplicationManager.getApplication().isUnitTestMode && getUserData(RUN_START_UP_ACTIVITIES) == false) {
-      // if test asks to not run RUN_START_UP_ACTIVITIES, it means "ignore start-up activities", but project considered as initialized
+      // if test asks to not run RUN_START_UP_ACTIVITIES, it means "ignore start-up activities", but the project considered as initialized
       return true
     }
     else {
@@ -213,7 +218,7 @@ open class ProjectImpl(parent: ComponentManagerImpl, filePath: Path, projectName
 
   final override suspend fun _getComponentStore(): IComponentStore = componentStoreValue.value
 
-  final override fun getProjectFilePath(): String = componentStore.projectFilePath.systemIndependentPath
+  final override fun getProjectFilePath(): String = componentStore.projectFilePath.invariantSeparatorsPathString
 
   final override fun getProjectFile(): VirtualFile? {
     return LocalFileSystem.getInstance().findFileByNioFile(componentStore.projectFilePath)
@@ -225,7 +230,7 @@ open class ProjectImpl(parent: ComponentManagerImpl, filePath: Path, projectName
     return LocalFileSystem.getInstance().findFileByNioFile(componentStore.projectBasePath)
   }
 
-  final override fun getBasePath(): String = componentStore.projectBasePath.systemIndependentPath
+  final override fun getBasePath(): String = componentStore.projectBasePath.invariantSeparatorsPathString
 
   final override fun getPresentableUrl(): String = componentStore.presentableUrl
 
@@ -361,7 +366,8 @@ open class ProjectImpl(parent: ComponentManagerImpl, filePath: Path, projectName
     return projectManager != null && projectManager.isProjectOpened(this)
   }
 
-  override fun getContainerDescriptor(pluginDescriptor: IdeaPluginDescriptorImpl): ContainerDescriptor = pluginDescriptor.projectContainerDescriptor
+  override fun getContainerDescriptor(pluginDescriptor: IdeaPluginDescriptorImpl): ContainerDescriptor =
+    pluginDescriptor.projectContainerDescriptor
 
   override fun scheduleSave() {
     SaveAndSyncHandler.getInstance().scheduleSave(SaveAndSyncHandler.SaveTask(project = this))
@@ -382,6 +388,7 @@ open class ProjectImpl(parent: ComponentManagerImpl, filePath: Path, projectName
     }
 
     runInAutoSaveDisabledMode {
+      @Suppress("DEPRECATION")
       runUnderModalProgressIfIsEdt {
         saveSettings(componentManager = this@ProjectImpl)
       }

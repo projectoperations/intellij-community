@@ -8,12 +8,7 @@ import com.jetbrains.python.packaging.repository.PyPackageRepository
 import com.jetbrains.python.packaging.requirement.PyRequirementRelation
 import org.jetbrains.annotations.Nls
 
-open class PythonPackage(var name: String, val version: String) {
-
-  init {
-    name = name.replace('_', '-')
-  }
-
+open class PythonPackage(val name: String, val version: String) {
   override fun toString(): String {
     return "PythonPackage(name='$name', version='$version')"
   }
@@ -57,16 +52,22 @@ class EmptyPythonPackageDetails(override val name: String, @Nls override val des
   override fun toPackageSpecification(version: String?) = error("Using EmptyPythonPackageDetails for specification")
 }
 
+open class PythonPackageSpecificationBase(override val name: String,
+                                          val version: String?,
+                                          val relation: PyRequirementRelation? = null,
+                                          override val repository: PyPackageRepository?) : PythonPackageSpecification {
+  override val versionSpecs: String?
+    get() = if (version != null) "${relation?.presentableText ?: "=="}$version" else ""
+}
+
 interface PythonPackageSpecification {
   // todo[akniazev]: add version specs and use them in buildInstallationString
   val name: String
-  val version: String?
   val repository: PyPackageRepository?
-  val relation: PyRequirementRelation?
+  val versionSpecs: String?
 
   fun buildInstallationString(): List<String> = buildList {
-    val versionString = if (version != null) "${relation?.presentableText ?: "=="}$version" else ""
-    add("$name$versionString")
+    add("$name$versionSpecs")
     if (repository == PyEmptyPackagePackageRepository) {
       thisLogger().warn("PyEmptyPackagePackageRepository used as source repository for package installation!")
       return@buildList
@@ -82,20 +83,20 @@ interface PythonLocationBasedPackageSpecification : PythonPackageSpecification {
   val location: String
   val editable: Boolean
   val prefix: String
-  override val version: String?
-    get() = null
   override val repository: PyPackageRepository?
     get() = null
-  override val relation: PyRequirementRelation?
+  override val versionSpecs: String?
     get() = null
-
   override fun buildInstallationString(): List<String> = if (editable) listOf("-e", "$prefix$location") else listOf("$prefix$location")
 }
 
 data class PythonSimplePackageSpecification(override val name: String,
-                                            override val version: String?,
+                                            val version: String?,
                                             override val repository: PyPackageRepository?,
-                                            override val relation: PyRequirementRelation? = null) : PythonPackageSpecification
+                                            val relation: PyRequirementRelation? = null) : PythonPackageSpecification {
+  override var versionSpecs: String? = null
+    get() = if (field != null) field else if (version != null) "${relation?.presentableText ?: "=="}$version" else ""
+}
 
 data class PythonLocalPackageSpecification(override val name: String,
                                            override val location: String,

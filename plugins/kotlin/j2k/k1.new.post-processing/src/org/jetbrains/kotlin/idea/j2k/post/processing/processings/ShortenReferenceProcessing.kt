@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.j2k.post.processing.processings
 
@@ -6,7 +6,7 @@ import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.editor.RangeMarker
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.idea.core.ShortenReferences
-import org.jetbrains.kotlin.idea.j2k.post.processing.FileBasedPostProcessing
+import org.jetbrains.kotlin.j2k.FileBasedPostProcessing
 import org.jetbrains.kotlin.nj2k.JKImportStorage
 import org.jetbrains.kotlin.nj2k.NewJ2kConverterContext
 import org.jetbrains.kotlin.psi.KtFile

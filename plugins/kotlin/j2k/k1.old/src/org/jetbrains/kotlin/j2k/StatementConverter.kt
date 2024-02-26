@@ -1,9 +1,10 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.j2k
 
 import com.intellij.psi.*
 import org.jetbrains.kotlin.j2k.ast.*
+import org.jetbrains.kotlin.nj2k.isInSingleLine
 
 interface StatementConverter {
     fun convertStatement(statement: PsiStatement, codeConverter: CodeConverter): Statement

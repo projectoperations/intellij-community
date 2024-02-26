@@ -4,6 +4,7 @@
   <dependencies>
     <plugin id="com.intellij.modules.platform"/>
     <plugin id="com.intellij.modules.lang"/>
+    <plugin id="org.toml.lang"/>
   </dependencies>
 
   <resource-bundle>messages.PyBundle</resource-bundle>
@@ -13,6 +14,7 @@
   <xi:include href="/META-INF/PythonPsi.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="/META-INF/PythonPsiImpl.xml" xpointer="xpointer(/idea-plugin/*)"/>
   <xi:include href="/META-INF/PythonSdk.xml" xpointer="xpointer(/idea-plugin/*)"/>
+  <xi:include href="/META-INF/PythonSyntax.xml" xpointer="xpointer(/idea-plugin/*)"/>
 
 
   <extensions defaultExtensionNs="com.intellij">
@@ -43,6 +45,10 @@
     <projectService serviceInterface="com.intellij.psi.search.ProjectScopeBuilder"
                     serviceImplementation="com.jetbrains.python.psi.search.PyProjectScopeBuilder"
                     overrides="true"/>
+    <localInspection language="Requirements" shortName="UnsatisfiedRequirementInspection" suppressId="UnsatisfiedRequirement" bundle="messages.PyBundle"
+                     key="INSP.requirement.uninstalled.name" groupKey="INSP.GROUP.requirements" enabledByDefault="true" level="WARNING"
+                     implementationClass="com.jetbrains.python.requirements.UnsatisfiedRequirementInspection"/>
+
   </extensions>
 
 
@@ -74,9 +80,7 @@
     <methodNavigationOffsetProvider implementation="com.jetbrains.python.codeInsight.PyMethodNavigationOffsetProvider"/>
     <copyPastePreProcessor implementation="com.jetbrains.python.editor.PythonCopyPasteProcessor"/>
 
-    <editorHighlighterProvider filetype="Python" implementationClass="com.jetbrains.python.PyEditorHighlighterProvider"/>
     <lang.syntaxHighlighterFactory language="Python" implementationClass="com.jetbrains.python.highlighting.PySyntaxHighlighterFactory"/>
-    <lang.braceMatcher language="Python" implementationClass="com.jetbrains.python.PyBraceMatcher"/>
     <lang.foldingBuilder language="Python" implementationClass="com.jetbrains.python.PythonFoldingBuilder"/>
     <lang.findUsagesProvider language="Python" implementationClass="com.jetbrains.python.findUsages.PythonFindUsagesProvider"/>
     <lang.namesValidator language="Python" implementationClass="com.jetbrains.python.refactoring.rename.PythonNamesValidator"/>
@@ -95,9 +99,6 @@
     <annotator language="Python" implementationClass="com.jetbrains.python.validation.PyCompositeAnnotator"/>
     <annotator language="Python" implementationClass="com.jetbrains.python.inspections.PyCompatibilityInspectionAdvertiser"/>
 
-    <quoteHandler fileType="Python" className="com.jetbrains.python.editor.PythonQuoteHandler"/>
-    <enterHandlerDelegate implementation="com.jetbrains.python.editor.PythonEnterHandler"/>
-    <enterHandlerDelegate implementation="com.jetbrains.python.editor.PyEnterAtIndentHandler" order="first"/>
     <enterBetweenBracesDelegate language="Python"
                                 implementationClass="com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesAndBracketsDelegate"/>
     <!--suppress PluginXmlValidity -->
@@ -110,12 +111,6 @@
     <codeInsight.parameterInfo language="Python" implementationClass="com.jetbrains.python.PyParameterInfoHandler"/>
     <codeInsight.fillParagraph language="Python" implementationClass="com.jetbrains.python.actions.PyFillParagraphHandler"/>
     <colorSettingsPage implementation="com.jetbrains.python.highlighting.PythonColorsPage"/>
-    <extendWordSelectionHandler implementation="com.jetbrains.python.editor.selectWord.PyWordSelectionHandler"/>
-    <extendWordSelectionHandler implementation="com.jetbrains.python.editor.selectWord.PyLiteralSelectionHandler"/>
-    <extendWordSelectionHandler implementation="com.jetbrains.python.editor.selectWord.PyStatementSelectionHandler"/>
-    <extendWordSelectionHandler implementation="com.jetbrains.python.editor.selectWord.PyListSelectionHandler"/>
-    <extendWordSelectionHandler implementation="com.jetbrains.python.editor.selectWord.PyCommaSelectionHandler"/>
-    <basicWordSelectionFilter implementation="com.jetbrains.python.editor.selectWord.PyBasicWordSelectionFilter"/>
     <stripTrailingSpacesFilterFactory implementation="com.jetbrains.python.editor.PyStripTrailingSpacesFilterFactory"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.testing.PyTestParameterCompletionContributor"/>
@@ -135,10 +130,7 @@
                         serviceImplementation="com.jetbrains.python.module.PyModuleServiceImpl"/>
     <applicationService serviceInterface="com.jetbrains.python.sdk.flavors.WinRegistryService"
                         serviceImplementation="com.jetbrains.python.sdk.flavors.WinRegistryServiceImpl"/>
-    <typedHandler implementation="com.jetbrains.python.codeInsight.PyKeywordTypedHandler" id="pyCommaAfterKwd"/>
     <typedHandler implementation="com.jetbrains.python.codeInsight.PyMethodNameTypedHandler" id="pyMethodNameTypedHandler"/>
-    <typedHandler implementation="com.jetbrains.python.editor.PythonSpaceHandler"/>
-
 
     <idIndexer filetype="Python" implementationClass="com.jetbrains.python.PyIdIndexer"/>
     <todoIndexer filetype="Python" implementationClass="com.jetbrains.python.PyTodoIndexer"/>
@@ -169,6 +161,8 @@
     <codeInsight.containerProvider implementation="com.jetbrains.python.codeInsight.PyContainerProvider"/>
     <registryKey key="python.debugger.use.dispatcher" defaultValue="false" description="Use dispatcher in Python debugger"/>
     <registryKey key="flask.new.run.config" defaultValue="true" description="Flask Server Run configurations new UI"/>
+    <registryKey key="pytest.new.run.config" defaultValue="true" description="PyTest configurations new UI"/>
+    <registryKey key="python.test.autodetect.new.run.config" defaultValue="true" description="Python test autodetect configuration new UI"/>
 
     <configurationType implementation="com.jetbrains.python.testing.PythonTestConfigurationType"/>
     <configurationType implementation="com.jetbrains.python.testing.tox.PyToxConfigurationType"/>
@@ -314,8 +308,6 @@
     <refactoring.changeSignatureUsageProcessor
       implementation="com.jetbrains.python.refactoring.changeSignature.PyChangeSignatureUsageProcessor" id="Python"/>
 
-    <langCodeStyleSettingsProvider implementation="com.jetbrains.python.formatter.PyLanguageCodeStyleSettingsProvider"/>
-
     <analyzeStacktraceFilter implementation="com.jetbrains.python.run.PythonTracebackFilter"/>
     <analyzeStacktraceFilter implementation="com.jetbrains.python.run.PyRemoteAnalyzeStacktraceFilter"/>
 
@@ -382,7 +374,7 @@
     <additionalTextAttributes scheme="Darcula" file="colorSchemes/PythonDarcula.xml"/>
 
     <postStartupActivity implementation="com.jetbrains.python.sdk.PythonHeadlessSdkUpdater"/>
-    <backgroundPostStartupActivity implementation="com.jetbrains.python.sdk.PythonSdkUpdater"/>
+    <backgroundPostStartupActivity implementation="com.jetbrains.python.sdk.PythonSdkUpdateProjectActivity"/>
 
     <backgroundPostStartupActivity implementation="com.jetbrains.python.packaging.PyPackagesUpdater"/>
     <directoryProjectConfigurator implementation="com.jetbrains.python.configuration.PyDefaultProjectAwareServiceConfigurator"
@@ -421,8 +413,6 @@
     <codeInsight.lineMarkerProvider language="Python" implementationClass="com.jetbrains.python.pyi.PyiRelatedItemLineMarkerProvider"/>
 
     <refactoring.invertBoolean implementation="com.jetbrains.python.refactoring.invertBoolean.PyInvertBooleanDelegate"/>
-
-    <backspaceHandlerDelegate implementation="com.jetbrains.python.codeInsight.editorActions.PyTripleQuoteBackspaceDelegate"/>
 
     <!--folding-->
     <codeFoldingOptionsProvider instance="com.jetbrains.python.PythonFoldingOptionsProvider"/>
@@ -467,8 +457,6 @@
     <!-- Code-insight IDE bridge -->
     <applicationService serviceInterface="com.jetbrains.python.PythonRuntimeService"
                         serviceImplementation="com.jetbrains.python.PythonRuntimeServiceImpl"/>
-    <applicationService serviceInterface="com.jetbrains.python.PythonCodeStyleService"
-                        serviceImplementation="com.jetbrains.python.PythonCodeStyleServiceImpl"/>
     <applicationService serviceInterface="com.jetbrains.python.PythonUiService"
                         serviceImplementation="com.jetbrains.python.PythonUiServiceImpl"/>
     <applicationService serviceInterface="com.jetbrains.python.codeInsight.imports.PyImportCollectorFactory"
@@ -532,15 +520,6 @@
                        key="python.sdk.installation.notification.group"/>
 
 
-    <localInspection language="TOML"
-                     shortName="PyprojectInspection"
-                     suppressId="PyprojectInspection"
-                     bundle="messages.PyBundle"
-                     groupKey="INSP.GROUP.python"
-                     key="INSP.NAME.pyproject.packages"
-                     level="WARNING"
-                     enabledByDefault="true"
-                     implementationClass="com.jetbrains.python.packaging.pyproject.PyprojectPackageInspection"/>
     <toolWindow id="Python Packages" anchor="bottom"
                 icon="com.jetbrains.python.icons.PythonIcons.Python.PythonPackages"
                 factoryClass="com.jetbrains.python.packaging.toolwindow.PyPackagesToolWindowFactory"/>

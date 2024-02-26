@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide
 
 import com.intellij.openapi.application.ApplicationManager
@@ -16,17 +16,16 @@ import com.intellij.testFramework.ApplicationRule
 import com.intellij.testFramework.assertInstanceOf
 import com.intellij.testFramework.rules.ProjectModelRule
 import com.intellij.testFramework.runInEdtAndWait
+import com.intellij.workspaceModel.ide.impl.WorkspaceModelImpl
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.take
 import org.junit.After
 import org.junit.ClassRule
 import org.junit.Rule
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
-import kotlin.time.Duration.Companion.milliseconds
 
 class WorkspaceModelAsyncTest {
   companion object {
@@ -58,49 +57,66 @@ class WorkspaceModelAsyncTest {
     // However, there is a chance that the update function will be executed right after listenerIsReady and before setup of the flow
     //   listening, but in this case the test will fail by timeout and the test should be refactored at all.
     val listenerIsReady = Channel<Unit>(0)
-
-    val workspaceModel = WorkspaceModel.getInstance(projectModel.project)
-    val job = cs.launch {
+    val collectedEventsCount = AtomicInteger()
+    val workspaceModel = WorkspaceModel.getInstance(projectModel.project) as WorkspaceModelImpl
+    val job = launch {
       assertEquals(false, application.isWriteAccessAllowed)
       listenerIsReady.send(Unit)
-      val entityChange = workspaceModel.changesEventFlow.first().getAllChanges().single()
-      assertInstanceOf<EntityChange.Added<ModuleEntity>>(entityChange)
-
-      assertEquals(moduleName, (entityChange.newEntity as ModuleEntity).name)
-    }
-
-    listenerIsReady.receive()
-    delay(10.milliseconds)
-    workspaceModel.update("Test add new module asynchronously") {
-      it addEntity ModuleEntity(moduleName, emptyList(), object : EntitySource {})
-    }
-
-    job.join()
-  }
-
-  @Test
-  fun `check sync update produce async event`() = runBlocking {
-    val moduleName = "MyModule"
-    val application = ApplicationManager.getApplication()
-    assertEquals(false, application.isWriteAccessAllowed)
-
-    val workspaceModel = WorkspaceModel.getInstance(projectModel.project)
-    val job = cs.launch {
-      assertEquals(false, application.isWriteAccessAllowed)
-      val entityChange = workspaceModel.changesEventFlow.first().getAllChanges().single()
-      assertInstanceOf<EntityChange.Added<ModuleEntity>>(entityChange)
-
-      assertEquals(moduleName, (entityChange.newEntity as ModuleEntity).name)
-    }
-
-    writeAction {
-      assertEquals(true, application.isWriteAccessAllowed)
-      workspaceModel.updateProjectModel("Test add new module synchronously") {
-        it addEntity ModuleEntity(moduleName, emptyList(), object : EntitySource {})
+      workspaceModel.subscribe { _, changes ->
+        changes.collect { event ->
+          val entityChange = event.getAllChanges().single()
+          assertEquals(moduleName, (entityChange.newEntity as ModuleEntity).name)
+          collectedEventsCount.incrementAndGet()
+        }
       }
     }
 
-    job.join()
+    try {
+      listenerIsReady.receive()
+      delay(1_000)
+      workspaceModel.update("Test add new module asynchronously") {
+        it addEntity ModuleEntity(moduleName, emptyList(), object : EntitySource {})
+      }
+      delay(1_000)
+      assertEquals(1, collectedEventsCount.get())
+    } finally {
+      job.cancel()
+    }
+  }
+
+  @Test
+  fun `check sync update produce async event`() {
+    runBlocking {
+      val moduleName = "MyModule"
+      val application = ApplicationManager.getApplication()
+      assertEquals(false, application.isWriteAccessAllowed)
+
+      val collectedEventsCount = AtomicInteger()
+      val workspaceModel = WorkspaceModel.getInstance(projectModel.project) as WorkspaceModelImpl
+      val job = launch {
+        workspaceModel.subscribe { _, changes ->
+          changes.collect { event ->
+            val entityChange = event.getAllChanges().single()
+            assertEquals(moduleName, (entityChange.newEntity as ModuleEntity).name)
+            collectedEventsCount.incrementAndGet()
+          }
+        }
+      }
+
+      try {
+        writeAction {
+          assertEquals(true, application.isWriteAccessAllowed)
+          workspaceModel.updateProjectModel("Test add new module synchronously") {
+            it addEntity ModuleEntity(moduleName, emptyList(), object : EntitySource {})
+          }
+        }
+        delay(1_000)
+        assertEquals(1, collectedEventsCount.get())
+      }
+      finally {
+        job.cancel()
+      }
+    }
   }
 
   @Test
@@ -114,7 +130,6 @@ class WorkspaceModelAsyncTest {
         assertEquals(true, application.isWriteAccessAllowed)
         val entityChange = event.getAllChanges().single()
 
-        assertInstanceOf<EntityChange.Added<ModuleEntity>>(entityChange)
         assertEquals(moduleName, (entityChange.newEntity as ModuleEntity).name)
       }
     })
@@ -151,29 +166,37 @@ class WorkspaceModelAsyncTest {
     }
   }
 
-  @Test
+  @Test(timeout = 10_000)
   fun `check several async update produce consistent result`() = runBlocking {
     val moduleNames = setOf("ModuleA", "ModuleB", "ModuleC")
     val application = ApplicationManager.getApplication()
     assertEquals(false, application.isWriteAccessAllowed)
 
-    val workspaceModel = WorkspaceModel.getInstance(projectModel.project)
-    val job = cs.launch {
+    val workspaceModel = WorkspaceModel.getInstance(projectModel.project) as WorkspaceModelImpl
+    val collectedEventsCount = AtomicInteger()
+    val job = launch {
       assertEquals(false, application.isWriteAccessAllowed)
-      workspaceModel.changesEventFlow.take(3).collect { storageChange ->
-        val entityChange = storageChange.getAllChanges().single()
-        assertContains(moduleNames, (entityChange.newEntity as ModuleEntity).name)
+      workspaceModel.subscribe { _, changes ->
+        changes.collect { event ->
+          val entityChange = event.getAllChanges().single()
+          assertContains(moduleNames, (entityChange.newEntity as ModuleEntity).name)
+          collectedEventsCount.incrementAndGet()
+        }
       }
     }
 
-    moduleNames.map { moduleName ->
-      launch {
-        workspaceModel.update("Test add new module asynchronously") {
-          it addEntity ModuleEntity(moduleName, emptyList(), object : EntitySource {})
+    try {
+      moduleNames.map { moduleName ->
+        launch {
+          workspaceModel.update("Test add new module asynchronously") {
+            it addEntity ModuleEntity(moduleName, emptyList(), object : EntitySource {})
+          }
         }
-      }
-    }.joinAll()
+      }.joinAll()
 
-    job.join()
+      assertEquals(3, collectedEventsCount.get())
+    } finally {
+      job.cancel()
+    }
   }
 }

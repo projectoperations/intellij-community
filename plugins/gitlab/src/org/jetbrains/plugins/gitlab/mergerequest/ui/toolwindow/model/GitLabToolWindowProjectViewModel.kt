@@ -15,9 +15,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.platform.util.coroutines.childScope
-import git4idea.remote.hosting.changesSignalFlow
-import git4idea.repo.GitRemote
-import git4idea.repo.GitRepository
+import git4idea.remote.hosting.findHostedRemoteBranchTrackedByCurrent
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.Nls
@@ -59,8 +57,6 @@ private constructor(parentCs: CoroutineScope,
 
   val connectionId: String = connection.id
   override val projectName: @Nls String = connection.repo.repository.projectPath.name
-
-  val defaultBranch: Deferred<String> = connection.projectData.defaultBranch
 
   private val mergeRequestsVms = Caffeine.newBuilder().build<String, SharedFlow<Result<GitLabMergeRequestViewModels>>> { iid ->
     connection.projectData.mergeRequests.getShared(iid)
@@ -137,19 +133,12 @@ private constructor(parentCs: CoroutineScope,
 
   private val mergeRequestCreatedSignal: MutableSharedFlow<Unit> = MutableSharedFlow()
 
-  val mergeRequestOnCurrentBranch: Flow<String?> = run {
-    val projectMapping = connection.repo
-    val remote = projectMapping.remote.remote
-    val gitRepo = projectMapping.remote.repository
-    val targetProjectPath = projectMapping.repository.projectPath.fullPath()
-
-    gitRepo.changesSignalFlow().withInitial(Unit)
-      .map { findCurrentRemoteBranch(gitRepo, remote) }
-      .distinctUntilChanged()
-      .combine(mergeRequestCreatedSignal.withInitial(Unit)) { currentRemoteBranch, _ ->
-        currentRemoteBranch ?: return@combine null
+  val mergeRequestOnCurrentBranch: Flow<String?> =
+    projectsManager.findHostedRemoteBranchTrackedByCurrent(connection.repo.gitRepository)
+      .combine(mergeRequestCreatedSignal.withInitial(Unit)) { repoAndBranch, _ ->
+        val (targetRepo, branch) = repoAndBranch ?: return@combine null
         try {
-          findOpenReviewIdByBranch(connection, currentRemoteBranch, targetProjectPath)
+          findOpenReviewIdByBranch(connection, branch.nameForRemoteOperations, targetRepo.repository.projectPath.fullPath())
         }
         catch (ce: CancellationException) {
           null
@@ -159,7 +148,6 @@ private constructor(parentCs: CoroutineScope,
           null
         }
       }
-  }
 
   @OptIn(ExperimentalCoroutinesApi::class)
   val currentMergeRequestReviewVm: Flow<GitLabMergeRequestEditorReviewViewModel?> =
@@ -207,12 +195,6 @@ private constructor(parentCs: CoroutineScope,
       }
     }
   }
-}
-
-private fun findCurrentRemoteBranch(gitRepo: GitRepository, remote: GitRemote): String? {
-  val currentBranch = gitRepo.currentBranch ?: return null
-  return gitRepo.branchTrackInfos.find { it.localBranch == currentBranch && it.remote == remote }
-    ?.remoteBranch?.nameForRemoteOperations
 }
 
 private suspend fun findOpenReviewIdByBranch(

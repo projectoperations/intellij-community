@@ -2,6 +2,7 @@
 package git4idea.rebase;
 
 import com.intellij.dvcs.DvcsUtil;
+import com.intellij.history.ActivityId;
 import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -13,6 +14,7 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
+import git4idea.GitActivity;
 import git4idea.GitUtil;
 import git4idea.commands.*;
 import git4idea.i18n.GitBundle;
@@ -20,7 +22,9 @@ import git4idea.merge.GitConflictResolver;
 import git4idea.update.GitUpdateResult;
 import git4idea.util.GitUntrackedFilesHelper;
 import git4idea.util.LocalChangesWouldBeOverwrittenHelper;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -44,8 +48,12 @@ public final class GitRebaser {
     myProgressIndicator = progressIndicator;
   }
 
-  public GitUpdateResult rebase(@NotNull VirtualFile root,
-                                @NotNull List<String> parameters) {
+  public GitUpdateResult rebase(@NotNull VirtualFile root, @NotNull List<String> parameters) {
+    return rebase(root, parameters, GitActivity.Rebase);
+  }
+
+  @ApiStatus.Internal
+  public GitUpdateResult rebase(@NotNull VirtualFile root, @NotNull List<String> parameters, @Nullable ActivityId activityId) {
     final GitLineHandler rebaseHandler = new GitLineHandler(myProject, root, GitCommand.REBASE, GitImpl.REBASE_CONFIG_PARAMS);
     rebaseHandler.setStdoutSuppressed(false);
     rebaseHandler.addParameters(parameters);
@@ -58,7 +66,7 @@ public final class GitRebaser {
     rebaseHandler.addLineListener(localChangesDetector);
     rebaseHandler.addLineListener(GitStandardProgressAnalyzer.createListener(myProgressIndicator));
 
-    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, GitBundle.message("activity.name.rebase"))) {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, GitBundle.message("activity.name.rebase"), activityId)) {
       GitRebaseEditorHandler editor = GitRebaseUtils.createRebaseEditor(myProject, root, false);
       try (GitHandlerRebaseEditorManager ignored = GitHandlerRebaseEditorManager.prepareEditor(rebaseHandler, editor)) {
         String oldText = myProgressIndicator.getText();
@@ -115,7 +123,7 @@ public final class GitRebaser {
    * @return true if rebase successfully finished.
    */
   public boolean continueRebase(@NotNull Collection<? extends VirtualFile> rebasingRoots) {
-    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, GitBundle.message("activity.name.rebase"))) {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, GitBundle.message("activity.name.rebase"), GitActivity.Rebase)) {
       boolean success = true;
       for (VirtualFile root : rebasingRoots) {
         success &= continueRebase(root);

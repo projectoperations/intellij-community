@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.event.VisibleAreaListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.MarkupModelEx
 import com.intellij.openapi.util.Disposer
+import com.intellij.util.DocumentUtil
 import java.awt.Point
 import java.awt.Rectangle
 
@@ -41,7 +42,12 @@ internal class StickyLinesManager(
     if (editor.settings.areStickyLinesShown() && isAreaChanged(event)) {
       activeEditorY = event.newRectangle.y
       activeEditorH = event.newRectangle.height
-      if (event.oldRectangle == null || isLineChanged(event)) {
+      if (activeEditorY <3) {
+        // special case when the document starts with a sticky line
+        // small visual jump is better than stickied line for good
+        activeVisualLine = -1
+        stickyPanel.repaintLines(activeEditorY, activeEditorH, emptyList())
+      } else if (event.oldRectangle == null || isLineChanged(event)) {
         // recalculate sticky lines and repaint
         stickyPanel.repaintLines(activeEditorY, activeEditorH, getStickyLines(activeEditorY))
       } else if (isYChanged(event) || isSizeChanged(event)) {
@@ -97,15 +103,14 @@ internal class StickyLinesManager(
   }
 
   private fun getStickyLines(editorY: Int): List<StickyLine> {
-    return if (editorY <3) {
-      // special case when the document starts with a sticky line
-      // small visual jump is better than stickied line for good
-      emptyList()
-    } else {
-      val activeY: Int = activeY(editorY)
-      val activeLogicalLine: Int = editor.xyToLogicalPosition(Point(0, activeY)).line
+    val activeY: Int = activeY(editorY)
+    val activeLogicalLine: Int = editor.xyToLogicalPosition(Point(0, activeY)).line
+    if (DocumentUtil.isValidLine(activeLogicalLine, editor.document)) {
       val activeOffset: Int = editor.document.getLineEndOffset(activeLogicalLine)
-      collectStickyLines(activeOffset, activeLogicalLine)
+      return collectStickyLines(activeOffset, activeLogicalLine)
+    } else {
+      activeVisualLine = -1
+      return emptyList()
     }
   }
 

@@ -19,7 +19,7 @@
     <appStarter id="diff" implementation="com.intellij.diff.applications.DiffApplication"/>
     <appStarter id="merge" implementation="com.intellij.diff.applications.MergeApplication"/>
     <appStarter id="reopen" implementation="com.intellij.ui.win.RecentProjectApplication"/>
-    <appStarter id="update" implementation="com.intellij.openapi.command.impl.UpdatePluginsApp"/>
+    <appStarter id="update" implementation="com.intellij.ide.plugins.UpdatePluginsApp"/>
     <appStarter id="keymap" implementation="com.intellij.help.impl.KeymapGenerator"/>
     <appStarter id="intentions" implementation="com.intellij.help.impl.IntentionDump"/>
     <appStarter id="inspections" implementation="com.intellij.help.impl.InspectionDump"/>
@@ -194,7 +194,7 @@
 
     <applicationService serviceInterface="com.intellij.openapi.components.impl.stores.IComponentStore"
                         serviceImplementation="com.intellij.configurationStore.ApplicationStoreImpl"/>
-    <vfs.asyncListener implementation="com.intellij.configurationStore.MyAsyncVfsListener"/>
+    <vfs.asyncListener implementation="com.intellij.configurationStore.StorageVfsListener"/>
 
     <applicationService serviceInterface="com.intellij.openapi.components.PathMacroManager"
                         serviceImplementation="com.intellij.configurationStore.ApplicationPathMacroManager"/>
@@ -344,7 +344,7 @@
     <defaultHighlightingSettingProvider id="GeneratedSourcesHighlightingSettingProvider"
                                         implementation="com.intellij.codeInsight.daemon.OutsidersPsiFileSupport$HighlightingSettingProvider"/>
 
-    <fileEditorProvider implementation="com.intellij.diff.editor.DiffEditorProvider"/>
+    <fileEditorProvider implementation="com.intellij.diff.editor.DiffFileEditorProvider"/>
     <fileEditorProvider implementation="com.intellij.ide.browsers.actions.WebPreviewEditorProvider"/>
     <fileEditorProvider implementation="com.intellij.ide.plugins.UIComponentEditorProvider"/>
     <fileIconProvider implementation="com.intellij.ide.plugins.UIComponentVirtualFile$UIComponentVirtualFileIconProvider"/>
@@ -522,8 +522,6 @@
     <applicationService serviceInterface="com.intellij.openapi.fileEditor.FileNavigator"
                         serviceImplementation="com.intellij.openapi.fileEditor.FileNavigatorImpl"/>
 
-    <applicationService serviceInterface="com.intellij.openapi.vcs.FileStatusFactory"
-                        serviceImplementation="com.intellij.openapi.vcs.FileStatusFactoryImpl"/>
     <projectService serviceInterface="com.intellij.openapi.vfs.ReadonlyStatusHandler"
                     serviceImplementation="com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl"/>
     <projectService serviceInterface="com.intellij.openapi.startup.StartupManager"
@@ -846,7 +844,7 @@
 
     <statistics.validation.customValidationRule
       implementation="com.intellij.configurationStore.statistic.eventLog.SettingsComponentNameValidator"/>
-    <statistics.validation.customValidationRule implementation="com.intellij.configurationStore.statistic.eventLog.SettingsValueValidator"/>
+    <statistics.validation.customValidationRuleFactory implementation="com.intellij.configurationStore.statistic.eventLog.SettingsValueValidatorFactory"/>
     <statistics.validation.customValidationRule
       implementation="com.intellij.internal.statistic.collectors.fus.FacetTypeUsageCollector$FacetTypeUtilValidator"/>
     <statistics.validation.customValidationRule
@@ -956,11 +954,13 @@
       implementationClass="com.intellij.internal.statistic.collectors.fus.ui.DialogsCounterUsagesCollector"/>
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.internal.statistic.collectors.fus.ui.SettingsCounterUsagesCollector"/>
-    <statistics.counterUsagesCollector groupId="settings.changes" version="57"/>
+    <statistics.counterUsagesCollector implementationClass="com.intellij.configurationStore.statistic.eventLog.SettingsChangesCollector"/>
+    <statistics.applicationUsagesCollector implementation="com.intellij.configurationStore.statistic.eventLog.SettingsCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.internal.statistic.collectors.fus.ui.GotItUsageCollectorGroup"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.internal.statistic.collectors.fus.ui.BalloonUsageCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.application.options.colors.ReaderModeStatsCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.diagnostic.IdeErrorDialogUsageCollector"/>
+    <statistics.counterUsagesCollector implementationClass="com.intellij.ide.util.projectWizard.LightweightNewProjectWizardCollector" />
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.projectWizard.NewProjectWizardCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.ui.experimental.ExperimentalUiCollector"/>
     <statistics.validation.customValidationRule
@@ -1383,6 +1383,7 @@
     <environmentKeyProvider implementation="com.intellij.ide.plugins.PluginEnvironmentKeyProvider"/>
 
 
+    <actionConfigurationCustomizer implementation="com.intellij.platform.ide.menu.IdeMainMenuActionCustomizer"/>
     <actionConfigurationCustomizer implementation="com.intellij.platform.ide.menu.GlobalMenuLinux$MyActionTuner"/>
 
     <titleInfoProvider implementation="com.intellij.openapi.wm.impl.simpleTitleParts.ProductTitleInfoProvider"/>
@@ -1584,15 +1585,19 @@
                      groupKey="group.advanced.settings.documentation.components"/>
     <advancedSetting id="documentation.components.enable.code.background" default="true"
                      groupKey="group.advanced.settings.documentation.components"/>
+    <advancedSetting id="documentation.auto.show.in.modal.dialogs" default="false"
+                     groupKey="group.advanced.settings.documentation.components"/>
     <advancedSetting id="search.everywhere.wait.for.contributors" default="true" groupKey="group.advanced.settings.se"/>
     <advancedSetting id="search.everywhere.contributors.wait.timeout" default="2000" groupKey="group.advanced.settings.se"/>
     <advancedSetting id="search.everywhere.recent.at.top" default="true" groupKey="group.advanced.settings.se"/>
+    <applicationInitializedListener implementation="com.intellij.lang.documentation.ide.impl.QuickDocAutoPopupInEAPInitializer"/>
 
     <backgroundPostStartupActivity implementation="com.intellij.ide.plugins.DependencyFeatureCollector"/>
     <projectService serviceInterface="com.intellij.presentation.FilePresentationService"
                     serviceImplementation="com.intellij.presentation.impl.FilePresentationServiceImpl"/>
 
     <advancedSetting id="show.diff.as.editor.tab" default="true" bundle="messages.DiffBundle" groupKey="advanced.settings.vcs"/>
+    <advancedSetting id="enable.combined.diff" default="false" bundle="messages.DiffBundle" groupKey="advanced.settings.vcs"/>
 
     <recoveryAction implementation="com.intellij.ide.actions.cache.InvalidateCachesAndRestartAction"/>
     <recoveryAction implementation="com.intellij.ide.actions.cache.RecoverVfsFromLogRecoveryAction"/>
@@ -1699,6 +1704,11 @@
                  defaultValue="false"
                  description="Turn on the highlighting passes preload experiment"/>
 
+    <editorFloatingToolbarProvider
+      id="CloseSearchEverywherePreviewToolbar"
+      order="after DefaultFloatingToolbarProvider"
+      implementation="com.intellij.ide.actions.searcheverywhere.CloseSearchEverywherePreviewToolbar"/>
+
     <actionConfigurationCustomizer implementation="com.intellij.openapi.project.impl.SeparateProcessActionsCustomizer"/>
 
     <projectService serviceImplementation="com.intellij.openapi.updateSettings.impl.CustomPluginRepositoriesConfigurationComponent"
@@ -1757,7 +1767,7 @@
               topic="com.intellij.ide.AppLifecycleListener"/>
     <listener class="com.intellij.ui.mac.MergeAllWindowsAction$RecentProjectsFullScreenTabSupport"
               topic="com.intellij.ide.AppLifecycleListener"/>
-    <listener class="com.intellij.openapi.vcs.FileStatusFactoryImpl$PluginListener"
+    <listener class="com.intellij.openapi.vcs.FileStatusCleaner"
               topic="com.intellij.ide.plugins.DynamicPluginListener"/>
     <listener class="com.intellij.codeInsight.hints.InlayUnloadingListener" activeInHeadlessMode="false" activeInTestMode="false"
               topic="com.intellij.ide.plugins.DynamicPluginListener"/>
@@ -1804,6 +1814,8 @@
               topic="com.intellij.openapi.actionSystem.ex.AnActionListener"/>
     <listener class="com.intellij.codeInsight.inline.completion.listeners.InlineCompletionNewLineAnActionListener"
               topic="com.intellij.openapi.actionSystem.ex.AnActionListener"/>
+    <listener class="com.intellij.diff.tools.combined.CombinedDiffAdvancedSettingsChangeListener"
+              topic="com.intellij.openapi.options.advanced.AdvancedSettingsChangeListener"/>
   </applicationListeners>
 
   <projectListeners>

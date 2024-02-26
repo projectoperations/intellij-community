@@ -11,10 +11,7 @@ import com.intellij.collaboration.util.KeyValuePair
 import com.intellij.collaboration.util.clearData
 import com.intellij.collaboration.util.putData
 import com.intellij.diff.impl.DiffRequestProcessor
-import com.intellij.diff.tools.combined.COMBINED_DIFF_VIEWER_KEY
-import com.intellij.diff.tools.combined.CombinedBlockProducer
-import com.intellij.diff.tools.combined.CombinedDiffModelImpl
-import com.intellij.diff.tools.combined.CombinedPathBlockId
+import com.intellij.diff.tools.combined.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.LocalFilePath
 import com.intellij.platform.util.coroutines.childScope
@@ -59,31 +56,31 @@ class CodeReviewDiffHandlerHelper(private val project: Project, parentCs: Corout
 
   fun <VM : ComputedDiffViewModel> createCombinedDiffModel(
     reviewDiffVm: Flow<VM?>, createContext: (VM) -> List<KeyValuePair<*>>
-  ): CombinedDiffModelImpl {
-    val model = CombinedDiffModelImpl(project)
+  ): CombinedDiffComponentProcessor {
+    val processor = CombinedDiffManager.getInstance(project).createProcessor()
     cs.launchNow(CoroutineName("Code Review Combined Diff UI")) {
       reviewDiffVm.collectLatest { computedDiffVm ->
         if (computedDiffVm != null) {
           val context = createContext(computedDiffVm)
           try {
-            context.forEach { model.context.putData(it) }
-            handleChanges(computedDiffVm, model)
+            context.forEach { processor.context.putData(it) }
+            handleChanges(computedDiffVm, processor)
             awaitCancellation()
           }
           finally {
-            context.forEach(model.context::clearData)
-            model.cleanBlocks()
+            context.forEach(processor.context::clearData)
+            processor.cleanBlocks()
           }
         }
       }
-    }.cancelOnDispose(model.ourDisposable)
-    return model
+    }.cancelOnDispose(processor.disposable)
+    return processor
   }
 
-  private suspend fun handleChanges(computedDiffVm: ComputedDiffViewModel, model: CombinedDiffModelImpl) {
+  private suspend fun handleChanges(computedDiffVm: ComputedDiffViewModel, processor: CombinedDiffComponentProcessor) {
     fun setBlocks(blocks: List<CombinedBlockProducer>?) {
-      model.cleanBlocks()
-      model.setBlocks(blocks.orEmpty())
+      processor.cleanBlocks()
+      processor.setBlocks(blocks.orEmpty())
     }
 
     computedDiffVm.diffVm.collectLatest { result ->
@@ -103,14 +100,14 @@ class CodeReviewDiffHandlerHelper(private val project: Project, parentCs: Corout
         return@collectLatest
       }
 
-      model.installVm(diffVm)
+      processor.installVm(diffVm)
     }
   }
 
   // fixme: fix after selection rework
-  private suspend fun CombinedDiffModelImpl.installVm(vm: DiffProducersViewModel) {
+  private suspend fun CombinedDiffComponentProcessor.installVm(vm: DiffProducersViewModel) {
     vm.producers.collectLatest {
-      val current = requests.map { it.producer }
+      val current = blocks.map { it.producer }
       val new = it.producers
       if (current.size != new.size || !current.containsAll(new)) {
         val blocks = mutableListOf<CombinedBlockProducer>()

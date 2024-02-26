@@ -1,7 +1,10 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("ReplacePutWithAssignment", "ReplaceGetOrSet")
+
 package com.intellij.configurationStore
 
 import com.intellij.configurationStore.schemeManager.ROOT_CONFIG
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -12,6 +15,7 @@ import com.intellij.serviceContainer.ComponentManagerImpl
 import com.intellij.testFramework.*
 import com.intellij.testFramework.assertions.Assertions.assertThat
 import com.intellij.testFramework.rules.InMemoryFsRule
+import com.intellij.util.io.write
 import com.intellij.util.xmlb.XmlSerializerUtil
 import com.intellij.util.xmlb.annotations.Attribute
 import kotlinx.coroutines.Dispatchers
@@ -19,20 +23,17 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.assertj.core.data.MapEntry
 import org.intellij.lang.annotations.Language
-import org.junit.*
 import org.junit.Assert.*
+import org.junit.Before
+import org.junit.ClassRule
+import org.junit.Rule
+import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
-import kotlin.io.path.createParentDirectories
-import kotlin.io.path.deleteIfExists
-import kotlin.io.path.exists
-import kotlin.io.path.getLastModifiedTime
-import kotlin.io.path.writeBytes
-import kotlin.io.path.writeText
+import kotlin.io.path.*
 import kotlin.properties.Delegates
 
 class ApplicationStoreTest {
@@ -44,12 +45,12 @@ class ApplicationStoreTest {
   @JvmField @Rule val disposableRule = DisposableRule()
 
   private var testAppConfig: Path by Delegates.notNull()
-  private var componentStore: MyComponentStore by Delegates.notNull()
+  private var componentStore: TestComponentStore by Delegates.notNull()
 
   @Before
   fun setUp() {
     testAppConfig = fsRule.fs.getPath("/app-config")
-    componentStore = MyComponentStore(testAppConfig)
+    componentStore = TestComponentStore(testAppConfig)
   }
 
   @Test
@@ -60,11 +61,11 @@ class ApplicationStoreTest {
     componentStore.storageManager.removeStreamProvider(MyStreamProvider::class.java)
     componentStore.storageManager.addStreamProvider(streamProvider)
 
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = PluginManagerCore.CORE_ID)
     component.foo = "newValue"
     componentStore.save()
 
-    assertThat(streamProvider.data[RoamingType.DEFAULT]!!["new.xml"])
+    assertThat(streamProvider.data.get(RoamingType.DEFAULT)!!.get("new.xml"))
       .isEqualTo("<application>\n  <component name=\"A\" foo=\"newValue\" />\n</application>")
   }
 
@@ -75,12 +76,12 @@ class ApplicationStoreTest {
     val map = HashMap<String, String>()
     val fileSpec = "new.xml"
     map[fileSpec] = "<application>\n  <component name=\"A\" foo=\"newValue\" />\n</application>"
-    streamProvider.data[RoamingType.DEFAULT] = map
+    streamProvider.data.put(RoamingType.DEFAULT, map)
 
     val storageManager = componentStore.storageManager
     storageManager.removeStreamProvider(MyStreamProvider::class.java)
     storageManager.addStreamProvider(streamProvider)
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = PluginManagerCore.CORE_ID)
     assertThat(component.foo).isEqualTo("newValue")
 
     assertThat(storageManager.expandMacro(fileSpec)).doesNotExist()
@@ -109,7 +110,7 @@ class ApplicationStoreTest {
 
     testAppConfig.refreshVfs()
 
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     assertThat(component.foo).isEqualTo("new")
 
     component.foo = "new2"
@@ -139,7 +140,7 @@ class ApplicationStoreTest {
   @Test
   fun `import settings`() {
     val component = A()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
 
     component.options.foo = "new"
 
@@ -181,7 +182,6 @@ class ApplicationStoreTest {
 
   @Test
   fun `import deprecated settings`() {
-
     @State(name = "Comp", storages = [
       Storage("old.xml", roamingType = RoamingType.PER_OS, deprecated = true),
       Storage("new.xml", roamingType = RoamingType.PER_OS)])
@@ -199,9 +199,11 @@ class ApplicationStoreTest {
     val component = Comp()
     ApplicationManager.getApplication().registerServiceInstance(Comp::class.java, component)
     try {
-      val allItems = getExportableComponentsMap(isComputePresentableNames = false,
-                                                storageManager = storageManager,
-                                                withDeprecated = true)
+      val allItems = getExportableComponentsMap(
+        isComputePresentableNames = false,
+        storageManager = storageManager,
+        withDeprecated = true,
+      )
       assertThat(allItems).containsKeys(
         fileSpec("old.xml"),
         fileSpec("$os/old.xml"),
@@ -238,7 +240,7 @@ class ApplicationStoreTest {
     testAppConfig.refreshVfs()
 
     val component = SeveralStoragesConfigured()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     assertThat(component.foo).isEqualTo("new")
 
     componentStore.save()
@@ -256,7 +258,7 @@ class ApplicationStoreTest {
     testAppConfig.refreshVfs()
 
     val component = A()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     assertThat(component.options).isEqualTo(TestState("old"))
 
     componentStore.save()
@@ -282,12 +284,12 @@ class ApplicationStoreTest {
     val component = A()
     component.isThrowErrorOnLoadState = true
     assertThatThrownBy {
-      componentStore.initComponent(component, null, null)
+      componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     }.isInstanceOf(ProcessCanceledException::class.java)
     assertThat(component.options).isEqualTo(TestState())
 
     component.isThrowErrorOnLoadState = false
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     assertThat(component.options).isEqualTo(TestState("old"))
   }
 
@@ -301,7 +303,7 @@ class ApplicationStoreTest {
     testAppConfig.refreshVfs()
 
     val component = AWorkspace()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     assertThat(component.options).isEqualTo(TestState("old"))
 
     try {
@@ -324,7 +326,7 @@ class ApplicationStoreTest {
     class AOther : A()
 
     val component = AOther()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     component.options.foo = "old"
 
     componentStore.save()
@@ -337,7 +339,7 @@ class ApplicationStoreTest {
     val obsoleteStorageBean = ObsoleteStorageBean()
     obsoleteStorageBean.file = "i_do_not_want_to_be_deleted_but.xml"
     obsoleteStorageBean.components.addAll(listOf("loser1", "loser2", "lucky"))
-    ExtensionTestUtil.maskExtensions(OBSOLETE_STORAGE_EP, listOf(obsoleteStorageBean), disposableRule.disposable)
+    ExtensionTestUtil.maskExtensions(ObsoleteStorageBean.EP_NAME, listOf(obsoleteStorageBean), disposableRule.disposable)
 
     @State(name = "loser1", storages = [(Storage(value = "i_do_not_want_to_be_deleted_but.xml"))])
     class AOther : A()
@@ -347,15 +349,15 @@ class ApplicationStoreTest {
     class COther : A()
 
     val component = AOther()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     component.options.foo = "old"
 
     val component2 = BOther()
-    componentStore.initComponent(component2, null, null)
+    componentStore.initComponent(component2, null, PluginManagerCore.CORE_ID)
     component2.options.foo = "old?"
 
     val component3 = COther()
-    componentStore.initComponent(component3, null, null)
+    componentStore.initComponent(component3, null, PluginManagerCore.CORE_ID)
     component3.options.bar = "foo"
 
     componentStore.save()
@@ -396,7 +398,7 @@ class ApplicationStoreTest {
     val obsoleteStorageBean = ObsoleteStorageBean()
     obsoleteStorageBean.file = "i_will_be_not_deleted.xml"
     obsoleteStorageBean.components.addAll(listOf("Loser"))
-    ExtensionTestUtil.maskExtensions(OBSOLETE_STORAGE_EP, listOf(obsoleteStorageBean), disposableRule.disposable)
+    ExtensionTestUtil.maskExtensions(ObsoleteStorageBean.EP_NAME, listOf(obsoleteStorageBean), disposableRule.disposable)
 
     testAppConfig.resolve(obsoleteStorageBean.file).createParentDirectories().writeText("""
       <application>
@@ -433,8 +435,8 @@ class ApplicationStoreTest {
 
     val component = MyComponent()
     assertThatThrownBy {
-      componentStore.initComponent(component, null, null)
-    }.hasMessage("Cannot init component state (componentName=Bad, componentClass=MyComponent)")
+      componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
+    }.hasMessage("Cannot init component state (componentName=Bad, componentClass=MyComponent) [Plugin: com.intellij]")
 
     assertThat(componentStore.getComponents()).doesNotContainKey("Bad")
   }
@@ -442,7 +444,7 @@ class ApplicationStoreTest {
   @Test
   fun `test per-os components are stored in subfolder`() = runBlocking {
     val component = PerOsComponent()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     component.foo = "bar"
 
     componentStore.save()
@@ -460,7 +462,7 @@ class ApplicationStoreTest {
     testAppConfig.refreshVfs()
 
     val component = PerOsComponent()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     assertThat(component.foo).isEqualTo("new")
 
     componentStore.save()
@@ -480,7 +482,7 @@ class ApplicationStoreTest {
     testAppConfig.refreshVfs()
 
     val component = PerOsComponent()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     assertThat(component.foo).isEqualTo("new")
   }
 
@@ -497,7 +499,7 @@ class ApplicationStoreTest {
     testAppConfig.refreshVfs()
 
     val component = Comp()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
     assertThat(component.foo).isEqualTo("old")
 
     componentStore.save()
@@ -513,7 +515,7 @@ class ApplicationStoreTest {
     class Component : FooComponent()
 
     val component = Component()
-    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = null)
+    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = PluginManagerCore.CORE_ID)
 
     writeConfig("a.xml", "")
     componentStore.reloadComponents(changedFileSpecs = listOf("a.xml"), deletedFileSpecs = emptyList())
@@ -540,90 +542,14 @@ class ApplicationStoreTest {
     class Component : SerializablePersistentStateComponent<TestState>(TestState())
 
     val component = Component()
-    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = null)
+    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = PluginManagerCore.CORE_ID)
 
     assertThat(component.state.foo).isEmpty()
     assertThat(component.state.bar).isEmpty()
 
     component.state = TestState(bar = "42")
-    // `false` because cache storage doesn't use save session (no need in the case of MvStore, where we can do a random write operation)
-    assertThat(componentStore.saveNonVfsComponent(component)).isFalse()
-    // test double save
-    assertThat(componentStore.saveNonVfsComponent(component)).isFalse()
-
-    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = null)
+    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = PluginManagerCore.CORE_ID)
     assertThat(component.state.bar).isEqualTo("42")
-  }
-
-  @Test
-  @Ignore("Temporary disabled until we use settings controller during settings migration")
-  fun `settingsController - internal storage - read old data`() = runBlocking<Unit>(Dispatchers.Default) {
-    clearCacheStore()
-
-    @State(name = "TestState", storages = [Storage(value = StoragePathMacros.NON_ROAMABLE_FILE)])
-    class Component : SerializablePersistentStateComponent<TestState>(TestState())
-
-    val file = testAppConfig.resolve(StoragePathMacros.NON_ROAMABLE_FILE)
-    Files.createDirectories(file.parent)
-    Files.writeString(file, """
-      <application>
-        <component name="TestState" foo="test" bar="aaa">
-        </component>
-      </application>
-    """.trimIndent())
-
-    val component = Component()
-    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = null)
-
-    assertThat(component.state.foo).isEqualTo("test")
-    assertThat(component.state.bar).isEqualTo("aaa")
-
-    component.state = TestState(bar = "42")
-    // `false` because cache storage doesn't use save session (no need in the case of MvStore, where we can do a random write operation)
-    assertThat(componentStore.saveNonVfsComponent(component)).isFalse()
-    // test double save
-    assertThat(componentStore.saveNonVfsComponent(component)).isFalse()
-
-    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = null)
-    assertThat(component.state.foo).isEmpty()
-    assertThat(component.state.bar).isEqualTo("42")
-  }
-
-  private data class TestStateWithMap(@JvmField @Attribute var foo: String = "",
-                                      @JvmField val map: Map<String, Set<String>> = HashMap())
-
-  @Test
-  @Ignore("Temporary disabled until we use settings controller during settings migration")
-  fun `settingsController - internal storage - serialize map`() = runBlocking<Unit>(Dispatchers.Default) {
-    clearCacheStore()
-    @State(name = "TestState", storages = [Storage(value = StoragePathMacros.NON_ROAMABLE_FILE)])
-    class Component : SerializablePersistentStateComponent<TestStateWithMap>(TestStateWithMap())
-
-    val file = testAppConfig.resolve(StoragePathMacros.NON_ROAMABLE_FILE)
-    Files.createDirectories(file.parent)
-    Files.writeString(file, """
-      <application>
-        <component name="TestState" foo="test" bar="aaa">
-        </component>
-      </application>
-    """.trimIndent())
-
-    val component = Component()
-    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = null)
-
-    assertThat(component.state.foo).isEqualTo("test")
-    assertThat(component.state.map).isEmpty()
-
-    val map = hashMapOf("f" to hashSetOf("1", "2", "3"), "d" to hashSetOf("e", "f", "d"))
-    component.state = TestStateWithMap(foo = "42", map)
-    // `false` because cache storage doesn't use save session (no need in the case of MvStore, where we can do a random write operation)
-    assertThat(componentStore.saveNonVfsComponent(component)).isFalse()
-    // test double save
-    assertThat(componentStore.saveNonVfsComponent(component)).isFalse()
-
-    componentStore.initComponent(component = component, serviceDescriptor = null, pluginId = null)
-    assertThat(component.state.foo).isEqualTo("42")
-    assertThat(component.state.map).isEqualTo(map)
   }
 
   private fun createComponentFileContent(fooValue: String, componentName: String = "A"): String {
@@ -633,18 +559,26 @@ class ApplicationStoreTest {
   @State(name = "A", storages = [Storage(value = "per-os.xml", roamingType = RoamingType.PER_OS)])
   private class PerOsComponent : FooComponent()
 
-  private fun writeConfig(fileName: String, @Language("XML") data: String): Path =
-    testAppConfig.resolve(fileName).createParentDirectories().apply { writeText(data) }
+  private fun writeConfig(fileName: String, @Language("XML") data: String): Path {
+    val file = testAppConfig.resolve(fileName)
+    file.write(data)
+    return file
+  }
 
   private class MyStreamProvider : StreamProvider {
     override val isExclusive = true
 
-    override fun processChildren(path: String, roamingType: RoamingType, filter: (String) -> Boolean, processor: (String, InputStream, Boolean) -> Boolean) = true
+    override fun processChildren(
+      path: String,
+      roamingType: RoamingType,
+      filter: (String) -> Boolean,
+      processor: (String, InputStream, Boolean) -> Boolean,
+    ) = true
 
     val data: MutableMap<RoamingType, MutableMap<String, String>> = EnumMap(RoamingType::class.java)
 
     override fun write(fileSpec: String, content: ByteArray, roamingType: RoamingType) {
-      getMap(roamingType).put(fileSpec, String(content, Charsets.UTF_8))
+      getMap(roamingType).put(fileSpec, content.decodeToString())
     }
 
     private fun getMap(roamingType: RoamingType): MutableMap<String, String> = data.computeIfAbsent(roamingType) { HashMap() }
@@ -656,16 +590,16 @@ class ApplicationStoreTest {
     }
 
     override fun delete(fileSpec: String, roamingType: RoamingType): Boolean {
-      data[roamingType]?.remove(fileSpec)
+      data.get(roamingType)?.remove(fileSpec)
       return true
     }
   }
 
-  private class MyComponentStore(testAppConfigPath: Path) : ComponentStoreWithExtraComponents() {
+  private class TestComponentStore(testAppConfigPath: Path) : ComponentStoreWithExtraComponents() {
     override val serviceContainer: ComponentManagerImpl
       get() = ApplicationManager.getApplication() as ComponentManagerImpl
 
-    override val storageManager = ApplicationStorageManager(pathMacroManager = null, settingsController = service<SettingsController>())
+    override val storageManager = ApplicationStateStorageManager(pathMacroManager = null, service<SettingsController>())
 
     init {
       setPath(testAppConfigPath)
@@ -674,10 +608,6 @@ class ApplicationStoreTest {
     override fun setPath(path: Path) {
       // yes, in tests APP_CONFIG equals to ROOT_CONFIG (as ICS does)
       storageManager.setMacros(listOf(Macro(APP_CONFIG, path), Macro(ROOT_CONFIG, path), Macro(StoragePathMacros.CACHE_FILE, path)))
-    }
-
-    override suspend fun doSave(result: SaveResult, forceSavingAllSettings: Boolean) {
-      childlessSaveImplementation(result, forceSavingAllSettings)
     }
   }
 

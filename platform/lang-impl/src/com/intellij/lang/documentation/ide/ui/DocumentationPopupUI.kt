@@ -2,6 +2,9 @@
 package com.intellij.lang.documentation.ide.ui
 
 import com.intellij.codeInsight.CodeInsightBundle
+import com.intellij.codeInsight.documentation.DocumentationHtmlUtil
+import com.intellij.codeInsight.documentation.DocumentationHtmlUtil.contentInnerPadding
+import com.intellij.codeInsight.documentation.DocumentationHtmlUtil.contentOuterPadding
 import com.intellij.codeInsight.documentation.DocumentationManager.NEW_JAVADOC_LOCATION_AND_SIZE
 import com.intellij.codeInsight.documentation.ToggleShowDocsOnHoverAction
 import com.intellij.codeInsight.hint.HintManagerImpl.ActionToIgnore
@@ -21,6 +24,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.IdeBorderFactory
 import com.intellij.ui.SideBorder
 import com.intellij.ui.popup.AbstractPopup
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.EDT
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.JBUI
@@ -31,8 +35,11 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.emitAll
 import java.awt.BorderLayout
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import java.util.function.Supplier
 import javax.swing.JComponent
+import javax.swing.JPanel
 
 internal class DocumentationPopupUI(
   private val project: Project,
@@ -40,10 +47,8 @@ internal class DocumentationPopupUI(
 ) : Disposable {
 
   private var _ui: DocumentationUI? = ui
-  private val ui: DocumentationUI get() = requireNotNull(_ui) { "already detached" }
+  val ui: DocumentationUI get() = requireNotNull(_ui) { "already detached" }
   val browser: DocumentationBrowser get() = ui.browser
-
-  private val corner: JComponent
 
   val component: JComponent
   val preferableFocusComponent: JComponent get() = ui.editorPane
@@ -55,7 +60,11 @@ internal class DocumentationPopupUI(
 
   init {
     val editorPane = ui.editorPane
-
+    browser.closeTrigger {
+      coroutineScope.launch(Dispatchers.EDT) {
+        myPopup.cancel()
+      }
+    }
     val primaryActions = primaryActions().toMutableList()
     val secondaryActions = ArrayList<AnAction>()
     val openInToolwindowAction = OpenInToolwindowAction()
@@ -78,14 +87,23 @@ internal class DocumentationPopupUI(
     gearActions.addSeparator()
     gearActions.addAll(primaryActions)
 
-    corner = toolbarComponent(DefaultActionGroup(editSourceAction, gearActions), editorPane).apply {
-      border = JBUI.Borders.emptyBottom(5)
-      isOpaque = false
+    val corner = toolbarComponent(DefaultActionGroup(editSourceAction, gearActions), editorPane).apply {
+      border = JBUI.Borders.empty(0, 0, contentOuterPadding - 3, contentOuterPadding - 3)
     }
-    component = DocumentationPopupPane(ui.scrollPane).also {
-      it.add(scrollPaneWithCorner(this, ui.scrollPane, corner), BorderLayout.CENTER)
+    ui.trackDocumentationBackgroundChange(this) {
+      corner.background = it
     }
-    ui.switcherToolbarComponent?.let { component.add(ui.switcherToolbarComponent, BorderLayout.NORTH) }
+    component = DocumentationPopupPane(ui.scrollPane).also { pane ->
+      pane.add(scrollPaneWithCorner(this, ui.scrollPane, corner), BorderLayout.CENTER)
+      pane.add(ui.switcherToolbarComponent, BorderLayout.NORTH)
+      updatePaddings(corner)
+      corner.addComponentListener(object : ComponentAdapter() {
+        override fun componentResized(e: ComponentEvent?) {
+          updatePaddings(corner)
+          popupUpdateFlow.tryEmit("toolbar size change")
+        }
+      })
+    }
 
     openInToolwindowAction.registerCustomShortcutSet(component, this)
     coroutineScope.launch {
@@ -135,8 +153,27 @@ internal class DocumentationPopupUI(
     }
   }
 
+  private fun updatePaddings(toolbar: JComponent) {
+    ui.locationLabel.border = JBUI.Borders.empty(
+      2, 2 + contentOuterPadding + contentInnerPadding,
+      2 + contentOuterPadding, 2 + (toolbar.width / JBUIScale.scale(1f)).toInt())
+    val editorPreferredSize = ui.editorPane.preferredSize
+    val viewPanel = ui.scrollPane.viewport.view as JPanel
+    if (editorPreferredSize.height < toolbar.height * 2
+        && !ui.locationLabel.isVisible
+        && editorPreferredSize.width + toolbar.width > JBUIScale.scale(DocumentationHtmlUtil.docPopupMinWidth)
+    ) {
+      viewPanel.border = JBUI.Borders.empty(
+        0, 0, 0, (toolbar.width / JBUIScale.scale(1f)).toInt() - contentOuterPadding - contentInnerPadding - 10)
+    }
+    else {
+      viewPanel.border = JBUI.Borders.empty()
+    }
+  }
+
   private fun detachUI(): DocumentationUI {
     EDT.assertIsEdt()
+    browser.clearCloseTrigger()
     val ui = ui
     _ui = null
     return ui

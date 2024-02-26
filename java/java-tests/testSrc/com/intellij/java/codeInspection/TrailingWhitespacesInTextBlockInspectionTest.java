@@ -12,6 +12,7 @@ public class TrailingWhitespacesInTextBlockInspectionTest extends LightJavaInspe
 
   public void testBadTextBlock() { doTest(); }
   public void testBlankLine() { doTestAll(); }
+  public void testEmptyLine() { doTestEscape(); }
   public void testEmptyLastLine() { doTestAll(); }
   public void testOneLineBlock() { doTestAll(); }
   public void testReplaceAtTheEnd() { doTestEscape(); }
@@ -21,6 +22,7 @@ public class TrailingWhitespacesInTextBlockInspectionTest extends LightJavaInspe
   public void testStringTemplate4Java21Preview() { doTestEscape(); }
   public void testStringTemplate5() { doTest(); }
   public void testStringTemplate6() { doTestAll(); }
+  public void testStringTemplateOneLine() { doTestAll(); }
   public void testTrailingSpaces() { doTestAll(); }
   public void testTrailingTabs() { doTestEscape(); }
   public void testWithBlankLines() { doTestAll(); }

@@ -5,6 +5,7 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.ex.MarkupModelEx;
+import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
 import com.intellij.openapi.editor.markup.HighlighterLayer;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
@@ -14,6 +15,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.util.Processor;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,15 +28,15 @@ import static org.jetbrains.annotations.ApiStatus.Internal;
  * Represents a storage of sticky lines.
  */
 @Internal
-final class StickyLinesModel {
-
+public final class StickyLinesModel {
+  private static final Key<String> STICKY_LINE_SOURCE = Key.create("editor.sticky.lines.source");
   private static final Key<StickyLinesModel> STICKY_LINES_MODEL_KEY = Key.create("editor.sticky.lines.model");
   private static final Key<StickyLineImpl> STICKY_LINE_IMPL_KEY = Key.create("editor.sticky.line.impl");
   private static final TextAttributesKey STICKY_LINE_ATTRIBUTE = TextAttributesKey.createTextAttributesKey(
     "STICKY_LINE_MARKER"
   );
 
-  static @Nullable StickyLinesModel getModel(@NotNull Project project, @NotNull Document document) {
+  public static @Nullable StickyLinesModel getModel(@NotNull Project project, @NotNull Document document) {
     if (project.isDisposed()) return null;
     MarkupModel markupModel = DocumentMarkupModel.forDocument(document, project, false);
     if (markupModel == null) return null;
@@ -58,7 +60,8 @@ final class StickyLinesModel {
     myListeners = new ArrayList<>();
   }
 
-  void addStickyLine(int textOffset, int endOffset, @Nullable String debugText) {
+
+  public @NotNull StickyLine addStickyLine(@NotNull String source, int textOffset, int endOffset, @Nullable String debugText) {
     if (textOffset >= endOffset) {
       throw new IllegalArgumentException(String.format(
         "sticky line endOffset %s should be less than textOffset %s", textOffset, endOffset
@@ -73,26 +76,33 @@ final class StickyLinesModel {
     );
     StickyLineImpl stickyLine = new StickyLineImpl(highlighter.getDocument(), highlighter, debugText);
     highlighter.putUserData(STICKY_LINE_IMPL_KEY, stickyLine);
+    highlighter.putUserData(STICKY_LINE_SOURCE, source);
+    return stickyLine;
   }
 
-  void removeStickyLine(@NotNull StickyLine stickyLine) {
+  public void removeStickyLine(@NotNull StickyLine stickyLine) {
     RangeMarker rangeMarker = ((StickyLineImpl)stickyLine).rangeMarker();
     myMarkupModel.removeHighlighter((RangeHighlighter) rangeMarker);
   }
 
-  void processStickyLines(@NotNull Processor<? super StickyLine> processor) {
-    processStickyLines(myMarkupModel.getDocument().getTextLength(), processor);
+  void processStickyLines(int endOffset, @NotNull Processor<? super StickyLine> processor) {
+    processStickyLines(null, endOffset, processor);
   }
 
-  void processStickyLines(int endOffset, @NotNull Processor<? super StickyLine> processor) {
+  public void processStickyLines(@Nullable String source, @NotNull Processor<? super StickyLine> processor) {
+    processStickyLines(source, myMarkupModel.getDocument().getTextLength(), processor);
+  }
+
+  private void processStickyLines(@Nullable String source, int endOffset, @NotNull Processor<? super StickyLine> processor) {
     myMarkupModel.processRangeHighlightersOverlappingWith(
       0,
       endOffset,
       highlighter -> {
-        if (highlighter.getTextAttributesKey() == STICKY_LINE_ATTRIBUTE) {
+        if (STICKY_LINE_ATTRIBUTE.equals(highlighter.getTextAttributesKey()) && isSuitableSource(highlighter, source)) {
           StickyLineImpl stickyLine = highlighter.getUserData(STICKY_LINE_IMPL_KEY);
           if (stickyLine == null) {
-            stickyLine = new StickyLineImpl(highlighter.getDocument(), highlighter, null);
+            // probably it is a zombie highlighter
+            stickyLine = new StickyLineImpl(highlighter.getDocument(), highlighter, "StickyZombie");
           }
           return processor.process(stickyLine);
         } else {
@@ -100,6 +110,10 @@ final class StickyLinesModel {
         }
       }
     );
+  }
+
+  private static boolean isSuitableSource(RangeHighlighterEx highlighter, @Nullable String source) {
+    return source == null || source.equals(highlighter.getUserData(STICKY_LINE_SOURCE));
   }
 
   interface Listener {
@@ -114,7 +128,8 @@ final class StickyLinesModel {
     myListeners.remove(listener);
   }
 
-  void notifyListeners() {
+  @RequiresEdt
+  public void notifyListeners() {
     for (Listener listener : myListeners) {
       listener.modelChanged();
     }

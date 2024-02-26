@@ -1,9 +1,6 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.ide.startup.importSettings.vscode.parsers
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.intellij.ide.startup.importSettings.transfer.backend.providers.vscode.parsers
 
-import com.fasterxml.jackson.core.JsonFactory
-import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ArrayNode
 import com.fasterxml.jackson.databind.node.JsonNodeType
 import com.fasterxml.jackson.databind.node.ObjectNode
@@ -13,38 +10,53 @@ import com.intellij.ide.startup.importSettings.db.KnownLafs
 import com.intellij.ide.startup.importSettings.models.RecentPathInfo
 import com.intellij.ide.startup.importSettings.models.Settings
 import com.intellij.ide.startup.importSettings.providers.vscode.mappings.ThemesMappings
+import com.intellij.ide.startup.importSettings.transfer.ExternalProjectImportChecker
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.util.SystemInfo
-import com.intellij.openapi.util.registry.Registry
 import java.io.File
 import java.net.URI
 import java.nio.file.Path
 import kotlin.io.path.absolutePathString
-import kotlin.io.path.exists
 
 class StorageParser(private val settings: Settings) {
-  private val logger = logger<StorageParser>()
 
   companion object {
     private const val OPENED_PATHS = "openedPathsList"
-    private const val WORKSPACES = "workspaces"
-    private const val WORKSPACES_2 = "${WORKSPACES}2"
-    private const val WORKSPACES_3 = "${WORKSPACES}3"
     private const val THEME = "theme"
 
-    internal fun parsePath(uri: String): RecentPathInfo? {
-      val path = Path.of(URI(uri)) ?: return null
+    internal fun parsePath(uri: URI): RecentPathInfo? {
+      fun fromWslPath(uriInternal: String): Path? {
+        if (!SystemInfo.isWindows) return null
+        val wslRelativePath = uriInternal.removePrefix("//wsl+")
+        return Path.of("\\\\wsl.localhost\\" + wslRelativePath.replace('/', '\\'))
+      }
+
+      val path = when (uri.scheme) {
+                   "file" -> Path.of(uri)
+                   "vscode-remote" -> fromWslPath(uri.schemeSpecificPart)
+                   else -> {
+                     logger.warn("Unknown scheme: ${uri.scheme}")
+                     null
+                   }
+                 } ?: return null
+
       val modifiedTime = path.toFile().listFiles()?.maxByOrNull { it.lastModified() }?.lastModified()
 
       val info = RecentProjectMetaInfo().apply {
         projectOpenTimestamp = modifiedTime ?: 0
         buildTimestamp = projectOpenTimestamp
-        displayName = path.fileName.toString()
+        displayName = path.fileName?.toString() ?: path.toString()
       }
 
-      if (Registry.`is`("transferSettings.vscode.onlyCargoToml")) {
-        if (!path.resolve("Cargo.toml").exists()) {
-          return null
+      for (checker in ExternalProjectImportChecker.EP_NAME.extensionList) {
+        val shouldImport = logger.runAndLogException {
+          checker.shouldImportProject(path)
+        }
+        when (shouldImport) {
+          true -> break
+          false -> return null
+          null -> {}
         }
       }
 
@@ -66,7 +78,7 @@ class StorageParser(private val settings: Settings) {
   fun process(file: File): Unit = try {
     logger.info("Processing a storage file: $file")
 
-    val root = ObjectMapper(JsonFactory().enable(JsonParser.Feature.ALLOW_COMMENTS)).readTree(file) as? ObjectNode
+    val root = vsCodeJsonMapper.readTree(file) as? ObjectNode
                ?: error("Unexpected JSON data; expected: ${JsonNodeType.OBJECT}")
 
     processRecentProjects(root)
@@ -94,17 +106,11 @@ class StorageParser(private val settings: Settings) {
       }
 
       val workspaces = if (!workspacesNew.isNullOrEmpty()) workspacesNew else workspacesOld ?: return
-
-      workspaces.forEach { uri ->
-        try {
-          val res = parsePath(uri)
-          if (res != null) {
-            settings.recentProjects.add(res)
-          }
-        }
-        catch (t: Throwable) {
-          logger.warn(t)
-        }
+      for (uri in workspaces) {
+        val shouldBreak = logger.runAndLogException {
+          !settings.addRecentProjectIfNeeded { parsePath(URI(uri)) }
+        } ?: false
+        if (shouldBreak) break
       }
     }
     catch (t: Throwable) {
@@ -130,3 +136,5 @@ class StorageParser(private val settings: Settings) {
     }
   }
 }
+
+private val logger = logger<StorageParser>()

@@ -9,7 +9,7 @@ import com.intellij.ide.wizard.NewProjectWizardBaseData.Companion.baseData
 import com.intellij.ide.wizard.NewProjectWizardStep
 import com.intellij.java.library.getMavenCoordinates
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.impl.RwLockHolder.runWriteAction
+import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkProvider
 import com.intellij.openapi.externalSystem.util.runWriteActionAndWait
 import com.intellij.openapi.module.Module
@@ -28,6 +28,7 @@ import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.withValue
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.assertEqualsToFile
 import com.intellij.testFramework.common.runAll
 import com.intellij.testFramework.useProject
@@ -46,11 +47,7 @@ import org.jetbrains.kotlin.idea.base.test.TestRoot
 import org.jetbrains.kotlin.idea.compiler.configuration.IdeKotlinVersion
 import org.jetbrains.kotlin.idea.compiler.configuration.Kotlin2JvmCompilerArgumentsHolder
 import org.jetbrains.kotlin.idea.compiler.configuration.KotlinCommonCompilerArgumentsHolder
-import org.jetbrains.kotlin.idea.formatter.KotlinObsoleteCodeStyle
-import org.jetbrains.kotlin.idea.formatter.KotlinObsoleteStyleGuide
-import org.jetbrains.kotlin.idea.formatter.KotlinOfficialStyleGuide
-import org.jetbrains.kotlin.idea.formatter.ProjectCodeStyleImporter
-import org.jetbrains.kotlin.idea.formatter.kotlinCodeStyleDefaults
+import org.jetbrains.kotlin.idea.formatter.*
 import org.jetbrains.kotlin.idea.framework.KotlinSdkType
 import org.jetbrains.kotlin.idea.test.TestMetadataUtil.getTestRoot
 import org.jetbrains.kotlin.idea.test.addDependency
@@ -122,6 +119,7 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
             jdkTable.addJdk(mySdk, testDisposable)
             jdkTable.addJdk(otherSdk, testDisposable)
         }
+        IndexingTestUtil.waitUntilIndexesAreReady(project)
     }
 
     override fun tearDown() {
@@ -390,6 +388,7 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
     fun testSimpleNewModule() {
         createProjectWithData().useProject { project ->
             project.createModuleWithData("module", "project", useCompactProjectStructure = false)
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
             project.assertHasKotlinJavaRuntime()
             project.assertHasOfficialCodeStyle()
             assertCorrectContent()
@@ -403,6 +402,7 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
     fun testSimpleNewModuleCompact() {
         createProjectWithData().useProject { project ->
             project.createModuleWithData("module", "project", useCompactProjectStructure = true)
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
             project.assertHasKotlinJavaRuntime()
             project.assertHasOfficialCodeStyle()
             project.checkKotlinSettings()
@@ -416,6 +416,7 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
     fun testNewModuleSampleCode() {
         createProjectWithData().useProject { project ->
             project.createModuleWithData("module", "project", addSampleCode = true)
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
             project.assertHasKotlinJavaRuntime()
             project.assertHasOfficialCodeStyle()
             project.checkKotlinSettings()
@@ -451,7 +452,7 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
     }
 
     private fun Project.createKotlinLibrary(libraryName: String = "SomeOtherRuntimeName", addToModule: String?) {
-        runWriteAction {
+        WriteAction.run<Throwable> {
             val libraryTable = LibraryTablesRegistrar.getInstance().getLibraryTable(this).modifiableModel
             val newLibrary = libraryTable.createLibrary(libraryName)
             libraryTable.commit()
@@ -478,8 +479,10 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
     fun testNewModuleSingleOtherRuntime() {
         createJavaProject().useProject { project ->
             project.createKotlinLibrary(addToModule = "project")
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
             project.assertDoesNotHaveKotlinJavaRuntime()
             project.createModuleWithData("module", "project")
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
             project.assertHasOfficialCodeStyle()
             project.assertDoesNotHaveKotlinJavaRuntime()
             assertModules(project, "project", "module")
@@ -491,6 +494,7 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
         createJavaProject().useProject { project ->
             project.createKotlinLibrary(libraryName = "SomeOtherRuntimeName", addToModule = "project")
             project.createKotlinLibrary(libraryName = "SecondLibrary", addToModule = "project")
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
             project.assertDoesNotHaveKotlinJavaRuntime()
             UiInterceptors.register(object : UiInterceptor<StdlibVersionChooserDialog>(StdlibVersionChooserDialog::class.java) {
                 override fun doIntercept(dialog: StdlibVersionChooserDialog) {
@@ -502,6 +506,7 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
             })
             try {
                 project.createModuleWithData("module", "project")
+                IndexingTestUtil.waitUntilIndexesAreReady(project)
                 project.assertHasOfficialCodeStyle()
             } finally {
                 UiInterceptors.clear()
@@ -511,7 +516,7 @@ class IntelliJKotlinNewProjectWizardTest : NewProjectWizardTestCase() {
 
     fun testNewModuleExistingModuleLevelKotlinLibrary() {
         createJavaProject().useProject { project ->
-            runWriteAction {
+            WriteAction.run<Throwable> {
                 val modifiableModel = ModuleRootManager.getInstance(project.modules.first()).modifiableModel
                 val moduleLibraryTable = modifiableModel.moduleLibraryTable
                 val library = moduleLibraryTable.createLibrary("ModuleLevelLib")

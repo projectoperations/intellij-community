@@ -62,6 +62,8 @@ import static java.util.stream.Collectors.toList;
 
 public final class TreeUtil {
   public static final TreePath[] EMPTY_TREE_PATH = new TreePath[0];
+  @ApiStatus.Internal
+  public static final Key<Boolean> TREE_IS_BUSY = Key.create("Tree is busy doing an async operation");
   private static final Logger LOG = Logger.getInstance(TreeUtil.class);
   private static final String TREE_UTIL_SCROLL_TIME_STAMP = "TreeUtil.scrollTimeStamp";
   private static final JBIterable<Integer> NUMBERS = JBIterable.generate(0, i -> i + 1);
@@ -705,6 +707,7 @@ public final class TreeUtil {
     Object property = tree.getClientProperty(TREE_UTIL_SCROLL_TIME_STAMP);
     long stamp = property instanceof Long ? (Long)property + 1L : Long.MIN_VALUE;
     tree.putClientProperty(TREE_UTIL_SCROLL_TIME_STAMP, stamp);
+    ClientProperty.put(tree, TREE_IS_BUSY, true);
     // store relative offset because the row can be moved during the tree updating
     int offset = rowBounds.y - bounds.y;
 
@@ -730,6 +733,7 @@ public final class TreeUtil {
           }
         }
       }
+      ClientProperty.remove(tree, TREE_IS_BUSY);
       done.run();
     };
     SwingUtilities.invokeLater(scroll);
@@ -877,8 +881,24 @@ public final class TreeUtil {
     internalSelect(tree, normalize(leadSelectionPath, minCount, keepSelectionLevel));
   }
 
-  private static void collapsePaths(@NotNull JTree tree, @Nullable List<TreePath> paths) {
-    if (paths == null || paths.isEmpty()) {
+  public static boolean isBulkExpandCollapseSupported(@NotNull JTree tree) {
+    return Tree.isBulkExpandCollapseSupported() && tree instanceof Tree;
+  }
+
+  public static void expandPaths(@NotNull JTree tree, @Nullable Iterable<TreePath> paths) {
+    if (paths == null) {
+      return;
+    }
+    if (Tree.isBulkExpandCollapseSupported() && tree instanceof Tree jbTree) {
+      jbTree.expandPaths(paths);
+    }
+    else {
+      paths.forEach(tree::expandPath);
+    }
+  }
+
+  public static void collapsePaths(@NotNull JTree tree, @Nullable Iterable<TreePath> paths) {
+    if (paths == null) {
       return;
     }
     if (Tree.isBulkExpandCollapseSupported() && tree instanceof Tree jbTree) {
@@ -1014,6 +1034,11 @@ public final class TreeUtil {
    * @return a promise that will be succeeded when all needed nodes are expanded
    */
   public static @NotNull Promise<?> promiseExpand(@NotNull JTree tree, int depth) {
+    return promiseExpand(tree, depth, path -> depth < Integer.MAX_VALUE || isIncludedInExpandAll(path));
+  }
+
+  @ApiStatus.Internal
+  public static @NotNull Promise<?> promiseExpand(@NotNull JTree tree, int depth, @NotNull Predicate<@NotNull TreePath> predicate) {
     AsyncPromise<?> promise = new AsyncPromise<>();
     promiseMakeVisible(tree, new TreeVisitor() {
       @Override
@@ -1023,7 +1048,11 @@ public final class TreeUtil {
 
       @Override
       public @NotNull Action visit(@NotNull TreePath path) {
-        return depth < path.getPathCount() ? TreeVisitor.Action.SKIP_SIBLINGS : TreeVisitor.Action.CONTINUE;
+        return depth < path.getPathCount()
+               ? TreeVisitor.Action.SKIP_SIBLINGS
+               : predicate.test(path)
+               ? TreeVisitor.Action.CONTINUE
+               : TreeVisitor.Action.SKIP_CHILDREN;
       }
     }, promise)
       .onError(promise::setError)
@@ -1032,6 +1061,16 @@ public final class TreeUtil {
         promise.setResult(null);
       });
     return promise;
+  }
+
+  private static boolean isIncludedInExpandAll(@NotNull TreePath path) {
+    var value = getLastUserObject(path);
+    if (value instanceof AbstractTreeNode<?> node) {
+      return node.isIncludedInExpandAll();
+    }
+    else {
+      return true;
+    }
   }
 
   public static @NotNull ActionCallback selectInTree(DefaultMutableTreeNode node, boolean requestFocus, @NotNull JTree tree) {
@@ -1457,7 +1496,7 @@ public final class TreeUtil {
    * @return a promise that will be succeeded only if paths are found and expanded
    */
   public static @NotNull Promise<List<TreePath>> promiseExpand(@NotNull JTree tree, @NotNull Stream<? extends TreeVisitor> visitors) {
-    return promiseMakeVisibleAll(tree, visitors, paths -> paths.forEach(path -> expandPathWithDebug(tree, path)));
+    return promiseMakeVisibleAll(tree, visitors, paths -> expandPaths(tree, paths));
   }
 
   /**
@@ -1571,13 +1610,23 @@ public final class TreeUtil {
   }
 
   private static @NotNull Promise<TreePath> promiseMakeVisible(@NotNull JTree tree, @NotNull TreeVisitor visitor, @NotNull AsyncPromise<?> promise) {
-    return promiseVisit(tree, new MakeVisibleVisitor(tree, visitor, promise));
+    MakeVisibleVisitor makeVisibleVisitor =
+      !(tree.getModel() instanceof TreeVisitor.Acceptor) && Tree.isBulkExpandCollapseSupported()
+      ? new BulkMakeVisibleVisitor(tree, visitor, promise)
+      : new BackgroundMakeVisibleVisitor(tree, visitor, promise);
+    if (tree instanceof Tree jbTree) {
+      jbTree.suspendExpandCollapseAccessibilityAnnouncements();
+    }
+    return promiseVisit(tree, makeVisibleVisitor).onProcessed(path -> {
+      makeVisibleVisitor.finish();
+    });
   }
 
-  private static class MakeVisibleVisitor extends DelegatingEdtBgtTreeVisitor {
+  private abstract static class MakeVisibleVisitor extends DelegatingEdtBgtTreeVisitor {
 
-    private final JTree tree;
-    private final @NotNull AsyncPromise<?> promise;
+    protected final JTree tree;
+    protected final @NotNull AsyncPromise<?> promise;
+    private final @NotNull Set<@NotNull TreePath> expandRoots = new LinkedHashSet<>();
 
     private MakeVisibleVisitor(@NotNull JTree tree, @NotNull TreeVisitor delegate, @NotNull AsyncPromise<?> promise) {
       super(delegate);
@@ -1593,17 +1642,99 @@ public final class TreeUtil {
     @Override
     public @NotNull Action postVisitEDT(@NotNull TreePath path, @NotNull TreeVisitor.Action action) {
       if (action == TreeVisitor.Action.CONTINUE || action == TreeVisitor.Action.INTERRUPT) {
-        // do not expand children if parent path is collapsed
-        if (!tree.isVisible(path)) {
-          if (!promise.isCancelled()) {
-            if (LOG.isTraceEnabled()) LOG.debug("tree expand canceled");
-            promise.cancel();
-          }
+        if (checkCancelled(path)) {
           return TreeVisitor.Action.SKIP_SIBLINGS;
         }
-        if (action == TreeVisitor.Action.CONTINUE) expandPathWithDebug(tree, path);
+        var model = tree.getModel();
+        if (action == TreeVisitor.Action.CONTINUE && model != null && !model.isLeaf(path.getLastPathComponent()) && !tree.isExpanded(path)) {
+          if (!isUnderExpandRoot(path)) {
+            expandRoots.add(path);
+          }
+          doExpand(path);
+        }
       }
       return action;
+    }
+    
+    protected abstract boolean checkCancelled(@NotNull TreePath path);
+
+    protected abstract void doExpand(@NotNull TreePath path);
+
+    private boolean isUnderExpandRoot(@NotNull TreePath path) {
+      var parent = path.getParentPath();
+      while (parent != null) {
+        if (expandRoots.contains(parent)) {
+          return true;
+        }
+        parent = parent.getParentPath();
+      }
+      return false;
+    }
+
+    final void finish() {
+      finishExpanding();
+      announceExpanded();
+    }
+
+    void finishExpanding() { }
+
+    void announceExpanded() {
+      if (tree instanceof Tree jbTree) {
+        jbTree.resumeExpandCollapseAccessibilityAnnouncements();
+        for (TreePath expandRoot : expandRoots) {
+          jbTree.fireAccessibleTreeExpanded(expandRoot);
+        }
+      }
+    }
+  }
+
+  private static class BackgroundMakeVisibleVisitor extends MakeVisibleVisitor {
+
+    private BackgroundMakeVisibleVisitor(@NotNull JTree tree, @NotNull TreeVisitor delegate, @NotNull AsyncPromise<?> promise) {
+      super(tree, delegate, promise);
+    }
+
+    @Override
+    protected boolean checkCancelled(@NotNull TreePath path) {
+      if (tree.isVisible(path)) {
+        return false;
+      }
+      else {
+        if (!promise.isCancelled()) {
+          if (LOG.isTraceEnabled()) LOG.debug("tree expand canceled");
+          promise.cancel();
+        }
+        return true;
+      }
+    }
+
+    @Override
+    protected void doExpand(@NotNull TreePath path) {
+      expandPathWithDebug(tree, path);
+    }
+  }
+
+  private static class BulkMakeVisibleVisitor extends MakeVisibleVisitor {
+
+    private final @NotNull List<@NotNull TreePath> pathsToExpand = new ArrayList<>();
+
+    private BulkMakeVisibleVisitor(@NotNull JTree tree, @NotNull TreeVisitor delegate, @NotNull AsyncPromise<?> promise) {
+      super(tree, delegate, promise);
+    }
+
+    @Override
+    protected boolean checkCancelled(@NotNull TreePath path) {
+      return false; // bulk expand is performed in a single non-cancelable operation
+    }
+
+    @Override
+    protected void doExpand(@NotNull TreePath path) {
+      pathsToExpand.add(path);
+    }
+
+    @Override
+    void finishExpanding() {
+      expandPaths(tree, pathsToExpand);
     }
   }
 
@@ -1680,9 +1811,11 @@ public final class TreeUtil {
     // try to scroll later when the tree is ready
     long stamp = 1L + getScrollTimeStamp(tree);
     tree.putClientProperty(TREE_UTIL_SCROLL_TIME_STAMP, stamp);
+    ClientProperty.put(tree, TREE_IS_BUSY, true);
     EdtScheduledExecutorService.getInstance().schedule(() -> {
       Rectangle boundsLater = stamp != getScrollTimeStamp(tree) ? null : tree.getPathBounds(path);
       if (boundsLater != null) internalScroll(tree, boundsLater, centered);
+      ClientProperty.remove(tree, TREE_IS_BUSY);
     }, 5, MILLISECONDS);
     return true;
   }

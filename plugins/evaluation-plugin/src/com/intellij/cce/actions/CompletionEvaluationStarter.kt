@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.cce.actions
 
 import com.github.ajalt.clikt.core.BadParameterValue
@@ -19,10 +19,9 @@ import com.intellij.cce.util.ExceptionsUtil.stackTraceToString
 import com.intellij.cce.workspace.ConfigFactory
 import com.intellij.cce.workspace.EvaluationWorkspace
 import com.intellij.openapi.application.ApplicationStarter
-import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
-import java.io.File
+import com.intellij.warmup.util.importOrOpenProject
+import java.nio.file.FileSystems
 import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.exists
@@ -38,8 +37,15 @@ internal class CompletionEvaluationStarter : ApplicationStarter {
 
   override fun main(args: List<String>) {
     MainEvaluationCommand()
-      .subcommands(FullCommand(), GenerateActionsCommand(), CustomCommand(),
-                   MultipleEvaluations(), CompareEvaluationsInDirectory(), MergeEvaluations())
+      .subcommands(
+        FullCommand(),
+        GenerateActionsCommand(),
+        CustomCommand(),
+        MultipleEvaluations(),
+        CompareEvaluationsInDirectory(),
+        MergeEvaluations(),
+        ContextCollectionEvaluationCommand()
+      )
       .main(args.toList().subList(1, args.size))
   }
 
@@ -58,32 +64,23 @@ internal class CompletionEvaluationStarter : ApplicationStarter {
     }
 
     protected fun loadAndApply(projectPath: String, action: (Project) -> Unit) {
-      val parentDisposable = Disposer.newDisposable()
       val project: Project?
 
       try {
         println("Open and load project $projectPath. Operation may take a few minutes.")
-        project = runBlockingCancellable {
-          ProjectOpeningUtils.openProject(
-            File(projectPath).toPath(),
-            parentDisposable,
-          )
-        }
+        @Suppress("SSBasedInspection")
+        project = importOrOpenProject(OpenProjectArgsData(FileSystems.getDefault().getPath(projectPath)))
         println("Project loaded!")
 
         try {
           action(project)
         }
         catch (exception: Exception) {
-          throw RuntimeException("Failed to run actions on the project: $exception")
+          throw RuntimeException("Failed to run actions on the project: $exception", exception)
         }
       }
-      catch (exception: Exception) {
-        fatalError("Project could not be loaded or processed: $exception")
-      }
-      finally {
-        // Closes the project even if it is not fully opened, but started to
-        Disposer.dispose(parentDisposable)
+      catch (e: Exception) {
+        fatalError("Project could not be loaded or processed: $e. StackTrace: ${stackTraceToString(e)}")
       }
     }
 
@@ -172,13 +169,15 @@ internal class CompletionEvaluationStarter : ApplicationStarter {
         val process = EvaluationProcess.build({
                                                 shouldGenerateReports = true
                                               },
-                                              BackgroundStepFactory(feature, config, project, workspacesToCompare, EvaluationRootInfo(true)))
+                                              BackgroundStepFactory(feature, config, project, workspacesToCompare,
+                                                                    EvaluationRootInfo(true)))
         process.startAsync(outputWorkspace)
       }
     }
   }
 
-  class MultipleEvaluations : MultipleEvaluationsBase(name = "multiple-evaluations", help = "Generate comparing report by multiple evaluations") {
+  class MultipleEvaluations : MultipleEvaluationsBase(name = "multiple-evaluations",
+                                                      help = "Generate comparing report by multiple evaluations") {
     private val workspacesArg by argument(name = "workspaces", help = "List of workspaces").multiple()
 
     override fun getWorkspaces(): List<String> = workspacesArg

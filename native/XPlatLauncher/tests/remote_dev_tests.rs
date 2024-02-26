@@ -5,7 +5,9 @@ pub mod utils;
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::path::Path;
+    use std::fs;
+    use std::fs::File;
+    use std::path::PathBuf;
     use crate::utils::*;
 
     #[test]
@@ -49,14 +51,6 @@ mod tests {
     }
 
     #[test]
-    fn remote_dev_known_command_with_project_path_test_1() {
-        let env = HashMap::from([("REMOTE_DEV_LEGACY_PER_PROJECT_CONFIGS", "1")]);
-        let output = run_launcher(LauncherRunSpec::remote_dev().with_args(&["run"]).with_env(&env)).stdout;
-
-        assert!(output.contains("Usage: ./remote-dev-server [ij_command_name] [/path/to/project] [arguments...]"));
-    }
-
-    #[test]
     fn remote_dev_known_command_with_project_path_test_2() {
         let output = run_launcher(LauncherRunSpec::remote_dev().with_args(&["run"])).stdout;
 
@@ -78,23 +72,6 @@ mod tests {
     }
 
     #[test]
-    fn remote_dev_new_ui_test() {
-        let test = prepare_test_env(LauncherLocation::RemoteDev);
-
-        // When starting the Launcher, we set this variable always with the value projectDir. For the test, we overwrite it with a non-existent directory
-        let fake_config_dir_path: &Path = &test.project_dir.join("fakeDir");
-
-        let env = HashMap::from([
-            ("IJ_HOST_CONFIG_DIR", fake_config_dir_path.to_str().unwrap()),
-            ("REMOTE_DEV_LEGACY_PER_PROJECT_CONFIGS", "1"),
-        ]);
-        let remote_dev_command = &["run", &test.project_dir.display().to_string()];
-        let output = run_launcher_ext(&test, LauncherRunSpec::remote_dev().with_args(remote_dev_command).with_env(&env)).stdout;
-
-        assert!(output.contains("Config folder does not exist, considering this the first launch. Will launch with New UI as default"));
-    }
-
-    #[test]
     fn remote_dev_new_ui_test1() {
         let test = prepare_test_env(LauncherLocation::RemoteDev);
         let env = HashMap::from([("REMOTE_DEV_NEW_UI_ENABLED", "1")]);
@@ -107,9 +84,8 @@ mod tests {
     #[test]
     fn remote_dev_new_ui_test_shared_configs() {
         let test = prepare_test_env(LauncherLocation::RemoteDev);
-        let env = HashMap::from([("REMOTE_DEV_LEGACY_PER_PROJECT_CONFIGS", "0")]);
         let remote_dev_command = &["run", &test.project_dir.display().to_string()];
-        let output = run_launcher_ext(&test, LauncherRunSpec::remote_dev().with_args(remote_dev_command).with_env(&env)).stdout;
+        let output = run_launcher_ext(&test, LauncherRunSpec::remote_dev().with_args(remote_dev_command)).stdout;
 
         assert!(!output.contains("Config folder does not exist, considering this the first launch. Will launch with New UI as default"));
     }
@@ -122,5 +98,38 @@ mod tests {
         let output = run_launcher_ext(&test, LauncherRunSpec::remote_dev().with_args(remote_dev_command).with_env(&env)).stdout;
 
         assert!(output.contains("JCEF support is disabled. Set REMOTE_DEV_SERVER_JCEF_ENABLED=true to enable"));
+    }
+
+    fn prepare_font_config_dir(dist_root: &PathBuf) {
+        let font_config_root = dist_root.join("plugins/remote-dev-server/selfcontained/fontconfig");
+        fs::create_dir_all(&font_config_root).unwrap();
+        fs::create_dir_all(font_config_root.join("fonts")).unwrap();
+        File::create(font_config_root.join("fonts.conf")).unwrap();
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn remote_dev_font_config_added_test() {
+        let test = prepare_test_env(LauncherLocation::RemoteDev);
+        prepare_font_config_dir(&test.dist_root);
+        let remote_dev_command = &["printEnvVar", "FONTCONFIG_PATH"];
+        let launch_result = run_launcher_ext(&test, LauncherRunSpec::remote_dev().with_args(remote_dev_command));
+        let output = launch_result.stdout;
+
+        let expected_output = format!("FONTCONFIG_PATH={}/jbrd-fontconfig-", std::env::temp_dir().to_string_lossy());
+        assert!(output.contains(&expected_output));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn remote_dev_font_config_preserved_test() {
+        let test = prepare_test_env(LauncherLocation::RemoteDev);
+        let env = HashMap::from([("FONTCONFIG_PATH", "/some/existing/path")]);
+        prepare_font_config_dir(&test.dist_root);
+        let remote_dev_command = &["printEnvVar", "FONTCONFIG_PATH"];
+        let output = run_launcher_ext(&test, LauncherRunSpec::remote_dev().with_env(&env).with_args(remote_dev_command)).stdout;
+
+        let expected_output = format!("FONTCONFIG_PATH=/some/existing/path:{}/jbrd-fontconfig-", std::env::temp_dir().to_string_lossy());
+        assert!(output.contains(&expected_output));
     }
 }

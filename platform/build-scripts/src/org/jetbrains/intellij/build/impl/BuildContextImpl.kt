@@ -3,6 +3,7 @@
 
 package org.jetbrains.intellij.build.impl
 
+import com.dynatrace.hash4j.hashing.HashStream64
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.util.containers.with
 import io.opentelemetry.api.common.AttributeKey
@@ -10,10 +11,12 @@ import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot
+import org.jetbrains.intellij.build.jarCache.JarCacheManager
+import org.jetbrains.intellij.build.jarCache.LocalDiskJarCacheManager
+import org.jetbrains.intellij.build.jarCache.NonCachingJarCacheManager
+import org.jetbrains.intellij.build.jarCache.SourceBuilder
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes
 import org.jetbrains.jps.model.java.JavaResourceRootProperties
@@ -23,9 +26,12 @@ import org.jetbrains.jps.model.module.JpsModuleSourceRoot
 import org.jetbrains.jps.util.JpsPathUtil
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.io.path.invariantSeparatorsPathString
 
 class BuildContextImpl(
   private val compilationContext: CompilationContextImpl,
@@ -34,6 +40,11 @@ class BuildContextImpl(
   override val linuxDistributionCustomizer: LinuxDistributionCustomizer?,
   override val macDistributionCustomizer: MacDistributionCustomizer?,
   override val proprietaryBuildTools: ProprietaryBuildTools,
+  override val applicationInfo: ApplicationInfoProperties = ApplicationInfoPropertiesImpl(
+    project = compilationContext.project,
+    productProperties = productProperties,
+    buildOptions = compilationContext.options,
+  ),
 ) : BuildContext, CompilationContext by compilationContext {
   private val distFiles = ConcurrentLinkedQueue<DistFile>()
 
@@ -45,7 +56,19 @@ class BuildContextImpl(
   override val systemSelector: String
     get() = productProperties.getSystemSelector(applicationInfo, buildNumber)
 
-  override val buildNumber: String = options.buildNumber ?: readSnapshotBuildNumber(paths.communityHomeDirRoot)
+  override val buildNumber: String by lazy {
+    val suppliedBuildNumber = options.buildNumber
+    val snapshotBuildNumber = readSnapshotBuildNumber(paths.communityHomeDirRoot)
+    val baseBuildNumber = snapshotBuildNumber.removeSuffix(".SNAPSHOT")
+    if (suppliedBuildNumber != null) {
+      suppliedBuildNumber
+    }
+    else {
+      val buildDate = ZonedDateTime.ofInstant(Instant.ofEpochSecond(options.buildDateInSeconds), ZoneOffset.UTC)
+      // .SNAPSHOT suffix is required for a remote dev + IDE built from sources scenario, IJI-1603
+      "$baseBuildNumber.${pluginDateFormat.format(buildDate)}.SNAPSHOT"
+    }
+  }
 
   override val xBootClassPathJarNames: List<String>
     get() = productProperties.xBootClassPathJarNames
@@ -60,14 +83,15 @@ class BuildContextImpl(
 
   override val generateRuntimeModuleRepository: Boolean
     get() = useModularLoader || isEmbeddedJetBrainsClientEnabled && options.generateRuntimeModuleRepository
-  
-  override val applicationInfo: ApplicationInfoProperties = ApplicationInfoPropertiesImpl(context = this)
+
   private var builtinModulesData: BuiltinModulesFileData? = null
 
   internal val jarCacheManager: JarCacheManager by lazy {
     options.jarCacheDir?.let { LocalDiskJarCacheManager(cacheDir = it, classOutDirectory = classesOutputDirectory) }
     ?: NonCachingJarCacheManager
   }
+
+  internal val jarPackagerDependencyHelper: JarPackagerDependencyHelper by lazy { JarPackagerDependencyHelper(this) }
 
   init {
     @Suppress("DEPRECATION")
@@ -86,33 +110,14 @@ class BuildContextImpl(
   }
 
   companion object {
-    @Suppress("DeprecatedCallableAddReplaceWith")
-    @JvmStatic
-    @JvmOverloads
-    @Deprecated("Use createContext")
-    fun createContextBlocking(communityHome: BuildDependenciesCommunityRoot,
-                              projectHome: Path,
-                              productProperties: ProductProperties,
-                              proprietaryBuildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY,
-                              options: BuildOptions = BuildOptions()): BuildContext {
-      return runBlocking(Dispatchers.Default) {
-        createContext(communityHome = communityHome,
-                      projectHome = projectHome,
-                      productProperties = productProperties,
-                      setupTracer = true,
-                      proprietaryBuildTools = proprietaryBuildTools,
-                      options = options)
-      }
-    }
-
-    suspend fun createContext(communityHome: BuildDependenciesCommunityRoot,
-                              projectHome: Path,
+    suspend fun createContext(
+      projectHome: Path,
                               productProperties: ProductProperties,
                               setupTracer: Boolean = true,
                               proprietaryBuildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY,
-                              options: BuildOptions = BuildOptions()): BuildContext {
+                              options: BuildOptions = BuildOptions(),
+    ): BuildContext {
       val compilationContext = CompilationContextImpl.createCompilationContext(
-        communityHome = communityHome,
         projectHome = projectHome,
         setupTracer = setupTracer,
         buildOutputRootEvaluator = createBuildOutputRootEvaluator(projectHome = projectHome,
@@ -126,20 +131,29 @@ class BuildContextImpl(
                            proprietaryBuildTools = proprietaryBuildTools)
     }
 
-    fun createContext(compilationContext: CompilationContextImpl,
-                      projectHome: Path,
-                      productProperties: ProductProperties,
-                      proprietaryBuildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY): BuildContextImpl {
+    fun createContext(
+      compilationContext: CompilationContextImpl,
+      projectHome: Path,
+      productProperties: ProductProperties,
+      proprietaryBuildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY,
+    ): BuildContextImpl {
       val projectHomeAsString = FileUtilRt.toSystemIndependentName(projectHome.toString())
       val windowsDistributionCustomizer = productProperties.createWindowsCustomizer(projectHomeAsString)
       val linuxDistributionCustomizer = productProperties.createLinuxCustomizer(projectHomeAsString)
       val macDistributionCustomizer = productProperties.createMacCustomizer(projectHomeAsString)
-      return BuildContextImpl(compilationContext = compilationContext,
-                              productProperties = productProperties,
-                              windowsDistributionCustomizer = windowsDistributionCustomizer,
-                              linuxDistributionCustomizer = linuxDistributionCustomizer,
-                              macDistributionCustomizer = macDistributionCustomizer,
-                              proprietaryBuildTools = proprietaryBuildTools)
+      return BuildContextImpl(
+        compilationContext = compilationContext,
+        productProperties = productProperties,
+        windowsDistributionCustomizer = windowsDistributionCustomizer,
+        linuxDistributionCustomizer = linuxDistributionCustomizer,
+        macDistributionCustomizer = macDistributionCustomizer,
+        proprietaryBuildTools = proprietaryBuildTools,
+        applicationInfo = ApplicationInfoPropertiesImpl(
+          project = compilationContext.project,
+          productProperties = productProperties,
+          buildOptions = compilationContext.options,
+        ),
+      )
     }
   }
 
@@ -217,22 +231,47 @@ class BuildContextImpl(
     return shouldBuildDistributions() && options.targetOs.contains(os) && (options.targetArch == null || options.targetArch == arch)
   }
 
-  override fun createCopyForProduct(productProperties: ProductProperties, projectHomeForCustomizers: Path, prepareForBuild: Boolean): BuildContext {
-    val projectHomeForCustomizersAsString = FileUtilRt.toSystemIndependentName(projectHomeForCustomizers.toString())
-    val options = BuildOptions(compressZipFiles = this.options.compressZipFiles)
-    options.useCompiledClassesFromProjectOutput = this.options.useCompiledClassesFromProjectOutput
-    if (this.options.useCompiledClassesFromProjectOutput) {
+  override fun createCopyForProduct(
+    productProperties: ProductProperties,
+    projectHomeForCustomizers: Path,
+    prepareForBuild: Boolean,
+  ): BuildContext {
+    val projectHomeForCustomizersAsString = projectHomeForCustomizers.invariantSeparatorsPathString
+    val sourceOptions = this.options
+    val options = sourceOptions.copy()
+    if (options.useCompiledClassesFromProjectOutput) {
       // compiled classes are already reused
       options.pathToCompiledClassesArchivesMetadata = null
       options.pathToCompiledClassesArchive = null
     }
-    options.buildStepsToSkip = this.options.buildStepsToSkip
-    options.targetArch = this.options.targetArch
-    options.targetOs = this.options.targetOs
+    options.buildStepsToSkip = sourceOptions.buildStepsToSkip
+    options.targetArch = sourceOptions.targetArch
+    options.targetOs = sourceOptions.targetOs
+
+    val newAppInfo = ApplicationInfoPropertiesImpl(project = project, productProperties = productProperties, buildOptions = options)
+
     val compilationContextCopy = compilationContext.createCopy(
       messages = messages,
       options = options,
-      buildOutputRootEvaluator = createBuildOutputRootEvaluator(paths.projectHome, productProperties, options)
+      paths = computeBuildPaths(
+        options = options,
+        project = project,
+        buildOutputRootEvaluator = createBuildOutputRootEvaluator(
+          projectHome = paths.projectHome,
+          productProperties = productProperties,
+          buildOptions = options,
+        ),
+        projectHome = paths.projectHome,
+        artifactPathSupplier = if (prepareForBuild) {
+          {
+            @Suppress("DEPRECATION")
+            paths.artifactDir.resolve(productProperties.productCode ?: newAppInfo.productCode)
+          }
+        }
+        else {
+          null
+        }
+      )
     )
     val copy = BuildContextImpl(
       compilationContext = compilationContextCopy,
@@ -241,11 +280,9 @@ class BuildContextImpl(
       linuxDistributionCustomizer = productProperties.createLinuxCustomizer(projectHomeForCustomizersAsString),
       macDistributionCustomizer = productProperties.createMacCustomizer(projectHomeForCustomizersAsString),
       proprietaryBuildTools = proprietaryBuildTools,
+      applicationInfo = newAppInfo,
     )
     if (prepareForBuild) {
-      @Suppress("DEPRECATION") val productCode = productProperties.productCode
-      copy.paths.artifactDir = paths.artifactDir.resolve(productCode!!)
-      copy.paths.artifacts = "${paths.artifacts}/$productCode"
       copy.compilationContext.prepareForBuild()
     }
     return copy
@@ -296,9 +333,10 @@ class BuildContextImpl(
     }
 
     jvmArgs.addAll(productProperties.additionalIdeJvmArguments)
+    jvmArgs.addAll(productProperties.getAdditionalContextDependentIdeJvmArguments(this))
 
     if (productProperties.useSplash) {
-      @Suppress("SpellCheckingInspection")
+      @Suppress("SpellCheckingInspection", "RedundantSuppression")
       jvmArgs.add("-Dsplash=true")
     }
 
@@ -328,15 +366,19 @@ class BuildContextImpl(
         override val useCacheAsTargetFile: Boolean
           get() = false
 
-        override fun updateDigest(digest: MessageDigest) {
-          digest.update(Byte.MIN_VALUE)
+        override fun updateDigest(digest: HashStream64) {
+          digest.putByte(Byte.MIN_VALUE)
         }
 
-        override suspend fun produce() {
-          buildJar(targetFile = targetFile, sources = sources, compress = compress, notify = false, optimizeLibraryContext = null)
+        override suspend fun produce(targetFile: Path) {
+          buildJar(targetFile = targetFile, sources = sources, compress = compress, notify = false)
         }
       },
     )
+  }
+
+  override val appInfoXml by lazy {
+    return@lazy computeAppInfoXml(context = this, appInfo = applicationInfo)
   }
 }
 
@@ -367,6 +409,14 @@ private fun getSourceRootsWithPrefixes(module: JpsModule): Sequence<Pair<Path, S
     }
 }
 
+private val BuildDependenciesCommunityRoot.snapshotBuildNumberFile: Path
+  get() = communityRoot.resolve("build.txt")
+
 internal fun readSnapshotBuildNumber(communityHome: BuildDependenciesCommunityRoot): String {
-  return Files.readString(communityHome.communityRoot.resolve("build.txt")).trim()
+  val snapshotBuildNumber = Files.readString(communityHome.snapshotBuildNumberFile).trim()
+  val snapshotSuffix = ".SNAPSHOT"
+  check(snapshotBuildNumber.endsWith(snapshotSuffix)) {
+    "$snapshotBuildNumber is expected to have a '$snapshotSuffix' suffix"
+  }
+  return snapshotBuildNumber
 }

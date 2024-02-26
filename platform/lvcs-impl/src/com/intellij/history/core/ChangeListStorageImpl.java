@@ -29,7 +29,7 @@ import java.text.DateFormat;
 import java.text.MessageFormat;
 
 public final class ChangeListStorageImpl implements ChangeListStorage {
-  private static final int VERSION = 6;
+  private static final int VERSION = 7;
   private static final @NonNls String STORAGE_FILE = "changes";
 
   private final Path myStorageDir;
@@ -98,12 +98,12 @@ public final class ChangeListStorageImpl implements ChangeListStorage {
     }
 
     String fullMsg = "Local history is broken" +
-                      "(version:" + VERSION +
-                      ", current timestamp: " + DateFormat.getDateTimeInstance().format(timestamp) +
-                      ", storage timestamp: " + DateFormat.getDateTimeInstance().format(storageTimestamp) +
-                      ", vfs timestamp: " + DateFormat.getDateTimeInstance().format(vfsTimestamp) +
-                      ", path: " + myStorageDir +
-                      ")\n" + message;
+                     "(version:" + VERSION +
+                     ", current timestamp: " + DateFormat.getDateTimeInstance().format(timestamp) +
+                     ", storage timestamp: " + DateFormat.getDateTimeInstance().format(storageTimestamp) +
+                     ", vfs timestamp: " + DateFormat.getDateTimeInstance().format(vfsTimestamp) +
+                     ", path: " + myStorageDir +
+                     ")\n" + message;
     if (myUnitTestMode) {
       LocalHistoryLog.LOG.warn(fullMsg, e);
     }
@@ -136,7 +136,8 @@ public final class ChangeListStorageImpl implements ChangeListStorage {
   public synchronized void force() {
     try {
       myStorage.force();
-    } catch (IOException e) {
+    }
+    catch (IOException e) {
       handleError(e, null);
     }
   }

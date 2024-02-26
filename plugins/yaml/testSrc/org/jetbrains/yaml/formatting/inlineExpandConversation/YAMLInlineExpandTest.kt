@@ -12,14 +12,14 @@ class YAMLInlineExpandTest : BasePlatformTestCase() {
   private fun doInlineActionTest(testCase: String, testCaseAnswer: String) {
     myFixture.configureByText("test.yaml", testCase)
     val inlineAction = myFixture.findSingleIntention(YAMLBundle.message("yaml.intention.name.inline.collection"))
-    myFixture.launchAction(inlineAction)
+    myFixture.checkPreviewAndLaunchAction(inlineAction)
     myFixture.checkResult(testCaseAnswer)
   }
 
   private fun doExpandActionTest(testCase: String, testCaseAnswer: String) {
     myFixture.configureByText("test.yaml", testCase)
     val expandAction = myFixture.findSingleIntention(YAMLBundle.message("yaml.intention.name.expand.collection"))
-    myFixture.launchAction(expandAction)
+    myFixture.checkPreviewAndLaunchAction(expandAction)
     myFixture.checkResult(testCaseAnswer)
   }
 
@@ -28,7 +28,7 @@ class YAMLInlineExpandTest : BasePlatformTestCase() {
     val startIndent = CodeStyle.getIndentOptions(myFixture.file).INDENT_SIZE
     CodeStyle.getIndentOptions(myFixture.file).INDENT_SIZE = indent
     val expandAction = myFixture.findSingleIntention(YAMLBundle.message("yaml.intention.name.expand.collection"))
-    myFixture.launchAction(expandAction)
+    myFixture.checkPreviewAndLaunchAction(expandAction)
     myFixture.checkResult(testCaseAnswer)
     CodeStyle.getIndentOptions(myFixture.file).INDENT_SIZE = startIndent
   }
@@ -38,10 +38,11 @@ class YAMLInlineExpandTest : BasePlatformTestCase() {
     val startIndent = CodeStyle.getIndentOptions(myFixture.file).INDENT_SIZE
     CodeStyle.getIndentOptions(myFixture.file).INDENT_SIZE = indent
     val expandAllAction = myFixture.findSingleIntention(YAMLBundle.message("yaml.intention.name.expand.all.collections.inside"))
-    myFixture.launchAction(expandAllAction)
+    myFixture.checkPreviewAndLaunchAction(expandAllAction)
     try {
       myFixture.checkResult(testCaseAnswer)
-    } finally {
+    }
+    finally {
       CodeStyle.getIndentOptions(myFixture.file).INDENT_SIZE = startIndent
     }
   }
@@ -49,7 +50,7 @@ class YAMLInlineExpandTest : BasePlatformTestCase() {
   private fun doExpandAllActionTest(testCase: String, testCaseAnswer: String) {
     myFixture.configureByText("test.yaml", testCase)
     val expandAllAction = myFixture.findSingleIntention(YAMLBundle.message("yaml.intention.name.expand.all.collections.inside"))
-    myFixture.launchAction(expandAllAction)
+    myFixture.checkPreviewAndLaunchAction(expandAllAction)
     myFixture.checkResult(testCaseAnswer)
   }
 
@@ -1263,4 +1264,66 @@ class YAMLInlineExpandTest : BasePlatformTestCase() {
                         123: 19
     """.trimIndent()
   )
+
+  fun `test inline works with comments`() {
+    doInlineActionTest("""
+    root: # root comment
+      props<caret>: # props comment
+        aaa: foo # aaa comment
+        bbb: bar # bbb comment
+        ccc: # ccc comment
+          - v1 # array value 1
+          - v2
+          - v3
+    """.trimIndent(), """
+    root: # root comment
+      props: { aaa: foo, bbb: bar, ccc: [ v1, v2, v3 ] }
+    """.trimIndent())
+    doInlineActionTest("""
+    root<caret>: # root comment
+      props: # props comment
+        aaa: foo # aaa comment
+        bbb: bar # bbb comment
+        ccc: # ccc comment
+          - v1 # array value 1
+          - v2
+          - v3
+    """.trimIndent(), """
+    root: { props: { aaa: foo, bbb: bar, ccc: [ v1, v2, v3 ] } }
+    """.trimIndent())
+  }
+
+  fun `test inline works with split plain text`() {
+    doInlineActionTest("""
+    foo:
+       bar:  one, two, three
+    """.trimIndent(), """
+    foo: { bar: "one, two, three" }
+    """.trimIndent())
+    doInlineActionTest("""
+    foo:
+      bar: one, two, three
+      bar1: one,  two,  three
+      bar2: one,two,three
+    """.trimIndent(), """
+    foo: { bar: "one, two, three", bar1: "one,  two,  three", bar2: "one,two,three" }
+    """.trimIndent())
+    doInlineActionTest("""
+    foo<caret>:
+      with_space:
+        bar: one, two, three
+        bar1: 'one, two, three'
+        bar2: "one, two, three"
+      with_no_space:
+        bar3: one,two,three
+        bar4: 'one,two,three'
+        bar5: "one,two,three"
+      just_value:
+        baz: 345
+        baz1: '345'
+        baz2: "345"
+    """.trimIndent(), """
+    foo: { with_space: { bar: "one, two, three", bar1: 'one, two, three', bar2: "one, two, three" }, with_no_space: { bar3: "one,two,three", bar4: 'one,two,three', bar5: "one,two,three" }, just_value: { baz: 345, baz1: '345', baz2: "345" } }
+    """.trimIndent())
+  }
 }

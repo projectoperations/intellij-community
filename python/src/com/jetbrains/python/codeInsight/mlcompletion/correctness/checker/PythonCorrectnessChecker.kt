@@ -12,8 +12,15 @@ class PythonCorrectnessChecker : CorrectnessCheckerBase(listOf(
   PyArgumentListSemanticChecker,
   PyRedeclarationSemanticChecker,
   PyAssignmentToLibraryScopeSemanticChecker,
+  PyKeywordArgumentSemanticChecker,
 )) {
-  override fun buildPsiForSemanticChecks(file: PsiFile, suggestion: String, offset: Int, prefix: String): PsiFile {
+  override fun buildPsiForSemanticChecks(
+    file: PsiFile,
+    suggestion: String,
+    offset: Int,
+    prefix: String,
+    matchedEnclosuresIndices: Set<Int>?
+  ): PsiFile {
     return PyExpressionCodeFragmentImpl(
       file.project,
       FileUtil.getNameWithoutExtension(file.name) + ".py",

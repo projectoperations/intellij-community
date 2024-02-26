@@ -4,14 +4,19 @@ package com.intellij.ide.startup.importSettings.chooser.productChooser
 import com.intellij.icons.AllIcons
 import com.intellij.ide.startup.importSettings.ImportSettingsBundle
 import com.intellij.ide.startup.importSettings.chooser.ui.ImportSettingsController
-import com.intellij.ide.startup.importSettings.data.*
-import com.intellij.ide.ui.laf.darcula.ui.OnboardingDialogButtons
+import com.intellij.ide.startup.importSettings.data.ActionsDataProvider
+import com.intellij.ide.startup.importSettings.data.JBrActionsDataProvider
+import com.intellij.ide.startup.importSettings.data.Product
+import com.intellij.ide.startup.importSettings.data.SyncActionsDataProvider
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Separator
+import com.intellij.ui.components.ActionLink
+import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.Nls
 import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.SwingConstants
 
 class OtherOptions(private val controller: ImportSettingsController) : ProductChooserAction() {
 
@@ -87,8 +92,10 @@ class OtherOptions(private val controller: ImportSettingsController) : ProductCh
   }
 
   override fun createButton(): JButton {
-    return OnboardingDialogButtons.createLinkButton().apply {
-      icon = AllIcons.General.LinkDropTriangle
+    return ActionLink().apply {
+      setHorizontalTextPosition(SwingConstants.LEFT)
+      setForeground(JBUI.CurrentTheme.Link.Foreground.ENABLED)
+      iconTextGap = 0
     }
   }
 

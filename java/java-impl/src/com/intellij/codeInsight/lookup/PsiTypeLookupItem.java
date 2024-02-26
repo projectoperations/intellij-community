@@ -1,7 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.lookup;
 
 import com.intellij.codeInsight.completion.*;
+import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil;
 import com.intellij.codeInsight.editorActions.TabOutScopesTracker;
 import com.intellij.diagnostic.CoreAttachmentFactory;
 import com.intellij.openapi.diagnostic.Logger;
@@ -11,12 +12,14 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ClassConditionKey;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PsiClassReferenceType;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -343,6 +346,20 @@ public final class PsiTypeLookupItem extends LookupItem<Object> implements Typed
                 new Throwable(),
                 CoreAttachmentFactory.createAttachment(context.getDocument()));
       return;
+    }
+
+    // jigsaw module
+    if (PsiUtil.isAvailable(JavaFeature.MODULES, file)) {
+      final PsiJavaModule currentModule = JavaModuleGraphUtil.findDescriptorByElement(file);
+      if (currentModule != null) {
+        final PsiJavaModule targetModule = JavaModuleGraphUtil.findDescriptorByElement(aClass);
+        PsiClass finalAClass = aClass;
+        if (targetModule != null && targetModule != currentModule &&
+            !JavaModuleGraphUtil.reads(currentModule, targetModule) &&
+            ContainerUtil.and(JavaModuleSystem.EP_NAME.getExtensionList(), sys -> sys.isAccessible(finalAClass, file)) ) {
+          JavaModuleGraphUtil.addDependency(currentModule, targetModule, null);
+        }
+      }
     }
 
     if (!goneDeeper) {

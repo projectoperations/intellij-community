@@ -2,7 +2,9 @@
 package org.jetbrains.plugins.github.pullrequest.ui.diff
 
 import com.intellij.collaboration.async.combineState
-import com.intellij.collaboration.async.computationStateIn
+import com.intellij.collaboration.async.computationState
+import com.intellij.collaboration.async.mapNullableScoped
+import com.intellij.collaboration.async.stateInNow
 import com.intellij.collaboration.ui.codereview.diff.CodeReviewDiffRequestProducer
 import com.intellij.collaboration.ui.codereview.diff.DiscussionsViewOption
 import com.intellij.collaboration.ui.codereview.diff.model.CodeReviewDiffViewModelComputer
@@ -12,26 +14,26 @@ import com.intellij.collaboration.ui.codereview.diff.model.DiffProducersViewMode
 import com.intellij.collaboration.util.ChangesSelection
 import com.intellij.collaboration.util.ComputedResult
 import com.intellij.collaboration.util.RefComparisonChange
+import com.intellij.collaboration.util.getOrNull
 import com.intellij.openapi.actionSystem.DataKey
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vcs.changes.actions.diff.ChangeDiffRequestProducer
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.util.io.await
 import git4idea.changes.GitBranchComparisonResult
 import git4idea.changes.GitTextFilePatchWithHistory
 import git4idea.changes.createVcsChange
 import git4idea.changes.getDiffComputer
-import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewThread
 import org.jetbrains.plugins.github.pullrequest.data.GHPRDataContext
-import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRChangesDataProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDataProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.createThreadsRequestsFlow
+import org.jetbrains.plugins.github.pullrequest.data.provider.fetchedChangesFlow
+import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRThreadsViewModels
 import org.jetbrains.plugins.github.pullrequest.ui.review.DelegatingGHPRReviewViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.review.GHPRReviewViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.review.GHPRReviewViewModelHelper
@@ -58,6 +60,7 @@ internal class GHPRDiffViewModelImpl(
   private val dataContext: GHPRDataContext,
   private val dataProvider: GHPRDataProvider,
   reviewVmHelper: GHPRReviewViewModelHelper,
+  private val threadsVms: GHPRThreadsViewModels,
 ) : GHPRDiffViewModel {
   private val cs = parentCs.childScope(CoroutineName("GitHub Pull Request Diff View Model"))
   private val reviewDataProvider = dataProvider.reviewData
@@ -72,10 +75,10 @@ internal class GHPRDiffViewModelImpl(
       CodeReviewDiffRequestProducer(project, change, changeDiffProducer, changesBundle.patchesByChange[change]?.getDiffComputer())
     }
 
-  private val changeVmsMap = mutableMapOf<RefComparisonChange, StateFlow<UpdateableGHPRDiffChangeViewModel?>>()
+  private val changeVmsMap = mutableMapOf<RefComparisonChange, StateFlow<GHPRDiffChangeViewModelImpl?>>()
 
   private val threads: StateFlow<ComputedResult<List<GHPullRequestReviewThread>>> =
-    reviewDataProvider.createThreadsRequestsFlow().computationStateIn(cs)
+    reviewDataProvider.createThreadsRequestsFlow().computationState().stateInNow(cs, ComputedResult.loading())
 
   private val _discussionsViewOption: MutableStateFlow<DiscussionsViewOption> = MutableStateFlow(DiscussionsViewOption.UNRESOLVED_ONLY)
   override val discussionsViewOption: StateFlow<DiscussionsViewOption> = _discussionsViewOption.asStateFlow()
@@ -96,32 +99,13 @@ internal class GHPRDiffViewModelImpl(
   override val diffVm: StateFlow<ComputedResult<DiffProducersViewModel?>> =
     helper.diffVm.stateIn(cs, SharingStarted.Eagerly, ComputedResult.loading())
 
-  override fun getViewModelFor(change: RefComparisonChange): StateFlow<UpdateableGHPRDiffChangeViewModel?> =
+  @OptIn(ExperimentalCoroutinesApi::class)
+  override fun getViewModelFor(change: RefComparisonChange): StateFlow<GHPRDiffChangeViewModelImpl?> =
     changeVmsMap.getOrPut(change) {
-      channelFlow {
-        var vm: Pair<CoroutineScope, UpdateableGHPRDiffChangeViewModel>? = null
-        changesFetchFlow.collectLatest { changesRequest ->
-          val diffData = try {
-            changesRequest.await().patchesByChange[change]
-          }
-          catch (e: Exception) {
-            return@collectLatest
-          }
-          if (diffData != null) {
-            vm = vm?.also {
-              it.second.updateDiffData(diffData)
-            } ?: run {
-              val vmCs = childScope()
-              vmCs to vmCs.createChangeVm(change, diffData)
-            }
-          }
-          else {
-            vm?.first?.cancel()
-            vm = null
-          }
-          send(vm?.second)
-        }
-      }.stateIn(cs, SharingStarted.Lazily, null)
+      changesFetchFlow.computationState().transformLatest {
+        val result = it.getOrNull<GitBranchComparisonResult>() ?: return@transformLatest
+        this.emit(result.patchesByChange[change])
+      }.mapNullableScoped { createChangeVm(change, it) }.stateIn(cs, SharingStarted.Lazily, null)
     }
 
   override suspend fun showDiffFor(changes: ChangesSelection) {
@@ -132,32 +116,6 @@ internal class GHPRDiffViewModelImpl(
     _discussionsViewOption.value = viewOption
   }
 
-  private fun CoroutineScope.createChangeVm(change: RefComparisonChange, diffData: GitTextFilePatchWithHistory)
-    : UpdateableGHPRDiffChangeViewModel =
-    UpdateableGHPRDiffChangeViewModel(project, this, dataContext, dataProvider, change, diffData, discussionsViewOption)
+  private fun CoroutineScope.createChangeVm(change: RefComparisonChange, diffData: GitTextFilePatchWithHistory) =
+    GHPRDiffChangeViewModelImpl(this, dataContext, dataProvider, change, diffData, threadsVms, discussionsViewOption)
 }
-
-private fun GHPRChangesDataProvider.fetchedChangesFlow(): Flow<Deferred<GitBranchComparisonResult>> =
-  channelFlow {
-    val listenerDisposable = Disposer.newDisposable()
-    val listener: () -> Unit = {
-      async {
-        try {
-          //TODO: don't fetch when not necessary
-          fetchBaseBranch().await()
-          fetchHeadBranch().await()
-          loadChanges().await()
-        }
-        catch (e: ProcessCanceledException) {
-          throw CancellationException("Cancelled", e)
-        }
-      }.let {
-        trySend(it)
-      }
-    }
-    addChangesListener(listenerDisposable, listener)
-    listener()
-    awaitClose {
-      Disposer.dispose(listenerDisposable)
-    }
-  }.flowOn(Dispatchers.Main)

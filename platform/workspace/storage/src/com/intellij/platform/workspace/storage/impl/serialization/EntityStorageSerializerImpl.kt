@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplacePutWithAssignment")
 
 package com.intellij.platform.workspace.storage.impl.serialization
@@ -11,7 +11,8 @@ import com.esotericsoftware.kryo.kryo5.objenesis.strategy.StdInstantiatorStrateg
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.platform.diagnostic.telemetry.JPS
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
-import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
+import com.intellij.platform.diagnostic.telemetry.helpers.Milliseconds
+import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.*
 import com.intellij.platform.workspace.storage.impl.containers.BidirectionalLongMultiMap
@@ -22,6 +23,7 @@ import com.intellij.platform.workspace.storage.impl.serialization.registration.S
 import com.intellij.platform.workspace.storage.impl.serialization.registration.StorageRegistrar
 import com.intellij.platform.workspace.storage.impl.serialization.registration.registerEntitiesClasses
 import com.intellij.platform.workspace.storage.impl.serialization.serializer.StorageSerializerUtil
+import com.intellij.platform.workspace.storage.metadata.diff.ComparisonResult
 import com.intellij.platform.workspace.storage.url.UrlRelativizer
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
@@ -30,7 +32,6 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenCustomHashMap
 import org.jetbrains.annotations.TestOnly
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicLong
 import java.util.function.Consumer
 
 private val LOG = logger<EntityStorageSerializerImpl>()
@@ -38,18 +39,19 @@ private val LOG = logger<EntityStorageSerializerImpl>()
 public class EntityStorageSerializerImpl(
   private val typesResolver: EntityTypesResolver,
   private val virtualFileManager: VirtualFileUrlManager,
-  private val urlRelativizer: UrlRelativizer? = null
+  private val urlRelativizer: UrlRelativizer? = null,
+  private val ijBuildVersion: String,
 ) : EntityStorageSerializer {
   public companion object {
-    public const val STORAGE_SERIALIZATION_VERSION: String = "version5"
+    public const val STORAGE_SERIALIZATION_VERSION: String = "version6"
 
-    private val loadCacheMetadataFromFileTimeMs: AtomicLong = AtomicLong()
+    private val loadCacheMetadataFromFileTimeMs = MillisecondsMeasurer()
 
     private fun setupOpenTelemetryReporting(meter: Meter) {
       val loadCacheMetadataFromFileTimeCounter = meter.counterBuilder("workspaceModel.load.cache.metadata.from.file.ms").buildObserver()
 
       meter.batchCallback(
-        { loadCacheMetadataFromFileTimeCounter.record(loadCacheMetadataFromFileTimeMs.get()) },
+        { loadCacheMetadataFromFileTimeCounter.record(loadCacheMetadataFromFileTimeMs.asMilliseconds()) },
         loadCacheMetadataFromFileTimeCounter
       )
     }
@@ -96,8 +98,9 @@ public class EntityStorageSerializerImpl(
     return try {
       val (kryo, classCache) = createKryo()
 
-      // Save version
+      // Save versions
       output.writeString(serializerDataFormatVersion)
+      output.writeString(ijBuildVersion)
 
       val cacheMetadata = getCacheMetadata(storage, typesResolver)
 
@@ -137,23 +140,21 @@ public class EntityStorageSerializerImpl(
       val (kryo, classCache) = createKryo()
 
       try { // Read version
-        val cacheVersion = input.readString()
-        if (cacheVersion != serializerDataFormatVersion) {
-          LOG.info("Cache isn't loaded. Current version of cache: $serializerDataFormatVersion, version of cache file: $cacheVersion")
+        if (!checkCacheVersionIdentical(input)) {
+          return Result.success(null)
+        }
+        val cacheIjBuildVersion = input.readString()
+
+        var time = System.nanoTime()
+        val metadataDeserializationStartTimeMs = Milliseconds.now()
+
+        val (comparisonResult, cacheMetadata) = compareCacheMetadata(kryo, input)
+        if (!comparisonResult.areEquals) {
+          LOG.info("Cache isn't loaded. Reason:\n${comparisonResult.info}")
           return Result.success(null)
         }
 
-        var time = System.nanoTime()
-        val metadataDeserializationStartTimeMs = System.currentTimeMillis()
-
-        val cacheMetadata = kryo.readObject(input, CacheMetadata::class.java)
-        val comparisonResult = compareWithCurrentEntitiesMetadata(cacheMetadata, typesResolver)
-        if (!comparisonResult.areEquals) {
-          LOG.info("Cache isn't loaded. Reason:\n${comparisonResult.info}")
-          return Result.failure(UnsupportedEntitiesVersionException())
-        }
-
-        loadCacheMetadataFromFileTimeMs.addElapsedTimeMillis(metadataDeserializationStartTimeMs)
+        loadCacheMetadataFromFileTimeMs.addElapsedTime(metadataDeserializationStartTimeMs)
 
         time = logAndResetTime(time) { measuredTime -> "Read cache metadata and compare it with the existing metadata: $measuredTime ns" }
 
@@ -201,9 +202,14 @@ public class EntityStorageSerializerImpl(
           }
         }
 
-        if (LOG.isTraceEnabled) {
-          builder.assertConsistency()
-          LOG.trace("Builder loaded from caches has no consistency issues")
+        if (LOG.isTraceEnabled || cacheIjBuildVersion != ijBuildVersion) {
+          try {
+            builder.assertConsistency()
+          }
+          catch (e: Throwable) {
+            return Result.failure(e)
+          }
+          LOG.info("Builder loaded from caches has no consistency issues. Current version of IJ: $ijBuildVersion. IJ version from cache: $cacheIjBuildVersion")
         }
 
         builder
@@ -215,6 +221,19 @@ public class EntityStorageSerializerImpl(
     return Result.success(deserializedCache)
   }
 
+  private fun checkCacheVersionIdentical(input: Input): Boolean {
+    val cacheVersion = input.readString()
+    if (cacheVersion != serializerDataFormatVersion) {
+      LOG.info("Cache isn't loaded. Current version of cache: $serializerDataFormatVersion, version of cache file: $cacheVersion")
+      return false
+    }
+    return true
+  }
+
+  private fun compareCacheMetadata(kryo: Kryo, input: Input): Pair<ComparisonResult, CacheMetadata> {
+    val cacheMetadata = kryo.readObject(input, CacheMetadata::class.java)
+    return compareWithCurrentEntitiesMetadata(cacheMetadata, typesResolver) to cacheMetadata
+  }
 
   private fun writeAndRegisterClasses(kryo: Kryo, output: Output, entityStorage: ImmutableEntityStorageImpl,
                                       cacheMetadata: CacheMetadata, classCache: Object2IntWithDefaultMap<TypeInfo>) {
@@ -274,6 +293,19 @@ public class EntityStorageSerializerImpl(
   private fun logAndResetTime(time: Long, measuredTimeToText: (Long) -> String): Long {
     LOG.debug(measuredTimeToText.invoke(System.nanoTime() - time))
     return System.nanoTime()
+  }
+
+  @TestOnly
+  public fun calculateCacheDiff(file: Path): String {
+    createKryoInput(file).use { input ->
+      val (kryo, _) = createKryo()
+
+      checkCacheVersionIdentical(input)
+      input.readString() // Just reading the version of IJ build
+
+      val (comparisonResult, _) = compareCacheMetadata(kryo, input)
+      return comparisonResult.info
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.server;
 
 import com.intellij.diagnostic.VMOptions;
@@ -73,7 +73,7 @@ public class MavenServerCMDState extends CommandLineState {
   private static String getProfilerVMString() {
     String profilerOptionPrefix = "-agentpath:";
     String profilerVMOption = VMOptions.readOption(profilerOptionPrefix, true);
-    boolean isIntegrationTest = System.getProperty("idea.is.integration.test") != null;
+    boolean isIntegrationTest = System.getProperty("test.build_tool.daemon.profiler") != null;
     // Doesn't work for macOS with java 11. Pending update to https://github.com/async-profiler/async-profiler/releases/tag/v3.0
     if (profilerVMOption == null || SystemInfo.isMac || !isIntegrationTest) return null;
     String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("mm:ss"));
@@ -182,7 +182,7 @@ public class MavenServerCMDState extends CommandLineState {
   public static @NotNull List<File> collectClassPathAndLibsFolder(@NotNull MavenDistribution distribution) {
     if (!distribution.isValid()) {
       MavenLog.LOG.warn("Maven Distribution " + distribution + " is not valid");
-      throw new IllegalArgumentException("Maven distribution at" + distribution.getMavenHome().toAbsolutePath() + " is not valid");
+      throw new IllegalArgumentException("Maven distribution at " + distribution.getMavenHome().toAbsolutePath() + " is not valid");
     }
 
     MavenVersionAwareSupportExtension extension = MavenVersionSupportUtil.getExtensionFor(distribution);

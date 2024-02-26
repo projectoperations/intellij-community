@@ -8,6 +8,7 @@ import com.intellij.ide.startup.importSettings.data.ActionsDataProvider
 import com.intellij.ide.startup.importSettings.data.DialogImportData
 import com.intellij.ide.startup.importSettings.data.SettingsContributor
 import com.intellij.ide.startup.importSettings.data.SettingsService
+import com.intellij.openapi.util.Disposer
 
 interface ImportSettingsController : BaseController {
   companion object {
@@ -23,6 +24,8 @@ interface ImportSettingsController : BaseController {
   fun goToImportPage(importFromProduct: DialogImportData)
 
   fun skipImport()
+
+  fun configChosen()
 
 }
 
@@ -44,22 +47,27 @@ private class ImportSettingsControllerImpl(dialog: OnboardingDialog, override va
 
   override fun goToSettingsPage(provider: ActionsDataProvider<*>, product: SettingsContributor) {
     val page = SettingChooserPage.createPage(provider, product, this)
+    Disposer.tryRegister(dialog.disposable, page)
     dialog.changePage(page)
   }
 
   override fun goToProductChooserPage() {
     val page = ProductChooserPage(this)
+    Disposer.tryRegister(dialog.disposable, page)
     dialog.changePage(page)
   }
 
   override fun goToImportPage(importFromProduct: DialogImportData) {
     val page = ImportProgressPage(importFromProduct, this)
+    Disposer.tryRegister(dialog.disposable, page)
     dialog.changePage(page)
   }
 
-
-
   override fun skipImport() {
     dialog.dialogClose()
+  }
+
+  override fun configChosen() {
+    SettingsService.getInstance().configChosen()
   }
 }

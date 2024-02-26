@@ -27,7 +27,7 @@ fun getMetricsFromSpanAndChildren(file: Path,
                                   filter: SpanFilter,
                                   metricSpanProcessor: MetricSpanProcessor = MetricSpanProcessor(),
                                   aliases: Map<String, String> = mapOf()): List<Metric> {
-  val spanElements = OpentelemetryJsonParser(filter).getSpanElements(file).toList().toList().map {
+  val spanElements = OpentelemetryJsonParser(filter).getSpanElements(file).toList().map {
     val name = aliases.getOrDefault(it.name, it.name)
     if (name != it.name) {
       return@map it.copy(name = name)
@@ -88,6 +88,16 @@ fun getSpansMetricsMap(file: Path, spanFilter: SpanFilter = SpanFilter { true })
     .filterNotNull()
     .groupBy { it.metric.id.name }
   return spanToMetricMap
+}
+
+/**
+ * Returns timestamp of event defined as com.intellij.diagnostic.StartUpMeasurer.getCurrentTime
+ */
+fun getStartupTimestampMs(file: Path): Long {
+  val spanElements = OpentelemetryJsonParserWithChildrenFiltering(SpanFilter.nameEquals("bootstrap"), SpanFilter { _ -> false })
+    .getSpanElements(file).filter { it.name == "bootstrap" }.toList()
+  if (spanElements.size != 1) throw IllegalStateException("Unexpected number of \"bootstrap\" spans: ${spanElements.size}")
+  return spanElements[0].startTimestamp
 }
 
 fun getMetricsForStartup(file: Path): List<Metric> {

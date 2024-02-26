@@ -39,6 +39,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
+import static org.jetbrains.plugins.textmate.TextMateServiceImplKtKt.getPluginBundles;
 import static org.jetbrains.plugins.textmate.bundles.BundleReaderKt.readSublimeBundle;
 import static org.jetbrains.plugins.textmate.bundles.BundleReaderKt.readTextMateBundle;
 import static org.jetbrains.plugins.textmate.bundles.VSCBundleReaderKt.readVSCBundle;
@@ -102,11 +103,14 @@ public final class TextMateServiceImpl extends TextMateService {
       }
 
       Map<String, TextMatePersistentBundle> userBundles = settings.getBundles();
+      List<@NotNull TextMateBundleToLoad> bundlesToLoad = getPluginBundles(this);
       if (!userBundles.isEmpty()) {
-        List<@NotNull TextMateBundleToLoad> paths = ContainerUtil.mapNotNull(userBundles.entrySet(), entry -> {
+        bundlesToLoad.addAll(ContainerUtil.mapNotNull(userBundles.entrySet(), entry -> {
           return entry.getValue().getEnabled() ? new TextMateBundleToLoad(entry.getValue().getName(), entry.getKey()) : null;
-        });
-        TextMateBundlesLoader.registerBundlesInParallel(myScope, paths, bundleToLoad -> {
+        }));
+      }
+      if (!bundlesToLoad.isEmpty()){
+        TextMateBundlesLoader.registerBundlesInParallel(myScope, bundlesToLoad, bundleToLoad -> {
           return registerBundle(Path.of(bundleToLoad.getPath()), newExtensionsMapping);
         }, bundleToLoad -> {
           String bundleName = bundleToLoad.getName();

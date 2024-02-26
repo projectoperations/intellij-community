@@ -1,11 +1,11 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplacePutWithAssignment", "ReplaceGetOrSet")
 
 package com.intellij.platform.settings.local
 
 import com.fasterxml.aalto.UncheckedStreamException
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.util.SafeStAXStreamBuilder
+import com.intellij.openapi.util.buildNsUnawareJdom
 import com.intellij.util.concurrency.SynchronizedClearableLazy
 import com.intellij.util.xml.dom.XmlElement
 import com.intellij.util.xml.dom.createXmlStreamReader
@@ -30,16 +30,7 @@ internal class XmlFileStorage(private val file: Path) {
   fun getJdom(key: String): Element? {
     val data = map.value.get(key) ?: return null
     try {
-      val xmlStreamReader = createXmlStreamReader(StringReader(data.data))
-      try {
-        return SafeStAXStreamBuilder.build(/* stream = */ xmlStreamReader,
-                                           /* isIgnoreBoundaryWhitespace = */ true,
-                                           /* isNsSupported = */ false,
-                                           /* factory = */ SafeStAXStreamBuilder.FACTORY)
-      }
-      finally {
-        xmlStreamReader.close()
-      }
+      buildNsUnawareJdom(StringReader(data.data))
     }
     catch (e: XMLStreamException) {
       thisLogger().warn(e)

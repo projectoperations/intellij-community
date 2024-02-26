@@ -91,7 +91,7 @@ abstract class KotlinDescriptorTestCaseWithStepping : KotlinDescriptorTestCase()
 
     private fun SuspendContextImpl.getKotlinStackFrames(): List<KotlinStackFrame> {
         if (myInProgress) {
-            val proxy = frameProxy ?: return emptyList()
+            val proxy = getFrameProxy(this) ?: return emptyList()
             return KotlinPositionManager(debugProcess)
               .createStackFrames(StackFrameDescriptorImpl(proxy, MethodsTracker()))
               .filterIsInstance<KotlinStackFrame>()
@@ -251,7 +251,10 @@ abstract class KotlinDescriptorTestCaseWithStepping : KotlinDescriptorTestCase()
                 return@runReadAction println("Context thread is null", ProcessOutputTypes.SYSTEM)
             }
 
-            val sourcePosition = PositionUtil.getSourcePosition(this)
+            val sourcePosition = if (anotherThreadToFocus != null)
+                debugProcess.positionManager.getSourcePosition(getFrameProxy(this).location())
+            else
+                PositionUtil.getSourcePosition(this)
             println(sourcePosition?.render() ?: "null", ProcessOutputTypes.SYSTEM)
             extraPrintContext(this)
         }
@@ -262,6 +265,9 @@ abstract class KotlinDescriptorTestCaseWithStepping : KotlinDescriptorTestCase()
     private fun SuspendContextImpl.doSmartStepInto(chooseFromList: Int, ignoreFilters: Boolean) {
         val filters = createSmartStepIntoFilters()
         if (chooseFromList == 0) {
+            if (filters.isEmpty()) {
+                throw AssertionError("Couldn't find any smart step into targets at: \n${getElementText()}")
+            }
             filters.forEach {
                 doStepInto(ignoreFilters, it)
             }
@@ -269,13 +275,14 @@ abstract class KotlinDescriptorTestCaseWithStepping : KotlinDescriptorTestCase()
             try {
                 doStepInto(ignoreFilters, filters[chooseFromList - 1])
             } catch (e: IndexOutOfBoundsException) {
-                val elementText = runReadAction {
-                    val elementAt = debuggerContext.sourcePosition.elementAt ?: return@runReadAction "<no-element>"
-                    elementAt.getElementTextWithContext()
-                }
-                throw AssertionError("Couldn't find smart step into command at: \n$elementText", e)
+                throw AssertionError("Couldn't find smart step into command at: \n${getElementText()}", e)
             }
         }
+    }
+
+    private fun getElementText() = runReadAction {
+        val elementAt = debuggerContext.sourcePosition.elementAt ?: return@runReadAction "<no-element>"
+        elementAt.getElementTextWithContext()
     }
 
     private fun createSmartStepIntoFilters(): List<MethodFilter> {

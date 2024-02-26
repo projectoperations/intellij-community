@@ -97,11 +97,34 @@ __jetbrains_intellij_command_precmd() {
     unset __JETBRAINS_INTELLIJ_GENERATOR_COMMAND
     return 0
   fi
-  builtin local current_directory="$PWD"
-  builtin printf '\e]1341;command_finished;exit_code=%s;current_directory=%s\a' \
-    "$LAST_EXIT_CODE" "$(__jetbrains_intellij_encode "${current_directory}")"
+  __jetbrains_intellij_report_prompt_state
+  builtin printf '\e]1341;command_finished;exit_code=%s\a' "$LAST_EXIT_CODE"
   builtin print "${JETBRAINS_INTELLIJ_COMMAND_END_MARKER:-}"
   __jetbrains_intellij_configure_prompt
+}
+
+__jetbrains_intellij_report_prompt_state() {
+  builtin local current_directory="$PWD"
+  builtin local git_branch=""
+  builtin local virtual_env=""
+  builtin local conda_env=""
+  if builtin whence git > /dev/null
+  then
+    git_branch="$(git symbolic-ref --short HEAD 2> /dev/null || git rev-parse --short HEAD 2> /dev/null)"
+  fi
+  if [[ -n $VIRTUAL_ENV ]]
+  then
+    virtual_env="$VIRTUAL_ENV"
+  fi
+  if [[ -n $CONDA_DEFAULT_ENV ]]
+  then
+    conda_env="$CONDA_DEFAULT_ENV"
+  fi
+  builtin printf '\e]1341;prompt_state_updated;current_directory=%s;git_branch=%s;virtual_env=%s;conda_env=%s\a' \
+    "$(__jetbrains_intellij_encode "${current_directory}")" \
+    "$(__jetbrains_intellij_encode "${git_branch}")" \
+    "$(__jetbrains_intellij_encode "${virtual_env}")" \
+    "$(__jetbrains_intellij_encode "${conda_env}")"
 }
 
 # override clear behaviour to handle it on IDE side and remove the blocks
@@ -115,11 +138,13 @@ add-zsh-hook zshaddhistory __jetbrains_intellij_zshaddhistory
 
 __jetbrains_intellij_configure_prompt
 
+__jetbrains_intellij_report_prompt_state
+
 # `HISTFILE` is already initialized at this point.
 # Get all commands from history from the first command
 builtin local hist="$(builtin history 1)"
 builtin printf '\e]1341;command_history;history_string=%s\a' "$(__jetbrains_intellij_encode_large "${hist}")"
 
 # This script is sourced from inside a `precmd` hook, i.e. right before the first prompt.
-builtin printf '\e]1341;initialized;current_directory=%s\a' "$(__jetbrains_intellij_encode "$PWD")"
+builtin printf '\e]1341;initialized\a'
 builtin print "${JETBRAINS_INTELLIJ_COMMAND_END_MARKER:-}"

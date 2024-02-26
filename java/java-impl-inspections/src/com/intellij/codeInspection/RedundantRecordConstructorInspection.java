@@ -4,13 +4,13 @@ package com.intellij.codeInspection;
 import com.intellij.codeInsight.AnnotationTargetUtil;
 import com.intellij.codeInsight.ExpressionUtil;
 import com.intellij.codeInsight.PsiEquivalenceUtil;
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.daemon.impl.quickfix.DeleteElementFix;
 import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.java.JavaBundle;
 import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.util.JavaElementKind;
 import com.intellij.psi.util.JavaPsiRecordUtil;
@@ -32,10 +32,12 @@ import java.util.Set;
 
 public final class RedundantRecordConstructorInspection extends AbstractBaseJavaLocalInspectionTool {
   @Override
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.RECORDS);
+  }
+
+  @Override
   public @NotNull PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
-    if (!HighlightingFeature.RECORDS.isAvailable(holder.getFile())) {
-      return PsiElementVisitor.EMPTY_VISITOR;
-    }
     return new JavaElementVisitor() {
       @Override
       public void visitMethod(@NotNull PsiMethod method) {

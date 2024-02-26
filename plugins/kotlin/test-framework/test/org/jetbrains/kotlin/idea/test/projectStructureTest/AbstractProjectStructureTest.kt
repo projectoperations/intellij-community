@@ -16,7 +16,11 @@ import org.jetbrains.kotlin.idea.test.ConfigLibraryUtil
 import org.jetbrains.kotlin.idea.test.KotlinCompilerStandalone
 import org.jetbrains.kotlin.idea.test.addDependency
 import org.jetbrains.kotlin.idea.test.addRoot
+import org.jetbrains.kotlin.idea.test.createMultiplatformFacetM3
+import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.tooling.core.closure
+import org.jetbrains.kotlin.tooling.core.withClosure
 import java.io.File
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -70,13 +74,19 @@ abstract class AbstractProjectStructureTest<S : TestProjectStructure> : Abstract
             error("Test project libraries and modules may not share names. Duplicate names: ${duplicateNames.joinToString()}.")
         }
 
+        val refinementMap: Map<String, List<String>> = testStructure.modules.associate { testModule ->
+            testModule.name to testModule.dependencies.filter { it.kind == DependencyKind.REFINEMENT }.map { it.name }
+        }
+
         testStructure.modules.forEach { moduleData ->
             val module = modulesByName.getValue(moduleData.name)
-            moduleData.dependsOnModules.forEach { dependencyName ->
-                projectLibrariesByName[dependencyName]
-                    ?.let { library -> module.addDependency(library) }
-                    ?: module.addDependency(modulesByName.getValue(dependencyName))
+            val dependenciesByKind = moduleData.dependencies.groupBy { it.kind }
+
+            dependenciesByKind[DependencyKind.REGULAR].orEmpty().let { regularDependencies ->
+                addRegularDependencies(module, regularDependencies, modulesByName, projectLibrariesByName)
             }
+            val directFriendDependencies = dependenciesByKind[DependencyKind.FRIEND].orEmpty().map(Dependency::name)
+            setUpSpecialDependenciesAndPlatform(module, moduleData.targetPlatform, modulesByName, refinementMap, directFriendDependencies)
         }
 
         return Triple(testStructure, projectLibrariesByName, modulesByName)
@@ -133,6 +143,61 @@ abstract class AbstractProjectStructureTest<S : TestProjectStructure> : Abstract
                 destinationPath.write(processedFileText)
             }
         }
+    }
+
+    private fun addRegularDependencies(
+        module: Module,
+        dependencies: List<Dependency>,
+        modulesByName: Map<String, Module>,
+        librariesByName: Map<String, Library>,
+    ) {
+        dependencies.forEach { dependency ->
+            check(dependency.kind == DependencyKind.REGULAR)
+            librariesByName[dependency.name]
+                ?.let { library -> module.addDependency(library) }
+                ?: module.addDependency(modulesByName.getValue(dependency.name))
+        }
+    }
+
+    /**
+     * Setting refinement and friend dependencies includes two parts:
+     * - creating normal module dependencies (IJ workspace model);
+     * - writing information in the Kotlin Facet Settings.
+     *
+     * Friend dependencies allow everything the regular dependencies allow + internal declarations become visible.
+     * Refinement dependencies allow everything the regular dependencies allow + internals + expect-actual matching.
+     */
+    private fun setUpSpecialDependenciesAndPlatform(
+        module: Module,
+        platform: TargetPlatform,
+        modulesByName: Map<String, Module>,
+        refinementMap: Map<String, List<String>>,
+        directFriendDependencies: List<String>,
+    ) {
+        val refinementDependencyClosure = module.name.closure(refinementMap::getValue)
+
+        refinementDependencyClosure.forEach { refinementDependencyModuleName ->
+            module.addDependency(modulesByName.getValue(refinementDependencyModuleName))
+        }
+
+        // KGP provides friend modules as a flat list: a production source set + its dependsOn closure.
+        // E.g., friends of a jvmTest source set will be jvmMain and commonMain.
+        // To not write them all explicitly in test data, we calculate them here from direct friend modules.
+        val friendModulesClosure = directFriendDependencies.flatMap { moduleName ->
+            moduleName.withClosure(refinementMap::getValue)
+        }.toSet()
+
+        friendModulesClosure.forEach { friendModuleName ->
+            module.addDependency(modulesByName.getValue(friendModuleName))
+        }
+
+        module.createMultiplatformFacetM3(
+            platformKind = platform,
+            useProjectSettings = true,
+            dependsOnModuleNames = refinementDependencyClosure.toList(),
+            pureKotlinSourceFolders = emptyList(),
+            additionalVisibleModuleNames = friendModulesClosure,
+        )
     }
 
     protected fun getCaretPosition(ktFile: KtFile): Int = getCaretPositionOrNull(ktFile) ?: error("Expected `<caret>` in file: $ktFile")

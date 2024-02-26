@@ -11,15 +11,21 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.options.ex.Settings
 import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.components.ActionLink
-import java.awt.Component
+import javax.swing.JComponent
+import javax.swing.JLabel
 
-internal class EditorSchemesPanel(val colorAndFontsOptions: ColorAndFontOptions): SchemesPanel(colorAndFontsOptions, 0) {
+internal class EditorSchemesPanel(val colorAndFontsOptions: ColorAndFontOptions,
+                                  private val applyImmediately: Boolean = false): SchemesPanel(colorAndFontsOptions, 0) {
   init {
     setSeparatorVisible(false)
   }
+
+  override fun shouldApplyImmediately(): Boolean = applyImmediately
 
   override fun getComboBoxLabel(): String {
     return IdeBundle.message("combobox.editor.color.scheme")
@@ -32,7 +38,7 @@ internal class EditorSchemesPanel(val colorAndFontsOptions: ColorAndFontOptions)
       override fun getActions(): MutableCollection<AnAction> {
         val list = mutableListOf<AnAction>()
 
-        list.add(OpenEditorSchemeConfigurableAction(component))
+        list.add(OpenEditorSchemeConfigurableAction(component) { colorAndFontsOptions.selectedScheme.name })
         list.add(Separator())
         list.addAll(getExportImportActions(false))
         return list
@@ -51,15 +57,27 @@ internal class EditorSchemesPanel(val colorAndFontsOptions: ColorAndFontOptions)
   }
 
   override fun createActionLink(): ActionLink? = null
-
+  override fun createActionLinkCommentLabel(): JLabel? = null
   override fun getContextHelpLabelText(): String? = null
+
+  override fun useBoldForNonRemovableSchemes(): Boolean = false
 }
 
-private class OpenEditorSchemeConfigurableAction(val component: Component) :
+private class OpenEditorSchemeConfigurableAction(val component: JComponent, val selectedSchemeProvider: () -> String?) :
   DumbAwareAction(IdeBundle.message("combobox.editor.color.scheme.edit")) {
 
   override fun actionPerformed(e: AnActionEvent) {
     val settings = Settings.KEY.getData(DataManager.getInstance().getDataContext(component))
-    settings?.select(settings.find("reference.settingsdialog.IDE.editor.colors"))
+
+    if (settings == null) {
+      ShowSettingsUtil.getInstance().showSettingsDialog(ProjectManager.getInstance().defaultProject, ColorAndFontOptions::class.java)
+    }
+    else {
+      val configurable = settings.find("reference.settingsdialog.IDE.editor.colors") as? ColorAndFontOptions ?: return
+      selectedSchemeProvider()?.let {
+        configurable.preselectScheme(it)
+      }
+      settings.select(configurable)
+    }
   }
 }

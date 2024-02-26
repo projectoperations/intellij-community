@@ -73,14 +73,14 @@ public final class LanguageLevelUtil {
   static {
     for (LanguageLevel level : LanguageLevel.values()) {
       if (level.ordinal() > LanguageLevel.HIGHEST.ordinal()) break;
-      int feature = level.toJavaVersion().feature + 1;
+      int feature = level.feature() + 1;
       ourPresentableShortMessage.put(level, feature >= 9 ? String.valueOf(feature) : "1." + feature);
     }
   }
 
   @Nullable
   public static String getShortMessage(@NotNull LanguageLevel languageLevel) {
-    return ourPresentableShortMessage.get(languageLevel.getSupportedLevel());
+    return ourPresentableShortMessage.get(languageLevel);
   }
 
   /**

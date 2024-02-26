@@ -13,9 +13,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.idea.maven.dom.model.MavenDomProfiles
-import org.jetbrains.idea.maven.dom.model.MavenDomProfilesModel
 import org.jetbrains.idea.maven.dom.model.MavenDomSettingsModel
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
+import org.jetbrains.idea.maven.server.MavenServerManager
 import org.jetbrains.idea.maven.utils.MavenUtil
 import org.jetbrains.idea.maven.vfs.MavenPropertiesVirtualFileSystem
 import org.junit.Test
@@ -691,33 +691,39 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
 
   @Test
   fun testResolvingPropertiesInSettingsXml() = runBlocking {
-    val profiles = updateSettingsXml("""
-                                               <profiles>
-                                                 <profile>
-                                                   <id>one</id>
-                                                   <properties>
-                                                     <foo>value</foo>
-                                                   </properties>
-                                                 </profile>
-                                                 <profile>
-                                                   <id>two</id>
-                                                   <properties>
-                                                     <foo>value</foo>
-                                                   </properties>
-                                                 </profile>
-                                               </profiles>
-                                               """.trimIndent())
+    // we are changing settings.xml here, and we need a new maven embedder--
+    // the old one (that was created during the first sync in setUp()) doesn't know about new settings.xml,
+    // so it won't be able to find the profiles
+    MavenServerManager.getInstance().closeAllConnectorsAndWait()
 
-    createProjectPom("""
+    val profiles = updateSettingsXml("""
+                       <profiles>
+                         <profile>
+                           <id>one</id>
+                           <properties>
+                             <foo>value one</foo>
+                           </properties>
+                         </profile>
+                         <profile>
+                           <id>two</id>
+                           <properties>
+                             <foo>value two</foo>
+                           </properties>
+                         </profile>
+                       </profiles>
+                       """.trimIndent())
+
+    setPomContentAsync(projectPom, """
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
-                       <name>${'$'}{<caret>foo}</name>
+                       <name>${'$'}{foo}</name>
                        """.trimIndent())
 
     readWithProfiles("two")
 
     withContext(Dispatchers.EDT) {
+      moveCaretTo(projectPom, "<name>${'$'}{<caret>foo}</name>")
       assertResolved(projectPom, findTag(profiles, "settings.profiles[1].properties.foo", MavenDomSettingsModel::class.java))
     }
   }
@@ -811,37 +817,6 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
 
     withContext(Dispatchers.EDT) {
       assertUnresolved(projectPom)
-    }
-  }
-
-  @Test
-  fun testResolvingPropertiesInProfilesXml() = runBlocking {
-    val profiles = createProfilesXml("""
-                                               <profile>
-                                                 <id>one</id>
-                                                 <properties>
-                                                   <foo>value</foo>
-                                                 </properties>
-                                               </profile>
-                                               <profile>
-                                                 <id>two</id>
-                                                 <properties>
-                                                   <foo>value</foo>
-                                                 </properties>
-                                               </profile>
-                                               """.trimIndent())
-
-    createProjectPom("""
-                       <groupId>test</groupId>
-                       <artifactId>project</artifactId>
-                       <version>1</version>
-                       <name>${'$'}{<caret>foo}</name>
-                       """.trimIndent())
-
-    readWithProfiles("two")
-
-    withContext(Dispatchers.EDT) {
-      assertResolved(projectPom, findTag(profiles, "profilesXml.profiles[1].properties.foo", MavenDomProfilesModel::class.java))
     }
   }
 
@@ -987,25 +962,26 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
     }
   }
 
+
   @Test
   fun testHighlightUnresolvedProperties() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>child</artifactId>
                        <version>1</version>
-                       <name>${'$'}{<error>xxx</error>}</name>
+                       <name>${'$'}{xxx}</name>
                        <properties>
                          <foo>
-                       ${'$'}{<error>zzz</error>}
-                       ${'$'}{<error>pom.maven.build.timestamp</error>}
-                       ${'$'}{<error>project.maven.build.timestamp</error>}
-                       ${'$'}{<error>parent.maven.build.timestamp</error>}
-                       ${'$'}{<error>baseUri</error>}
-                       ${'$'}{<error>unknownProperty</error>}
-                       ${'$'}{<error>project.version.bar</error>}
+                       ${'$'}{zzz}
+                       ${'$'}{pom.maven.build.timestamp}
+                       ${'$'}{project.maven.build.timestamp}
+                       ${'$'}{parent.maven.build.timestamp}
+                       ${'$'}{baseUri}
+                       ${'$'}{unknownProperty}
+                       ${'$'}{project.version.bar}
                        ${'$'}{maven.build.timestamp}
                        ${'$'}{project.parentFile.name}
-                       ${'$'}{<error>project.parentFile.nameXxx</error>}
+                       ${'$'}{project.parentFile.nameXxx}
                        ${'$'}{pom.compileArtifacts.empty}
                        ${'$'}{modules.empty}
                        ${'$'}{projectDirectory}
@@ -1014,9 +990,17 @@ class MavenPropertyCompletionAndResolutionTest : MavenDomTestCase() {
                        """.trimIndent()
     )
 
-    withContext(Dispatchers.EDT) {
-      checkHighlighting()
-    }
+    checkHighlighting(projectPom,
+                      Highlight(text = "xxx"),
+                      Highlight(text = "zzz"),
+                      Highlight(text = "pom.maven.build.timestamp"),
+                      Highlight(text = "parent.maven.build.timestamp"),
+                      Highlight(text = "baseUri"),
+                      Highlight(text = "unknownProperty"),
+                      Highlight(text = "project.version.bar"),
+                      Highlight(text = "project.parentFile.nameXxx"),
+    )
+
   }
 
   @Test

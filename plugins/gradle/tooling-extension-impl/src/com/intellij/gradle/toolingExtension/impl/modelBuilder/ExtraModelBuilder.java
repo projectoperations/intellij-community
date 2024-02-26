@@ -1,21 +1,16 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.gradle.toolingExtension.impl.modelBuilder;
 
-import com.intellij.gradle.toolingExtension.impl.model.projectModel.ExternalProjectBuilderImpl;
-import com.intellij.openapi.externalSystem.model.ExternalSystemException;
-import org.gradle.StartParameter;
 import org.gradle.api.Project;
 import org.gradle.api.invocation.Gradle;
 import org.gradle.internal.impldep.com.google.common.collect.Lists;
 import org.gradle.tooling.provider.model.ParameterizedToolingModelBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.gradle.model.internal.DummyModel;
-import org.jetbrains.plugins.gradle.model.internal.TurnOffDefaultTasks;
+import org.jetbrains.plugins.gradle.tooling.ErrorMessageBuilder;
 import org.jetbrains.plugins.gradle.tooling.ModelBuilderContext;
 import org.jetbrains.plugins.gradle.tooling.ModelBuilderService;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.concurrent.atomic.AtomicReference;
@@ -37,8 +32,6 @@ public class ExtraModelBuilder implements ParameterizedToolingModelBuilder<Model
 
   @Override
   public boolean canBuild(@NotNull String modelName) {
-    if (DummyModel.class.getName().equals(modelName)) return true;
-    if (TurnOffDefaultTasks.class.getName().equals(modelName)) return true;
     for (ModelBuilderService service : modelBuilderServices) {
       if (service.canBuild(modelName)) return true;
     }
@@ -61,15 +54,6 @@ public class ExtraModelBuilder implements ParameterizedToolingModelBuilder<Model
     @Nullable ModelBuilderService.Parameter parameter,
     @NotNull Project project
   ) {
-    if (DummyModel.class.getName().equals(modelName)) {
-      return new DummyModel() {
-      };
-    }
-    if (TurnOffDefaultTasks.class.getName().equals(modelName)) {
-      turnOffDefaultTasks(project);
-      return null;
-    }
-
     ModelBuilderContext context = modelBuilderContext.updateAndGet(it -> {
       if (it == null) {
         Gradle rootGradle = getRootGradle(project.getGradle());
@@ -84,17 +68,6 @@ public class ExtraModelBuilder implements ParameterizedToolingModelBuilder<Model
       }
     }
     throw new IllegalArgumentException("Unsupported model: " + modelName);
-  }
-
-  private static void turnOffDefaultTasks(@NotNull Project project) {
-    StartParameter startParameter = project.getGradle().getStartParameter();
-    List<String> taskNames = startParameter.getTaskNames();
-    if (taskNames.isEmpty()) {
-      startParameter.setTaskNames(null);
-      List<String> helpTask = Collections.singletonList("help");
-      project.setDefaultTasks(helpTask);
-      startParameter.setExcludedTaskNames(helpTask);
-    }
   }
 
   private static @Nullable Object buildServiceModel(
@@ -118,11 +91,7 @@ public class ExtraModelBuilder implements ParameterizedToolingModelBuilder<Model
       }
     }
     catch (Exception exception) {
-      if (service instanceof ExternalProjectBuilderImpl) {
-        //Probably checked exception might still pop from poorly behaving implementation
-        throw asRuntimeException(exception);
-      }
-      service.reportErrorMessage(modelName, project, context, exception);
+      reportErrorMessage(modelName, project, context, service, exception);
       return null;
     }
     finally {
@@ -130,6 +99,23 @@ public class ExtraModelBuilder implements ParameterizedToolingModelBuilder<Model
         final long timeInMs = (System.currentTimeMillis() - startTime);
         reportPerformanceStatistic(project, service, modelName, timeInMs);
       }
+    }
+  }
+
+  private static void reportErrorMessage(
+    @NotNull String modelName,
+    @NotNull Project project,
+    @NotNull ModelBuilderContext context,
+    @NotNull ModelBuilderService service,
+    @NotNull Exception exception
+  ) {
+    @SuppressWarnings("deprecation")
+    ErrorMessageBuilder builder = service.getErrorMessageBuilder(project, exception);
+    if (builder != null) {
+      context.getMessageReporter().reportMessage(project, builder.buildMessage());
+    }
+    else {
+      service.reportErrorMessage(modelName, project, context, exception);
     }
   }
 
@@ -143,13 +129,6 @@ public class ExtraModelBuilder implements ParameterizedToolingModelBuilder<Model
     String serviceName = service.getClass().getSimpleName();
     String msg = String.format("%s: service %s imported '%s' in %d ms", projectName, serviceName, modelName, timeInMs);
     project.getLogger().error(msg);
-  }
-
-  private static @NotNull RuntimeException asRuntimeException(@NotNull Exception exception) {
-    if (exception instanceof RuntimeException) {
-      return (RuntimeException)exception;
-    }
-    return new ExternalSystemException(exception);
   }
 
   @NotNull

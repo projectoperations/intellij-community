@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module
 
 import com.intellij.configurationStore.RenameableStateStorageManager
@@ -12,18 +12,16 @@ import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.components.impl.ModulePathMacroManager
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.impl.DeprecatedModuleOptionManager
 import com.intellij.openapi.module.impl.ModuleImpl
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.TestModuleProperties
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
 import com.intellij.platform.backend.workspace.WorkspaceModelTopics
-import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
-import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
-import com.intellij.platform.workspace.jps.entities.ModuleCustomImlDataEntity
-import com.intellij.platform.workspace.jps.entities.ModuleEntity
-import com.intellij.platform.workspace.jps.entities.ModuleId
-import com.intellij.platform.workspace.jps.entities.modifyEntity
+import com.intellij.platform.diagnostic.telemetry.helpers.Milliseconds
+import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
+import com.intellij.platform.workspace.jps.entities.*
 import com.intellij.platform.workspace.jps.serialization.impl.JpsProjectEntitiesLoader.isModulePropertiesBridgeEnabled
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.VersionedEntityStorageOnSnapshot
@@ -36,7 +34,6 @@ import com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots.TestModule
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import com.intellij.workspaceModel.ide.toPath
 import io.opentelemetry.api.metrics.Meter
-import java.util.concurrent.atomic.AtomicLong
 
 @Suppress("OVERRIDE_DEPRECATION")
 internal class ModuleBridgeImpl(
@@ -67,8 +64,10 @@ internal class ModuleBridgeImpl(
     }
   }
 
-  override fun beforeChanged(event: VersionedStorageChange) = moduleBridgeBeforeChangedTimeMs.addMeasuredTimeMillis {
-    event.getChanges(ModuleEntity::class.java).filterIsInstance<EntityChange.Removed<ModuleEntity>>().forEach {
+  override fun beforeChanged(event: VersionedStorageChange) = moduleBridgeBeforeChangedTimeMs.addMeasuredTime {
+    val moduleEntityChanges = event.getChanges(ModuleEntity::class.java)
+    moduleEntityChanges.forEach {
+      if (it !is EntityChange.Removed<ModuleEntity>) return@forEach
       if (it.entity.symbolicId != moduleEntityId) return@forEach
 
       if (event.storageBefore.moduleMap.getDataByEntity(it.entity) != this@ModuleBridgeImpl) return@forEach
@@ -121,7 +120,7 @@ internal class ModuleBridgeImpl(
     createComponentsNonBlocking()
   }
 
-  override fun initFacets() = facetsInitializationTimeMs.addMeasuredTimeMillis {
+  override fun initFacets() = facetsInitializationTimeMs.addMeasuredTime {
     FacetManager.getInstance(this).allFacets.forEach(Facet<*>::initFacet)
   }
 
@@ -130,10 +129,12 @@ internal class ModuleBridgeImpl(
                                   precomputedExtensionModel: PrecomputedExtensionModel?,
                                   app: Application?,
                                   listenerCallbacks: MutableList<in Runnable>?) {
-    super.registerComponents(modules = modules,
-                             app = app,
-                             precomputedExtensionModel = precomputedExtensionModel,
-                             listenerCallbacks = listenerCallbacks)
+    super.registerComponents(
+      modules = modules,
+      app = app,
+      precomputedExtensionModel = precomputedExtensionModel,
+      listenerCallbacks = listenerCallbacks,
+    )
     if (corePlugin == null) {
       return
     }
@@ -175,7 +176,7 @@ internal class ModuleBridgeImpl(
       }
     }
 
-    val start = System.currentTimeMillis()
+    val start = Milliseconds.now()
 
     val diff = diff
     if (diff != null) {
@@ -198,14 +199,14 @@ internal class ModuleBridgeImpl(
       }
     }
 
-    updateOptionTimeMs.addElapsedTimeMillis(start)
+    updateOptionTimeMs.addElapsedTime(start)
     return
   }
 
   companion object {
-    private val moduleBridgeBeforeChangedTimeMs: AtomicLong = AtomicLong()
-    private val facetsInitializationTimeMs: AtomicLong = AtomicLong()
-    private val updateOptionTimeMs: AtomicLong = AtomicLong()
+    private val moduleBridgeBeforeChangedTimeMs = MillisecondsMeasurer()
+    private val facetsInitializationTimeMs = MillisecondsMeasurer()
+    private val updateOptionTimeMs = MillisecondsMeasurer()
 
     private fun setupOpenTelemetryReporting(meter: Meter) {
       val moduleBridgeBeforeChangedTimeCounter = meter.counterBuilder("workspaceModel.moduleBridge.before.changed.ms").buildObserver()
@@ -214,9 +215,9 @@ internal class ModuleBridgeImpl(
 
       meter.batchCallback(
         {
-          moduleBridgeBeforeChangedTimeCounter.record(moduleBridgeBeforeChangedTimeMs.get())
-          facetsInitializationTimeCounter.record(facetsInitializationTimeMs.get())
-          updateOptionTimeCounter.record(updateOptionTimeMs.get())
+          moduleBridgeBeforeChangedTimeCounter.record(moduleBridgeBeforeChangedTimeMs.asMilliseconds())
+          facetsInitializationTimeCounter.record(facetsInitializationTimeMs.asMilliseconds())
+          updateOptionTimeCounter.record(updateOptionTimeMs.asMilliseconds())
         },
         moduleBridgeBeforeChangedTimeCounter, facetsInitializationTimeCounter, updateOptionTimeCounter
       )

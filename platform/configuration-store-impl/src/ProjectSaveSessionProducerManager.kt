@@ -3,15 +3,14 @@ package com.intellij.configurationStore
 
 import com.intellij.notification.Notifications
 import com.intellij.notification.NotificationsManager
-import com.intellij.openapi.components.impl.stores.SaveSessionAndFile
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.impl.UnableToSaveProjectNotification
 import com.intellij.openapi.vfs.VirtualFile
-import org.jetbrains.annotations.ApiStatus
 
-@ApiStatus.Internal
-open class ProjectSaveSessionProducerManager(protected val project: Project) : SaveSessionProducerManager() {
+internal open class ProjectSaveSessionProducerManager(@JvmField protected val project: Project, isUseVfsForWrite: Boolean)
+  : SaveSessionProducerManager(isUseVfsForWrite, collectVfsEvents = true)
+{
   suspend fun saveAndValidate(saveSessions: Collection<SaveSession>, saveResult: SaveResult) {
     saveSessions(saveSessions, saveResult)
     validate(saveResult)
@@ -57,10 +56,8 @@ open class ProjectSaveSessionProducerManager(protected val project: Project) : S
     }
   }
 
-  private fun getUnableToSaveNotifications(): Array<out UnableToSaveProjectNotification> {
-    val notificationManager = serviceIfCreated<NotificationsManager>() ?: return emptyArray()
-    return notificationManager.getNotificationsOfType(UnableToSaveProjectNotification::class.java, project)
-  }
-}
+  private fun getUnableToSaveNotifications(): Array<out UnableToSaveProjectNotification> =
+    serviceIfCreated<NotificationsManager>()?.getNotificationsOfType(UnableToSaveProjectNotification::class.java, project) ?: emptyArray()
 
-private fun getFileList(readonlyFiles: List<SaveSessionAndFile>) = readonlyFiles.map { it.file }
+  private fun getFileList(readonlyFiles: List<SaveSessionAndFile>): List<VirtualFile> = readonlyFiles.map { it.file }
+}

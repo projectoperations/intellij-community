@@ -66,7 +66,7 @@ class TelemetryManagerImpl(coroutineScope: CoroutineScope, isUnitTestMode: Boole
     }
 
     aggregatedMetricExporter = configurator.aggregatedMetricExporter
-    otlpService = OtlpService()
+    otlpService = OtlpService.getInstance()
 
     var otlJob: Job? = null
     val spanExporters = createSpanExporters(configurator.resource, isUnitTestMode = isUnitTestMode)
@@ -120,6 +120,8 @@ class TelemetryManagerImpl(coroutineScope: CoroutineScope, isUnitTestMode: Boole
       otlpService.add(activity)
     }
   }
+
+  override fun hasSpanExporters(): Boolean = hasSpanExporters
 
   override fun addMetricsExporters(exporters: List<MetricsExporterEntry>) {
     aggregatedMetricExporter.addMetricsExporters(exporters)

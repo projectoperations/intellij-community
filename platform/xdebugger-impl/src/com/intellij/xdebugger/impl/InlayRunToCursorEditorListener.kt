@@ -11,6 +11,7 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
 import com.intellij.openapi.actionSystem.impl.IdeaActionButtonLook
 import com.intellij.openapi.actionSystem.impl.ToolbarUtils.createImmediatelyUpdatedToolbar
+import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
@@ -39,7 +40,6 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.LightweightHint
 import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.ui.icons.toStrokeIcon
-import com.intellij.util.PlatformUtils
 import com.intellij.util.cancelOnDispose
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.JBDimension
@@ -64,8 +64,7 @@ class InlayRunToCursorEditorListener(private val project: Project, private val c
     const val ACTION_BUTTON_SIZE = 22
 
     @JvmStatic
-    val isInlayRunToCursorEnabled: Boolean get() = AdvancedSettings.getBoolean("debugger.inlay.run.to.cursor") &&
-                                                   !PlatformUtils.isPyCharm()
+    val isInlayRunToCursorEnabled: Boolean get() = AdvancedSettings.getBoolean("debugger.inlay.run.to.cursor")
   }
 
   private var currentJob: Job? = null
@@ -269,6 +268,10 @@ class InlayRunToCursorEditorListener(private val project: Project, private val c
       return
     }
 
+    if (needShowOnGutter && editorGutterComponentEx.findFoldingAnchorAt(editorGutterComponentEx.foldingAreaOffset + 1, lineY + 1) != null) {
+      return
+    }
+
     val editorContentComponent = editor.contentComponent
     val position = SwingUtilities.convertPoint(
       editorContentComponent,
@@ -286,7 +289,7 @@ class InlayRunToCursorEditorListener(private val project: Project, private val c
     val toolbarImpl = createImmediatelyUpdatedToolbar(group, ActionPlaces.EDITOR_HINT, editor.getComponent(), true) {
       initIsCompleted.unlock()
     } as ActionToolbarImpl
-    toolbarImpl.setLayoutPolicy(ActionToolbar.NOWRAP_LAYOUT_POLICY)
+    toolbarImpl.setLayoutStrategy(ToolbarLayoutStrategy.NOWRAP_STRATEGY)
     toolbarImpl.setActionButtonBorder(JBUI.Borders.empty(0, ACTION_BUTTON_GAP))
     toolbarImpl.setNeedCheckHoverOnLayout(true)
     toolbarImpl.setBorder(null)

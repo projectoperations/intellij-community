@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xmlb;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -22,6 +22,7 @@ import java.util.*;
 
 import static com.intellij.util.xmlb.Constants.*;
 
+@SuppressWarnings("LoggingSimilarMessage")
 final class MapBinding implements MultiNodeBinding, NestedBinding {
   private static final Logger LOG = Logger.getInstance(MapBinding.class);
 
@@ -104,12 +105,12 @@ final class MapBinding implements MultiNodeBinding, NestedBinding {
   }
 
   @Override
-  public @Nullable Object serialize(@NotNull Object o, @Nullable Object context, @Nullable SerializationFilter filter) {
+  public @Nullable Object serialize(@NotNull Object bean, @Nullable Object context, @Nullable SerializationFilter filter) {
     Element serialized = isSurroundWithTag() ? new Element(MAP) : (Element)context;
     assert serialized != null;
 
     @SuppressWarnings("rawtypes")
-    Map map = (Map)o;
+    Map map = (Map)bean;
     Object[] keys = ArrayUtil.toObjectArray(map.keySet());
     if (isSortMap(map)) {
       Arrays.sort(keys, KEY_COMPARATOR);
@@ -127,10 +128,7 @@ final class MapBinding implements MultiNodeBinding, NestedBinding {
   }
 
   private boolean isSurroundWithTag() {
-    if (annotation != null) {
-      return false;
-    }
-    return oldAnnotation == null || oldAnnotation.surroundWithTag();
+    return annotation == null && (oldAnnotation == null || oldAnnotation.surroundWithTag());
   }
 
   @NotNull
@@ -156,20 +154,28 @@ final class MapBinding implements MultiNodeBinding, NestedBinding {
   }
 
   @Override
-  public @Nullable Object deserializeList(@Nullable Object context, @NotNull List<? extends Element> elements) {
-    List<? extends Element> childNodes;
+  public @Nullable Object deserializeJdomList(@Nullable Object context, @NotNull List<? extends Element> elements) {
+    List<Element> childNodes;
     if (isSurroundWithTag()) {
-      assert elements.size() == 1;
-      childNodes = elements.get(0).getChildren();
+      if (elements.size() == 1) {
+        childNodes = elements.get(0).getChildren();
+      }
+      else {
+        childNodes = new ArrayList<>();
+        for (Element element : elements) {
+          childNodes.addAll(element.getChildren());
+        }
+      }
     }
     else {
-      childNodes = elements;
+      //noinspection unchecked
+      childNodes = (List<Element>)elements;
     }
     return deserialize(context, childNodes);
   }
 
   @Override
-  public @Nullable Object deserializeList2(@Nullable Object context, @NotNull List<XmlElement> elements) {
+  public @Nullable Object deserializeList(@Nullable Object context, @NotNull List<XmlElement> elements) {
     List<XmlElement> childNodes;
     if (isSurroundWithTag()) {
       assert elements.size() == 1;
@@ -201,7 +207,7 @@ final class MapBinding implements MultiNodeBinding, NestedBinding {
   }
 
   @SuppressWarnings({"rawtypes", "DuplicatedCode"})
-  private @Nullable Map<?, ?> deserialize(@Nullable Object context, @NotNull List<? extends Element> childNodes) {
+  private @Nullable Map<?, ?> deserialize(@Nullable Object context, @NotNull List<Element> childNodes) {
     // if accessor is null, it is sub-map, and we must not use context
     Map map = accessor == null ? null : (Map<?, ?>)context;
     if (map != null) {
@@ -246,7 +252,7 @@ final class MapBinding implements MultiNodeBinding, NestedBinding {
 
   @SuppressWarnings({"rawtypes", "DuplicatedCode"})
   private @Nullable Map<?, ?> deserialize2(@Nullable Object context, @NotNull List<XmlElement> childNodes) {
-    // if accessor is null, it is sub-map and we must not use context
+    // if accessor is null, it is sub-map, and we must not use context
     Map map = accessor == null ? null : (Map<?, ?>)context;
     if (map != null) {
       if (ClassUtil.isMutableMap(map)) {
@@ -337,7 +343,7 @@ final class MapBinding implements MultiNodeBinding, NestedBinding {
       }
       else {
         assert binding != null;
-        return Binding.deserializeList(binding, null, children);
+        return BindingKt.deserializeJdomList(binding, null, children);
       }
     }
     return null;
@@ -368,7 +374,7 @@ final class MapBinding implements MultiNodeBinding, NestedBinding {
       }
       else {
         assert binding != null;
-        return Binding.deserializeList2(binding, null, children);
+        return BindingKt.deserializeList(binding, null, children);
       }
     }
     return null;

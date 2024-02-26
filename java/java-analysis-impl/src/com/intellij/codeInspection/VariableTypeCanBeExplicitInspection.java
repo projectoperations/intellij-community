@@ -1,24 +1,26 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection;
 
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.daemon.impl.quickfix.ReplaceVarWithExplicitTypeFix;
 import com.intellij.java.analysis.JavaAnalysisBundle;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTypesUtil;
-import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 public final class VariableTypeCanBeExplicitInspection extends AbstractBaseJavaLocalInspectionTool implements CleanupLocalInspectionTool {
+  @Override
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.LVTI);
+  }
+
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
-    if (!HighlightingFeature.LVTI.isAvailable(holder.getFile())) { //var won't be parsed as inferred type otherwise
-      return PsiElementVisitor.EMPTY_VISITOR;
-    }
     return new JavaElementVisitor() {
       @Override
       public void visitLambdaExpression(@NotNull PsiLambdaExpression expression) {

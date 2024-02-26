@@ -26,8 +26,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
+import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRCompactReviewThreadViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRReviewCommentLocation
 import org.jetbrains.plugins.github.pullrequest.ui.editor.*
+import org.jetbrains.plugins.github.util.GithubSettings
 import kotlin.math.max
 import kotlin.math.min
 
@@ -47,11 +49,15 @@ internal class GHPRReviewDiffExtension : DiffExtension() {
   private class InlaysController(private val cs: CoroutineScope) {
 
     fun installInlays(reviewVm: GHPRDiffViewModel, change: RefComparisonChange, viewer: DiffViewerBase) {
+      val settings = GithubSettings.getInstance()
       cs.launchNow(Dispatchers.Main) {
         reviewVm.getViewModelFor(change).collectLatest { changeVm ->
           if (changeVm == null) return@collectLatest
 
-          changeVm.markViewed()
+          if (settings.isAutomaticallyMarkAsViewed) {
+            changeVm.markViewed()
+          }
+
           coroutineScope {
             viewer.controlReviewIn(this, { locationToLine, lineToLocations ->
               DiffEditorModel(this, changeVm, locationToLine, lineToLocations)
@@ -70,7 +76,7 @@ internal class GHPRReviewDiffExtension : DiffExtension() {
 }
 
 internal interface GHPREditorReviewModel : CodeReviewEditorModel<GHPREditorMappedComponentModel>,
-                                  CodeReviewEditorGutterControlsModel.WithMultilineComments {
+                                           CodeReviewEditorGutterControlsModel.WithMultilineComments {
   companion object {
     val KEY: Key<GHPREditorReviewModel> = Key.create("GitHub.Editor.Gutter.Review.Model")
   }
@@ -93,7 +99,7 @@ private class DiffEditorModel(
   override val gutterControlsState: StateFlow<CodeReviewEditorGutterControlsModel.ControlsState?> =
     diffVm.locationsWithDiscussions.map {
       val lines = it.mapNotNullTo(mutableSetOf(), locationToLine)
-      GutterState(lines, if (diffVm.canComment) transferRanges(diffVm.commentableRanges) else emptyList())
+      GHPRReviewEditorGutterControlsState(lines, if (diffVm.canComment) transferRanges(diffVm.commentableRanges) else emptyList())
     }.stateInNow(cs, null)
 
   private fun transferRanges(ranges: List<Range>): List<LineRange> = ranges.mapNotNull {
@@ -144,26 +150,16 @@ private class DiffEditorModel(
   }
 
   private inner class MappedThread(vm: GHPRReviewThreadDiffViewModel)
-    : GHPREditorMappedComponentModel.Thread<GHPRReviewThreadEditorViewModel>(vm) {
+    : GHPREditorMappedComponentModel.Thread<GHPRCompactReviewThreadViewModel>(vm) {
     override val isVisible: StateFlow<Boolean> = vm.isVisible.combineState(hiddenState) { visible, hidden -> visible && !hidden }
     override val line: StateFlow<Int?> = vm.location.mapState { loc -> loc?.let { locationToLine(it) } }
   }
 
   private inner class MappedNewComment(vm: GHPRNewCommentDiffViewModel)
-    : GHPREditorMappedComponentModel.NewComment<GHPRReviewNewCommentEditorViewModel>(vm.newCommentVm) {
+    : GHPREditorMappedComponentModel.NewComment<GHPRReviewNewCommentEditorViewModel>(vm) {
     private val location = vm.position.location.let { it.side to it.lineIdx }
     override val key: Any = "NEW_${vm.position.location}"
     override val isVisible: StateFlow<Boolean> = MutableStateFlow(true)
     override val line: StateFlow<Int?> = MutableStateFlow(locationToLine(location))
-  }
-
-  private data class GutterState(
-    override val linesWithComments: Set<Int>,
-    val commentableLines: List<LineRange>
-  ) : CodeReviewEditorGutterControlsModel.ControlsState {
-    override fun isLineCommentable(lineIdx: Int): Boolean = commentableLines.any {
-      val end = if (it.start == it.end) it.end.inc() else it.end
-      lineIdx in it.start until end
-    }
   }
 }

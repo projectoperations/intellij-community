@@ -31,6 +31,11 @@ public abstract class K2HighlightingMetaInfoTestGenerated extends AbstractK2High
             runTest("../../idea/tests/testData/highlighterMetaInfo/diagnostics/classRedeclaration.kt");
         }
 
+        @TestMetadata("dataClassFromLibrary.kt")
+        public void testDataClassFromLibrary() throws Exception {
+            runTest("../../idea/tests/testData/highlighterMetaInfo/diagnostics/dataClassFromLibrary.kt");
+        }
+
         @TestMetadata("javaCodeInKotlinFile1.kt")
         public void testJavaCodeInKotlinFile1() throws Exception {
             runTest("../../idea/tests/testData/highlighterMetaInfo/diagnostics/javaCodeInKotlinFile1.kt");
@@ -77,6 +82,29 @@ public abstract class K2HighlightingMetaInfoTestGenerated extends AbstractK2High
         @TestMetadata("SubclassOfDslClass.kt")
         public void testSubclassOfDslClass() throws Exception {
             runTest("../../idea/tests/testData/highlighterMetaInfo/dsl/SubclassOfDslClass.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../idea/tests/testData/highlighterMetaInfo/focusMode")
+    public static class FocusMode extends AbstractK2HighlightingMetaInfoTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("script.kts")
+        public void testScript() throws Exception {
+            runTest("../../idea/tests/testData/highlighterMetaInfo/focusMode/script.kts");
+        }
+
+        @TestMetadata("SimpleClass.kt")
+        public void testSimpleClass() throws Exception {
+            runTest("../../idea/tests/testData/highlighterMetaInfo/focusMode/SimpleClass.kt");
+        }
+
+        @TestMetadata("SimpleClassInFunction.kt")
+        public void testSimpleClassInFunction() throws Exception {
+            runTest("../../idea/tests/testData/highlighterMetaInfo/focusMode/SimpleClassInFunction.kt");
         }
     }
 

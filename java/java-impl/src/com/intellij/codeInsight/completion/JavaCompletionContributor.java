@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.application.options.CodeStyle;
@@ -6,7 +6,6 @@ import com.intellij.codeInsight.*;
 import com.intellij.codeInsight.completion.scope.CompletionElement;
 import com.intellij.codeInsight.completion.scope.JavaCompletionProcessor;
 import com.intellij.codeInsight.daemon.impl.analysis.GenericsHighlightUtil;
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil;
 import com.intellij.codeInsight.daemon.impl.analysis.LambdaHighlightingUtil;
 import com.intellij.codeInsight.daemon.impl.quickfix.BringVariableIntoScopeFix;
@@ -39,6 +38,7 @@ import com.intellij.patterns.ElementPattern;
 import com.intellij.patterns.PatternCondition;
 import com.intellij.patterns.PsiJavaElementPattern;
 import com.intellij.patterns.PsiNameValuePairPattern;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
@@ -88,7 +88,10 @@ public final class JavaCompletionContributor extends CompletionContributor imple
       psiElement().afterLeaf(".").insideStarting(psiExpressionStatement()),
       // like `call(Cls::methodRef.<caret>`
       psiElement().afterLeaf(psiElement(JavaTokenType.DOT).afterSibling(psiElement(PsiMethodCallExpression.class).withLastChild(
-        psiElement(PsiExpressionList.class).withLastChild(psiElement(PsiErrorElement.class))))));
+        psiElement(PsiExpressionList.class).withLastChild(psiElement(PsiErrorElement.class))))),
+      // dot after primitive type `int.<caret>` or dot after dot `Object..<caret>`
+      psiElement().afterLeaf(psiElement(JavaTokenType.DOT).withParent(
+        psiElement(PsiErrorElement.class).afterSibling(psiElement(PsiErrorElement.class)))));
   private static final PsiNameValuePairPattern NAME_VALUE_PAIR =
     psiNameValuePair().withSuperParent(2, psiElement(PsiAnnotation.class));
   private static final ElementPattern<PsiElement> ANNOTATION_ATTRIBUTE_NAME =
@@ -274,7 +277,7 @@ public final class JavaCompletionContributor extends CompletionContributor imple
           return element instanceof PsiEnumConstant;
         }
       };
-      if (!HighlightingFeature.PATTERNS_IN_SWITCH.isAvailable(position)) {
+      if (!PsiUtil.isAvailable(JavaFeature.PATTERNS_IN_SWITCH, position)) {
         return enumClassFilter;
       }
 
@@ -321,7 +324,7 @@ public final class JavaCompletionContributor extends CompletionContributor imple
       }
     };
 
-    if (!HighlightingFeature.PATTERNS_IN_SWITCH.isAvailable(position) ||
+    if (!PsiUtil.isAvailable(JavaFeature.PATTERNS_IN_SWITCH, position) ||
         isPrimitive(selectorType) || TypeUtils.isJavaLangString(selectorType)) {
       ClassFilter classFilter = new ClassFilter(PsiClass.class) {
         @Override
@@ -1012,7 +1015,7 @@ public final class JavaCompletionContributor extends CompletionContributor imple
     }
 
     if (IN_SWITCH_LABEL.accepts(position)) {
-      return HighlightingFeature.PATTERNS_IN_SWITCH.isAvailable(parent);
+      return PsiUtil.isAvailable(JavaFeature.PATTERNS_IN_SWITCH, parent);
     }
 
     if (psiElement().inside(PsiImportStatement.class).accepts(parent)) {

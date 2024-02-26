@@ -26,6 +26,8 @@
                     dynamic="true"/>
     <extensionPoint name="importing.afterImportConfigurator" interface="org.jetbrains.idea.maven.importing.MavenAfterImportConfigurator"
                     dynamic="true"/>
+    <extensionPoint name="projectResolutionContributor" interface="org.jetbrains.idea.maven.project.MavenProjectResolutionContributor"
+                    dynamic="true"/>
     <extensionPoint name="compiler" interface="org.jetbrains.idea.maven.importing.MavenCompilerExtension" dynamic="true"/>
     <extensionPoint name="manifestImporter" interface="org.jetbrains.idea.maven.importing.ManifestImporter" dynamic="true"/>
     <extensionPoint name="additional.importing.settings" interface="org.jetbrains.idea.maven.project.AdditionalMavenImportingSettings"
@@ -382,6 +384,9 @@
     <registryKey key="maven.incremental.sync.in.ui" defaultValue="false"
                  description="Show Maven incremental sync option in UI"/>
 
+    <registryKey key="maven.incremental.sync.resolve.dependencies.incrementally" defaultValue="true"
+                 description="During incremental sync, resolve dependencies incrementally"/>
+
     <intentionAction>
       <language>XML</language>
       <className>org.jetbrains.idea.maven.dom.converters.MavenArtifactCoordinatesConverter$MyUpdateIndicesIntention</className>
@@ -570,6 +575,9 @@
 
     <importing.workspaceConfigurator implementation="org.jetbrains.idea.maven.importing.MavenShadePluginConfigurator"/>
     <importing.afterImportConfigurator implementation="org.jetbrains.idea.maven.importing.MavenShadeFacetPostTaskConfigurator"/>
+
+    <projectResolutionContributor implementation="org.jetbrains.idea.maven.importing.MavenAnnotationProcessorContributor"/>
+    <projectResolutionContributor implementation="org.jetbrains.idea.maven.importing.MavenCompilerContributor"/>
 
     <compiler implementation="org.jetbrains.idea.maven.importing.MavenCompilerJavacExtension"/>
     <compiler implementation="org.jetbrains.idea.maven.importing.MavenCompilerEclipseExtension"/>

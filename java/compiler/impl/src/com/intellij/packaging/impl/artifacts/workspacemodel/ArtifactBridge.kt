@@ -21,7 +21,7 @@ import com.intellij.platform.backend.workspace.impl.internal
 import com.intellij.platform.backend.workspace.virtualFile
 import com.intellij.platform.diagnostic.telemetry.Compiler
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
-import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
+import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
 import com.intellij.platform.workspace.jps.JpsImportedEntitySource
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.VersionedEntityStorageOnBuilder
@@ -30,7 +30,6 @@ import com.intellij.workspaceModel.ide.toExternalSource
 import io.opentelemetry.api.metrics.Meter
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.jps.util.JpsPathUtil
-import java.util.concurrent.atomic.AtomicLong
 
 open class ArtifactBridge(
   _artifactId: ArtifactId,
@@ -42,14 +41,16 @@ open class ArtifactBridge(
 
   init {
     project.messageBus.connect().subscribe(WorkspaceModelTopics.CHANGED, object : WorkspaceModelChangeListener {
-      override fun beforeChanged(event: VersionedStorageChange) = beforeChangedMs.addMeasuredTimeMillis {
-        event.getChanges(ArtifactEntity::class.java).filterIsInstance<EntityChange.Removed<ArtifactEntity>>().forEach {
-          if (it.entity.symbolicId != artifactId) return@forEach
+      override fun beforeChanged(event: VersionedStorageChange) = beforeChangedMs.addMeasuredTime {
+        event.getChanges(ArtifactEntity::class.java).asSequence().filterIsInstance<EntityChange.Removed<ArtifactEntity>>().forEach {
+          val resolvedArtifactId = artifactId
+
+          if (it.entity.symbolicId != resolvedArtifactId) return@forEach
 
           // Artifact may be "re-added" with the same id
           // In this case two artifact bridges exists with the same ArtifactId: one for removed artifact and one for newly created
           // We should make sure that we "disable" removed artifact bridge
-          if (artifactId in event.storageAfter
+          if (resolvedArtifactId in event.storageAfter
               && event.storageBefore.artifactsMap.getDataByEntity(it.entity) != this@ArtifactBridge
               && event.storageBefore.artifactsMap.getDataByEntity(it.entity) != originalArtifact) {
             return@forEach
@@ -58,7 +59,7 @@ open class ArtifactBridge(
           // We inject a builder instead of store because requesting of packaging elements adds new bridges to this builder.
           // If case of storage here, the new bridges will be added to the store.
           entityStorage = VersionedEntityStorageOnBuilder(event.storageBefore.toBuilder())
-          assert(artifactId in entityStorage.base) { "Cannot resolve artifact $artifactId." }
+          assert(resolvedArtifactId in entityStorage.base) { "Cannot resolve artifact $resolvedArtifactId." }
         }
       }
     })
@@ -86,7 +87,7 @@ open class ArtifactBridge(
   // and not supposed to be) and the name of the artifact is modified directly in diff. However, we assume that this case isn't possible.
   val artifactId: ArtifactId
     get() {
-      val symbolicId = (entityStorage.base.artifactsMap.getEntities(this@ArtifactBridge).singleOrNull() as? ArtifactEntity)?.symbolicId
+      val symbolicId = (entityStorage.base.artifactsMap.getFirstEntity(this@ArtifactBridge) as? ArtifactEntity)?.symbolicId
       if (symbolicId != null) {
         artifactIdRaw = symbolicId
       }
@@ -286,7 +287,7 @@ open class ArtifactBridge(
       previousProperties.forEach { builder.removeEntity(it) }
     }
 
-    private val beforeChangedMs: AtomicLong = AtomicLong()
+    private val beforeChangedMs = MillisecondsMeasurer()
 
     private fun setupOpenTelemetryReporting(meter: Meter): Unit {
       val beforeChangedGauge = meter.gaugeBuilder("compiler.ArtifactBridge.beforeChanged.ms")
@@ -294,7 +295,7 @@ open class ArtifactBridge(
 
       meter.batchCallback(
         {
-          beforeChangedGauge.record(beforeChangedMs.get())
+          beforeChangedGauge.record(beforeChangedMs.asMilliseconds())
         },
         beforeChangedGauge,
       )

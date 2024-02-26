@@ -13,7 +13,6 @@ import com.intellij.openapi.actionSystem.Toggleable
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.actionSystem.impl.FloatingToolbar
 import com.intellij.openapi.actionSystem.impl.MoreActionGroup
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.VisualPosition
@@ -205,14 +204,15 @@ class CodeFloatingToolbar(
 
       override fun beforeShown(event: LightweightWindowEvent) {
         activeMenuPopup = popup
+        Toggleable.setSelected(button, true)
         alignButtonPopup(popup)
         HelpTooltip.setMasterPopupOpenCondition(button) { true }
-        toggleButton(button, true)
       }
 
       override fun onClosed(event: LightweightWindowEvent) {
         activeMenuPopup = null
-        toggleButton(button, false)
+        Toggleable.setSelected(button, null)
+        button.isSelected = false
       }
     })
   }
@@ -223,13 +223,6 @@ class CodeFloatingToolbar(
     val end = if (model.selectionStart == start) model.selectionEnd else model.selectionStart
     val linesCount = model.editor.document.run { getLineNumber(model.selectionEnd) - getLineNumber(model.selectionStart) + 1 }
     CodeFloatingToolbarCollector.toolbarShown(start, end, linesCount)
-  }
-
-  private fun toggleButton(button: ActionButton, toggled: Boolean) {
-    Toggleable.setSelected(button.presentation, toggled) //needed for ActionButton
-    ApplicationManager.getApplication().invokeLater { //need for ShowIntentionActionsAction
-      Toggleable.setSelected(button.presentation, toggled)
-    }
   }
 
   private fun alignButtonPopup(popup: JBPopup) {

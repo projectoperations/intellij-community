@@ -221,13 +221,14 @@ public final class CompareWithLocalDialog {
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
       Project project = Objects.requireNonNull(e.getProject());
-      MyLoadingChangesPanel changesPanel = e.getRequiredData(MyLoadingChangesPanel.DATA_KEY);
+      MyLoadingChangesPanel changesPanel = e.getData(MyLoadingChangesPanel.DATA_KEY);
+      if (changesPanel == null) return;
       MyChangesBrowser browser = (MyChangesBrowser)changesPanel.getChangesBrowser();
 
       List<FileRevisionProvider> fileContentProviders = ContainerUtil.map(browser.getSelectedChanges(), change -> {
         return new MyFileContentProvider(change, browser.myLocalContent);
       });
-      GetVersionAction.doGet(project, VcsBundle.message("compare.with.dialog.get.from.vcs.action.title"), fileContentProviders,
+      GetVersionAction.doGet(project, VcsBundle.message("activity.name.get"), fileContentProviders,
                              () -> {
                                FileDocumentManager.getInstance().saveAllDocuments();
                                changesPanel.reloadChanges();
@@ -290,7 +291,8 @@ public final class CompareWithLocalDialog {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
-      MyLoadingChangesPanel changesPanel = e.getRequiredData(MyLoadingChangesPanel.DATA_KEY);
+      MyLoadingChangesPanel changesPanel = e.getData(MyLoadingChangesPanel.DATA_KEY);
+      if (changesPanel == null) return;
       FileDocumentManager.getInstance().saveAllDocuments();
       changesPanel.reloadChanges();
     }

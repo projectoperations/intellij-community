@@ -173,10 +173,15 @@ public class TestCaseLoader {
     return filter;
   }
 
-  private static TestClassesFilter calcTestClassFilter(String patterns, List<String> testGroupNames, String classFilterName) {
+  private static TestClassesFilter calcTestClassFilter(@Nullable String patterns,
+                                                       @Nullable List<@NotNull String> testGroupNames,
+                                                       @Nullable String classFilterName) {
     if (!StringUtil.isEmpty(patterns)) {
       System.out.println("Using patterns: [" + patterns + "]");
       return new PatternListTestClassFilter(StringUtil.split(patterns, ";"));
+    }
+    if (testGroupNames == null) {
+      testGroupNames = Collections.emptyList();
     }
 
     if (testGroupNames.contains(ALL_TESTS_GROUP)) {
@@ -553,7 +558,7 @@ public class TestCaseLoader {
   // We assume that getPatterns and getTestGroups won't change during execution
   @ApiStatus.Internal
   public record TestClassesFilterArgs(
-    @Nullable String patterns, @NotNull List<@NotNull String> testGroupNames, @Nullable String testGroupsResourcePath
+    @Nullable String patterns, @Nullable List<@NotNull String> testGroupNames, @Nullable String testGroupsResourcePath
   ) {
   }
 
@@ -714,9 +719,9 @@ public class TestCaseLoader {
     }
   }
 
-  private static TestClassesFilter getFilter(String patterns,
-                                             String testGroupsResourcePath,
-                                             List<String> testGroups,
+  private static TestClassesFilter getFilter(@Nullable String patterns,
+                                             @Nullable String testGroupsResourcePath,
+                                             @Nullable List<@NotNull String> testGroups,
                                              boolean warmup) {
     TestClassesFilter filter;
     if (ourCommonTestClassesFilterArgs.getValue().equals(new TestClassesFilterArgs(patterns, testGroups, testGroupsResourcePath))) {

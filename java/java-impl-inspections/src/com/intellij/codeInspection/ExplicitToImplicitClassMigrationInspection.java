@@ -3,7 +3,6 @@ package com.intellij.codeInspection;
 
 import com.intellij.codeInsight.TestFrameworks;
 import com.intellij.codeInsight.daemon.impl.UnusedSymbolUtil;
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.java.JavaBundle;
@@ -11,6 +10,7 @@ import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.search.PackageScope;
 import com.intellij.psi.search.PsiSearchHelper;
@@ -22,12 +22,18 @@ import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Set;
+
 public final class ExplicitToImplicitClassMigrationInspection extends AbstractBaseJavaLocalInspectionTool {
+
+  @Override
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.IMPLICIT_CLASSES);
+  }
 
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
-    if (!HighlightingFeature.IMPLICIT_CLASSES.isAvailable(holder.getFile())) return PsiElementVisitor.EMPTY_VISITOR;
     return new JavaElementVisitor() {
       @Override
       public void visitClass(@NotNull PsiClass aClass) {

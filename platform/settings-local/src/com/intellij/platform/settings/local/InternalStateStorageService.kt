@@ -1,4 +1,6 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:OptIn(ExperimentalSerializationApi::class)
+
 package com.intellij.platform.settings.local
 
 import com.intellij.diagnostic.PluginException
@@ -12,6 +14,7 @@ import com.intellij.platform.settings.RawSettingSerializerDescriptor
 import com.intellij.platform.settings.SettingSerializerDescriptor
 import com.intellij.platform.settings.SettingValueSerializer
 import io.opentelemetry.api.metrics.Meter
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.cbor.Cbor
 import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
@@ -29,10 +32,6 @@ internal class InternalStateStorageService(@JvmField val map: MvMapManager, tele
 
   private val getMeasurer = Measurer(meter, "get")
   private val setMeasurer = Measurer(meter, "set")
-
-  fun clear() {
-    map.clear()
-  }
 
   fun <T : Any> getValue(key: String, serializer: SettingSerializerDescriptor<T>, pluginId: PluginId): T? {
     val start = System.nanoTime()
@@ -97,11 +96,8 @@ internal class InternalStateStorageService(@JvmField val map: MvMapManager, tele
     catch (e: CancellationException) {
       throw e
     }
-    catch (e: ProcessCanceledException) {
-      throw e
-    }
     catch (e: Throwable) {
-      thisLogger().error(PluginException(e, pluginId))
+      thisLogger().error(PluginException("Cannot set value for key $key", e, pluginId))
     }
   }
 }

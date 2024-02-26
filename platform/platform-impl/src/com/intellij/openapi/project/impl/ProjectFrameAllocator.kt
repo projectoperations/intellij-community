@@ -7,6 +7,7 @@ import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.configurationStore.saveSettings
 import com.intellij.conversion.CannotConvertException
 import com.intellij.diagnostic.StartUpMeasurer
+import com.intellij.diagnostic.StartUpPerformanceService
 import com.intellij.diagnostic.dumpCoroutines
 import com.intellij.featureStatistics.fusCollectors.FileEditorCollector.EmptyStateCause
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
@@ -216,7 +217,7 @@ internal class ProjectUiFrameAllocator(@JvmField val options: OpenProjectTask,
           }
         }
         finally {
-          FUSProjectHotStartUpMeasurer.reportNoMoreEditorsOnStartup()
+          FUSProjectHotStartUpMeasurer.reportNoMoreEditorsOnStartup(System.nanoTime())
         }
       }
 
@@ -366,6 +367,7 @@ private suspend fun restoreEditors(project: Project, fileEditorManager: FileEdit
 
     val (editorComponent, editorState) = fileEditorManager.init()
     if (editorState == null) {
+      serviceAsync<StartUpPerformanceService>().editorRestoringTillHighlighted()
       return@coroutineScope
     }
 
@@ -420,7 +422,7 @@ private suspend fun focusSelectedEditor(editorComponent: EditorsSplitters) {
   val composite = editorComponent.currentWindow?.selectedComposite ?: return
   val editor = (composite.selectedEditor as? TextEditor)?.editor
   if (editor == null) {
-    FUSProjectHotStartUpMeasurer.firstOpenedUnknownEditor(composite.file)
+    FUSProjectHotStartUpMeasurer.firstOpenedUnknownEditor(composite.file, System.nanoTime())
     composite.preferredFocusedComponent?.requestFocusInWindow()
   }
   else {
@@ -543,7 +545,7 @@ private suspend fun findAndOpenReadmeIfNeeded(project: Project) {
       (project.serviceAsync<FileEditorManager>() as FileEditorManagerEx).openFile(readme, FileEditorOpenOptions(requestFocus = true))
 
       readme.putUserData(README_OPENED_ON_START_TS, Instant.now())
-      FUSProjectHotStartUpMeasurer.openedReadme(readme)
+      FUSProjectHotStartUpMeasurer.openedReadme(readme, System.nanoTime())
     }
   }
 }

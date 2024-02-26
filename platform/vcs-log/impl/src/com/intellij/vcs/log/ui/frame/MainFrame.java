@@ -2,6 +2,7 @@
 package com.intellij.vcs.log.ui.frame;
 
 import com.google.common.primitives.Ints;
+import com.intellij.diff.impl.DiffEditorViewer;
 import com.intellij.ide.ui.customization.CustomActionsSchema;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
@@ -95,7 +96,7 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
   private boolean myIsLoading;
   private @Nullable FilePath myPathToSelect = null;
 
-  private final @NotNull FrameDiffPreview<VcsLogChangeProcessor> myDiffPreview;
+  private final @NotNull FrameDiffPreview myDiffPreview;
 
   public MainFrame(@NotNull VcsLogData logData,
                    @NotNull AbstractVcsLogUi logUi,
@@ -156,10 +157,10 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
     toolbars.add(myNotificationLabel, BorderLayout.CENTER);
     JComponent toolbarsAndTable = new JPanel(new BorderLayout());
     toolbarsAndTable.add(toolbars, BorderLayout.NORTH);
-    JScrollPane scrollPane = VcsLogUiUtil.setupScrolledGraph(myGraphTable, SideBorder.NONE);
-    JComponent progress = VcsLogUiUtil.installProgress(scrollPane, myLogData, logUi.getId(), this);
-    toolbarsAndTable.add(progress, BorderLayout.CENTER);
-    ScrollableContentBorder.setup(scrollPane, Side.TOP, progress);
+
+    JComponent tableWithProgress = VcsLogUiUtil.installScrollingAndProgress(myGraphTable, this);
+    toolbarsAndTable.add(tableWithProgress, BorderLayout.CENTER);
+
     myDetailsSplitter = new OnePixelSplitter(true, DETAILS_SPLITTER_PROPORTION, 0.7f);
     myDetailsSplitter.setFirstComponent(changesLoadingPane);
     showDetails(myUiProperties.get(CommonUiProperties.SHOW_DETAILS));
@@ -169,15 +170,13 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
     myChangesBrowserSplitter.setSecondComponent(myDetailsSplitter);
 
     setLayout(new BorderLayout());
-    VcsLogChangeProcessor processor = myChangesBrowser.createChangeProcessor(false);
-    processor.getToolbarWrapper().setVerticalSizeReferent(getToolbar());
-    myDiffPreview = new FrameDiffPreview<>(processor,
-                                           myUiProperties, myChangesBrowserSplitter, DIFF_SPLITTER_PROPORTION,
-                                           myUiProperties.get(MainVcsLogUiProperties.DIFF_PREVIEW_VERTICAL_SPLIT),
-                                           0.7f) {
+    myDiffPreview = new FrameDiffPreview(myUiProperties, myChangesBrowserSplitter, DIFF_SPLITTER_PROPORTION, 0.7f, this) {
+      @NotNull
       @Override
-      public void updatePreview(boolean state) {
-        getPreviewDiff().updatePreview(state);
+      protected DiffEditorViewer createViewer() {
+        DiffEditorViewer processor = myChangesBrowser.createChangeProcessor(false);
+        processor.setToolbarVerticalSizeReferent(getToolbar());
+        return processor;
       }
     };
     add(myDiffPreview.getMainComponent());
@@ -419,10 +418,12 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
   private class MyFocusPolicy extends ComponentsListFocusTraversalPolicy {
     @Override
     protected @NotNull List<Component> getOrderedComponents() {
-      return List.of(myGraphTable,
-                     myChangesBrowser.getPreferredFocusedComponent(),
-                     myDiffPreview.getPreviewDiff().getPreferredFocusedComponent(),
-                     myFilterUi.getTextFilterComponent().getFocusedComponent());
+      return ContainerUtil.skipNulls(
+        Arrays.asList(myGraphTable,
+                      myChangesBrowser.getPreferredFocusedComponent(),
+                      myDiffPreview.getPreferredFocusedComponent(),
+                      myFilterUi.getTextFilterComponent().getFocusedComponent())
+      );
     }
   }
 

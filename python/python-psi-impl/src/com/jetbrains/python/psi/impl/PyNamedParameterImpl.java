@@ -13,13 +13,12 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.IconManager;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.Processor;
-import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyStubElementTypes;
 import com.jetbrains.python.ast.PyAstFunction;
+import com.jetbrains.python.ast.impl.PyUtilCore;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
-import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
 import com.jetbrains.python.psi.stubs.PyAnnotationOwnerStub;
@@ -452,45 +451,6 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
       return owner.getUseScope();
     }
     return new LocalSearchScope(getContainingFile());
-  }
-
-  @Override
-  public boolean isSelf() {
-    if (isPositionalContainer() || isKeywordContainer()) {
-      return false;
-    }
-    PyFunction function = getStubOrPsiParentOfType(PyFunction.class);
-    if (function == null) {
-      return false;
-    }
-    final PyClass cls = function.getContainingClass();
-    final PyParameter[] parameters = function.getParameterList().getParameters();
-    if (cls != null && parameters.length > 0 && parameters[0] == this) {
-      if (PyUtil.isNewMethod(function)) {
-        return true;
-      }
-      final PyFunction.Modifier modifier = function.getModifier();
-      if (modifier != PyAstFunction.Modifier.STATICMETHOD) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  @Nullable
-  @Override
-  public PsiComment getTypeComment() {
-    for (PsiElement next = getNextSibling(); next != null; next = next.getNextSibling()) {
-      if (next.textContains('\n')) break;
-      if (!(next instanceof PsiWhiteSpace)) {
-        if (",".equals(next.getText())) continue;
-        if (next instanceof PsiComment && PyTypingTypeProvider.getTypeCommentValue(next.getText()) != null) {
-          return (PsiComment)next;
-        }
-        break;
-      }
-    }
-    return null;
   }
 
   @Nullable

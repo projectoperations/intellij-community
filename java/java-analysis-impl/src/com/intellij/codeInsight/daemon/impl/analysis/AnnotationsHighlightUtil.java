@@ -20,6 +20,7 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.ElementPattern;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiImplUtil;
@@ -398,7 +399,7 @@ public final class AnnotationsHighlightUtil {
     }
 
     if (!(owner instanceof PsiModifierList)) {
-      HighlightInfo.Builder info = HighlightUtil.checkFeature(annotation, HighlightingFeature.TYPE_ANNOTATIONS, level, file);
+      HighlightInfo.Builder info = HighlightUtil.checkFeature(annotation, JavaFeature.TYPE_ANNOTATIONS, level, file);
       if (info != null) return info;
     }
 
@@ -679,7 +680,8 @@ public final class AnnotationsHighlightUtil {
   }
 
   static HighlightInfo.Builder checkFunctionalInterface(@NotNull PsiAnnotation annotation, @NotNull LanguageLevel languageLevel) {
-    if (languageLevel.isAtLeast(LanguageLevel.JDK_1_8) && Comparing.strEqual(annotation.getQualifiedName(), CommonClassNames.JAVA_LANG_FUNCTIONAL_INTERFACE)) {
+    if (JavaFeature.LAMBDA_EXPRESSIONS.isSufficient(languageLevel) && 
+        Comparing.strEqual(annotation.getQualifiedName(), CommonClassNames.JAVA_LANG_FUNCTIONAL_INTERFACE)) {
       PsiAnnotationOwner owner = annotation.getOwner();
       if (owner instanceof PsiModifierList) {
         PsiElement parent = ((PsiModifierList)owner).getParent();

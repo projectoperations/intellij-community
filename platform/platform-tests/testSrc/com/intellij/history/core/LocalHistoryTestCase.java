@@ -132,6 +132,14 @@ public abstract class LocalHistoryTestCase extends Assert {
     return new DeleteChange(nextId(), path, e);
   }
 
+  public @NotNull PutLabelChange putLabel(@NotNull String name, @NotNull String projectId) {
+    return new PutLabelChange(nextId(), name, projectId);
+  }
+
+  public @NotNull PutSystemLabelChange putSystemLabel(@NotNull String name, @NotNull String projectId) {
+    return new PutSystemLabelChange(nextId(), name, projectId, -1);
+  }
+
   public <T extends StructuralChange> T add(LocalHistoryFacade vcs, T change) {
     vcs.beginChangeSet();
     vcs.addChangeInTests(change);

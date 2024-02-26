@@ -2,10 +2,17 @@
 package git4idea.remote.hosting
 
 import com.intellij.collaboration.api.ServerPath
+import com.intellij.collaboration.util.ComputedResult
 import com.intellij.dvcs.repo.VcsRepositoryManager
 import com.intellij.dvcs.repo.VcsRepositoryMappingListener
 import com.intellij.openapi.components.serviceAsync
+import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.Project
+import git4idea.GitRemoteBranch
+import git4idea.branch.GitBranchSyncStatus
+import git4idea.commands.Git
+import git4idea.commands.GitCommand
+import git4idea.commands.GitLineHandler
 import git4idea.remote.GitRemoteUrlCoordinates
 import git4idea.repo.GitRepoInfo
 import git4idea.repo.GitRepository
@@ -28,16 +35,19 @@ fun GitRepository.changesSignalFlow(): Flow<Unit> = channelFlow {
   awaitClose()
 }
 
-fun GitRepository.infoStateIn(cs: CoroutineScope): StateFlow<GitRepoInfo> = channelFlow {
+fun GitRepository.infoStateIn(cs: CoroutineScope): StateFlow<GitRepoInfo> = infoFlow().stateIn(cs, SharingStarted.Eagerly, info)
+
+fun GitRepository.infoFlow(): Flow<GitRepoInfo> = channelFlow {
   project.messageBus
     .connect(this)
     .subscribe(GitRepository.GIT_REPO_CHANGE, GitRepositoryChangeListener {
-      if (it == this@infoStateIn) {
+      if (it == this@infoFlow) {
         trySend(it.info)
       }
     })
+  send(info)
   awaitClose()
-}.stateIn(cs, SharingStarted.Eagerly, info)
+}
 
 fun gitRemotesFlow(project: Project): Flow<Set<GitRemoteUrlCoordinates>> =
   callbackFlow {
@@ -67,7 +77,48 @@ private fun GitRepositoryManager.collectRemotes(): Set<GitRemoteUrlCoordinates> 
   }.toSet()
 }
 
+fun GitRepository.currentRemoteBranchFlow(): Flow<GitRemoteBranch?> =
+  infoFlow()
+    .map { it.findFirstRemoteBranchTrackedByCurrent() }
+    .distinctUntilChanged()
+
+fun GitRepoInfo.findFirstRemoteBranchTrackedByCurrent(): GitRemoteBranch? {
+  val currentBranch = currentBranch ?: return null
+  return branchTrackInfos.find { it.localBranch == currentBranch }?.remoteBranch
+}
+
 private typealias GitRemotesFlow = Flow<Collection<GitRemoteUrlCoordinates>>
+
+/**
+ * A flow of sync state between a branch and a local repository state.
+ * Branch state is represented by a list of commit hashes in the receiver flow.
+ * Receiver flow should emit an ordered list of commits where the last commits in the list is actually the last commits in a branch.
+ */
+fun Flow<List<String>>.localCommitsSyncStatus(repository: GitRepository): Flow<ComputedResult<GitBranchSyncStatus?>?> {
+  val currentRevisionFlow = repository.infoFlow().map { it.currentRevision }.distinctUntilChanged()
+  return combine(currentRevisionFlow) { commits, currentRev ->
+    if (currentRev == null) ComputedResult.success(null)
+    else ComputedResult.compute {
+      checkSyncState(repository, currentRev, commits)
+    }
+  }
+}
+
+private suspend fun checkSyncState(repository: GitRepository, currentRev: String, commits: List<String>): GitBranchSyncStatus {
+  val headSha = commits.last()
+  if (currentRev == headSha) return GitBranchSyncStatus.SYNCED
+  if (commits.contains(currentRev)) return GitBranchSyncStatus(true, false)
+  if (testCurrentBranchContains(repository, headSha)) return GitBranchSyncStatus(false, true)
+  return GitBranchSyncStatus(true, true)
+}
+
+private suspend fun testCurrentBranchContains(repository: GitRepository, sha: String): Boolean =
+  coroutineToIndicator {
+    val h = GitLineHandler(repository.project, repository.root, GitCommand.MERGE_BASE)
+    h.setSilent(true)
+    h.addParameters("--is-ancestor", sha, "HEAD")
+    Git.getInstance().runCommand(h).success()
+  }
 
 fun <S : ServerPath, M : HostedGitRepositoryMapping> GitRemotesFlow.mapToServers(serversState: Flow<Set<S>>,
                                                                                  mapper: (S, GitRemoteUrlCoordinates) -> M?)

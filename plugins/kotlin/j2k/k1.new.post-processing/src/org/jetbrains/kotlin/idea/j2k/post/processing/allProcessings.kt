@@ -1,4 +1,5 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+
 package org.jetbrains.kotlin.idea.j2k.post.processing
 
 import org.jetbrains.kotlin.diagnostics.Errors
@@ -16,6 +17,9 @@ import org.jetbrains.kotlin.idea.j2k.post.processing.processings.*
 import org.jetbrains.kotlin.idea.quickfix.*
 import org.jetbrains.kotlin.idea.quickfix.ChangeCallableReturnTypeFix.ReturnTypeMismatchOnOverrideFactory
 import org.jetbrains.kotlin.idea.quickfix.ChangeVisibilityFix.SetExplicitVisibilityFactory
+import org.jetbrains.kotlin.j2k.InspectionLikeProcessingGroup
+import org.jetbrains.kotlin.j2k.NamedPostProcessingGroup
+import org.jetbrains.kotlin.j2k.postProcessings.*
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.parents
@@ -27,7 +31,6 @@ private val errorsFixingDiagnosticBasedPostProcessingGroup = DiagnosticBasedPost
     diagnosticBasedProcessing(ReturnTypeMismatchOnOverrideFactory, Errors.RETURN_TYPE_MISMATCH_ON_OVERRIDE),
     diagnosticBasedProcessing(AddModifierFixFE10.createFactory(KtTokens.OVERRIDE_KEYWORD), Errors.VIRTUAL_MEMBER_HIDDEN),
     invisibleMemberDiagnosticBasedProcessing(MakeVisibleFactory, Errors.INVISIBLE_MEMBER),
-    diagnosticBasedProcessing(RemoveModifierFixBase.removeNonRedundantModifier, Errors.WRONG_MODIFIER_TARGET),
 
     diagnosticBasedProcessing(Errors.PLATFORM_CLASS_MAPPED_TO_KOTLIN) { element: KtDotQualifiedExpression, _ ->
         val parent = element.parent as? KtImportDirective ?: return@diagnosticBasedProcessing
@@ -71,7 +74,6 @@ private val addOrRemoveModifiersProcessingGroup = InspectionLikeProcessingGroup(
     runSingleTime = true,
     processings = listOf(
         RemoveRedundantVisibilityModifierProcessing(),
-        RemoveRedundantModalityModifierProcessing(),
     )
 )
 
@@ -116,10 +118,8 @@ private val inspectionLikePostProcessingGroup = InspectionLikeProcessingGroup(
         it.getExplicitLabelComment() == null
     },
     DestructureForLoopParameterProcessing(),
-    inspectionBasedProcessing(SimplifyAssertNotNullInspection()),
     LiftReturnInspectionBasedProcessing(),
     LiftAssignmentInspectionBasedProcessing(),
-    intentionBasedProcessing(RemoveEmptyPrimaryConstructorIntention()),
     MayBeConstantInspectionBasedProcessing(),
     RemoveForExpressionLoopParameterTypeProcessing(),
     inspectionBasedProcessing(ReplaceGuardClauseWithFunctionCallInspection()),
@@ -141,7 +141,7 @@ private val inferringTypesPostProcessingGroup = NamedPostProcessingGroup(
     listOf(
         InspectionLikeProcessingGroup(
             processings = listOf(
-                PrivateVarToValProcessing(),
+                VarToValProcessing(),
                 LocalVarToValInspectionBasedProcessing()
             ),
             runSingleTime = true

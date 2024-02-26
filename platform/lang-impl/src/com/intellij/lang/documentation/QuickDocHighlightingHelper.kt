@@ -3,6 +3,7 @@ package com.intellij.lang.documentation
 
 import com.intellij.ide.ui.html.StyleSheetRulesProviderForCodeHighlighting
 import com.intellij.lang.Language
+import com.intellij.lang.documentation.DocumentationMarkup.*
 import com.intellij.lang.documentation.DocumentationSettings.InlineCodeHighlightingMode
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
@@ -12,7 +13,9 @@ import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.PsiElement
+import com.intellij.ui.scale.JBUIScale.scale
 import com.intellij.util.concurrency.annotations.RequiresReadLock
+import com.intellij.util.ui.StartupUiUtil
 import com.intellij.xml.util.XmlStringUtil
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.Color
@@ -160,6 +163,7 @@ object QuickDocHighlightingHelper {
   fun StringBuilder.appendStyledSignatureFragment(contents: String, textAttributesKey: TextAttributesKey): StringBuilder =
     appendStyledSpan(DocumentationSettings.isHighlightingOfQuickDocSignaturesEnabled(), textAttributesKey,
                      contents, false)
+
   /**
    * This method should be used when generating Quick Doc element signatures.
    * Any special HTML characters, like `<` or `>` are escaped.
@@ -170,7 +174,7 @@ object QuickDocHighlightingHelper {
   @JvmStatic
   @RequiresReadLock
   fun getStyledSignatureFragment(project: Project, language: Language?, code: String): @NlsSafe String =
-    StringBuilder().apply { appendStyledSignatureFragment(project, language, code)}
+    StringBuilder().apply { appendStyledSignatureFragment(project, language, code) }
       .toString()
 
   /**
@@ -269,29 +273,59 @@ object QuickDocHighlightingHelper {
 
   @Internal
   @JvmStatic
+  fun getDefaultFormattingStyles(spacing: Int): List<String> {
+    val fontSize = StartupUiUtil.labelFont.size
+    return listOf(
+      "h6 { font-size: ${fontSize + 1}}",
+      "h5 { font-size: ${fontSize + 2}}",
+      "h4 { font-size: ${fontSize + 3}}",
+      "h3 { font-size: ${fontSize + 4}}",
+      "h2 { font-size: ${fontSize + 6}}",
+      "h1 { font-size: ${fontSize + 8}}",
+      "h1, h2, h3, h4, h5, h6 {margin: 0 0 0 0; padding: 0 0 ${spacing}px 0; }",
+      "p { margin: 0 0 0 0; padding: 0 0 ${spacing}px 0; line-height: 125%;}",
+      "ul { margin: 0 0 0 ${scale(10)}px; padding: 0 0 ${spacing}px 0;}",
+      "ol { margin: 0 0 0 ${scale(20)}px; padding: 0 0 ${spacing}px 0;}",
+      "li { padding: ${scale(1)}px 0 ${scale(2)}px 0; }",
+      "li p { padding-top: 0; padding-bottom: 0; }",
+      "th { text-align: left; }",
+      "tr, table { margin: 0 0 0 0; padding: 0 0 0 0; }",
+      "td { margin: 0 0 0 0; padding: 0 ${spacing}px ${spacing}px 0; }",
+      "td p { padding-top: 0; padding-bottom: 0; }",
+      "td pre { padding: ${scale(1)}px 0 0 0; margin: 0 0 0 0 }",
+      ".$CLASS_CENTERED { text-align: center}",
+    )
+  }
+
+  @Internal
+  @JvmStatic
   fun getDefaultDocCodeStyles(
     colorScheme: EditorColorsScheme,
     editorPaneBackgroundColor: Color,
+    spacing: Int,
   ): List<String> = StyleSheetRulesProviderForCodeHighlighting.getRules(
     colorScheme, editorPaneBackgroundColor,
-    listOf(".content", ".content-separated", ".content-only div:not(.bottom)", ".sections"),
-    listOf(".definition code", ".definition pre", ".definition-only code", ".definition-only"),
+    listOf(".$CLASS_CONTENT", ".$CLASS_CONTENT_SEPARATED", ".$CLASS_CONTENT div:not(.$CLASS_BOTTOM)", ".$CLASS_CONTENT div:not(.$CLASS_TOP)",
+           ".$CLASS_SECTIONS"),
+    listOf(".$CLASS_DEFINITION code", ".$CLASS_DEFINITION pre", ".$CLASS_DEFINITION_SEPARATED code", ".$CLASS_DEFINITION_SEPARATED pre",
+           ".$CLASS_BOTTOM code", ".$CLASS_TOP code"),
     DocumentationSettings.isCodeBackgroundEnabled()
     && DocumentationSettings.getInlineCodeHighlightingMode() !== InlineCodeHighlightingMode.NO_HIGHLIGHTING,
     DocumentationSettings.isCodeBackgroundEnabled()
     && DocumentationSettings.isHighlightingOfCodeBlocksEnabled(),
+    "0 0 ${spacing}px 0"
   )
 
   private fun StringBuilder.appendHighlightedCode(project: Project, language: Language?, doHighlighting: Boolean,
                                                   code: CharSequence, isForRenderedDoc: Boolean): StringBuilder {
-    val trimmedCode = code.toString().trim('\n', '\r').trimIndent().replace(' ', ' ')
+    val processedCode = code.toString().trim('\n', '\r').replace(' ', ' ').trimEnd()
     if (language != null && doHighlighting) {
       HtmlSyntaxInfoUtil.appendHighlightedByLexerAndEncodedAsHtmlCodeSnippet(
-        this, project, language, trimmedCode,
+        this, project, language, processedCode,
         DocumentationSettings.getHighlightingSaturation(isForRenderedDoc))
     }
     else {
-      append(XmlStringUtil.escapeString(trimmedCode))
+      append(XmlStringUtil.escapeString(processedCode.trimIndent()))
     }
     return this
   }

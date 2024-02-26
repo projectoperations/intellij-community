@@ -6,6 +6,7 @@ import com.intellij.facet.ui.FacetEditor
 import com.intellij.facet.ui.FacetEditorsFactory
 import com.intellij.facet.ui.MultipleFacetSettingsEditor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import org.jetbrains.kotlin.idea.base.compilerPreferences.configuration.KotlinCompilerConfigurableTab
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstance
 import javax.swing.JComponent
@@ -22,8 +23,8 @@ class MultipleKotlinFacetEditor(
     private val FacetEditor.compilerConfigurable: KotlinCompilerConfigurableTab
         get() = tabEditor.compilerConfigurable
 
-    override fun createComponent(): JComponent {
-        return KotlinFacetEditorGeneralTab.EditorComponent(project, null).apply {
+    private val multiEditorComponent: Lazy<KotlinFacetEditorGeneralTab.EditorComponent> = lazy(LazyThreadSafetyMode.NONE) {
+        KotlinFacetEditorGeneralTab.EditorComponent(project, configuration = null).apply {
             initialize()
 
             helper.bind(useProjectSettingsCheckBox, editors) { it.tabEditor.useProjectSettingsCheckBox }
@@ -44,10 +45,18 @@ class MultipleKotlinFacetEditor(
         }
     }
 
+    override fun createComponent(): JComponent = multiEditorComponent.value
+
     override fun disposeUIResources() {
         helper.unbind()
         // Reset tabs with selected "Use project settings" after switching off the multi-editor mode.
         // Their settings might have changed to non-project one due to UI control binding
         editors.map { it.tabEditor }.filter { it.useProjectSettingsCheckBox.isSelected }.forEach { it.updateCompilerConfigurable() }
+
+        // `editors` were created on the outside and will be disposed there;
+        // we only have to worry about the `multiEditorComponent` that we created
+        if (multiEditorComponent.isInitialized()) {
+            Disposer.dispose(multiEditorComponent.value)
+        }
     }
 }

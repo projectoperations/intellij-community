@@ -24,6 +24,8 @@ import org.jetbrains.plugins.github.api.data.GHUser
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestCommitShort
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewState.*
 import org.jetbrains.plugins.github.i18n.GithubBundle
+import org.jetbrains.plugins.github.pullrequest.ui.emoji.GHReactionsComponentFactory
+import org.jetbrains.plugins.github.pullrequest.ui.emoji.GHReactionsPickerComponentFactory
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRTimelineItemUIUtil.createTimelineItem
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.item.GHPRTimelineCommentViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.item.GHPRTimelineItem
@@ -129,6 +131,10 @@ class GHPRTimelineItemComponentFactory(private val timelineVm: GHPRTimelineViewM
       it.requestFocus()
       editor
     }
+    val mainPanel = VerticalListPanel(CodeReviewTimelineUIUtil.VERTICAL_GAP).apply {
+      add(content)
+      add(GHReactionsComponentFactory.create(cs, comment.reactionsVm))
+    }
     val actionsPanel = HorizontalListPanel(8).apply {
       if (comment.canEdit) {
         add(CodeReviewCommentUIUtil.createEditButton {
@@ -142,8 +148,14 @@ class GHPRTimelineItemComponentFactory(private val timelineVm: GHPRTimelineViewM
           comment.delete()
         })
       }
+      if (comment.canReact) {
+        add(CodeReviewCommentUIUtil.createAddReactionButton {
+          val parentComponent = it.source as JComponent
+          GHReactionsPickerComponentFactory.showPopup(comment.reactionsVm, parentComponent)
+        })
+      }
     }
-    return createTimelineItem(avatarIconsProvider, comment.author, comment.createdAt, content, actionsPanel)
+    return createTimelineItem(avatarIconsProvider, comment.author, comment.createdAt, mainPanel, actionsPanel)
   }
 
   private fun CoroutineScope.createComponent(review: GHPRTimelineReviewViewModel): JComponent {

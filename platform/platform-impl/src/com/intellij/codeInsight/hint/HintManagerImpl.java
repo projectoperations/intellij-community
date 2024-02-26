@@ -20,6 +20,7 @@ import com.intellij.openapi.util.NlsContexts.HintText;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.*;
 import com.intellij.ui.awt.RelativePoint;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.accessibility.AccessibleContextUtil;
@@ -478,20 +479,20 @@ public class HintManagerImpl extends HintManager {
     Point location;
     JComponent externalComponent = getExternalComponent(editor);
     JComponent internalComponent = editor.getContentComponent();
+    Point p;
     if (constraint == RIGHT_UNDER) {
-      Point p = new Point(point2);
+      p = new Point(point2);
       if (!showByBalloon) {
         p.y += editor.getLineHeight();
       }
-      location = SwingUtilities.convertPoint(internalComponent, p, externalComponent);
     }
     else {
-      Point p = new Point(point1);
+      p = new Point(point1);
       if (constraint == UNDER) {
         p.y += editor.getLineHeight();
       }
-      location = SwingUtilities.convertPoint(internalComponent, p, externalComponent);
     }
+    location = SwingUtilities.convertPoint(internalComponent, p, externalComponent);
 
     if (constraint == ABOVE && !showByBalloon) {
       location.y -= hintSize.height;
@@ -664,7 +665,11 @@ public class HintManagerImpl extends HintManager {
       if (pane != null) {
         pane.addHyperlinkListener(e -> {
           if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED && "action".equals(e.getDescription()) && hint.isVisible()) {
-            if (action.execute()) {
+            boolean execute;
+            try (AccessToken ignore = SlowOperations.startSection(SlowOperations.ACTION_PERFORM)) {
+              execute = action.execute();
+            }
+            if (execute) {
               hint.hide();
             }
           }

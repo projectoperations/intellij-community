@@ -19,6 +19,7 @@ import com.intellij.ui.svg.renderSvg
 import com.intellij.util.ImageLoader
 import com.intellij.util.JBHiDPIScaledImage
 import com.intellij.util.ResourceUtil
+import com.intellij.util.SVGLoader
 import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.ImageUtil
@@ -142,11 +143,12 @@ fun getMenuBarIcon(icon: Icon, dark: Boolean): Icon {
   }
 }
 
-internal fun convertImage(image: Image,
-                          filters: List<ImageFilter>,
-                          scaleContext: ScaleContext,
-                          isUpScaleNeeded: Boolean,
-                          imageScale: Float): Image {
+@Internal
+fun convertImage(image: Image,
+                 filters: List<ImageFilter>,
+                 scaleContext: ScaleContext,
+                 isUpScaleNeeded: Boolean,
+                 imageScale: Float): Image {
   var result = image
   if (isUpScaleNeeded) {
     var scale = scaleContext.getScale(DerivedScaleType.PIX_SCALE).toFloat()
@@ -279,7 +281,7 @@ internal fun loadCustomIcon(url: URL): Image? {
 
 @Internal
 fun loadImageForStartUp(requestedPath: String, scale: Float, classLoader: ClassLoader): BufferedImage? {
-  val descriptors = createImageDescriptorList(path = requestedPath, isDark = false, pixScale = scale)
+  val descriptors = createImageDescriptorList(path = requestedPath, isDark = false, isStroke = false, pixScale = scale)
   for (descriptor in descriptors) {
     try {
       val dotIndex = requestedPath.lastIndexOf('.')
@@ -321,23 +323,6 @@ internal fun doScaleImage(image: Image, scale: Double): Image {
   // because ultra quality performs a few more passes when scaling, which introduces blurriness
   // when the scaling factor is relatively small (i.e. <= 3.0f) -- which is the case here.
   return Scalr.resize(ImageUtil.toBufferedImage(image, false), Scalr.Method.QUALITY, Scalr.Mode.FIT_EXACT, width, height, null)
-}
-
-@Internal
-fun loadImageFromStream(stream: InputStream,
-                        path: String?,
-                        scale: Float,
-                        isDark: Boolean,
-                        useSvg: Boolean): Image {
-  stream.use {
-    if (useSvg) {
-      val compoundCacheKey = SvgCacheClassifier(scale = scale, isDark = isDark, isStroke = false)
-      return loadSvg(path = path, stream = stream, scale = scale, compoundCacheKey = compoundCacheKey, colorPatcherProvider = null)
-    }
-    else {
-      return loadRasterImage(stream = stream)
-    }
-  }
 }
 
 @Internal

@@ -2,14 +2,17 @@
 package com.intellij.util.indexing.projectFilter
 
 import com.intellij.openapi.project.Project
-import com.intellij.util.containers.ConcurrentBitSet
 
-internal class IncrementalProjectIndexableFilesFilter : ProjectIndexableFilesFilter() {
-  private val fileIds: ConcurrentBitSet = ConcurrentBitSet.create()
+internal class IncrementalProjectIndexableFilesFilterFactory : ProjectIndexableFilesFilterFactory() {
+  override fun create(project: Project): ProjectIndexableFilesFilter {
+    return IncrementalProjectIndexableFilesFilter(project)
+  }
+}
 
-  override fun getFilteringScopeType(): FilterScopeType = FilterScopeType.PROJECT_AND_LIBRARIES
+internal open class IncrementalProjectIndexableFilesFilter(project: Project, protected val fileIds: ConcurrentFileIds = ConcurrentFileIds())
+  : ProjectIndexableFilesFilter(project, true) {
 
-  override fun containsFileId(fileId: Int): Boolean = fileIds.get(fileId)
+  override fun containsFileId(fileId: Int): Boolean = fileIds[fileId]
 
   @Suppress("LocalVariableName")
   override fun ensureFileIdPresent(fileId: Int, add: () -> Boolean): Boolean {
@@ -17,11 +20,11 @@ internal class IncrementalProjectIndexableFilesFilter : ProjectIndexableFilesFil
 
     return runUpdate {
       val _fileIds = fileIds
-      if (_fileIds.get(fileId)) {
+      if (_fileIds[fileId]) {
         true
       }
       else if (add()) {
-        _fileIds.set(fileId)
+        _fileIds[fileId] = true
         true
       }
       else false
@@ -31,7 +34,7 @@ internal class IncrementalProjectIndexableFilesFilter : ProjectIndexableFilesFil
   override fun removeFileId(fileId: Int) {
     assert(fileId > 0)
     runUpdate {
-      fileIds.clear(fileId)
+      fileIds[fileId] = false
     }
   }
 
@@ -39,10 +42,7 @@ internal class IncrementalProjectIndexableFilesFilter : ProjectIndexableFilesFil
     fileIds.clear()
   }
 
-  override fun runHealthCheck(project: Project): List<HealthCheckError> {
-    return runAndCheckThatNoChangesHappened {
-      val fileStatuses = (0 until fileIds.size()).asSequence().map { it to fileIds[it] }
-      runHealthCheck(project, true, fileStatuses)
-    }
+  override fun getFileStatuses(): Sequence<Pair<Int, Boolean>> {
+    return (0 until fileIds.size).asSequence().map { it to fileIds[it] }
   }
 }

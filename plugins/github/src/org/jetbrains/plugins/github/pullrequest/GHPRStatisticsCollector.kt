@@ -12,7 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.platform.util.coroutines.childScope
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.future.await
+import kotlinx.coroutines.future.asDeferred
 import kotlinx.coroutines.launch
 import org.jetbrains.plugins.github.api.GithubServerPath
 import org.jetbrains.plugins.github.api.data.GHEnterpriseServerMeta
@@ -23,7 +23,7 @@ import org.jetbrains.plugins.github.util.GHEnterpriseServerMetadataLoader
 import java.util.*
 
 internal object GHPRStatisticsCollector: CounterUsagesCollector() {
-  private val COUNTERS_GROUP = EventLogGroup("vcs.github.pullrequest.counters", 6)
+  private val COUNTERS_GROUP = EventLogGroup("vcs.github.pullrequest.counters", 7)
 
   override fun getGroup() = COUNTERS_GROUP
 
@@ -104,7 +104,7 @@ internal object GHPRStatisticsCollector: CounterUsagesCollector() {
 
   fun logDiffOpened(project: Project) {
     val count = FileEditorManager.getInstance(project).openFiles.count {
-      it is GHPRDiffVirtualFile || it is GHPRCombinedDiffPreviewVirtualFile
+      it is GHPRDiffVirtualFile
     }
     DIFF_OPENED_EVENT.log(project, count)
   }
@@ -180,7 +180,7 @@ private class GHServerVersionsCollector(
 
           //TODO: load with auth to avoid rate-limit
           try {
-            val metadata = service<GHEnterpriseServerMetadataLoader>().loadMetadata(server).await()
+            val metadata = service<GHEnterpriseServerMetadataLoader>().loadMetadata(server).asDeferred().await()
             GHPRStatisticsCollector.logEnterpriseServerMeta(project, server, metadata)
           }
           catch (ignore: Exception) {

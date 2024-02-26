@@ -1,101 +1,147 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl.stickyLines
 
-import com.intellij.codeInsight.hint.EditorFragmentComponent
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.command.CommandProcessor
+import com.intellij.openapi.command.UndoConfirmationPolicy
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.VisualPosition
+import com.intellij.openapi.editor.actionSystem.DocCommandGroupId
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.ex.EditorGutterComponentEx
 import com.intellij.openapi.editor.ex.util.EditorUIUtil
 import com.intellij.openapi.editor.impl.EditorImpl
+import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory
 import com.intellij.util.ui.MouseEventAdapter
-import com.intellij.util.ui.MouseEventHandler
 import com.intellij.util.ui.StartupUiUtil
 import com.intellij.util.ui.UIUtil
+import java.awt.Component
 import java.awt.Graphics
-import java.awt.event.MouseEvent
-import java.awt.event.MouseListener
+import java.awt.event.*
 import java.awt.image.BufferedImage
 import javax.swing.JComponent
 import javax.swing.JPopupMenu
-import kotlin.math.max
+import javax.swing.SwingUtilities
 
 /**
  * Represents one editor's line (gutter + line text)
- *
- * TODO: mouse events handling
- *  - the line should change background color on mouse hover
- *  - sticky gutter should forward clicks/hovers with adjusted coordinates to the actual gutter component
  */
 internal class StickyLineComponent(private val editor: EditorEx) : JComponent() {
   var primaryVisualLine: Int = -1
   var scopeVisualLine: Int = -1
   private var offsetOnClick: Int = -1
+  private var debugText: String? = null
+  private var dumbTextImage: BufferedImage? = null
+  private var isHovered: Boolean = false
+  private val mouseListener = StickyMouseListener()
 
   init {
     border = null
-    addMouseListener(MyMouseEventHandler())
-    addMouseListener(GutterMouseEventHandler())
+    addMouseListener(mouseListener)
+    addMouseMotionListener(mouseListener)
+    addMouseWheelListener(mouseListener)
   }
 
-  fun setLine(primaryVisualLine: VisualPosition, scopeVisualLine: VisualPosition, offsetOnClick: Int) {
-    this.primaryVisualLine = primaryVisualLine.line
-    this.scopeVisualLine = scopeVisualLine.line
-    this.offsetOnClick = offsetOnClick
+  fun setLine(
+    primaryVisualLine: VisualPosition,
+    scopeVisualLine: VisualPosition,
+    offsetOnClick: Int,
+    debugText: String?,
+  ) {
+    setLine(primaryVisualLine.line, scopeVisualLine.line, offsetOnClick, debugText)
   }
 
   fun resetLine() {
-    this.primaryVisualLine = -1
-    this.scopeVisualLine = -1
-    this.offsetOnClick = -1
+    setLine(-1, -1, -1, null)
+  }
+
+  private fun setLine(
+    primaryVisualLine: Int,
+    scopeVisualLine: Int,
+    offsetOnClick: Int,
+    debugText: String?,
+  ) {
+    this.primaryVisualLine = primaryVisualLine
+    this.scopeVisualLine = scopeVisualLine
+    this.offsetOnClick = offsetOnClick
+    this.debugText = debugText
+    this.dumbTextImage = null
+    this.isHovered = false
+    this.mouseListener.isPopup = false
+    this.mouseListener.isGutterHovered = false
   }
 
   fun isEmpty(): Boolean {
     return primaryVisualLine == -1 || scopeVisualLine == -1 || offsetOnClick == -1
   }
 
+  fun startDumb() {
+    // special mode when the line is rendered as an image to avoid flicking,
+    // the mode ends when the corresponding editor's mode ends
+    paintStickyLine(graphicsOrDumb = null)
+  }
+
   override fun paintComponent(g: Graphics) {
+    paintStickyLine(g)
+  }
+
+  private fun paintStickyLine(graphicsOrDumb: Graphics?) {
     assert(!isEmpty()) { "sticky panel should mark this line as not visible" }
-    val stickyLine = primaryVisualLine
-    val stickyLineY = editor.visualLineToY(stickyLine)
+    val editorY = editorY()
     val lineHeight = lineHeight()
-    val lineWidth = lineWidth()
+    val gutterWidth = editor.gutterComponentEx.width
+    val textWidth = lineWidth() - gutterWidth
+    (editor as EditorImpl).isStickyLinePainting = true
+    try {
+      editor.isStickyLineHovered = isHovered
+      if (graphicsOrDumb != null) {
+        val editorStartY = if (isLineOutOfPanel()) editorY + y else editorY
+        graphicsOrDumb.translate(0, -editorStartY)
+        paintGutter(graphicsOrDumb, editorY, lineHeight, gutterWidth)
+        paintText(graphicsOrDumb, editorY, lineHeight, gutterWidth, textWidth)
+      } else {
+        dumbTextImage = prepareDumbTextImage(editorY, lineHeight, textWidth)
+      }
+    } finally {
+      editor.isStickyLinePainting = false
+    }
+  }
 
-    // draw gutter
-    val gutterComp = editor.gutterComponentEx
-    val gutterWidth = max(1, gutterComp.width)
-    val gutterImage: BufferedImage = UIUtil.createImage(editor.component, gutterWidth, lineHeight, BufferedImage.TYPE_INT_RGB)
-    val gutterGraphics = gutterImage.graphics
-    EditorUIUtil.setupAntialiasing(gutterGraphics)
+  private fun paintGutter(g: Graphics, editorY: Int, lineHeight: Int, gutterWidth: Int) {
+    g.setClip(0, editorY, gutterWidth, lineHeight)
+    editor.gutterComponentEx.paint(g)
+  }
 
-    gutterGraphics.translate(0, -stickyLineY)
-    gutterGraphics.setClip(0, stickyLineY, gutterComp.width, lineHeight)
-    gutterGraphics.color = EditorFragmentComponent.getBackgroundColor(editor)
-    gutterGraphics.fillRect(0, stickyLineY, gutterComp.width, lineHeight)
-    gutterComp.paint(gutterGraphics) // TODO: hide icons (override, annotations, etc)
+  private fun paintText(g: Graphics, editorY: Int, lineHeight: Int, gutterWidth: Int, textWidth: Int) {
+    g.translate(gutterWidth, 0)
+    g.setClip(0, editorY, textWidth, lineHeight)
+    val textImage = dumbTextImage
+    if (textImage != null && (editor as EditorImpl).isDumb) {
+      StartupUiUtil.drawImage(g, textImage, 0, editorY, null)
+    } else {
+      doPaintText(g)
+      dumbTextImage = null
+    }
+  }
 
-    // draw text
-    val textWidth = lineWidth - gutterWidth
-    val textImage: BufferedImage = UIUtil.createImage(editor.contentComponent, textWidth, lineHeight, BufferedImage.TYPE_INT_RGB)
+  private fun prepareDumbTextImage(editorY: Int, lineHeight: Int, textWidth: Int): BufferedImage {
+    val textImage = UIUtil.createImage(
+      editor.contentComponent,
+      textWidth,
+      lineHeight,
+      BufferedImage.TYPE_INT_RGB,
+    )
     val textGraphics = textImage.graphics
     EditorUIUtil.setupAntialiasing(textGraphics)
+    textGraphics.translate(0, -editorY)
+    textGraphics.setClip(0, editorY, textWidth, lineHeight)
+    doPaintText(textGraphics)
+    textGraphics.dispose()
+    return textImage
+  }
 
-    textGraphics.translate(0, -stickyLineY)
-    textGraphics.setClip(0, stickyLineY, textWidth, lineHeight)
-    val wasVisible = editor.setCaretVisible(false)
-    try {
-      editor.contentComponent.paint(textGraphics) // TODO: hide caret line background
-    } finally {
-      if (wasVisible) {
-        editor.setCaretVisible(true)
-      }
-    }
-
-    // apply images
-    StartupUiUtil.drawImage(g, gutterImage, 0, 0, null)
-    StartupUiUtil.drawImage(g, textImage, gutterComp.width, 0, null)
+  private fun doPaintText(g: Graphics) {
+    editor.contentComponent.paint(g)
   }
 
   private fun lineWidth(): Int {
@@ -103,12 +149,41 @@ internal class StickyLineComponent(private val editor: EditorEx) : JComponent() 
   }
 
   private fun lineHeight(): Int {
-    return editor.lineHeight
+    val height= editor.lineHeight
+    return if (isLineOutOfPanel()) height + y else height
   }
 
-  inner class MyMouseEventHandler : MouseEventHandler() {
+  private fun editorY(): Int {
+    val editorY = editor.visualLineToY(primaryVisualLine)
+    return if (isLineOutOfPanel()) editorY - y else editorY
+  }
+
+  private fun isLineOutOfPanel(): Boolean {
+    // IDEA-346734 special case when sticky line is out of sticky panel,
+    // need to adjust painting to avoid overlapping sticky line and tab panel
+    return y < 0
+  }
+
+  override fun toString(): String {
+    return "${debugText ?: ""}(primary=$primaryVisualLine, scope=$scopeVisualLine, onClick=$offsetOnClick)"
+  }
+
+  internal class MyMouseEvent(e: MouseEvent, source: Component, y: Int) : MouseEvent(
+    source,
+    e.id,
+    e.`when`,
+    UIUtil.getAllModifiers(e),
+    e.x,
+    y,
+    e.clickCount,
+    e.isPopupTrigger,
+    e.button,
+  )
+
+  private inner class StickyMouseListener : MouseListener, MouseMotionListener, MouseWheelListener {
     private val popMenu: JPopupMenu
-    private var isPopup = false
+    var isPopup = false
+    var isGutterHovered = false
 
     init {
       val actionManager = ActionManager.getInstance()
@@ -116,16 +191,102 @@ internal class StickyLineComponent(private val editor: EditorEx) : JComponent() 
       popMenu = actionManager.createActionPopupMenu("StickyLine", actionGroup).component
     }
 
-    override fun handle(event: MouseEvent) {
-      if (event.isConsumed) return
-      if (isGutterEvent(event)) {
-        handleGutter(event)
-      } else {
-        handleLine(event)
+    override fun mousePressed(e: MouseEvent?)         = handleEvent(e)
+    override fun mouseReleased(e: MouseEvent?)        = handleEvent(e)
+    override fun mouseClicked(e: MouseEvent?)         = handleEvent(e)
+    override fun mouseEntered(e: MouseEvent?)         = handleEvent(e)
+    override fun mouseExited(e: MouseEvent?)          = handleEvent(e)
+    override fun mouseDragged(e: MouseEvent?)         = handleEvent(e)
+    override fun mouseMoved(e: MouseEvent?)           = handleEvent(e)
+    override fun mouseWheelMoved(e: MouseWheelEvent?) = handleEvent(e)
+
+    private fun handleEvent(event: MouseEvent?) {
+      if (event == null || event.isConsumed || isEmpty()) {
+        return
+      }
+      when (event.id) {
+        MouseEvent.MOUSE_ENTERED,
+        MouseEvent.MOUSE_EXITED,
+        MouseEvent.MOUSE_MOVED -> {
+          onHover(event)
+        }
+        MouseEvent.MOUSE_PRESSED,
+        MouseEvent.MOUSE_RELEASED,
+        MouseEvent.MOUSE_CLICKED -> {
+          if (isGutterEvent(event)) {
+            gutterClick(event)
+          } else {
+            popupOrNavigate(event)
+          }
+        }
+        MouseEvent.MOUSE_WHEEL -> {
+          forwardToScrollPane(event)
+        }
+      }
+      event.consume()
+    }
+
+    private fun forwardToScrollPane(event: MouseEvent) {
+      val converted = MouseEventAdapter.convert(event, editor.scrollPane)
+      editor.scrollPane.dispatchEvent(converted)
+    }
+
+    private fun onHover(event: MouseEvent) {
+      val isGutterEvent = isGutterEvent(event)
+      when (event.id) {
+        MouseEvent.MOUSE_ENTERED -> {
+          onTextHover(!isGutterHovered)
+          onGutterHover(isGutterHovered)
+        }
+        MouseEvent.MOUSE_EXITED -> {
+          onTextHover(false)
+          onGutterHover(false)
+        }
+        MouseEvent.MOUSE_MOVED -> {
+          if (isGutterEvent && isHovered && !isGutterHovered) {
+            onTextHover(false)
+            onGutterHover(true)
+          } else if (!isGutterEvent && !isHovered && isGutterHovered) {
+            onTextHover(true)
+            onGutterHover(false)
+          }
+        }
+        else -> throwUnhandledEvent(event)
       }
     }
 
-    private fun handleLine(event: MouseEvent) {
+    private fun onTextHover(hovered: Boolean) {
+      if (hovered != isHovered) {
+        isHovered = hovered
+        repaint()
+      }
+    }
+
+    private fun onGutterHover(hovered: Boolean) {
+      if (hovered != isGutterHovered) {
+        isGutterHovered = hovered
+        //(editor as EditorImpl).onGutterHover(hovered)
+        repaint()
+      }
+    }
+
+    private fun gutterClick(event: MouseEvent) {
+      if (event.id == MouseEvent.MOUSE_PRESSED || (event.id == MouseEvent.MOUSE_RELEASED && event.isPopupTrigger)) {
+        val converted = convert(event)
+        val mouseListener = (editor as EditorImpl).mouseListener
+        if (!event.isPopupTrigger) {
+          event.consume()
+          return
+        }
+        if (event.id == MouseEvent.MOUSE_PRESSED) {
+          mouseListener.mousePressed(converted)
+        } else {
+          mouseListener.mouseReleased(converted)
+        }
+      }
+    }
+
+    private fun popupOrNavigate(event: MouseEvent) {
       when (event.id) {
         MouseEvent.MOUSE_PRESSED -> {
           isPopup = event.isPopupTrigger
@@ -133,40 +294,54 @@ internal class StickyLineComponent(private val editor: EditorEx) : JComponent() 
             popMenu.show(event.component, event.x, event.y)
           }
         }
-        MouseEvent.MOUSE_CLICKED -> {
-          if (!isPopup && !isEmpty()) {
-            editor.caretModel.moveToOffset(offsetOnClick)
-            editor.scrollingModel.scrollToCaret(ScrollType.RELATIVE)
+        MouseEvent.MOUSE_RELEASED -> {
+          // From review: on some platform RELEASED event can be a popup trigger
+          if (!isPopup) {
+            isPopup = event.isPopupTrigger
+            if (isPopup) {
+              popMenu.show(event.component, event.x, event.y)
+            }
           }
         }
-        MouseEvent.MOUSE_RELEASED,
-        MouseEvent.MOUSE_ENTERED,
-        MouseEvent.MOUSE_EXITED,
-        MouseEvent.MOUSE_DRAGGED,
-        MouseEvent.MOUSE_MOVED, -> {}
+        MouseEvent.MOUSE_CLICKED -> {
+          if (!isPopup) {
+            // wrap into command to support "Back navigation" IJPL-591
+            CommandProcessor.getInstance().executeCommand(
+              editor.project,
+              Runnable {
+                editor.caretModel.moveToOffset(offsetOnClick)
+                editor.scrollingModel.scrollToCaret(ScrollType.RELATIVE)
+                editor.selectionModel.removeSelection(/* allCarets = */ true)
+                IdeDocumentHistory.getInstance(editor.project).includeCurrentCommandAsNavigation()
+              },
+              "",
+              DocCommandGroupId.noneGroupId(editor.document),
+              UndoConfirmationPolicy.DEFAULT,
+              editor.document
+            )
+          }
+        }
+        else -> throwUnhandledEvent(event)
       }
-      event.consume()
-    }
-
-    private fun handleGutter(event: MouseEvent) {
-      // TODO: folding region collapsing/expanding
     }
 
     private fun isGutterEvent(event: MouseEvent): Boolean {
       return event.x <= editor.gutterComponentEx.width
     }
-  }
 
-  inner class GutterMouseEventHandler : MouseEventAdapter<EditorGutterComponentEx>(editor.gutterComponentEx) {
-    override fun convert(event: MouseEvent): MouseEvent {
-      return convert(event, editor.gutterComponentEx)
+    private fun convert(event: MouseEvent): MouseEvent {
+      val y = if (event.isPopupTrigger) {
+        val point = event.locationOnScreen
+        SwingUtilities.convertPointFromScreen(point, editor.gutterComponentEx)
+        point.y
+      } else {
+        editor.visualLineToY(primaryVisualLine) + event.y
+      }
+      return MyMouseEvent(event, editor.gutterComponentEx, y)
     }
 
-    override fun getMouseListener(adapter: EditorGutterComponentEx): MouseListener? {
-      if (adapter is MouseListener && adapter.isShowing) {
-        return adapter
-      }
-      return null
+    private fun throwUnhandledEvent(event: MouseEvent) {
+      throw IllegalArgumentException("unhandled event $event")
     }
   }
 }

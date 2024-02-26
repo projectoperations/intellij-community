@@ -13,6 +13,7 @@ import com.intellij.ide.ProjectWindowCustomizerService
 import com.intellij.ide.actions.IdeScaleTransformer
 import com.intellij.ide.actions.QuickChangeLookAndFeel
 import com.intellij.ide.isSupportScreenReadersOverridden
+import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.ide.ui.laf.LafManagerImpl
 import com.intellij.ide.ui.search.OptionDescription
 import com.intellij.internal.statistic.service.fus.collectors.IdeZoomEventFields
@@ -32,7 +33,9 @@ import com.intellij.openapi.keymap.KeyMapBundle
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.observable.properties.PropertyGraph
+import com.intellij.openapi.observable.util.whenDisposed
 import com.intellij.openapi.options.BoundSearchableConfigurable
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.options.ex.Settings
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
@@ -55,11 +58,11 @@ import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.ui.layout.and
 import com.intellij.ui.layout.not
-import com.intellij.ui.layout.or
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.UIUtil
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import java.awt.Font
 import java.awt.RenderingHints
@@ -170,28 +173,34 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
     }
 
     return panel {
+      val autodetectSupportedPredicate = ComponentPredicate.fromValue(lafManager.autodetectSupported)
+      val syncThemeAndEditorSchemePredicate = autodetectSupportedPredicate.and(ComponentPredicate.fromObservableProperty(syncThemeProperty, disposable))
+
       panel {
         row(message("combobox.look.and.feel")) {
           val lafComboBoxModelWrapper = LafComboBoxModelWrapper(lafManager.lafComboBoxModel)
-          val theme = comboBox(lafComboBoxModelWrapper, lafManager.lookAndFeelCellRenderer)
+          val theme = comboBox(lafComboBoxModelWrapper)
             .bindItem(lafProperty)
             .accessibleName(message("combobox.look.and.feel"))
 
+          theme.component.isSwingPopup = false
+          theme.component.renderer = lafManager.getLookAndFeelCellRenderer(theme.component)
           lafComboBoxModelWrapper.comboBoxComponent = theme.component
 
-          val syncCheckBox = checkBox(message("preferred.theme.autodetect.selector"))
+          checkBox(message("preferred.theme.autodetect.selector"))
             .bindSelected(syncThemeProperty)
             .visible(lafManager.autodetectSupported)
+            .gap(RightGap.SMALL)
 
-          val autodetectSupportedPredicate = ComponentPredicate.fromValue(lafManager.autodetectSupported)
-          theme.enabledIf(autodetectSupportedPredicate.not().or(syncCheckBox.selected.not()))
+          theme.enabledIf(syncThemeAndEditorSchemePredicate.not())
           cell(lafManager.settingsToolbar)
-            .visibleIf(syncCheckBox.selected.and(autodetectSupportedPredicate))
+            .visible(lafManager.autodetectSupported)
         }
       }
 
       indent {
         val colorAndFontsOptions = ColorAndFontOptions().apply {
+          setShouldChangeLafIfNecessary(false)
           setSchemesPanelFactory(object : SchemesPanelFactory {
             override fun createSchemesPanel(options: ColorAndFontOptions): SchemesPanel {
               return EditorSchemesPanel(options)
@@ -207,7 +216,11 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
             colorAndFontsOptions.apply()
           }.onReset {
             colorAndFontsOptions.reset()
-          }
+          }.enabledIf(syncThemeAndEditorSchemePredicate.not())
+        }
+
+        disposable?.whenDisposed {
+          colorAndFontsOptions.disposeUIResources()
         }
       }
 
@@ -643,9 +656,10 @@ private fun logIdeZoomChanged(value: Float, isPresentation: Boolean) {
   )
 }
 
-private class LafComboBoxModelWrapper(private val lafComboBoxModel: CollectionComboBoxModel<LafReference>): ComboBoxModel<LafReference> {
+@Internal
+class LafComboBoxModelWrapper(private val lafComboBoxModel: CollectionComboBoxModel<LafReference>): ComboBoxModel<LafReference> {
   private val moreAction = LafReference(name = message("link.get.more.themes"), themeId = "")
-  private val additionalItems = listOf(LafReference.SEPARATOR, moreAction)
+  private val additionalItems = listOf(moreAction)
   var comboBoxComponent: JComponent? = null
 
   override fun getSize(): Int = lafComboBoxModel.size.let { if (it > 0) it + additionalItems.size else it }
@@ -664,8 +678,18 @@ private class LafComboBoxModelWrapper(private val lafComboBoxModel: CollectionCo
 
   override fun setSelectedItem(anItem: Any?) {
     if (anItem == moreAction) {
+      val themeTag = "/tag:Theme"
       val settings = Settings.KEY.getData(DataManager.getInstance().getDataContext(comboBoxComponent))
-      settings?.select(settings.find("preferences.pluginManager"), "/tag:theme")
+
+      if (settings == null) {
+        ShowSettingsUtil.getInstance().showSettingsDialog(ProjectManager.getInstance().defaultProject,
+                                                          PluginManagerConfigurable::class.java) { c: PluginManagerConfigurable ->
+          c.enableSearch(themeTag)
+        }
+      }
+      else {
+        settings.select(settings.find("preferences.pluginManager"), themeTag)
+      }
     }
     else lafComboBoxModel.selectedItem = anItem
   }

@@ -1,36 +1,39 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.transfer
 
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.startup.importSettings.DefaultTransferSettingsConfiguration
 import com.intellij.ide.startup.importSettings.ImportSettingsBundle
-import com.intellij.ide.startup.importSettings.TransferSettingsDataProvider
 import com.intellij.ide.startup.importSettings.controllers.TransferSettingsListener
 import com.intellij.ide.startup.importSettings.data.*
 import com.intellij.ide.startup.importSettings.models.IdeVersion
+import com.intellij.ide.startup.importSettings.models.PluginFeature
 import com.intellij.ide.startup.importSettings.models.Settings
 import com.intellij.ide.startup.importSettings.models.SettingsPreferencesKind
-import com.intellij.ide.startup.importSettings.providers.PluginInstallationState
 import com.intellij.ide.startup.importSettings.providers.TransferSettingsPerformContext
 import com.intellij.ide.startup.importSettings.providers.vscode.VSCodeTransferSettingsProvider
+import com.intellij.ide.startup.importSettings.transfer.backend.TransferSettingsDataProvider
+import com.intellij.ide.startup.importSettings.transfer.backend.providers.PluginInstallationState
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.rd.util.withSyncIOBackgroundContext
 import com.intellij.util.containers.nullize
 import com.intellij.util.text.nullize
 import com.jetbrains.rd.util.lifetime.LifetimeDefinition
 import com.jetbrains.rd.util.reactive.OptProperty
 import com.jetbrains.rd.util.reactive.Property
 import kotlinx.coroutines.*
+import java.time.Duration
 import javax.swing.Icon
 import kotlin.time.Duration.Companion.seconds
 
 @Service
-class SettingTransferService : ExternalService {
+class SettingTransferService(private val outerScope: CoroutineScope) : ExternalService {
 
   companion object {
 
@@ -63,16 +66,16 @@ class SettingTransferService : ExternalService {
 
   @Volatile
   private var ideVersions: Deferred<Map<String, ThirdPartyProductInfo>>? = null
-  private fun CoroutineScope.loadIdeVersionsAsync(): Deferred<Map<String, ThirdPartyProductInfo>> {
+  private fun loadIdeVersionsAsync(scope: CoroutineScope): Deferred<Map<String, ThirdPartyProductInfo>> {
     ideVersions?.let { return it }
     logger.info("Refreshing the transfer settings data provider.")
-    val versions = async {
+    val versions = scope.async(Dispatchers.IO) {
       config.dataProvider.run {
         refresh()
         orderedIdeVersions
           .filterIsInstance<IdeVersion>()
           .map { version ->
-            ThirdPartyProductInfo(version, async { loadIdeVersionSettingsAsync(version) })
+            ThirdPartyProductInfo(version, scope.async(Dispatchers.IO) { loadIdeVersionSettings(version) })
           }.associateBy { info -> info.product.id }
       }
     }
@@ -80,15 +83,11 @@ class SettingTransferService : ExternalService {
     return versions
   }
 
-  private suspend fun loadIdeVersionSettingsAsync(version: IdeVersion): Settings =
-    withSyncIOBackgroundContext {
-      version.settingsCache
-    }
+  private fun loadIdeVersionSettings(version: IdeVersion): Settings =
+    version.settingsCache
 
-  override suspend fun warmUp() {
-    coroutineScope {
-      loadIdeVersionsAsync()
-    }
+  override fun warmUp(scope: CoroutineScope) {
+    loadIdeVersionsAsync(scope)
   }
 
   @OptIn(ExperimentalCoroutinesApi::class)
@@ -97,7 +96,7 @@ class SettingTransferService : ExternalService {
 
     @Suppress("RAW_RUN_BLOCKING")
     return runBlocking {
-      val ideVersions = loadIdeVersionsAsync()
+      val ideVersions = loadIdeVersionsAsync(outerScope)
 
       logger.warn("Started waiting for transfer provider initialization.")
       try {
@@ -111,10 +110,16 @@ class SettingTransferService : ExternalService {
     }
   }
 
-  override suspend fun hasDataToImport() =
-    coroutineScope {
-      loadIdeVersionsAsync().await().values.any()
+  override suspend fun hasDataToImport(): Boolean {
+    val startNs = System.nanoTime()
+    try {
+      return config.dataProvider.hasDataToImport()
     }
+    finally {
+      val endNs = System.nanoTime()
+      logger.info("Checking for data to import took ${Duration.ofNanos(endNs - startNs).toMillis()} ms.")
+    }
+  }
 
   override fun products(): List<Product> {
     return logger.runAndLogException {
@@ -182,12 +187,21 @@ class SettingTransferService : ExternalService {
 
   private fun applyPreferences(product: IdeVersion, toApply: List<DataForSave>) {
     val selectedIds = toApply.asSequence().map { it.id }.toSet()
-    val preferences = product.settingsCache.preferences
+    val settings = product.settingsCache
+    val preferences = settings.preferences
     preferences[SettingsPreferencesKind.Laf] = selectedIds.contains(TransferableSetting.UI_ID)
     preferences[SettingsPreferencesKind.SyntaxScheme] = selectedIds.contains(TransferableSetting.UI_ID)
     preferences[SettingsPreferencesKind.Keymap] = selectedIds.contains(TransferableSetting.KEYMAP_ID)
     preferences[SettingsPreferencesKind.Plugins] = selectedIds.contains(TransferableSetting.PLUGINS_ID)
     preferences[SettingsPreferencesKind.RecentProjects] = selectedIds.contains(TransferableSetting.RECENT_PROJECTS_ID)
+
+    val featuresToRemove = settings.plugins.asSequence().filter { (_, feature) ->
+      when (feature) {
+        is PluginFeature -> PluginManagerCore.isPluginInstalled(PluginId.getId(feature.pluginId))
+        else -> true
+      }
+    }.map { it.key }
+    settings.plugins.keys.removeAll(featuresToRemove.toSet())
   }
 }
 

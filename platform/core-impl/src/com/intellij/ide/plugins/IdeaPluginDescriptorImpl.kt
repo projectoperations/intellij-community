@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplaceNegatedIsEmptyWithIsNotEmpty", "OVERRIDE_DEPRECATION", "ReplacePutWithAssignment")
 package com.intellij.ide.plugins
 
@@ -183,25 +183,31 @@ class IdeaPluginDescriptorImpl(raw: RawPluginDescriptor,
     return result
   }
 
-  fun readExternal(raw: RawPluginDescriptor,
-                   pathResolver: PathResolver,
-                   context: DescriptorListLoadingContext,
-                   isSub: Boolean,
-                   dataLoader: DataLoader) {
+  fun readExternal(
+    raw: RawPluginDescriptor,
+    pathResolver: PathResolver,
+    context: DescriptorListLoadingContext,
+    isSub: Boolean,
+    dataLoader: DataLoader,
+  ) {
     // include module file descriptor if not specified as `depends` (old way - xi:include)
     // must be first because merged into raw descriptor
     if (!isSub) {
       for (module in content.modules) {
         val subDescriptorFile = module.configFile ?: "${module.name}.xml"
-        val subDescriptor = createSub(raw = pathResolver.resolveModuleFile(readContext = context,
-                                                                           dataLoader = dataLoader,
-                                                                           path = subDescriptorFile,
-                                                                           readInto = null),
-                                      descriptorPath = subDescriptorFile,
-                                      pathResolver = pathResolver,
-                                      context = context,
-                                      dataLoader = dataLoader,
-                                      moduleName = module.name)
+        val subDescriptor = createSub(
+          raw = pathResolver.resolveModuleFile(
+            readContext = context,
+            dataLoader = dataLoader,
+            path = subDescriptorFile,
+            readInto = null,
+          ),
+          descriptorPath = subDescriptorFile,
+          pathResolver = pathResolver,
+          context = context,
+          dataLoader = dataLoader,
+          moduleName = module.name,
+        )
         module.descriptor = subDescriptor
       }
     }
@@ -227,6 +233,12 @@ class IdeaPluginDescriptorImpl(raw: RawPluginDescriptor,
     if (!isSub) {
       if (id == PluginManagerCore.CORE_ID) {
         modules = modules + IdeaPluginPlatform.getHostPlatformModuleIds()
+        if (!AppMode.isRemoteDevHost()) {
+          /* dependency on this ID may be used to enable some functionality in local IDE and in JetBrains Client, but disable it in product 
+             running in backend mode; this is needed because the backend process currently doesn't use module-based loader and therefore cannot
+             use marker modules from ProductModes. */
+          modules = modules + PluginId.getId("com.intellij.platform.experimental.frontend")
+        }
       }
 
       if (context.isPluginDisabled(id)) {

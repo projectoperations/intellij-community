@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInsight.daemon;
 
 import com.intellij.codeInsight.daemon.LightDaemonAnalyzerTestCase;
@@ -21,6 +21,9 @@ import com.intellij.util.IdempotenceChecker;
 import com.intellij.util.ui.UIUtil;
 import org.junit.Assert;
 
+/**
+ * LVTI = local variable type inference
+ */
 public class LightAdvLVTIHighlightingTest extends LightDaemonAnalyzerTestCase {
   private static final String BASE_PATH = "/codeInsight/daemonCodeAnalyzer/advLVTI";
 
@@ -96,12 +99,14 @@ public class LightAdvLVTIHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testTypeObject() {
     doTest();
     String toolTipForeground = ColorUtil.toHtmlColor(UIUtil.getToolTipForeground());
+    String errorTipForeground = ColorUtil.toHtmlColor(UIUtil.getErrorForeground());
     String greyed = ColorUtil.toHtmlColor(UIUtil.getContextHelpForeground());
     String expected = "<html><table>" +
                       "<tr>" +
                       "<td style='padding: 0px 16px 8px 4px;color: "+greyed+"'>Required type:</td>" +
-                      "<td style='padding: 0px 4px 8px 0px;'>anonymous <font color=\""+toolTipForeground+"\">Object</font></td></tr>" +
-                      "<tr><td style='padding: 0px 16px 0px 4px;color: "+greyed+"'>Provided:</td><td style='padding: 0px 4px 0px 0px;'><font color=\""+toolTipForeground+"\">Object</font></td></tr>" +
+                      "<td style='padding: 0px 4px 8px 0px;'><font color=\""+toolTipForeground+"\">anonymous Object</font></td></tr>" +
+                      "<tr><td style='padding: 0px 16px 0px 4px;color: "+greyed+"'>Provided:</td>" +
+                      "<td style='padding: 0px 4px 0px 0px;'><font color=\""+errorTipForeground+"\">Object</font></td></tr>" +
                       "</table>" +
                       "</html>";
 
@@ -119,8 +124,9 @@ public class LightAdvLVTIHighlightingTest extends LightDaemonAnalyzerTestCase {
     String expected = "<html><table>" +
                       "<tr>" +
                       "<td style='padding: 0px 16px 8px 4px;color: "+greyed+"'>Required type:</td>" +
-                      "<td style='padding: 0px 4px 8px 0px;'>anonymous <font color=\""+toolTipForeground+"\">X</font></td></tr>" +
-                      "<tr><td style='padding: 0px 16px 0px 4px;color: "+greyed+"'>Provided:</td><td style='padding: 0px 4px 0px 0px;'><font color=\""+errorTipForeground+"\">Y</font></td></tr>" +
+                      "<td style='padding: 0px 4px 8px 0px;'><font color=\""+toolTipForeground+"\">anonymous X</font></td></tr>" +
+                      "<tr><td style='padding: 0px 16px 0px 4px;color: "+greyed+"'>Provided:</td>" +
+                      "<td style='padding: 0px 4px 0px 0px;'><font color=\""+errorTipForeground+"\">Y</font></td></tr>" +
                       "</table>" +
                       "</html>";
 
@@ -129,6 +135,8 @@ public class LightAdvLVTIHighlightingTest extends LightDaemonAnalyzerTestCase {
       .filter(info -> info.type == HighlightInfoType.ERROR)
       .forEach(info -> Assert.assertEquals(expected, info.getToolTip()));
   }
+  
+  public void testLeftSideNotAnonymous() { doTest(); }
 
   @Override
   protected Sdk getProjectJDK() {

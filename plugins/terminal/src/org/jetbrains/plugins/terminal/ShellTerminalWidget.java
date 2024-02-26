@@ -47,6 +47,7 @@ public class ShellTerminalWidget extends JBTerminalWidget {
 
   private String myCommandHistoryFilePath;
   private List<String> myShellCommand;
+  private ShellStartupOptions myStartupOptions;
   private final Prompt myPrompt = new Prompt();
   private final TerminalShellCommandHandlerHelper myShellCommandHandlerHelper;
 
@@ -92,7 +93,7 @@ public class ShellTerminalWidget extends JBTerminalWidget {
         }
       }
       if (e.getKeyCode() == KeyEvent.VK_ENTER || TerminalShellCommandHandlerHelper.matchedExecutor(e) != null) {
-        TerminalUsageTriggerCollector.triggerCommandExecuted(project, getTypedShellCommand());
+        TerminalUsageTriggerCollector.triggerCommandExecuted(project, getTypedShellCommand(), false);
         if (myShellCommandHandlerHelper.processEnterKeyPressed(e)) {
           e.consume();
         }
@@ -149,6 +150,15 @@ public class ShellTerminalWidget extends JBTerminalWidget {
   @Override
   public @Nullable List<String> getShellCommand() {
     return myShellCommand;
+  }
+
+
+  public void setStartupOptions(ShellStartupOptions startupOptions) {
+    myStartupOptions = startupOptions;
+  }
+
+  public @Nullable ShellStartupOptions getStartupOptions() {
+    return myStartupOptions;
   }
 
   @NotNull

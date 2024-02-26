@@ -19,9 +19,7 @@ import com.intellij.ide.actions.searcheverywhere.footer.ExtendedInfoImpl;
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector;
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchFieldStatisticsCollector;
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchPerformanceTracker;
-import com.intellij.ide.structureView.StructureView;
-import com.intellij.ide.structureView.StructureViewBuilder;
-import com.intellij.ide.structureView.StructureViewTreeElement;
+import com.intellij.ide.structureView.*;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.laf.darcula.ui.TextFieldWithPopupHandlerUI;
 import com.intellij.ide.util.PropertiesComponent;
@@ -693,7 +691,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
       SEHeaderActionListener.Companion.getSE_HEADER_ACTION_TOPIC(), new SEHeaderActionListener() {
         @Override
         public void performed(@NotNull SEHeaderActionListener.SearchEverywhereActionEvent event) {
-          if (event.getActionID().equals("Preview")) {
+          if (event.getActionID().equals(PreviewActionKt.PREVIEW_ACTION_ID)) {
             updatePreviewVisibility();
           }
         }
@@ -1042,17 +1040,17 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
         if (psiFile == null) return new UsageInfo(psiElement);
 
         StructureViewBuilder structureViewBuilder = LanguageStructureViewBuilder.INSTANCE.getStructureViewBuilder(psiFile);
-        if (structureViewBuilder == null) return new UsageInfo(psiElement);
+        if (!(structureViewBuilder instanceof TreeBasedStructureViewBuilder)) return new UsageInfo(psiElement);
 
-        StructureView structureView = structureViewBuilder.createStructureView(null, myProject);
+        @NotNull StructureViewModel structureViewModel = ((TreeBasedStructureViewBuilder)structureViewBuilder).createStructureViewModel(null);
         myUsagePreviewDisposableList.add(new Disposable() {
           @Override
           public void dispose() {
-            Disposer.dispose(structureView);
+            Disposer.dispose(structureViewModel);
           }
         });
 
-        TreeElement firstChild = ContainerUtil.getFirstItem(Arrays.stream(structureView.getTreeModel().getRoot().getChildren()).toList());
+        TreeElement firstChild = ContainerUtil.getFirstItem(Arrays.stream(structureViewModel.getRoot().getChildren()).toList());
         if (!(firstChild instanceof StructureViewTreeElement)) return new UsageInfo(psiFile);
 
         Object firstChildElement = ((StructureViewTreeElement)firstChild).getValue();
@@ -1068,7 +1066,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements DataProvider
   }
 
   static boolean isPreviewEnabled() {
-    return Registry.is("search.everywhere.preview");
+    return PreviewExperiment.INSTANCE.isExperimentEnabled() || Registry.is("search.everywhere.preview");
   }
 
   private static boolean isPreviewActive() {

@@ -16,6 +16,7 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.wm.IdeGlassPane
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.WindowInfo
@@ -139,6 +140,21 @@ class InternalDecoratorImpl internal constructor(
       }
     }
 
+    @JvmStatic
+    internal fun setActiveDecorator(toolWindow: ToolWindow, focusOwner: Component) {
+      val decorator = findNearestDecorator(focusOwner)
+      if (decorator?.toolWindowId == toolWindow.id) {
+        findTopLevelDecorator(decorator.header)?.forAllNestedDecorators {
+          val newValue = if (it == decorator) null else java.lang.Boolean.TRUE
+          val oldValue = it.getClientProperty(INACTIVE_LOOK)
+          if (newValue != oldValue) {
+            it.putClientProperty(INACTIVE_LOOK, newValue)
+            it.header.repaint()
+          }
+        }
+      }
+    }
+
     private fun installDefaultFocusTraversalKeys(container: Container, id: Int) {
       container.setFocusTraversalKeys(id, KeyboardFocusManager.getCurrentKeyboardFocusManager().getDefaultFocusTraversalKeys(id))
     }
@@ -172,6 +188,7 @@ class InternalDecoratorImpl internal constructor(
   private var secondDecorator: InternalDecoratorImpl? = null
   private var splitter: Splitter? = null
   private val componentsWithEditorLikeBackground = SmartList<Component>()
+  private var tabActions: List<AnAction> = emptyList()
 
   init {
     isFocusable = false
@@ -249,9 +266,9 @@ class InternalDecoratorImpl internal constructor(
       contentManager.addContent(content, dropIndex)
       return
     }
-    firstDecorator = toolWindow.createCellDecorator()
+    firstDecorator = toolWindow.createCellDecorator().also { it.setTabActions(tabActions) }
     attach(firstDecorator)
-    secondDecorator = toolWindow.createCellDecorator()
+    secondDecorator = toolWindow.createCellDecorator().also { it.setTabActions(tabActions) }
     attach(secondDecorator)
     val contents = contentManager.contents.toMutableList()
     if (!contents.contains(content)) {
@@ -448,7 +465,7 @@ class InternalDecoratorImpl internal constructor(
     }
   }
 
-  private fun getExternalDecorator(type: ToolWindowType): ToolWindowExternalDecorator? {
+  internal fun getExternalDecorator(type: ToolWindowType): ToolWindowExternalDecorator? {
     var result: ToolWindowExternalDecorator? = null
     var component: Component? = this
     while (component != null) {
@@ -470,7 +487,10 @@ class InternalDecoratorImpl internal constructor(
   }
 
   fun setTabActions(actions: List<AnAction>) {
+    tabActions = actions
     header.setTabActions(actions)
+    firstDecorator?.setTabActions(actions)
+    secondDecorator?.setTabActions(actions)
   }
 
   private inner class InnerPanelBorder(private val window: ToolWindowImpl) : Border {
@@ -742,7 +762,6 @@ class InternalDecoratorImpl internal constructor(
     if (topLevelDecorator == null || !topLevelDecorator.isShowing) {
       putClientProperty(ToolWindowContentUi.HIDE_ID_LABEL, null)
       putClientProperty(HIDE_COMMON_TOOLWINDOW_BUTTONS, null)
-      putClientProperty(INACTIVE_LOOK, null)
     }
     else {
       val hideLabel: Any? = if (SwingUtilities.convertPoint(this, x, y, topLevelDecorator) == Point()) null else "true"
@@ -752,9 +771,7 @@ class InternalDecoratorImpl internal constructor(
       val screenLocation = locationOnScreen
       screenLocation.x += w
       val hideButtons = if (topScreenLocation == screenLocation) null else java.lang.Boolean.TRUE
-      val hideActivity = if (topScreenLocation.y == screenLocation.y) null else java.lang.Boolean.TRUE
       putClientProperty(HIDE_COMMON_TOOLWINDOW_BUTTONS, hideButtons)
-      putClientProperty(INACTIVE_LOOK, hideActivity)
     }
     if (!rectangle.equals(bounds)) {
       contentUi.update()
@@ -860,6 +877,21 @@ class InternalDecoratorImpl internal constructor(
       accessibleContext = AccessibleInternalDecorator()
     }
     return accessibleContext
+  }
+
+  /** Executes the given action for this and nested decorators. */
+  private fun forAllNestedDecorators(action: (InternalDecoratorImpl) -> Unit) {
+    action(this)
+    firstDecorator?.forAllNestedDecorators(action)
+    secondDecorator?.forAllNestedDecorators(action)
+  }
+
+  /** Requests focus transfer to the preferred focusable component of the selected content. */
+  internal fun requestContentFocus() {
+    val component = contentUi.contentManager.selectedContent?.preferredFocusableComponent
+    if (component != null && component.isShowing) {
+      component.requestFocusInWindow()
+    }
   }
 
   private inner class AccessibleInternalDecorator : AccessibleJPanel() {

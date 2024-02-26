@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 /*
  * Class BreakpointManager
@@ -132,7 +132,8 @@ public class BreakpointManager {
       public void breakpointChanged(@NotNull XBreakpoint xBreakpoint) {
         Breakpoint<?> breakpoint = getJavaBreakpoint(xBreakpoint);
         if (breakpoint != null) {
-          fireBreakpointChanged(breakpoint);
+          breakpoint.scheduleReload();
+          breakpoint.updateUI();
         }
       }
     });
@@ -183,8 +184,8 @@ public class BreakpointManager {
   }
 
   @Nullable
-  public RunToCursorBreakpoint addRunToCursorBreakpoint(@NotNull XSourcePosition position, final boolean ignoreBreakpoints) {
-    return RunToCursorBreakpoint.create(myProject, position, ignoreBreakpoints);
+  public RunToCursorBreakpoint addRunToCursorBreakpoint(@NotNull XSourcePosition position, boolean ignoreBreakpoints, boolean needReplaceWithAllThreadSuspendContext) {
+    return RunToCursorBreakpoint.create(myProject, position, ignoreBreakpoints, needReplaceWithAllThreadSuspendContext);
   }
 
   @Nullable
@@ -583,14 +584,15 @@ public class BreakpointManager {
       // the filter already added
       return;
     }
+
+    final ThreadReference oldFilterThread = requestManager.getFilterRealThread();
+    final ThreadReference newFilterThread = filter == null ? null : filter.getRealThread();
+
     requestManager.setThreadFilter(filter);
 
     if (!DebuggerSession.filterBreakpointsDuringSteppingUsingDebuggerEngine()) {
       return;
     }
-
-    final ThreadReference newFilterThread = filter == null ? null : filter.getRealThread();
-    final ThreadReference oldFilterThread = requestManager.getFilterRealThread();
 
     EventRequestManager eventRequestManager = requestManager.getVMRequestManager();
     if (DebuggerUtilsAsync.isAsyncEnabled() && eventRequestManager instanceof EventRequestManagerImpl) {
@@ -636,7 +638,7 @@ public class BreakpointManager {
     for (T request : requests) {
       try {
         // skip synthetic
-        if (RequestManagerImpl.findRequestor(request) instanceof SyntheticLineBreakpoint) {
+        if (RequestManagerImpl.findRequestor(request) instanceof SyntheticBreakpoint) {
           continue;
         }
         boolean wasEnabled = request.isEnabled();
@@ -659,15 +661,6 @@ public class BreakpointManager {
       .coalesceBy(this)
       .submit(AppExecutorUtil.getAppExecutorService())
       .onSuccess(b -> b.forEach(Breakpoint::updateUI));
-  }
-
-  public void reloadBreakpoints() {
-    ReadAction.run(() -> DebuggerUtilsImpl.forEachSafe(getBreakpoints(), Breakpoint::reload));
-  }
-
-  public void fireBreakpointChanged(Breakpoint breakpoint) {
-    breakpoint.reload();
-    breakpoint.updateUI();
   }
 
   @Nullable

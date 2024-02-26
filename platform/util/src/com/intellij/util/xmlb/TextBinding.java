@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xmlb;
 
 import com.intellij.serialization.ClassUtil;
@@ -9,7 +9,7 @@ import org.jdom.Text;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-final class TextBinding implements NestedBinding {
+final class TextBinding implements PrimitiveValueBinding {
   private final Class<?> valueClass;
   private final MutableAccessor accessor;
 
@@ -24,8 +24,8 @@ final class TextBinding implements NestedBinding {
   }
 
   @Override
-  public @Nullable Object serialize(@NotNull Object o, @Nullable Object context, @Nullable SerializationFilter filter) {
-    Object value = accessor.read(o);
+  public @Nullable Object serialize(@NotNull Object bean, @Nullable Object context, @Nullable SerializationFilter filter) {
+    Object value = accessor.read(bean);
     return value == null ? null : new Text(XmlSerializerImpl.convertToString(value));
   }
 
@@ -49,7 +49,8 @@ final class TextBinding implements NestedBinding {
     return context;
   }
 
-  void set(@NotNull Object context, @NotNull String value) {
+  @Override
+  public void setValue(@NotNull Object context, @Nullable String value) {
     XmlSerializerImpl.doSet(context, value, accessor, valueClass);
   }
 }

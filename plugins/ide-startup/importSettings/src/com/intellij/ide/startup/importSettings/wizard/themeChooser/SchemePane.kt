@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.wizard.themeChooser
 
+import com.intellij.ide.startup.importSettings.chooser.ui.RoundedBorder
 import com.intellij.ide.startup.importSettings.chooser.ui.RoundedPanel
 import com.intellij.ide.startup.importSettings.data.WizardScheme
 import com.intellij.ui.components.panels.VerticalLayout
@@ -8,11 +9,14 @@ import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import java.awt.Dimension
+import java.awt.Graphics
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JRadioButton
 import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
 
 class SchemePane(val scheme: WizardScheme) {
   private val backgroundColor = scheme.backgroundColor
@@ -22,11 +26,28 @@ class SchemePane(val scheme: WizardScheme) {
       if (field == value) return
       field = value
 
+      if (value) {
+        SwingUtilities.invokeLater {
+          jRadioButton.requestFocus()
+        }
+      }
+
       update()
     }
 
   private fun update() {
     pane.border = if (active) activeBorder else border
+    jRadioButton.isSelected = active
+  }
+
+  val jRadioButton = object : JRadioButton() {
+    init {
+      preferredSize = Dimension(0, 0)
+      minimumSize = preferredSize
+      maximumSize = preferredSize
+    }
+
+    override fun paintComponent(g: Graphics?) {}
   }
 
   private val roundedPanel = RoundedPanel.createRoundedPane().apply {
@@ -47,7 +68,7 @@ class SchemePane(val scheme: WizardScheme) {
 
       add(JLabel(scheme.name).apply {
         font = JBFont.label().asBold()
-        border = JBUI.Borders.empty(10, 0)
+        border = JBUI.Borders.empty(13, 0, 10, 0)
       }, gbc)
 
       gbc.gridy = 1
@@ -61,17 +82,19 @@ class SchemePane(val scheme: WizardScheme) {
           horizontalAlignment = SwingConstants.LEFT
           verticalAlignment = SwingConstants.TOP
         })
-
+        add(jRadioButton)
       }, gbc)
+
     }
-  }.apply {
-    isFocusable = true
   }
 
   val pane: JPanel = roundedPanel
 
-  private val activeBorder = roundedPanel.createBorder(RoundedPanel.SELECTED_BORDER_COLOR)
-  private val border = roundedPanel.createBorder(RoundedPanel.BORDER_COLOR)
+  private val activeBorder = RoundedBorder(RoundedPanel.ACTIVE_THICKNESS, RoundedPanel.ACTIVE_THICKNESS, RoundedPanel.SELECTED_BORDER_COLOR,
+                                           { roundedPanel.background }, RoundedPanel.RADIUS)
+
+  private val border = RoundedBorder(RoundedPanel.ACTIVE_THICKNESS, RoundedPanel.THICKNESS, RoundedPanel.BORDER_COLOR,
+                                     { roundedPanel.background }, RoundedPanel.RADIUS)
 
 
   init {

@@ -10,9 +10,11 @@ import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtil;
 import com.siyeh.ig.callMatcher.CallMatcher;
@@ -93,12 +95,13 @@ public final class RedundantStreamOptionalCallInspection extends AbstractBaseJav
       checkbox("USELESS_BOXING_IN_STREAM_MAP", JavaBundle.message("inspection.redundant.stream.optional.call.option.streamboxing")));
   }
 
-  @NotNull
+    @Override
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.STREAM_OPTIONAL);
+  }
+
   @Override
-  public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
-    if (!PsiUtil.isLanguageLevel8OrHigher(holder.getFile())) {
-      return PsiElementVisitor.EMPTY_VISITOR;
-    }
+  public @NotNull PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
     return new JavaElementVisitor() {
       @Override
       public void visitMethodCallExpression(@NotNull PsiMethodCallExpression call) {
@@ -402,7 +405,7 @@ public final class RedundantStreamOptionalCallInspection extends AbstractBaseJav
     return false;
   }
 
-  private static class RemoveCallFix extends PsiUpdateModCommandQuickFix {
+  static class RemoveCallFix extends PsiUpdateModCommandQuickFix {
     private final @NotNull String myMethodName;
     private final @Nullable String myBindPreviousCall;
 
@@ -434,7 +437,7 @@ public final class RedundantStreamOptionalCallInspection extends AbstractBaseJav
 
     @Override
     protected void applyFix(@NotNull Project project, @NotNull PsiElement element, @NotNull ModPsiUpdater updater) {
-      PsiMethodCallExpression call = tryCast(element, PsiMethodCallExpression.class);
+      PsiMethodCallExpression call = PsiTreeUtil.getNonStrictParentOfType(element, PsiMethodCallExpression.class);
       if (call == null) return;
       PsiExpression qualifier = call.getMethodExpression().getQualifierExpression();
       if (qualifier == null) return;

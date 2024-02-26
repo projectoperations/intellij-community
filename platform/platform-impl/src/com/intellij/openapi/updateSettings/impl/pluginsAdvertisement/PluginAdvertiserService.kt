@@ -9,6 +9,7 @@ import com.intellij.ide.plugins.advertiser.PluginFeatureCacheService
 import com.intellij.ide.plugins.advertiser.PluginFeatureMap
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests
 import com.intellij.ide.ui.PluginBooleanOptionDescriptor
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
 import com.intellij.notification.SingletonNotificationManager
@@ -23,13 +24,16 @@ import com.intellij.openapi.updateSettings.impl.PluginDownloader
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginAdvertiserService.Companion.DEPENDENCY_SUPPORT_TYPE
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginAdvertiserService.Companion.EXECUTABLE_DEPENDENCY_KIND
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginAdvertiserService.Companion.ideaUltimate
-import com.intellij.openapi.updateSettings.impl.upgradeToUltimate.installation.UltimateInstallationService
+import com.intellij.openapi.updateSettings.impl.upgradeToUltimate.installation.install.UltimateInstallationService
+import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsContexts.NotificationContent
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.ui.EditorNotificationPanel
+import com.intellij.ui.EditorNotifications
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.containers.MultiMap
+import com.intellij.util.io.computeDetached
 import com.intellij.util.system.CpuArch
 import com.intellij.util.system.OS
 import kotlinx.coroutines.*
@@ -49,6 +53,7 @@ sealed interface PluginAdvertiserService {
       return getSuggestedCommercialIdeCode(thisProductCode) != null
     }
 
+    @JvmStatic
     fun getSuggestedCommercialIdeCode(activeProductCode: String): String? {
       return when (activeProductCode) {
         "IC", "AS" -> "IU"
@@ -57,6 +62,7 @@ sealed interface PluginAdvertiserService {
       }
     }
 
+    @JvmStatic
     fun getIde(ideCode: String?): SuggestedIde? = ides[ideCode]
 
     @Suppress("HardCodedStringLiteral")
@@ -129,6 +135,7 @@ sealed interface PluginAdvertiserService {
   fun rescanDependencies(block: suspend CoroutineScope.() -> Unit = {})
 }
 
+@OptIn(IntellijInternalApi::class, DelicateCoroutinesApi::class)
 open class PluginAdvertiserServiceImpl(
   private val project: Project,
   private val cs: CoroutineScope,
@@ -249,8 +256,8 @@ open class PluginAdvertiserServiceImpl(
         dependencies.get(implementationName).forEach(::putFeature)
       }
       else {
-        MarketplaceRequests.getInstance()
-          .getFeatures(featureType, implementationName)
+        val marketplaceFeatures = MarketplaceRequests.getInstance().getFeatures(featureType, implementationName)
+        marketplaceFeatures
           .asSequence()
           .mapNotNull { it.toPluginData() }
           .forEach { putFeature(it) }
@@ -271,17 +278,19 @@ open class PluginAdvertiserServiceImpl(
 
     val pluginIds = plugins.asSequence().map { it.pluginId }.toSet()
 
+    val lastCompatiblePluginDescriptors = computeDetached { MarketplaceRequests.loadLastCompatiblePluginDescriptors(pluginIds) }
     val result = ArrayList<IdeaPluginDescriptor>(RepositoryHelper.mergePluginsFromRepositories(
-      MarketplaceRequests.loadLastCompatiblePluginDescriptors(pluginIds),
+      lastCompatiblePluginDescriptors,
       customPlugins,
       true,
     ).asSequence()
       .filter { pluginIds.contains(it.pluginId) }
       .filterNot { isBrokenPlugin(it) }
-                                                   .filter { PluginManagementPolicy.getInstance().canInstallPlugin(it) }
+      .filter { PluginManagementPolicy.getInstance().canInstallPlugin(it) }
       .toList())
 
-    for (compatibleUpdate in MarketplaceRequests.getLastCompatiblePluginUpdate(result.map { it.pluginId }.toSet())) {
+    val lastCompatiblePluginUpdate = computeDetached { MarketplaceRequests.getLastCompatiblePluginUpdate (result.map { it.pluginId }.toSet()) }
+    for (compatibleUpdate in lastCompatiblePluginUpdate) {
       val node = result.find { it.pluginId.idString == compatibleUpdate.pluginId }
       if (node is PluginNode) {
         node.externalPluginId = compatibleUpdate.externalPluginId
@@ -345,12 +354,13 @@ open class PluginAdvertiserServiceImpl(
     return node
   }
 
-  private fun fetchPluginSuggestions(
+  private suspend fun fetchPluginSuggestions(
     pluginIds: Set<PluginId>,
     customPlugins: List<PluginNode>
   ): List<PluginDownloader> {
+    val lastCompatiblePluginDescriptors = computeDetached { MarketplaceRequests.loadLastCompatiblePluginDescriptors (pluginIds) }
     return RepositoryHelper.mergePluginsFromRepositories(
-      MarketplaceRequests.loadLastCompatiblePluginDescriptors(pluginIds),
+      lastCompatiblePluginDescriptors,
       customPlugins,
       true,
     ).asSequence()
@@ -589,7 +599,7 @@ open class PluginAdvertiserServiceImpl(
     val dependencyUnknownFeatures = UnknownFeaturesCollector.getInstance(project).unknownFeatures
     if (dependencyUnknownFeatures.isNotEmpty()) {
       run(
-        customPlugins = RepositoryHelper.loadPluginsFromCustomRepositories(null),
+        customPlugins = computeDetached { RepositoryHelper.loadPluginsFromCustomRepositories(null) },
         unknownFeatures = dependencyUnknownFeatures,
       )
     }
@@ -631,18 +641,30 @@ data class SuggestedIde(
     }
 }
 
+private const val TRY_ULTIMATE_DISABLED_KEY = "ide.try.ultimate.disabled"
+private fun setTryUltimateKey(project: Project, value: Boolean) {
+  PropertiesComponent.getInstance().setValue(TRY_ULTIMATE_DISABLED_KEY, value)
+  EditorNotifications.getInstance(project).updateAllNotifications()
+}
+
+fun disableTryUltimate(project: Project) = setTryUltimateKey(project, true)
+fun enableTryUltimate(project: Project) = setTryUltimateKey(project, false)
+
+fun tryUltimateIsDisabled() : Boolean = PropertiesComponent.getInstance().getBoolean(TRY_ULTIMATE_DISABLED_KEY)
+
 fun tryUltimate(
   pluginId: PluginId?,
   suggestedIde: SuggestedIde,
-  project: Project,
+  project: Project?,
   fusEventSource: FUSEventSource? = null,
+  fallback: (() -> Unit)? = null
 ) {
   val eventSource = fusEventSource ?: FUSEventSource.EDITOR
-  if (Registry.`is`("ide.try.ultimate.automatic.installation")) {
+  if (Registry.`is`("ide.try.ultimate.automatic.installation") && project != null) {
     eventSource.logTryUltimate(project, pluginId)
     project.service<UltimateInstallationService>().install(pluginId, suggestedIde)
   } else {
-    eventSource.openDownloadPageAndLog(project = project, url = suggestedIde.defaultDownloadUrl, pluginId = pluginId)
+    fallback?.invoke() ?: eventSource.openDownloadPageAndLog(project = project, url = suggestedIde.defaultDownloadUrl, pluginId = pluginId)
   }
 }
 
@@ -659,7 +681,6 @@ fun EditorNotificationPanel.createTryUltimateActionLabel(
     component?.icon = AllIcons.Actions.Install
 
     tryUltimate(pluginId, suggestedIde, project)
-    component?.isEnabled = false
   }
 }
 

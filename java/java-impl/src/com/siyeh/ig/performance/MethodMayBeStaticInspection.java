@@ -15,7 +15,6 @@
  */
 package com.siyeh.ig.performance;
 
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
 import com.intellij.codeInspection.InspectionManager;
 import com.intellij.codeInspection.ProblemDescriptor;
@@ -23,9 +22,11 @@ import com.intellij.codeInspection.options.OptPane;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.FindSuperElementsHelper;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.JavaRefactoringFactory;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -153,7 +154,7 @@ public final class MethodMayBeStaticInspection extends BaseInspection {
       }
       final PsiElement scope = containingClass.getScope();
       if (!(scope instanceof PsiJavaFile) && !containingClass.hasModifierProperty(PsiModifier.STATIC) && !containingClass.isInterface() &&
-          !HighlightingFeature.INNER_STATICS.isAvailable(scope)) {
+          !PsiUtil.isAvailable(JavaFeature.INNER_STATICS, scope)) {
         return;
       }
       if (m_onlyPrivateOrFinal && !method.hasModifierProperty(PsiModifier.FINAL) && !method.hasModifierProperty(PsiModifier.PRIVATE)) {

@@ -23,7 +23,8 @@ internal class IdeStartupWizardImpl : IdeStartupWizard {
     coroutineScope {
       // Fire-and-forget call to warm up the external settings transfer
       val settingsService = SettingsService.getInstance()
-      async { settingsService.getExternalService().warmUp() }
+      async { settingsService.getExternalService().warmUp(this) }
+      async { settingsService.getJbService().warmUp() }
 
       if (!settingsService.shouldShowImport()) {
         logger.info("No import options available: skipping the import wizard.")
@@ -32,7 +33,7 @@ internal class IdeStartupWizardImpl : IdeStartupWizard {
 
       OnboardingController.getInstance().startImport(
         { settingsService.importCancelled.fire() },
-        title = ApplicationNamesInfo.getInstance().fullProductName
+        titleGetter = { ApplicationNamesInfo.getInstance().fullProductName }
       )
     }
   }

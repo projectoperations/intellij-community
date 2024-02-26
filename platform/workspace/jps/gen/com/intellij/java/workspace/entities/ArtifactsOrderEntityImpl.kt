@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.workspace.entities
 
 import com.intellij.openapi.util.NlsSafe
@@ -28,8 +28,7 @@ import org.jetbrains.annotations.NonNls
 
 @GeneratedCodeApiVersion(2)
 @GeneratedCodeImplVersion(3)
-open class ArtifactsOrderEntityImpl(private val dataSource: ArtifactsOrderEntityData) : ArtifactsOrderEntity, WorkspaceEntityBase(
-  dataSource) {
+open class ArtifactsOrderEntityImpl(private val dataSource: ArtifactsOrderEntityData) : ArtifactsOrderEntity, WorkspaceEntityBase(dataSource) {
 
   private companion object {
 
@@ -56,8 +55,7 @@ open class ArtifactsOrderEntityImpl(private val dataSource: ArtifactsOrderEntity
   }
 
 
-  class Builder(result: ArtifactsOrderEntityData?) : ModifiableWorkspaceEntityBase<ArtifactsOrderEntity, ArtifactsOrderEntityData>(
-    result), ArtifactsOrderEntity.Builder {
+  class Builder(result: ArtifactsOrderEntityData?) : ModifiableWorkspaceEntityBase<ArtifactsOrderEntity, ArtifactsOrderEntityData>(result), ArtifactsOrderEntity.Builder {
     constructor() : this(ArtifactsOrderEntityData())
 
     override fun applyToBuilder(builder: MutableEntityStorage) {

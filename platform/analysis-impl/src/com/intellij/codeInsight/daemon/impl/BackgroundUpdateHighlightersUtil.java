@@ -126,7 +126,7 @@ public final class BackgroundUpdateHighlightersUtil {
     Set<HighlightInfo> infoSet = new HashSet<>(filteredInfos);
 
     Processor<HighlightInfo> processor = info -> {
-      if (info.getGroup() == group) {
+      if (info.getGroup() == group && !info.isFromAnnotator()) { // ignore annotators, they are applied via HighlightInfoUpdater
         RangeHighlighterEx highlighter = info.getHighlighter();
         int hiStart = highlighter.getStartOffset();
         int hiEnd = highlighter.getEndOffset();
@@ -165,7 +165,7 @@ public final class BackgroundUpdateHighlightersUtil {
         if (UpdateHighlightersUtil.isWarningCoveredByError(info, severityRegistrar, overlappingIntervals)) {
           return true;
         }
-        if (info.getStartOffset() < priorityRange.getStartOffset() || info.getEndOffset() > priorityRange.getEndOffset()) {
+        if ((info.getStartOffset() < priorityRange.getStartOffset() || info.getEndOffset() > priorityRange.getEndOffset()) && !info.isFromAnnotator()) {
           // have to create RangeHighlighter later, to avoid exposing them to the markup model immediately,
           // thus messing the HighlightInfo.getStartOffset() leading to "sweep generator supplied infos in a wrong order" exception
           infosToCreateHighlightersFor.add(info);
@@ -213,12 +213,12 @@ public final class BackgroundUpdateHighlightersUtil {
 
     setHighlightersInRange(range, infos, markup, group, session, toReuse);
   }
-  static void setHighlightersInRange(@NotNull TextRange range,
-                                     @NotNull List<? extends HighlightInfo> infos,
-                                     @NotNull MarkupModelEx markup,
-                                     int group,
-                                     @NotNull HighlightingSession session,
-                                     @NotNull List<? extends HighlightInfo> toRemove) {
+  private static void setHighlightersInRange(@NotNull TextRange range,
+                                             @NotNull List<? extends HighlightInfo> infos,
+                                             @NotNull MarkupModelEx markup,
+                                             int group,
+                                             @NotNull HighlightingSession session,
+                                             @NotNull List<? extends HighlightInfo> toRemove) {
     ApplicationManager.getApplication().assertIsNonDispatchThread();
     ApplicationManager.getApplication().assertReadAccessAllowed();
     PsiFile psiFile = session.getPsiFile();
@@ -293,7 +293,7 @@ public final class BackgroundUpdateHighlightersUtil {
       infoStartOffset = Math.min(infoStartOffset, infoEndOffset);
     }
     if (infoEndOffset == infoStartOffset && !info.isAfterEndOfLine()) {
-      if (infoEndOffset == docLength) return;  // empty highlighter beyond file boundaries
+      if (infoEndOffset == docLength) return; // empty highlighter beyond file boundaries
       infoEndOffset++; //show something in case of empty HighlightInfo
     }
 

@@ -132,9 +132,15 @@ fun PsiElement.firstLeaf(): PsiElement = PsiTreeUtil.firstChild(this)
 
 fun PsiElement.lastLeaf(): PsiElement = PsiTreeUtil.lastChild(this)
 
-fun PsiElement.childLeafs(): Sequence<PsiElement> {
-  val lastLeaf = lastLeaf()
-  return generateSequence(firstLeaf()) { it.nextLeaf() }.takeWhileInclusive { it !== lastLeaf }
+fun PsiElement.childLeafs(forward: Boolean = true): Sequence<PsiElement> {
+  return if (forward) {
+    val lastLeaf = lastLeaf()
+    generateSequence(firstLeaf()) { it.nextLeaf() }.takeWhileInclusive { it !== lastLeaf }
+  }
+  else {
+    val firstLeaf = firstLeaf()
+    generateSequence(lastLeaf()) { it.prevLeaf() }.takeWhileInclusive { it !== firstLeaf }
+  }
 }
 
 fun PsiElement.prevLeaf(skipEmptyElements: Boolean = false): PsiElement? = PsiTreeUtil.prevLeaf(this, skipEmptyElements)
@@ -422,3 +428,23 @@ fun PsiFile.hasErrorElementInRange(range: TextRange): Boolean {
 
 
 inline fun <reified T : PsiElement> PsiElement.childrenOfType(): List<T> = PsiTreeUtil.getChildrenOfTypeAsList(this, T::class.java)
+
+//<editor-fold desc="Deprecated Stuff">
+@Suppress("unused")
+@Deprecated("Use firstLeaf() instead", ReplaceWith("firstLeaf()"))
+val PsiElement.firstLeaf: PsiElement
+  @Deprecated("Use firstLeaf() instead", ReplaceWith("firstLeaf()"))
+  get() = firstLeaf()
+
+@Suppress("unused")
+@Deprecated("Use lastLeaf() instead", ReplaceWith("lastLeaf()"))
+val PsiElement.lastLeaf: PsiElement
+  @Deprecated("Use lastLeaf() instead", ReplaceWith("lastLeaf()"))
+  get() = lastLeaf()
+
+@Suppress("unused")
+@Deprecated("Use childLeafs() instead", ReplaceWith("childLeafs()"))
+val PsiElement.childLeafs: Sequence<PsiElement>
+  @Deprecated("Use childLeafs() instead", ReplaceWith("childLeafs()"))
+  get() = childLeafs()
+//</editor-fold>

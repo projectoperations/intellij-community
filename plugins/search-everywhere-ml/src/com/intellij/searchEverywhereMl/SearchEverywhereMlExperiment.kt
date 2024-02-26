@@ -42,11 +42,13 @@ class SearchEverywhereMlExperiment {
     ),
 
     SearchEverywhereTabWithMlRanking.FILES to Experiment(
+      1 to ExperimentType.ENABLE_SEMANTIC_SEARCH,
       2 to ExperimentType.USE_EXPERIMENTAL_MODEL,
       3 to ExperimentType.NO_ML
     ),
 
     SearchEverywhereTabWithMlRanking.CLASSES to Experiment(
+      1 to ExperimentType.ENABLE_SEMANTIC_SEARCH,
       2 to ExperimentType.USE_EXPERIMENTAL_MODEL,
       3 to ExperimentType.NO_ML
     ),
@@ -75,6 +77,7 @@ class SearchEverywhereMlExperiment {
 
   fun isLoggingEnabledForTab(tabId: String) = tabsWithEnabledLogging.contains(tabId)
 
+  @Suppress("UnresolvedPluginConfigReference")
   private fun isDisableExperiments(tab: SearchEverywhereTabWithMlRanking): Boolean {
     return Registry.`is`("search.everywhere.force.disable.experiment.${tab.name.lowercase()}.ml")
   }

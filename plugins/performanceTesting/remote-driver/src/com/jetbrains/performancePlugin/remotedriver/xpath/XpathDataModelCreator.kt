@@ -20,7 +20,10 @@ import javax.swing.JComponent
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.absoluteValue
 
-internal class XpathDataModelCreator(private val textToKeyCache: TextToKeyCache) {
+internal class XpathDataModelCreator(private val textToKeyCache: TextToKeyCache,
+                                     private val bindComponentToElement: (Component, Element) -> Unit = { c, e ->
+                                       e.setUserData("component", c, null)
+                                     }) {
 
   private fun addComponent(
     doc: Document,
@@ -29,6 +32,14 @@ internal class XpathDataModelCreator(private val textToKeyCache: TextToKeyCache)
     component: Component,
     targetComponent: Component? = null
   ) {
+    val subtreeOverrider = XpathDataModelSubTreeProvider.EP_NAME.extensionList.find { provider ->
+      provider.shouldOverrideSubtree(component)
+    }
+    if (subtreeOverrider != null) {
+      subtreeOverrider.overrideSubtree(doc, parentElement, component)
+      return
+    }
+
     val element = createElement(doc, component, targetComponent)
     parentElement.appendChild(element)
 
@@ -57,7 +68,7 @@ internal class XpathDataModelCreator(private val textToKeyCache: TextToKeyCache)
 
     component.fillElement(doc, element, targetComponent)
 
-    element.setUserData("component", component, null)
+    bindComponentToElement(component, element)
     return element
   }
 
@@ -308,7 +319,7 @@ internal class XpathDataModelCreator(private val textToKeyCache: TextToKeyCache)
 fun Element.addIcon(iconName: String, size: Int, onClickFunction: String) {
   val doc = this.ownerDocument
   val icon = doc.createElement("img")
-  icon.setAttribute("src", "img/$iconName.png")
+  icon.setAttribute("src", "static/img/$iconName.png")
   icon.setAttribute("width", size.toString())
   icon.setAttribute("height", size.toString())
 

@@ -1,11 +1,11 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.intentions;
 
-import com.intellij.modcommand.ActionContext;
-import com.intellij.modcommand.ModPsiUpdater;
-import com.intellij.modcommand.Presentation;
-import com.intellij.modcommand.PsiUpdateModCommandAction;
+import com.intellij.modcommand.*;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.ContainerUtil;
@@ -22,7 +22,7 @@ import static com.jetbrains.python.psi.PyUtil.as;
  * Intention to convert between single-quoted and double-quoted strings
  */
 public final class PyQuotedStringIntention extends PsiUpdateModCommandAction<PsiElement> {
-  PyQuotedStringIntention() {
+  public PyQuotedStringIntention() {
     super(PsiElement.class);
   }
 
@@ -79,6 +79,18 @@ public final class PyQuotedStringIntention extends PsiUpdateModCommandAction<Psi
     else {
       convertStringElement(stringElement);
     }
+  }
+
+  public boolean isAvailable(@NotNull Project project, @Nullable Editor editor, @NotNull PsiFile file) {
+    Presentation presentation = getPresentation(ActionContext.from(editor, file));
+    return presentation != null;
+  }
+
+  public void invoke(@NotNull Project project, @Nullable Editor editor, @NotNull PsiFile file) {
+    ActionContext context = ActionContext.from(editor, file);
+    ModCommand command = perform(context);
+    ModCommandExecutor instance = ModCommandExecutor.getInstance();
+    instance.executeInteractively(context, command, editor);
   }
 
   private static void convertStringElement(@NotNull PyStringElement stringElement) {

@@ -1,7 +1,6 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection.classCanBeRecord;
 
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInspection.AddToInspectionOptionListFix;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.classCanBeRecord.ConvertToRecordFix.RecordCandidate;
@@ -11,9 +10,9 @@ import com.intellij.java.JavaBundle;
 import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.HtmlChunk;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiIdentifier;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.SmartList;
@@ -25,6 +24,7 @@ import org.jetbrains.annotations.TestOnly;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static com.intellij.codeInspection.options.OptPane.*;
 
@@ -46,8 +46,8 @@ public final class ClassCanBeRecordInspection extends BaseInspection {
   }
 
   @Override
-  public boolean shouldInspect(@NotNull PsiFile file) {
-    return HighlightingFeature.RECORDS.isAvailable(file);
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.RECORDS);
   }
 
   @Override

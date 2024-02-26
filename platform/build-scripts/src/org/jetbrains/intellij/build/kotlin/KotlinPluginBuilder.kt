@@ -1,12 +1,13 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.kotlin
 
 import com.intellij.util.io.Decompressor
+import io.opentelemetry.api.trace.Span
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.intellij.build.BuildContext
-import org.jetbrains.intellij.build.BuildTasks
+import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.ProductProperties
-import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot
+import org.jetbrains.intellij.build.createBuildTasks
 import org.jetbrains.intellij.build.dependencies.TeamCityHelper
 import org.jetbrains.intellij.build.impl.BuildContextImpl
 import org.jetbrains.intellij.build.impl.LibraryPackMode
@@ -21,7 +22,7 @@ object KotlinPluginBuilder {
    * Module which contains META-INF/plugin.xml
    */
   const val MAIN_KOTLIN_PLUGIN_MODULE: String = "kotlin.plugin"
-  const val MAIN_FRONTEND_MODULE_NAME = "kotlin.frontend"
+  const val MAIN_FRONTEND_MODULE_NAME: String = "kotlin.frontend"
 
   val MODULES: List<String> = persistentListOf(
     "kotlin.plugin.common",
@@ -115,11 +116,12 @@ object KotlinPluginBuilder {
     "kotlin.copyright",
     "kotlin.spellchecker",
     "kotlin.jvm-decompiler",
-    "kotlin.j2k.k1.shared",
+    "kotlin.j2k.shared",
     "kotlin.j2k.k1.new.post-processing",
     "kotlin.j2k.k1.old",
     "kotlin.j2k.k1.old.post-processing",
     "kotlin.j2k.k1.new",
+    "kotlin.j2k.k2",
     "kotlin.onboarding",
     "kotlin.plugin-updater",
     "kotlin.preferences",
@@ -307,13 +309,13 @@ object KotlinPluginBuilder {
 
       spec.withPatch { patcher, context ->
         val library = context.project.libraryCollection.findLibrary(kotlincKotlinCompilerCommon)!!
-        val jars = library.getFiles(JpsOrderRootType.COMPILED)
+        val jars = library.getPaths(JpsOrderRootType.COMPILED)
         if (jars.size != 1) {
           throw IllegalStateException("$kotlincKotlinCompilerCommon is expected to have only one jar")
         }
 
-        consumeDataByPrefix(jars[0].toPath(), "META-INF/extensions/") { name, data ->
-          patcher.patchModuleOutput(MAIN_KOTLIN_PLUGIN_MODULE, name, data)
+        consumeDataByPrefix(jars[0], "META-INF/extensions/") { name, data ->
+          patcher.patchModuleOutput(moduleName = MAIN_KOTLIN_PLUGIN_MODULE, path = name, content = data)
         }
       }
 
@@ -323,14 +325,13 @@ object KotlinPluginBuilder {
       spec.withProjectLibrary("kotlinc.kotlin-jps-plugin-classpath", "jps/kotlin-jps-plugin.jar")
       spec.withProjectLibrary("kotlinc.kotlin-jps-common")
       //noinspection SpellCheckingInspection
-      spec.withProjectLibrary("javaslang", LibraryPackMode.STANDALONE_MERGED)
-      spec.withProjectLibrary("kotlinx-collections-immutable", LibraryPackMode.STANDALONE_MERGED)
-      spec.withProjectLibrary("javax-inject", LibraryPackMode.STANDALONE_MERGED)
+      spec.withProjectLibrary("javaslang")
+      spec.withProjectLibrary("javax-inject")
 
       spec.withGeneratedResources { targetDir, context ->
         val distLibName = "kotlinc.kotlin-dist"
         val library = context.project.libraryCollection.findLibrary(distLibName)!!
-        val jars = library.getFiles(JpsOrderRootType.COMPILED)
+        val jars = library.getPaths(JpsOrderRootType.COMPILED)
         if (jars.size != 1) {
           throw IllegalStateException("$distLibName is expected to have only one jar")
         }
@@ -339,10 +340,9 @@ object KotlinPluginBuilder {
 
       spec.withCustomVersion(object : PluginLayout.VersionEvaluator {
         override fun evaluate(pluginXml: Path, ideBuildVersion: String, context: BuildContext): String {
-          val ijBuildNumber = Pattern.compile("^(\\d+)\\.([\\d.]+|\\d+\\.SNAPSHOT.*)\$").matcher(ideBuildVersion)
+          val ijBuildNumber = Pattern.compile("^(\\d+)\\.([\\d.]+|(\\d+\\.)?SNAPSHOT.*)\$").matcher(ideBuildVersion)
           if (ijBuildNumber.matches()) {
             // IJ installer configurations.
-            // In this environment, ideBuildVersion matches ^(\d+)\.([\d.]+|\d+\.SNAPSHOT.*)\$
             return "$ideBuildVersion-$kind"
           }
 
@@ -351,7 +351,7 @@ object KotlinPluginBuilder {
             // In this environment, ideBuildVersion equals to build number.
             // The ideBuildVersion looks like XXX.YYYY.ZZ-IJ
             val version = ideBuildVersion.replace("IJ", kind.toString())
-            context.messages.info("Kotlin plugin IJ version: $version")
+            Span.current().addEvent("Kotlin plugin IJ version: $version")
             return version
           }
 
@@ -417,7 +417,7 @@ object KotlinPluginBuilder {
     val result = oldText.replaceFirst(Regex(regex), newText)
     if (result == oldText) {
       if (oldText.contains(newText) && !TeamCityHelper.isUnderTeamCity) {
-        // Locally e.g. in 'Update IDE from Sources' allow data to be already present
+        // Locally, e.g., in 'Update IDE from Sources' allow data to be already present
         return result
       }
 
@@ -426,13 +426,14 @@ object KotlinPluginBuilder {
     return result
   }
 
-  suspend fun build(communityHome: BuildDependenciesCommunityRoot, home: Path, properties: ProductProperties) {
-    val buildContext = BuildContextImpl.createContext(communityHome = communityHome,
-                                                      setupTracer = true,
+  suspend fun build(home: Path, properties: ProductProperties) {
+    val context = BuildContextImpl.createContext(
+      setupTracer = true,
                                                       projectHome = home,
-                                                      productProperties = properties)
-    buildContext.options.enableEmbeddedJetBrainsClient = false
-    BuildTasks.create(buildContext).buildNonBundledPlugins(listOf(MAIN_KOTLIN_PLUGIN_MODULE))
+                                                      productProperties = properties,
+      options = BuildOptions(enableEmbeddedJetBrainsClient = false),
+    )
+    createBuildTasks(context).buildNonBundledPlugins(listOf(MAIN_KOTLIN_PLUGIN_MODULE))
   }
 
   enum class KotlinUltimateSources {

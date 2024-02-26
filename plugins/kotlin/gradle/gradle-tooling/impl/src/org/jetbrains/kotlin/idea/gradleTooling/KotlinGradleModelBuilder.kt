@@ -2,7 +2,9 @@
 
 package org.jetbrains.kotlin.idea.gradleTooling
 
+import com.intellij.gradle.toolingExtension.impl.model.dependencyDownloadPolicyModel.GradleDependencyDownloadPolicy
 import com.intellij.gradle.toolingExtension.impl.model.dependencyDownloadPolicyModel.GradleDependencyDownloadPolicyCache
+import com.intellij.gradle.toolingExtension.impl.model.dependencyModel.GradleDependencyResolver
 import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.artifacts.ConfigurationContainer
@@ -10,15 +12,14 @@ import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.api.provider.Property
 import org.gradle.tooling.BuildController
-import org.gradle.tooling.model.Model
-import org.gradle.tooling.model.gradle.GradleBuild
+import org.gradle.tooling.model.gradle.BasicGradleProject
 import org.jetbrains.kotlin.idea.projectModel.KotlinTaskProperties
 import org.jetbrains.kotlin.tooling.core.Interner
 import org.jetbrains.plugins.gradle.model.ProjectImportModelProvider
-import org.jetbrains.plugins.gradle.tooling.ErrorMessageBuilder
+import org.jetbrains.plugins.gradle.model.ProjectImportModelProvider.GradleModelConsumer
+import org.jetbrains.plugins.gradle.tooling.Message
 import org.jetbrains.plugins.gradle.tooling.ModelBuilderContext
 import org.jetbrains.plugins.gradle.tooling.ModelBuilderService
-import org.jetbrains.plugins.gradle.tooling.util.resolve.DependencyResolverImpl
 import java.io.File
 import java.io.Serializable
 import java.lang.reflect.InvocationTargetException
@@ -97,16 +98,11 @@ class AndroidAwareGradleModelProvider<TModel>(
     private val modelClass: Class<TModel>,
     private val androidPluginIsRequestingVariantSpecificModels: Boolean
 ) : ProjectImportModelProvider {
-    override fun populateBuildModels(
-        controller: BuildController,
-        buildModel: GradleBuild,
-        consumer: ProjectImportModelProvider.BuildModelConsumer
-    ) = Unit
 
     override fun populateProjectModels(
         controller: BuildController,
-        projectModel: Model,
-        modelConsumer: ProjectImportModelProvider.ProjectModelConsumer
+        projectModel: BasicGradleProject,
+        modelConsumer: GradleModelConsumer
     ) {
         val model = if (androidPluginIsRequestingVariantSpecificModels) {
             controller.findModel(projectModel, modelClass, ModelBuilderService.Parameter::class.java) {
@@ -116,7 +112,7 @@ class AndroidAwareGradleModelProvider<TModel>(
             controller.findModel(projectModel, modelClass)
         }
         if (model != null) {
-            modelConsumer.consume(model, modelClass)
+            modelConsumer.consumeProjectModel(projectModel, model, modelClass)
         }
     }
 
@@ -142,9 +138,15 @@ class AndroidAwareGradleModelProvider<TModel>(
 }
 
 class KotlinGradleModelBuilder : AbstractKotlinGradleModelBuilder(), ModelBuilderService.ParameterizedModelBuilderService {
-    override fun getErrorMessageBuilder(project: Project, e: Exception): ErrorMessageBuilder {
-        return ErrorMessageBuilder.create(project, e, "Gradle import errors")
-            .withDescription("Unable to build Kotlin project configuration")
+
+    override fun reportErrorMessage(modelName: String, project: Project, context: ModelBuilderContext, exception: Exception) {
+        context.messageReporter.createMessage()
+            .withGroup(this)
+            .withKind(Message.Kind.WARNING)
+            .withTitle("Gradle import errors")
+            .withText("Unable to build Kotlin project configuration")
+            .withException(exception)
+            .reportMessage(project)
     }
 
     override fun canBuild(modelName: String?): Boolean = modelName == KotlinGradleModel::class.java.name
@@ -274,7 +276,7 @@ class KotlinGradleModelBuilder : AbstractKotlinGradleModelBuilder(), ModelBuilde
         if (kotlinStdlib.dependencies.isEmpty()) {
             return
         }
-        DependencyResolverImpl(context, project, /*download javadoc*/ false, /*download sources*/ true)
+        GradleDependencyResolver(context, project, GradleDependencyDownloadPolicy.SOURCES)
             .resolveDependencies(kotlinStdlib)
     }
 

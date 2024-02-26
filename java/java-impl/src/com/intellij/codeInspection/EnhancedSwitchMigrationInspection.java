@@ -2,7 +2,6 @@
 package com.intellij.codeInspection;
 
 import com.intellij.codeInsight.BlockUtils;
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.daemon.impl.analysis.SwitchBlockHighlightingModel.PatternsInSwitchBlockHighlightingModel.CompletenessResult;
 import com.intellij.codeInspection.options.OptPane;
 import com.intellij.java.JavaBundle;
@@ -10,7 +9,7 @@ import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.pom.java.LanguageLevel;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.*;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -52,10 +51,14 @@ public final class EnhancedSwitchMigrationInspection extends AbstractBaseJavaLoc
     (statement, branches, isExhaustive, maxNumberStatementsForExpression) -> inspectReplacementWithStatement(statement, branches)
   };
 
+  @Override
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.ENHANCED_SWITCH);
+  }
+
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
-    if (!HighlightingFeature.ENHANCED_SWITCH.isAvailable(holder.getFile())) return PsiElementVisitor.EMPTY_VISITOR;
     return new JavaElementVisitor() {
       @Override
       public void visitSwitchStatement(@NotNull PsiSwitchStatement statement) {
@@ -328,8 +331,7 @@ public final class EnhancedSwitchMigrationInspection extends AbstractBaseJavaLoc
     if (branches.isEmpty()) {
       return branches;
     }
-    boolean java20plus = PsiUtil.getLanguageLevel(context).isAtLeast(LanguageLevel.JDK_20_PREVIEW);
-    if (!java20plus) {
+    if (!PsiUtil.isAvailable(JavaFeature.PATTERNS_IN_SWITCH, context)) {
       return branches;
     }
     List<SwitchBranch> result = new ArrayList<>();
@@ -574,7 +576,7 @@ public final class EnhancedSwitchMigrationInspection extends AbstractBaseJavaLoc
       PsiStatement statement = result[i];
       if (statement instanceof PsiReturnStatement returnStatement) {
         PsiExpression returnValue = returnStatement.getReturnValue();
-        if (returnValue == null || PsiTreeUtil.hasErrorElements(returnValue)) {
+        if (returnValue == null || PsiTreeUtil.hasErrorElements(returnValue) || returnValue.getType() == null) {
           return null;
         }
         result[i] = createYieldStatement(returnValue);
@@ -585,7 +587,7 @@ public final class EnhancedSwitchMigrationInspection extends AbstractBaseJavaLoc
       Collection<PsiReturnStatement> returnStatements = PsiTreeUtil.findChildrenOfType(copy, PsiReturnStatement.class);
       for (PsiReturnStatement returnStatement : returnStatements) {
         PsiExpression returnValue = returnStatement.getReturnValue();
-        if (returnValue == null || PsiTreeUtil.hasErrorElements(returnValue)) {
+        if (returnValue == null || PsiTreeUtil.hasErrorElements(returnValue) || returnValue.getType() == null) {
           return null;
         }
         returnStatement.replace(createYieldStatement(returnValue));
@@ -763,7 +765,7 @@ public final class EnhancedSwitchMigrationInspection extends AbstractBaseJavaLoc
           result = new SwitchRuleExpressionResult(rExpression);
         }
         else {
-          if (PsiTreeUtil.hasErrorElements(rExpression)) {
+          if (PsiTreeUtil.hasErrorElements(rExpression) || rExpression.getType() == null) {
             return null;
           }
           result = new SwitchStatementBranch(withLastStatementReplacedWithYield(statements, rExpression));

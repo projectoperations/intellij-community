@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.workspace.jps.entities
 
 import com.intellij.openapi.util.NlsSafe
@@ -21,10 +21,8 @@ import com.intellij.platform.workspace.storage.impl.WorkspaceEntityData
 import com.intellij.platform.workspace.storage.impl.containers.MutableWorkspaceList
 import com.intellij.platform.workspace.storage.impl.containers.toMutableWorkspaceList
 import com.intellij.platform.workspace.storage.impl.extractOneToManyChildren
-import com.intellij.platform.workspace.storage.impl.extractOneToOneChild
 import com.intellij.platform.workspace.storage.impl.indices.WorkspaceMutableIndex
 import com.intellij.platform.workspace.storage.impl.updateOneToManyChildrenOfParent
-import com.intellij.platform.workspace.storage.impl.updateOneToOneChildOfParent
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
@@ -37,15 +35,10 @@ import org.jetbrains.annotations.NonNls
 open class LibraryEntityImpl(private val dataSource: LibraryEntityData) : LibraryEntity, WorkspaceEntityBase(dataSource) {
 
   private companion object {
-    internal val EXCLUDEDROOTS_CONNECTION_ID: ConnectionId = ConnectionId.create(LibraryEntity::class.java, ExcludeUrlEntity::class.java,
-                                                                                 ConnectionId.ConnectionType.ONE_TO_MANY, true)
-    internal val LIBRARYPROPERTIES_CONNECTION_ID: ConnectionId = ConnectionId.create(LibraryEntity::class.java,
-                                                                                     LibraryPropertiesEntity::class.java,
-                                                                                     ConnectionId.ConnectionType.ONE_TO_ONE, false)
+    internal val EXCLUDEDROOTS_CONNECTION_ID: ConnectionId = ConnectionId.create(LibraryEntity::class.java, ExcludeUrlEntity::class.java, ConnectionId.ConnectionType.ONE_TO_MANY, true)
 
     private val connections = listOf<ConnectionId>(
       EXCLUDEDROOTS_CONNECTION_ID,
-      LIBRARYPROPERTIES_CONNECTION_ID,
     )
 
   }
@@ -71,9 +64,6 @@ open class LibraryEntityImpl(private val dataSource: LibraryEntityData) : Librar
   override val excludedRoots: List<ExcludeUrlEntity>
     get() = snapshot.extractOneToManyChildren<ExcludeUrlEntity>(EXCLUDEDROOTS_CONNECTION_ID, this)!!.toList()
 
-  override val libraryProperties: LibraryPropertiesEntity?
-    get() = snapshot.extractOneToOneChild(LIBRARYPROPERTIES_CONNECTION_ID, this)
-
   override val entitySource: EntitySource
     get() {
       readField("entitySource")
@@ -85,8 +75,7 @@ open class LibraryEntityImpl(private val dataSource: LibraryEntityData) : Librar
   }
 
 
-  class Builder(result: LibraryEntityData?) : ModifiableWorkspaceEntityBase<LibraryEntity, LibraryEntityData>(
-    result), LibraryEntity.Builder {
+  class Builder(result: LibraryEntityData?) : ModifiableWorkspaceEntityBase<LibraryEntity, LibraryEntityData>(result), LibraryEntity.Builder {
     constructor() : this(LibraryEntityData())
 
     override fun applyToBuilder(builder: MutableEntityStorage) {
@@ -235,8 +224,8 @@ open class LibraryEntityImpl(private val dataSource: LibraryEntityData) : Librar
         // Getter of the list of non-abstract referenced types
         val _diff = diff
         return if (_diff != null) {
-          _diff.extractOneToManyChildren<ExcludeUrlEntity>(EXCLUDEDROOTS_CONNECTION_ID, this)!!.toList() + (this.entityLinks[EntityLink(
-            true, EXCLUDEDROOTS_CONNECTION_ID)] as? List<ExcludeUrlEntity> ?: emptyList())
+          _diff.extractOneToManyChildren<ExcludeUrlEntity>(EXCLUDEDROOTS_CONNECTION_ID, this)!!.toList() + (this.entityLinks[EntityLink(true, EXCLUDEDROOTS_CONNECTION_ID)] as? List<ExcludeUrlEntity>
+                                                                                                            ?: emptyList())
         }
         else {
           this.entityLinks[EntityLink(true, EXCLUDEDROOTS_CONNECTION_ID)] as? List<ExcludeUrlEntity> ?: emptyList()
@@ -271,41 +260,6 @@ open class LibraryEntityImpl(private val dataSource: LibraryEntityData) : Librar
           this.entityLinks[EntityLink(true, EXCLUDEDROOTS_CONNECTION_ID)] = value
         }
         changedProperty.add("excludedRoots")
-      }
-
-    override var libraryProperties: LibraryPropertiesEntity?
-      get() {
-        val _diff = diff
-        return if (_diff != null) {
-          _diff.extractOneToOneChild(LIBRARYPROPERTIES_CONNECTION_ID, this) ?: this.entityLinks[EntityLink(true,
-                                                                                                           LIBRARYPROPERTIES_CONNECTION_ID)] as? LibraryPropertiesEntity
-        }
-        else {
-          this.entityLinks[EntityLink(true, LIBRARYPROPERTIES_CONNECTION_ID)] as? LibraryPropertiesEntity
-        }
-      }
-      set(value) {
-        checkModificationAllowed()
-        val _diff = diff
-        if (_diff != null && value is ModifiableWorkspaceEntityBase<*, *> && value.diff == null) {
-          if (value is ModifiableWorkspaceEntityBase<*, *>) {
-            value.entityLinks[EntityLink(false, LIBRARYPROPERTIES_CONNECTION_ID)] = this
-          }
-          // else you're attaching a new entity to an existing entity that is not modifiable
-          _diff.addEntity(value)
-        }
-        if (_diff != null && (value !is ModifiableWorkspaceEntityBase<*, *> || value.diff != null)) {
-          _diff.updateOneToOneChildOfParent(LIBRARYPROPERTIES_CONNECTION_ID, this, value)
-        }
-        else {
-          if (value is ModifiableWorkspaceEntityBase<*, *>) {
-            value.entityLinks[EntityLink(false, LIBRARYPROPERTIES_CONNECTION_ID)] = this
-          }
-          // else you're attaching a new entity to an existing entity that is not modifiable
-
-          this.entityLinks[EntityLink(true, LIBRARYPROPERTIES_CONNECTION_ID)] = value
-        }
-        changedProperty.add("libraryProperties")
       }
 
     override fun getEntityClass(): Class<LibraryEntity> = LibraryEntity::class.java

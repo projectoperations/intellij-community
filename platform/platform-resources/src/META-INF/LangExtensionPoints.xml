@@ -415,6 +415,10 @@
                     beanClass="com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsPreviewLanguage"
                     dynamic="true"/>
 
+    <extensionPoint qualifiedName="com.intellij.refactoring.renameCodeVisionSupport"
+                    interface="com.intellij.refactoring.rename.RenameCodeVisionSupport"
+                    dynamic="true" />
+
     <extensionPoint name="lang.floatingToolbarCustomizer" beanClass="com.intellij.lang.LanguageExtensionPoint"
                     dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.ui.codeFloatingToolbar.FloatingToolbarCustomizer"/>
@@ -568,6 +572,8 @@
     <extensionPoint name="elementPreviewProvider" interface="com.intellij.codeInsight.preview.ElementPreviewProvider" dynamic="true"/>
 
     <extensionPoint name="testActionProvider" interface="com.intellij.execution.testframework.ToggleModelActionProvider" dynamic="true"/>
+    <extensionPoint name="documentation.documentationDownloader"
+                    interface="com.intellij.codeInsight.documentation.actions.DocumentationDownloader" dynamic="true"/>
 
      <extensionPoint name="testDiffProvider" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.execution.testframework.actions.TestDiffProvider"/>
@@ -679,5 +685,8 @@
                     interface="com.intellij.codeInsight.daemon.impl.InjectedLanguageHighlightingRangeReducer"/>
     <extensionPoint qualifiedName="com.intellij.platform.ijent.ijentExecFileProvider" dynamic="true"
                     interface="com.intellij.platform.ijent.IjentExecFileProvider"/>
+    <extensionPoint qualifiedName="com.intellij.platform.lang.lsWidget.itemsProvider" dynamic="true"
+                    interface="com.intellij.platform.lang.lsWidget.LanguageServiceWidgetItemsProvider"/>
+    <extensionPoint name="editorSearchAreaProvider" interface="com.intellij.find.impl.livePreview.EditorSearchAreaProvider" dynamic="true"/>
   </extensionPoints>
 </idea-plugin>

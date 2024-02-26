@@ -23,7 +23,7 @@ import org.jetbrains.uast.*
 
 internal class LogFinderHyperlinkHandler(private val probableClassName: ProbableClassName) : HyperlinkInfoFactory.HyperlinkHandler {
   override fun onLinkFollowed(project: Project, file: VirtualFile, targetEditor: Editor, originalEditor: Editor?) {
-    LogConsoleLogHandlerCollectors.logHandleClass(project, probableClassName.virtualFiles.size)
+    LogConsoleLogHandlerCollectors.logHandleClass(project, 1)
 
     val psiFile = PsiManager.getInstance(project).findFile(file)
     if (psiFile == null) return
@@ -96,19 +96,33 @@ internal class LogFinderHyperlinkHandler(private val probableClassName: Probable
     val document = PsiDocumentManager.getInstance(element.getProject()).getDocument(element.containingFile) ?: return text
     val lineNumber = document.getLineNumber(element.textRange.endOffset)
     val textRange = element.textRange
-      .intersection(TextRange(document.getLineStartOffset(lineNumber), document.getLineEndOffset(lineNumber))) ?: element.textRange
+                      .intersection(TextRange(document.getLineStartOffset(lineNumber), document.getLineEndOffset(lineNumber)))
+                    ?: element.textRange
     val trimmedText = document.getText(textRange).trim()
     return StringUtil.shortenTextWithEllipsis(trimmedText, 30, 0)
   }
 }
 
-private class LogVisitor(private val probableClassName: ProbableClassName) : PsiRecursiveElementVisitor() {
+internal class LogVisitor(private val probableClassName: ProbableClassName) : PsiRecursiveElementVisitor() {
   val similarClasses = mutableSetOf<UClass>()
   val similarCalls = mutableSetOf<UCallExpression>()
+  private val shortClassNames = mutableSetOf<String>()
+
+  init {
+    val shortClassName = probableClassName.fullClassName.substringAfterLast('.')
+    shortClassNames.add(shortClassName)
+    val subclassName = ClassInfoResolver.findSubclassName(shortClassName)
+    if (!subclassName.isNullOrEmpty()) {
+      shortClassNames.add(subclassName)
+      if (subclassName[0].isDigit()) {
+        shortClassNames.add(shortClassName.substring(0, shortClassName.length - subclassName.length - 1))
+      }
+    }
+  }
+
   override fun visitElement(element: PsiElement) {
     val uClass = element.toUElementOfType<UClass>()
-    if (uClass != null &&
-        probableClassName.shortClassName == uClass.javaPsi.name) {
+    if (uClass != null && shortClassNames.contains(uClass.javaPsi.name)) {
       similarClasses.add(uClass)
     }
     val uCall = element.toUElementOfType<UCallExpression>()
@@ -143,10 +157,9 @@ private class LogVisitor(private val probableClassName: ProbableClassName) : Psi
     if (logStringArgument == null) return false
     val calculateValue = LoggingStringPartEvaluator.calculateValue(logStringArgument) ?: return false
     val fullLine = probableClassName.fullLine
-    val classFullName = probableClassName.packageName + "." + probableClassName.shortClassName
-    var startPoint = probableClassName.fullLine.indexOf(classFullName)
+    var startPoint = probableClassName.fullLine.indexOf(probableClassName.fullClassName)
     if (startPoint == -1) return false
-    startPoint += classFullName.length
+    startPoint += probableClassName.fullClassName.length
     if (calculateValue.none { it.isConstant && it.text != null }) return false
     for (value in calculateValue) {
       if (value.isConstant && value.text != null) {

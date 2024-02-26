@@ -119,6 +119,12 @@ public abstract class BaseCoverageSuite implements CoverageSuite, JDOMExternaliz
     return myCoverageDataFileProvider;
   }
 
+  @NotNull
+  @Override
+  public String getCoverageDataFileName() {
+    return myCoverageDataFileProvider.getCoverageDataFilePath();
+  }
+
   @Override
   public long getLastCoverageTimeStamp() {
     return myTimestamp;
@@ -178,7 +184,8 @@ public abstract class BaseCoverageSuite implements CoverageSuite, JDOMExternaliz
 
   @Nullable
   protected ProjectData loadProjectInfo() {
-    String sessionDataFileName = getCoverageDataFileName();
+    String sessionDataFileName = myCoverageDataFileProvider.getCoverageDataFilePath();
+    if (sessionDataFileName == null) return null;
     File sessionDataFile = new File(sessionDataFileName);
     if (!sessionDataFile.exists()) {
       if (LOG.isDebugEnabled()) {
@@ -223,7 +230,7 @@ public abstract class BaseCoverageSuite implements CoverageSuite, JDOMExternaliz
 
   @Override
   public void writeExternal(final Element element) throws WriteExternalException {
-    String absolutePath = getCoverageDataFileName();
+    String absolutePath = myCoverageDataFileProvider.getCoverageDataFilePath();
     String pathInSystemDir = FileUtil.getRelativePath(new File(PathManager.getSystemPath()), new File(absolutePath));
     element.setAttribute(FILE_PATH, pathInSystemDir != null ? FileUtil.toSystemIndependentName(pathInSystemDir) : absolutePath);
     element.setAttribute(NAME_ATTRIBUTE, myName);

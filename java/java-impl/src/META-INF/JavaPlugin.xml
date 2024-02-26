@@ -285,6 +285,7 @@
                     interface="com.intellij.jarRepository.JarRepositoryAuthenticationDataProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.jpsServerAuthExtension" interface="com.intellij.compiler.cache.client.JpsServerAuthExtension" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.execution.applicationRunLineMarkerHider" interface="com.intellij.execution.ApplicationRunLineMarkerHider" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.jvm.logging" interface="com.intellij.lang.logging.JvmLogger" dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -464,6 +465,7 @@
     <statistics.counterUsagesCollector implementationClass="com.intellij.refactoring.introduceParameter.IntroduceParameterUsagesCollector"/>
     <statistics.applicationUsagesCollector implementation="com.intellij.debugger.settings.DebuggerSettingsStatisticsCollector"/>
     <statistics.applicationUsagesCollector implementation="com.intellij.refactoring.JavaRefactoringUsageCollector"/>
+    <statistics.projectUsagesCollector implementation="com.intellij.internal.statistic.JavaFormattingStyleCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.codeInspection.deadCode.EntryPointsUsageCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.compiler.impl.BuildUsageCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.debugger.statistics.DebuggerStatistics"/>
@@ -789,6 +791,9 @@
     <projectConfigurable parentId="project.propDebugger" instance="com.intellij.debugger.settings.CaptureConfigurable"
                          key="async.stacktraces.configurable.display.name" bundle="messages.JavaDebuggerBundle"/>
 
+    <projectConfigurable id="jvm.logging" parentId="language" instance="com.intellij.ui.logging.JvmLoggingConfigurable"
+                         bundle="messages.JavaBundle" key="jvm.logging.configurable.display.name"/>
+
     <xdebugger.attachDebuggerProvider implementation="com.intellij.debugger.impl.attach.JavaAttachDebuggerProvider"/>
     <xdebugger.attachDebuggerProvider implementation="com.intellij.debugger.impl.attach.JavaSAAttachDebuggerProvider"/>
 
@@ -913,6 +918,12 @@
                     overrides="true"/>
 
     <programRunner id="defaultDebugRunner" implementation="com.intellij.debugger.impl.GenericDebuggerRunner" order="last"/>
+
+    <jvm.logging implementation="com.intellij.lang.logging.ApacheCommonsLogger"/>
+    <jvm.logging implementation="com.intellij.lang.logging.Log4j2Logger"/>
+    <jvm.logging implementation="com.intellij.lang.logging.Log4jLogger"/>
+    <jvm.logging implementation="com.intellij.lang.logging.Slf4jLogger"/>
+    <jvm.logging implementation="com.intellij.lang.logging.UnspecifiedLogger"/>
 
     <javaModuleSystem implementation="com.intellij.psi.impl.JavaPlatformModuleSystem"/>
     <java.error.fix errorCode="lambda.variable.must.be.final" implementationClass="com.intellij.codeInspection.streamMigration.SimplifyForEachInspection$ForEachNonFinalFix"/>
@@ -1080,6 +1091,8 @@
     <changeSignature.usageProvider language="JAVA" implementationClass="com.intellij.refactoring.changeSignature.JavaChangeSignatureUsageProvider"/>
     <refactoring.introduceParameterMethodUsagesProcessor implementation="com.intellij.refactoring.introduceParameter.JavaIntroduceParameterMethodUsagesProcessor"/>
     <refactoring.overrideMethodProcessor implementation="com.intellij.refactoring.JavaOverrideMethodsProcessor"/>
+    <registryKey key="java.override.methods.enable.sort.by.overriding.action" defaultValue="false"
+                 description="Enables button in Override Methods dialog to sort methods by the percentage of subclasses that override"/>
     <safeDelete.importSearcher implementation="com.intellij.refactoring.safeDelete.JavaImportSearcher"/>
     <refactoring.safeDelete.JavaSafeDeleteDelegate implementationClass="com.intellij.refactoring.safeDelete.JavaSafeDeleteDelegateImpl" language="JAVA"/>
     <refactoring.safeDeleteProcessor implementation="com.intellij.refactoring.safeDelete.JavaSafeDeleteProcessor" id="javaProcessor"/>
@@ -1222,6 +1235,7 @@
     <joinLinesHandler implementation="com.intellij.codeInsight.editorActions.VariableJoinLinesHandler"/>
     <joinLinesHandler implementation="com.intellij.codeInsight.editorActions.FieldJoinLinesHandler"/>
     <joinLinesHandler implementation="com.intellij.codeInsight.editorActions.LiteralJoinLinesHandler"/>
+    <joinLinesHandler implementation="com.intellij.codeInsight.editorActions.TextBlockJoinLinesHandler"/>
     <editorSmartKeysConfigurable instance="com.intellij.application.options.JavadocOptionsProvider" id="editor.preferences.javadocOptions"/>
     <wordBoundaryFilter language="JAVA" implementationClass="com.intellij.codeInsight.editorActions.JavaWordBoundaryFilter"/>
     <editorActionHandler action="PrevParameter" implementationClass="com.intellij.codeInsight.editorActions.JavaPrevParameterHandler"/>
@@ -1294,6 +1308,7 @@
                                           nameKey="java.method.chains.inlay.provider.name"
                                           descriptionKey="inlay.MethodChainsInlayProvider.description"/>
     <codeInsight.inlayActionHandler implementationClass="com.intellij.codeInsight.hints.JavaFqnDeclarativeInlayActionHandler" handlerId="java.fqn.class" />
+    <refactoring.renameCodeVisionSupport implementation="com.intellij.refactoring.rename.JavaRenameCodeVisionSupport"/>
 
     <lang.foldingBuilder language="JAVA" implementationClass="com.intellij.codeInsight.folding.impl.JavaFoldingBuilder"/>
     <lang.braceMatcher language="JAVA" implementationClass="com.intellij.codeInsight.highlighting.JavaPairedBraceMatcher"/>
@@ -1366,6 +1381,10 @@
                             implementationClass="com.intellij.codeInsight.completion.RefactoringCompletionContributor"/>
     <completion.contributor language="JAVA" id="JShell" order="before javaLegacy"
                             implementationClass="com.intellij.codeInsight.completion.JShellCompletionContributor"/>
+
+    <completion.contributor language="JAVA" id="jvmLogger" implementationClass="com.intellij.codeInsight.completion.JvmLoggerCompletionContributor"/>
+    <weigher implementationClass="com.intellij.codeInsight.completion.LoggerWeigher" key="completion" id="logger"/>
+
     <completion.confidence language="JAVA" implementationClass="com.intellij.psi.impl.source.resolve.reference.impl.JavaReflectionCompletionConfidence" id="javaReflection" />
     <completion.confidence language="JAVA" implementationClass="com.intellij.codeInsight.completion.JavadocCompletionConfidence" id="javadoc" order="before javaComments"/>
     <completion.confidence language="JAVA" implementationClass="com.intellij.codeInsight.completion.SkipAutopopupInComments" id="javaComments"/>
@@ -1376,6 +1395,7 @@
     <codeInsight.wordCompletionFilter language="JAVA"
                                       implementationClass="com.intellij.lang.java.JavaWordCompletionFilter"/>
     <lookup.actionProvider implementation="com.intellij.codeInsight.completion.ExcludeFromCompletionLookupActionProvider" id="excludeFromCompletion" order="last"/>
+    <lookup.actionProvider implementation="com.intellij.codeInsight.completion.ExcludeLoggerFromCompletionLookupActionProvider" id="loggerExcludeFromCompletion"/>
     <lookup.actionProvider implementation="com.intellij.codeInsight.completion.ImportStaticLookupActionProvider" id="importStatic"/>
     <fileType extensions="java" hashBangs="java" name="JAVA" language="JAVA" fieldName="INSTANCE" implementationClass="com.intellij.ide.highlighter.JavaFileType"/>
     <fileType extensions="class" name="CLASS" fieldName="INSTANCE" implementationClass="com.intellij.ide.highlighter.JavaClassFileType"/>
@@ -1611,6 +1631,11 @@
                      groupKey="group.names.verbose.or.redundant.code.constructs" enabledByDefault="true" level="WARNING"
                      implementationClass="com.intellij.codeInspection.RedundantStreamOptionalCallInspection" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
                      key="inspection.redundant.stream.optional.call.display.name" bundle="messages.JavaBundle"/>
+    <localInspection groupPath="Java" language="JAVA" shortName="MappingBeforeCount"
+                     groupBundle="messages.InspectionsBundle"
+                     groupKey="group.names.verbose.or.redundant.code.constructs" enabledByDefault="true" level="WARNING"
+                     implementationClass="com.intellij.codeInspection.MappingBeforeCountInspection" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
+                     key="inspection.mapping.before.count.family.name" bundle="messages.JavaBundle"/>
     <localInspection groupPath="Java" language="JAVA" shortName="RedundantRecordConstructor" enabledByDefault="true" level="WARNING"
                      groupBundle="messages.InspectionsBundle" groupKey="group.names.declaration.redundancy"
                      bundle="messages.JavaBundle" key="inspection.redundant.record.constructor.description" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
@@ -1881,6 +1906,11 @@
                      enabledByDefault="true" level="WARNING"
                      key="inspection.undeclared.service.usage.name" bundle="messages.JavaBundle"
                      implementationClass="com.intellij.codeInspection.java19api.Java9UndeclaredServiceUsageInspection"/>
+    <localInspection groupPath="Java" language="JAVA" shortName="JavaEmptyModuleInfoFile"
+                     groupBundle="messages.InspectionsBundle" groupKey="group.names.visibility.issues"
+                     enabledByDefault="true" level="WARNING"
+                     key="inspection.empty.module.info.file" bundle="messages.JavaBundle"
+                     implementationClass="com.intellij.codeInspection.java19api.JavaEmptyModuleInfoFileInspection"/>
     <localInspection groupPath="Java" language="JAVA" shortName="RedundantComparatorComparing"
                      groupBundle="messages.InspectionsBundle" groupKey="group.names.verbose.or.redundant.code.constructs"
                      enabledByDefault="true" level="WARNING" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
@@ -1996,9 +2026,6 @@
                      groupKey="group.names.performance.issues" groupBundle="messages.InspectionsBundle"
                      enabledByDefault="false" level="WARNING"
                      implementationClass="com.intellij.codeInspection.BulkFileAttributesReadInspection"/>
-    <globalInspection groupPath="Java" language="JAVA" shortName="EmptyMethod" groupKey="group.names.declaration.redundancy" enabledByDefault="true" groupBundle="messages.InspectionsBundle"
-                      level="WARNING" implementationClass="com.intellij.codeInspection.emptyMethod.EmptyMethodInspection"
-                      key="inspection.empty.method.display.name" bundle="messages.JavaBundle"/>
     <globalInspection groupPath="Java" language="JAVA" shortName="UnusedReturnValue" bundle="messages.JavaBundle" key="inspection.unused.return.value.display.name"
                       groupKey="group.names.declaration.redundancy" groupBundle="messages.InspectionsBundle" enabledByDefault="true" level="WARNING"
                       implementationClass="com.intellij.codeInspection.unusedReturnValue.UnusedReturnValue"/>
@@ -2449,6 +2476,7 @@
     <newProjectWizard.languageGenerator implementation="com.intellij.ide.projectWizard.generators.JavaNewProjectWizard" order="first"/>
     <newProjectWizard.java.buildSystem implementation="com.intellij.ide.projectWizard.generators.IntelliJJavaNewProjectWizard"/>
     <requiredForSmartModeStartupActivity implementation="com.intellij.ide.projectWizard.generators.SdkPreIndexingRequiredForSmartModeActivity"/>
+    <statistics.counterUsagesCollector implementationClass="com.intellij.ide.projectWizard.JdkComboBoxCollector"/>
 
     <registryKey key="starters.dependency.update.host"
                  defaultValue="https://frameworks.jetbrains.com"
@@ -2480,6 +2508,8 @@
 
     <pluginSuggestionProvider implementation="com.intellij.ide.ant.AntSuggestionProvider"/>
     <pluginSuggestionProvider implementation="com.intellij.ide.android.AndroidSuggestionProvider"/>
+      <statistics.counterUsagesCollector
+              implementationClass="com.intellij.codeInsight.generation.analysis.GenerateLoggerStatisticsCollector"/>
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains">
@@ -2522,5 +2552,7 @@
     <listener class="com.intellij.ide.compilation.InvalidCompilationListener"
               topic="com.intellij.openapi.compiler.CompilationStatusListener"
               activeInHeadlessMode="false"/>
+    <listener class="com.intellij.openapi.roots.impl.LanguageLevelChangedListener"
+              topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
   </projectListeners>
 </idea-plugin>

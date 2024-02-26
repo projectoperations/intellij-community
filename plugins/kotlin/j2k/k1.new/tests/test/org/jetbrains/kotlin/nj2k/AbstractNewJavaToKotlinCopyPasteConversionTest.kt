@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.nj2k
 
@@ -8,7 +8,7 @@ import java.io.File
 
 abstract class AbstractNewJavaToKotlinCopyPasteConversionTest : AbstractJavaToKotlinCopyPasteConversionTest() {
     override val testDataDirectory: File
-        get() = KotlinRoot.DIR.resolve("j2k/k1.new/tests/testData/copyPaste")
+        get() = KotlinRoot.DIR.resolve("j2k/shared/tests/testData/copyPaste")
 
     override fun isNewJ2K(): Boolean = true
 }

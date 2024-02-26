@@ -52,6 +52,7 @@ public final class ExpUiIcons {
     /** 16x16 */ public static final @NotNull Icon Report = load("expui/actions/report.svg", -808282148, 2);
     /** 17x16 */ public static final @NotNull Icon RerunAutomatically = load("expui/actions/rerunAutomatically.svg", 116680346, 2);
     /** 16x16 */ public static final @NotNull Icon RunAll = load("expui/actions/runAll.svg", 553449736, 2);
+    /** 16x16 */ public static final @NotNull Icon ShortcutFilter = load("expui/actions/shortcutFilter.svg", 1857730243, 2);
     /** 16x16 */ public static final @NotNull Icon ShowImportStatements = load("expui/actions/showImportStatements.svg", 701158559, 2);
     /** 16x16 */ public static final @NotNull Icon ShowReadAccess = load("expui/actions/showReadAccess.svg", -659006968, 2);
     /** 16x16 */ public static final @NotNull Icon ShowWriteAccess = load("expui/actions/showWriteAccess.svg", 48135364, 2);
@@ -116,6 +117,7 @@ public final class ExpUiIcons {
   public static final class Build {
     /** 16x16 */ public static final @NotNull Icon Build = load("expui/build/build.svg", 836120547, 2);
     /** 16x16 */ public static final @NotNull Icon DependencyAnalyzer = load("expui/build/dependencyAnalyzer.svg", -674999446, 2);
+    /** 16x16 */ public static final @NotNull Icon Rebuild = load("expui/build/rebuild.svg", 440140345, 2);
     /** 16x16 */ public static final @NotNull Icon Task = load("expui/build/task.svg", 374995429, 2);
     /** 16x16 */ public static final @NotNull Icon TaskGroup = load("expui/build/taskGroup.svg", 2031908318, 2);
     /** 16x16 */ public static final @NotNull Icon ToggleOfflineMode = load("expui/build/toggleOfflineMode.svg", -911127086, 2);
@@ -173,6 +175,7 @@ public final class ExpUiIcons {
     /** 16x16 */ public static final @NotNull Icon AddToWatch = load("expui/debugger/addToWatch.svg", -2091134385, 2);
     /** 16x16 */ public static final @NotNull Icon DbPrimitive = load("expui/debugger/dbPrimitive.svg", 1281239460, 2);
     /** 16x16 */ public static final @NotNull Icon Frame = load("expui/debugger/frame.svg", 1802453349, 2);
+    /** 16x16 */ public static final @NotNull Icon SelfReference = load("expui/debugger/selfReference.svg", -911584651, 2);
     /** 16x16 */ public static final @NotNull Icon Threads = load("expui/debugger/threads.svg", 154272727, 2);
     /** 16x16 */ public static final @NotNull Icon Value = load("expui/debugger/value.svg", 2049638841, 2);
     /** 16x16 */ public static final @NotNull Icon Watch = load("expui/debugger/watch.svg", -1357974552, 2);
@@ -468,6 +471,11 @@ public final class ExpUiIcons {
     /** 16x16 */ public static final @NotNull Icon WebModuleGroup = load("expui/javaee/webModuleGroup.svg", -896496312, 2);
     /** 16x16 */ public static final @NotNull Icon WebService = load("expui/javaee/webService.svg", 519876848, 2);
     /** 16x16 */ public static final @NotNull Icon WebServiceClient = load("expui/javaee/webServiceClient.svg", 37295085, 2);
+  }
+
+  public static final class Language {
+    /** 16x16 */ public static final @NotNull Icon Php = load("expui/language/php.svg", 1115780116, 2);
+    /** 16x16 */ public static final @NotNull Icon Scala = load("expui/language/scala.svg", 570395828, 2);
   }
 
   public static final class MeetNewUi {

@@ -1,18 +1,23 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.components
 
 import com.intellij.configurationStore.SaveSessionProducer
+import com.intellij.openapi.extensions.PluginId
 
 interface StateStorage {
-  val isUseVfsForWrite: Boolean
-    get() = false
-
   /**
    * You can call this method only once.
    * If the state exists and is not archived - not-null result.
    * If it doesn't exist or archived - null result.
    */
-  fun <T : Any> getState(component: Any?, componentName: String, stateClass: Class<T>, mergeInto: T?, reload: Boolean): T?
+  fun <T : Any> getState(
+    component: Any?,
+    componentName: String,
+    pluginId: PluginId,
+    stateClass: Class<T>,
+    mergeInto: T?,
+    reload: Boolean,
+  ): T?
 
   /**
    * Returning `null` means that nothing to save.
@@ -24,17 +29,12 @@ interface StateStorage {
    */
   fun analyzeExternalChangesAndUpdateIfNeeded(componentNames: MutableSet<in String>)
 
-  fun getResolution(component: PersistentStateComponent<*>, operation: StateStorageOperation): StateStorageChooserEx.Resolution {
-    return StateStorageChooserEx.Resolution.DO
-  }
+  fun getResolution(component: PersistentStateComponent<*>, operation: StateStorageOperation): StateStorageChooserEx.Resolution =
+    StateStorageChooserEx.Resolution.DO
 }
 
 interface StateStorageChooserEx {
-  enum class Resolution {
-    DO,
-    SKIP,
-    CLEAR
-  }
+  enum class Resolution { DO, SKIP, CLEAR }
 
   fun getResolution(storage: Storage, operation: StateStorageOperation): Resolution
 }

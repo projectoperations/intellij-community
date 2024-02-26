@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.importing;
 
 import com.intellij.execution.executors.DefaultRunExecutor;
@@ -42,6 +42,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
+import java.util.function.BiPredicate;
 
 import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.*;
 import static com.intellij.openapi.util.text.StringUtil.*;
@@ -440,7 +441,7 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
     moduleLibDeps.addAll(getModuleLibDeps("project.p2", "Gradle: dep_1"));
     for (LibraryOrderEntry libDep : moduleLibDeps) {
       libs.add(libDep.getLibrary());
-      assertFalse("Dependency be project level: " + libDep.toString(), libDep.isModuleLevel());
+      assertFalse("Dependency be project level: " + libDep, libDep.isModuleLevel());
     }
 
     assertProjectLibraries("Gradle: dep", "Gradle: dep_1");
@@ -1734,42 +1735,53 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
   }
 
   @Test
-  public void testSourcesForDependencyWithMultipleArtifactsWithIvyLayout() throws Exception {
+  public void testJavadocAndSourcesForDependencyWithMultipleArtifactsWithIvyLayout() throws Exception {
     GradleSettings.getInstance(myProject).setDownloadSources(true);
-    // IVY_ARTIFACT_PATTERN = "[organisation]/[module]/[revision]/[type]s/[artifact](.[ext])"
+    // IvyArtifactRepository.IVY_ARTIFACT_PATTERN = "[organisation]/[module]/[revision]/[type]s/[artifact](.[ext])"
     createProjectSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/ivys/ivy.xml",
                          """
                            <?xml version="1.0" encoding="ISO-8859-1"?>
                            <ivy-module version="1.0">
                              <info organisation="depGroup" module="depArtifact" revision="1.0-SNAPSHOT" status="integration"/>
                              <configurations>
-                               <conf name="current"/>
+                               <conf name="lib-core"/>
+                               <conf name="lib" extends="lib-core"/>
+                               <conf name="default" extends="lib"/>
                                <conf name="sources"/>
-                               <conf name="format"/>
+                               <conf name="javadoc"/>
                              </configurations>
                              <publications>
-                               <artifact name="depArtifact-current" ext="jar" type="jar" conf="current"/>
-                               <artifact name="depArtifact-current" ext="src.jar" type="source" conf="sources"/>
-                               <artifact name="depArtifact-format" ext="jar" type="jar" conf="current"/>
-                               <artifact name="depArtifact-format" ext="src.jar" type="source" conf="sources"/>
+                               <artifact name="depArtifact-lib-core" ext="jar" type="jar" conf="lib-core"/>
+                               <artifact name="depArtifact-lib-core" ext="src.jar" type="source" conf="sources"/>
+                               <artifact name="depArtifact-lib-core" ext="doc.jar" type="javadoc" conf="javadoc"/>
+                               <artifact name="depArtifact" ext="jar" type="jar" conf="default"/>
+                               <artifact name="depArtifact" ext="src.jar" type="source" conf="sources"/>
+                               <artifact name="depArtifact" ext="doc.jar" type="javadoc" conf="javadoc"/>
+                               <artifact name="depArtifact-lib" ext="jar" type="jar" conf="lib"/>
+                               <artifact name="depArtifact-lib" ext="src.jar" type="source" conf="sources"/>
+                               <artifact name="depArtifact-lib" ext="doc.jar" type="javadoc" conf="javadoc"/>
                              </publications>
                              <dependencies/>
                            </ivy-module>
                            """);
-    String current = createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/jars/depArtifact-current.jar")
-      .getUrl();
-    String currentSrc = createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/sources/depArtifact-current.src.jar")
-      .getUrl();
-    String format = createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/jars/depArtifact-format.jar")
-      .getUrl();
-    String formatSrc = createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/sources/depArtifact-format.src.jar")
-      .getUrl();
+    List<String> classesPaths = List.of(
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/jars/depArtifact.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/jars/depArtifact-lib.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/jars/depArtifact-lib-core.jar").getUrl());
+    List<String> sourcesPaths = List.of(
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/sources/depArtifact.src.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/sources/depArtifact-lib.src.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/sources/depArtifact-lib-core.src.jar").getUrl());
+    List<String> javadocPaths = List.of(
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/javadocs/depArtifact.doc.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/javadocs/depArtifact-lib.doc.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/javadocs/depArtifact-lib-core.doc.jar").getUrl());
 
     importProject(
       createBuildScriptBuilder()
         .withJavaPlugin()
         .addPrefix("repositories { ivy { url = file('repo') \n layout('ivy') } }")
-        .addPrefix("dependencies { implementation 'depGroup:depArtifact:1.0-SNAPSHOT' targetConfiguration 'current'}")
+        .addImplementationDependency("depGroup:depArtifact:1.0-SNAPSHOT")
         .withIdeaPlugin()
         .addPrefix("idea.module.downloadJavadoc true")
         .generate()
@@ -1780,27 +1792,86 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
     assertModuleModuleDepScope("project.test", "project.main", DependencyScope.COMPILE);
 
     final String depName = "Gradle: depGroup:depArtifact:1.0-SNAPSHOT";
-    assertModuleLibDep("project.main", depName, List.of(current, format), List.of(currentSrc, formatSrc), List.of());
+    assertModuleLibDep("project.main", depName, classesPaths, sourcesPaths, javadocPaths);
     assertModuleLibDepScope("project.main", depName, DependencyScope.COMPILE);
+    assertModuleLibDep("project.test", depName, classesPaths, sourcesPaths, javadocPaths);
+    assertModuleLibDepScope("project.test", depName, DependencyScope.COMPILE);
+  }
+
+  @Test
+  public void testJavadocAndSourcesForDependencyWithMultipleArtifactsWithCustomIvyLayout() throws Exception {
+    GradleSettings.getInstance(myProject).setDownloadSources(true);
+    final String customIvyPattern = "[organisation]/[module]/[revision]/[module]_[artifact]_[revision]_[type].[ext]";
+    createProjectSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_ivy_1.0-SNAPSHOT_ivy.xml",
+                         """
+                           <?xml version="1.0" encoding="ISO-8859-1"?>
+                           <ivy-module version="1.0">
+                             <info organisation="depGroup" module="depArtifact" revision="1.0-SNAPSHOT" status="integration"/>
+                             <configurations>
+                               <conf name="default"/>
+                               <conf name="sources"/>
+                               <conf name="javadoc"/>
+                             </configurations>
+                             <publications>
+                               <artifact name="custom_lib" ext="jar" type="exec" conf="default"/>
+                               <artifact name="custom_lib" ext="jar" type="srcs" conf="sources"/>
+                               <artifact name="custom_lib" ext="jar" type="docs" conf="javadoc"/>
+                               <artifact name="custom_lib_core" ext="jar" type="exec" conf="default"/>
+                               <artifact name="custom_lib_core" ext="jar" type="srcs" conf="sources"/>
+                               <artifact name="custom_lib_core" ext="jar" type="docs" conf="javadoc"/>
+                               <artifact name="custom" ext="jar" type="exec" conf="default"/>
+                               <artifact name="custom" ext="jar" type="srcs" conf="sources"/>
+                               <artifact name="custom" ext="jar" type="docs" conf="javadoc"/>
+                             </publications>
+                             <dependencies/>
+                           </ivy-module>
+                           """);
+    List<String> classesPaths = List.of(
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_1.0-SNAPSHOT_exec.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_lib_1.0-SNAPSHOT_exec.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_lib_core_1.0-SNAPSHOT_exec.jar").getUrl());
+    List<String> sourcesPaths = List.of(
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_1.0-SNAPSHOT_srcs.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_lib_1.0-SNAPSHOT_srcs.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_lib_core_1.0-SNAPSHOT_srcs.jar").getUrl());
+    List<String> javadocPaths = List.of(
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_1.0-SNAPSHOT_docs.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_lib_1.0-SNAPSHOT_docs.jar").getUrl(),
+      createProjectJarSubFile("repo/depGroup/depArtifact/1.0-SNAPSHOT/depArtifact_custom_lib_core_1.0-SNAPSHOT_docs.jar").getUrl());
+
+    importProject(
+      createBuildScriptBuilder()
+        .withJavaPlugin()
+        .addPrefix("repositories { ivy { artifactPattern('repo/" + customIvyPattern + "') } }")
+        .addImplementationDependency("depGroup:depArtifact:1.0-SNAPSHOT")
+        .withIdeaPlugin()
+        .addPrefix("idea.module.downloadJavadoc true")
+        .generate()
+    );
+
+    assertModules("project", "project.main", "project.test");
+
+    assertModuleModuleDepScope("project.test", "project.main", DependencyScope.COMPILE);
+
+    final String depName = "Gradle: depGroup:depArtifact:1.0-SNAPSHOT";
+    assertModuleLibDep("project.main", depName, classesPaths, sourcesPaths, javadocPaths);
+    assertModuleLibDepScope("project.main", depName, DependencyScope.COMPILE);
+    assertModuleLibDep("project.test", depName, classesPaths, sourcesPaths, javadocPaths);
     assertModuleLibDepScope("project.test", depName, DependencyScope.COMPILE);
   }
 
   @Test
   @TargetVersions("4.6+")
   public void testAnnotationProcessorDependencies() throws Exception {
-    importProject(
-      """
-        apply plugin: 'java'
-
-        dependencies {
-            compileOnly 'org.projectlombok:lombok:1.16.2'
-            testCompileOnly 'org.projectlombok:lombok:1.16.2'
-            annotationProcessor 'org.projectlombok:lombok:1.16.2'
-        }
-        """);
-
-    final String depName = "Gradle: org.projectlombok:lombok:1.16.2";
-    assertModuleLibDepScope("project.main", depName, DependencyScope.PROVIDED);
+    var lombok = "org.projectlombok:lombok:1.16.2";
+    importProject(script(it -> {
+      it.withJavaPlugin();
+      it.withMavenCentral();
+      it.addDependency("compileOnly", lombok);
+      it.addDependency("testCompileOnly", lombok);
+      it.addDependency("annotationProcessor", lombok);
+    }));
+    assertModuleLibDepScope("project.main", "Gradle: " + lombok, DependencyScope.PROVIDED);
   }
 
   @Test // https://youtrack.jetbrains.com/issue/IDEA-223152
@@ -1810,6 +1881,7 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
                          include 'lib-1'
                          include 'lib-2'
                          """);
+    createProjectSubDirs("lib-1", "lib-2");
 
     importProject(
       """
@@ -1912,10 +1984,21 @@ public class GradleDependenciesImportingTest extends GradleImportingTestCase {
 
     assertModuleModuleDeps("project.main", ArrayUtil.EMPTY_STRING_ARRAY);
 
-    assertModuleLibDeps((actual, expected) -> {
-      return actual.contains("build" + File.separatorChar + ".transforms" + File.separatorChar) &&
-             new File(actual).getName().equals(new File(expected).getName());
-    }, "project.main", "lib-1.jar", "lib-2.jar");
+
+    BiPredicate<? super String, ? super String> predicate;
+    if (isGradleOlderThan("6.9")) {
+      predicate = (String actual, String expected) -> {
+        return actual.contains("build" + File.separatorChar + ".transforms" + File.separatorChar) &&
+               new File(actual).getName().equals(new File(expected).getName());
+      };
+    } else {
+      predicate = (String actual, String expected) -> {
+        return actual.contains(File.separatorChar + "transformed" + File.separatorChar) &&
+               new File(actual).getName().equals(new File(expected).getName());
+      };
+    }
+
+    assertModuleLibDeps(predicate, "project.main", "lib-1.jar", "lib-2.jar");
   }
 
   @Test

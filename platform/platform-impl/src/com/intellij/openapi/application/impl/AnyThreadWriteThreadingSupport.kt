@@ -10,7 +10,10 @@ import com.intellij.ide.IdeBundle
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationUtil
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.progress.*
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
 import com.intellij.openapi.progress.util.PotemkinProgress
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.project.Project
@@ -33,29 +36,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.BooleanSupplier
 import java.util.function.Consumer
 import javax.swing.JComponent
-import kotlin.coroutines.*
-
-internal val ACTION_PERMIT_CONTEXT_KEY: CoroutineContext.Key<ActionPermitContext> = object : CoroutineContext.Key<ActionPermitContext> {}
-
-internal class ActionPermitContext(private var permitField : Permit) : AbstractCoroutineContextElement(ACTION_PERMIT_CONTEXT_KEY), CoroutineContext.Element {
-  val permit get() = permitField
-
-  fun replaceWriteIntent(newPermit: WriteIntentPermit) {
-    permitField = newPermit
-  }
-
-  fun replaceWrite(newPermit: WritePermit) {
-    permitField = newPermit
-  }
-}
-
-internal val IN_WRITE_LISTENER_CONTEXT_KEY: CoroutineContext.Key<InWriteListenerContext> = object : CoroutineContext.Key<InWriteListenerContext> {}
-
-internal class InWriteListenerContext : AbstractCoroutineContextElement(IN_WRITE_LISTENER_CONTEXT_KEY), CoroutineContext.Element
-
-internal val IMPATIENT_READER_CONTEXT_KEY: CoroutineContext.Key<ImpatientReaderContext> = object : CoroutineContext.Key<ImpatientReaderContext> {}
-
-internal class ImpatientReaderContext : AbstractCoroutineContextElement(IMPATIENT_READER_CONTEXT_KEY), CoroutineContext.Element
 
 private class ThreadState(var permit: Permit? = null, var inListener: Boolean = false, var impatientReader: Boolean = false) {
   fun release() {
@@ -71,7 +51,7 @@ private class ThreadState(var permit: Permit? = null, var inListener: Boolean = 
 
 @Suppress("SSBasedInspection")
 @ApiStatus.Internal
-object AnyThreadWriteThreadingSupport: ThreadingSupport {
+internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   private val logger = Logger.getInstance(AnyThreadWriteThreadingSupport::class.java)
 
   @JvmField
@@ -83,11 +63,12 @@ object AnyThreadWriteThreadingSupport: ThreadingSupport {
   private val myWriteActionsStack = Stack<Class<*>>()
   private var myWriteStackBase = 0
   private val myWriteActionPending = AtomicInteger(0)
+  private var myNoWriteActionCounter = AtomicInteger()
 
   private val myState = ThreadLocal.withInitial { ThreadState(null, false) }
 
   @Volatile
-  private var myWriteAcquired = false
+  private var myWriteAcquired: Thread? = null
 
   // @Throws(E::class)
   override fun <T, E : Throwable?> runWriteIntentReadAction(computation: ThrowableComputable<T, E>): T {
@@ -337,6 +318,13 @@ object AnyThreadWriteThreadingSupport: ThreadingSupport {
       throw IllegalStateException("WriteAction can not be called from ReadAction")
     }
 
+    // Check that write action is not disabled
+    // NB: It is before all cancellations will be run via fireBeforeWriteActionStart
+    // It is change for old behavior, when ProgressUtilService checked this AFTER all cancellations.
+    if (myNoWriteActionCounter.get() > 0) {
+      throwCannotWriteException()
+    }
+
     var oldPermit: Permit? = null
     val release = !ts.hasWrite
 
@@ -349,7 +337,7 @@ object AnyThreadWriteThreadingSupport: ThreadingSupport {
     else if (!ts.hasPermit) {
       ts.permit = measureWriteLock { getWritePermit() }
     }
-    myWriteAcquired = true
+    myWriteAcquired = Thread.currentThread()
     myWriteActionPending.decrementAndGet()
 
     myWriteActionsStack.push(clazz)
@@ -362,7 +350,7 @@ object AnyThreadWriteThreadingSupport: ThreadingSupport {
     fireWriteActionFinished(ts, clazz)
     myWriteActionsStack.pop()
     if (state.second) {
-      myWriteAcquired = false
+      myWriteAcquired = null
       ts.release()
       fireAfterWriteActionFinished(ts, clazz)
     }
@@ -395,12 +383,11 @@ object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
   }
 
-  override fun isWriteActionInProgress(): Boolean = myWriteAcquired
+  override fun isWriteActionInProgress(): Boolean = myWriteAcquired != null
 
-  override fun isWriteActionPending(): Boolean =
-    myWriteAcquired || myWriteActionPending.get() > 0
+  override fun isWriteActionPending(): Boolean = isWriteActionInProgress() || myWriteActionPending.get() > 0
 
-  override fun isWriteAccessAllowed(): Boolean = isWriteActionInProgress()
+  override fun isWriteAccessAllowed(): Boolean = myWriteAcquired == Thread.currentThread()
 
   @ApiStatus.Experimental
   override fun runWriteActionWithNonCancellableProgressInDispatchThread(title: @NlsContexts.ProgressTitle String,
@@ -459,6 +446,18 @@ object AnyThreadWriteThreadingSupport: ThreadingSupport {
     return WriteAccessToken(marker)
   }
 
+  override fun prohibitWriteActionsInside(): AccessToken {
+    if (isWriteActionPending()) {
+      throwCannotWriteException()
+    }
+    myNoWriteActionCounter.incrementAndGet()
+    return object: AccessToken() {
+      override fun finish() {
+        myNoWriteActionCounter.decrementAndGet()
+      }
+    }
+  }
+
   override fun executeByImpatientReader(runnable: Runnable) {
     if (EDT.isCurrentThreadEdt()) {
       runnable.run()
@@ -494,12 +493,6 @@ object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
     reportSlowWrite?.cancel(false)
     return permit
-  }
-
-  private suspend fun assertNotInsideListener() {
-    if (coroutineContext[IN_WRITE_LISTENER_CONTEXT_KEY] != null) {
-      throw IllegalStateException("Must not start write action from inside write action listener")
-    }
   }
 
   private fun fireBeforeReadActionStart(clazz: Class<*>) {
@@ -667,5 +660,9 @@ object AnyThreadWriteThreadingSupport: ThreadingSupport {
     private fun id(): String {
       return " [WriteAccessToken]"
     }
+  }
+
+  private fun throwCannotWriteException() {
+    throw java.lang.IllegalStateException("Write actions are prohibited")
   }
 }

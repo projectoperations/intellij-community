@@ -118,8 +118,10 @@
     <action id="Terminal.ExpandBlockSelectionBelow" class="org.jetbrains.plugins.terminal.exp.TerminalExpandBlockSelectionBelowAction"
             use-shortcut-of="EditorDownWithSelection">
     </action>
-    <action id="Terminal.CopyBlock" class="org.jetbrains.plugins.terminal.action.TerminalCopyBlockAction"
-            use-shortcut-of="$Copy" icon="AllIcons.Actions.Copy"/>
+    <action id="Terminal.CopyBlock" class="org.jetbrains.plugins.terminal.action.TerminalCopyBlockAction" icon="AllIcons.Actions.Copy">
+      <keyboard-shortcut first-keystroke="meta C" keymap="Mac OS X"/>
+      <keyboard-shortcut first-keystroke="meta C" keymap="Mac OS X 10.5+"/>
+    </action>
 
     <action id="Terminal.CommandCompletion" class="org.jetbrains.plugins.terminal.action.TerminalCommandCompletionAction">
       <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
@@ -140,16 +142,6 @@
       <keyboard-shortcut first-keystroke="control C" keymap="$default"/>
       <keyboard-shortcut first-keystroke="control C" keymap="Mac OS X" replace-all="true"/>
       <keyboard-shortcut first-keystroke="control C" keymap="Mac OS X 10.5+" replace-all="true"/>
-    </action>
-    <action id="Terminal.MoveCaretToLineStart" class="org.jetbrains.plugins.terminal.action.TerminalMoveCaretToLineStartAction">
-      <keyboard-shortcut first-keystroke="control A" keymap="$default"/>
-      <keyboard-shortcut first-keystroke="control A" keymap="Mac OS X" replace-all="true"/>
-      <keyboard-shortcut first-keystroke="control A" keymap="Mac OS X 10.5+" replace-all="true"/>
-    </action>
-    <action id="Terminal.MoveCaretToLineEnd" class="org.jetbrains.plugins.terminal.action.TerminalMoveCaretToLineEndAction">
-      <keyboard-shortcut first-keystroke="control E" keymap="$default"/>
-      <keyboard-shortcut first-keystroke="control E" keymap="Mac OS X" replace-all="true"/>
-      <keyboard-shortcut first-keystroke="control E" keymap="Mac OS X 10.5+" replace-all="true"/>
     </action>
     <action id="Terminal.DeletePreviousWord" class="org.jetbrains.plugins.terminal.action.TerminalDeletePreviousWordAction">
       <keyboard-shortcut first-keystroke="control W" keymap="$default"/>

@@ -25,8 +25,6 @@ import static org.jetbrains.kotlin.config.IncrementalCompilation.INCREMENTAL_COM
 @TestRoot("jps/graphImplementationTests/testData/incremental")
 public class IncrementalK2JvmJpsTestGenerated extends AbstractIncrementalK2JvmJpsTest {
     static void setUpTests() {
-        System.setProperty("kotlin.jps.workaround.tests", "true");
-
         //// Use custom compiler for tests
         //File distJar = KotlinArtifactsDownloader.INSTANCE.downloadArtifactForIdeFromSources(
         //        "kotlin-dist-for-ide",
@@ -2967,6 +2965,41 @@ public class IncrementalK2JvmJpsTestGenerated extends AbstractIncrementalK2JvmJp
             public void testAllFilesPresentInInlineFunctionSmapStability() throws Exception {
                 KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("incrementalJvmCompilerOnly/inlineFunctionSmapStability"), Pattern.compile("^([^\\.]+)$"), null, TargetBackend.JVM_IR, true);
             }
+        }
+    }
+
+    @TestMetadata("resolution")
+    @TestDataPath(".")
+    @RunWith(JUnit3RunnerWithInners.class)
+    public static class ResolutionTests extends AbstractIncrementalK2JvmJpsTest {
+        @Override
+        protected void setUp() {
+            super.setUp();
+            setUpTests();
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, TargetBackend.JVM_IR, testDataFilePath);
+        }
+
+        @TestMetadata("classOverFun")
+        public void testClassShadowsFunction() throws Exception {
+            runTest("resolution/classOverFun");
+        }
+
+        @TestMetadata("addMethodDirectly_implicitThis")
+        public void testAddMethodDirectly() throws Exception {
+            runTest("resolution/addMethodDirectly_implicitThis");
+        }
+
+        @TestMetadata("addMethodToParent_implicitThis")
+        public void testAddMethodToParent() throws Exception {
+            runTest("resolution/addMethodToParent_implicitThis");
+        }
+
+        @TestMetadata("invokeOverFun")
+        public void testInvokeShadowsFunction() throws Exception {
+            runTest("resolution/invokeOverFun");
         }
     }
 

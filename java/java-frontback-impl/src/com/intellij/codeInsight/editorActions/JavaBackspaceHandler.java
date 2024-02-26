@@ -3,7 +3,7 @@ package com.intellij.codeInsight.editorActions;
 
 import com.intellij.codeInsight.definition.AbstractBasicJavaDefinitionService;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.pom.java.LanguageLevel;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.AbstractBasicJavaFile;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.PsiFile;
@@ -16,14 +16,14 @@ public final class JavaBackspaceHandler extends BackspaceHandlerDelegate {
   @Override
   public void beforeCharDeleted(char c, @NotNull PsiFile file, @NotNull Editor editor) {
     myToDeleteGt = c == '<' &&
-                   isHigherThan50r(file) &&
+                   areGenericsAvailable(file) &&
                    TypedHandlerUtil.isAfterClassLikeIdentifierOrDot(editor.getCaretModel().getOffset() - 1,
                                                                     editor, JavaTokenType.DOT, JavaTokenType.IDENTIFIER, true);
   }
 
-  private static boolean isHigherThan50r(@Nullable PsiFile file){
+  private static boolean areGenericsAvailable(@Nullable PsiFile file){
       return file instanceof AbstractBasicJavaFile &&
-             AbstractBasicJavaDefinitionService.getJavaDefinitionService().getLanguageLevel(file).isAtLeast(LanguageLevel.JDK_1_5);
+             JavaFeature.GENERICS.isSufficient(AbstractBasicJavaDefinitionService.getJavaDefinitionService().getLanguageLevel(file));
   }
 
   @Override

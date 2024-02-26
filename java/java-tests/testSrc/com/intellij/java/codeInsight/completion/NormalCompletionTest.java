@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInsight.completion;
 
 import com.intellij.application.options.CodeStyle;
@@ -1127,6 +1127,10 @@ public class NormalCompletionTest extends NormalCompletionTestCase {
   public void testEnumConstantFromEnumMember() { doTest(); }
 
   public void testPrimitiveMethodParameter() { doTest(); }
+  
+  public void testPrimitiveVarargMethodParameter() { doTest("."); }
+  
+  public void testPrimitiveVarargMethodParameter2() { doTest("."); }
 
   public void testNewExpectedClassParens() { doTest("\n"); }
 
@@ -2316,7 +2320,7 @@ public class NormalCompletionTest extends NormalCompletionTestCase {
                   "localV<caret>x }" +
                   "}";
     myFixture.configureByText("a.java", text);
-    PlatformTestUtil.startPerformanceTest(getName(), 300, () -> {
+    PlatformTestUtil.newPerformanceTest(getName(), () -> {
       assertEquals(1, myFixture.completeBasic().length);
     }).setup(() -> {
       LookupImpl lookup = getLookup();
@@ -2324,7 +2328,7 @@ public class NormalCompletionTest extends NormalCompletionTestCase {
       myFixture.type("\bV");
       getPsiManager().dropPsiCaches();
       assertNull(getLookup());
-    }).assertTiming();
+    }).start();
   }
 
   public void testPerformanceWithManyMatchingStaticallyImportedDeclarations() {
@@ -2336,7 +2340,7 @@ public class NormalCompletionTest extends NormalCompletionTestCase {
       "}";
     myFixture.addClass(constantClass);
     myFixture.configureByText("a.java", "import static Constants.*; class C { { field<caret>x } }");
-    PlatformTestUtil.startPerformanceTest(getName(), 10_000, () -> {
+    PlatformTestUtil.newPerformanceTest(getName(), () -> {
       int length = myFixture.completeBasic().length;
       assertTrue(String.valueOf(length), length > 100);
     }).setup(() -> {
@@ -2345,7 +2349,7 @@ public class NormalCompletionTest extends NormalCompletionTestCase {
       myFixture.type("\bd");
       getPsiManager().dropPsiCaches();
       assertNull(getLookup());
-    }).assertTiming();
+    }).start();
   }
 
   public void testNoExceptionsWhenCompletingInapplicableClassNameAfterNew() { doTest("\n"); }

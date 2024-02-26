@@ -3,6 +3,7 @@ package com.intellij.platform.ml.embeddings.services
 
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -51,7 +52,7 @@ class LocalArtifactsManager {
   @RequiresBackgroundThread
   suspend fun downloadArtifactsIfNecessary(project: Project? = null,
                                            retryIfCanceled: Boolean = true) = withContext(downloadContext) {
-    if (!checkArtifactsPresent() && (retryIfCanceled || !downloadCanceled)) {
+    if (!checkArtifactsPresent() && !ApplicationManager.getApplication().isUnitTestMode && (retryIfCanceled || !downloadCanceled)) {
       logger.debug("Semantic search artifacts are not present, starting the download...")
       if (project != null) {
         withBackgroundProgress(project, ARTIFACTS_DOWNLOAD_TASK_NAME) {
@@ -111,13 +112,13 @@ class LocalArtifactsManager {
     private val ARTIFACTS_DOWNLOAD_TASK_NAME
       get() = EmbeddingsBundle.getMessage("ml.embeddings.artifacts.download.name")
     private val MODEL_VERSION
-      get() = Registry.stringValue("search.everywhere.ml.semantic.model.version")
+      get() = Registry.stringValue("intellij.platform.ml.embeddings.model.version")
     private val MAVEN_ROOT
-      get() = Registry.stringValue("search.everywhere.ml.semantic.model.artifacts.link").replace("%MODEL_VERSION%", MODEL_VERSION)
+      get() = Registry.stringValue("intellij.platform.ml.embeddings.model.artifacts.link").replace("%MODEL_VERSION%", MODEL_VERSION)
 
     private const val MODEL_ARTIFACTS_DIR = "models"
     private const val ARCHIVE_NAME = "semantic-text-search.jar"
-    private const val NOTIFICATION_GROUP_ID = "Semantic search"
+    private const val NOTIFICATION_GROUP_ID = "Embedding-based search"
 
     private val logger = Logger.getInstance(LocalArtifactsManager::class.java)
 

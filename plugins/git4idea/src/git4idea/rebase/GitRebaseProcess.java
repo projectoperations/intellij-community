@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.rebase;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -31,6 +31,7 @@ import com.intellij.util.progress.StepsProgressIndicator;
 import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.TimedVcsCommit;
 import git4idea.DialogManager;
+import git4idea.GitActivity;
 import git4idea.GitNotificationIdsHolder;
 import git4idea.GitProtectedBranchesKt;
 import git4idea.branch.GitRebaseParams;
@@ -55,6 +56,7 @@ import static com.intellij.openapi.ui.Messages.getWarningIcon;
 import static com.intellij.openapi.vcs.VcsNotifier.IMPORTANT_ERROR_NOTIFICATION;
 import static com.intellij.util.ObjectUtils.notNull;
 import static com.intellij.util.containers.ContainerUtil.*;
+import static git4idea.GitActionIdsHolder.Id.*;
 import static git4idea.GitNotificationIdsHolder.REBASE_NOT_STARTED;
 import static git4idea.GitNotificationIdsHolder.REBASE_SUCCESSFUL;
 import static git4idea.GitUtil.*;
@@ -67,15 +69,15 @@ public class GitRebaseProcess {
 
   private final NotificationAction ABORT_ACTION = NotificationAction.createSimpleExpiring(
     GitBundle.message("rebase.notification.action.abort.text"),
-    () -> abort()
+    ABORT.id, this::abort
   );
   private final NotificationAction CONTINUE_ACTION = NotificationAction.createSimpleExpiring(
     GitBundle.message("rebase.notification.action.continue.text"),
-    () -> retry(GitBundle.message("rebase.progress.indicator.continue.title"))
+    CONTINUE.id, () -> retry(GitBundle.message("rebase.progress.indicator.continue.title"))
   );
   private final NotificationAction RETRY_ACTION = NotificationAction.createSimpleExpiring(
     GitBundle.message("rebase.notification.action.retry.text"),
-    () -> retry(GitBundle.message("rebase.progress.indicator.retry.title"))
+    RETRY.id, () -> retry(GitBundle.message("rebase.progress.indicator.retry.title"))
   );
   private final NotificationAction VIEW_STASH_ACTION;
 
@@ -140,7 +142,7 @@ public class GitRebaseProcess {
       return;
     }
 
-    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, GitBundle.message("activity.name.rebase"))) {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, GitBundle.message("activity.name.rebase"), GitActivity.Rebase)) {
       if (!saveDirtyRootsInitially(repositoriesToRebase)) return;
 
       GitRepository latestRepository = null;
@@ -580,14 +582,16 @@ public class GitRebaseProcess {
   }
 
   private @NotNull NotificationAction createResolveNotificationAction(@NotNull GitRepository currentRepository) {
-    return NotificationAction.create(GitBundle.message("action.NotificationAction.text.resolve"), (e, notification) -> {
-      myProgressManager.run(new Task.Backgroundable(myProject, GitBundle.message("rebase.progress.indicator.conflicts.collecting.title")) {
-        @Override
-        public void run(@NotNull ProgressIndicator indicator) {
-          resolveConflicts(currentRepository, notification);
-        }
+    return NotificationAction.create(GitBundle.message("action.NotificationAction.text.resolve"),
+                                     RESOLVE.id, (e, notification) -> {
+        myProgressManager.run(
+          new Task.Backgroundable(myProject, GitBundle.message("rebase.progress.indicator.conflicts.collecting.title")) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+              resolveConflicts(currentRepository, notification);
+            }
+          });
       });
-    });
   }
 
   private void resolveConflicts(@NotNull GitRepository currentRepository, @NotNull Notification notification) {

@@ -12,20 +12,21 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.util.asSafely
 import com.intellij.util.messages.Topic
+import org.jetbrains.plugins.notebooks.ui.isFoldingEnabledKey
 import org.jetbrains.plugins.notebooks.ui.visualization.notebookAppearance
-import org.jetbrains.plugins.notebooks.visualization.NotebookCellInlayController
-import org.jetbrains.plugins.notebooks.visualization.NotebookCellLines
-import org.jetbrains.plugins.notebooks.visualization.SwingClientProperty
+import org.jetbrains.plugins.notebooks.visualization.*
 import org.jetbrains.plugins.notebooks.visualization.outputs.NotebookOutputComponentFactory.Companion.gutterPainter
 import org.jetbrains.plugins.notebooks.visualization.outputs.impl.CollapsingComponent
 import org.jetbrains.plugins.notebooks.visualization.outputs.impl.InnerComponent
 import org.jetbrains.plugins.notebooks.visualization.outputs.impl.SurroundingComponent
 import org.jetbrains.plugins.notebooks.visualization.ui.addComponentInlay
 import org.jetbrains.plugins.notebooks.visualization.ui.yOffsetFromEditor
+import java.awt.Component
 import java.awt.Graphics
 import java.awt.Rectangle
 import java.awt.Toolkit
 import javax.swing.JComponent
+import javax.swing.SwingUtilities
 
 private const val DEFAULT_INLAY_HEIGHT = 200
 
@@ -35,6 +36,7 @@ interface OutputListener {
   fun outputCreated(editor: Editor, line: Int) {}
   fun outputSizeUpdated(editor: Editor, line: Int?) {}
 }
+
 val OUTPUT_LISTENER: Topic<OutputListener> = Topic.create("OutputAdded", OutputListener::class.java)
 
 val EditorCustomElementRenderer.notebookInlayOutputComponent: JComponent?
@@ -49,7 +51,7 @@ val EditorCustomElementRenderer.notebookCellOutputComponents: List<JComponent>?
 class NotebookOutputInlayController private constructor(
   override val factory: NotebookCellInlayController.Factory,
   private val editor: EditorImpl,
-  private val lines: IntRange,
+  private val intervalPointer: NotebookIntervalPointer,
 ) : NotebookCellInlayController {
 
   private companion object {
@@ -66,14 +68,9 @@ class NotebookOutputInlayController private constructor(
   private val innerComponent = InnerComponent(editor)
   private val outerComponent = SurroundingComponent.create(editor, innerComponent)
 
-  override val inlay: Inlay<*> =
-    editor.addComponentInlay(
-      outerComponent,
-      isRelatedToPrecedingText = true,
-      showAbove = false,
-      priority = editor.notebookAppearance.NOTEBOOK_OUTPUT_INLAY_PRIORITY,
-      offset = computeInlayOffset(editor.document, lines),
-    )
+  override var inlay: Inlay<*> = createInlay()
+
+  private var isInReplaceInlay = false
 
   init {
     innerComponent.maxHeight = if (!ApplicationManager.getApplication().isUnitTestMode) {
@@ -82,8 +79,19 @@ class NotebookOutputInlayController private constructor(
     else {
       DEFAULT_INLAY_HEIGHT
     }
+  }
 
-    Disposer.register(inlay) {
+  private fun createInlay() = editor.addComponentInlay(
+    outerComponent,
+    isRelatedToPrecedingText = true,
+    showAbove = false,
+    priority = editor.notebookAppearance.NOTEBOOK_OUTPUT_INLAY_PRIORITY,
+    offset = computeInlayOffset(editor.document, intervalPointer.get()?.lines ?: 0..0),
+  ).also {
+    Disposer.register(it) {
+      if (isInReplaceInlay)
+        return@register
+
       for (disposable in innerComponent.mainComponents) {
         disposable.disposeComponent()
       }
@@ -101,7 +109,9 @@ class NotebookOutputInlayController private constructor(
     for (collapsingComponent in innerComponent.components) {
       val mainComponent = (collapsingComponent as CollapsingComponent).mainComponent
 
-      collapsingComponent.paintGutter(editor, yOffset, g)
+      if (editor.getUserData(isFoldingEnabledKey) != true) {
+        collapsingComponent.paintGutter(editor, yOffset, g)
+      }
 
       mainComponent.gutterPainter?.let { painter ->
         mainComponent.yOffsetFromEditor(editor)?.let { yOffset ->
@@ -111,6 +121,18 @@ class NotebookOutputInlayController private constructor(
       }
     }
     g.clip = oldClip
+  }
+
+  // This method is called when editor is scrolled, and we are using it to update visibility-to-user of inlays
+  // to make it possible to have lazy initialization 'on first show'.
+  override fun onViewportChange() {
+    for (collapsingComponent in innerComponent.components) {
+      val component = (collapsingComponent as CollapsingComponent).mainComponent as? NotebookOutputInlayShowable ?: return
+      if (component !is Component) return
+
+      val componentRect = SwingUtilities.convertRectangle(component, component.bounds, editor.scrollPane.viewport.view)
+      component.shown = editor.scrollPane.viewport.viewRect.intersects(componentRect)
+    }
   }
 
   private fun rankCompatibility(outputDataKeys: List<NotebookOutputDataKey>): Int =
@@ -226,6 +248,7 @@ class NotebookOutputInlayController private constructor(
 
   private fun <K : NotebookOutputDataKey> createOutput(factory: NotebookOutputComponentFactory<*, K>,
                                                        outputDataKey: K): NotebookOutputComponentFactory.CreatedComponent<*>? {
+    val lines = intervalPointer.get()?.lines ?: return null
     ApplicationManager.getApplication().messageBus.syncPublisher(OUTPUT_LISTENER).beforeOutputCreated(editor, lines.last)
     val result = try {
       factory.createComponent(editor, outputDataKey)
@@ -240,6 +263,14 @@ class NotebookOutputInlayController private constructor(
     }
     ApplicationManager.getApplication().messageBus.syncPublisher(OUTPUT_LISTENER).outputCreated(editor, lines.last)
     return result
+  }
+
+  fun toggle() {
+    collapsingComponents.forEach { collapsingComponent ->
+      if (collapsingComponent.isWorthCollapsing) {
+        collapsingComponent.isSeen = !collapsingComponent.isSeen
+      }
+    }
   }
 
   class Factory : NotebookCellInlayController.Factory {
@@ -263,12 +294,13 @@ class NotebookOutputInlayController private constructor(
         ?: return null
 
       val expectedOffset = computeInlayOffset(editor.document, interval.lines)
-      val controller =
-        currentControllers
-          .filterIsInstance<NotebookOutputInlayController>()
-          .filter { it.inlay.offset == expectedOffset } // see DS-3445, may occur when external program changes file
-          .maxByOrNull { it.rankCompatibility(outputDataKeys) }
-        ?: NotebookOutputInlayController(this, editor, interval.lines)
+      val existsController = currentControllers
+        .filterIsInstance<NotebookOutputInlayController>()
+        .filter { it.inlay.offset == expectedOffset } // see DS-3445, may occur when external program changes file
+        .maxByOrNull { it.rankCompatibility(outputDataKeys) }
+
+      val intervalPointer = NotebookIntervalPointerFactory.get(editor).create(interval)
+      val controller = existsController ?: NotebookOutputInlayController(this, editor, intervalPointer)
       return controller.takeIf { it.updateData(outputDataKeys) }
     }
   }

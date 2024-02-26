@@ -1,6 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.dependency.impl;
 
+import com.intellij.util.SmartList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.dependency.*;
 import org.jetbrains.jps.dependency.diff.DiffCapable;
@@ -11,7 +12,6 @@ import org.jetbrains.jps.dependency.java.SubclassesIndex;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -83,7 +83,7 @@ public final class DependencyGraphImpl extends GraphImpl implements DependencyGr
 
       final Set<NodeSource> compiledSources = deltaSources instanceof Set? (Set<NodeSource>)deltaSources : collect(deltaSources, new HashSet<>());
       final Map<Usage, Predicate<Node<?, ?>>> affectedUsages = new HashMap<>();
-      final Set<BiPredicate<Node<?, ?>, Usage>> usageQueries = new HashSet<>();
+      final Set<Predicate<Node<?, ?>>> usageQueries = new HashSet<>();
       final Set<NodeSource> affectedSources = new HashSet<>();
 
       @Override
@@ -114,13 +114,13 @@ public final class DependencyGraphImpl extends GraphImpl implements DependencyGr
       @Override
       public void affectUsage(@NotNull Usage usage, @NotNull Predicate<Node<?, ?>> constraint) {
         Predicate<Node<?, ?>> prevConstraint = affectedUsages.put(usage, constraint);
-        if (prevConstraint != null) {
+        if (prevConstraint != null && constraint != ANY_CONSTRAINT) {
           affectedUsages.put(usage, prevConstraint == ANY_CONSTRAINT? ANY_CONSTRAINT : prevConstraint.or(constraint));
         }
       }
 
       @Override
-      public void affectUsage(Iterable<? extends ReferenceID> affectionScopeNodes, @NotNull BiPredicate<Node<?, ?>, Usage> usageQuery) {
+      public void affectUsage(Iterable<? extends ReferenceID> affectionScopeNodes, @NotNull Predicate<Node<?, ?>> usageQuery) {
         for (Usage u : map(affectionScopeNodes, AffectionScopeMetaUsage::new)) {
           affectUsage(u);
         }
@@ -133,10 +133,22 @@ public final class DependencyGraphImpl extends GraphImpl implements DependencyGr
       }
 
       boolean isNodeAffected(Node<?, ?> node) {
-        if (!affectedUsages.isEmpty() && find(filter(map(node.getUsages(), affectedUsages::get), Objects::nonNull), constr -> constr.test(node)) != null) {
-          return true;
+        if (!affectedUsages.isEmpty()) {
+          List<Predicate<Node<?, ?>>> deferred = new SmartList<>();
+          for (Predicate<Node<?, ?>> constr : filter(map(node.getUsages(), affectedUsages::get), Objects::nonNull)) {
+            if (constr == ANY_CONSTRAINT) {
+              return true;
+            }
+            deferred.add(constr);
+          }
+          for (Predicate<Node<?, ?>> constr : deferred) {
+            if (constr.test(node)) {
+              return true;
+            }
+          }
         }
-        if (!usageQueries.isEmpty() && find(node.getUsages(), u -> find(usageQueries, query -> query.test(node, u)) != null) != null) {
+
+        if (!usageQueries.isEmpty() && find(usageQueries, query -> query.test(node)) != null) {
           return true;
         }
         return false;

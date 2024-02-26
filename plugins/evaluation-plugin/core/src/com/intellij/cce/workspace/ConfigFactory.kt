@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.cce.workspace
 
 import com.google.gson.*
@@ -66,6 +66,9 @@ object ConfigFactory {
   private fun deserializeActionsGeneration(map: Map<String, Any>?, language: String, builder: Config.Builder) {
     if (map == null) return
     builder.evaluationRoots = map.getAs("evaluationRoots")
+    if (map.containsKey("ignoreFileNames")) {
+      builder.ignoreFileNames = map.getAs<List<String>>("ignoreFileNames").toMutableSet()
+    }
   }
 
   private fun deserializeActionsInterpretation(map: Map<String, Any>?, builder: Config.Builder) {
@@ -75,6 +78,9 @@ object ConfigFactory {
     }
     if (map.containsKey("sessionsLimit")) {
       builder.sessionsLimit = map.getAs<Double?>("sessionsLimit")?.toInt()
+    }
+    if (map.containsKey("filesLimit")) {
+      builder.filesLimit = map.getAs<Double?>("filesLimit")?.toInt()
     }
     builder.sessionProbability = map.getAs("sessionProbability")
     builder.sessionSeed = map.getAs<Double?>("sessionSeed")?.toLong()

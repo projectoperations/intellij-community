@@ -77,6 +77,17 @@
     <diff.DiffTool implementation="com.intellij.diff.tools.combined.CombinedUnifiedDiffTool"/>
     <diff.impl.DiffToolSubstitutor implementation="com.intellij.openapi.vcs.changes.actions.diff.lst.LocalChangeListDiffTool$Simple"/>
     <diff.impl.DiffToolSubstitutor implementation="com.intellij.openapi.vcs.changes.actions.diff.lst.LocalChangeListDiffTool$Unified"/>
+    <projectService serviceInterface="com.intellij.diff.tools.combined.search.CombinedDiffSearchProvider"
+                    serviceImplementation="com.intellij.openapi.diff.impl.combined.search.CombinedDiffSearchProviderImpl"/>
+
+    <!-- combined diff editor: Find -->
+    <editorActionHandler action="Find"
+                         implementationClass="com.intellij.openapi.diff.impl.combined.search.CombinedDiffSearchEditorActionHandler"
+                         id="combinedDiffFind" order="first"/>
+    <editorActionHandler action="FindNext" implementationClass="com.intellij.openapi.diff.impl.combined.search.SearchNextHandler"
+                         id="combinedDiffFindNext" order="first"/>
+    <editorActionHandler action="FindPrevious" implementationClass="com.intellij.openapi.diff.impl.combined.search.SearchPreviousHandler"
+                         id="combinedDiffFindPrevious" order="first"/>
 
     <fileEditorProvider implementation="com.intellij.openapi.vcs.changes.patch.tool.DiffPatchFileEditorProvider"
                         id="DiffPatchFileEditorProvider" fileType="PATCH" isDocumentRequired="true"/>
@@ -262,8 +273,10 @@
     <gutterMarkPreprocessor implementation="com.intellij.openapi.vcs.ex.ClientIdGutterIconMerge"/>
 
     <checkoutListener implementation="com.intellij.openapi.vcs.checkout.ProjectDirCheckoutListener"
+                      id="ProjectDirCheckoutListener"
                       order="first"/>
-    <checkoutListener implementation="com.intellij.openapi.vcs.checkout.ProjectCheckoutListener"/>
+    <checkoutListener implementation="com.intellij.openapi.vcs.checkout.ProjectCheckoutListener"
+                      id="ProjectCheckoutListener"/>
     <checkoutListener implementation="com.intellij.openapi.vcs.checkout.PlatformProjectCheckoutListener"
                       id="PlatformProjectCheckoutListener"
                       order="last"/>
@@ -344,6 +357,9 @@
     <backgroundPostStartupActivity implementation="com.intellij.codeInsight.ChangesToolwindowPassCache"/>
 
     <vcs.vcsSymlinkResolver implementation="com.intellij.vcs.DefaultVcsSymlinkResolver" order="last"/>
+
+    <history.activityPresentationProvider implementation="com.intellij.vcs.VcsActivityPresentationProvider"/>
+    <editorSearchAreaProvider implementation="com.intellij.openapi.diff.impl.SearchInDiffChangesProvider"/>
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains">

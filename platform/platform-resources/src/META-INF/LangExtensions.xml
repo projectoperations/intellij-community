@@ -230,6 +230,9 @@
     <applicationService serviceInterface="com.intellij.ui.IconDeferrer"
                         serviceImplementation="com.intellij.ui.IconDeferrerImpl"/>
 
+    <applicationService serviceInterface="com.intellij.ui.icons.PredefinedIconOverlayService"
+                        serviceImplementation="com.intellij.ui.PredefinedIconOverlayServiceImpl"/>
+
     <applicationService serviceInterface="com.intellij.psi.search.PredefinedSearchScopeProvider"
                         serviceImplementation="com.intellij.psi.search.PredefinedSearchScopeProviderImpl"/>
 
@@ -310,6 +313,8 @@
 
     <projectService serviceInterface="com.intellij.formatting.service.FormattingNotificationService"
                     serviceImplementation="com.intellij.formatting.service.FormattingUiNotificationService"/>
+    <projectService serviceInterface="com.intellij.formatting.service.DelayedImportsOptimizerService"
+                    serviceImplementation="com.intellij.formatting.service.DelayedImportsOptimizerServiceImpl"/>
 
     <projectService serviceInterface="com.intellij.codeInsight.daemon.impl.analysis.HighlightingLevelManager"
                     serviceImplementation="com.intellij.codeInsight.daemon.impl.analysis.HighlightingSettingsPerFile"
@@ -355,8 +360,8 @@
     <applicationService
       serviceImplementation="com.intellij.openapi.roots.ui.configuration.actions.ModuleDeleteProvider"/>
 
-    <moduleService serviceInterface="com.intellij.facet.FacetModificationTrackingService"
-                   serviceImplementation="com.intellij.facet.impl.FacetModificationTrackingServiceImpl"/>
+    <projectService serviceInterface="com.intellij.facet.FacetModificationTrackingService"
+                    serviceImplementation="com.intellij.facet.impl.FacetModificationTrackingServiceImpl"/>
 
     <applicationService serviceInterface="com.intellij.framework.detection.impl.FrameworkDetectorRegistry"
                         serviceImplementation="com.intellij.framework.detection.impl.FrameworkDetectorRegistryImpl"/>
@@ -401,6 +406,8 @@
     <projectService serviceInterface="com.intellij.codeInsight.highlighting.HighlightManager"
                     serviceImplementation="com.intellij.codeInsight.highlighting.HighlightManagerImpl"/>
 
+    <projectService serviceImplementation="com.intellij.codeInsight.daemon.impl.HighlightingMarkupGrave" />
+
     <applicationService serviceImplementation="com.intellij.codeInsight.codeVision.settings.CodeVisionSettings"/>
     <projectService serviceImplementation="com.intellij.codeInsight.codeVision.CodeVisionInitializer"/>
     <projectService serviceImplementation="com.intellij.codeInsight.codeVision.CodeVisionHost"/>
@@ -434,7 +441,7 @@
     <registryKey defaultValue="true" key="workspace.model.test.properties.bridge" restartRequired="true"
                  description="Provides bridges for TestModuleProperties via WorkspaceModel"/>
 
-    <moduleService serviceImplementation="com.intellij.openapi.module.impl.ModuleImpl$DeprecatedModuleOptionManager"/>
+    <moduleService serviceImplementation="com.intellij.openapi.module.impl.DeprecatedModuleOptionManager"/>
     <moduleService serviceInterface="com.intellij.openapi.components.PathMacroManager"
                    serviceImplementation="com.intellij.openapi.components.impl.ModulePathMacroManager"/>
 
@@ -907,6 +914,14 @@
       <bundleName>messages.LangBundle</bundleName>
       <categoryKey>intention.category.other</categoryKey>
     </intentionAction>
+    <intentionAction>
+      <!--Must be available both in data and template language-->
+      <language/>
+      <className>com.intellij.psi.templateLanguages.ChooseTemplateDataLanguageIntention</className>
+      <bundleName>messages.LangBundle</bundleName>
+      <categoryKey>template.data.language.chooser.intention.title</categoryKey>
+      <skipBeforeAfter>true</skipBeforeAfter>
+    </intentionAction>
 
     <intentionMenuContributor implementation="com.intellij.codeInsight.daemon.impl.DoNotShowInspectionIntentionMenuContributor"/>
     <intentionMenuContributor implementation="com.intellij.codeInsight.daemon.impl.GutterIntentionMenuContributor"/>
@@ -989,6 +1004,18 @@
 
     <liveTemplateContext id="OTHER" contextId="OTHER" implementation="com.intellij.codeInsight.template.EverywhereContextType"
                          order="last"/>
+
+    <!-- ConsoleViewImplActions -->
+    <editorActionHandler action="EditorEnter" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$EnterHandler"
+                         order="first" id="console.view.impl.enter"/>
+    <editorActionHandler action="EditorTab" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$TabHandler"
+                         order="first" id="console.view.impl.tab"/>
+    <editorActionHandler action="EditorBackSpace" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$BackspaceHandler"
+                         order="first" id="console.view.impl.backspace"/>
+    <editorActionHandler action="EditorDelete" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$DeleteHandler"
+                         order="first" id="console.view.impl.delete"/>
+    <editorActionHandler action="EditorPaste" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$PasteHandler"
+                         order="first" id="console.view.impl.paste"/>
 
     <dynamicContextProvider implementation="com.intellij.openapi.paths.GenericDynamicContextProvider"/>
 
@@ -1153,6 +1180,7 @@
 
     <statistics.counterUsagesCollector implementationClass="com.intellij.internal.statistic.service.fus.collectors.TooltipActionsLogger"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.refactoring.rename.RenameInplacePopupUsagesCollector"/>
+    <statistics.counterUsagesCollector implementationClass="com.intellij.refactoring.rename.RenameCodeVisionCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.refactoring.move.MoveUsagesCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.webcore.packaging.PackageManagementUsageCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.codeInsight.lookup.impl.LookupUsageTracker"/>
@@ -1163,6 +1191,7 @@
     <statistics.counterUsagesCollector implementationClass="com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkDownloaderLogger"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.codeInsight.daemon.impl.DaemonFusCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.codeInspection.ex.GlobalInspectionContextImpl$InspectionPerformanceCollector"/>
+    <statistics.counterUsagesCollector implementationClass="com.intellij.util.indexing.projectFilter.IndexableFilesFilterHealthCheckCollector"/>
 
     <statistics.projectUsagesCollector implementation="com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsagesCollector"/>
     <statistics.validation.customValidationRule
@@ -1372,6 +1401,12 @@
     <statusBarWidgetFactory id="VfsRefresh" implementation="com.intellij.openapi.wm.impl.status.VfsRefreshIndicatorWidgetFactory"
                             order="first"/>
     <statusBarWidgetFactory id="Position" implementation="com.intellij.openapi.wm.impl.status.PositionPanelWidgetFactory"/>
+    <statusBarWidgetFactory id="LanguageServiceStatusBarWidget"
+                            implementation="com.intellij.platform.lang.lsWidget.impl.LanguageServiceWidgetFactory"
+                            order="after Position, after AIAssistant, before LineSeparator"/>
+    <registryKey key="language.service.status.bar.widget"
+                 description="Show Language Services status bar widget"
+                 defaultValue="true"/>
     <statusBarWidgetFactory id="LineSeparator" implementation="com.intellij.openapi.wm.impl.status.LineSeparatorWidgetFactory"
                             order="after Position"/>
     <statusBarWidgetFactory id="Encoding" implementation="com.intellij.openapi.wm.impl.status.EncodingPanelWidgetFactory"
@@ -1556,7 +1591,9 @@
       implementationClass="com.intellij.codeInsight.inline.completion.BackSpaceInlineCompletionHandler"
       order="before hide-hints"/>
     <editorFactoryListener implementation="com.intellij.codeInsight.inline.completion.listeners.InlineCompletionEditorListener"/>
-    <actionPromoter implementation="com.intellij.codeInsight.inline.completion.InlineCompletionActionsPromoter" order="last"/>
+    <actionPromoter id="InlineCompletionPromoter"
+                    implementation="com.intellij.codeInsight.inline.completion.InlineCompletionActionsPromoter"
+                    order="last"/>
     <editorFactoryListener implementation="com.intellij.codeInsight.inline.completion.listeners.InlineCompletionNewLineEditorListener"/>
     <inline.completion.element.manipulator
       implementation="com.intellij.codeInsight.inline.completion.elements.InlineCompletionGrayTextElementManipulator"
@@ -1727,6 +1764,7 @@
                     serviceImplementation="com.intellij.codeInsight.daemon.impl.HighlightingPassesCacheImpl"/>
     <codeCompletionConfigurable provider="com.intellij.application.options.MLCodeCompletionConfigurableProvider"/>
     <optionController implementation="com.intellij.codeInsight.CodeInsightWorkspaceSettings$Provider"/>
+    <editorSearchAreaProvider implementation="com.intellij.find.impl.livePreview.SearchResults$EditorSelectionSearchAreaProvider"/>
   </extensions>
   <extensions defaultExtensionNs="com.intellij.platform.backend">
     <documentation.targetProvider

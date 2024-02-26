@@ -157,7 +157,7 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
                                                                   logUi.filterUi.textFilterComponent.focusedComponent)
   }
 
-  private val showBranches get() = logUi.properties.get(SHOW_GIT_BRANCHES_LOG_PROPERTY)
+  private val showBranches get() = logUi.properties[SHOW_GIT_BRANCHES_LOG_PROPERTY]
 
   init {
     initMainUi()
@@ -199,7 +199,7 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
         border = createBorder(JBColor.border(), SideBorder.RIGHT)
         addActionListener {
           if (logUi.properties.exists(SHOW_GIT_BRANCHES_LOG_PROPERTY)) {
-            logUi.properties.set(SHOW_GIT_BRANCHES_LOG_PROPERTY, true)
+            logUi.properties[SHOW_GIT_BRANCHES_LOG_PROPERTY] = true
           }
         }
       }
@@ -256,7 +256,7 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
 
   private fun createFocusFilterFieldAction(searchField: Component) {
     DumbAwareAction.create { e ->
-      val project = e.getRequiredData(CommonDataKeys.PROJECT)
+      val project = e.getData(CommonDataKeys.PROJECT) ?: return@create
       if (IdeFocusManager.getInstance(project).getFocusedDescendantFor(filteringTree.component) != null) {
         IdeFocusManager.getInstance(project).requestFocus(searchField, true)
       }

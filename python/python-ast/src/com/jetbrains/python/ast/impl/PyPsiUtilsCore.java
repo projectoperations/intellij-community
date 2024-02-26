@@ -12,10 +12,12 @@ import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
 import com.jetbrains.python.ast.*;
+import com.jetbrains.python.psi.PyElementType;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -47,6 +49,20 @@ public final class PyPsiUtilsCore {
   }
 
   /**
+   * Returns first child psi element with specified element type or {@code null} if no such element exists.
+   * Semantically it's the same as {@code getChildByFilter(element, TokenSet.create(type), 0)}.
+   *
+   * @param element tree parent node
+   * @param type    element type expected
+   * @return child element described
+   */
+  @Nullable
+  public static PsiElement getFirstChildOfType(@NotNull final PsiElement element, @NotNull PyElementType type) {
+    final ASTNode child = element.getNode().findChildByType(type);
+    return child != null ? child.getPsi() : null;
+  }
+
+  /**
    * Returns child element in the psi tree
    *
    * @param filter  Types of expected child
@@ -62,6 +78,81 @@ public final class PyPsiUtilsCore {
       return (0 <= number && number < children.length) ? children[number].getPsi() : null;
     }
     return null;
+  }
+
+  @ApiStatus.Internal
+  @NotNull
+  public static <T extends PyAstElement> List<T> collectChildren(@NotNull PyAstFile pyFile, @NotNull Class<T> elementType) {
+    final List<T> result = new ArrayList<>();
+    pyFile.acceptChildren(new TopLevelVisitor() {
+      @Override
+      protected void checkAddElement(PsiElement node) {
+        if (elementType.isInstance(node)) {
+          result.add(elementType.cast(node));
+        }
+      }
+
+      @Override
+      public void visitPyStatement(@NotNull PyAstStatement node) {
+        if (PyAstStatement.class.isAssignableFrom(elementType) && !(node instanceof PyAstCompoundStatement)) {
+          checkAddElement(node);
+          return;
+        }
+        super.visitPyStatement(node);
+      }
+    });
+    return result;
+  }
+
+  @ApiStatus.Internal
+  @NotNull
+  public static List<PsiElement> collectAllChildren(PsiElement e) {
+    final List<PsiElement> result = new ArrayList<>();
+    e.acceptChildren(new TopLevelVisitor() {
+      @Override
+      protected void checkAddElement(PsiElement node) {
+        result.add(node);
+      }
+    });
+    return result;
+  }
+
+  /**
+   * Returns the first non-whitespace sibling following the given element but within its line boundaries.
+   */
+  @Nullable
+  public static PsiElement getNextNonWhitespaceSiblingOnSameLine(@NotNull PsiElement element) {
+    PsiElement cur = element.getNextSibling();
+    while (cur != null) {
+      if (!(cur instanceof PsiWhiteSpace)) {
+        return cur;
+      }
+      else if (cur.textContains('\n')) {
+        break;
+      }
+      cur = cur.getNextSibling();
+    }
+    return null;
+  }
+
+  private static abstract class TopLevelVisitor extends PyAstRecursiveElementVisitor {
+    @Override
+    public void visitPyElement(final @NotNull PyAstElement node) {
+      super.visitPyElement(node);
+      checkAddElement(node);
+    }
+
+    @Override
+    public void visitPyClass(final @NotNull PyAstClass node) {
+      checkAddElement(node);  // do not recurse into functions
+    }
+
+    @Override
+    public void visitPyFunction(final @NotNull PyAstFunction node) {
+      checkAddElement(node);  // do not recurse into classes
+    }
+
+    protected abstract void checkAddElement(PsiElement node);
   }
 
   @Nullable

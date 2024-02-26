@@ -51,7 +51,11 @@ internal class SegmentedButtonImpl<T>(dialogPanelConfig: DialogPanelConfig, pare
   private var maxButtonsCount = SegmentedButton.DEFAULT_MAX_BUTTONS_COUNT
 
   private val comboBox = ComboBox<T>()
-  private val segmentedButtonComponent = SegmentedButtonComponent(this)
+  private val segmentedButtonComponent: SegmentedButtonComponent<T> = SegmentedButtonComponent {
+    presentations.getOrPut(it) {
+      createPresentation(it)
+    }
+  }
 
   private val cellValidation = CompoundCellValidation(
     CellValidationImpl(dialogPanelConfig, this, comboBox),
@@ -86,6 +90,7 @@ internal class SegmentedButtonImpl<T>(dialogPanelConfig: DialogPanelConfig, pare
 
   init {
     comboBox.isSwingPopup = false
+    comboBox.setMinLength(Int.MAX_VALUE)
     comboBox.renderer = object : SimpleListCellRenderer<T>(), SelectableItem {
 
       private var enabled = true
@@ -230,7 +235,7 @@ internal class SegmentedButtonImpl<T>(dialogPanelConfig: DialogPanelConfig, pare
       }
     }
     else {
-      segmentedButtonComponent.rebuild()
+      segmentedButtonComponent.items = items
       if (component === segmentedButtonComponent) {
         segmentedButtonComponent.revalidate()
       } else {

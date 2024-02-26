@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.jarRepository
 
 import com.intellij.openapi.application.ApplicationManager
@@ -16,8 +16,9 @@ import org.jetbrains.idea.maven.utils.library.RepositoryLibraryProperties
 import org.jetbrains.idea.maven.utils.library.RepositoryUtils
 import kotlin.coroutines.coroutineContext
 
+@Deprecated("Remove after the `workspace.model.custom.library.bridge` registry key removal")
 @Service(Service.Level.PROJECT)
-internal class LibrarySynchronizationQueue(private val project: Project, private val scope: CoroutineScope) {
+class LibrarySynchronizationQueue(private val project: Project, private val scope: CoroutineScope) {
   private val synchronizationRequests = Channel<Request>(capacity = Channel.UNLIMITED).apply {
     scope.coroutineContext.job.invokeOnCompletion {
       close()
@@ -84,7 +85,11 @@ internal class LibrarySynchronizationQueue(private val project: Project, private
       if (!coroutineContext.isActive) {
         return
       }
-      if (readAction { library.needToReload() }) {
+      val needToReload = readAction {
+        if (library.isDisposed) return@readAction false
+        library.needToReload()
+      }
+      if (needToReload) {
         RepositoryUtils.reloadDependencies(project, library)
       }
     }
@@ -93,8 +98,8 @@ internal class LibrarySynchronizationQueue(private val project: Project, private
   private sealed interface Request {
     class QueueSynchronization(val library: LibraryEx) : Request
     class RevokeSynchronization(val library: LibraryEx) : Request
-    object AllLibrariesSynchronization : Request
-    object Flush : Request
+    data object AllLibrariesSynchronization : Request
+    data object Flush : Request
   }
 
   companion object {

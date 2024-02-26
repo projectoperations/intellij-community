@@ -30,7 +30,7 @@ class ImageDescriptor(
 }
 
 @Internal
-fun createImageDescriptorList(path: String, isDark: Boolean, pixScale: Float, isStroke: Boolean = false): List<ImageDescriptor> {
+fun createImageDescriptorList(path: String, isDark: Boolean, isStroke: Boolean, pixScale: Float): List<ImageDescriptor> {
   // prefer retina images for HiDPI scale, because downscaling retina images provide a better result than up-scaling non-retina images
   if (!path.startsWith(FILE_SCHEME_PREFIX) && path.contains("://")) {
     val qI = path.lastIndexOf('?')
@@ -109,8 +109,9 @@ private fun addFileNameVariant(isRetina: Boolean,
 }
 
 @Internal
-fun getImageDescriptors(path: String, isDark: Boolean, scaleContext: ScaleContext): List<ImageDescriptor> {
+fun getImageDescriptors(path: String, isDark: Boolean, isStroke: Boolean, scaleContext: ScaleContext): List<ImageDescriptor> {
   return createImageDescriptorList(path = path,
                                    isDark = isDark,
+                                   isStroke = isStroke,
                                    pixScale = scaleContext.getScale(DerivedScaleType.PIX_SCALE).toFloat())
 }

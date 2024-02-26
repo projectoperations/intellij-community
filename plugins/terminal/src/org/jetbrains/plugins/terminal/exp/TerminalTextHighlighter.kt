@@ -7,32 +7,43 @@ import com.intellij.openapi.editor.highlighter.HighlighterClient
 import com.intellij.openapi.editor.highlighter.HighlighterIterator
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.psi.tree.IElementType
-import java.util.*
+import com.intellij.terminal.TerminalColorPalette
+import com.jediterm.terminal.TextStyle
+import org.jetbrains.plugins.terminal.exp.TerminalUiUtils.toTextAttributes
 
-data class HighlightingInfo(val startOffset: Int, val endOffset: Int, val textAttributes: TextAttributes)
+data class HighlightingInfo(val startOffset: Int, val endOffset: Int, val textAttributesProvider: TextAttributesProvider) {
+  init {
+    check(startOffset <= endOffset)
+  }
+  val length: Int
+    get() = endOffset - startOffset
+}
 
-class TerminalTextHighlighter private constructor(private val getHighlightings: () -> List<HighlightingInfo>) : EditorHighlighter {
+interface TextAttributesProvider {
+  fun getTextAttributes(): TextAttributes
+}
+
+object EmptyTextAttributesProvider : TextAttributesProvider {
+  override fun getTextAttributes(): TextAttributes = TextAttributes.ERASE_MARKER
+}
+
+class TextStyleAdapter(private val style: TextStyle,
+                       private val colorPalette: TerminalColorPalette): TextAttributesProvider {
+  override fun getTextAttributes(): TextAttributes = style.toTextAttributes(colorPalette)
+}
+
+class TerminalTextHighlighter private constructor(
+  private val allHighlightingsSnapshotProvider: () -> AllHighlightingsSnapshot
+) : EditorHighlighter {
   private var editor: HighlighterClient? = null
 
-  constructor(model: TerminalOutputModel) : this({ model.getAllHighlightings() })
-  constructor(highlightings: List<HighlightingInfo>) : this({ highlightings })
+  constructor(model: TerminalOutputModel) : this({ model.getHighlightingsSnapshot() })
+  internal constructor(allHighlightingsSnapshot: AllHighlightingsSnapshot) : this({ allHighlightingsSnapshot })
 
   override fun createIterator(startOffset: Int): HighlighterIterator {
-    val highlightings = getHighlightings()
-    val curInd = findOffsetIndex(highlightings, startOffset)
-    return MyHighlighterIterator(editor?.document, highlightings, curInd)
-  }
-
-  private fun findOffsetIndex(highlightings: List<HighlightingInfo>, offset: Int): Int {
-    if (offset < 0) return 0
-    val binarySearchInd = Collections.binarySearch(highlightings, HighlightingInfo(offset, offset, TextAttributes.ERASE_MARKER)) { a, b ->
-      a.startOffset.compareTo(b.startOffset)
-    }
-    return if (binarySearchInd >= 0) binarySearchInd
-    else {
-      val insertionIndex = -binarySearchInd - 1
-      (insertionIndex - 1).coerceAtLeast(0)
-    }
+    val highlightingsSnapshot = allHighlightingsSnapshotProvider()
+    val curInd = highlightingsSnapshot.findHighlightingIndex(startOffset)
+    return MyHighlighterIterator(editor?.document, highlightingsSnapshot, curInd)
   }
 
   override fun setEditor(editor: HighlighterClient) {
@@ -40,14 +51,16 @@ class TerminalTextHighlighter private constructor(private val getHighlightings: 
   }
 
   private class MyHighlighterIterator(private val document: Document?,
-                                      private val highlightings: List<HighlightingInfo>,
+                                      private val highlightings: AllHighlightingsSnapshot,
                                       private var curInd: Int) : HighlighterIterator {
 
     override fun getStart(): Int = highlightings[curInd].startOffset
 
     override fun getEnd(): Int = highlightings[curInd].endOffset
 
-    override fun getTextAttributes(): TextAttributes = highlightings[curInd].textAttributes
+    override fun getTextAttributes(): TextAttributes {
+      return highlightings[curInd].textAttributesProvider.getTextAttributes()
+    }
 
     override fun getTokenType(): IElementType? = null
 

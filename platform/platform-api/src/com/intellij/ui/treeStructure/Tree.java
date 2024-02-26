@@ -28,9 +28,7 @@ import sun.swing.SwingUtilities2;
 
 import javax.swing.Timer;
 import javax.swing.*;
-import javax.swing.event.TreeModelEvent;
-import javax.swing.event.TreeModelListener;
-import javax.swing.event.TreeSelectionEvent;
+import javax.swing.event.*;
 import javax.swing.plaf.TreeUI;
 import javax.swing.text.Position;
 import javax.swing.tree.*;
@@ -39,6 +37,7 @@ import java.awt.event.*;
 import java.awt.im.InputMethodRequests;
 import java.util.List;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Tree extends JTree implements ComponentWithEmptyText, ComponentWithExpandableItems<Integer>, Queryable,
                                            ComponentWithFileColors, TreePathBackgroundSupplier {
@@ -76,6 +75,9 @@ public class Tree extends JTree implements ComponentWithEmptyText, ComponentWith
   private final Timer autoScrollUnblockTimer = TimerUtil.createNamedTimer("TreeAutoscrollUnblock", 500, e -> unblockAutoScrollFromSource());
 
   private final @Nullable Tree.ExpandImpl expandImpl;
+  private final @NotNull AtomicInteger suspendedExpandAccessibilityAnnouncements = new AtomicInteger();
+  private transient boolean settingUI;
+  private transient TreeExpansionListener uiTreeExpansionListener;
 
   @ApiStatus.Internal
   public static boolean isBulkExpandCollapseSupported() {
@@ -145,7 +147,33 @@ public class Tree extends JTree implements ComponentWithEmptyText, ComponentWith
 
   @Override
   public void setUI(TreeUI ui) {
-    super.setUI(ui);
+    // We have to repeat what JTree does here, because uiTreeExpansionListener is private in JTree.
+    if (this.ui != ui) {
+      settingUI = true;
+      uiTreeExpansionListener = null;
+      try {
+        super.setUI(ui);
+      }
+      finally {
+        settingUI = false;
+      }
+    }
+  }
+
+  @Override
+  public void addTreeExpansionListener(TreeExpansionListener listener) {
+    if (settingUI) {
+      uiTreeExpansionListener = listener;
+    }
+    super.addTreeExpansionListener(listener);
+  }
+
+  @Override
+  public void removeTreeExpansionListener(TreeExpansionListener listener) {
+    super.removeTreeExpansionListener(listener);
+    if (uiTreeExpansionListener == listener) {
+      uiTreeExpansionListener = null;
+    }
   }
 
   @Override
@@ -468,6 +496,73 @@ public class Tree extends JTree implements ComponentWithEmptyText, ComponentWith
     return path != null && TreeUtil.getNodeDepth(this, path) <= 0;
   }
 
+  /**
+   * Suspends expand/collapse accessibility announcements.
+   * <p>
+   *   Normally, the tree fires "node expanded/collapsed" events for every expanded/collapsed node.
+   *   However, if a lot of nodes are collapsed/expanded at the same time, it may make more sense to stop
+   *   announcing every single operation and only announce the result in a more meaningful way once the operation
+   *   is over. This method, along with {@link #resumeExpandCollapseAccessibilityAnnouncements()} is indended for such cases.
+   * </p>
+   * <p>
+   *   To support recursive/reentrant expand/collapse operations, this method
+   *   may be called multiple times, but then {@link #resumeExpandCollapseAccessibilityAnnouncements()} must
+   *   be called exactly the same number of times, so both are best used in a try-finally block to avoid unpleasant
+   *   surprises.
+   * </p>
+   */
+  @ApiStatus.Internal
+  public void suspendExpandCollapseAccessibilityAnnouncements() {
+    suspendedExpandAccessibilityAnnouncements.incrementAndGet();
+  }
+
+  /**
+   * Resumes expand/collapse accessibility announcements.
+   * <p>
+   *   To support recursive/reentrant expand/collapse operation, this method
+   *   must be called exactly the same number of times as {@link #suspendExpandCollapseAccessibilityAnnouncements()},
+   *   so both are best used in a try-finally block to avoid unpleasant surprises.
+   * </p>
+   */
+  @ApiStatus.Internal
+  public void resumeExpandCollapseAccessibilityAnnouncements() {
+    suspendedExpandAccessibilityAnnouncements.decrementAndGet();
+  }
+
+  /**
+   * Fires a tree expanded event to the accessibility subsystem.
+   * <p>
+   *   Intended to be used together with {@link #suspendExpandCollapseAccessibilityAnnouncements()}
+   *   and {@link #resumeExpandCollapseAccessibilityAnnouncements()} for complex expand/collapse operations:
+   *   first announcements are suspended, then they're resumed and this method
+   *   (or {@link #fireAccessibleTreeCollapsed(TreePath)} is called for the paths that are actually supposed to be announced.
+   * </p>
+   * @param path the path that has been expanded
+   */
+  @ApiStatus.Internal
+  public void fireAccessibleTreeExpanded(@NotNull TreePath path) {
+    if (accessibleContext != null) {
+      ((AccessibleJTree)accessibleContext).treeExpanded(new TreeExpansionEvent(Tree.this, path));
+    }
+  }
+
+  /**
+   * Fires a tree collapsed event to the accessibility subsystem.
+   * <p>
+   *   Intended to be used together with {@link #suspendExpandCollapseAccessibilityAnnouncements()}
+   *   and {@link #resumeExpandCollapseAccessibilityAnnouncements()} for complex expand/collapse operations:
+   *   first announcements are suspended, then they're resumed and this method
+   *   (or {@link #fireAccessibleTreeExpanded(TreePath)} is called for the paths that are actually supposed to be announced.
+   * </p>
+   * @param path the path that has been collapsed
+   */
+  @ApiStatus.Internal
+  public void fireAccessibleTreeCollapsed(@NotNull TreePath path) {
+    if (accessibleContext != null) {
+      ((AccessibleJTree)accessibleContext).treeCollapsed(new TreeExpansionEvent(Tree.this, path));
+    }
+  }
+
   @Override
   protected void firePropertyChange(String propertyName, Object oldValue, Object newValue) {
     var model = treeModel;
@@ -478,6 +573,46 @@ public class Tree extends JTree implements ComponentWithEmptyText, ComponentWith
       }
     }
     super.firePropertyChange(propertyName, oldValue, newValue);
+  }
+
+  @Override
+  public void fireTreeExpanded(@NotNull TreePath path) {
+    Object[] listeners = listenerList.getListenerList();
+    TreeExpansionEvent e = new TreeExpansionEvent(this, path);
+    if (uiTreeExpansionListener != null) {
+      uiTreeExpansionListener.treeExpanded(e);
+    }
+    for (int i = listeners.length - 2; i >= 0; i -= 2) {
+      if (
+        listeners[i] == TreeExpansionListener.class &&
+        listeners[i + 1] != uiTreeExpansionListener &&
+        (listeners[i + 1] != accessibleContext || expandAccessibilityAnnouncementsAllowed())
+      ) {
+        ((TreeExpansionListener)listeners[i + 1]).treeExpanded(e);
+      }
+    }
+  }
+
+  @Override
+  public void fireTreeCollapsed(@NotNull TreePath path) {
+    Object[] listeners = listenerList.getListenerList();
+    TreeExpansionEvent e = new TreeExpansionEvent(this, path);
+    if (uiTreeExpansionListener != null) {
+      uiTreeExpansionListener.treeCollapsed(e);
+    }
+    for (int i = listeners.length - 2; i>=0; i-=2) {
+      if (
+        listeners[i] == TreeExpansionListener.class &&
+        listeners[i + 1] != uiTreeExpansionListener &&
+        (listeners[i + 1] != accessibleContext || expandAccessibilityAnnouncementsAllowed())
+      ) {
+        ((TreeExpansionListener)listeners[i + 1]).treeCollapsed(e);
+      }
+    }
+  }
+
+  private boolean expandAccessibilityAnnouncementsAllowed() {
+    return suspendedExpandAccessibilityAnnouncements.get() == 0;
   }
 
   public @NotNull Set<TreePath> getExpandedPaths() {
@@ -1096,7 +1231,10 @@ public class Tree extends JTree implements ComponentWithEmptyText, ComponentWith
       }
       var pathList = toList(paths);
       if (pathList.size() == 1) {
-        setExpandedState(pathList.get(0), true);
+        var path = pathList.get(0);
+        if (isNotLeaf(path)) {
+          setExpandedState(path, true);
+        }
         return;
       }
       pathList.sort(Comparator.comparing(TreePath::getPathCount));
@@ -1106,22 +1244,40 @@ public class Tree extends JTree implements ComponentWithEmptyText, ComponentWith
         ++count;
         shouldAllParentsBeExpanded(path, toExpand, toNotExpand);
       }
+      Set<TreePath> expandRoots = new LinkedHashSet<>();
       try {
         beginBulkOperation();
+        suspendExpandCollapseAccessibilityAnnouncements();
         for (TreePath path : toExpand) {
-          expandedState.put(path, Boolean.TRUE);
-          fireTreeExpanded(path);
+          if (isNotLeaf(path)) {
+            expandedState.put(path, Boolean.TRUE);
+            fireTreeExpanded(path);
+            var parent = path.getParentPath();
+            if (parent == null || !toExpand.contains(parent)) {
+              expandRoots.add(path);
+            }
+          }
         }
       }
       finally {
+        resumeExpandCollapseAccessibilityAnnouncements();
         endBulkOperation();
       }
       if (accessibleContext != null) {
+        // Only announce the topmost expanded nodes, to avoid spamming announcements.
+        for (TreePath expandRoot : expandRoots) {
+          fireAccessibleTreeExpanded(expandRoot);
+        }
         ((AccessibleJTree)accessibleContext).fireVisibleDataPropertyChange();
       }
       if (LOG.isDebugEnabled()) {
         LOG.debug("Expanded " + count + " paths, time: " + (System.currentTimeMillis() - started) + " ms");
       }
+    }
+
+    private boolean isNotLeaf(@NotNull TreePath path) {
+      var model = getModel();
+      return model != null && !model.isLeaf(path.getLastPathComponent());
     }
 
     private void beginBulkOperation() {
@@ -1146,45 +1302,70 @@ public class Tree extends JTree implements ComponentWithEmptyText, ComponentWith
       }
       var pathList = toList(paths);
       if (pathList.size() == 1) {
-        setExpandedState(pathList.get(0), false);
+        var path = pathList.get(0);
+        if (isNotLeaf(path)) {
+          setExpandedState(path, false);
+        }
+        else { // the path has become a leaf, remove it to save memory
+          expandedState.remove(path);
+        }
         return;
       }
       pathList.sort(Comparator.comparing(TreePath::getPathCount));
       Set<TreePath> toExpand = new LinkedHashSet<>();
       Set<TreePath> toNotExpand = new HashSet<>();
       Set<TreePath> toCollapse = new LinkedHashSet<>();
+      Set<TreePath> collapseRoots = new LinkedHashSet<>();
       for (TreePath path : pathList) {
         ++count;
         TreePath parent = path.getParentPath();
-        if (parent == null || toExpand.contains(parent) || toCollapse.contains(parent)) {
+        boolean parentWillBeCollapsed = toCollapse.contains(parent);
+        boolean pathWillBeCollapsed = false;
+        if (parent == null || toExpand.contains(parent) || parentWillBeCollapsed) {
           toCollapse.add(path);
+          pathWillBeCollapsed = true;
         }
         else if (!toNotExpand.contains(parent)) {
           if (shouldAllParentsBeExpanded(parent, toExpand, toNotExpand)) {
             toCollapse.add(path);
+            pathWillBeCollapsed = true;
           }
+        }
+        if (!parentWillBeCollapsed && pathWillBeCollapsed) {
+          collapseRoots.add(path);
         }
       }
       List<TreePath> toCollapseList = new ArrayList<>(toCollapse);
       Collections.reverse(toCollapseList);
       try {
         beginBulkOperation();
+        suspendExpandCollapseAccessibilityAnnouncements();
         for (TreePath path : toExpand) {
           expandedState.put(path, Boolean.TRUE);
           fireTreeExpanded(path);
         }
         for (TreePath path : toCollapseList) {
-          expandedState.put(path, Boolean.FALSE);
-          fireTreeCollapsed(path);
-          if (removeDescendantSelectedPaths(path, false) && !isPathSelected(path)) {
-            addSelectionPath(path);
+          if (isNotLeaf(path)) {
+            expandedState.put(path, Boolean.FALSE);
+            fireTreeCollapsed(path);
+            if (removeDescendantSelectedPaths(path, false) && !isPathSelected(path)) {
+              addSelectionPath(path);
+            }
+          }
+          else { // the path has become a leaf, remove it to save memory
+            expandedState.remove(path);
           }
         }
       }
       finally {
+        resumeExpandCollapseAccessibilityAnnouncements();
         endBulkOperation();
       }
       if (accessibleContext != null) {
+        // Only announce the topmost collapsed nodes, to avoid spamming announcements.
+        for (TreePath collapseRoot : collapseRoots) {
+          fireAccessibleTreeCollapsed(collapseRoot);
+        }
         ((AccessibleJTree)accessibleContext).fireVisibleDataPropertyChange();
       }
       if (LOG.isDebugEnabled()) {

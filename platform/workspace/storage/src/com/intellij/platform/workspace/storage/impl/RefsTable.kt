@@ -9,7 +9,7 @@ import com.intellij.platform.workspace.storage.impl.ConnectionId.ConnectionType
 import com.intellij.platform.workspace.storage.impl.containers.*
 import com.intellij.platform.workspace.storage.impl.references.*
 import com.intellij.platform.workspace.storage.instrumentation.Modification
-import com.intellij.util.containers.HashSetInterner
+import com.intellij.util.containers.Interner
 import it.unimi.dsi.fastutil.ints.IntArrayList
 import org.jetbrains.annotations.ApiStatus
 import java.util.function.BiConsumer
@@ -97,7 +97,7 @@ public class ConnectionId private constructor(
       return interner.intern(connectionId)
     }
 
-    private val interner = HashSetInterner<ConnectionId>()
+    private val interner = Interner.createInterner<ConnectionId>()
   }
 }
 
@@ -258,13 +258,13 @@ internal class MutableRefsTable(
     return listOf(Modification.Remove(parentId.id, childId.id))
   }
 
-  internal fun replaceChildrenOfParent(connectionId: ConnectionId, parentId: ParentEntityId, newChildrenIds: Collection<ChildEntityId>): List<Modification> {
-    if (newChildrenIds !is Set<ChildEntityId> && newChildrenIds.size != newChildrenIds.toSet().size) {
+  internal fun replaceChildrenOfParent(connectionId: ConnectionId, parentId: ParentEntityId, newChildrenIds: List<ChildEntityId>): List<Modification> {
+    if (newChildrenIds.size != newChildrenIds.toSet().size) {
       error("Children have duplicates: $newChildrenIds")
     }
     return when (connectionId.connectionType) {
       ConnectionType.ONE_TO_MANY -> {
-        replaceOneToManyChildrenOfParent(connectionId, parentId.id, newChildrenIds.toList())
+        replaceOneToManyChildrenOfParent(connectionId, parentId.id, newChildrenIds)
       }
       ConnectionType.ONE_TO_ONE -> {
         val copiedMap = getOneToOneMutableMap(connectionId)

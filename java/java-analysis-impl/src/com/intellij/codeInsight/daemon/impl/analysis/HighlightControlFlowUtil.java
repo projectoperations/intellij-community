@@ -16,11 +16,13 @@ import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.util.Predicates;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.augment.PsiAugmentProvider;
 import com.intellij.psi.controlFlow.*;
 import com.intellij.psi.impl.light.LightRecordCanonicalConstructor;
+import com.intellij.psi.impl.light.LightRecordField;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.FileTypeUtils;
@@ -349,8 +351,7 @@ public final class HighlightControlFlowUtil {
         if (inInnerClass(expression, ((PsiField)variable).getContainingClass())) return null;
         PsiCodeBlock block;
         PsiClass aClass;
-        if (parent instanceof PsiMethod) {
-          PsiMethod constructor = (PsiMethod)parent;
+        if (parent instanceof PsiMethod constructor) {
           if (!containingFile.getManager().areElementsEquivalent(constructor.getContainingClass(), ((PsiField)variable).getContainingClass())) return null;
           // static variables already initialized in class initializers
           if (variable.hasModifierProperty(PsiModifier.STATIC)) return null;
@@ -457,8 +458,10 @@ public final class HighlightControlFlowUtil {
       String description = JavaErrorBundle.message("variable.not.initialized", name);
       HighlightInfo.Builder builder =
         HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(expression).descriptionAndTooltip(description);
-      IntentionAction action1 = getQuickFixFactory().createAddVariableInitializerFix(variable);
-      builder.registerFix(action1, null, null, null, null);
+      if (!(variable instanceof LightRecordField)) {
+        IntentionAction action1 = getQuickFixFactory().createAddVariableInitializerFix(variable);
+        builder.registerFix(action1, null, null, null, null);
+      }
       if (variable instanceof PsiLocalVariable) {
         IntentionAction action = HighlightFixUtil.createInsertSwitchDefaultFix(variable, topBlock, expression);
         if (action != null) {
@@ -721,7 +724,7 @@ public final class HighlightControlFlowUtil {
           return null;
         }
       }
-      boolean isToBeEffectivelyFinal = languageLevel.isAtLeast(LanguageLevel.JDK_1_8);
+      boolean isToBeEffectivelyFinal = JavaFeature.EFFECTIVELY_FINAL.isSufficient(languageLevel);
       if (isToBeEffectivelyFinal && isEffectivelyFinal(variable, scope, context)) {
         return null;
       }
@@ -781,12 +784,9 @@ public final class HighlightControlFlowUtil {
     if (refLabel == null) return null;
     PsiExpression guardExpression = refLabel.getGuardExpression();
     if (!PsiTreeUtil.isAncestor(guardExpression, context, false)) return null;
-    LanguageLevel level = PsiUtil.getLanguageLevel(refLabel);
     //this assignment is covered by com.intellij.codeInsight.daemon.impl.analysis.HighlightUtil.checkOutsideDeclaredCantBeAssignmentInGuard
     boolean isAssignment = context instanceof PsiReferenceExpression psiExpression && PsiUtil.isAccessedForWriting(psiExpression);
-    if (((level == LanguageLevel.JDK_20_PREVIEW && refLabel != PsiTreeUtil.getParentOfType(variable, PsiSwitchLabelStatementBase.class)) ||
-         (level != LanguageLevel.JDK_20_PREVIEW && !isAssignment &&
-          !PsiTreeUtil.isAncestor(guardExpression, variable, false))) &&
+    if (!isAssignment && !PsiTreeUtil.isAncestor(guardExpression, variable, false) &&
         !isEffectivelyFinal(variable, refLabel, context)) {
       String message = JavaErrorBundle.message("guarded.pattern.variable.must.be.final");
       HighlightInfo.Builder builder = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(context).descriptionAndTooltip(message);

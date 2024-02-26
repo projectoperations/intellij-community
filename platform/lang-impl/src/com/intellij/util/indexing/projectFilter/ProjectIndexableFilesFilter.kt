@@ -2,23 +2,32 @@
 package com.intellij.util.indexing.projectFilter
 
 import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.ContentIterator
-import com.intellij.openapi.vfs.VirtualFileWithId
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS
-import com.intellij.util.indexing.FileBasedIndex
-import com.intellij.util.indexing.FileBasedIndexImpl
 import com.intellij.util.indexing.IdFilter
-import java.util.*
+import com.intellij.util.indexing.dependencies.ProjectIndexingDependenciesService
 import java.util.concurrent.atomic.AtomicReference
 
-internal abstract class ProjectIndexableFilesFilter : IdFilter() {
+internal abstract class ProjectIndexableFilesFilterFactory {
+  abstract fun create(project: Project): ProjectIndexableFilesFilter
+  fun createHealthCheck(project: Project, filter: ProjectIndexableFilesFilter): ProjectIndexableFilesFilterHealthCheck {
+    return ProjectIndexableFilesFilterHealthCheck(project, filter)
+  }
+}
+
+internal abstract class ProjectIndexableFilesFilter(protected val project: Project, val checkAllExpectedIndexableFilesDuringHealthcheck: Boolean) : IdFilter() {
   private val parallelUpdatesCounter = AtomicVersionedCounter()
+
+  override fun getFilteringScopeType(): FilterScopeType = FilterScopeType.PROJECT_AND_LIBRARIES
 
   abstract fun ensureFileIdPresent(fileId: Int, add: () -> Boolean): Boolean
   abstract fun removeFileId(fileId: Int)
   abstract fun resetFileIds()
+  open fun onProjectClosing(project: Project) = Unit
+
+  /**
+   * This is a temp method
+   */
+  open val wasDataLoadedFromDisk: Boolean = false
 
   protected fun <T> runUpdate(action: () -> T): T {
     parallelUpdatesCounter.update(1)
@@ -41,76 +50,7 @@ internal abstract class ProjectIndexableFilesFilter : IdFilter() {
     return res
   }
 
-  abstract fun runHealthCheck(project: Project): List<HealthCheckError>
-
-  protected fun runHealthCheck(project: Project, checkAllExpectedIndexableFiles: Boolean, fileStatuses: Sequence<Pair<Int, Boolean>>): List<HealthCheckError> {
-    val errors = mutableListOf<HealthCheckError>()
-
-    val shouldBeIndexable = getFilesThatShouldBeIndexable(project)
-
-    for ((fileId, indexable) in fileStatuses) {
-      ProgressManager.checkCanceled()
-      if (shouldBeIndexable[fileId]) {
-        if (!indexable) {
-          errors.add(MissingFileIdInFilterError(fileId, this))
-        }
-        if (checkAllExpectedIndexableFiles) shouldBeIndexable[fileId] = false
-      }
-      else if (indexable && !shouldBeIndexable[fileId]) {
-        errors.add(NotIndexableFileIsInFilterError(fileId, this))
-      }
-    }
-
-    if (checkAllExpectedIndexableFiles) {
-      for (fileId in 0 until shouldBeIndexable.size()) {
-        if (shouldBeIndexable[fileId]) {
-          errors.add(MissingFileIdInFilterError(fileId, this))
-        }
-      }
-    }
-
-    return errors
-  }
-
-  private fun getFilesThatShouldBeIndexable(project: Project): BitSet {
-    val index = FileBasedIndex.getInstance() as FileBasedIndexImpl
-    val filesThatShouldBeIndexable = BitSet()
-    index.iterateIndexableFiles(ContentIterator {
-      if (it is VirtualFileWithId) {
-        ProgressManager.checkCanceled()
-        filesThatShouldBeIndexable[it.id] = true
-      }
-      true
-    }, project, ProgressManager.getInstance().progressIndicator)
-    return filesThatShouldBeIndexable
-  }
-
-  interface HealthCheckError {
-    val presentableText: String
-    fun fix()
-  }
-
-  class MissingFileIdInFilterError(private val fileId: Int,
-                                   private val filter: ProjectIndexableFilesFilter): HealthCheckError {
-    override val presentableText: String
-      get() = "file name=${PersistentFS.getInstance().findFileById(fileId)?.name} id=$fileId NOT found in filter"
-
-    override fun fix() {
-      filter.ensureFileIdPresent(fileId) { true }
-    }
-  }
-
-  class NotIndexableFileIsInFilterError(private val fileId: Int,
-                                        private val filter: ProjectIndexableFilesFilter) : HealthCheckError {
-    override val presentableText: String
-      get() = "file name=${
-        PersistentFS.getInstance().findFileById(fileId)?.name
-      } id=$fileId is found in filter even though it's NOT indexable"
-
-    override fun fix() {
-      filter.removeFileId(fileId)
-    }
-  }
+  abstract fun getFileStatuses(): Sequence<Pair<Int, Boolean>>
 }
 
 private class AtomicVersionedCounter {
@@ -124,4 +64,12 @@ private class AtomicVersionedCounter {
   }
 
   fun getCounterAndVersion(): Pair<Int, Int> = counterAndVersion.get()
+}
+
+internal fun <T> runIfScanningScanningIsCompleted(project: Project, action: () -> T): T {
+  val service = project.getService(ProjectIndexingDependenciesService::class.java)
+  if (!service.isScanningCompleted()) throw ProcessCanceledException()
+  val res = action()
+  if (!service.isScanningCompleted()) throw ProcessCanceledException()
+  return res
 }

@@ -57,8 +57,9 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.streams.asSequence
 
-internal val LOG: Logger
-  get() = logger<ComponentManagerImpl>()
+internal val LOG by lazy(LazyThreadSafetyMode.PUBLICATION) {
+  logger<ComponentManagerImpl>()
+}
 
 private val methodLookup = MethodHandles.lookup()
 
@@ -155,9 +156,9 @@ abstract class ComponentManagerImpl(
   }
 
   private val scopeHolder = ScopeHolder(
-    parentScope,
-    additionalContext + this.asContextElement(),
-    containerName = debugString(true),
+    parentScope = parentScope,
+    additionalContext = additionalContext + this.asContextElement(),
+    containerName = debugString(short = true),
   )
 
   open val supportedSignaturesOfLightServiceConstructors: List<MethodType> = java.util.List.of(
@@ -179,7 +180,8 @@ abstract class ComponentManagerImpl(
     ordered = false,
   )
 
-  val serviceContainerInternal: InstanceContainerInternal get() = serviceContainer
+  val serviceContainerInternal: InstanceContainerInternal
+    get() = serviceContainer
 
   private val componentContainer = InstanceContainerImpl(
     scopeHolder = scopeHolder,
@@ -232,7 +234,6 @@ abstract class ComponentManagerImpl(
   @JvmField
   internal var componentContainerIsReadonly: String? = null
 
-  @Suppress("UsagesOfObsoleteApi")
   override fun getCoroutineScope(): CoroutineScope {
     if (parent?.parent == null) {
       return scopeHolder.containerScope
@@ -638,7 +639,7 @@ abstract class ComponentManagerImpl(
     }
   }
 
-  internal fun initializeService(component: Any, serviceDescriptor: ServiceDescriptor?, pluginId: PluginId?) {
+  internal fun initializeService(component: Any, serviceDescriptor: ServiceDescriptor?, pluginId: PluginId) {
     @Suppress("DEPRECATION")
     if ((serviceDescriptor == null || !isPreInitialized(component)) &&
         (component is PersistentStateComponent<*> || component is com.intellij.openapi.util.JDOMExternalizable)) {
@@ -728,7 +729,7 @@ abstract class ComponentManagerImpl(
           holder.tryGetInstance() as T?
         }
         catch (ce: CancellationException) {
-          // container scope might be cancelled => holder might hold CE
+          // container scope might be canceled => holder might hold CE
           return null
         }
       }
@@ -786,7 +787,7 @@ abstract class ComponentManagerImpl(
           return@setMessageDeliveryListener
         }
 
-        logMessageBusDelivery(topic, messageName, handler, duration)
+        logMessageBusDelivery(topic = topic, messageName = messageName, handler = handler, duration = duration)
       }
     }
 
@@ -813,14 +814,14 @@ abstract class ComponentManagerImpl(
     val descriptor = ServiceDescriptor(serviceInterface.name, implementation.name, null, null, false,
                                        null, PreloadMode.FALSE, null, null)
     serviceContainer.registerInitializer(
-      serviceInterface,
-      ServiceClassInstanceInitializer(
+      keyClass = serviceInterface,
+      initializer = ServiceClassInstanceInitializer(
         componentManager = this,
         instanceClass = implementation,
         pluginId = pluginDescriptor.pluginId,
         serviceDescriptor = descriptor,
       ),
-      override
+      override = override
     )
   }
 
@@ -837,10 +838,7 @@ abstract class ComponentManagerImpl(
   @TestOnly
   fun <T : Any> replaceServiceInstance(serviceInterface: Class<T>, instance: T, parentDisposable: Disposable) {
     // TODO this loses info that the instance is a dynamic service
-    val unregisterHandle = serviceContainer.replaceInstance(
-      keyClass = serviceInterface,
-      instance,
-    )
+    val unregisterHandle = serviceContainer.replaceInstance(keyClass = serviceInterface, instance = instance)
     Disposer.register(parentDisposable) {
       try {
         @Suppress("DEPRECATION")
@@ -857,7 +855,7 @@ abstract class ComponentManagerImpl(
           // => but [parentDisposable] is [UsefulTestCase.getTestRootDisposable] which might be disposed after the fixture.
           //
           // This indicates a problem with scoping.
-          // The [parentDisposable] should be disposed on the same level as the code which replaces the service, i.e.
+          // The [parentDisposable] should be disposed on the same level as the code which replaces the service, i.e.,
           // if the service is registered in a [setUp] method before a test,
           // then the [parentDisposable] should be disposed in [tearDown] right after the test.
           // In other words, it's generally incorrect to use [UsefulTestCase.getTestRootDisposable]
@@ -1208,21 +1206,28 @@ abstract class ComponentManagerImpl(
   final override fun getDisposed(): Condition<*> = Condition<Any?> { isDisposed }
 
   fun instances(createIfNeeded: Boolean = false, filter: ((implClass: Class<*>) -> Boolean)? = null): Sequence<Any> {
-    return (componentContainer.instanceHolders() + serviceContainer.instanceHolders()).asSequence().mapNotNull { holder ->
-      runCatching {
+    return (componentContainer.instanceHolders().asSequence() + serviceContainer.instanceHolders()).mapNotNull { holder ->
+      try {
+        val instanceClass = holder.instanceClass()
         if (filter == null) {
-          holder.getInstanceBlocking(holder.instanceClass().name, keyClass = null, createIfNeeded)
+          holder.getInstanceBlocking(debugString = instanceClass.name, keyClass = null, createIfNeeded = createIfNeeded)
         }
         else {
-          val instanceClass = holder.instanceClass()
           if (filter(instanceClass)) {
-            holder.getInstanceBlocking(instanceClass.name, keyClass = null, createIfNeeded)
+            holder.getInstanceBlocking(debugString = instanceClass.name, keyClass = null, createIfNeeded = createIfNeeded)
           }
           else {
             null
           }
         }
-      }.getOrNull()
+      }
+      catch (e: CancellationException) {
+        throw e
+      }
+      catch (e: Throwable) {
+        LOG.warn(e)
+        null
+      }
     }
   }
 
@@ -1502,19 +1507,21 @@ private val servicePreloadingAllowListForNonCorePlugin = java.util.Set.of(
 )
 
 private fun InstanceHolder.getInstanceBlocking(debugString: String, keyClass: Class<*>?, createIfNeeded: Boolean): Any? {
-  return if (createIfNeeded) {
-    getOrCreateInstanceBlocking(debugString, keyClass)
+  if (createIfNeeded) {
+    return getOrCreateInstanceBlocking(debugString = debugString, keyClass = keyClass)
   }
-  else try {
-    tryGetInstance()
-  }
-  catch (ce: CancellationException) {
-    null
+  else {
+    try {
+      return tryGetInstance()
+    }
+    catch (ce: CancellationException) {
+      return null
+    }
   }
 }
 
 internal fun InstanceHolder.getOrCreateInstanceBlocking(debugString: String, keyClass: Class<*>?): Any {
-  // container scope might be cancelled
+  // container scope might be canceled
   // => holder is initialized with CE
   // => caller should get PCE
   rethrowCEasPCE {
@@ -1523,25 +1530,37 @@ internal fun InstanceHolder.getOrCreateInstanceBlocking(debugString: String, key
       return instance
     }
   }
-  if (!Cancellation.isInNonCancelableSection()) {
-    val className = isInsideClassInitializer()
-    if (className != null) {
-      // TODO make this an error
-      LOG.warn("${className} initializer requests ${debugString} instance")
-      Cancellation.withNonCancelableSection().use {
-        return getOrCreateInstanceBlocking(debugString, keyClass)
-      }
+
+  if (!Cancellation.isInNonCancelableSection() && !checkOutsideClassInitializer(debugString)) {
+    Cancellation.withNonCancelableSection().use {
+      return getOrCreateInstanceBlocking(debugString = debugString, keyClass = keyClass)
     }
   }
+
   try {
     return runBlockingInitialization {
       getInstanceInCallerContext(keyClass)
     }
   }
-  catch (pce: ProcessCanceledException) {
-    throwAlreadyDisposedIfNotUnderIndicatorOrJob(cause = pce)
-    throw pce
+  catch (e: ProcessCanceledException) {
+    throwAlreadyDisposedIfNotUnderIndicatorOrJob(cause = e)
+    throw e
   }
+}
+
+/**
+ * @return `true` if called outside a class initializer, `false` if called inside a class initializer
+ */
+private fun checkOutsideClassInitializer(debugString: String): Boolean {
+  val className = isInsideClassInitializer()
+                  ?: return true
+  // TODO make this an error
+  LOG.warn(
+    "$className <clinit> requests $debugString instance. " +
+    "Class initialization must not depend on services. " +
+    "Consider using instance of the service on-demand instead.",
+  )
+  return false
 }
 
 private fun isInsideClassInitializer(): String? = StackWalker.getInstance().walk { frames: Stream<StackFrame> ->

@@ -49,14 +49,12 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.impl.CoreProgressManager;
-import com.intellij.openapi.project.DumbService;
-import com.intellij.openapi.project.DumbServiceImpl;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.project.*;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.RefreshQueueImpl;
+import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.packageDependencies.DependencyValidationManager;
 import com.intellij.psi.PsiCompiledElement;
 import com.intellij.psi.PsiCompiledFile;
@@ -530,13 +528,16 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       }
       catch (Throwable e) {
         Throwable unwrapped = ExceptionUtilRt.unwrapException(e, ExecutionException.class);
+        LOG.debug("doRunPasses() thrown " + ExceptionUtil.getThrowableText(unwrapped));
         if (progress.isCanceled() && progress.isRunning()) {
           unwrapped.addSuppressed(new RuntimeException("Daemon progress was canceled unexpectedly: " + progress));
         }
         ExceptionUtil.rethrow(unwrapped);
       }
       finally {
-        progress.cancel();
+        if (!progress.isCanceled()) {
+          ((DaemonProgressIndicator)progress).cancel("Cancel after highlighting. threads:\n"+ThreadDumper.dumpThreadsToString());
+        }
         waitForTermination();
       }
       return null;
@@ -1071,13 +1072,19 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
         if (fileEditor instanceof TextEditor textEditor && !AsyncEditorLoader.Companion.isEditorLoaded(textEditor.getEditor())) {
           // make sure the highlighting is restarted when the editor is finally loaded, because otherwise some crazy things happen,
           // for instance `FileEditor.getBackgroundHighlighter()` returning null, essentially stopping highlighting silently
-          AsyncEditorLoader.Companion.performWhenLoaded(((TextEditor)fileEditor).getEditor(), updateRunnable);
+          if (PassExecutorService.LOG.isDebugEnabled()) {
+            PassExecutorService.log(null, null, "runUpdate for ", fileEditor, " rescheduled because the editor was not loaded yet");
+          }
+          AsyncEditorLoader.Companion.performWhenLoaded(textEditor.getEditor(), () ->
+            dca.stopProcess(true, "restart after editor is loaded"));
         }
-        VirtualFile virtualFile = getVirtualFile(fileEditor);
-        PsiFile psiFile = virtualFile == null ? null : findFileToHighlight(dca.myProject, virtualFile);
-        submitted |= psiFile != null && dca.queuePassesCreation(fileEditor, virtualFile, psiFile, ArrayUtil.EMPTY_INT_ARRAY) != null;
-        if (PassExecutorService.LOG.isDebugEnabled()) {
-          PassExecutorService.log(null, null, "submitting psiFile:", psiFile+" ("+virtualFile+"); submitted=", submitted);
+        else {
+          VirtualFile virtualFile = getVirtualFile(fileEditor);
+          PsiFile psiFile = virtualFile == null ? null : findFileToHighlight(dca.myProject, virtualFile);
+          submitted |= psiFile != null && dca.queuePassesCreation(fileEditor, virtualFile, psiFile, ArrayUtil.EMPTY_INT_ARRAY) != null;
+          if (PassExecutorService.LOG.isDebugEnabled()) {
+            PassExecutorService.log(null, null, "submit psiFile:", psiFile + " (" + virtualFile + "); submitted=", submitted);
+          }
         }
       }
       if (!submitted) {
@@ -1346,8 +1353,31 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     }
     // optimization: in the case of two or more projects, ignore projects which are not active at the moment, e.g., inside minimized windows
     // see IDEA-314543 Don't run LineMarkersPass on non-active(opened) projects
-    Window window = SwingUtilities.getWindowAncestor(editor.getComponent());
-    return window == null || window.isActive();
+    // Can't just check the editor's window, though, because the active window might be something else, e.g. a detached Project View,
+    // see IDEA-343992.
+    Window editorWindow = SwingUtilities.getWindowAncestor(editor.getComponent());
+    var editorProject = getProject(editorWindow);
+    for (Window window : Window.getWindows()) {
+      if (!window.isActive()) {
+        continue;
+      }
+      if (window == editorWindow || getProject(window) == editorProject) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static @Nullable Project getProject(@Nullable Window window) {
+    // A window may be not an IdeFrame itself, but owned by an IdeFrame, e.g. FloatingDecorator.
+    var maybeIdeFrame = window;
+    while (maybeIdeFrame != null) {
+      if (maybeIdeFrame instanceof IdeFrame ideFrame) {
+        return ideFrame.getProject();
+      }
+      maybeIdeFrame = maybeIdeFrame.getOwner();
+    }
+    return null;
   }
 
   /**

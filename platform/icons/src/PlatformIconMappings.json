@@ -33,6 +33,7 @@
       "profileRed.svg": "actions/profileRed.svg",
       "projectDirectory.svg": "actions/projectDirectory.svg",
       "runAll.svg": "actions/runAll.svg",
+      "shortcutFilter.svg": "actions/shortcutFilter.svg",
       "reformatCode.svg": "actions/reformatCode.svg",
       "report.svg": "actions/report.svg",
       "rerunAutomatically.svg": "actions/rerunAutomatically.svg",
@@ -128,6 +129,7 @@
       "addToWatch.svg": "debugger/addToWatch.svg",
       "dbPrimitive.svg": "debugger/db_primitive.svg",
       "frame.svg": "debugger/frame.svg",
+      "selfReference.svg": "debugger/selfreference.svg",
       "threads.svg": "debugger/threads.svg",
       "value.svg": "debugger/value.svg",
       "watch.svg": "debugger/watch.svg"
@@ -524,6 +526,10 @@
       "webModuleGroup.svg": "javaee/webModuleGroup.svg",
       "webService.svg": "javaee/WebService.svg",
       "webServiceClient.svg": "javaee/WebServiceClient.svg"
+    },
+    "language": {
+      "php.svg": "language/php.svg",
+      "scala.svg": "language/scala.svg"
     },
     "nodes": {
       "abstractException.svg": "nodes/abstractException.svg",

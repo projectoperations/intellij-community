@@ -219,6 +219,22 @@
       "padding": "1,9,1,6"
     },
 
+    "Code": {
+      "Inline": {
+        "backgroundColor": "Grey10",
+        "backgroundOpacity": 15
+      },
+      "Block": {
+        "backgroundOpacity": 100,
+        "borderColor":"Grey3",
+        "EditorPane": {
+          "backgroundColor": "Grey5",
+          "backgroundOpacity": 20,
+          "borderColor": "Grey3"
+        }
+      }
+    },
+
     "ComboPopup.border": "1,1,1,1,#43454A",
 
     "ContextHelp": {
@@ -257,7 +273,7 @@
     },
 
     "Component": {
-      "arc": "8",
+      "arc": 8,
       "arrowAreaWidth": "28",
       "borderColor": "Grey5",
       "focusedBorderColor": "Grey2",
@@ -515,11 +531,6 @@
       "iconTextGap": 4
     },
 
-    "SearchField": {
-      "errorForeground": "Red7",
-      "errorBackground": "Red3"
-    },
-
     "SearchEverywhere": {
       "List.settingsBackground": "Grey8",
       "Tab": {
@@ -530,6 +541,15 @@
         "foreground": "Grey8",
         "background": "Grey3"
       }
+    },
+
+    "SearchField": {
+      "errorForeground": "Red7",
+      "errorBackground": "Red3"
+    },
+
+    "SearchFieldWithExtension": {
+      "border": "com.intellij.ui.components.DarculaSearchFieldWithExtensionBorder"
     },
 
     "SearchMatch": {
@@ -1012,6 +1032,17 @@
           }
         }
       }
+    },
+
+    "ParameterInfo": {
+      "background": "Grey3",
+      "currentOverloadBackground": "Blue3",
+      "borderColor": "Grey6",
+      "foreground": "Grey11",
+      "currentParameterForeground": "Grey12",
+      "disabledForeground": "Grey7",
+      "infoForeground": "Grey11",
+      "lineSeparatorColor": "Grey3"
     },
 
     "DataSummary.Chart.barColor": "Blue6",

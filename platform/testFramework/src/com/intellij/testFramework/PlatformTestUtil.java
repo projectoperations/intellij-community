@@ -25,6 +25,7 @@ import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.impl.FileTemplateManagerImpl;
+import com.intellij.ide.projectView.impl.nodes.ExternalLibrariesNode;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
 import com.intellij.model.psi.PsiSymbolReferenceService;
@@ -63,6 +64,7 @@ import com.intellij.psi.impl.source.resolve.reference.impl.PsiMultiReference;
 import com.intellij.rt.execution.junit.FileComparisonFailure;
 import com.intellij.testFramework.common.TestApplicationKt;
 import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy;
+import com.intellij.ui.ClientProperty;
 import com.intellij.ui.tree.AsyncTreeModel;
 import com.intellij.util.*;
 import com.intellij.util.concurrency.AppExecutorUtil;
@@ -274,7 +276,16 @@ public final class PlatformTestUtil {
   }
 
   public static void expandAll(@NotNull JTree tree) {
-    waitForPromise(TreeUtil.promiseExpandAll(tree));
+    expandAll(tree, path -> !(TreeUtil.getLastUserObject(path) instanceof ExternalLibrariesNode));
+  }
+
+  public static void expandAll(@NotNull JTree tree, @NotNull Predicate<@NotNull TreePath> predicate) {
+    // Ignore AbstractTreeNode.isIncludedInExpandAll because some tests need to expand
+    // more than that, but not the External Libraries node which is huge and only wastes time.
+    waitForPromise(TreeUtil.promiseExpand(
+      tree,
+      Integer.MAX_VALUE,
+      predicate));
   }
 
   private static long getMillisSince(long startTimeMillis) {
@@ -313,6 +324,7 @@ public final class PlatformTestUtil {
 
   private static boolean isBusy(@NotNull JTree tree, TreeModel model) {
     UIUtil.dispatchAllInvocationEvents();
+    if (ClientProperty.isTrue(tree, TreeUtil.TREE_IS_BUSY)) return true;
     if (model instanceof AsyncTreeModel async) {
       if (async.isProcessing()) return true;
       UIUtil.dispatchAllInvocationEvents();
@@ -590,7 +602,8 @@ public final class PlatformTestUtil {
     assertNotNull(action);
     @SuppressWarnings("deprecation") DataContext context = DataManager.getInstance().getDataContext();
     AnActionEvent event = AnActionEvent.createFromAnAction(action, null, "", context);
-    assertTrue(ActionUtil.lastUpdateAndCheckDumb(action, event, false));
+    PerformWithDocumentsCommitted.commitDocumentsIfNeeded(action, event);
+    ActionUtil.performDumbAwareUpdate(action, event, false);
     assertTrue(event.getPresentation().isEnabled());
     ActionUtil.performActionDumbAwareWithCallbacks(action, event);
   }
@@ -626,31 +639,34 @@ public final class PlatformTestUtil {
   }
 
   /**
-   * An example: {@code startPerformanceTest("calculating pi",100, testRunnable).assertTiming();}
+   * Init a performance test.<br/>
+   * E.g: {@code newPerformanceTest("calculating pi", () -> { CODE_TO_BE_MEASURED_IS_HERE }).start();}
+   * @see PerformanceTestInfo#start()
    */
   // to warn about not calling .assertTiming() in the end
   @Contract(pure = true)
-  public static @NotNull PerformanceTestInfo startPerformanceTest(@NonNls @NotNull String launchName, int expectedMs, @NotNull ThrowableRunnable<?> test) {
-    return startPerformanceTestWithVariableInputSize(launchName, expectedMs, 1, () -> {
+  public static @NotNull PerformanceTestInfo newPerformanceTest(@NonNls @NotNull String launchName, @NotNull ThrowableRunnable<?> test) {
+    return newPerformanceTestWithVariableInputSize(launchName, 1, () -> {
       test.run();
       return 1;
     });
   }
 
   /**
-   * Starts a performance test which input (and therefore expected time to execute) may change,
-   * e.g. it depends on the number of files in the project.
+   * Init a performance test which input may change.<br/>
+   * E.g: it depends on the number of files in the project.
    * <p>
-   * {@code expectedInputSize} parameter specifies size of the input for which the test is expected to finish in {@code expectedMs} milliseconds,
-   * {@code test} returns actual size of the input. It is supposed that the execution time is lineally proportionally dependent on the input size.
+   * @param expectedInputSize specifies size of the input,
+   * @param test returns actual size of the input. It is supposed that the execution time is lineally proportionally dependent on the input size.
+   *
+   * @see PerformanceTestInfo#start()
    * </p>
    */
   @Contract(pure = true)
-  public static @NotNull PerformanceTestInfo startPerformanceTestWithVariableInputSize(@NonNls @NotNull String launchName,
-                                                                                       int expectedMs,
-                                                                                       int expectedInputSize,
-                                                                                       @NotNull ThrowableComputable<Integer, ?> test) {
-    return new PerformanceTestInfo(test, expectedMs, expectedInputSize, launchName);
+  public static @NotNull PerformanceTestInfo newPerformanceTestWithVariableInputSize(@NonNls @NotNull String launchName,
+                                                                                     int expectedInputSize,
+                                                                                     @NotNull ThrowableComputable<Integer, ?> test) {
+    return new PerformanceTestInfo(test, expectedInputSize, launchName);
   }
 
   public static void assertPathsEqual(@Nullable String expected, @Nullable String actual) {
@@ -1250,6 +1266,7 @@ public final class PlatformTestUtil {
   public static @NotNull Project loadAndOpenProject(@NotNull Path path, @NotNull Disposable parent) {
     Project project = Objects.requireNonNull(ProjectManagerEx.getInstanceEx().openProject(path, new OpenProjectTaskBuilder().build()));
     Disposer.register(parent, () -> forceCloseProjectWithoutSaving(project));
+    IndexingTestUtil.waitUntilIndexesAreReady(project);
     return project;
   }
 

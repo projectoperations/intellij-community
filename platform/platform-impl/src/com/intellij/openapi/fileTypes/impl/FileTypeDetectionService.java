@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileTypes.impl;
 
 import com.intellij.ide.scratch.ScratchUtil;
@@ -45,7 +45,6 @@ import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
 import java.util.*;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -79,7 +78,7 @@ final class FileTypeDetectionService implements Disposable {
   private final AtomicLong elapsedAutoDetect = new AtomicLong();
 
   private boolean RE_DETECT_ASYNC = !ApplicationManager.getApplication().isUnitTestMode();
-  private final Executor reDetectExecutor;
+  private final CoroutineDispatcherBackedExecutor reDetectExecutor;
   private final HashSetQueue<VirtualFile> filesToRedetect = new HashSetQueue<>();
 
   private volatile FileAttribute autoDetectedAttribute;
@@ -315,6 +314,7 @@ final class FileTypeDetectionService implements Disposable {
   @Override
   public void dispose() {
     LOG.info(String.format("%s auto-detected files. Detection took %s ms", counterAutoDetect, elapsedAutoDetect));
+    reDetectExecutor.cancel();
   }
 
   static boolean isDetectable(@NotNull VirtualFile file) {
@@ -398,7 +398,7 @@ final class FileTypeDetectionService implements Disposable {
   }
 
   private void awakeReDetectExecutor() {
-    reDetectExecutor.execute(() -> {
+    reDetectExecutor.schedule(() -> {
       List<VirtualFile> files = new ArrayList<>(CHUNK_SIZE);
       synchronized (filesToRedetect) {
         for (int i = 0; i < CHUNK_SIZE; i++) {
@@ -730,7 +730,7 @@ final class FileTypeDetectionService implements Disposable {
 
   @TestOnly
   void drainReDetectQueue() {
-    ((CoroutineDispatcherBackedExecutor)reDetectExecutor).waitAllTasksExecuted(1, TimeUnit.MINUTES);
+    reDetectExecutor.waitAllTasksExecuted(1, TimeUnit.MINUTES);
   }
 
   @TestOnly

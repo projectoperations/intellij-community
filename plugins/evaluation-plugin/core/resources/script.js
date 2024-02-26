@@ -35,6 +35,34 @@ document.addEventListener("click", function (e) {
   }
 })
 
+const FilterClasses = {
+  Raw: "bg-raw-filter",
+  Analyzed: "bg-analyzed-filter",
+}
+
+function updateFilters(e) {
+  let selectedValue = e.target.selectedOptions[0].value
+  if (selectedValue === "no") {
+    changeBGColor(FilterClasses.Analyzed, "transparent")
+    changeBGColor(FilterClasses.Raw, "transparent")
+  } else if (selectedValue === "raw") {
+    changeBGColor(FilterClasses.Analyzed, "transparent")
+    changeBGColor(FilterClasses.Raw, "#FF3B305B")
+  } else if (selectedValue === "analyzed") {
+    changeBGColor(FilterClasses.Raw, "transparent")
+    changeBGColor(FilterClasses.Analyzed, "#FF3B305B")
+  }
+}
+
+document.getElementById("wrong-filters").onchange = updateFilters;
+
+function changeBGColor(className, color) {
+  let tokens = document.getElementsByClassName(className);
+  for(i = 0; i < tokens.length; i++) {
+    tokens[i].style.backgroundColor = color;
+  }
+}
+
 function closeAllLists() {
   const autocompleteDivs = document.getElementsByClassName("autocomplete-items")
   Array.from(autocompleteDivs).forEach((div) => {
@@ -130,10 +158,11 @@ function addCommonFeatures(sessionDiv, popup, lookup) {
     }
   }
   addTriggerModelBlock(popup, lookup)
-  addDiagnosticsBlock("RAW SUGGESTIONS:", "raw_proposals", popup, lookup)
-  addDiagnosticsBlock("RAW FILTERED:", "raw_filtered", popup, lookup)
-  addDiagnosticsBlock("ANALYZED SUGGESTIONS:", "analyzed_proposals", popup, lookup)
-  addDiagnosticsBlock("ANALYZED FILTERED:", "analyzed_filtered", popup, lookup)
+  addDiagnosticsBlock("RAW SUGGESTIONS", "raw_proposals", popup, lookup)
+  addDiagnosticsBlock("RAW FILTERED", "raw_filtered", popup, lookup)
+  addDiagnosticsBlock("ANALYZED SUGGESTIONS", "analyzed_proposals", popup, lookup)
+  addDiagnosticsBlock("ANALYZED FILTERED", "analyzed_filtered", popup, lookup)
+  addDiagnosticsBlock("RESULT SUGGESTIONS", "result_proposals", popup, lookup)
 }
 
 function addSuggestions(sessionDiv, popup, lookup) {
@@ -164,21 +193,76 @@ function addTriggerModelBlock(popup, lookup) {
   popup.appendChild(triggerModelResults)
 }
 
+// thanks to AI Assistant
 function addDiagnosticsBlock(description, field, popup, lookup) {
   if (!(field in lookup["additionalInfo"])) return
-  let diagnosticsDiv = document.createElement("DIV")
-  diagnosticsDiv.innerHTML = description
-  popup.appendChild(diagnosticsDiv)
+
   const diagnostics = lookup["additionalInfo"][field];
+
+  // Create a table if it doesn't exist yet
+  let table = popup.querySelector("table")
+  if (!table) {
+    table = document.createElement("table")
+    table.style.borderCollapse = "collapse"
+    popup.appendChild(table)
+  }
+
+  // Create a new row
+  let row = table.insertRow()
+
+  // Cell for the header
+  let headerCell = document.createElement("th")
+
+  let headerSpan = document.createElement("span")
+  headerSpan.innerHTML = description
+  headerSpan.style.fontWeight = "normal"
+  headerSpan.style.fontSize = "small"
+
+  headerCell.appendChild(headerSpan)
+  row.appendChild(headerCell)
+
+  // Cell for the text
+  let textCell = row.insertCell()
+  textCell.style.paddingLeft = "10px"
+  textCell.style.verticalAlign = "top"
+
+  let ul = document.createElement("ul")
+  ul.style.listStyleType = "disc"
+  ul.style.marginTop = "0"
+  ul.style.marginBottom = "0"
+
+  let elements = 0
   for (let i = 0; i < diagnostics.length; i++) {
     if (diagnostics[i]["second"] == null) continue
-    let textDiv = document.createElement("DIV")
-    textDiv.setAttribute("class", "suggestion")
-    let p = document.createElement("code")
-    p.setAttribute("class", "suggestion-p")
-    p.innerHTML = diagnostics[i]["first"].replace(/</g, '&lt;').replace(/>/g, '&gt;') + " (" + diagnostics[i]["second"] + ")"
-    textDiv.appendChild(p)
-    popup.appendChild(textDiv)
+
+    elements++
+
+    let li = document.createElement("li")
+
+    let code = document.createElement("code")
+    code.innerHTML = diagnostics[i]["first"] + " (" + diagnostics[i]["second"] + ")"
+
+    li.appendChild(code)
+    ul.appendChild(li)
+  }
+  if (elements === 0) {
+    row.style.color = "#CCC"
+  }
+  row.style.backgroundColor = "#FFF"
+
+  textCell.appendChild(ul)
+
+  // Add thin gray lines between rows
+  let rows = table.rows
+  for (let i = 1; i < rows.length; i++) {
+    let row = rows[i]
+    row.style.borderTop = "1px solid #CCC"
+
+    // Add spacing between rows
+    let cells = row.cells
+    for (let j = 0; j < cells.length; j++) {
+      cells[j].style.paddingTop = "5px"
+    }
   }
 }
 
@@ -295,10 +379,17 @@ function updateMultilinePopup(event) {
     return
   }
   const target = event.target
+  if (target.closest(".line-numbers") != null) {
+    showMetrics()
+    return
+  }
   const suggestionDiv = target.closest(".suggestion")
   const attachmentsDiv = target.closest(".attachments")
   const showSuggestion =  attachmentsDiv != null || target.classList.contains("completion")
   if (suggestionDiv == null && !showSuggestion) {
+    if (target.closest(".autocomplete-items") == null) {
+      closeAllLists();
+    }
     return
   }
   const sessionDiv = target.closest(".completion")
@@ -317,9 +408,7 @@ function updateMultilinePopup(event) {
   }
   else {
     addMultilineAttachments(sessionDiv, popup, expectedText)
-    // addMultilineExpectedText(popup, expectedText)
   }
-  addMultilineStatsFooter(popup, lookup)
   sessionDiv.appendChild(popup)
 }
 
@@ -393,13 +482,6 @@ function addMultilineExpectedText(popup, expectedText) {
   popup.appendChild(expected)
 }
 
-function addMultilineStatsFooter(popup, lookup) {
-  const statsDiv = document.createElement("DIV")
-  statsDiv.setAttribute("style", "background-color: lightgrey; grid-column: span 2;")
-  statsDiv.innerHTML = `latency: ${lookup["latency"]}`
-  popup.appendChild(statsDiv)
-}
-
 function showMultilinePrefixAndSuffix(event) {
   if (event.target.classList.contains("completion")) {
     const sessionDiv = event.target
@@ -429,5 +511,9 @@ function showMultilinePrefixAndSuffix(event) {
   }
 }
 
+function showMetrics() {
+  let metricsDiv = document.getElementById("metrics-column")
+  metricsDiv.style.display = metricsDiv.style.display === "none" ? "" : "none"
+}
 
 document.getElementById("defaultTabOpen")?.click()

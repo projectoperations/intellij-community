@@ -25,13 +25,12 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.CeProcessCanceledException
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.blockingContext
-import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
 import com.intellij.platform.diagnostic.telemetry.helpers.use
+import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.SlowOperations
@@ -190,7 +189,7 @@ internal class ActionUpdater @JvmOverloads constructor(
           var traceCookie: ThreadDumpService.Cookie? = null
           try {
             Triple({ ProhibitAWTEvents.start(operationName) },
-                   { ProgressIndicatorUtils.prohibitWriteActionsInside(application) },
+                   { IdeEventQueue.getInstance().threadingSupport.prohibitWriteActionsInside() },
                    { threadDumpService.start(100, 50, 5, Thread.currentThread()) }).use { _, _, cookie ->
               traceCookie = cookie
               ourInEDTActionOperationStack = prevStack.prepend(operationName)
@@ -406,8 +405,7 @@ internal class ActionUpdater @JvmOverloads constructor(
       handleException(group, operationName, event, ex)
       return emptyList()
     }
-    groupChildren[group] = children
-    return children
+    return groupChildren.getOrPut(group) { children }
   }
 
   private suspend fun expandGroupChild(child: AnAction, hideDisabledBase: Boolean): List<AnAction> {
@@ -573,8 +571,7 @@ internal class ActionUpdater @JvmOverloads constructor(
       return null
     }
     if (success) {
-      updatedPresentations[action] = presentation
-      return presentation
+      return updatedPresentations.getOrPut(action) { presentation }
     }
     return null
   }
@@ -698,13 +695,14 @@ internal class ActionUpdater @JvmOverloads constructor(
         if (pair.first == OP_expandActionGroup) visitor(pair.second as ActionGroup, pair.first, deferred.getCompleted()!!) }
     }
 
-    override fun dropCaches(predicate: (AnAction) -> Boolean) {
+    override fun dropCaches(predicate: (Any) -> Boolean) {
       // if reused, clear temporary deferred caches from previous `expandActionGroup` calls
       // some are in completed-with-exception state (SkipOperation), so re-calling will fail
       // 1. valid presentation and children are already cached in other maps
       // 2. expanded children must not be cached in remote scenarios anyway
-      updater.sessionData.keys.removeIf { (op, _) ->
-        op == OP_actionPresentation || op == OP_groupChildren || op == OP_expandActionGroup
+      updater.sessionData.keys.removeIf { (op, key) ->
+        op == OP_actionPresentation || op == OP_groupChildren || op == OP_expandActionGroup ||
+        key is Key<*> && predicate(key)
       }
       // clear caches for selected actions
       updater.updatedPresentations.keys.removeIf(predicate)
@@ -853,6 +851,6 @@ private class RecursionElement(val level: Int)
 
 private class OperationName(val name: String)
   : AbstractCoroutineContextElement(OperationName) {
-  override fun toString(): String = name
+  override fun toString(): String = "OperationName($name)"
   companion object : CoroutineContext.Key<OperationName>
 }

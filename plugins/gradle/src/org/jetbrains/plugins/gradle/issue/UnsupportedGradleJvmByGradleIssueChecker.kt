@@ -5,19 +5,14 @@ import com.intellij.build.FilePosition
 import com.intellij.build.events.BuildEvent
 import com.intellij.build.issue.BuildIssue
 import com.intellij.gradle.toolingExtension.util.GradleVersionUtil
-import com.intellij.openapi.externalSystem.issue.quickfix.ReimportQuickFix
-import com.intellij.util.PlatformUtils
 import com.intellij.util.lang.JavaVersion
 import org.gradle.internal.jvm.UnsupportedJavaRuntimeException
 import org.gradle.util.GradleVersion
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.jps.model.java.JdkVersionDetector
-import org.jetbrains.plugins.gradle.issue.quickfix.GradleSettingsQuickFix
-import org.jetbrains.plugins.gradle.issue.quickfix.GradleVersionQuickFix
-import org.jetbrains.plugins.gradle.issue.quickfix.GradleWrapperSettingsOpenQuickFix
 import org.jetbrains.plugins.gradle.jvmcompat.GradleJvmSupportMatrix
 import org.jetbrains.plugins.gradle.service.execution.GradleExecutionErrorHandler.getRootCauseAndLocation
-import org.jetbrains.plugins.gradle.util.*
+import org.jetbrains.plugins.gradle.util.GradleBundle
 import java.io.File
 import java.util.function.Consumer
 
@@ -79,9 +74,9 @@ class UnsupportedGradleJvmByGradleIssueChecker : GradleIssueChecker {
     }
 
     val oldestCompatibleJavaVersion = gradleVersionUsed?.let { GradleJvmSupportMatrix.suggestOldestSupportedJavaVersion(it) }
-                                      ?: GradleJvmSupportMatrix.getOldestRecommendedJavaVersionByIdea()
+                                      ?: GradleJvmSupportMatrix.getOldestSupportedJavaVersionByIdea()
     val newestCompatibleJavaVersion = gradleVersionUsed?.let { GradleJvmSupportMatrix.suggestLatestSupportedJavaVersion(it) }
-                                      ?: GradleJvmSupportMatrix.getOldestRecommendedJavaVersionByIdea()
+                                      ?: GradleJvmSupportMatrix.getOldestSupportedJavaVersionByIdea()
     val suggestedJavaVersion = when {
       javaVersionUsed == null -> newestCompatibleJavaVersion
       javaVersionUsed < oldestCompatibleJavaVersion -> oldestCompatibleJavaVersion
@@ -89,7 +84,12 @@ class UnsupportedGradleJvmByGradleIssueChecker : GradleIssueChecker {
       else -> newestCompatibleJavaVersion
     }
 
-    return object : AbstractGradleBuildIssue() {
+    val oldestCompatibleGradleVersion = javaVersionUsed?.let { GradleJvmSupportMatrix.suggestOldestSupportedGradleVersion(it) }
+    val newestCompatibleGradleVersion = javaVersionUsed?.let { GradleJvmSupportMatrix.suggestLatestSupportedGradleVersion(it) }
+    val recommendedGradleVersion = GradleJvmSupportMatrix.getRecommendedGradleVersionByIdea()
+    val newestGradleVersion = GradleJvmSupportMatrix.getLatestSupportedGradleVersionByIdea()
+
+    return object : ConfigurableGradleBuildIssue() {
       init {
         when {
           gradleVersionUsed != null && isRemovedUnsafeDefineClassMethodInJDK11Issue -> {
@@ -114,11 +114,6 @@ class UnsupportedGradleJvmByGradleIssueChecker : GradleIssueChecker {
             ))
           }
           isUnsupportedJavaRuntimeIssue -> {
-            val oldestCompatibleGradleVersion = javaVersionUsed?.let { GradleJvmSupportMatrix.suggestOldestSupportedGradleVersion(it) }
-            val newestCompatibleGradleVersion = javaVersionUsed?.let { GradleJvmSupportMatrix.suggestLatestSupportedGradleVersion(it) }
-            val recommendedGradleVersion = GradleJvmSupportMatrix.getOldestRecommendedGradleVersionByIdea()
-            val newestGradleVersion = GradleJvmSupportMatrix.getLatestSupportedGradleVersionByIdea()
-
             setTitle(GradleBundle.message("gradle.build.issue.gradle.jvm.unsupported.title"))
             addDescription(GradleBundle.message("gradle.build.issue.gradle.jvm.unsupported.header"))
             when {
@@ -173,38 +168,12 @@ class UnsupportedGradleJvmByGradleIssueChecker : GradleIssueChecker {
           }
         }
 
-        val isAndroidStudio = "AndroidStudio" == PlatformUtils.getPlatformPrefix()
-        if (!isAndroidStudio) { // Android Studio doesn't have Gradle JVM setting
-          val gradleSettingsQuickFix = GradleSettingsQuickFix(
-            issueData.projectPath, true,
-            GradleSettingsQuickFix.GradleJvmChangeDetector,
-            GradleBundle.message("gradle.settings.text.jvm.path")
-          )
-          addQuickFixPrompt(GradleBundle.message("gradle.build.quick.fix.gradle.jvm", gradleSettingsQuickFix.id, suggestedJavaVersion))
-          addQuickFix(gradleSettingsQuickFix)
-        }
+        addGradleJvmQuickFix(issueData.projectPath, suggestedJavaVersion)
 
         if (!isUnsupportedClassVersionErrorIssue) {
-          val oldestCompatibleGradleVersion = javaVersionUsed?.let { GradleJvmSupportMatrix.suggestOldestSupportedGradleVersion(it) }
-                                              ?: GradleJvmSupportMatrix.getOldestRecommendedGradleVersionByIdea()
-          val wrapperPropertiesFile = GradleUtil.findDefaultWrapperPropertiesFile(issueData.projectPath)
-          if (wrapperPropertiesFile == null || gradleVersionUsed != null && gradleVersionUsed.baseVersion < oldestCompatibleGradleVersion) {
-            val gradleVersionFix = GradleVersionQuickFix(issueData.projectPath, oldestCompatibleGradleVersion, true)
-            addQuickFixPrompt(GradleBundle.message(
-              "gradle.build.quick.fix.gradle.version.auto", gradleVersionFix.id,
-              oldestCompatibleGradleVersion.version
-            ))
-            addQuickFix(gradleVersionFix)
-          }
-          else {
-            val wrapperSettingsOpenQuickFix = GradleWrapperSettingsOpenQuickFix(issueData.projectPath, "distributionUrl")
-            val reimportQuickFix = ReimportQuickFix(issueData.projectPath, GradleConstants.SYSTEM_ID)
-            addQuickFixPrompt(GradleBundle.message(
-              "gradle.build.quick.fix.gradle.version.manual", wrapperSettingsOpenQuickFix.id, reimportQuickFix.id,
-              oldestCompatibleGradleVersion.version
-            ))
-            addQuickFix(wrapperSettingsOpenQuickFix)
-            addQuickFix(reimportQuickFix)
+          addGradleVersionQuickFix(issueData.projectPath, recommendedGradleVersion)
+          if (oldestCompatibleGradleVersion != null && oldestCompatibleGradleVersion < recommendedGradleVersion) {
+            addGradleVersionQuickFix(issueData.projectPath, oldestCompatibleGradleVersion)
           }
         }
       }

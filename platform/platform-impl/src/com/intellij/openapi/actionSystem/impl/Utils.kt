@@ -581,7 +581,9 @@ object Utils {
         action is ActionGroup && !isSubmenuSuppressed(presentation) -> createMacNativeActionMenu(
           context, place, action, presentationFactory, enableMnemonics, frame, useDarkIcons)
         else -> MacNativeActionMenuItem(
-          action, place, context, enableMnemonics, checked, useDarkIcons, presentation).menuItemPeer
+          action, place, context, enableMnemonics, checked, useDarkIcons).apply {
+          updateFromPresentation(presentation)
+        }.menuItemPeer
       }
       // null peer means `null`
       nativePeer.add(peer)
@@ -623,7 +625,8 @@ object Utils {
 
   private fun reportInvisibleMenuItem(action: AnAction, place: String) {
     val operationName = operationName(action, null, place)
-    LOG.error("Invisible menu item for $operationName")
+    LOG.error("Invisible menu item for $operationName" +
+              ". Most probably caused by async presentation updates that must be avoided")
   }
 
   @JvmStatic
@@ -1204,5 +1207,5 @@ interface SuspendingUpdateSession: UpdateSession {
   fun <T : Any?> sharedDataSuspend(key: Key<T>, supplier: suspend () -> T): T
 
   fun visitCaches(visitor: (AnAction, String, Any) -> Unit)
-  fun dropCaches(predicate: (AnAction) -> Boolean)
+  fun dropCaches(predicate: (Any) -> Boolean)
 }

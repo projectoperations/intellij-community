@@ -1,14 +1,13 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.patch.tool
 
-import com.intellij.diff.editor.DiffRequestProcessorEditor
+import com.intellij.diff.editor.DiffEditorViewerFileEditor
 import com.intellij.diff.requests.DiffRequest
 import com.intellij.diff.requests.ErrorDiffRequest
 import com.intellij.diff.requests.MessageDiffRequest
 import com.intellij.diff.tools.combined.*
 import com.intellij.ide.structureView.StructureViewBuilder
 import com.intellij.openapi.ListSelection
-import com.intellij.openapi.components.service
 import com.intellij.openapi.diff.impl.patch.*
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -46,12 +45,11 @@ internal class DiffPatchFileEditorProvider : FileEditorProvider, StructureViewFi
     val document = FileDocumentManager.getInstance().getDocument(file)!!
 
     if (CombinedDiffRegistry.isEnabled()) {
-      val model = CombinedDiffModelImpl(project)
-      model.setBlocks(buildCombinedDiffModel(document))
+      val processor = CombinedDiffManager.getInstance(project).createProcessor()
+      processor.setBlocks(buildCombinedDiffModel(document))
 
-      val factory = project.service<CombinedDiffComponentFactoryProvider>().create(model)
-      val editor = CombinedDiffComponentEditor(file, factory)
-      document.addDocumentListener(CombinedViewerPatchChangeListener(model), editor)
+      val editor = DiffEditorViewerFileEditor(file, processor)
+      document.addDocumentListener(CombinedViewerPatchChangeListener(processor), editor)
 
       return editor
     }
@@ -59,7 +57,7 @@ internal class DiffPatchFileEditorProvider : FileEditorProvider, StructureViewFi
       val chain = PatchDiffRequestChain(document)
       val processor = MutableDiffRequestChainProcessor(project, chain)
 
-      val editor = DiffRequestProcessorEditor(file, processor)
+      val editor = DiffEditorViewerFileEditor(file, processor)
       document.addDocumentListener(RequestProcessorPatchChangeListener(processor), editor)
 
       return editor
@@ -98,9 +96,9 @@ private fun createDiffRequestProducers(document: Document): List<ChangeDiffReque
   }
 }
 
-private class CombinedViewerPatchChangeListener(val model: CombinedDiffModelImpl) : DocumentListener {
+private class CombinedViewerPatchChangeListener(val processor: CombinedDiffComponentProcessor) : DocumentListener {
   override fun documentChanged(event: DocumentEvent) {
-    model.setBlocks(buildCombinedDiffModel(event.document))
+    processor.setBlocks(buildCombinedDiffModel(event.document))
   }
 }
 

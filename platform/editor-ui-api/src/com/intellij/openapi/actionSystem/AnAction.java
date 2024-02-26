@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.actionSystem;
 
 import com.intellij.diagnostic.LoadingState;
@@ -120,7 +120,8 @@ public abstract class AnAction implements PossiblyDumbAware, ActionUpdateThreadA
    * @param icon        the action's icon
    */
   public AnAction(@Nullable @ActionText String text, @Nullable @ActionDescription String description, @Nullable Icon icon) {
-    this(() -> text, () -> description, icon);
+    this(text == null ? Presentation.NULL_STRING : () -> text,
+         description == null ? Presentation.NULL_STRING : () -> description, icon);
   }
 
   @ApiStatus.Experimental

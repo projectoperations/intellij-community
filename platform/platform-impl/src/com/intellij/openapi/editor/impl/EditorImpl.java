@@ -1,7 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.application.options.EditorFontsConstants;
+import com.intellij.codeWithMe.ClientId;
 import com.intellij.diagnostic.Dumpable;
 import com.intellij.ide.*;
 import com.intellij.ide.dnd.DnDManager;
@@ -36,8 +37,8 @@ import com.intellij.openapi.editor.ex.util.EmptyEditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.HighlighterClient;
 import com.intellij.openapi.editor.impl.event.MarkupModelListener;
-import com.intellij.openapi.editor.impl.stickyLines.StickyLinesPanel;
 import com.intellij.openapi.editor.impl.stickyLines.StickyLinesManager;
+import com.intellij.openapi.editor.impl.stickyLines.StickyLinesPanel;
 import com.intellij.openapi.editor.impl.view.EditorView;
 import com.intellij.openapi.editor.markup.GutterDraggableObject;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
@@ -345,6 +346,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private boolean myScrollingToCaret;
 
+  private boolean myIsStickyLinePainting;
+  private boolean myIsStickyLineHovered;
+
   EditorImpl(@NotNull Document document,
              boolean viewer,
              @Nullable Project project,
@@ -569,7 +573,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         case EditorState.isEmbeddedIntoDialogWrapperPropertyName -> isEmbeddedIntoDialogWrapperChanged(event);
         case EditorState.verticalScrollBarOrientationPropertyName -> verticalScrollBarOrientationChanged(event);
         case EditorState.isStickySelectionPropertyName -> isStickySelectionChanged(event);
-        case EditorState.myBorderPropertyName -> borderChanged(event);
+        case EditorState.myBorderPropertyName -> borderChanged();
       }
     }, myDisposable);
   }
@@ -852,6 +856,23 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   @Override
   public void uninstallPopupHandler(@NotNull EditorPopupHandler popupHandler) {
     myPopupHandlers.remove(popupHandler);
+  }
+
+  @Override
+  public @Nullable ActionGroup getPopupActionGroup(@NotNull EditorMouseEvent event) {
+    if (event.getArea() == EditorMouseEventArea.EDITING_AREA) {
+      for (int i = myPopupHandlers.size() - 1; i >= 0; i--) {
+        EditorPopupHandler handler = myPopupHandlers.get(i);
+        ActionGroup group = handler instanceof ContextMenuPopupHandler o ? o.getActionGroup(event) : null;
+        if (group instanceof DefaultActionGroup o && o.getChildrenCount() == 0 &&
+            group.getClass() == DefaultActionGroup.class) return group;
+        if (group != null) return new EditorMousePopupActionGroup(group, event);
+      }
+      return null;
+    }
+    else {
+      return myGutterComponent.getPopupActionGroup(event);
+    }
   }
 
   private @Nullable Cursor getCustomCursor() {
@@ -1369,7 +1390,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
       EditorHighlighter oldHighlighter = myHighlighter;
       myHighlighter = highlighter;
-      myPropertyChangeSupport.firePropertyChange(EditorEx.PROP_HIGHLIGHTER, oldHighlighter, highlighter);
+      myPropertyChangeSupport.firePropertyChange(PROP_HIGHLIGHTER, oldHighlighter, highlighter);
 
       if (myPanel != null) {
         reinitSettings();
@@ -1600,6 +1621,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   void repaint(int startOffset, int endOffset, boolean invalidateTextLayout) {
     if (myDocument.isInBulkUpdate() || myInlayModel.isInBatchMode()) {
+      return;
+    }
+    if (myView == null) {
+      // repaint may be called from EditorImpl.<init> IDEA-341841
       return;
     }
     assertIsDispatchThread();
@@ -1959,6 +1984,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     putUserData(BUFFER, null);
     Rectangle rect = ((JViewport)myEditorComponent.getParent()).getViewRect();
     if (rect.isEmpty()) return;
+    if (myStickyLinesPanel != null) {
+      myStickyLinesPanel.startDumb();
+    }
     // The LCD text loop is enabled only for opaque images
     BufferedImage image = UIUtil.createImage(myEditorComponent, rect.width, rect.height, BufferedImage.TYPE_INT_RGB);
     Graphics imageGraphics = image.createGraphics();
@@ -2329,7 +2357,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myState.setMyBorder(border);
   }
 
-  private void borderChanged(ObservableStateListener.PropertyChangeEvent event) {
+  private void borderChanged() {
     myScrollPane.setBorder(myState.getMyBorder());
   }
 
@@ -2586,11 +2614,15 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       myDragOnGutterSelectionStartLine = -1;
     }
 
+    EditorGutter gutter = getGutter();
+    boolean isDraggingGutterIcon = gutter instanceof EditorGutterComponentImpl &&
+                                   ((EditorGutterComponentImpl)gutter).getGutterRenderer(e.getPoint()) != null;
     if (eventArea == EditorMouseEventArea.LINE_NUMBERS_AREA &&
         NewUI.isEnabled() && EditorUtil.isBreakPointsOnLineNumbers() &&
-        getMouseSelectionState() != MOUSE_SELECTION_STATE_LINE_SELECTED) {
-      //IDEA-305975
-      selectLineAtCaret(true);
+        getMouseSelectionState() != MOUSE_SELECTION_STATE_LINE_SELECTED &&
+        //IDEA-295653 We should not select a line if we are dragging an object. For example, a breakpoint
+        !isDraggingGutterIcon) {
+      selectLineAtCaret(true); //IDEA-305975
       getGutterComponentEx().putClientProperty("active.line.number", null); //clear hovered breakpoint
     }
 
@@ -3510,10 +3542,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     ThreadingAssertions.assertEventDispatchThread();
   }
 
-  private static void assertReadAccess() {
-    ApplicationManager.getApplication().assertReadAccessAllowed();
-  }
-
   @Override
   public void setVerticalScrollbarOrientation(int type) {
     assertIsDispatchThread();
@@ -3555,7 +3583,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   public boolean isMirrored() {
-    return myState.getVerticalScrollBarOrientation() != EditorEx.VERTICAL_SCROLLBAR_RIGHT;
+    return myState.getVerticalScrollBarOrientation() != VERTICAL_SCROLLBAR_RIGHT;
   }
 
   @NotNull
@@ -3565,7 +3593,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @ApiStatus.Internal
   public int getStickyLinesPanelWidth() {
-    return myPanel.getWidth() - myVerticalScrollBar.getWidth();
+    return myPanel.getWidth(); //- myVerticalScrollBar.getWidth();
   }
 
   @MouseSelectionState
@@ -4495,13 +4523,15 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       return true;
     }
 
+    // todo do not update actions manually on EDT
     ActionManager actionManager = ActionManager.getInstance();
     for (String mappedActionId : mappedActions) {
       if (actionId.equals(mappedActionId)) continue;
       AnAction action = actionManager.getAction(mappedActionId);
-      AnActionEvent actionEvent = AnActionEvent.createFromAnAction(action, e, ActionPlaces.MAIN_MENU,
-                                                                   DataManager.getInstance().getDataContext(e.getComponent()));
-      if (ActionUtil.lastUpdateAndCheckDumb(action, actionEvent, false)) return false;
+      DataContext dataContext = DataManager.getInstance().getDataContext(e.getComponent());
+      AnActionEvent actionEvent = AnActionEvent.createFromAnAction(action, e, ActionPlaces.MAIN_MENU, dataContext);
+      ActionUtil.performDumbAwareUpdate(action, actionEvent, false);
+      if (actionEvent.getPresentation().isEnabled()) return false;
     }
     return true;
   }
@@ -5307,9 +5337,28 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   private void invokePopupIfNeeded(@NotNull EditorMouseEvent event) {
+    if (myPopupHandlers.isEmpty()) return;
+
     if (event.getArea() == EditorMouseEventArea.EDITING_AREA && event.getMouseEvent().isPopupTrigger() && !event.isConsumed()) {
-      for (int i = myPopupHandlers.size() - 1; i >= 0; i--) {
-        if (myPopupHandlers.get(i).handlePopup(event)) break;
+      if (ContainerUtil.all(myPopupHandlers, o -> o instanceof ContextMenuPopupHandler)) {
+        ActionGroup group = getPopupActionGroup(event);
+        if (group == null) return;
+        if (group instanceof DefaultActionGroup o && o.getChildrenCount() == 0 &&
+            group.getClass() == DefaultActionGroup.class) return;
+        new ContextMenuPopupHandler.Simple(group).handlePopup(event);
+      }
+      else {
+        String message = "Non-ContextMenuPopupHandler popup handler detected: " +
+                         ContainerUtil.map(myPopupHandlers, o -> o.getClass().getName());
+        if (ClientId.isCurrentlyUnderLocalId()) {
+          LOG.warn(message);
+        }
+        else {
+          LOG.error(message);
+        }
+        for (int i = myPopupHandlers.size() - 1; i >= 0; i--) {
+          if (myPopupHandlers.get(i).handlePopup(event)) break;
+        }
       }
     }
   }
@@ -5356,7 +5405,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private final class DefaultPopupHandler extends ContextMenuPopupHandler {
     @Override
-    public @Nullable ActionGroup getActionGroup(@NotNull EditorMouseEvent event) {
+    public @Nullable ActionGroup getActionGroup(@NotNull EditorMouseEvent event) { //TODO ! renderer, collapsed-host
       String contextMenuGroupId = myState.getContextMenuGroupId();
       Inlay<?> inlay = event.getInlay();
       if (inlay != null) {
@@ -5372,7 +5421,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
           if (group != null) return group;
         }
       }
-      return ContextMenuPopupHandler.getGroupForId(contextMenuGroupId);
+      return getGroupForId(contextMenuGroupId);
     }
   }
 
@@ -5488,6 +5537,18 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         repaint();
       }
     }
+
+    @Override
+    protected Layout createLayout() {
+      return new MyScrollPaneLayout();
+    }
+  }
+
+  private static final class MyScrollPaneLayout extends JBScrollPane.Layout {
+    void setVerticalScrollBar(JScrollBar vsb) {
+      // allows layout manager to supervise vertical scroll bar placed on layered pane
+      this.vsb = vsb;
+    }
   }
 
   public void adjustGlobalFontSize(float size) {
@@ -5500,7 +5561,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private final class TablessBorder extends SideBorder {
     private TablessBorder() {
-      super(JBColor.border(), SideBorder.ALL);
+      super(JBColor.border(), ALL);
     }
 
     @Override
@@ -5611,10 +5672,17 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
           Dimension d = c.getPreferredSize();
           int rightInsets = getVerticalScrollBar().getWidth() + (isMirrored() ? myGutterComponent.getWidth() : 0);
           c.setBounds(r.width - d.width - rightInsets - 20, 20, d.width, d.height);
+        } else if (c instanceof JScrollBar) {
+          // Vertical scroll bar: JScrollBar
+          // do nothing here, MyScrollPaneLayout manages vsb
         } else if (!(c instanceof StickyLinesPanel)) {
-          // Status component
-          int statusComponentX = myPanel.getWidth() - c.getWidth();
-          c.setLocation(statusComponentX, 0);
+          // Status component: NonOpaquePanel
+          Dimension d = c.getPreferredSize();
+          c.setBounds(r.width - d.width, 0, d.width, d.height);
+          MyScrollBar vsb = myVerticalScrollBar;
+          if (vsb.getY() != d.height) {
+            vsb.setBounds(vsb.getX(), d.height, vsb.getWidth(), vsb.getHeight() - d.height);
+          }
         }
       }
     }
@@ -5625,6 +5693,11 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
+  @ApiStatus.Internal
+  public MouseListener getMouseListener() {
+    return myMouseListener;
+  }
+
   @Nullable StickyLinesPanel getStickyLinesPanel() {
     return myStickyLinesPanel;
   }
@@ -5632,6 +5705,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   /**
    * There is no point to show the editor fragment hint if the sticky panel shows the same line.
    */
+  @ApiStatus.Internal
   public boolean shouldSuppressEditorFragmentHint(int hintStartLogicalLine) {
     if (myStickyLinesPanel != null) {
       return myStickyLinesPanel.suppressHintForLine(hintStartLogicalLine);
@@ -5639,10 +5713,36 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return false;
   }
 
+  /**
+   * If true, the editor is in special "clean" mode when editor's content is being rendered on sticky lines panel.
+   * This allows suppressing visual elements like caret row background, vertical indent lines, right margin line, etc.
+   */
+  @ApiStatus.Internal
+  public boolean isStickyLinePainting() {
+    return myIsStickyLinePainting;
+  }
+
+  @ApiStatus.Internal
+  public void setStickyLinePainting(boolean stickyLinePainting) {
+    myIsStickyLinePainting = stickyLinePainting;
+  }
+
+  @ApiStatus.Internal
+  public boolean isStickyLineHovered() {
+    return myIsStickyLineHovered;
+  }
+
+  @ApiStatus.Internal
+  public void setStickyLineHovered(boolean stickyLineHovered) {
+    myIsStickyLineHovered = stickyLineHovered;
+  }
+
   private @Nullable StickyLinesPanel createStickyLinesPanel() {
     if (myProject != null && myKind == EditorKind.MAIN_EDITOR && !isMirrored()) {
       StickyLinesManager stickyManager = new StickyLinesManager(this, myDocumentMarkupModel, myDisposable);
       myLayeredPane.add(stickyManager.getStickyPanel(), Integer.valueOf(200));
+      myLayeredPane.add(myVerticalScrollBar, Integer.valueOf(250));
+      ((MyScrollPaneLayout) myScrollPane.getLayout()).setVerticalScrollBar(myVerticalScrollBar);
       return stickyManager.getStickyPanel();
     } else {
       return null;

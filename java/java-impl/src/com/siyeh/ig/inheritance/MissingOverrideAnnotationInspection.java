@@ -12,6 +12,7 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.impl.scopes.ModulesScope;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootModificationTracker;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -83,8 +84,8 @@ public class MissingOverrideAnnotationInspection extends BaseInspection implemen
   }
 
   @Override
-  public boolean shouldInspect(@NotNull PsiFile file) {
-    return PsiUtil.isLanguageLevel5OrHigher(file);
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.ANNOTATIONS);
   }
 
   @Override
@@ -127,9 +128,9 @@ public class MissingOverrideAnnotationInspection extends BaseInspection implemen
 
         Project project = method.getProject();
         final boolean isInterface = Objects.requireNonNull(method.getContainingClass()).isInterface();
-        LanguageLevel minimal = isInterface ? LanguageLevel.JDK_1_6 : LanguageLevel.JDK_1_5;
+        JavaFeature requiredFeature = isInterface ? JavaFeature.OVERRIDE_INTERFACE : JavaFeature.ANNOTATIONS;
 
-        GlobalSearchScope scope = getLanguageLevelScope(minimal, project);
+        GlobalSearchScope scope = getLanguageLevelScope(requiredFeature.getMinimumLevel(), project);
         if (scope == null) return false;
         int paramCount = method.getParameterList().getParametersCount();
         Predicate<PsiMethod> preFilter = m -> m.getParameterList().getParametersCount() == paramCount &&
@@ -150,8 +151,7 @@ public class MissingOverrideAnnotationInspection extends BaseInspection implemen
         if (JavaPsiRecordUtil.getRecordComponentForAccessor(method) != null) {
           return true;
         }
-        final boolean useJdk6Rules = level.isAtLeast(LanguageLevel.JDK_1_6);
-        if (useJdk6Rules) {
+        if (JavaFeature.OVERRIDE_INTERFACE.isSufficient(level)) {
           if (!isJdk6Override(method, methodClass)) {
             return false;
           }

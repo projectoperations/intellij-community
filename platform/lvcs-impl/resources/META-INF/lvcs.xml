@@ -10,6 +10,9 @@
         <synonym key="action.synonym.LocalHistory.ShowSelectionHistory.class.text"/>
         <override-text place="GoToAction"/>
       </action>
+      <action id="LocalHistory.ShowProjectHistory" class="com.intellij.history.integration.ui.actions.ShowProjectHistoryAction">
+        <override-text place="GoToAction"/>
+      </action>
       <action id="LocalHistory.PutLabel" class="com.intellij.history.integration.ui.actions.PutLabelAction"/>
 
       <add-to-group group-id="VersionControlsGroup" anchor="first"/>
@@ -52,6 +55,13 @@
       <reference id="Diff.ShowDiff"/>
     </group>
   </actions>
+
+  <extensionPoints>
+    <extensionPoint name="history.activityPresentationProvider"
+                    interface="com.intellij.history.ActivityPresentationProvider"
+                    dynamic="true"/>
+  </extensionPoints>
+
   <extensions defaultExtensionNs="com.intellij">
     <undoProvider implementation="com.intellij.openapi.command.impl.FileUndoProvider"/>
     <projectUndoProvider implementation="com.intellij.openapi.command.impl.FileUndoProvider"/>
@@ -59,8 +69,18 @@
     <applicationService serviceInterface="com.intellij.history.LocalHistory"
                         serviceImplementation="com.intellij.history.integration.LocalHistoryImpl"/>
 
-    <virtualFileManagerListener implementation="com.intellij.history.integration.LocalHistoryEventDispatcher$LocalHistoryFileManagerListener"/>
+    <virtualFileManagerListener
+      implementation="com.intellij.history.integration.LocalHistoryEventDispatcher$LocalHistoryFileManagerListener"/>
     <advancedSetting id="localHistory.daysToKeep" default="5" groupKey="group.advanced.settings.ide"/>
+
+    <statistics.counterUsagesCollector implementationClass="com.intellij.platform.lvcs.impl.statistics.LocalHistoryCounter"/>
+
+    <applicationService serviceImplementation="com.intellij.platform.lvcs.impl.settings.ActivityViewApplicationSettings"/>
+    <applicationConfigurable id="lvcs.activity"
+                             parentId="project.propVCSSupport.Mappings"
+                             provider="com.intellij.platform.lvcs.impl.settings.ActivityConfigurableProvider"
+                             key="activity.configurable.title"
+                             bundle="messages.LocalHistoryBundle"/>
   </extensions>
 
   <applicationListeners>

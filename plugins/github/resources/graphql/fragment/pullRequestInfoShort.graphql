@@ -11,6 +11,9 @@ fragment pullRequestInfoShort on PullRequest {
     ...actorInfo
   }
   createdAt
+  updatedAt
+
+  isReadByViewer
 
   assignees(first: 100) {
     nodes {
@@ -42,9 +45,11 @@ fragment pullRequestInfoShort on PullRequest {
       ...pullRequestReview
     }
   }
+  ...reactions
 
   mergeable
 
   viewerCanUpdate
+  viewerCanReact
   viewerDidAuthor
 }

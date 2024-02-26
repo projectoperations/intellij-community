@@ -15,6 +15,7 @@
  */
 package com.intellij.history.core
 
+import com.intellij.history.ActivityId
 import com.intellij.history.ByteContent
 import com.intellij.history.core.changes.*
 import com.intellij.history.core.revisions.ChangeRevision
@@ -45,14 +46,17 @@ open class LocalHistoryFacade(private val changeList: ChangeList) {
   }
 
   fun forceBeginChangeSet() {
-    if (changeList.forceBeginChangeSet()) {
-      fireChangeSetFinished()
+    val lastChangeSet = changeList.forceBeginChangeSet()
+    if (lastChangeSet != null) {
+      fireChangeSetFinished(lastChangeSet)
     }
   }
 
-  fun endChangeSet(name: @NlsContexts.Label String?) {
-    if (changeList.endChangeSet(name)) {
-      fireChangeSetFinished()
+  @JvmOverloads
+  fun endChangeSet(name: @NlsContexts.Label String?, activityId: ActivityId? = null) {
+    val lastChangeSet = changeList.endChangeSet(name, activityId)
+    if (lastChangeSet != null) {
+      fireChangeSetFinished(lastChangeSet)
     }
   }
 
@@ -191,15 +195,15 @@ open class LocalHistoryFacade(private val changeList: ChangeList) {
     }
   }
 
-  private fun fireChangeSetFinished() {
+  private fun fireChangeSetFinished(changeSet: ChangeSet) {
     for (each in listeners) {
-      each.changeSetFinished()
+      each.changeSetFinished(changeSet)
     }
   }
 
   abstract class Listener {
     open fun changeAdded(c: Change) = Unit
-    open fun changeSetFinished() = Unit
+    open fun changeSetFinished(changeSet: ChangeSet) = Unit
   }
 }
 
@@ -218,18 +222,26 @@ fun LocalHistoryFacade.collectChanges(projectId: String?, startPath: String, pat
   var path = startPath
   var pathExists = true
   for (changeSet in changes) {
-    for (change in changeSet.changes.reversed()) {
-      if (!pathExists) {
-        if (change is StructuralChange) path = change.revertPath(path)
-        if (change is DeleteChange && change.isDeletionOf(path)) {
-          processChangeSet(changeSet, change, path)
-          pathExists = true
+    val changeSetChanges = changeSet.changes
+    val singleLabel = changeSetChanges.singleOrNull() as? PutLabelChange
+    if (singleLabel != null) {
+      if (pathExists) processChangeSet(changeSet, singleLabel, path)
+    }
+    else {
+      for (change in changeSetChanges.reversed()) {
+        if (change is PutLabelChange) continue
+        if (!pathExists) {
+          if (change is StructuralChange) path = change.revertPath(path)
+          if (change is DeleteChange && change.isDeletionOf(path)) {
+            processChangeSet(changeSet, change, path)
+            pathExists = true
+          }
         }
-      }
-      else {
-        processChangeSet(changeSet, change, path)
-        if (change is StructuralChange) path = change.revertPath(path)
-        if (change is CreateEntryChange && change.isCreationalFor(path)) pathExists = false
+        else {
+          processChangeSet(changeSet, change, path)
+          if (change is StructuralChange) path = change.revertPath(path)
+          if (change is CreateEntryChange && change.isCreationalFor(path)) pathExists = false
+        }
       }
     }
   }

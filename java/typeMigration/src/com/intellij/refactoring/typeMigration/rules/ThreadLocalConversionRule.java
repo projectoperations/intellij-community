@@ -5,6 +5,7 @@ import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
 import com.intellij.codeInsight.daemon.impl.quickfix.VariableAccessFromInnerClassFix;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiPrecedenceUtil;
@@ -166,7 +167,7 @@ public final class ThreadLocalConversionRule extends TypeConversionRule {
   }
 
   private static @NonNls String createThreadLocalInitializerReplacement(PsiType from, PsiClassType to, PsiElement context) {
-    if (PsiUtil.isLanguageLevel8OrHigher(context)) {
+    if (PsiUtil.isAvailable(JavaFeature.THREAD_LOCAL_WITH_INITIAL, context)) {
       return "java.lang.ThreadLocal.withInitial(() -> " + coerceType("$qualifier$", from, to, context) + ")";
     }
     final StringBuilder result = new StringBuilder("new ");
@@ -270,9 +271,9 @@ public final class ThreadLocalConversionRule extends TypeConversionRule {
     @Override
     public PsiExpression replace(PsiExpression expression, @NotNull TypeEvaluator evaluator) {
       PsiExpression replaced = super.replace(expression, evaluator);
-      boolean atLeastJava8 = PsiUtil.isLanguageLevel8OrHigher(replaced);
+      boolean effectivelyFinalSupported = PsiUtil.isAvailable(JavaFeature.EFFECTIVELY_FINAL, replaced);
       for (PsiVariable var : myVariablesToMakeFinal) {
-        if (!atLeastJava8 || !HighlightControlFlowUtil.isEffectivelyFinal(var, replaced, null)) {
+        if (!effectivelyFinalSupported || !HighlightControlFlowUtil.isEffectivelyFinal(var, replaced, null)) {
           VariableAccessFromInnerClassFix.fixAccess(var, replaced);
         }
       }

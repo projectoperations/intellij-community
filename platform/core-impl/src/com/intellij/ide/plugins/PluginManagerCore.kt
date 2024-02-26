@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("DeprecatedCallableAddReplaceWith", "ReplacePutWithAssignment", "ReplaceGetOrSet")
 
 package com.intellij.ide.plugins
@@ -10,6 +10,7 @@ import com.intellij.diagnostic.CoroutineTracerShim
 import com.intellij.diagnostic.LoadingState
 import com.intellij.ide.plugins.DisabledPluginsState.Companion.invalidate
 import com.intellij.ide.plugins.IdeaPluginPlatform.Companion.fromModuleId
+import com.intellij.ide.plugins.cl.PluginClassLoader
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.diagnostic.Logger
@@ -35,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.future.asCompletableFuture
 import org.jetbrains.annotations.*
+import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.GraphicsEnvironment
 import java.io.IOException
@@ -44,6 +46,7 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.function.*
 import javax.swing.JOptionPane
+import kotlin.io.path.name
 import kotlin.streams.asSequence
 
 @Suppress("SpellCheckingInspection")
@@ -309,7 +312,7 @@ object PluginManagerCore {
       .map { it.value }
       .toList()
     val logMessage = "Problems found loading plugins:\n  " +
-                     (globalErrorsSuppliers.asSequence() + loadingErrors.asSequence().map { it.internalMessage })
+                     (globalErrorsSuppliers.asSequence().map { it.get() } + loadingErrors.asSequence().map { it.internalMessage })
                        .joinToString(separator = "\n  ")
     if (isUnitTestMode || !GraphicsEnvironment.isHeadless()) {
       if (!isUnitTestMode) {
@@ -361,21 +364,29 @@ object PluginManagerCore {
 
   @Internal
   fun scheduleDescriptorLoading(coroutineScope: CoroutineScope) {
-    scheduleDescriptorLoading(coroutineScope = coroutineScope,
-                              zipFilePoolDeferred = null,
-                              mainClassLoaderDeferred = CompletableDeferred(PluginManagerCore::class.java.classLoader), 
-                              logDeferred = null)
+    scheduleDescriptorLoading(
+      coroutineScope = coroutineScope,
+      zipFilePoolDeferred = CompletableDeferred(NonShareableJavaZipFilePool()),
+      mainClassLoaderDeferred = CompletableDeferred(PluginManagerCore::class.java.classLoader),
+      logDeferred = null,
+    )
   }
 
   @Internal
   @Synchronized
-  fun scheduleDescriptorLoading(coroutineScope: CoroutineScope,
-                                zipFilePoolDeferred: Deferred<ZipFilePool>?,
-                                mainClassLoaderDeferred: Deferred<ClassLoader>?,
-                                logDeferred: Deferred<Logger>?): Deferred<PluginSet> {
+  fun scheduleDescriptorLoading(
+    coroutineScope: CoroutineScope,
+    zipFilePoolDeferred: Deferred<ZipFilePool>,
+    mainClassLoaderDeferred: Deferred<ClassLoader>?,
+    logDeferred: Deferred<Logger>?,
+  ): Deferred<PluginSet> {
     var result = initFuture
     if (result == null) {
-      result = coroutineScope.scheduleLoading(zipFilePoolDeferred, mainClassLoaderDeferred, logDeferred)
+      result = coroutineScope.scheduleLoading(
+        zipFilePoolDeferred = zipFilePoolDeferred,
+        mainClassLoaderDeferred = mainClassLoaderDeferred,
+        logDeferred = logDeferred,
+      )
       initFuture = result
     }
     return result
@@ -436,10 +447,10 @@ object PluginManagerCore {
       set.addAll(ApplicationInfoImpl.getShadowInstance().getEssentialPluginIds())
       val selectedPlugins = LinkedHashSet<IdeaPluginDescriptorImpl>(set.size)
       for (id in set) {
-        val descriptor = idMap[id] ?: continue
+        val descriptor = idMap.get(id) ?: continue
         selectedPlugins.add(descriptor)
         processAllNonOptionalDependencies(descriptor, idMap) { dependency ->
-          if (dependency != null) selectedPlugins.add(dependency)
+          selectedPlugins.add(dependency)
           FileVisitResult.CONTINUE
         }
       }
@@ -894,11 +905,13 @@ object PluginManagerCore {
   @Internal
   fun processAllNonOptionalDependencies(rootDescriptor: IdeaPluginDescriptorImpl,
                                         pluginIdMap: Map<PluginId, IdeaPluginDescriptorImpl>,
-                                        consumer: (IdeaPluginDescriptorImpl?) -> FileVisitResult): Boolean {
-    return processAllNonOptionalDependencies(rootDescriptor = rootDescriptor,
-                                             depProcessed = HashSet(),
-                                             pluginIdMap = pluginIdMap,
-                                             consumer = { _, descriptor -> consumer(descriptor) })
+                                        consumer: (IdeaPluginDescriptorImpl) -> FileVisitResult): Boolean {
+    return processAllNonOptionalDependencies(
+      rootDescriptor = rootDescriptor,
+      depProcessed = HashSet(),
+      pluginIdMap = pluginIdMap,
+      consumer = { _, descriptor -> if (descriptor == null) FileVisitResult.CONTINUE else consumer(descriptor) },
+    )
   }
 
   private fun processAllNonOptionalDependencies(rootDescriptor: IdeaPluginDescriptorImpl,
@@ -910,11 +923,13 @@ object PluginManagerCore {
       val pluginId = descriptor?.getPluginId() ?: dependencyId
       when (consumer(pluginId, descriptor)) {
         FileVisitResult.TERMINATE -> return false
-        FileVisitResult.CONTINUE -> if (descriptor != null && depProcessed.add(descriptor)) {
-          processAllNonOptionalDependencies(rootDescriptor = descriptor,
-                                            depProcessed = depProcessed,
-                                            pluginIdMap = pluginIdMap,
-                                            consumer = consumer)
+        FileVisitResult.CONTINUE -> {
+          if (descriptor != null && depProcessed.add(descriptor)) {
+            processAllNonOptionalDependencies(rootDescriptor = descriptor,
+                                              depProcessed = depProcessed,
+                                              pluginIdMap = pluginIdMap,
+                                              consumer = consumer)
+          }
         }
         FileVisitResult.SKIP_SUBTREE -> {}
         FileVisitResult.SKIP_SIBLINGS -> throw UnsupportedOperationException("FileVisitResult.SKIP_SIBLINGS is not supported")
@@ -969,7 +984,8 @@ private fun message(key: @PropertyKey(resourceBundle = CoreBundle.BUNDLE) String
   Supplier { CoreBundle.message(key!!, *params) }
 
 @Synchronized
-internal fun tryReadPluginIdsFromFile(path: Path, log: Logger): Set<PluginId> {
+@ApiStatus.Internal
+fun tryReadPluginIdsFromFile(path: Path, log: Logger): Set<PluginId> {
   try {
     return readPluginIdsFromFile(path)
   }
@@ -1042,4 +1058,25 @@ private fun findClassInPluginThatUsesCoreClassloader(className: @NonNls String, 
     }
   }
   return null
+}
+
+@Internal
+@Experimental
+fun getPluginDistDirByClass(aClass: Class<*>): Path? {
+  val pluginDir = (aClass.classLoader as? PluginClassLoader)?.pluginDescriptor?.pluginPath
+  if (pluginDir != null) {
+    return pluginDir
+  }
+
+  val jarInsideLib = PathManager.getJarForClass(aClass) ?: error("Can't find plugin dist home for ${aClass.simpleName}")
+  if (jarInsideLib.fileName.toString().endsWith("jar", ignoreCase = true)) {
+    return jarInsideLib
+      .parent
+      .also { check(it.name == "lib") { "$it should be lib directory" } }
+      .parent
+  }
+  else {
+    // for now, we support only plugins that for some reason pack plugin.xml into JAR (e.g., kotlin)
+    return null
+  }
 }

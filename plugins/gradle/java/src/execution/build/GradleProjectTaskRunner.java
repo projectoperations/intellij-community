@@ -53,7 +53,7 @@ import static com.intellij.openapi.util.text.StringUtil.*;
  * @author Vladislav.Soroka
  */
 @SuppressWarnings({"GrUnresolvedAccess", "GroovyAssignabilityCheck"}) // suppress warnings for injected Gradle/Groovy code
-public class GradleProjectTaskRunner extends ProjectTaskRunner {
+public final class GradleProjectTaskRunner extends ProjectTaskRunner {
   private static final Logger LOG = Logger.getInstance(GradleProjectTaskRunner.class);
 
   @Language("Groovy")
@@ -230,7 +230,7 @@ public class GradleProjectTaskRunner extends ProjectTaskRunner {
       userData.putUserData(GradleTaskManager.INIT_SCRIPT_PREFIX_KEY, settings.getExecutionName());
 
       ExternalSystemUtil.runTask(settings, DefaultRunExecutor.EXECUTOR_ID, project, GradleConstants.SYSTEM_ID,
-                                 taskCallback, ProgressExecutionMode.NO_PROGRESS_ASYNC, false, userData);
+                                 taskCallback, ProgressExecutionMode.IN_BACKGROUND_ASYNC, false, userData);
     }
     return resultPromise;
   }

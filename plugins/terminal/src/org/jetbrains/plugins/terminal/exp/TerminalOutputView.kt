@@ -5,16 +5,12 @@ import com.intellij.find.SearchReplaceComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataProvider
-import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.event.DocumentEvent
-import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.project.Project
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.ui.components.JBLayeredPane
-import com.intellij.ui.util.preferredHeight
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.plugins.terminal.action.TerminalInterruptCommandAction
 import java.awt.Component
@@ -29,7 +25,8 @@ import kotlin.math.min
 class TerminalOutputView(
   private val project: Project,
   session: BlockTerminalSession,
-  settings: JBTerminalSystemSettingsProviderBase
+  settings: JBTerminalSystemSettingsProviderBase,
+  focusModel: TerminalFocusModel
 ) : Disposable {
   val controller: TerminalOutputController
   val component: JComponent
@@ -50,22 +47,8 @@ class TerminalOutputView(
 
   init {
     editor = createEditor(settings)
-    controller = TerminalOutputController(project, editor, session, settings)
+    controller = TerminalOutputController(project, editor, session, settings, focusModel)
     component = TerminalOutputPanel()
-
-    controller.addDocumentListener(object : DocumentListener {
-      override fun documentChanged(event: DocumentEvent) {
-        invokeLater {
-          if (editor.isDisposed) return@invokeLater
-          val editorComponent = editor.component
-          if (editorComponent.height < component.height    // do not revalidate if output already occupied all height
-              && editorComponent.preferredHeight > editorComponent.height) { // revalidate if output no more fit in current bounds
-            component.revalidate()
-            component.repaint()
-          }
-        }
-      }
-    })
   }
 
   @RequiresEdt
@@ -87,7 +70,6 @@ class TerminalOutputView(
     val editor = TerminalUiUtils.createOutputEditor(document, project, settings)
     editor.settings.isUseSoftWraps = true
     stickScrollBarToBottom(editor.scrollPane.verticalScrollBar)
-    TerminalInterruptCommandAction().registerCustomShortcutSet(editor.contentComponent, null)
     return editor
   }
 
@@ -140,6 +122,10 @@ class TerminalOutputView(
         editor
       }
       else null
+    }
+
+    override fun getPreferredSize(): Dimension {
+      return if (editor.document.textLength == 0) Dimension() else editor.preferredSize
     }
 
     override fun doLayout() {

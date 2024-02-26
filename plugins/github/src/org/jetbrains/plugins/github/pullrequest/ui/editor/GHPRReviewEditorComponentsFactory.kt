@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.github.pullrequest.ui.editor
 
+import com.intellij.CommonBundle
 import com.intellij.collaboration.async.inverted
 import com.intellij.collaboration.async.mapScoped
 import com.intellij.collaboration.async.mapState
@@ -26,15 +27,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import org.jetbrains.plugins.github.i18n.GithubBundle
+import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRCompactReviewThreadViewModel
+import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRCompactReviewThreadViewModel.CommentItem
 import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRReviewThreadCommentComponentFactory
 import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRReviewThreadComponentFactory
-import org.jetbrains.plugins.github.pullrequest.ui.editor.GHPRReviewThreadEditorViewModel.CommentItem
 import javax.swing.AbstractAction
 import javax.swing.Action
 import javax.swing.JComponent
 
 internal object GHPRReviewEditorComponentsFactory {
-  fun createThreadIn(cs: CoroutineScope, vm: GHPRReviewThreadEditorViewModel): JComponent {
+  fun createThreadIn(cs: CoroutineScope, vm: GHPRCompactReviewThreadViewModel): JComponent {
     val commentsPanel = ComponentListPanelFactory.createVertical(cs, vm.comments) { item ->
       val itemCs = this
       when (item) {
@@ -71,7 +73,7 @@ internal object GHPRReviewEditorComponentsFactory {
     }
   }
 
-  private fun CoroutineScope.createReplyActionsPanel(vm: GHPRReviewThreadEditorViewModel): JComponent {
+  private fun CoroutineScope.createReplyActionsPanel(vm: GHPRCompactReviewThreadViewModel): JComponent {
     val cs = this
     val replyLink = ActionLink(CollaborationToolsBundle.message("review.comments.reply.action")) {
       vm.startWritingReply()
@@ -106,9 +108,7 @@ internal object GHPRReviewEditorComponentsFactory {
     }.stateInNow(cs, null)
 
     val secondaryActions = vm.submitActions.mapScoped { actions ->
-      actions.drop(1).mapNotNull {
-        createUiAction(vm, it)
-      }
+      actions.drop(1).map { createUiAction(vm, it) }
     }.stateInNow(cs, emptyList())
 
     val cancelAction = swingAction("") {
@@ -152,7 +152,7 @@ internal object GHPRReviewEditorComponentsFactory {
   }
 
   private fun CoroutineScope.createUiAction(vm: GHPRReviewNewCommentEditorViewModel,
-                                            action: GHPRReviewNewCommentEditorViewModel.SubmitAction?): Action? {
+                                            action: GHPRReviewNewCommentEditorViewModel.SubmitAction?): Action {
     val cs = this
     return when (action) {
       is GHPRReviewNewCommentEditorViewModel.SubmitAction.CreateReview ->
@@ -161,7 +161,9 @@ internal object GHPRReviewEditorComponentsFactory {
         vm.submitActionIn(cs, GithubBundle.message("pull.request.review.editor.add.review.comment")) { action() }
       is GHPRReviewNewCommentEditorViewModel.SubmitAction.CreateSingleComment ->
         vm.submitActionIn(cs, GithubBundle.message("pull.request.review.editor.add.single.comment")) { action() }
-      null -> null
+      null -> swingAction(CommonBundle.getLoadingTreeNodeText()) {}.apply {
+        isEnabled = false
+      }
     }
   }
 }

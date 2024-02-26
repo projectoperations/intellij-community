@@ -18,6 +18,7 @@ import com.intellij.ui.*;
 import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.util.Alarm;
 import com.intellij.util.MathUtil;
+import com.intellij.util.ui.JBInsets;
 import kotlin.Unit;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -197,10 +198,20 @@ public final class FloatingDecorator extends JDialog implements FloatingDecorato
     myBoundsHelper.setBounds(getBounds());
   }
 
+  @NotNull
   @Override
-  public void setBounds(@NotNull Rectangle r) {
+  public Rectangle getVisibleWindowBounds() {
+    var result = getBounds();
+    JBInsets.removeFrom(result, ToolWindowExternalDecoratorKt.getInvisibleInsets(this));
+    return result;
+  }
+
+  @Override
+  public void setVisibleWindowBounds(@NotNull Rectangle r) {
     myBoundsHelper.setBounds(r);
-    super.setBounds(r);
+    var newBounds = new Rectangle(r);
+    JBInsets.addTo(newBounds, ToolWindowExternalDecoratorKt.getInvisibleInsets(this));
+    super.setBounds(newBounds);
   }
 
   @NotNull
@@ -224,7 +235,7 @@ public final class FloatingDecorator extends JDialog implements FloatingDecorato
       if (LOG.isDebugEnabled()) {
         LOG.debug("Applying floating tool window " + info.getId() + " bounds from window info: " + bounds);
       }
-      setBounds(bounds);
+      setVisibleWindowBounds(bounds);
     }
     else {
       if (LOG.isDebugEnabled()) {

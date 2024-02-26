@@ -1,6 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.log.history;
 
+import com.intellij.diff.impl.DiffEditorViewer;
 import com.intellij.ide.ui.customization.CustomActionsSchema;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
@@ -15,11 +16,17 @@ import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.EditorTabDiffPreviewManager;
 import com.intellij.openapi.vcs.history.VcsFileRevision;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.*;
+import com.intellij.ui.JBSplitter;
+import com.intellij.ui.OnePixelSplitter;
+import com.intellij.ui.PopupHandler;
 import com.intellij.ui.components.JBPanel;
 import com.intellij.ui.navigation.History;
 import com.intellij.ui.switcher.QuickActionProvider;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.table.ComponentsListFocusTraversalPolicy;
+import com.intellij.util.ui.update.Activatable;
+import com.intellij.util.ui.update.UiNotifyConnector;
+import com.intellij.vcs.log.UnsupportedHistoryFiltersException;
 import com.intellij.vcs.log.VcsCommitMetadata;
 import com.intellij.vcs.log.VcsLogBundle;
 import com.intellij.vcs.log.data.VcsLogData;
@@ -69,12 +76,15 @@ public class FileHistoryPanel extends JPanel implements DataProvider, Disposable
 
   private final @NotNull CommitDetailsListPanel myDetailsPanel;
   private final @NotNull JBSplitter myDetailsSplitter;
+  private final @NotNull JComponent myToolbar;
 
-  private @Nullable FileHistoryEditorDiffPreview myEditorDiffPreview;
+  private final @NotNull FrameDiffPreview myFrameDiffPreview;
+  private final @NotNull FileHistoryEditorDiffPreview myEditorDiffPreview;
 
   private final @NotNull History myHistory;
 
-  public FileHistoryPanel(@NotNull AbstractVcsLogUi logUi, @NotNull FileHistoryModel fileHistoryModel, @NotNull VcsLogData logData,
+  public FileHistoryPanel(@NotNull AbstractVcsLogUi logUi, @NotNull FileHistoryModel fileHistoryModel,
+                          @NotNull FileHistoryFilterUi filterUi, @NotNull VcsLogData logData,
                           @NotNull FilePath filePath, @NotNull VirtualFile root,
                           @NotNull VcsLogColorManager colorManager,
                           @NotNull Disposable disposable) {
@@ -91,17 +101,22 @@ public class FileHistoryPanel extends JPanel implements DataProvider, Disposable
       @Override
       protected void updateEmptyText() {
         VisiblePack visiblePack = getModel().getVisiblePack();
-        if (visiblePack instanceof VisiblePack.ErrorVisiblePack) {
-          setErrorEmptyText(((VisiblePack.ErrorVisiblePack)visiblePack).getError(),
-                            VcsLogBundle.message("file.history.error.status"));
-          appendActionToEmptyText(VcsLogBundle.message("vcs.log.refresh.status.action"), () -> logUi.getRefresher().onRefresh());
+        if (visiblePack instanceof VisiblePack.ErrorVisiblePack errorVisiblePack) {
+          Throwable error = errorVisiblePack.getError();
+          setErrorEmptyText(error, VcsLogBundle.message("file.history.error.status"));
+          if (error instanceof UnsupportedHistoryFiltersException) {
+            appendActionToEmptyText(VcsLogBundle.message("file.history.reset.filters.status.action"),
+                                    () -> filterUi.resetFiltersToDefault());
+          }
+          else {
+            appendActionToEmptyText(VcsLogBundle.message("vcs.log.refresh.status.action"), () -> logUi.getRefresher().onRefresh());
+          }
         }
         else {
           getEmptyText().setText(VcsLogBundle.message("file.history.empty.status"));
         }
       }
     };
-    myGraphTable.setBorder(myGraphTable.createTopBottomBorder(1, 0));
     mySpeedSearch = new FileHistorySpeedSearch(myProject, logData.getIndex(), logData.getStorage(), myGraphTable);
     mySpeedSearch.setupListeners();
 
@@ -117,34 +132,35 @@ public class FileHistoryPanel extends JPanel implements DataProvider, Disposable
                                                     VcsLogColorManagerFactory.create(Collections.singleton(myRoot)));
 
     myDetailsSplitter = new OnePixelSplitter(true, "vcs.log.history.details.splitter.proportion", 0.7f);
-    JComponent tableWithProgress = VcsLogUiUtil.installProgress(VcsLogUiUtil.setupScrolledGraph(myGraphTable, SideBorder.NONE),
-                                                                logData, logUi.getId(), this);
+    JComponent tableWithProgress = VcsLogUiUtil.installScrollingAndProgress(myGraphTable, this);
     myDetailsSplitter.setFirstComponent(tableWithProgress);
     myDetailsSplitter.setSecondComponent(myProperties.get(CommonUiProperties.SHOW_DETAILS) ? myDetailsPanel : null);
 
-    setEditorDiffPreview();
-    EditorTabDiffPreviewManager.getInstance(myProject).subscribeToPreviewVisibilityChange(this, this::setEditorDiffPreview);
+    myEditorDiffPreview = new FileHistoryEditorDiffPreview(myProject, this);
+    Disposer.register(this, myEditorDiffPreview);
 
-    JComponent actionsToolbar = createActionsToolbar();
-    actionsToolbar.setBorder(IdeBorderFactory.createBorder(SideBorder.RIGHT));
+    myToolbar = createActionsToolbar(filterUi);
     JBPanel tablePanel = new JBPanel(new BorderLayout()) {
       @Override
       public Dimension getMinimumSize() {
-        return VcsLogUiUtil.expandToFitToolbar(super.getMinimumSize(), actionsToolbar);
+        return VcsLogUiUtil.expandToFitToolbar(super.getMinimumSize(), myToolbar);
       }
     };
     tablePanel.add(myDetailsSplitter, BorderLayout.CENTER);
-    tablePanel.add(actionsToolbar, BorderLayout.WEST);
+    tablePanel.add(myToolbar, BorderLayout.NORTH);
 
     setLayout(new BorderLayout());
-    add(new FrameDiffPreview<>(createDiffPreview(false), myProperties, tablePanel,
-                               "vcs.history.diff.splitter.proportion", false, 0.7f) {
-
+    myFrameDiffPreview = new FrameDiffPreview(myProperties, tablePanel, "vcs.history.diff.splitter.proportion",
+                                                             0.7f, this) {
+      @NotNull
       @Override
-      public void updatePreview(boolean state) {
-        getPreviewDiff().updatePreview(state);
+      protected DiffEditorViewer createViewer() {
+        FileHistoryDiffProcessor processor = createDiffPreview(false);
+        processor.setToolbarVerticalSizeReferent(myToolbar);
+        return processor;
       }
-    }.getMainComponent(), BorderLayout.CENTER);
+    };
+    add(myFrameDiffPreview.getMainComponent(), BorderLayout.CENTER);
 
     PopupHandler.installPopupMenu(myGraphTable, VcsLogActionIds.HISTORY_POPUP_ACTION_GROUP, ActionPlaces.VCS_HISTORY_PLACE);
     invokeOnDoubleClick(ActionManager.getInstance().getAction(VcsLogActionIds.VCS_LOG_SHOW_DIFF_ACTION), tableWithProgress);
@@ -152,20 +168,15 @@ public class FileHistoryPanel extends JPanel implements DataProvider, Disposable
     myHistory = VcsLogUiUtil.installNavigationHistory(logUi, myGraphTable);
 
     Disposer.register(disposable, this);
-  }
 
-  private void setEditorDiffPreview() {
-    FileHistoryEditorDiffPreview preview = myEditorDiffPreview;
-
-    boolean isEditorPreview = VcsLogUiUtil.isDiffPreviewInEditor(myProject);
-    if (isEditorPreview && preview == null) {
-      preview = new FileHistoryEditorDiffPreview(myProject, this);
-      myEditorDiffPreview = preview;
-    }
-    else if (!isEditorPreview && preview != null) {
-      preview.closePreview();
-      myEditorDiffPreview = null;
-    }
+    myGraphTable.resetDefaultFocusTraversalKeys();
+    setFocusCycleRoot(true);
+    setFocusTraversalPolicy(new ComponentsListFocusTraversalPolicy() {
+      @Override
+      protected @NotNull List<Component> getOrderedComponents() {
+        return ContainerUtil.skipNulls(Arrays.asList(myGraphTable, myFrameDiffPreview.getPreferredFocusedComponent(), myToolbar));
+      }
+    });
   }
 
   private void invokeOnDoubleClick(@NotNull AnAction action, @NotNull JComponent component) {
@@ -181,19 +192,25 @@ public class FileHistoryPanel extends JPanel implements DataProvider, Disposable
     }.registerCustomShortcutSet(CommonShortcuts.DOUBLE_CLICK_1, component);
   }
 
-  private @NotNull JComponent createActionsToolbar() {
+  private @NotNull JComponent createActionsToolbar(@NotNull FileHistoryFilterUi filterUi) {
     DefaultActionGroup toolbarGroup = new DefaultActionGroup();
+    toolbarGroup.add(filterUi.createActionGroup());
+    toolbarGroup.addSeparator();
     AnAction toolbarActions = CustomActionsSchema.getInstance().getCorrectedAction(VcsLogActionIds.FILE_HISTORY_TOOLBAR_ACTION_GROUP);
     toolbarGroup.add(Objects.requireNonNull(toolbarActions));
 
     ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.VCS_HISTORY_TOOLBAR_PLACE,
-                                                                            toolbarGroup, false);
+                                                                            toolbarGroup, true);
     toolbar.setTargetComponent(myGraphTable);
     return toolbar.getComponent();
   }
 
   public @NotNull VcsLogGraphTable getGraphTable() {
     return myGraphTable;
+  }
+
+  public @NotNull JComponent getToolbar() {
+    return myToolbar;
   }
 
   public void updateDataPack(@NotNull VisiblePack visiblePack, boolean permanentGraphChanged) {
@@ -210,7 +227,7 @@ public class FileHistoryPanel extends JPanel implements DataProvider, Disposable
     FileHistoryDiffProcessor diffPreview = new FileHistoryDiffProcessor(myProject, () -> getSelectedChange(), isInEditor, this);
     ListSelectionListener selectionListener = e -> {
       int[] selection = myGraphTable.getSelectedRows();
-      ApplicationManager.getApplication().invokeLater(() -> diffPreview.updatePreview(diffPreview.getComponent().isShowing()),
+      ApplicationManager.getApplication().invokeLater(() -> diffPreview.updatePreview(),
                                                       o -> !Arrays.equals(selection, myGraphTable.getSelectedRows()) ||
                                                            Disposer.isDisposed(diffPreview));
     };
@@ -219,10 +236,17 @@ public class FileHistoryPanel extends JPanel implements DataProvider, Disposable
 
     TableModelListener modelListener = e -> {
       if (e.getColumn() < 0) {
-        ApplicationManager.getApplication().invokeLater(() -> diffPreview.updatePreview(diffPreview.getComponent().isShowing()),
+        ApplicationManager.getApplication().invokeLater(() -> diffPreview.updatePreview(),
                                                         o -> Disposer.isDisposed(diffPreview));
       }
     };
+    UiNotifyConnector.installOn(diffPreview.getComponent(), new Activatable() {
+      @Override
+      public void showNotify() {
+        diffPreview.updatePreview();
+      }
+    });
+
     myGraphTable.getModel().addTableModelListener(modelListener);
     Disposer.register(diffPreview, () -> myGraphTable.getModel().removeTableModelListener(modelListener));
 

@@ -5,19 +5,15 @@ import com.intellij.codeInsight.codeVision.*
 import com.intellij.codeInsight.codeVision.settings.PlatformCodeVisionIds
 import com.intellij.codeInsight.codeVision.ui.model.CodeVisionPredefinedActionEntry
 import com.intellij.codeInsight.codeVision.ui.model.TextCodeVisionEntry
+import com.intellij.codeInsight.hints.InlayHintsUtils
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionPlaces
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.command.UndoConfirmationPolicy
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.progress.EmptyProgressIndicator
-import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.findPsiFile
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -58,23 +54,23 @@ class RenameCodeVisionProvider : CodeVisionProvider<Unit> {
 
   override fun computeCodeVision(editor: Editor, uiData: Unit): CodeVisionState {
     val project = editor.project ?: return CodeVisionState.READY_EMPTY
-    try {
-      return ProgressManager.getInstance().runProcess(
-        Computable { runBlockingCancellable { readAction {
-          if (project.isDisposed || editor.isDisposed) CodeVisionState.READY_EMPTY
-          else getCodeVisionState(editor, project)
-        } } },
-        EmptyProgressIndicator()
-      )
-    }
-    catch (e: ProcessCanceledException) {
-      return CodeVisionState.NotReady
+
+    return InlayHintsUtils.computeCodeVisionUnderReadAction {
+      return@computeCodeVisionUnderReadAction when {
+        project.isDisposed || editor.isDisposed -> CodeVisionState.READY_EMPTY
+        else -> getCodeVisionState(editor, project)
+      }
     }
   }
 
   @RequiresReadLock
   private fun getCodeVisionState(editor: Editor, project: Project): CodeVisionState {
     val file = editor.virtualFile?.findPsiFile(project)
+
+    if (file != null && !RenameCodeVisionSupport.isEnabledFor(file.fileType)) {
+      return CodeVisionState.READY_EMPTY
+    }
+
     val refactoring = file?.getUserData(REFACTORING_DATA_KEY)
                       ?: editor.getUserData(REFACTORING_DATA_KEY)
                       ?: return CodeVisionState.READY_EMPTY
@@ -82,7 +78,7 @@ class RenameCodeVisionProvider : CodeVisionProvider<Unit> {
     if (refactoring is SuggestedRenameData) {
       if (refactoring.oldName == refactoring.declaration.name) return CodeVisionState.READY_EMPTY
       val text = RefactoringBundle.message("rename.code.vision.text")
-      val tooltip = RefactoringBundle.message("rename.code.vision.tooltip", refactoring.oldName, refactoring.declaration.name)
+      val tooltip = RefactoringBundle.message("suggested.refactoring.rename.popup.text", refactoring.oldName, refactoring.declaration.name)
       return CodeVisionState.Ready(listOf(
         refactoring.declaration.textRange to RenameCodeVisionEntry(project, text, tooltip, id)
       ))
@@ -101,6 +97,11 @@ class RenameCodeVisionProvider : CodeVisionProvider<Unit> {
     }
     file.accept(visitor)
     visitor.renamedElement?.let { editor.putUserData(REFACTORING_DATA_KEY, SuggestedRenameData(it, "foo")) }
+  }
+
+  override fun handleClick(editor: Editor, textRange: TextRange, entry: CodeVisionEntry) {
+    RenameCodeVisionCollector.inlayHintClicked()
+    super.handleClick(editor, textRange, entry)
   }
 
   override val name: String

@@ -5,7 +5,6 @@ import com.intellij.execution.Platform
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.PathManager
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
@@ -49,8 +48,7 @@ object TerminalSessionTestUtil {
     val process = runner.createProcess(configuredOptions)
     val ttyConnector = runner.createTtyConnector(process)
 
-    val colorPalette = BlockTerminalColorPalette(EditorColorsManager.getInstance().globalScheme)
-    val session = BlockTerminalSession(runner.settingsProvider, colorPalette, configuredOptions.shellIntegration!!)
+    val session = BlockTerminalSession(runner.settingsProvider, BlockTerminalColorPalette(), configuredOptions.shellIntegration!!)
     Disposer.register(parentDisposable, session)
     session.controller.resize(initialTermSize, RequestOrigin.User)
     val model: TerminalModel = session.model
@@ -58,7 +56,7 @@ object TerminalSessionTestUtil {
     val initializedFuture = CompletableFuture<Boolean>()
     val listenersDisposable = Disposer.newDisposable()
     session.addCommandListener(object : ShellCommandListener {
-      override fun initialized(currentDirectory: String?) {
+      override fun initialized() {
         initializedFuture.complete(true)
       }
     }, listenersDisposable)
@@ -101,10 +99,10 @@ object TerminalSessionTestUtil {
     }, disposable)
     val result: CompletableFuture<CommandResult> = CompletableFuture()
     session.commandManager.addListener(object : ShellCommandListener {
-      override fun commandFinished(command: String?, exitCode: Int, duration: Long?) {
+      override fun commandFinished(event: CommandFinishedEvent) {
         val (text, commandEndMarkerFound) = scraper.scrapeOutput()
         Assert.assertEquals(session.commandBlockIntegration.commandEndMarker != null, commandEndMarkerFound)
-        result.complete(CommandResult(exitCode, text))
+        result.complete(CommandResult(event.exitCode, text))
         Disposer.dispose(disposable)
       }
     }, disposable)

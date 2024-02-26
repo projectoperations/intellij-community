@@ -1,8 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.configurationStore
 
 import com.intellij.ide.highlighter.ProjectFileType
 import com.intellij.ide.impl.OpenProjectTask
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectEx
@@ -110,7 +111,7 @@ class ProjectStoreTest {
       it.writeChild("${Project.DIRECTORY_STORE_FOLDER}/misc.xml", out.toByteArray())
       it.toNioPath()
     }) { project ->
-      val store = project.stateStore as ProjectStoreBase
+      val store = project.stateStore as ProjectStoreImpl
       assertThat(store.getNameFile()).doesNotExist()
       val newName = "Foo"
       val oldName = project.name
@@ -146,7 +147,7 @@ class ProjectStoreTest {
       it.writeChild("${Project.DIRECTORY_STORE_FOLDER}/.name", name)
       it.toNioPath()
     }) { project ->
-      val store = project.stateStore as ProjectStoreBase
+      val store = project.stateStore as ProjectStoreImpl
       assertThat(store.getNameFile()).hasContent(name)
 
       project.stateStore.save()
@@ -197,7 +198,7 @@ class ProjectStoreTest {
       projectStalledStorageBean.file = storageFileName
       projectStalledStorageBean.isProjectLevel = true
       projectStalledStorageBean.components.addAll(listOf("ProjectLevelLoser"))
-      ExtensionTestUtil.maskExtensions(OBSOLETE_STORAGE_EP, listOf(obsoleteStorageBean, projectStalledStorageBean), project)
+      ExtensionTestUtil.maskExtensions(ObsoleteStorageBean.EP_NAME, listOf(obsoleteStorageBean, projectStalledStorageBean), project)
 
       val componentStore = project.stateStore
 
@@ -205,7 +206,7 @@ class ProjectStoreTest {
       class AOther : A()
 
       val component = AOther()
-      componentStore.initComponent(component, null, null)
+      componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
       assertThat(component.options.foo).isEqualTo("some data")
 
       componentStore.save()
@@ -229,7 +230,7 @@ class ProjectStoreTest {
     testComponent.loadState(TestState(AAValue = "foo"))
     (projectManager.defaultProject as ComponentManager).stateStore.initComponent(component = testComponent,
                                                                                  serviceDescriptor = null,
-                                                                                 pluginId = null)
+                                                                                 pluginId = PluginManagerCore.CORE_ID)
 
     runBlocking {
       val newProjectPath = tempDirManager.newPath()
@@ -245,7 +246,7 @@ class ProjectStoreTest {
 
   private suspend fun test(project: Project): TestComponent {
     val testComponent = TestComponent()
-    project.stateStore.initComponent(testComponent, null, null)
+    project.stateStore.initComponent(testComponent, null, PluginManagerCore.CORE_ID)
     assertThat(testComponent.state).isEqualTo(TestState("customValue"))
 
     testComponent.state!!.AAValue = "foo"

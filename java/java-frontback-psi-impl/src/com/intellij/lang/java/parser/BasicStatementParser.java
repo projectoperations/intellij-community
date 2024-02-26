@@ -5,7 +5,7 @@ import com.intellij.core.JavaPsiBundle;
 import com.intellij.lang.PsiBuilder;
 import com.intellij.lang.WhitespacesBinders;
 import com.intellij.openapi.util.Pair;
-import com.intellij.pom.java.LanguageLevel;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.PsiKeyword;
 import com.intellij.psi.impl.source.AbstractBasicJavaElementTypeFactory;
@@ -276,7 +276,7 @@ public class BasicStatementParser {
   private static boolean isStmtYieldToken(@NotNull PsiBuilder builder, IElementType tokenType) {
     if (!(tokenType == JavaTokenType.IDENTIFIER &&
           PsiKeyword.YIELD.equals(builder.getTokenText()) &&
-          getLanguageLevel(builder).isAtLeast(LanguageLevel.JDK_14))) {
+          JavaFeature.SWITCH_EXPRESSION.isSufficient(getLanguageLevel(builder)))) {
       return false;
     }
     // we prefer to parse it as yield stmt wherever possible (even in incomplete syntax)
@@ -334,7 +334,7 @@ public class BasicStatementParser {
 
   @Contract(pure = true)
   private boolean isRecordPatternInForEach(final PsiBuilder builder) {
-    PsiBuilder.Marker patternStart = myParser.getPatternParser().preParsePattern(builder, false);
+    PsiBuilder.Marker patternStart = myParser.getPatternParser().preParsePattern(builder);
     if (patternStart == null) {
       return false;
     }
@@ -564,7 +564,7 @@ public class BasicStatementParser {
     builder.advanceLexer();
 
     if (isCase) {
-      boolean patternsAllowed = getLanguageLevel(builder).isAtLeast(LanguageLevel.JDK_17);
+      boolean patternsAllowed = JavaFeature.PATTERNS_IN_SWITCH.isSufficient(getLanguageLevel(builder));
       PsiBuilder.Marker list = builder.mark();
       do {
         Pair<PsiBuilder.Marker, Boolean> markerAndIsExpression = parseCaseLabel(builder);

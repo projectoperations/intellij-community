@@ -12,7 +12,7 @@ import com.intellij.collaboration.util.RefComparisonChange
 import com.intellij.diff.util.LineRange
 import com.intellij.diff.util.Range
 import com.intellij.diff.util.Side
-import com.intellij.openapi.diff.impl.patch.PatchLine
+import com.intellij.openapi.diff.impl.patch.PatchHunkUtil
 import com.intellij.openapi.diff.impl.patch.withoutContext
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.Project
@@ -32,8 +32,10 @@ import org.jetbrains.plugins.gitlab.mergerequest.util.GitLabMergeRequestEditorCo
 import org.jetbrains.plugins.gitlab.mergerequest.util.toLines
 
 interface GitLabMergeRequestEditorReviewFileViewModel {
-  val originalContent: StateFlow<ComputedResult<CharSequence>?>
+  val headContent: StateFlow<ComputedResult<CharSequence>?>
   val changedRanges: List<Range>
+
+  fun getBaseContent(lines: LineRange): String?
 
   val discussions: StateFlow<Collection<GitLabMergeRequestEditorDiscussionViewModel>>
   val draftNotes: StateFlow<Collection<GitLabMergeRequestEditorDraftNoteViewModel>>
@@ -43,8 +45,6 @@ interface GitLabMergeRequestEditorReviewFileViewModel {
   val newDiscussions: StateFlow<Collection<GitLabMergeRequestEditorNewDiscussionViewModel>>
 
   val avatarIconsProvider: IconsProvider<GitLabUserDTO>
-
-  fun getOriginalContent(range: LineRange): String?
 
   fun requestNewDiscussion(line: Int, focus: Boolean)
   fun cancelNewDiscussion(line: Int)
@@ -64,7 +64,7 @@ internal class GitLabMergeRequestEditorReviewFileViewModelImpl(
 ) : GitLabMergeRequestEditorReviewFileViewModel {
   private val cs = parentCs.childScope(classAsCoroutineName())
 
-  override val originalContent: StateFlow<ComputedResult<String>?> = flow {
+  override val headContent: StateFlow<ComputedResult<String>?> = flow {
     ComputedResult.compute {
       coroutineToIndicator {
         change.createVcsChange(project).afterRevision?.content ?: ""
@@ -77,6 +77,11 @@ internal class GitLabMergeRequestEditorReviewFileViewModelImpl(
   }.stateIn(cs, SharingStarted.Lazily, ComputedResult.loading())
 
   override val changedRanges: List<Range> = diffData.patch.hunks.withoutContext().toList()
+
+  override fun getBaseContent(lines: LineRange): String? {
+    if (lines.start == lines.end) return ""
+    return PatchHunkUtil.getLinesLeft(diffData.patch, lines)
+  }
 
   override val discussions: StateFlow<Collection<GitLabMergeRequestEditorDiscussionViewModel>> =
     discussionsContainer.discussions.map {
@@ -100,32 +105,6 @@ internal class GitLabMergeRequestEditorReviewFileViewModelImpl(
         GitLabMergeRequestEditorNewDiscussionViewModel(vm, line, discussionsViewOption)
       }
     }.stateInNow(cs, emptyList())
-
-  override fun getOriginalContent(range: LineRange): String? {
-    if (range.start == range.end) return ""
-    return diffData.patch.hunks.find {
-      it.startLineBefore <= range.start && it.endLineBefore >= range.end
-    }?.let { hunk ->
-      val builder = StringBuilder()
-      var lineCounter = hunk.startLineBefore
-      for (line in hunk.lines) {
-        if (line.type == PatchLine.Type.CONTEXT) {
-          lineCounter++
-        }
-        if (line.type == PatchLine.Type.REMOVE) {
-          if (lineCounter >= range.start) {
-            builder.append(line.text)
-            if (!line.isSuppressNewLine) {
-              builder.append("\n")
-            }
-          }
-          lineCounter++
-        }
-        if (lineCounter >= range.end) break
-      }
-      return builder.toString()
-    }
-  }
 
   override fun requestNewDiscussion(line: Int, focus: Boolean) {
     val position = GitLabMergeRequestNewDiscussionPosition.calcFor(diffData, DiffLineLocation(Side.RIGHT, line)).let {

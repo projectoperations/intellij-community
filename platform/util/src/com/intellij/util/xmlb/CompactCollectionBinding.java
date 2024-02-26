@@ -1,10 +1,10 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xmlb;
 
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.serialization.MutableAccessor;
-import com.intellij.util.xml.dom.XmlElement;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.xml.dom.XmlElement;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -14,7 +14,7 @@ import java.util.List;
 /**
  * @see com.intellij.util.xmlb.annotations.CollectionBean
  */
-final class CompactCollectionBinding extends NotNullDeserializeBinding implements NestedBinding {
+final class CompactCollectionBinding implements NotNullDeserializeBinding, NestedBinding {
   private final String name;
   private final MutableAccessor accessor;
 
@@ -29,10 +29,10 @@ final class CompactCollectionBinding extends NotNullDeserializeBinding implement
   }
 
   @Override
-  public @NotNull Object serialize(@NotNull Object o, @Nullable Object context, @Nullable SerializationFilter filter) {
+  public @NotNull Object serialize(@NotNull Object bean, @Nullable Object context, @Nullable SerializationFilter filter) {
     Element result = new Element(name);
     @SuppressWarnings("unchecked")
-    List<String> list = (List<String>)o;
+    List<String> list = (List<String>)bean;
     if (list.isEmpty()) {
       return result;
     }

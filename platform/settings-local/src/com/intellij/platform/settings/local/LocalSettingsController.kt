@@ -7,42 +7,96 @@ import com.intellij.ide.caches.CachesInvalidator
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.platform.settings.*
+import com.intellij.util.concurrency.SynchronizedClearableLazy
 import org.jetbrains.annotations.TestOnly
 
 @TestOnly
 fun clearCacheStore() {
-  service<LocalSettingsControllerService>().storeManager.clear()
+  serviceIfCreated<InternalAndCacheStorageManager>()?.storeManager?.clear()
 }
 
 @TestOnly
 internal suspend fun compactCacheStore() {
-  service<LocalSettingsControllerService>().storeManager.compactStore()
+  serviceIfCreated<InternalAndCacheStorageManager>()?.storeManager?.compactStore()
 }
 
 private class LocalSettingsController : DelegatedSettingsController {
-  private val service = service<LocalSettingsControllerService>()
+  private val storageManager = SynchronizedClearableLazy { service<InternalAndCacheStorageManager>() }
 
-  override fun <T : Any> getItem(key: SettingDescriptor<T>) = GetResult.resolved(service.getItem(key))
+  override fun <T : Any> getItem(key: SettingDescriptor<T>): GetResult<T> {
+    for (tag in key.tags) {
+      if (tag is PropertyManagerAdapterTag) {
+        val propertyManager = PropertiesComponent.getInstance()
+        @Suppress("UNCHECKED_CAST")
+        return GetResult.resolved(propertyManager.getValue(tag.oldKey) as T?)
+      }
+    }
 
-  override fun <T : Any> setItem(key: SettingDescriptor<T>, value: T?): Boolean {
-    service.setItem(key, value)
-    return false
+    operate(key = key, internalOperation = { map, componentName ->
+      val value = map.getValue(key = getEffectiveKey(key), serializer = key.serializer, pluginId = key.pluginId)
+      if (value == null && componentName != null) {
+        if (map.map.hasKeyStartsWith("${key.pluginId.idString}.$componentName.")) {
+          return GetResult.resolved(null)
+        }
+        else {
+          return GetResult.inapplicable()
+        }
+      }
+      else {
+        return GetResult.resolved(value)
+      }
+    })
+
+    return GetResult.inapplicable()
+  }
+
+  override fun <T : Any> setItem(key: SettingDescriptor<T>, value: T?): SetResult {
+    operate(key, internalOperation = { map, _ ->
+      map.setValue(key = getEffectiveKey(key), value = value, serializer = key.serializer, pluginId = key.pluginId)
+      return SetResult.DONE
+    })
+    return SetResult.INAPPLICABLE
   }
 
   override fun close() {
-    service.storeManager.close()
+    storageManager.valueIfInitialized?.storeManager?.close()
+  }
+
+  private inline fun <T : Any> operate(
+    key: SettingDescriptor<T>,
+    internalOperation: (map: InternalStateStorageService, componentName: String?) -> Unit,
+  ) {
+    var componentName: String? = null
+    for (tag in key.tags) {
+      when (tag) {
+        is CacheTag -> {
+          return internalOperation(storageManager.value.cacheMap, componentName)
+        }
+        is NonShareableInternalTag -> {
+          return internalOperation(storageManager.value.internalMap, componentName)
+        }
+        is PersistenceStateComponentPropertyTag -> {
+          // this tag is expected to be first
+          componentName = tag.componentName
+        }
+      }
+    }
   }
 }
 
 @Service(Service.Level.APP)
-private class LocalSettingsControllerService : SettingsSavingComponent {
-  @JvmField val storeManager: MvStoreManager = MvStoreManager()
+private class InternalAndCacheStorageManager : SettingsSavingComponent {
+  @JvmField
+  val storeManager: MvStoreManager = MvStoreManager()
 
   // Telemetry is not ready at this point yet
-  private val cacheMap by lazy { InternalStateStorageService(storeManager.openMap("cache_v1"), telemetryScopeName = "cacheStateStorage") }
-  private val internalMap by lazy {
+  val cacheMap by lazy {
+    InternalStateStorageService(storeManager.openMap("cache_v1"), telemetryScopeName = "cacheStateStorage")
+  }
+
+  val internalMap by lazy {
     InternalStateStorageService(storeManager.openMap("internal_v1"), telemetryScopeName = "internalStateStorage")
   }
 
@@ -50,50 +104,16 @@ private class LocalSettingsControllerService : SettingsSavingComponent {
     storeManager.save()
   }
 
-  fun <T : Any> getItem(key: SettingDescriptor<T>): T? {
-    for (tag in key.tags) {
-      if (tag is PropertyManagerAdapterTag) {
-        val propertyManager = PropertiesComponent.getInstance()
-        @Suppress("UNCHECKED_CAST")
-        return propertyManager.getValue(tag.oldKey) as T?
-      }
-    }
-
-    operate(key, internalOperation = {
-      return it.getValue(key = getEffectiveKey(key), serializer = key.serializer, pluginId = key.pluginId)
-    })
-
-    return null
-  }
-
-  fun <T : Any> setItem(key: SettingDescriptor<T>, value: T?) {
-    operate(key, internalOperation = {
-      it.setValue(key = getEffectiveKey(key), value = value, serializer = key.serializer, pluginId = key.pluginId)
-    })
-  }
-
   fun invalidateCaches() {
-    cacheMap.clear()
-  }
-
-  private fun getEffectiveKey(key: SettingDescriptor<*>): String = "${key.pluginId.idString}.${key.key}"
-
-  private inline fun  <T: Any> operate(key: SettingDescriptor<T>, internalOperation: (map: InternalStateStorageService) -> Unit) {
-    for (tag in key.tags) {
-      if (tag is CacheTag) {
-        return internalOperation(cacheMap)
-      }
-      else if (tag is NonShareableInternalTag) {
-        return internalOperation(internalMap)
-      }
-    }
-
-    logger<LocalSettingsController>().error("Operation for $key is not supported")
+    cacheMap.map.clear()
   }
 }
 
+private fun getEffectiveKey(key: SettingDescriptor<*>): String = "${key.pluginId.idString}.${key.key}"
+
+@Suppress("unused")
 private class CacheStateStorageInvalidator : CachesInvalidator() {
   override fun invalidateCaches() {
-    service<LocalSettingsControllerService>().invalidateCaches()
+    service<InternalAndCacheStorageManager>().invalidateCaches()
   }
 }

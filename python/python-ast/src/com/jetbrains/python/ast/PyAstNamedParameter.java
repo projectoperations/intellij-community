@@ -16,15 +16,14 @@
 package com.jetbrains.python.ast;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiNameIdentifierOwner;
-import com.intellij.psi.PsiNamedElement;
+import com.intellij.psi.*;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.stubs.StubElement;
 import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.PythonDialectsTokenSetProvider;
 import com.jetbrains.python.ast.impl.ParamHelperCore;
+import com.jetbrains.python.ast.impl.PyUtilCore;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -89,6 +88,14 @@ public interface PyAstNamedParameter extends PyAstParameter, PsiNamedElement, Ps
     return ParamHelperCore.getDefaultValueText(getDefaultValue());
   }
 
+  /**
+   * @param includeDefaultValue if true, include the default value after an "=".
+   * @return canonical representation of parameter.
+   * Includes asterisks for *param and **param, and name.
+   */
+  @NotNull
+  String getRepr(boolean includeDefaultValue);
+
   @Override
   @NotNull
   default PyAstNamedParameter getAsNamed() {
@@ -128,5 +135,48 @@ public interface PyAstNamedParameter extends PyAstParameter, PsiNamedElement, Ps
     }
     return varargSeen;
   }
-}
 
+  @Override
+  default boolean isSelf() {
+    if (isPositionalContainer() || isKeywordContainer()) {
+      return false;
+    }
+    PyAstFunction function = getStubOrPsiParentOfType(PyAstFunction.class);
+    if (function == null) {
+      return false;
+    }
+    final PyAstClass cls = function.getContainingClass();
+    final PyAstParameter[] parameters = function.getParameterList().getParameters();
+    if (cls != null && parameters.length > 0 && parameters[0] == this) {
+      if (PyUtilCore.isNewMethod(function)) {
+        return true;
+      }
+      final PyAstFunction.Modifier modifier = function.getModifier();
+      if (modifier != PyAstFunction.Modifier.STATICMETHOD) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @Override
+  default void acceptPyVisitor(PyAstElementVisitor pyVisitor) {
+    pyVisitor.visitPyNamedParameter(this);
+  }
+
+  @Nullable
+  @Override
+  default PsiComment getTypeComment() {
+    for (PsiElement next = getNextSibling(); next != null; next = next.getNextSibling()) {
+      if (next.textContains('\n')) break;
+      if (!(next instanceof PsiWhiteSpace)) {
+        if (",".equals(next.getText())) continue;
+        if (next instanceof PsiComment && PyUtilCore.getTypeCommentValue(next.getText()) != null) {
+          return (PsiComment)next;
+        }
+        break;
+      }
+    }
+    return null;
+  }
+}

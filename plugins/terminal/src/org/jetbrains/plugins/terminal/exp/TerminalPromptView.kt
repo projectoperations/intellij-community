@@ -3,28 +3,34 @@ package org.jetbrains.plugins.terminal.exp
 
 import com.intellij.codeInsight.AutoPopupController
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.runInEdt
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.CaretVisualAttributes
+import com.intellij.openapi.editor.colors.EditorColorsListener
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileTypes.PlainTextLanguage
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.ui.LanguageTextField
+import com.intellij.ui.SimpleColoredComponent
+import com.intellij.ui.SimpleTextAttributes
+import com.intellij.ui.border.CustomLineBorder
 import com.intellij.ui.components.panels.ListLayout
+import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
 import org.jetbrains.plugins.terminal.exp.TerminalPromptController.PromptStateListener
 import org.jetbrains.plugins.terminal.exp.completion.TerminalShellSupport
 import org.jetbrains.plugins.terminal.exp.history.CommandHistoryPresenter
 import org.jetbrains.plugins.terminal.exp.history.CommandSearchPresenter
 import java.awt.Color
+import java.awt.Component
+import java.awt.Graphics
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JComponent
-import javax.swing.JLabel
 import javax.swing.JPanel
 
 class TerminalPromptView(
@@ -40,18 +46,17 @@ class TerminalPromptView(
     get() = editor.contentComponent
 
   private val editor: EditorImpl
-  private val promptLabel: JLabel
+  private val promptComponent: SimpleColoredComponent
   private val commandHistoryPresenter: CommandHistoryPresenter
   private val commandSearchPresenter: CommandSearchPresenter
 
   init {
     val editorTextField = createPromptTextField(session)
     editor = editorTextField.getEditor(true) as EditorImpl
-    controller = TerminalPromptController(project, editor, session, commandExecutor)
+    controller = TerminalPromptController(editor, session, commandExecutor)
     controller.addListener(this)
 
-    promptLabel = createPromptLabel()
-    promptLabel.text = controller.promptText
+    promptComponent = createPromptComponent()
 
     commandHistoryPresenter = CommandHistoryPresenter(project, editor, commandExecutor)
     commandSearchPresenter = CommandSearchPresenter(project, editor)
@@ -60,12 +65,20 @@ class TerminalPromptView(
                                          TerminalUi.blockLeftInset + TerminalUi.cornerToBlockInset,
                                          TerminalUi.promptBottomInset,
                                          TerminalUi.blockRightInset + TerminalUi.cornerToBlockInset)
-    val outerBorder = JBUI.Borders.customLineTop(JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground())
+    val outerBorder = object : CustomLineBorder(JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground(),
+                                                JBInsets(1, 0, 0, 0)) {
+      override fun paintBorder(c: Component, g: Graphics?, x: Int, y: Int, w: Int, h: Int) {
+        // Paint the border only if the component is not on the top
+        if (c.y != 0) {
+          super.paintBorder(c, g, x, y, w, h)
+        }
+      }
+    }
     component.border = JBUI.Borders.compound(outerBorder, innerBorder)
 
     component.background = TerminalUi.terminalBackground
     component.layout = ListLayout.vertical(TerminalUi.promptToCommandInset)
-    component.add(promptLabel)
+    component.add(promptComponent)
     component.add(editorTextField)
 
     // move focus to the prompt text field on mouse click in the area of the prompt
@@ -74,14 +87,45 @@ class TerminalPromptView(
         IdeFocusManager.getInstance(project).requestFocus(editor.contentComponent, true)
       }
     })
+    ApplicationManager.getApplication().messageBus.connect(this).subscribe(EditorColorsManager.TOPIC, EditorColorsListener {
+      promptContentUpdated(controller.promptRenderingInfo)
+    })
   }
 
   override fun promptVisibilityChanged(visible: Boolean) {
     component.isVisible = visible
   }
 
-  override fun promptLabelChanged(newText: @NlsSafe String) {
-    runInEdt { promptLabel.text = newText }
+  override fun promptContentUpdated(renderingInfo: PromptRenderingInfo) {
+    updatePrompt(renderingInfo)
+  }
+
+  private fun updatePrompt(renderingInfo: PromptRenderingInfo) {
+    val changePrompt = {
+      promptComponent.clear()
+      promptComponent.setContent(renderingInfo)
+      promptComponent.revalidate()
+      promptComponent.repaint()
+    }
+    promptComponent.change(changePrompt, false)
+  }
+
+  private fun SimpleColoredComponent.setContent(renderingInfo: PromptRenderingInfo) {
+    var curOffset = 0
+    for (highlighting in renderingInfo.highlightings) {
+      if (curOffset < highlighting.startOffset) {
+        val textPart = renderingInfo.text.substring(curOffset, highlighting.startOffset)
+        append(textPart)
+      }
+      val textPart = renderingInfo.text.substring(highlighting.startOffset, highlighting.endOffset)
+      val attributes = SimpleTextAttributes.fromTextAttributes(highlighting.textAttributesProvider.getTextAttributes())
+      append(textPart, attributes)
+      curOffset = highlighting.endOffset
+    }
+    if (curOffset < renderingInfo.text.length) {
+      val textPart = renderingInfo.text.substring(curOffset)
+      append(textPart)
+    }
   }
 
   override fun commandHistoryStateChanged(showing: Boolean) {
@@ -141,16 +185,17 @@ class TerminalPromptView(
     return textField
   }
 
-  private fun createPromptLabel(): JLabel {
-    val label = object : JLabel() {
+  private fun createPromptComponent(): SimpleColoredComponent {
+    val component = object : SimpleColoredComponent() {
       override fun updateUI() {
         super.updateUI()
         font = EditorUtil.getEditorFont()
       }
     }
-    label.foreground = TerminalUi.promptForeground
-    label.alignmentX = JComponent.LEFT_ALIGNMENT
-    return label
+    component.background = TerminalUi.terminalBackground
+    component.myBorder = JBUI.Borders.emptyBottom(2)
+    component.ipad = JBInsets.emptyInsets()
+    return component
   }
 
   override fun dispose() {}

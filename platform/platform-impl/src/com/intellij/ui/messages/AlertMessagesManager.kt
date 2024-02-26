@@ -90,16 +90,17 @@ internal class AlertMessagesManager {
 
 private const val PARENT_WIDTH_KEY = "parent.width"
 
-private class AlertDialog(project: Project?,
-                          parentComponent: Component?,
-                          @NlsContexts.DialogMessage val myMessage: String?,
-                          @NlsContexts.DialogTitle val myTitle: String?,
-                          val myOptions: Array<String>,
-                          val myDefaultOptionIndex: Int,
-                          val myFocusedOptionIndex: Int,
-                          icon: Icon,
-                          doNotAskOption: com.intellij.openapi.ui.DoNotAskOption?,
-                          val myHelpId: String?) : DialogWrapper(project, parentComponent, false, IdeModalityType.IDE, false) {
+@ApiStatus.Internal
+class AlertDialog(project: Project?,
+                  parentComponent: Component?,
+                  @NlsContexts.DialogMessage val myMessage: String?,
+                  @NlsContexts.DialogTitle val myTitle: String?,
+                  val myOptions: Array<String>,
+                  val myDefaultOptionIndex: Int,
+                  val myFocusedOptionIndex: Int,
+                  icon: Icon,
+                  doNotAskOption: com.intellij.openapi.ui.DoNotAskOption?,
+                  val myHelpId: String?) : DialogWrapper(project, parentComponent, false, IdeModalityType.IDE, false) {
 
   private val myIsTitleComponent = SystemInfoRt.isMac || !Registry.`is`("ide.message.dialogs.as.swing.alert.show.title.bar", false)
 
@@ -257,7 +258,7 @@ private class AlertDialog(project: Project?,
 
   override fun createContentPaneBorder(): Border {
     val insets = JButton().insets
-    return JBUI.Borders.empty(if (myIsTitleComponent) 20 else 14, 20, 18 - insets.bottom, 20 - insets.right)
+    return JBUI.Borders.empty(if (myIsTitleComponent) 20 else 14, 20, 20 - insets.bottom, 20 - insets.right)
   }
 
   override fun createRootLayout(): LayoutManager = myRootLayout
@@ -312,7 +313,7 @@ private class AlertDialog(project: Project?,
   }
 
   override fun createCenterPanel(): JComponent {
-    val dialogPanel = JPanel(BorderLayout(JBUI.scale(20), 0))
+    val dialogPanel = JPanel(BorderLayout(JBUI.scale(12), 0))
 
     val iconPanel = JPanel(BorderLayout())
     iconPanel.add(myIconComponent, BorderLayout.NORTH)
@@ -364,7 +365,7 @@ private class AlertDialog(project: Project?,
 
     if (myCheckBoxDoNotShowDialog == null || !myCheckBoxDoNotShowDialog.isVisible) {
       // vertical gap 22 between text message and visual part of buttons
-      myButtonsPanel.border = JBUI.Borders.emptyTop(14 - buttonInsets.top) // +8 from textPanel layout vGap
+      myButtonsPanel.border = JBUI.Borders.emptyTop(14 - JBUI.unscale(buttonInsets.top)) // +8 from textPanel layout vGap
     }
     else {
       myCheckBoxDoNotShowDialog.font = JBFont.regular()
@@ -374,16 +375,16 @@ private class AlertDialog(project: Project?,
       wrapper.border = JBUI.Borders.emptyTop(4) // +8 from textPanel layout vGap
       for (child in UIUtil.uiChildren(textPanel)) {
         if (child != mySouthPanel) {
-          (child as JComponent).border = JBUI.Borders.emptyLeft(checkBoxLeftOffset)
+          (child as JComponent).border = JBUI.Borders.emptyLeft(JBUI.unscale(checkBoxLeftOffset))
         }
       }
       (dialogPanel.layout as BorderLayout).hgap -= checkBoxLeftOffset
       // vertical gap 22 between check box and visual part of buttons
-      (mySouthPanel.layout as BorderLayout).vgap = JBUI.scale(22 - buttonInsets.top)
+      (mySouthPanel.layout as BorderLayout).vgap = JBUI.scale(22 - JBUI.unscale(buttonInsets.top))
       mySouthPanel.add(wrapper, BorderLayout.NORTH)
     }
 
-    myButtonsPanel.layout = HorizontalLayout(JBUI.scale(12 - buttonInsets.left - buttonInsets.right))
+    myButtonsPanel.layout = HorizontalLayout(JBUI.scale(12 - JBUI.unscale(buttonInsets.left - buttonInsets.right)))
 
     for (button in myButtons) {
       button.parent.remove(button)

@@ -37,18 +37,16 @@ public class HtmlHighlightingPerformanceTest extends BasePlatformTestCase {
 
   public void testPerformance2() {
     myFixture.configureByFiles(getTestName(false) + ".html", "manual.css");
-    PlatformTestUtil.startPerformanceTest("HTML Highlighting 2", 5_500, () -> doTest())
-      .usesAllCPUCores()
+    PlatformTestUtil.newPerformanceTest("HTML Highlighting 2", () -> doTest())
       .warmupIterations(1)
-      .assertTiming();
+      .start();
   }
 
   public void testPerformance() {
     myFixture.configureByFiles(getTestName(false) + ".html", "stylesheet.css");
-    PlatformTestUtil.startPerformanceTest("HTML Highlighting", 8_000, () -> doTest())
-      .usesAllCPUCores()
+    PlatformTestUtil.newPerformanceTest("HTML Highlighting", () -> doTest())
       .warmupIterations(1)
-      .assertTiming();
+      .start();
   }
 
   protected void doTest() {

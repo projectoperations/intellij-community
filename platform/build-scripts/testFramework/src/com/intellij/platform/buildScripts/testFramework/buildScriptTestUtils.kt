@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.buildScripts.testFramework
 
 import com.intellij.openapi.diagnostic.Logger
@@ -6,7 +6,7 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.buildScripts.testFramework.binaryReproducibility.BuildArtifactsReproducibilityTest
 import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
-import com.intellij.platform.runtime.repository.ProductMode
+import com.intellij.platform.runtime.product.ProductMode
 import com.intellij.rt.execution.junit.FileComparisonData
 import com.intellij.testFramework.TestLoggerFactory
 import com.intellij.util.ExceptionUtilRt
@@ -19,7 +19,6 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.SoftAssertions
 import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.TraceManager.spanBuilder
-import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot
 import org.jetbrains.intellij.build.impl.BuildContextImpl
 import org.jetbrains.intellij.build.impl.buildDistributions
 import org.junit.jupiter.api.TestInfo
@@ -30,9 +29,17 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
 fun createBuildOptionsForTest(productProperties: ProductProperties, skipDependencySetup: Boolean = false): BuildOptions {
-  val options = BuildOptions()
-  customizeBuildOptionsForTest(options = options, productProperties = productProperties, skipDependencySetup = skipDependencySetup)
+  val outDir = createTestBuildOutDir(productProperties)
+  val options = BuildOptions(
+    cleanOutDir = false,
+    useCompiledClassesFromProjectOutput = true
+  )
+  customizeBuildOptionsForTest(options = options, outDir = outDir, skipDependencySetup = skipDependencySetup)
   return options
+}
+
+fun createTestBuildOutDir(productProperties: ProductProperties): Path {
+  return FileUtil.createTempDirectory("test-build-${productProperties.baseFileName}", null, false).toPath()
 }
 
 private inline fun createBuildOptionsForTest(productProperties: ProductProperties, customizer: (BuildOptions) -> Unit): BuildOptions {
@@ -41,9 +48,10 @@ private inline fun createBuildOptionsForTest(productProperties: ProductPropertie
   return options
 }
 
-fun customizeBuildOptionsForTest(options: BuildOptions, productProperties: ProductProperties, skipDependencySetup: Boolean = false) {
+fun customizeBuildOptionsForTest(options: BuildOptions, outDir: Path, skipDependencySetup: Boolean = false) {
   options.skipDependencySetup = skipDependencySetup
   options.isTestBuild = true
+
   options.buildStepsToSkip.addAll(listOf(
     BuildOptions.TEAMCITY_ARTIFACTS_PUBLICATION_STEP,
     BuildOptions.OS_SPECIFIC_DISTRIBUTIONS_STEP,
@@ -53,45 +61,49 @@ fun customizeBuildOptionsForTest(options: BuildOptions, productProperties: Produ
     BuildOptions.MAC_NOTARIZE_STEP,
   ))
   options.buildUnixSnaps = false
-  options.outputRootPath = FileUtil.createTempDirectory("test-build-${productProperties.baseFileName}", null, false).toPath()
+  options.outRootDir = outDir
   options.useCompiledClassesFromProjectOutput = true
   options.compilationLogEnabled = false
 }
 
 suspend inline fun createBuildContext(
-  homePath: Path, productProperties: ProductProperties,
+  homePath: Path,
+  productProperties: ProductProperties,
   buildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY,
-  communityHomePath: BuildDependenciesCommunityRoot,
   buildOptionsCustomizer: (BuildOptions) -> Unit = {},
 ): BuildContext {
   val options = createBuildOptionsForTest(productProperties)
   buildOptionsCustomizer(options)
-  return BuildContextImpl.createContext(communityHome = communityHomePath,
-                                        projectHome = homePath,
-                                        productProperties = productProperties,
-                                        proprietaryBuildTools = buildTools,
-                                        options = options)
+  return BuildContextImpl.createContext(
+    projectHome = homePath,
+    productProperties = productProperties,
+    proprietaryBuildTools = buildTools,
+    options = options,
+  )
 }
 
 // don't expose BuildDependenciesCommunityRoot
-fun runTestBuild(homePath: Path,
-                 productProperties: ProductProperties,
-                 traceSpanName: String,
-                 buildTools: ProprietaryBuildTools,
-                 buildOptionsCustomizer: (BuildOptions) -> Unit = {}) {
-  runTestBuild(homePath = homePath,
-               productProperties = productProperties,
-               buildTools = buildTools,
-               traceSpanName = traceSpanName,
-               isReproducibilityTestAllowed = true,
-               buildOptionsCustomizer = buildOptionsCustomizer)
+fun runTestBuild(
+  homePath: Path,
+  productProperties: ProductProperties,
+  traceSpanName: String,
+  buildTools: ProprietaryBuildTools,
+  buildOptionsCustomizer: (BuildOptions) -> Unit = {},
+) {
+  runTestBuild(
+    homePath = homePath,
+    productProperties = productProperties,
+    buildTools = buildTools,
+    traceSpanName = traceSpanName,
+    isReproducibilityTestAllowed = true,
+    buildOptionsCustomizer = buildOptionsCustomizer,
+  )
 }
 
 fun runTestBuild(
   homePath: Path,
   productProperties: ProductProperties,
   buildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY,
-  communityHomePath: BuildDependenciesCommunityRoot = BuildDependenciesCommunityRoot(homePath.resolve("community")),
   traceSpanName: String,
   isReproducibilityTestAllowed: Boolean = true,
   build: suspend (context: BuildContext) -> Unit = { buildDistributions(it) },
@@ -103,7 +115,6 @@ fun runTestBuild(
     repeat(reproducibilityTest.iterations) { iterationNumber ->
       launch {
         val buildContext = BuildContextImpl.createContext(
-          communityHome = communityHomePath,
           projectHome = homePath,
           productProperties = productProperties,
           proprietaryBuildTools = buildTools,
@@ -127,12 +138,13 @@ fun runTestBuild(
   }
   else {
     doRunTestBuild(
-      context = BuildContextImpl.createContext(communityHome = communityHomePath,
-                                               projectHome = homePath,
-                                               productProperties = productProperties,
-                                               proprietaryBuildTools = buildTools,
-                                               setupTracer = false,
-                                               options = createBuildOptionsForTest(productProperties, buildOptionsCustomizer)),
+      context = BuildContextImpl.createContext(
+        projectHome = homePath,
+        productProperties = productProperties,
+        proprietaryBuildTools = buildTools,
+        setupTracer = false,
+        options = createBuildOptionsForTest(productProperties, buildOptionsCustomizer),
+      ),
       writeTelemetry = true,
       traceSpanName = traceSpanName,
       build = { context ->

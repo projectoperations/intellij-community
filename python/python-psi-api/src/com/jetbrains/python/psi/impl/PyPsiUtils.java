@@ -23,7 +23,10 @@ import com.jetbrains.python.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 public final class PyPsiUtils {
@@ -85,24 +88,6 @@ public final class PyPsiUtils {
   @Nullable
   public static PsiElement getNextNonWhitespaceSibling(@Nullable PsiElement element) {
     return PsiTreeUtil.skipWhitespacesForward(element);
-  }
-
-  /**
-   * Returns the first non-whitespace sibling following the given element but within its line boundaries.
-   */
-  @Nullable
-  public static PsiElement getNextNonWhitespaceSiblingOnSameLine(@NotNull PsiElement element) {
-    PsiElement cur = element.getNextSibling();
-    while (cur != null) {
-      if (!(cur instanceof PsiWhiteSpace)) {
-        return cur;
-      }
-      else if (cur.textContains('\n')) {
-        break;
-      }
-      cur = cur.getNextSibling();
-    }
-    return null;
   }
 
   /**
@@ -215,8 +200,7 @@ public final class PyPsiUtils {
    */
   @Nullable
   public static PsiElement getFirstChildOfType(@NotNull final PsiElement element, @NotNull PyElementType type) {
-    final ASTNode child = element.getNode().findChildByType(type);
-    return child != null ? child.getPsi() : null;
+    return PyPsiUtilsCore.getFirstChildOfType(element, type);
   }
 
   /**
@@ -428,8 +412,8 @@ public final class PyPsiUtils {
   static <T extends PyElement> List<T> collectStubChildren(@NotNull PyFile pyFile,
                                                            @Nullable StubElement<?> stub,
                                                            @NotNull Class<T> elementType) {
-    final List<T> result = new ArrayList<>();
     if (stub != null) {
+      final List<T> result = new ArrayList<>();
       @SuppressWarnings("rawtypes") final List<StubElement> children = stub.getChildrenStubs();
       for (StubElement<?> child : children) {
         PsiElement childPsi = child.getPsi();
@@ -437,46 +421,25 @@ public final class PyPsiUtils {
           result.add(elementType.cast(childPsi));
         }
       }
+      return result;
     }
     else {
-      pyFile.acceptChildren(new TopLevelVisitor() {
-        @Override
-        protected void checkAddElement(PsiElement node) {
-          if (elementType.isInstance(node)) {
-            result.add(elementType.cast(node));
-          }
-        }
-
-        @Override
-        public void visitPyStatement(@NotNull PyStatement node) {
-          if (PyStatement.class.isAssignableFrom(elementType) && !(node instanceof PyCompoundStatement)) {
-            checkAddElement(node);
-            return;
-          }
-          super.visitPyStatement(node);
-        }
-      });
+      return PyPsiUtilsCore.collectChildren(pyFile, elementType);
     }
-    return result;
   }
 
   static List<PsiElement> collectAllStubChildren(PsiElement e, StubElement stub) {
-    final List<PsiElement> result = new ArrayList<>();
     if (stub != null) {
+      final List<PsiElement> result = new ArrayList<>();
       final List<StubElement> children = stub.getChildrenStubs();
       for (StubElement child : children) {
         result.add(child.getPsi());
       }
+      return result;
     }
     else {
-      e.acceptChildren(new TopLevelVisitor() {
-        @Override
-        protected void checkAddElement(PsiElement node) {
-          result.add(node);
-        }
-      });
+      return PyPsiUtilsCore.collectAllChildren(e);
     }
-    return result;
   }
 
   public static int findArgumentIndex(PyCallExpression call, PsiElement argument) {
@@ -642,26 +605,6 @@ public final class PyPsiUtils {
       )
       .filter(Objects::nonNull)
       .anyMatch(name -> name.matchesPrefix(sourceQName));
-  }
-
-  private static abstract class TopLevelVisitor extends PyRecursiveElementVisitor {
-    @Override
-    public void visitPyElement(final @NotNull PyElement node) {
-      super.visitPyElement(node);
-      checkAddElement(node);
-    }
-
-    @Override
-    public void visitPyClass(final @NotNull PyClass node) {
-      checkAddElement(node);  // do not recurse into functions
-    }
-
-    @Override
-    public void visitPyFunction(final @NotNull PyFunction node) {
-      checkAddElement(node);  // do not recurse into classes
-    }
-
-    protected abstract void checkAddElement(PsiElement node);
   }
 
   /**

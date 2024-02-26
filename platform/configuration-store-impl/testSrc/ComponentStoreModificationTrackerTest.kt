@@ -2,6 +2,7 @@
 package com.intellij.configurationStore
 
 import com.intellij.configurationStore.schemeManager.ROOT_CONFIG
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.PersistentStateComponentWithModificationTracker
 import com.intellij.openapi.components.State
@@ -26,14 +27,14 @@ internal class ComponentStoreModificationTrackerTest {
   }
 
   private var testAppConfig: Path by Delegates.notNull()
-  private var componentStore: MyComponentStore by Delegates.notNull()
+  private var componentStore: TestComponentStore by Delegates.notNull()
 
   @JvmField @Rule val fsRule = InMemoryFsRule()
 
   @Before
   fun setUp() {
     testAppConfig = fsRule.fs.getPath("/config")
-    componentStore = MyComponentStore(testAppConfig)
+    componentStore = TestComponentStore(testAppConfig)
   }
 
   @Test
@@ -57,7 +58,7 @@ internal class ComponentStoreModificationTrackerTest {
     }
 
     val component = A()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
 
     assertThat(component.modificationCount).isEqualTo(0)
     assertThat(component.stateCalledCount.get()).isEqualTo(0)
@@ -124,7 +125,7 @@ internal class ComponentStoreModificationTrackerTest {
     }
 
     val component = A()
-    componentStore.initComponent(component, null, null)
+    componentStore.initComponent(component, null, PluginManagerCore.CORE_ID)
 
     assertThat(component.modificationCount.get()).isEqualTo(0)
     assertThat(component.stateCalledCount.get()).isEqualTo(0)
@@ -160,29 +161,27 @@ internal class ComponentStoreModificationTrackerTest {
       <component name="TestPersistentStateComponentWithModificationTracker" foo="new" />
     </application>""".trimIndent())
   }
-}
 
-private class MyComponentStore(testAppConfigPath: Path) : ChildlessComponentStore() {
-  private class MyStorageManager : StateStorageManagerImpl("application", componentManager = null) {
-    override fun getFileBasedStorageConfiguration(fileSpec: String) = appFileBasedStorageConfiguration
+  private class TestComponentStore(testAppConfigPath: Path) : ComponentStoreImpl() {
+    private class TestStateStorageManager : StateStorageManagerImpl("application", componentManager = null, controller = null) {
+      override val isUseXmlProlog = false
 
-    override val isUseXmlProlog = false
+      override fun normalizeFileSpec(fileSpec: String) = removeMacroIfStartsWith(super.normalizeFileSpec(fileSpec), APP_CONFIG)
 
-    override fun normalizeFileSpec(fileSpec: String) = removeMacroIfStartsWith(super.normalizeFileSpec(fileSpec), APP_CONFIG)
+      override fun expandMacro(collapsedPath: String): Path =
+        if (collapsedPath[0] == '$') super.expandMacro(collapsedPath)
+        else macros[0].value.resolve(collapsedPath)
+    }
 
-    override fun expandMacro(collapsedPath: String): Path =
-      if (collapsedPath[0] == '$') super.expandMacro(collapsedPath)
-      else macros[0].value.resolve(collapsedPath)
-  }
+    override val storageManager: StateStorageManagerImpl = TestStateStorageManager()
 
-  override val storageManager: StateStorageManagerImpl = MyStorageManager()
+    init {
+      setPath(testAppConfigPath)
+    }
 
-  init {
-    setPath(testAppConfigPath)
-  }
-
-  override fun setPath(path: Path) {
-    // yes, in tests APP_CONFIG equals to ROOT_CONFIG (as ICS does)
-    storageManager.setMacros(listOf(Macro(APP_CONFIG, path), Macro(ROOT_CONFIG, path)))
+    override fun setPath(path: Path) {
+      // yes, in tests APP_CONFIG equals to ROOT_CONFIG (as ICS does)
+      storageManager.setMacros(listOf(Macro(APP_CONFIG, path), Macro(ROOT_CONFIG, path)))
+    }
   }
 }

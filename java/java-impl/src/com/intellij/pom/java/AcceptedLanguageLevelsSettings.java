@@ -69,15 +69,11 @@ public final class AcceptedLanguageLevelsSettings implements PersistentStateComp
         return;
       }
 
-      int previewFeature = languageLevel.toJavaVersion().feature;
+      int previewFeature = languageLevel.feature();
       if (languageLevel.isUnsupported()) {
-        LanguageLevel supportedLevel = languageLevel.getSupportedLevel();
-        String supportedLevelPresentation = supportedLevel.isPreview()
-                                            ? JavaBundle.message("java.preview.level", supportedLevel.toJavaVersion().feature)
-                                            : String.valueOf(supportedLevel.toJavaVersion().feature);
         PREVIEW_NOTIFICATION_GROUP.createNotification(
             JavaBundle.message("java.preview.features.unsupported.title"),
-            JavaBundle.message("java.preview.features.unsupported", previewFeature, supportedLevelPresentation),
+            JavaBundle.message("java.preview.features.unsupported", previewFeature),
             NotificationType.ERROR)
           .notify(project);
       }

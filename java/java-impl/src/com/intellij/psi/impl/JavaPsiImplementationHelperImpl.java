@@ -133,7 +133,7 @@ public final class JavaPsiImplementationHelperImpl extends JavaPsiImplementation
       else {
         // Multi-release jar: assume that source file is placed in META-INF/versions/<ver>
         // fallback to default location only if there's no the same file in the root
-        String versionPath = "META-INF/versions/" + level.toJavaVersion().feature + "/" + relativePath;
+        String versionPath = "META-INF/versions/" + level.feature() + "/" + relativePath;
         if (JavaMultiReleaseUtil.findBaseFile(clsFile.getVirtualFile()) != null) {
           finder = root -> root.findFileByRelativePath(versionPath);
         } else {
@@ -278,7 +278,10 @@ public final class JavaPsiImplementationHelperImpl extends JavaPsiImplementation
   public PsiElement getDefaultMemberAnchor(@NotNull PsiClass aClass, @NotNull PsiMember member) {
     CodeStyleSettings settings = CodeStyle.getSettings(aClass.getContainingFile());
     MemberOrderService service = ApplicationManager.getApplication().getService(MemberOrderService.class);
-    PsiElement anchor = service.getAnchor(member, settings.getCommonSettings(JavaLanguage.INSTANCE), aClass);
+    PsiElement anchor = null;
+    if (!(aClass instanceof PsiImplicitClass)) {
+      anchor = service.getAnchor(member, settings.getCommonSettings(JavaLanguage.INSTANCE), aClass);
+    }
 
     PsiElement newAnchor = skipWhitespaces(aClass, anchor);
     if (newAnchor != null) {

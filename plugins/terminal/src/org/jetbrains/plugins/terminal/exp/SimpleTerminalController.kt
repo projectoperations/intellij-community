@@ -9,14 +9,12 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.Disposer
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.jediterm.terminal.StyledTextConsumer
 import com.jediterm.terminal.TextStyle
 import com.jediterm.terminal.model.CharBuffer
-import org.jetbrains.plugins.terminal.exp.TerminalUiUtils.toTextAttributes
 
 class SimpleTerminalController(
   settings: JBTerminalSystemSettingsProviderBase,
@@ -40,7 +38,7 @@ class SimpleTerminalController(
     Disposer.register(this, caretPainter)
 
     // create dummy logical block, that will cover all the output, needed only for caret model
-    outputModel.createBlock(command = null, directory = null)
+    outputModel.createBlock(command = null, prompt = null)
     terminalModel.isCommandRunning = true
 
     setupContentListener()
@@ -87,8 +85,7 @@ class SimpleTerminalController(
                            startRow: Int) {
         val startOffset = builder.length
         builder.append(characters.toString())
-        val attributes = style.toTextAttributes()
-        highlightings.add(HighlightingInfo(startOffset, builder.length, attributes))
+        highlightings.add(HighlightingInfo(startOffset, builder.length, style.toTextAttributesProvider()))
       }
 
       override fun consumeNul(x: Int,
@@ -101,12 +98,12 @@ class SimpleTerminalController(
         repeat(characters.buf.size) {
           builder.append(' ')
         }
-        highlightings.add(HighlightingInfo(startOffset, builder.length, TextStyle.EMPTY.toTextAttributes()))
+        highlightings.add(HighlightingInfo(startOffset, builder.length, TextStyle.EMPTY.toTextAttributesProvider()))
       }
 
       override fun consumeQueue(x: Int, y: Int, nulIndex: Int, startRow: Int) {
         builder.append("\n")
-        highlightings.add(HighlightingInfo(builder.length - 1, builder.length, TextStyle.EMPTY.toTextAttributes()))
+        highlightings.add(HighlightingInfo(builder.length - 1, builder.length, TextStyle.EMPTY.toTextAttributesProvider()))
       }
     }
 
@@ -128,7 +125,7 @@ class SimpleTerminalController(
 
   private fun updateEditor(content: TerminalContent) {
     document.setText(content.text)
-    editor.highlighter = TerminalTextHighlighter(content.highlightings)
+    editor.highlighter = TerminalTextHighlighter(AllHighlightingsSnapshot(editor.document, content.highlightings))
 
     val line = terminalModel.historyLinesCount + terminalModel.cursorY - 1
     editor.caretModel.moveToLogicalPosition(LogicalPosition(line, terminalModel.cursorX))
@@ -136,7 +133,7 @@ class SimpleTerminalController(
     caretPainter.repaint()
   }
 
-  private fun TextStyle.toTextAttributes(): TextAttributes = this.toTextAttributes(session.colorPalette)
+  private fun TextStyle.toTextAttributesProvider(): TextAttributesProvider = TextStyleAdapter(this, session.colorPalette)
 
   override fun dispose() {}
 

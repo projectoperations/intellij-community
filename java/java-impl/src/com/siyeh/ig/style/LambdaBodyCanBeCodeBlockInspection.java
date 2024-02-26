@@ -1,15 +1,14 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.siyeh.ig.style;
 
-import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.codeInspection.LocalQuickFix;
+import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiLambdaExpression;
-import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.CommonJavaRefactoringUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -17,6 +16,8 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Set;
 
 public final class LambdaBodyCanBeCodeBlockInspection extends BaseInspection {
 
@@ -27,8 +28,8 @@ public final class LambdaBodyCanBeCodeBlockInspection extends BaseInspection {
   }
 
   @Override
-  public boolean shouldInspect(@NotNull PsiFile file) {
-    return PsiUtil.isLanguageLevel8OrHigher(file);
+  public @NotNull Set<@NotNull JavaFeature> requiredFeatures() {
+    return Set.of(JavaFeature.LAMBDA_EXPRESSIONS);
   }
 
   @Override

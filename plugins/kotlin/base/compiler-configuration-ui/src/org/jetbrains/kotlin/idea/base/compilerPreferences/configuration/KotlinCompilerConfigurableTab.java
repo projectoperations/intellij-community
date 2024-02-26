@@ -29,6 +29,7 @@ import com.intellij.util.ui.UIUtil;
 import kotlin.KotlinVersion;
 import kotlin.collections.ArraysKt;
 import kotlin.collections.CollectionsKt;
+import kotlin.enums.EnumEntries;
 import kotlin.jvm.functions.Function0;
 import kotlin.jvm.functions.Function1;
 import org.jetbrains.annotations.Nls;
@@ -148,11 +149,9 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
 
         warningLabel.setIcon(AllIcons.General.WarningDialog);
 
-        if (isProjectSettings) {
-            languageVersionComboBox.addActionListener(e -> onLanguageLevelChanged(getSelectedLanguageVersionView()));
-        }
-
         additionalArgsOptionsField.attachLabel(additionalArgsLabel);
+        kotlinJpsPluginVersionComboBox.addActionListener(
+                e -> onLanguageLevelChanged(getSelectedKotlinJpsPluginVersionView()));
 
         fillVersions();
 
@@ -346,30 +345,40 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
         VersionView selectedAPIView = getSelectedAPIVersionView();
         LanguageOrApiVersion selectedAPIVersion = selectedAPIView.getVersion();
         LanguageOrApiVersion upperBound = upperBoundView.getVersion();
-        List<VersionView> permittedAPIVersions = new ArrayList<>(LanguageVersion.values().length + 1);
-        if (isLessOrEqual(VersionView.LatestStable.INSTANCE.getVersion(), upperBound)) {
-            permittedAPIVersions.add(VersionView.LatestStable.INSTANCE);
-        }
-        ArraysKt.mapNotNullTo(
-                LanguageVersion.values(),
-                permittedAPIVersions,
-                languageVersion -> {
-                    ApiVersion apiVersion = ApiVersion.createByLanguageVersion(languageVersion);
-                    if (isLessOrEqual(apiVersion, upperBound) && !apiVersion.isUnsupported()) {
-                        return new VersionView.Specific(languageVersion);
-                    }
+        EnumEntries<LanguageVersion> languageVersions = LanguageVersion.getEntries();
+        List<VersionView> permittedAPIVersions = new ArrayList<>(languageVersions.size());
 
-                    return null;
-                }
-        );
+        final VersionView latestStable = getLatestStableVersion();
+
+        int index = 0;
+        int latestStableIndex = languageVersions.size();
+        for (LanguageVersion version : languageVersions) {
+            if (index > latestStableIndex) {
+                break;
+            }
+            ApiVersion apiVersion = ApiVersion.createByLanguageVersion(version);
+            if (!isLessOrEqual(apiVersion, upperBound) && (index < latestStableIndex)) {
+                latestStableIndex = index;
+            }
+            if (!apiVersion.isUnsupported()) {
+                permittedAPIVersions.add(new VersionView.Specific(version));
+            }
+            index++;
+        }
+
+        if (isLessOrEqual(latestStable.getVersion(), upperBound) && !permittedAPIVersions.contains(latestStable)) {
+            permittedAPIVersions.add(latestStable);
+        }
 
         apiVersionComboBox.setModel(new MutableCollectionComboBoxModel<>(permittedAPIVersions));
+        languageVersionComboBox.setModel(new MutableCollectionComboBoxModel<>(permittedAPIVersions));
 
-        apiVersionComboBox.setSelectedItem(
+        VersionView selectedItem =
                 VersionComparatorUtil.compare(selectedAPIVersion.getVersionString(), upperBound.getVersionString()) <= 0
                 ? selectedAPIView
-                : upperBoundView
-        );
+                : upperBoundView;
+        apiVersionComboBox.setSelectedItem(selectedItem);
+        languageVersionComboBox.setSelectedItem(selectedItem);
     }
 
     private void fillJvmVersionList() {
@@ -422,9 +431,6 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
     }
 
     private void fillVersions() {
-        languageVersionComboBox.addItem(VersionView.LatestStable.INSTANCE);
-        apiVersionComboBox.addItem(VersionView.LatestStable.INSTANCE);
-
         if (isProjectSettings && jpsPluginSettings != null) {
             defaultJpsVersionItem = JpsVersionItem.createFromRawVersion(
                     KotlinJpsPluginSettingsKt.getVersionWithFallback(jpsPluginSettings)
@@ -484,7 +490,16 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
             kotlinJpsPluginVersionPanel.setVisible(false);
         }
 
-        for (LanguageVersion languageVersion : LanguageVersion.values()) {
+        VersionView latestStable = getLatestStableVersion();
+        int index = 0;
+        EnumEntries<LanguageVersion> languageVersions = LanguageVersion.getEntries();
+        int latestStableIndex = languageVersions.size();
+        for (LanguageVersion languageVersion : languageVersions) {
+            if (index > latestStableIndex) break;
+            if (!isLessOrEqual(languageVersion, latestStable.getVersion()) && (index < latestStableIndex)) {
+                latestStableIndex = index;
+            }
+
             if (!LanguageVersionSettingsKt.isStableOrReadyForPreview(languageVersion)) {
                 continue;
             }
@@ -497,10 +512,40 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
             if (!languageVersion.isUnsupported()) {
                 languageVersionComboBox.addItem(new VersionView.Specific(languageVersion));
             }
+            index++;
         }
+
         languageVersionComboBox.setRenderer(new DescriptionListCellRenderer());
         kotlinJpsPluginVersionComboBox.setRenderer(new DescriptionListCellRenderer());
         apiVersionComboBox.setRenderer(new DescriptionListCellRenderer());
+    }
+
+    private static VersionView latestStableVersion = null;
+
+    private static VersionView getLatestStableVersion() {
+        VersionView latestStable = latestStableVersion;
+        if (latestStable != null) {
+            return latestStable;
+        }
+
+        IdeKotlinVersion version = KotlinJpsPluginSettings.getBundledVersion();
+        KotlinVersion bundledKotlinVersion = version.getKotlinVersion();
+        int bundledMajorVersion = bundledKotlinVersion.getMajor();
+        int bundledMinorVersion = bundledKotlinVersion.getMinor();
+        latestStable = VersionView.LatestStable.INSTANCE;
+
+        // workaround to avoid cases when Kotlin plugin bundles the latest compiler with effectively NOT STABLE version.
+        // Actually, the latest stable version is bundled in jps
+        for (LanguageVersion languageVersion : LanguageVersion.getEntries()) {
+            if (languageVersion.getMajor() <= bundledMajorVersion && languageVersion.getMinor() <= bundledMinorVersion) {
+                latestStable = VersionView.Companion.deserialize(languageVersion.getVersionString(), false);
+            } else {
+                break;
+            }
+        }
+
+        latestStableVersion = latestStable;
+        return latestStable;
     }
 
     public void setTargetPlatform(@Nullable IdePlatformKind targetPlatform) {
@@ -587,13 +632,20 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
     @NotNull
     public VersionView getSelectedLanguageVersionView() {
         Object item = languageVersionComboBox.getSelectedItem();
-        return item != null ? (VersionView) item : VersionView.LatestStable.INSTANCE;
+        return item != null ? (VersionView) item : getLatestStableVersion();
     }
 
     @NotNull
     private VersionView getSelectedAPIVersionView() {
         Object item = apiVersionComboBox.getSelectedItem();
-        return item != null ? (VersionView) item : VersionView.LatestStable.INSTANCE;
+        return item != null ? (VersionView) item : getLatestStableVersion();
+    }
+
+    public VersionView getSelectedKotlinJpsPluginVersionView() {
+        JpsVersionItem selectedItem = (JpsVersionItem) kotlinJpsPluginVersionComboBox.getSelectedItem();
+        IdeKotlinVersion version = selectedItem != null ? selectedItem.getVersion() : null;
+        LanguageVersion languageVersion = version != null ? LanguageVersion.fromFullVersionString(version.toString()) : null;
+        return languageVersion != null ? new VersionView.Specific(languageVersion) : getLatestStableVersion();
     }
 
     private @NotNull String getSelectedKotlinJpsPluginVersion() {
@@ -697,9 +749,17 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
         if (jpsPluginSettings != null) {
             setSelectedItem(kotlinJpsPluginVersionComboBox, defaultJpsVersionItem);
         }
-        setSelectedItem(languageVersionComboBox, KotlinFacetSettingsKt.getLanguageVersionView(commonCompilerArguments));
+        if (!commonCompilerArguments.getAutoAdvanceLanguageVersion()) {
+            setSelectedItem(languageVersionComboBox, KotlinFacetSettingsKt.getLanguageVersionView(commonCompilerArguments));
+        } else {
+            setSelectedItem(languageVersionComboBox, getLatestStableVersion());
+        }
         onLanguageLevelChanged((VersionView) languageVersionComboBox.getSelectedItem()); // getSelectedLanguageVersionView() replaces null
-        setSelectedItem(apiVersionComboBox, KotlinFacetSettingsKt.getApiVersionView(commonCompilerArguments));
+        if (!commonCompilerArguments.getAutoAdvanceApiVersion()) {
+            setSelectedItem(apiVersionComboBox, KotlinFacetSettingsKt.getApiVersionView(commonCompilerArguments));
+        } else {
+            setSelectedItem(apiVersionComboBox, getLatestStableVersion());
+        }
         additionalArgsOptionsField.setText(compilerSettings.getAdditionalArguments());
         scriptTemplatesField.setText(compilerSettings.getScriptTemplates());
         scriptTemplatesClasspathField.setText(compilerSettings.getScriptTemplatesClasspath());

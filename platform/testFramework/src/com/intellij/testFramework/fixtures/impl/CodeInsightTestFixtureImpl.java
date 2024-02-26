@@ -74,11 +74,11 @@ import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.MarkupModelEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
+import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -297,10 +297,14 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
           }
           IdentifierHighlighterPassFactory.waitForIdentifierHighlighting();
           UIUtil.dispatchAllInvocationEvents();
-          infos.addAll(DaemonCodeAnalyzerImpl.getHighlights(editor.getDocument(), null, project));
+          Segment focusModeRange = (editor instanceof EditorImpl) ? ((EditorImpl)editor).getFocusModeRange() : null;
+          int startOffset = focusModeRange != null ? focusModeRange.getStartOffset() : 0;
+          int endOffset = focusModeRange != null ? focusModeRange.getEndOffset() : editor.getDocument().getTextLength();
+          DaemonCodeAnalyzerEx.processHighlights(editor.getDocument(), project, null, startOffset, endOffset,
+                                                 Processors.cancelableCollectProcessor(infos));
           if (readEditorMarkupModel) {
             MarkupModelEx markupModel = (MarkupModelEx)editor.getMarkupModel();
-            DaemonCodeAnalyzerEx.processHighlights(markupModel, project, null, 0, editor.getDocument().getTextLength(),
+            DaemonCodeAnalyzerEx.processHighlights(markupModel, project, null, startOffset, endOffset,
                                                    Processors.cancelableCollectProcessor(infos));
           }
         });
@@ -327,6 +331,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   }
 
   public static void ensureIndexesUpToDate(@NotNull Project project) {
+    IndexingTestUtil.waitUntilIndexesAreReady(project);
     if (!DumbService.isDumb(project)) {
       ReadAction.run(() -> {
         for (FileBasedIndexExtension<?,?> extension : FileBasedIndexExtension.EXTENSION_POINT_NAME.getExtensionList()) {
@@ -451,6 +456,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     }
 
     copyContent(sourceFile, targetFile);
+    IndexingTestUtil.waitUntilIndexesAreReady(getProject());
 
     return targetFile;
   }
@@ -491,7 +497,9 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
     File fromFile = new File(testDataPath + "/" + sourcePath);
     if (myTempDirFixture instanceof LightTempDirTestFixtureImpl) {
-      return myTempDirFixture.copyAll(fromFile.getPath(), targetPath);
+      VirtualFile file = myTempDirFixture.copyAll(fromFile.getPath(), targetPath);
+      IndexingTestUtil.waitUntilIndexesAreReady(getProject());
+      return file;
     }
 
     File targetFile = new File(getTempDirPath() + "/" + targetPath);
@@ -512,6 +520,8 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
       assertNotNull(directory);
       policy.testDirectoryConfigured(directory);
     }
+
+    IndexingTestUtil.waitUntilIndexesAreReady(getProject());
 
     return file;
   }
@@ -936,7 +946,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public void renameElementAtCaretUsingHandler(@NotNull String newName) {
-    DataContext editorContext = ((EditorEx)editor).getDataContext();
+    DataContext editorContext = EditorUtil.getEditorDataContext(editor);
     DataContext context = CustomizedDataContext.create(editorContext, dataId ->
       PsiElementRenameHandler.DEFAULT_NAME.is(dataId) ? newName : null);
     RenameHandler renameHandler = RenameHandlerRegistry.getInstance().getRenameHandler(context);
@@ -993,7 +1003,8 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   @Override
   public Presentation testAction(@NotNull AnAction action) {
     AnActionEvent e = TestActionEvent.createTestEvent(action);
-    if (ActionUtil.lastUpdateAndCheckDumb(action, e, true)) {
+    ActionUtil.performDumbAwareUpdate(action, e, false);
+    if (e.getPresentation().isEnabled()) {
       ActionUtil.performActionDumbAwareWithCallbacks(action, e);
     }
     return e.getPresentation();
@@ -1019,7 +1030,10 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     if (fileNames.length > 0) { // don't change configured files if already configured
       configureByFiles(fileNames);
     }
-    EdtTestUtil.runInEdtAndWait(() -> myEditorTestFixture.performEditorAction(IdeActions.ACTION_FIND_USAGES));
+    EdtTestUtil.runInEdtAndWait(() -> {
+      myEditorTestFixture.performEditorAction(IdeActions.ACTION_FIND_USAGES);
+      NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
+    });
     Disposer.register(getTestRootDisposable(), () -> {
       UsageViewContentManager usageViewManager = UsageViewContentManager.getInstance(getProject());
       Content selectedContent;
@@ -1028,6 +1042,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
       }
     });
     return EdtTestUtil.runInEdtAndGet(() -> {
+      NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
       long startMillis = System.currentTimeMillis();
       UsageView view;
       boolean viewWasInitialized = false;
@@ -1225,6 +1240,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
         }
         finally {
           PsiManager.getInstance(getProject()).dropPsiCaches();
+          IndexingTestUtil.waitUntilIndexesAreReady(getProject());
         }
       });
       return ReadAction.compute(() -> PsiManager.getInstance(getProject()).findFile(file));
@@ -1376,6 +1392,8 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
       myVirtualFilePointerTracker = new VirtualFilePointerTracker();
     }
     myLibraryTableTracker = new LibraryTableTracker();
+
+    IndexingTestUtil.waitUntilIndexesAreReady((getProject()));
   }
 
   protected boolean shouldTrackVirtualFilePointers() {
@@ -1502,8 +1520,16 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
                                                    @NotNull Disposable parentDisposable) {
     FileTypeManager fileTypeManager = FileTypeManager.getInstance();
     if (!fileType.equals(fileTypeManager.getFileTypeByExtension(extension))) {
-      WriteAction.runAndWait(() -> fileTypeManager.associateExtension(fileType, extension));
-      Disposer.register(parentDisposable, ()->WriteAction.runAndWait(() -> fileTypeManager.removeAssociatedExtension(fileType, extension)));
+      WriteAction.runAndWait(() -> {
+        fileTypeManager.associateExtension(fileType, extension);
+        IndexingTestUtil.waitUntilIndexesAreReadyInAllOpenedProjects();
+      });
+      Disposer.register(parentDisposable, () -> {
+        WriteAction.runAndWait(() -> {
+          fileTypeManager.removeAssociatedExtension(fileType, extension);
+          IndexingTestUtil.waitUntilIndexesAreReadyInAllOpenedProjects();
+        });
+      });
     }
   }
 
@@ -1637,6 +1663,8 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
         policy.testFileConfigured(getFile());
       }
     });
+
+    IndexingTestUtil.waitUntilIndexesAreReady(getProject());
 
     return getFile();
   }
@@ -2206,6 +2234,10 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
    * @return whether the action has made the file writable itself
    */
   public static boolean withReadOnlyFile(VirtualFile vFile, Project project, Runnable action) {
+    if (PlatformUtils.isFleetBackend() && vFile.getFileSystem().isReadOnly()) {
+      action.run();
+      return false;
+    }
     boolean writable;
     ReadonlyStatusHandlerImpl handler = (ReadonlyStatusHandlerImpl)ReadonlyStatusHandler.getInstance(project);
     setReadOnly(vFile, true);

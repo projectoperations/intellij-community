@@ -68,6 +68,10 @@
             qualifiedName="org.jetbrains.kotlin.supportAvailability"
             interface="org.jetbrains.kotlin.idea.codeinsight.utils.KotlinSupportAvailability"
             dynamic="true"/>
+    <extensionPoint
+            qualifiedName="org.jetbrains.kotlin.j2kConverterExtension"
+            interface="org.jetbrains.kotlin.j2k.J2kConverterExtension"
+            dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -281,6 +285,8 @@
 
     <listener class="org.jetbrains.kotlin.idea.macros.KotlinBundledUsageDetector$ModelChangeListener"
               topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
+    <listener topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"
+              class="org.jetbrains.kotlin.idea.configuration.notifications.KotlinCodeStyleChangedFileListener"/>
   </projectListeners>
 
   <applicationListeners>
@@ -443,19 +449,13 @@
   <extensions defaultExtensionNs="com.intellij">
     <notificationGroup
             id="kotlin.external.compiler.updates"
-            displayType="STICKY_BALLOON"
+            displayType="BALLOON"
             key="kotlin.external.compiler.updates.notification.group.name"
     />
     <notificationGroup
             id="Kotlin Migration"
             displayType="STICKY_BALLOON"
             key="configuration.migration.group.name"
-    />
-    <notificationGroup
-            id="Kotlin EAP Survey"
-            displayType="STICKY_BALLOON"
-            key="kotlin.eap.survey.notification.group.name"
-            bundle="messages.KotlinMigrationBundle"
     />
     <notificationGroup
             id="Kotlin EAP"
@@ -543,6 +543,16 @@
 
     <action id="CopyKotlinProjectInformation" class="org.jetbrains.kotlin.idea.actions.internal.CopyKotlinProjectOverviewAction">
     </action>
+
+    <group id="ConvertJavaToKotlinGroup">
+      <separator/>
+      <action id="ConvertJavaToKotlin" class="org.jetbrains.kotlin.idea.actions.JavaToKotlinAction">
+        <keyboard-shortcut keymap="$default" first-keystroke="control alt shift K"/>
+      </action>
+      <add-to-group group-id="CodeMenu" anchor="last"/>
+      <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+      <add-to-group group-id="EditorTabPopupMenu" anchor="last"/>
+    </group>
 
     <action id="KotlinCodeMigration" class="org.jetbrains.kotlin.idea.migration.CodeMigrationAction">
       <!-- TODO: Not assigned to any group because there should be a panel for filling migration options -->

@@ -34,18 +34,18 @@ internal class WindowsDistributionBuilder(
   override suspend fun copyFilesForOsDistribution(targetPath: Path, arch: JvmArchitecture) {
     val distBinDir = targetPath.resolve("bin")
     withContext(Dispatchers.IO) {
-      Files.createDirectories(distBinDir)
-
       val sourceBinDir = context.paths.communityHomeDir.resolve("bin/win")
 
-      FileSet(sourceBinDir.resolve(arch.dirName))
-        .includeAll()
-        .copyToDir(distBinDir)
+      copyDir(sourceBinDir.resolve(arch.dirName), distBinDir)
 
-      @Suppress("SpellCheckingInspection")
       FileSet(sourceBinDir)
-        .include("*.*")
-        .also { if (!context.includeBreakGenLibraries()) it.exclude("breakgen*.dll") }
+        .includeAll()
+        .also {
+          if (!context.includeBreakGenLibraries()) {
+            @Suppress("SpellCheckingInspection")
+            it.exclude("breakgen*.dll")
+          }
+        }
         .copyToDir(distBinDir)
 
       generateBuildTxt(context, targetPath)
@@ -335,7 +335,11 @@ private suspend fun buildWinLauncher(winDistPath: Path,
     val bootClassPath = context.xBootClassPathJarNames.joinToString(separator = ";") { "%IDE_HOME%\\\\lib\\\\${it}" }
     val envVarBaseName = context.productProperties.getEnvironmentVariableBaseName(context.applicationInfo)
     val icoFilesDirectory = context.paths.tempDir.resolve("win-launcher-ico-${arch.dirName}")
-    val appInfoForLauncher = generateApplicationInfoForLauncher(context.applicationInfo.appInfoXml, icoFilesDirectory, icoFile)
+    val appInfoForLauncher = generateApplicationInfoForLauncher(
+      appInfo = context.appInfoXml,
+      icoFilesDirectory = icoFilesDirectory,
+      icoFile = icoFile,
+    )
     @Suppress("SpellCheckingInspection")
     Files.writeString(launcherPropertiesPath, """
         IDS_JDK_ONLY=${context.productProperties.toolsJarRequired}
@@ -353,8 +357,8 @@ private suspend fun buildWinLauncher(winDistPath: Path,
         IDS_MAIN_CLASS=${context.ideMainClassName.replace('.', '/')}
         """.trimIndent().trim())
 
-    val communityHome = context.paths.communityHome
-    val inputPath = "${communityHome}/platform/build-scripts/resources/win/launcher/${arch.dirName}/WinLauncher.exe"
+    val communityHome = context.paths.communityHomeDir
+    val inputPath = communityHome.resolve("platform/build-scripts/resources/win/launcher/${arch.dirName}/WinLauncher.exe")
     val outputPath = winDistPath.resolve("bin/${executableBaseName}.exe")
     val classpath = ArrayList<String>()
 
@@ -378,7 +382,7 @@ private suspend fun buildWinLauncher(winDistPath: Path,
       context = context,
       mainClass = "com.pme.launcher.LauncherGeneratorMain",
       args = listOf(
-        inputPath,
+        inputPath.toString(),
         appInfoForLauncher.toString(),
         "$communityHome/native/WinLauncher/resource.h",
         launcherPropertiesPath.toString(),

@@ -154,6 +154,10 @@
                      groupBundle="messages.JvmAnalysisBundle" bundle="messages.JvmAnalysisBundle"
                      groupKey="jvm.inspections.group.name" key="inspection.suppression.annotation.display.name"
                      implementationClass="com.intellij.codeInspection.SuppressionAnnotationInspection"/>
+    <globalInspection language="UAST" shortName="EmptyMethod" groupKey="jvm.inspections.group.name" 
+                      enabledByDefault="true" groupBundle="messages.JvmAnalysisBundle"
+                      level="WARNING" implementationClass="com.intellij.codeInspection.emptyMethod.EmptyMethodInspection"
+                      key="inspection.empty.method.display.name" bundle="messages.JvmAnalysisBundle"/>
     <notificationGroup id="UAST" displayType="BALLOON" hideFromSettings="true"/>
     <projectService serviceInterface="com.intellij.codeInsight.AnnotationCacheOwnerNormalizer"
                     serviceImplementation="com.intellij.psi.UastAnnotationCacheOwnerNormalizer"/>
@@ -161,6 +165,7 @@
     <inspectionCustomComponent implementation="com.intellij.codeInsight.options.JavaInspectionButtons"/>
 
     <!--console filter-->
+    <colorSettingsPage implementation="com.intellij.analysis.customization.console.ClassFinderConsoleColorsPage"/>
     <consoleFilterProvider implementation="com.intellij.analysis.customization.console.ClassLoggingConsoleFilterProvider"/>
     <advancedSetting id="process.console.output.to.find.class.names" default="true" groupKey="group.advanced.settings.jvm" bundle="messages.JvmAnalysisBundle"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.analysis.customization.console.LogConsoleLogHandlerCollectors"/>

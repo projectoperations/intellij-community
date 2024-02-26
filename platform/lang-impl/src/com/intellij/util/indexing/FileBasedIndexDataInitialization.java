@@ -29,10 +29,7 @@ import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.ints.IntSets;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -69,6 +66,8 @@ final class FileBasedIndexDataInitialization extends IndexDataInitializer<IndexC
     List<ThrowableRunnable<?>> tasks = new ArrayList<>(FileBasedIndexExtension.EXTENSION_POINT_NAME.getPoint().size());
 
     myDirtyFileIds.addAll(PersistentDirtyFilesQueue.readIndexingQueue(PersistentDirtyFilesQueue.getQueueFile(), ManagingFS.getInstance().getCreationTimestamp()));
+    // todo: after IJPL-319 don't forget to read all dirty files if StaleIndexesChecker.shouldCheckStaleIndexesOnStartup() is true
+    readAllProjectDirtyFilesQueues(myDirtyFileIds);
     // todo: init contentless indices first ?
     while (extensions.hasNext()) {
       FileBasedIndexExtension<?, ?> extension = extensions.next();
@@ -108,6 +107,25 @@ final class FileBasedIndexDataInitialization extends IndexDataInitializer<IndexC
     activity.end();
 
     return tasks;
+  }
+
+  public static void readAllProjectDirtyFilesQueues(@NotNull IntSet dirtyFiles) {
+    File[] projectQueueFiles = PersistentDirtyFilesQueue.getQueuesDir().toFile().listFiles();
+    if (projectQueueFiles != null) {
+      for (File file : projectQueueFiles) {
+        dirtyFiles.addAll(PersistentDirtyFilesQueue.readIndexingQueue(file.toPath(), ManagingFS.getInstance().getCreationTimestamp()));
+      }
+    }
+  }
+
+  private static void deleteDirtyFilesQueues() {
+    PersistentDirtyFilesQueue.removeCurrentFile(PersistentDirtyFilesQueue.getQueueFile());
+    File[] projectQueueFiles = PersistentDirtyFilesQueue.getQueuesDir().toFile().listFiles();
+    if (projectQueueFiles != null) {
+      for (File file : projectQueueFiles) {
+        PersistentDirtyFilesQueue.removeCurrentFile(file.toPath());
+      }
+    }
   }
 
   @Override
@@ -186,11 +204,10 @@ final class FileBasedIndexDataInitialization extends IndexDataInitializer<IndexC
       myFileBasedIndex.addStaleIds(myStaleIds);
       myFileBasedIndex.addStaleIds(myDirtyFileIds);
       myFileBasedIndex.setUpFlusher();
-      myFileBasedIndex.setUpHealthCheck();
       myRegisteredIndexes.ensureLoadedIndexesUpToDate();
       myRegisteredIndexes.markInitialized();  // this will ensure that all changes to component's state will be visible to other threads
       saveRegisteredIndicesAndDropUnregisteredOnes(myState.getIndexIDs());
-      PersistentDirtyFilesQueue.removeCurrentFile(PersistentDirtyFilesQueue.getQueueFile());
+      deleteDirtyFilesQueues();
     }
   }
 

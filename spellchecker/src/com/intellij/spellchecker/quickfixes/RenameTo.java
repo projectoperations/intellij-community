@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.spellchecker.quickfixes;
 
 import com.intellij.modcommand.ModPsiUpdater;
@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiNamedElement;
+import com.intellij.psi.PsiNamedElementWithCustomPresentation;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.spellchecker.SpellCheckerManager;
@@ -20,8 +21,7 @@ import java.util.List;
 
 public class RenameTo extends PsiUpdateModCommandQuickFix implements Iconable {
   @Override
-  @NotNull
-  public String getFamilyName() {
+  public @NotNull String getFamilyName() {
     return getFixName();
   }
 
@@ -29,7 +29,7 @@ public class RenameTo extends PsiUpdateModCommandQuickFix implements Iconable {
   protected void applyFix(@NotNull Project project, @NotNull PsiElement psiElement, @NotNull ModPsiUpdater updater) {
     PsiNamedElement named = PsiTreeUtil.getNonStrictParentOfType(psiElement, PsiNamedElement.class);
     if (named == null) return;
-    String name = named.getName();
+    String name = named instanceof PsiNamedElementWithCustomPresentation custom ? custom.getPresentationName() : named.getName();
     if (name == null) return;
     List<String> names = SpellCheckerManager.getInstance(project).getSuggestions(name)
       .stream()
@@ -38,8 +38,7 @@ public class RenameTo extends PsiUpdateModCommandQuickFix implements Iconable {
     updater.rename(named, psiElement, names);
   }
   
-  @Nls
-  public static String getFixName() {
+  public static @Nls String getFixName() {
     return SpellCheckerBundle.message("rename.to");
   }
 

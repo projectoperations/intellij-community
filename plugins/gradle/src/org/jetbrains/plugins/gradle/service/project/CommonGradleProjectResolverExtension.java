@@ -3,10 +3,12 @@ package org.jetbrains.plugins.gradle.service.project;
 
 import com.intellij.build.events.MessageEvent;
 import com.intellij.build.issue.BuildIssue;
-import com.intellij.gradle.toolingExtension.impl.model.dependencyDownloadPolicyModel.GradleDependencyDownloadPolicyProvider;
+import com.intellij.gradle.toolingExtension.impl.model.buildScriptClasspathModel.GradleBuildScriptClasspathModelProvider;
 import com.intellij.gradle.toolingExtension.impl.model.projectModel.GradleExternalProjectModelProvider;
+import com.intellij.gradle.toolingExtension.impl.model.sourceSetDependencyModel.GradleSourceSetDependencyModelProvider;
 import com.intellij.gradle.toolingExtension.impl.model.sourceSetModel.GradleSourceSetModelProvider;
 import com.intellij.gradle.toolingExtension.impl.model.taskModel.GradleTaskModelProvider;
+import com.intellij.gradle.toolingExtension.impl.modelAction.AllModels;
 import com.intellij.gradle.toolingExtension.util.GradleVersionUtil;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.PathManager;
@@ -263,7 +265,7 @@ public final class CommonGradleProjectResolverExtension extends AbstractProjectR
                             new ConfigurationDataImpl(GradleConstants.SYSTEM_ID, intellijSettings.getSettings()));
     }
 
-    ProjectImportAction.AllModels models = resolverCtx.getModels();
+    AllModels models = resolverCtx.getModels();
     ExternalTestsModel externalTestsModel = models.getModel(gradleModule, ExternalTestsModel.class);
     if (externalTestsModel != null) {
       for (ExternalTestSourceMapping testSourceMapping : externalTestsModel.getTestSourceMappings()) {
@@ -753,7 +755,6 @@ public final class CommonGradleProjectResolverExtension extends AbstractProjectR
   @Override
   public @NotNull Set<Class<?>> getExtraProjectModelClasses() {
     return ContainerUtil.newLinkedHashSet(
-      BuildScriptClasspathModel.class,
       GradleExtensions.class,
       ExternalTestsModel.class,
       IntelliJProjectSettings.class,
@@ -774,10 +775,11 @@ public final class CommonGradleProjectResolverExtension extends AbstractProjectR
   public @NotNull List<ProjectImportModelProvider> getModelProviders() {
     return ContainerUtil.append(
       super.getModelProviders(),
-      new GradleSourceSetModelProvider(),
       new GradleTaskModelProvider(),
-      new GradleDependencyDownloadPolicyProvider(),
-      new GradleExternalProjectModelProvider()
+      new GradleSourceSetModelProvider(),
+      new GradleSourceSetDependencyModelProvider(),
+      new GradleExternalProjectModelProvider(),
+      new GradleBuildScriptClasspathModelProvider()
     );
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.j2k
 
@@ -855,6 +855,7 @@ class Converter private constructor(
         else this
     }
 
+    @Suppress("DuplicatedCode")
     private fun allowProtected(element: PsiElement, member: PsiMember, originalClass: PsiClass): Boolean {
         if (element.parent is PsiNewExpression && member is PsiMethod && member.isConstructor) {
             // calls to for protected constructors are allowed only within same class or as super calls

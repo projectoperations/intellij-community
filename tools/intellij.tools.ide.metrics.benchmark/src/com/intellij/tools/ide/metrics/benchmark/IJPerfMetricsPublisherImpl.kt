@@ -5,9 +5,13 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.platform.testFramework.diagnostic.MetricsAggregation
 import com.intellij.platform.testFramework.diagnostic.MetricsPublisher
+import com.intellij.platform.testFramework.diagnostic.TelemetryMeterCollector
 import com.intellij.teamcity.TeamCityClient
 import com.intellij.testFramework.UsefulTestCase
+import com.intellij.tools.ide.metrics.collector.OpenTelemetryMeterCollector
+import com.intellij.tools.ide.metrics.collector.metrics.MetricsSelectionStrategy
 import com.intellij.tools.ide.metrics.collector.metrics.PerformanceMetrics
 import com.intellij.tools.ide.metrics.collector.publishing.CIServerBuildInfo
 import com.intellij.tools.ide.metrics.collector.publishing.PerformanceMetricsDto
@@ -50,10 +54,16 @@ class IJPerfMetricsPublisherImpl : MetricsPublisher {
       else setBuildParams()
     )
 
-    private suspend fun prepareMetricsForPublishing(fullQualifiedTestMethodName: String, spanName: String): PerformanceMetricsDto {
-      val metrics: List<PerformanceMetrics.Metric> = MetricsExtractor().waitTillMetricsExported(spanName)
+    private suspend fun prepareMetricsForPublishing(uniqueTestIdentifier: String, vararg metricsCollectors: TelemetryMeterCollector): PerformanceMetricsDto {
+      val metrics: List<PerformanceMetrics.Metric> = SpanMetricsExtractor().waitTillMetricsExported(uniqueTestIdentifier)
+      val additionalMetrics: List<PerformanceMetrics.Metric> = metricsCollectors.flatMap {
+        it.convertToCompleteMetricsCollector().collect(PathManager.getLogDir())
+      }
 
-      teamCityClient.publishTeamCityArtifacts(source = PathManager.getLogDir(), artifactPath = fullQualifiedTestMethodName)
+      val mergedMetrics = metrics.plus(additionalMetrics)
+
+      teamCityClient.publishTeamCityArtifacts(source = PathManager.getLogDir(), artifactPath = uniqueTestIdentifier)
+      teamCityClient.publishTeamCityArtifacts(source = MetricsPublisher.getIdeTestLogFile(), artifactPath = uniqueTestIdentifier)
 
       val buildInfo = CIServerBuildInfo(
         buildId = teamCityClient.buildId,
@@ -69,28 +79,56 @@ class IJPerfMetricsPublisherImpl : MetricsPublisher {
       )
 
       return PerformanceMetricsDto.create(
-        projectName = fullQualifiedTestMethodName,
+        projectName = uniqueTestIdentifier,
         projectURL = "",
         projectDescription = "",
-        methodName = fullQualifiedTestMethodName,
+        methodName = uniqueTestIdentifier,
         buildNumber = BuildNumber.currentVersion(),
-        metrics = metrics,
+        metrics = mergedMetrics,
         buildInfo = buildInfo
       )
     }
   }
 
-  override suspend fun publish(fullQualifiedTestMethodName: String, metricName: String) {
-    val metricsDto = prepareMetricsForPublishing(fullQualifiedTestMethodName, metricName)
+  override suspend fun publish(uniqueTestIdentifier: String, vararg metricsCollectors: TelemetryMeterCollector) {
+    val metricsDto = prepareMetricsForPublishing(uniqueTestIdentifier, *metricsCollectors)
 
     withContext(Dispatchers.IO) {
       val artifactName = "metrics.performance.json"
       val reportFile = Files.createTempFile("unit-perf-metric", artifactName)
       jacksonObjectMapper().writerWithDefaultPrettyPrinter().writeValue(reportFile.toFile(), metricsDto)
+
+      // Print metrics in stdout when running locally
+      // https://youtrack.jetbrains.com/issue/AT-644/Performance-tests-do-not-check-anything#focus=Comments-27-8578186.0-0
+      // https://youtrack.jetbrains.com/issue/AT-726
+      if (!UsefulTestCase.IS_UNDER_TEAMCITY) {
+        println("Collected metrics: (can be found in ${teamCityClient.artifactForPublishingDir.resolve(uniqueTestIdentifier).toUri()})")
+        println(metricsDto.metrics.joinToString(separator = System.lineSeparator()) { String.format("%-60s %6s", it.n, it.v) })
+      }
+
       teamCityClient.publishTeamCityArtifacts(source = reportFile,
-                                              artifactPath = fullQualifiedTestMethodName,
+                                              artifactPath = uniqueTestIdentifier,
                                               artifactName = "metrics.performance.json",
                                               zipContent = false)
     }
+  }
+}
+
+internal fun TelemetryMeterCollector.convertToCompleteMetricsCollector(): OpenTelemetryMeterCollector {
+  val metricsSelectionStrategy = when (this.metricsAggregation) {
+    MetricsAggregation.EARLIEST -> MetricsSelectionStrategy.EARLIEST
+    MetricsAggregation.LATEST -> MetricsSelectionStrategy.LATEST
+    MetricsAggregation.MINIMUM -> MetricsSelectionStrategy.MINIMUM
+    MetricsAggregation.MAXIMUM -> MetricsSelectionStrategy.MAXIMUM
+    MetricsAggregation.SUM -> MetricsSelectionStrategy.SUM
+    MetricsAggregation.AVERAGE -> MetricsSelectionStrategy.AVERAGE
+  }
+
+  return OpenTelemetryMeterCollector(metricsSelectionStrategy) { meter ->
+    this.metersFilter(
+      object : Map.Entry<String, List<Long>> {
+        override val key: String = meter.key
+        override val value: List<Long> = meter.value.map { it.value }
+      })
   }
 }

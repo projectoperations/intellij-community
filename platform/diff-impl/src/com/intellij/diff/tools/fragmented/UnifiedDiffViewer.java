@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff.tools.fragmented;
 
 import com.intellij.codeInsight.breadcrumbs.FileBreadcrumbsCollector;
@@ -165,6 +165,10 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements EditorD
         myMarkupUpdater.scheduleUpdate();
       }
     });
+
+    for (EditorEx editor : getEditors()) {
+      editor.putUserData(DiffUserDataKeys.DIFF_VIEWER, this);
+    }
   }
 
   @Override
@@ -1164,7 +1168,7 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements EditorD
     }
 
     @Override
-    protected boolean doScrollToLine() {
+    protected boolean doScrollToLine(boolean onSlowRediff) {
       if (myScrollToLine == null) return false;
       doScrollToLine(myScrollToLine.first, new LogicalPosition(myScrollToLine.second, 0));
       return true;

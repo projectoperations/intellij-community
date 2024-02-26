@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.workspace.entities
 
 import com.intellij.openapi.util.NlsSafe
@@ -30,13 +30,10 @@ import org.jetbrains.annotations.NonNls
 
 @GeneratedCodeApiVersion(2)
 @GeneratedCodeImplVersion(3)
-open class DirectoryCopyPackagingElementEntityImpl(private val dataSource: DirectoryCopyPackagingElementEntityData) : DirectoryCopyPackagingElementEntity, WorkspaceEntityBase(
-  dataSource) {
+open class DirectoryCopyPackagingElementEntityImpl(private val dataSource: DirectoryCopyPackagingElementEntityData) : DirectoryCopyPackagingElementEntity, WorkspaceEntityBase(dataSource) {
 
   private companion object {
-    internal val PARENTENTITY_CONNECTION_ID: ConnectionId = ConnectionId.create(CompositePackagingElementEntity::class.java,
-                                                                                PackagingElementEntity::class.java,
-                                                                                ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY, true)
+    internal val PARENTENTITY_CONNECTION_ID: ConnectionId = ConnectionId.create(CompositePackagingElementEntity::class.java, PackagingElementEntity::class.java, ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY, true)
 
     private val connections = listOf<ConnectionId>(
       PARENTENTITY_CONNECTION_ID,
@@ -64,8 +61,7 @@ open class DirectoryCopyPackagingElementEntityImpl(private val dataSource: Direc
   }
 
 
-  class Builder(result: DirectoryCopyPackagingElementEntityData?) : ModifiableWorkspaceEntityBase<DirectoryCopyPackagingElementEntity, DirectoryCopyPackagingElementEntityData>(
-    result), DirectoryCopyPackagingElementEntity.Builder {
+  class Builder(result: DirectoryCopyPackagingElementEntityData?) : ModifiableWorkspaceEntityBase<DirectoryCopyPackagingElementEntity, DirectoryCopyPackagingElementEntityData>(result), DirectoryCopyPackagingElementEntity.Builder {
     constructor() : this(DirectoryCopyPackagingElementEntityData())
 
     override fun applyToBuilder(builder: MutableEntityStorage) {
@@ -128,8 +124,8 @@ open class DirectoryCopyPackagingElementEntityImpl(private val dataSource: Direc
       get() {
         val _diff = diff
         return if (_diff != null) {
-          _diff.extractOneToAbstractManyParent(PARENTENTITY_CONNECTION_ID, this) ?: this.entityLinks[EntityLink(false,
-                                                                                                                PARENTENTITY_CONNECTION_ID)] as? CompositePackagingElementEntity
+          _diff.extractOneToAbstractManyParent(PARENTENTITY_CONNECTION_ID, this)
+          ?: this.entityLinks[EntityLink(false, PARENTENTITY_CONNECTION_ID)] as? CompositePackagingElementEntity
         }
         else {
           this.entityLinks[EntityLink(false, PARENTENTITY_CONNECTION_ID)] as? CompositePackagingElementEntity
@@ -202,8 +198,7 @@ class DirectoryCopyPackagingElementEntityData : WorkspaceEntityData<DirectoryCop
   }
 
   override fun getMetadata(): EntityMetadata {
-    return MetadataStorageImpl.getMetadataByTypeFqn(
-      "com.intellij.java.workspace.entities.DirectoryCopyPackagingElementEntity") as EntityMetadata
+    return MetadataStorageImpl.getMetadataByTypeFqn("com.intellij.java.workspace.entities.DirectoryCopyPackagingElementEntity") as EntityMetadata
   }
 
   override fun getEntityInterface(): Class<out WorkspaceEntity> {

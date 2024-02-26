@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xmlb;
 
 import com.intellij.util.ThreeState;
@@ -11,7 +11,7 @@ import java.util.Set;
 
 public final class SmartSerializer {
   private Set<String> serializedAccessorNameTracker;
-  private Object2FloatMap<String> myOrderedBindings;
+  private Object2FloatMap<String> orderedBindings;
   private final SerializationFilter mySerializationFilter;
 
   private SmartSerializer(boolean trackSerializedNames, boolean useSkipEmptySerializationFilter) {
@@ -46,14 +46,15 @@ public final class SmartSerializer {
   public void readExternal(@NotNull Object bean, @NotNull Element element) {
     if (serializedAccessorNameTracker != null) {
       serializedAccessorNameTracker.clear();
-      myOrderedBindings = null;
+      orderedBindings = null;
     }
 
     BeanBinding beanBinding = getBinding(bean);
-    BeanBinding.deserializeInto(bean, element, serializedAccessorNameTracker, beanBinding.bindings, 0, beanBinding.bindings.length);
+    assert beanBinding.bindings != null;
+    BeanBindingKt.deserializeBeanInto(bean, element, beanBinding.bindings, serializedAccessorNameTracker);
 
     if (serializedAccessorNameTracker != null) {
-      myOrderedBindings = beanBinding.computeBindingWeights(serializedAccessorNameTracker);
+      orderedBindings = beanBinding.computeBindingWeights$intellij_platform_util(serializedAccessorNameTracker);
     }
   }
 
@@ -63,8 +64,8 @@ public final class SmartSerializer {
 
   public void writeExternal(@NotNull Object bean, @NotNull Element element, boolean preserveCompatibility) {
     BeanBinding binding = getBinding(bean);
-    if (preserveCompatibility && myOrderedBindings != null) {
-      binding.sortBindings(myOrderedBindings);
+    if (preserveCompatibility && orderedBindings != null) {
+      binding.sortBindings(orderedBindings);
     }
 
     if (preserveCompatibility || serializedAccessorNameTracker == null) {

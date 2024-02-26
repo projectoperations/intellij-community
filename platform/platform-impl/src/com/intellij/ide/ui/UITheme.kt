@@ -257,7 +257,7 @@ class UITheme internal constructor(
 
     @TestOnly
     @JvmStatic
-    fun getColorPalette(): Map<String, String?> = colorPalette
+    fun getColorPalette(): Map<String, String?> = colorPaletteClassic
   }
 }
 
@@ -347,15 +347,18 @@ private fun createTheme(theme: UIThemeBean,
 }
 
 internal fun toColorString(key: String, darkTheme: Boolean): String {
+  val newUiPalette = if (darkTheme) colorPaletteNewDark else colorPaletteNewLight
+  newUiPalette.get(key)?.let { return it.lowercase() }
+
   if (darkTheme) {
-    colorPalette.get("$key.Dark")?.let {
+    colorPaletteClassic.get("$key.Dark")?.let {
       return it.lowercase()
     }
   }
-  return (colorPalette.get(key) ?: key).lowercase()
+  return (colorPaletteClassic.get(key) ?: key).lowercase()
 }
 
-private val colorPalette: @NonNls Map<String, String> = java.util.Map.ofEntries(
+private val colorPaletteClassic: @NonNls Map<String, String> = java.util.Map.ofEntries(
   java.util.Map.entry("Actions.Red", "#DB5860"),
   java.util.Map.entry("Actions.Red.Dark", "#C75450"),
   java.util.Map.entry("Actions.Yellow", "#EDA200"),
@@ -403,6 +406,65 @@ private val colorPalette: @NonNls Map<String, String> = java.util.Map.ofEntries(
   java.util.Map.entry("Checkbox.Focus.Thin.Selected.Dark", "#466D94"),
   java.util.Map.entry("Tree.iconColor", "#808080"),
   java.util.Map.entry("Tree.iconColor.Dark", "#AFB1B3")
+)
+
+private val colorPaletteNewLight: @NonNls Map<String, String> = java.util.Map.ofEntries(
+  java.util.Map.entry("Gray.Fill", "#EBECF0"), // Grey12
+  java.util.Map.entry("Gray.SecondaryStroke", "#A8ADBD"), // Grey8
+  java.util.Map.entry("Gray.Stroke", "#6C707E"), // Grey6
+
+  java.util.Map.entry("Blue.Fill", "#EDF3FF"), // Blue12
+  java.util.Map.entry("Blue.Solid", "#4682FA"), // Blue5
+  java.util.Map.entry("Blue.Stroke", "#3574F0"), // Blue4
+
+  java.util.Map.entry("Green.Fill", "#F2FCF3"), // Green11
+  java.util.Map.entry("Green.Solid", "#55A76A"), // Green6
+  java.util.Map.entry("Green.Stroke", "#208A3C"), // Green4
+
+  java.util.Map.entry("Red.Fill", "#FFF7F7"), // Red12
+  java.util.Map.entry("Red.Solid", "#E55765"), // Red5
+  java.util.Map.entry("Red.Stroke", "#DB3B4B"), // Red4
+
+  java.util.Map.entry("Yellow.Fill", "#FFFAEB"), // Yellow10
+  java.util.Map.entry("Yellow.Solid", "#FFAF0F"), // Yellow4
+  java.util.Map.entry("Yellow.Stroke", "#C27D04"), // Yellow2
+
+  java.util.Map.entry("Orange.Fill", "#FFF4EB"), // Orange9
+  java.util.Map.entry("Orange.Stroke", "#E56D17"), // Orange4
+
+  java.util.Map.entry("Purple.Fill", "#FAF5FF"), // Purple10
+  java.util.Map.entry("Purple.Stroke", "#834DF0"), // Purple4
+
+  java.util.Map.entry("Teal.Fill", "#F2FCFC"), // Teal9
+  java.util.Map.entry("Teal.Stroke", "#039BA1") // Teal4
+)
+
+private val colorPaletteNewDark: @NonNls Map<String, String> = java.util.Map.ofEntries(
+  java.util.Map.entry("Gray.Fill", "#43454A"), // Grey4
+  java.util.Map.entry("Gray.SecondaryStroke", "#6F737A"), // Grey7
+  java.util.Map.entry("Gray.Stroke", "#CED0D6"), // Grey11
+
+  java.util.Map.entry("Blue.Fill", "#25324D"), // Blue1
+  java.util.Map.entry("Blue.Stroke", "#548AF7"), // Blue8
+
+  java.util.Map.entry("Green.Fill", "#253627"), // Green1
+  java.util.Map.entry("Green.Stroke", "#57965C"), // Green6
+
+  java.util.Map.entry("Red.Fill", "#402929"), // Red1
+  java.util.Map.entry("Red.Stroke", "#DB5C5C"), // Red7
+
+  java.util.Map.entry("Yellow.Fill", "#3D3223"), // Yellow1
+  java.util.Map.entry("Yellow.Solid", "#F2C55C"), // Yellow7
+  java.util.Map.entry("Yellow.Stroke", "#D6AE58"), // Yellow6
+
+  java.util.Map.entry("Orange.Fill", "#45322B"), // Orange1
+  java.util.Map.entry("Orange.Stroke", "#C77D55"), // Orange5
+
+  java.util.Map.entry("Purple.Fill", "#2F2936"), // Purple1
+  java.util.Map.entry("Purple.Stroke", "#A571E6"), // Purple8
+
+  java.util.Map.entry("Teal.Fill", "#1D3838"), // Teal1
+  java.util.Map.entry("Teal.Stroke", "#24A394") // Teal6
 )
 
 private fun addPattern(key: String?, value: Any?, defaults: UIDefaults) {

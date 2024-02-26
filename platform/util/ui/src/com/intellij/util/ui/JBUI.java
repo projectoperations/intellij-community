@@ -826,6 +826,57 @@ public final class JBUI {
           return "Editor.Notification.WithoutStatus.borderInsets";
         }
       }
+      
+      interface Gutter {
+
+        static int emptyAnnotationAreaWidth() {
+          return getInt(emptyAnnotationAreaWidthKey(), defaultEmptyAnnotationAreaWidth());
+        }
+
+        static @NotNull String emptyAnnotationAreaWidthKey() {
+          return "Editor.Gutter.emptyAnnotationAreaWidth";
+        }
+
+        static int defaultEmptyAnnotationAreaWidth() {
+          return 4;
+        }
+
+        static int gapAfterVcsMarkersWidth() {
+          return getInt(gapAfterVcsMarkersWidthKey(), defaultGapAfterVcsMarkersWidth());
+        }
+
+        static @NotNull String gapAfterVcsMarkersWidthKey() {
+          return "Editor.Gutter.gapAfterVcsMarkersWidth";
+        }
+
+        static int defaultGapAfterVcsMarkersWidth() {
+          return 4;
+        }
+
+        static int gapAfterLineNumbersWidth() {
+          return getInt(gapAfterLineNumbersWidthKey(), defaultGapAfterLineNumbersWidth());
+        }
+
+        static @NotNull String gapAfterLineNumbersWidthKey() {
+          return "Editor.Gutter.gapAfterLineNumbersWidth";
+        }
+
+        static int defaultGapAfterLineNumbersWidth() {
+          return 4;
+        }
+
+        static int gapAfterIconsWidth() {
+          return getInt(gapAfterIconsWidthKey(), defaultGapAfterIconsWidth());
+        }
+
+        static @NotNull String gapAfterIconsWidthKey() {
+          return "Editor.Gutter.gapAfterIconsWidth";
+        }
+
+        static int defaultGapAfterIconsWidth() {
+          return 4;
+        }
+      }
     }
 
     public interface DragAndDrop {
@@ -1458,7 +1509,7 @@ public final class JBUI {
       }
 
       public static Insets separatorLabelInsets() {
-        return insets("Popup.separatorLabelInsets", insets(3, 20));
+        return insets("Popup.separatorLabelInsets", insets(3, 16));
       }
 
       public static Color separatorTextColor() {
@@ -1475,7 +1526,7 @@ public final class JBUI {
 
       public static final class Selection {
         public static final JBValue ARC = new JBValue.UIInteger("Popup.Selection.arc", 8);
-        public static final JBValue LEFT_RIGHT_INSET = new JBValue.UIInteger("Popup.Selection.leftRightInset", 12);
+        public static final JBValue LEFT_RIGHT_INSET = new JBValue.UIInteger("Popup.Selection.leftRightInset", 8);
 
         public static @NotNull Insets innerInsets() {
           JBInsets result = insets("Popup.Selection.innerInsets", insets(0, 8));
@@ -1510,7 +1561,7 @@ public final class JBUI {
         }
 
         public static @NotNull JBInsets outerInsets() {
-          return insets("PopupMenu.Selection.outerInsets", insets(1, 4));
+          return insets("PopupMenu.Selection.outerInsets", insets(1, 7));
         }
 
         public static final JBValue ARC = new JBValue.UIInteger("PopupMenu.Selection.arc", 8);
@@ -1696,7 +1747,7 @@ public final class JBUI {
 
       public static final class CombinedDiff {
         public static @NotNull Insets mainToolbarInsets() {
-          return insets(mainToolbarInsetsKey(), isNewUI() ? insets(5, 10) : insets(1, 10));
+          return insets(mainToolbarInsetsKey(), isNewUI() ? insets(4, 10) : insets(1, 10));
         }
 
         public static @NotNull String mainToolbarInsetsKey() {

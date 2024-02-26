@@ -2,13 +2,12 @@
 package com.intellij.testFramework;
 
 import com.intellij.concurrency.IdeaForkJoinWorkerThreadFactory;
-import com.intellij.concurrency.JobSchedulerImpl;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.util.ThrowableComputable;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.platform.diagnostic.telemetry.IJTracer;
 import com.intellij.platform.diagnostic.telemetry.Scope;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
+import com.intellij.platform.testFramework.diagnostic.TelemetryMeterCollector;
 import com.intellij.platform.testFramework.diagnostic.MetricsPublisher;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.ThrowableRunnable;
@@ -25,43 +24,33 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.ServiceLoader;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 import static com.intellij.platform.diagnostic.telemetry.helpers.TraceKt.computeWithSpanAttribute;
-import static com.intellij.platform.diagnostic.telemetry.helpers.TraceKt.computeWithSpanAttributes;
 
 public class PerformanceTestInfo {
-  private record IterationStatus(@NotNull IterationResult iterationResult,
-                                 boolean passed,
-                                 @NotNull String logMessage) {
-  }
-
   private enum IterationMode {
     WARMUP,
     MEASURE
   }
 
-  private final ThrowableComputable<Integer, ?> test; // runnable to measure; returns actual input size
-  private final int expectedMs;           // millis the test is expected to run
-  private final int expectedInputSize;    // size of input the test is expected to process;
-  private ThrowableRunnable<?> setup;      // to run before each test
-  private int usedReferenceCpuCores = 1;
-  private int maxMeasurementAttempts = 3;             // number of retries
-  private final String launchName;         // to print on fail
-  private boolean adjustForIO;// true if test uses IO, timings need to be re-calibrated according to this agent disk performance
-  private boolean adjustForCPU = true;  // true if test uses CPU, timings need to be re-calibrated according to this agent CPU speed
-  private boolean useLegacyScaling;
-  private int warmupIterations = 1; // default warmup iterations should be positive
+  private final ThrowableComputable<Integer, ?> test;   // runnable to measure; returns actual input size
+  private final int expectedInputSize;                  // size of input the test is expected to process;
+  private ThrowableRunnable<?> setup;                   // to run before each test
+  private int maxMeasurementAttempts = 3;               // number of retries
+  public final String launchName;                      // to print on fail
+  private int warmupIterations = 1;                      // default warmup iterations should be positive
+  private String uniqueTestName;                        // at least full qualified test name (plus other identifiers, optionally)
   @NotNull
   private final IJTracer tracer;
+  private TelemetryMeterCollector meterCollector = null;
 
   private static final CoroutineScope coroutineScope = CoroutineScopeKt.CoroutineScope(
     SupervisorKt.SupervisorJob(null).plus(Dispatchers.getIO())
@@ -76,6 +65,16 @@ public class PerformanceTestInfo {
     // Open Telemetry file will be located at ../system/test/log/opentelemetry.json (alongside with open-telemetry-metrics.*.csv)
     System.setProperty("idea.diagnostic.opentelemetry.file",
                        PathManager.getLogDir().resolve("opentelemetry.json").toAbsolutePath().toString());
+
+    var telemetryInstance = TelemetryManager.getInstance();
+
+    // looks like telemetry manager is properly initialized
+    if (telemetryInstance.hasSpanExporters()) return;
+
+    System.err.printf(
+      "%nTelemetry instance will be overriden since span exporters aren't registered. " +
+      "This means your metrics (meters or spans), configured before any test execution will not be reported. " +
+      "Consider using TestApplication that will setup proper instance of telemetry.%n");
 
     try {
       TelemetryManager.Companion.resetGlobalSdk();
@@ -94,78 +93,87 @@ public class PerformanceTestInfo {
     }
   }
 
-  PerformanceTestInfo(@NotNull ThrowableComputable<Integer, ?> test, int expectedMs, int expectedInputSize, @NotNull String launchName) {
+  private static void cleanupOutdatedMeters() {
+    try {
+      // force spans and meters to be written to disk before any test starts
+      // it's at least what we can do to minimize interference of the same meter on different tests
+      TelemetryManager.getInstance().forceFlushMetricsBlocking();
+
+      // remove content of the previous tests from the idea.log
+      MetricsPublisher.Companion.truncateTestLog();
+
+      var csvFilesWithMetrics = Files.list(PathManager.getLogDir()).filter((it) -> it.toString().endsWith(".csv")).toList();
+      for (Path file : csvFilesWithMetrics) {
+        Files.deleteIfExists(file);
+      }
+    }
+    catch (Exception e) {
+      System.err.println(
+        "Error during removing Telemetry .csv files with meters before start of perf test. This might affect metrics value");
+      e.printStackTrace();
+    }
+  }
+
+  PerformanceTestInfo(@NotNull ThrowableComputable<Integer, ?> test, int expectedInputSize, @NotNull String launchName) {
     initOpenTelemetry();
+    cleanupOutdatedMeters();
 
     this.test = test;
-    this.expectedMs = expectedMs;
     this.expectedInputSize = expectedInputSize;
-    assert expectedMs > 0 : "Expected must be > 0. Was: " + expectedMs;
     assert expectedInputSize > 0 : "Expected input size must be > 0. Was: " + expectedInputSize;
     this.launchName = launchName;
     this.tracer = TelemetryManager.getInstance().getTracer(new Scope("performanceUnitTests", null));
   }
 
-  @Contract(pure = true) // to warn about not calling .assertTiming() in the end
+  @Contract(pure = true) // to warn about not calling .start() in the end
   public PerformanceTestInfo setup(@NotNull ThrowableRunnable<?> setup) {
     assert this.setup == null;
     this.setup = setup;
     return this;
   }
 
-  /**
-   * Invoke this method if and only if the code under performance tests is using all CPU cores.
-   * The "standard" expected time then should be given for a machine which has 8 CPU cores.
-   * Actual test expected time will be adjusted according to the number of cores the actual computer has.
-   */
-  @Contract(pure = true) // to warn about not calling .assertTiming() in the end
-  public PerformanceTestInfo usesAllCPUCores() { return usesMultipleCPUCores(8); }
-
-  /**
-   * Invoke this method if and only if the code under performance tests is using {@code maxCores} CPU cores (or fewer if the computer has less than {@code maxCores} cores).
-   * The "standard" expected time then should be given for a machine which has {@code maxCores} CPU cores.
-   * Actual test expected time will be adjusted according to the number of cores the actual computer has.
-   */
-  @Contract(pure = true) // to warn about not calling .assertTiming() in the end
-  public PerformanceTestInfo usesMultipleCPUCores(int maxCores) {
-    assert adjustForCPU : "This test configured to be io-bound, it cannot use all cores";
-    usedReferenceCpuCores = maxCores;
-    return this;
-  }
-
-  @Contract(pure = true) // to warn about not calling .assertTiming() in the end
-  public PerformanceTestInfo ioBound() {
-    adjustForIO = true;
-    adjustForCPU = false;
-    return this;
-  }
-
-  @Contract(pure = true) // to warn about not calling .assertTiming() in the end
+  @Contract(pure = true) // to warn about not calling .start() in the end
   public PerformanceTestInfo attempts(int attempts) {
     this.maxMeasurementAttempts = attempts;
     return this;
   }
 
   /**
-   * Runs the payload {@code iterations} times before starting measuring the time.
-   * By default, iterations == 0 (in which case we don't run warmup passes at all)
+   * Instruct to publish Telemetry meters (that is stored in .csv files)
+   * Eg:
+   * <pre>
+   *   {@code
+   *     val counter: AtomicLong = AtomicLong()
+   *     val counterMeter = TelemetryManager.getMeter(MY_SCOPE)
+   *       .counterBuilder("custom.counter")
+   *       .buildWithCallback { it.record(counter.get()) }
+   *
+   *     val meterCollector = TelemetryMeterCollector(MetricsAggregation.SUM) { it.key.contains("custom") }
+   *
+   *     PlatformTestUtil.newPerformanceTest("my perf test") {
+   *       counter.incrementAndGet()
+   *     }
+   *       .withTelemetryMeters(meterCollector)
+   *       .start()}
+   * </pre>
    */
-  @Contract(pure = true) // to warn about not calling .assertTiming() in the end
+  @Contract(pure = true) // to warn about not calling .start() in the end
+  public PerformanceTestInfo withTelemetryMeters(TelemetryMeterCollector meterCollector) {
+    this.meterCollector = meterCollector;
+    return this;
+  }
+
+  /**
+   * Runs the perf test {@code iterations} times before starting the final measuring.
+   */
+  @Contract(pure = true) // to warn about not calling .start() in the end
   public PerformanceTestInfo warmupIterations(int iterations) {
     warmupIterations = iterations;
     return this;
   }
 
-  /**
-   * @deprecated Enables procedure for nonlinear scaling of results between different machines. This was historically enabled, but doesn't
-   * seem to be meaningful, and is known to make results worse in some cases. Consider migration off this setting, recalibrating
-   * expected execution time accordingly.
-   */
-  @Deprecated
-  @Contract(pure = true) // to warn about not calling .assertTiming() in the end
-  public PerformanceTestInfo useLegacyScaling() {
-    useLegacyScaling = true;
-    return this;
+  public String getUniqueTestName() {
+    return uniqueTestName;
   }
 
   private static Method filterMethodFromStackTrace(Function<Method, Boolean> methodFilter) {
@@ -203,7 +211,7 @@ public class PerformanceTestInfo {
       callingTestMethod = tryToFindCallingTestMethodByNamePattern();
       if (callingTestMethod == null) {
         throw new AssertionError(
-          "Couldn't manage to detect the calling test method. Please use one of the overloads of com.intellij.testFramework.PerformanceTestInfo.assertTiming"
+          "Couldn't manage to detect the calling test method. Please use one of the overloads of com.intellij.testFramework.PerformanceTestInfo.start"
         );
       }
     }
@@ -211,69 +219,109 @@ public class PerformanceTestInfo {
     return callingTestMethod;
   }
 
-  /** @see PerformanceTestInfo#assertTiming(String) */
-  public void assertTiming() {
-    assertTiming(getCallingTestMethod());
+  /**
+   * Start execution of the performance test.
+   * <br/>
+   * Default pipeline:
+   * <ul>
+   *     <li>executes warmup phase - run the perf test {@link #warmupIterations} times before final measurements</li>
+   *     <li>executes perf test with final measurements {@link #maxMeasurementAttempts} times</li>
+   *     <li>publish metrics and artifacts(logs, etc.) in {@code ./system/teamcity-artifacts-for-publish/}</li>
+   * </ul>
+   * <br/>
+   * By default only OpenTelemetry spans will be published. (from the {@code ./system/test/log/opentelemtry.json} file).<br/>
+   * To enable publishing of meters (from the {@code ./system/test/log/open-telemetry-metrics.*.csv}) use {@link #withTelemetryMeters(OpenTelemetryMeterCollector)}. <br/>
+   * <p/>
+   * Considering metrics: better to have a test that produces metrics in seconds, rather milliseconds.<br/>
+   * This way degradation will be easier to detect and metric deviation from the baseline will be easier to notice.
+   * <p/>
+   * On TeamCity all unit performance tests run as
+   * <a href="https://buildserver.labs.intellij.net/buildConfiguration/ijplatform_master_Idea_Tests_PerformanceTests?branch=&buildTypeTab=overview&mode=builds">the composite build</a>
+   * <br/>
+   * Raw metrics are reported as TC artifacts and can be found on Artifacts tqb in dependency builds.<br/>
+   * Human friendly metrics representation can be viewed in <a href="https://ij-perf.labs.jb.gg/perfUnit/tests?machine=linux-blade-hetzner&branch=master">IJ Perf</a><br/>
+   * Last but not least: if metrics arent published or even not collected - probably TelemetryManager isntance isn't initialized correctly
+   * or dependency on module intellij.tools.ide.metrics.benchmark isn't set.
+   *
+   * @see #start(String)
+   * @see #start(Method)
+   * @see #start(kotlin.reflect.KFunction)
+   * @see #startAsSubtest(String)
+   **/
+  public void start() {
+    start(getCallingTestMethod(), launchName);
   }
 
-  public void assertTiming(@NotNull Method javaTestMethod) {
-    assertTiming(javaTestMethod, "");
-  }
-
-  public void assertTiming(@NotNull Method javaTestMethod, String subTestName) {
+  /**
+   * Start the perf test where the test's artifact path will have a name inferred from test method + subtest name.
+   *
+   * @see PerformanceTestInfo#start()
+   * @see PerformanceTestInfo#startAsSubtest(String)
+   * @see PerformanceTestInfo#start(kotlin.reflect.KFunction)
+   **/
+  public void start(@NotNull Method javaTestMethod, String subTestName) {
     var fullTestName = String.format("%s.%s", javaTestMethod.getDeclaringClass().getName(), javaTestMethod.getName());
     if (subTestName != null && !subTestName.isEmpty()) {
       fullTestName += " - " + subTestName;
     }
-    assertTiming(fullTestName);
+    start(fullTestName);
   }
 
   /**
-   * {@link PerformanceTestInfo#assertTiming(String)}
+   * Start the perf test where test artifact path will have a name inferred from test method.
+   * Useful in parametrized tests.
    * <br/>
-   * Eg: <code>assertTiming(GradleHighlightingPerformanceTest::testCompletionPerformance)</code>
-   */
-  public void assertTiming(@NotNull KFunction<?> kotlinTestMethod) {
-    assertTiming(String.format("%s.%s", kotlinTestMethod.getClass().getName(), kotlinTestMethod.getName()));
-  }
-
-  /**
-   * By default passed test launch name will be used as the subtest name.
+   * Eg: <code>start(GradleHighlightingPerformanceTest::testCompletionPerformance)</code>
    *
-   * @see PerformanceTestInfo#assertTimingAsSubtest(String)
+   * @see PerformanceTestInfo#start(Method)
+   * @see PerformanceTestInfo#start(String)
    */
-  public void assertTimingAsSubtest() {
-    assertTimingAsSubtest(launchName);
+  public void start(@NotNull KFunction<?> kotlinTestMethod) {
+    start(String.format("%s.%s", kotlinTestMethod.getClass().getName(), kotlinTestMethod.getName()));
   }
 
   /**
-   * In case if you want to run many subsequent performance measurements in your JUnit test.
+   * Use it if you need to run many subsequent performance tests in your JUnit test.<br/>
+   * Each subtest should have unique name, otherwise published results would be overwritten.<br/>
+   * <br/>
+   * By default passed test launch name will be used as the subtest name.<br/>
    *
-   * @see PerformanceTestInfo#assertTiming(String)
+   * @see PerformanceTestInfo#startAsSubtest(String)
    */
-  public void assertTimingAsSubtest(@Nullable String subTestName) {
-    assertTiming(getCallingTestMethod(), subTestName);
+  public void startAsSubtest() {
+    startAsSubtest(launchName);
   }
 
   /**
-   * Asserts expected timing.
+   * The same as {@link #startAsSubtest()} but with the option to specify subtest name.
+   */
+  public void startAsSubtest(@Nullable String subTestName) {
+    start(getCallingTestMethod(), subTestName);
+  }
+
+  /**
+   * Start execution of the performance test.
    *
    * @param fullQualifiedTestMethodName String representation of full method name.
    *                                    For Java you can use {@link com.intellij.testFramework.UsefulTestCase#getQualifiedTestMethodName()}
    *                                    OR
    *                                    {@link com.intellij.testFramework.fixtures.BareTestFixtureTestCase#getQualifiedTestMethodName()}
+   * @see PerformanceTestInfo#start()
    */
-  public void assertTiming(String fullQualifiedTestMethodName) {
-    assertTiming(IterationMode.WARMUP, fullQualifiedTestMethodName);
-    assertTiming(IterationMode.MEASURE, fullQualifiedTestMethodName);
+  public void start(String fullQualifiedTestMethodName) {
+    start(IterationMode.WARMUP, fullQualifiedTestMethodName);
+    start(IterationMode.MEASURE, fullQualifiedTestMethodName);
   }
 
-  private void assertTiming(IterationMode iterationType, String fullQualifiedTestMethodName) {
-    if (PlatformTestUtil.COVERAGE_ENABLED_BUILD) return;
-    System.out.printf("Starting performance test in mode: %s%n", iterationType);
+  /**
+   * @param uniqueTestName - should be at least full qualified test method name.
+   *                       Sometimes additional suffixes might be added like here {@link PerformanceTestInfo#startAsSubtest(String)}
+   */
+  private void start(IterationMode iterationType, String uniqueTestName) {
+    this.uniqueTestName = uniqueTestName;
 
-    Timings.getStatistics(); // warm-up, measure
-    updateJitUsage();
+    if (PlatformTestUtil.COVERAGE_ENABLED_BUILD) return;
+    System.out.printf("Starting performance test \"%s\" in mode: %s%n", uniqueTestName, iterationType);
 
     int maxIterationsNumber;
     if (iterationType.equals(IterationMode.WARMUP)) {
@@ -289,63 +337,27 @@ public class PerformanceTestInfo {
     }
 
     try {
-      computeWithSpanAttribute(tracer, launchName, "warmup", (st) -> String.valueOf(iterationType.equals(IterationMode.WARMUP)), () -> {
+      computeWithSpanAttribute(tracer, uniqueTestName, "warmup", (st) -> String.valueOf(iterationType.equals(IterationMode.WARMUP)), () -> {
         try {
+          PlatformTestUtil.waitForAllBackgroundActivityToCalmDown();
+
           for (int attempt = 1; attempt <= maxIterationsNumber; attempt++) {
             AtomicInteger actualInputSize;
 
             if (setup != null) setup.run();
-            PlatformTestUtil.waitForAllBackgroundActivityToCalmDown();
             actualInputSize = new AtomicInteger(expectedInputSize);
 
-            int iterationNumber = attempt;
-            Supplier<IterationStatus> operation = () -> {
-              CpuUsageData currentData;
-              try {
-                Profiler.startProfiling(iterationType.name() + iterationNumber);
-                currentData = CpuUsageData.measureCpuUsage(() -> actualInputSize.set(test.compute()));
-              }
-              catch (Throwable e) {
-                ExceptionUtil.rethrowUnchecked(e);
-                throw new RuntimeException(e);
-              }
-              finally {
-                Profiler.stopProfiling();
-              }
-              int actualUsedCpuCores = usedReferenceCpuCores < 8
-                                       ? Math.min(JobSchedulerImpl.getJobPoolParallelism(), usedReferenceCpuCores)
-                                       : JobSchedulerImpl.getJobPoolParallelism();
-              int expectedOnMyMachine = getExpectedTimeOnThisMachine(actualInputSize.get(), actualUsedCpuCores);
-              IterationResult iterationResult = currentData.getIterationResult(expectedOnMyMachine);
+            Supplier<Object> perfTestWorkload = getPerfTestWorkloadSupplier(iterationType, attempt, actualInputSize);
 
-              boolean passed = iterationResult == IterationResult.ACCEPTABLE || iterationResult == IterationResult.BORDERLINE;
-              String message =
-                formatMessage(currentData, expectedOnMyMachine, actualInputSize.get(), actualUsedCpuCores, iterationResult);
-              return new IterationStatus(iterationResult, passed, message);
-            };
-
-            IterationStatus iterationStatus = computeWithSpanAttributes(
+            computeWithSpanAttribute(
               tracer, "Attempt: " + attempt,
-              iterationStatusSupplier -> {
-                var spanAttributes = new HashMap<String, String>();
+              "warmup",
+              (st) -> String.valueOf(iterationType.equals(IterationMode.WARMUP)),
+              () -> perfTestWorkload.get()
+            );
 
-                spanAttributes.put("Attempt status", String.valueOf(iterationStatusSupplier));
-                if (iterationType.equals(IterationMode.WARMUP)) {
-                  spanAttributes.put("warmup", "true");
-                }
-
-                return spanAttributes;
-              },
-              () -> operation.get());
-
-            JitUsageResult jitUsage = updateJitUsage();
-            String s =
-              "  " + (maxIterationsNumber - attempt) + " " + StringUtil.pluralize("attempt", maxIterationsNumber - attempt) + " remain" +
-              (jitUsage == JitUsageResult.UNCLEAR ? " (waiting for JITc; its usage was " + jitUsage + " in this iteration)" : "");
-            TeamCityLogger.warning(s, null);
-            if (UsefulTestCase.IS_UNDER_TEAMCITY) {
-              System.out.println(s);
-              System.out.println(iterationStatus);
+            if (!UsefulTestCase.IS_UNDER_TEAMCITY) {
+              // TODO: Print debug metrics here https://youtrack.jetbrains.com/issue/AT-726
             }
             //noinspection CallToSystemGC
             System.gc();
@@ -362,9 +374,15 @@ public class PerformanceTestInfo {
     }
     finally {
       try {
-        // publish warmup and clean measurements at once at the end of the runs
+        // publish warmup and final measurements at once at the end of the runs
         if (iterationType.equals(IterationMode.MEASURE)) {
-          MetricsPublisher.Companion.getInstance().publishSync(fullQualifiedTestMethodName, launchName);
+          var publisherInstance = MetricsPublisher.Companion.getInstance();
+          if (meterCollector != null) {
+            publisherInstance.publishSync(uniqueTestName, meterCollector);
+          }
+          else {
+            publisherInstance.publishSync(uniqueTestName);
+          }
         }
       }
       catch (Throwable t) {
@@ -374,64 +392,22 @@ public class PerformanceTestInfo {
     }
   }
 
-  private @NotNull String formatMessage(@NotNull CpuUsageData data,
-                                        int expectedOnMyMachine,
-                                        int actualInputSize,
-                                        int actualUsedCpuCores,
-                                        @NotNull IterationResult iterationResult) {
-    long duration = data.durationMs;
-    int percentage = (int)(100.0 * (duration - expectedOnMyMachine) / expectedOnMyMachine);
-    String colorCode = iterationResult == IterationResult.ACCEPTABLE ? "32;1m" : // green
-                       iterationResult == IterationResult.BORDERLINE ? "33;1m" : // yellow
-                       "31;1m"; // red
-    return
-      launchName + " took \u001B[" + colorCode + Math.abs(percentage) + "% " + (percentage > 0 ? "more" : "less") + " time\u001B[0m than expected" +
-      (iterationResult == IterationResult.DISTRACTED ? " (but JIT compilation took too long, will retry anyway)" : "") +
-      "\n  Expected: " + expectedOnMyMachine + "ms" + (expectedOnMyMachine < 1000 ? "" : " (" + StringUtil.formatDuration(expectedOnMyMachine) + ")") +
-      "\n  Actual:   " + duration + "ms" + (duration < 1000 ? "" : " (" + StringUtil.formatDuration(duration) + ")") +
-      (expectedInputSize != actualInputSize ? "\n  (Expected time was adjusted accordingly to input size: expected " + expectedInputSize + ", actual " + actualInputSize + ".)": "") +
-      (usedReferenceCpuCores != actualUsedCpuCores ? "\n  (Expected time was adjusted accordingly to number of available CPU cores: reference CPU has " + usedReferenceCpuCores + ", actual value is " + actualUsedCpuCores + ".)": "") +
-      "\n  Timings:  " + Timings.getStatistics() +
-      "\n  Threads:  " + data.getThreadStats() +
-      "\n  GC stats: " + data.getGcStats() +
-      "\n  Process:  " + data.getProcessCpuStats();
-  }
-
-  private long lastJitUsage;
-  private long lastJitStamp = -1;
-
-  private JitUsageResult updateJitUsage() {
-    long timeNow = System.nanoTime();
-    long jitNow = CpuUsageData.getTotalCompilationMillis();
-
-    long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(timeNow - lastJitStamp);
-    if (lastJitStamp >= 0) {
-      if (elapsedMillis >= 3_000) {
-        if (jitNow - lastJitUsage <= elapsedMillis / 10) {
-          return JitUsageResult.DEFINITELY_LOW;
-        }
+  private @NotNull Supplier<Object> getPerfTestWorkloadSupplier(IterationMode iterationType, int attempt, AtomicInteger actualInputSize) {
+    return () -> {
+      try {
+        Profiler.startProfiling(iterationType.name() + attempt);
+        actualInputSize.set(test.compute());
       }
-      else {
-        // don't update stamps too frequently,
-        // because JIT times are quite discrete: they only change after a compilation is finished,
-        // and some compilations take a second or even more
-        return JitUsageResult.UNCLEAR;
+      catch (Throwable e) {
+        ExceptionUtil.rethrowUnchecked(e);
+        throw new RuntimeException(e);
       }
-    }
+      finally {
+        Profiler.stopProfiling();
+      }
 
-    lastJitStamp = timeNow;
-    lastJitUsage = jitNow;
-
-    return JitUsageResult.UNCLEAR;
-  }
-
-  private enum JitUsageResult {DEFINITELY_LOW, UNCLEAR}
-
-  enum IterationResult {
-    ACCEPTABLE, // test was completed within the specified range
-    BORDERLINE, // test barely managed to complete within the specified range
-    SLOW,       // test was too slow
-    DISTRACTED  // CPU was occupied by irrelevant computations for too long (e.g., JIT or GC)
+      return null;
+    };
   }
 
   private static final class Profiler {
@@ -469,33 +445,6 @@ public class PerformanceTestInfo {
           System.out.println("Can't start profiling");
         }
       }
-    }
-  }
-
-  private int getExpectedTimeOnThisMachine(int actualInputSize, int actualUsedCpuCores) {
-    int expectedOnMyMachine = (int)(((long)expectedMs) * actualInputSize / expectedInputSize);
-    if (adjustForCPU) {
-      expectedOnMyMachine *= usedReferenceCpuCores;
-      expectedOnMyMachine = adjust(expectedOnMyMachine, Timings.CPU_TIMING, Timings.REFERENCE_CPU_TIMING, useLegacyScaling);
-      expectedOnMyMachine /= actualUsedCpuCores;
-    }
-    if (adjustForIO) {
-      expectedOnMyMachine = adjust(expectedOnMyMachine, Timings.IO_TIMING, Timings.REFERENCE_IO_TIMING, useLegacyScaling);
-    }
-    return expectedOnMyMachine;
-  }
-
-  private static int adjust(int expectedOnMyMachine, long thisTiming, long referenceTiming, boolean useLegacyScaling) {
-    if (useLegacyScaling) {
-      double speed = 1.0 * thisTiming / referenceTiming;
-      double delta = speed < 1
-                     ? 0.9 + Math.pow(speed - 0.7, 2)
-                     : 0.45 + Math.pow(speed - 0.25, 2);
-      expectedOnMyMachine *= delta;
-      return expectedOnMyMachine;
-    }
-    else {
-      return (int)(expectedOnMyMachine * thisTiming / referenceTiming);
     }
   }
 }

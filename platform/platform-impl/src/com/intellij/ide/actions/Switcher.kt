@@ -66,6 +66,7 @@ import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.SwingTextTrimmer
 import com.intellij.util.ui.components.BorderLayoutPanel
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.TestOnly
@@ -90,6 +91,7 @@ object Switcher : BaseSwitcherAction(null) {
   val SWITCHER_KEY: Key<SwitcherPanel> = Key.create("SWITCHER_KEY")
 
   @Deprecated("Please use {@link Switcher#createAndShowSwitcher(AnActionEvent, String, boolean, boolean)}")
+  @ApiStatus.ScheduledForRemoval
   @JvmStatic
   fun createAndShowSwitcher(e: AnActionEvent, title: @Nls String, pinned: Boolean, vFiles: Array<VirtualFile?>?): SwitcherPanel? {
     val project = e.project ?: return null
@@ -395,7 +397,7 @@ object Switcher : BaseSwitcherAction(null) {
       addForbiddenMnemonics(keymap, IdeActions.ACTION_EDITOR_MOVE_CARET_RIGHT)
       val otherTW: MutableList<SwitcherToolWindow> = ArrayList()
       for (window in windows) {
-        val index = ActivateToolWindowAction.getMnemonicForToolWindow(window.window.id)
+        val index = ActivateToolWindowAction.Manager.getMnemonicForToolWindow(window.window.id)
         if (index < '0'.code || index > '9'.code || !addShortcut(keymap, window, getIndexShortcut(index - '0'.code))) {
           otherTW.add(window)
         }

@@ -13,24 +13,27 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.backend.workspace.*
 import com.intellij.platform.backend.workspace.impl.WorkspaceModelInternal
-import com.intellij.platform.diagnostic.telemetry.helpers.addElapsedTimeMillis
-import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
+import com.intellij.platform.diagnostic.telemetry.helpers.Milliseconds
+import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
 import com.intellij.platform.workspace.storage.*
 import com.intellij.platform.workspace.storage.impl.VersionedEntityStorageImpl
 import com.intellij.platform.workspace.storage.impl.assertConsistency
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
+import com.intellij.platform.workspace.storage.impl.query.Diff
+import com.intellij.platform.workspace.storage.query.CollectionQuery
+import com.intellij.platform.workspace.storage.query.StorageQuery
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.serviceContainer.AlreadyDisposedException
 import com.intellij.workspaceModel.core.fileIndex.EntityStorageKind
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndex
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexImpl
+import com.intellij.workspaceModel.ide.impl.reactive.WmReactive
 import io.opentelemetry.api.metrics.Meter
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.TestOnly
@@ -43,18 +46,29 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
   var loadedFromCache = false
     protected set
 
+  private val reactive = WmReactive(this)
+
   final override val entityStorage: VersionedEntityStorageImpl
   private val unloadedEntitiesStorage: VersionedEntityStorageImpl
 
-  private val virtualFileManager: VirtualFileUrlManager = IdeVirtualFileUrlManagerImpl()
+  // replay = 1 is needed to send the very first state when the subscription fo the flow happens.
+  //   otherwise, the flow won't be emitted till the first update. Since we don't update the workspace model really often,
+  //   this may cause some unwanted delays for subscribers.
+  // This is used in the [subscribe] method, where we send the first version of the storage
+  //   right after the subscription.
+  // However, this means that this flow will keep two storages in the flow: the old and the new. This should be okay
+  //   since the storage is an effective structure, however, if this causes memory problems, we can switch to
+  //   replay = 0. In this case, no extra storage will be saved, but the event will be emitted after the first
+  //   update of the WorkspaceModel, what is probably also okay.
+  private val updatesFlow = MutableSharedFlow<VersionedStorageChange>(replay = 1)
 
-  private val updatesFlow = MutableSharedFlow<VersionedStorageChange>()
+  private val virtualFileManager: VirtualFileUrlManager = IdeVirtualFileUrlManagerImpl()
 
   /**
    * This flow will become obsolete, as we'll migrate to reactive listeners. However, [updatesFlow] will remain here
    *   as a building block of the new listeners.
    */
-  override val changesEventFlow: Flow<VersionedStorageChange> = updatesFlow.asSharedFlow()
+  private val changesEventFlow: Flow<VersionedStorageChange> = updatesFlow.asSharedFlow()
 
   override val currentSnapshot: ImmutableEntityStorage
     get() = entityStorage.current
@@ -70,7 +84,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
 
   init {
     log.debug { "Loading workspace model" }
-    val start = System.currentTimeMillis()
+    val start = Milliseconds.now()
 
     val initialContent = WorkspaceModelInitialTestContent.pop()
     val cache = WorkspaceModelCache.getInstance(project)?.apply { setVirtualFileUrlManager(virtualFileManager) }
@@ -81,7 +95,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
       }
       cache != null -> {
         val activity = StartUpMeasurer.startActivity("cache loading")
-        val cacheLoadingStart = System.currentTimeMillis()
+        val cacheLoadingStart = Milliseconds.now()
 
         val previousStorage: MutableEntityStorage?
         val previousStorageForUnloaded: ImmutableEntityStorage
@@ -99,7 +113,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
           previousStorage
         }
 
-        loadingFromCacheTimeMs.addElapsedTimeMillis(cacheLoadingStart)
+        loadingFromCacheTimeMs.addElapsedTime(cacheLoadingStart)
         activity.end()
         storage to previousStorageForUnloaded
       }
@@ -112,7 +126,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     entityStorage = VersionedEntityStorageImpl(projectEntities.toSnapshot())
     unloadedEntitiesStorage = VersionedEntityStorageImpl(unloadedEntities)
     entityTracer.subscribe(project, cs)
-    loadingTotalTimeMs.addElapsedTimeMillis(start)
+    loadingTotalTimeMs.addElapsedTime(start)
   }
 
   override val currentSnapshotOfUnloadedEntities: ImmutableEntityStorage
@@ -170,12 +184,12 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
       }
       entityStorage.replace(newStorage, changes, this::onBeforeChanged, this::onChanged)
     }.apply {
-      updateTimePreciseMs.addAndGet(updateTimeMillis)
-      preHandlersTimeMs.addAndGet(preHandlersTimeMillis)
-      collectChangesTimeMs.addAndGet(collectChangesTimeMillis)
-      initializingTimeMs.addAndGet(initializingTimeMillis)
-      toSnapshotTimeMs.addAndGet(toSnapshotTimeMillis)
-      totalUpdatesTimeMs.addAndGet(this)
+      updateTimePreciseMs.duration.addAndGet(updateTimeMillis)
+      preHandlersTimeMs.duration.addAndGet(preHandlersTimeMillis)
+      collectChangesTimeMs.duration.addAndGet(collectChangesTimeMillis)
+      initializingTimeMs.duration.addAndGet(initializingTimeMillis)
+      toSnapshotTimeMs.duration.addAndGet(toSnapshotTimeMillis)
+      totalUpdatesTimeMs.duration.addAndGet(this)
       updatesCounter.incrementAndGet()
     }
     log.info("Project model updated to version ${entityStorage.pointer.version} in $generalTime ms: $description")
@@ -193,11 +207,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
   }
 
   override suspend fun update(description: String, updater: (MutableEntityStorage) -> Unit) {
-    // TODO:: Make the logic smarter and avoid using WR if there are no subscribers via topic.
-    //  Right now we don't have API to check how many subscribers for the topic we have
-
-    // In the version without write action, we'll need to replace write lock with an async mutex from the kotlin coroutines.
-    ApplicationManager.getApplication().assertReadAccessNotAllowed()
+    // TODO:: Has to be migrated to the implementation without WA. See IDEA-336937
     writeAction { updateProjectModel(description, updater) }
   }
 
@@ -241,9 +251,9 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
       }
       entityStorage.replace(newStorage, changes, {}, {})
     }.apply {
-      updateTimePreciseMs.addAndGet(updateTimeMillis)
-      toSnapshotTimeMs.addAndGet(toSnapshotTimeMillis)
-      totalUpdatesTimeMs.addAndGet(this)
+      updateTimePreciseMs.duration.addAndGet(updateTimeMillis)
+      toSnapshotTimeMs.duration.addAndGet(toSnapshotTimeMillis)
+      totalUpdatesTimeMs.duration.addAndGet(this)
       updatesCounter.incrementAndGet()
     }
 
@@ -259,7 +269,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
   /**
    * Things that must be considered if you'd love to change this logic: IDEA-342103
    */
-  private fun checkRecursiveUpdate() = checkRecursiveUpdateTimeMs.addMeasuredTimeMillis {
+  private fun checkRecursiveUpdate() = checkRecursiveUpdateTimeMs.addMeasuredTime {
     val stackStraceIterator = RuntimeException().stackTrace.iterator()
     // Skip two methods of the current update
     repeat(2) { stackStraceIterator.next() }
@@ -271,7 +281,48 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
       }
       else if (frame.methodName == onChangedMethodName && frame.className == WorkspaceModelImpl::class.qualifiedName) {
         // It's fine to update the project method in "after update" listeners
-        return@addMeasuredTimeMillis
+        return@addMeasuredTime
+      }
+    }
+  }
+
+  override suspend fun <R> subscribe(
+    subscriber: suspend CoroutineScope.(initial: ImmutableEntityStorage, changes: SharedFlow<VersionedStorageChange>) -> R
+  ): R {
+    // We make a separate scope to bind the lifetime of the coroutine that redirects changes from one flow to another
+    //   and the coroutines that will be created in the [subscriber] function.
+    return coroutineScope scope@ {
+
+      // trick from fleet: use channel in place of deferred, cause the latter one would hold the veryFirstSnapshot for the lifetime of the entire subscription
+      val veryFirstSnapshot = Channel<ImmutableEntityStorage>(1)
+
+      // We use BufferOverflow.SUSPEND as I see no reason not to suspend in case in some consumer is slow.
+      // Fleet uses DROP_OLDEST. In case of a slow consumer, on buffer overflow the oldest value is dropped.
+      //   Fleet tracks the version of the storage, and in case some value is dropped, there is a gap
+      //   in versions, and Fleet will cancel such subscription. As I understand, this is done so the slow subscribers
+      //   won't slow down the super speed of the fleet storage.
+      // At the moment, we don't have such problems with one consumer slowing down the updates, but if we have them,
+      //   we can use the fleet tactic.
+      //
+      // Mutable shared flow is used because it's hot and it will get all emits of the changesEventFlow
+      //   even if the consumer didn't start to listen to the flow yet.
+      val sharedFlow = MutableSharedFlow<VersionedStorageChange>(
+        replay = 0,
+        extraBufferCapacity = 1000, // Size of the flow
+        onBufferOverflow = BufferOverflow.SUSPEND,
+      )
+
+      val job = launch(start = CoroutineStart.UNDISPATCHED, context = Dispatchers.Unconfined) {
+        this@WorkspaceModelImpl.changesEventFlow.fold(true) { veryFirstUpdate, event ->
+          if (veryFirstUpdate) veryFirstSnapshot.send(event.storageAfter) else sharedFlow.emit(event)
+          false
+        }
+      }
+
+      try {
+        this.subscriber(veryFirstSnapshot.receive(), sharedFlow.asSharedFlow())
+      } finally {
+        job.cancelAndJoin()
       }
     }
   }
@@ -289,7 +340,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
       val changes = builder.collectChanges()
       val newStorage = builder.toSnapshot()
       unloadedEntitiesStorage.replace(newStorage, changes, {}, ::onUnloadedEntitiesChanged)
-    }.apply { updateUnloadedEntitiesTimeMs.addAndGet(this) }
+    }.apply { updateUnloadedEntitiesTimeMs.duration.addAndGet(this) }
 
     log.info("Unloaded entity storage updated in $time ms: $description")
   }
@@ -299,20 +350,46 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     return BuilderSnapshot(current.version, current.storage)
   }
 
+  fun getUnloadBuilderSnapshot(): BuilderSnapshot {
+    val current = unloadedEntitiesStorage.pointer
+    return BuilderSnapshot(current.version, current.storage)
+  }
+
   @Synchronized
   final override fun replaceProjectModel(replacement: StorageReplacement): Boolean {
     ApplicationManager.getApplication().assertWriteAccessAllowed()
 
     if (entityStorage.version != replacement.version) return false
 
-    replaceProjectModelTimeMs.addMeasuredTimeMillis {
+    replaceProjectModelTimeMs.addMeasuredTime {
       val builder = replacement.builder
       this.initializeBridges(replacement.changes, builder)
       entityStorage.replace(builder.toSnapshot(), replacement.changes, this::onBeforeChanged, this::onChanged)
     }
-
     return true
   }
+
+  @Synchronized
+  fun replaceProjectModel(mainStorageReplacement: StorageReplacement, unloadStorageReplacement: StorageReplacement): Boolean {
+    ApplicationManager.getApplication().assertWriteAccessAllowed()
+
+    if (entityStorage.version != mainStorageReplacement.version ||
+        unloadedEntitiesStorage.version != unloadStorageReplacement.version) return false
+
+    fullReplaceProjectModelTimeMs.addMeasuredTime {
+      val builder = mainStorageReplacement.builder
+      this.initializeBridges(mainStorageReplacement.changes, builder)
+      entityStorage.replace(builder.toSnapshot(), mainStorageReplacement.changes, this::onBeforeChanged, this::onChanged)
+
+      val unloadBuilder = unloadStorageReplacement.builder
+      unloadedEntitiesStorage.replace(unloadBuilder.toSnapshot(), unloadStorageReplacement.changes, {}, ::onUnloadedEntitiesChanged)
+    }
+    return true
+  }
+
+  override suspend fun <T> flowOfQuery(query: StorageQuery<T>): Flow<T> = reactive.flowOfQuery(query)
+  override suspend fun <T> flowOfNewElements(query: CollectionQuery<T>): Flow<T> = reactive.flowOfNewElements(query)
+  override suspend fun <T> flowOfDiff(query: CollectionQuery<T>): Flow<Diff<T>> = reactive.flowOfDiff(query)
 
   final override fun dispose() = Unit
 
@@ -320,7 +397,7 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
     ApplicationManager.getApplication().assertWriteAccessAllowed()
     if (project.isDisposed) return
 
-    initializeBridgesTimeMs.addMeasuredTimeMillis {
+    initializeBridgesTimeMs.addMeasuredTime {
       BridgeInitializer.EP_NAME.extensionList.forEach { bridgeInitializer ->
         logErrorOnEventHandling {
           if (bridgeInitializer.isEnabled()) {
@@ -416,21 +493,22 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
       "com.intellij.workspaceModel.preUpdateHandler")
     private const val PRE_UPDATE_LOOP_BLOCK = 100
 
-    private val loadingTotalTimeMs: AtomicLong = AtomicLong()
-    private val loadingFromCacheTimeMs: AtomicLong = AtomicLong()
+    private val loadingTotalTimeMs = MillisecondsMeasurer()
+    private val loadingFromCacheTimeMs = MillisecondsMeasurer()
     private val updatesCounter: AtomicLong = AtomicLong()
 
-    private val updateTimePreciseMs: AtomicLong = AtomicLong()
-    private val preHandlersTimeMs: AtomicLong = AtomicLong()
-    private val collectChangesTimeMs: AtomicLong = AtomicLong()
-    private val initializingTimeMs: AtomicLong = AtomicLong()
-    private val toSnapshotTimeMs: AtomicLong = AtomicLong()
-    private val totalUpdatesTimeMs: AtomicLong = AtomicLong()
+    private val updateTimePreciseMs = MillisecondsMeasurer()
+    private val preHandlersTimeMs = MillisecondsMeasurer()
+    private val collectChangesTimeMs = MillisecondsMeasurer()
+    private val initializingTimeMs = MillisecondsMeasurer()
+    private val toSnapshotTimeMs = MillisecondsMeasurer()
+    private val totalUpdatesTimeMs = MillisecondsMeasurer()
 
-    private val checkRecursiveUpdateTimeMs: AtomicLong = AtomicLong()
-    private val updateUnloadedEntitiesTimeMs: AtomicLong = AtomicLong()
-    private val replaceProjectModelTimeMs: AtomicLong = AtomicLong()
-    private val initializeBridgesTimeMs: AtomicLong = AtomicLong()
+    private val checkRecursiveUpdateTimeMs = MillisecondsMeasurer()
+    private val updateUnloadedEntitiesTimeMs = MillisecondsMeasurer()
+    private val replaceProjectModelTimeMs = MillisecondsMeasurer()
+    private val fullReplaceProjectModelTimeMs = MillisecondsMeasurer()
+    private val initializeBridgesTimeMs = MillisecondsMeasurer()
 
     /**
      * This setup is in static part because meters will not be collected if the same instrument (gauge, counter ...) are registered more than once.
@@ -450,31 +528,33 @@ open class WorkspaceModelImpl(private val project: Project, private val cs: Coro
       val checkRecursiveUpdateTimeCounter = meter.counterBuilder("workspaceModel.check.recursive.update.ms").buildObserver()
       val updateUnloadedEntitiesTimeCounter = meter.counterBuilder("workspaceModel.update.unloaded.entities.ms").buildObserver()
       val replaceProjectModelTimeCounter = meter.counterBuilder("workspaceModel.replace.project.model.ms").buildObserver()
+      val fullReplaceProjectModelTimeCounter = meter.counterBuilder("workspaceModel.full.replace.project.model.ms").buildObserver()
       val initializeBridgesTimeCounter = meter.counterBuilder("workspaceModel.init.bridges.ms").buildObserver()
 
       meter.batchCallback(
         {
-          loadingTotalCounter.record(loadingTotalTimeMs.get())
-          loadingFromCacheCounter.record(loadingFromCacheTimeMs.get())
+          loadingTotalCounter.record(loadingTotalTimeMs.asMilliseconds())
+          loadingFromCacheCounter.record(loadingFromCacheTimeMs.asMilliseconds())
           updatesTimesCounter.record(updatesCounter.get())
 
-          updateTimePreciseCounter.record(updateTimePreciseMs.get())
-          preHandlersTimeCounter.record(preHandlersTimeMs.get())
-          collectChangesTimeCounter.record(collectChangesTimeMs.get())
-          initializingTimeCounter.record(initializingTimeMs.get())
-          toSnapshotTimeCounter.record(toSnapshotTimeMs.get())
-          totalUpdatesTimeCounter.record(totalUpdatesTimeMs.get())
+          updateTimePreciseCounter.record(updateTimePreciseMs.asMilliseconds())
+          preHandlersTimeCounter.record(preHandlersTimeMs.asMilliseconds())
+          collectChangesTimeCounter.record(collectChangesTimeMs.asMilliseconds())
+          initializingTimeCounter.record(initializingTimeMs.asMilliseconds())
+          toSnapshotTimeCounter.record(toSnapshotTimeMs.asMilliseconds())
+          totalUpdatesTimeCounter.record(totalUpdatesTimeMs.asMilliseconds())
 
-          checkRecursiveUpdateTimeCounter.record(checkRecursiveUpdateTimeMs.get())
-          updateUnloadedEntitiesTimeCounter.record(updateUnloadedEntitiesTimeMs.get())
-          replaceProjectModelTimeCounter.record(replaceProjectModelTimeMs.get())
-          initializeBridgesTimeCounter.record(initializeBridgesTimeMs.get())
+          checkRecursiveUpdateTimeCounter.record(checkRecursiveUpdateTimeMs.asMilliseconds())
+          updateUnloadedEntitiesTimeCounter.record(updateUnloadedEntitiesTimeMs.asMilliseconds())
+          replaceProjectModelTimeCounter.record(replaceProjectModelTimeMs.asMilliseconds())
+          fullReplaceProjectModelTimeCounter.record(fullReplaceProjectModelTimeMs.asMilliseconds())
+          initializeBridgesTimeCounter.record(initializeBridgesTimeMs.asMilliseconds())
         },
         loadingTotalCounter, loadingFromCacheCounter, updatesTimesCounter,
         updateTimePreciseCounter, preHandlersTimeCounter, collectChangesTimeCounter,
         initializingTimeCounter, toSnapshotTimeCounter, totalUpdatesTimeCounter,
         checkRecursiveUpdateTimeCounter, updateUnloadedEntitiesTimeCounter,
-        replaceProjectModelTimeCounter, initializeBridgesTimeCounter
+        replaceProjectModelTimeCounter, fullReplaceProjectModelTimeCounter, initializeBridgesTimeCounter
       )
     }
 

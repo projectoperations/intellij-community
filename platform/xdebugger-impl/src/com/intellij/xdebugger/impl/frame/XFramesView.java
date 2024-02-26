@@ -43,9 +43,8 @@ import com.intellij.xdebugger.frame.XSuspendContext;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.XDebuggerActionsCollector;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
+import com.intellij.xdebugger.impl.frame.XDebuggerFramesList.ItemWithSeparatorAbove;
 import com.intellij.xdebugger.impl.ui.XDebuggerEmbeddedComboBox;
-import it.unimi.dsi.fastutil.objects.Object2IntMap;
-import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -72,10 +71,10 @@ public final class XFramesView extends XDebugView {
   private final JPanel myMainPanel;
   private final XDebuggerFramesList myFramesList;
   private final ComboBox<XExecutionStack> myThreadComboBox;
-  private final Object2IntMap<XExecutionStack> myExecutionStacksWithSelection = new Object2IntOpenHashMap<>();
+  private final Map<XExecutionStack, XStackFrame> myExecutionStacksWithSelection = new HashMap<>();
   private final AutoScrollToSourceHandler myFrameSelectionHandler;
   private XExecutionStack mySelectedStack;
-  private int mySelectedFrameIndex;
+  private XStackFrame mySelectedFrame;
   private Rectangle myVisibleRect;
   private boolean myListenersEnabled;
   private final Map<XExecutionStack, StackFramesListBuilder> myBuilders = new HashMap<>();
@@ -139,7 +138,7 @@ public final class XFramesView extends XDebugView {
       }
     };
 
-    installSpeedSearch(myFramesList, session);
+    installSpeedSearch(myFramesList);
 
     myFrameSelectionHandler.install(myFramesList);
     EditSourceOnDoubleClickHandler.install(myFramesList);
@@ -156,7 +155,6 @@ public final class XFramesView extends XDebugView {
     });
 
     myMainPanel.add(ScrollPaneFactory.createScrollPane(myFramesList), BorderLayout.CENTER);
-    ScrollingUtil.installActions(myFramesList, myMainPanel, false);
 
     myThreadComboBox = new XDebuggerEmbeddedComboBox<>();
     myThreadComboBox.setSwingPopup(false);
@@ -230,17 +228,12 @@ public final class XFramesView extends XDebugView {
     addFramesNavigationAd(myMainPanel);
   }
 
-  private static void installSpeedSearch(XDebuggerFramesList framesList, @NotNull XDebugSessionImpl session) {
+  private static void installSpeedSearch(XDebuggerFramesList framesList) {
     //noinspection unchecked
-    TreeUIHelper.getInstance().installListSpeedSearch(framesList, obj -> {
+    ListSpeedSearch.installOn(framesList, obj -> {
+      //we have to use reflection because XDebuggerFramesList extends from JBList without generic parameter
       if (obj instanceof XStackFrame frame) {
-        // Get the exact text which is used for the UI node representing the frame
-        // NOTE: this logic is called only when user types in the frames list.
-        // So the performance of the default case is not affected, but when the user types in the speedsearch field,
-        // the nodes are effectively rendered twice: 1) for presentation in UI 2) for speedsearch
-        StringBuilderTextContainer builder = new StringBuilderTextContainer();
-        frame.customizePresentation(builder);
-        return builder.getText();
+        return getStackFramePresentableText(frame);
       }
       else {
         return null;
@@ -249,6 +242,26 @@ public final class XFramesView extends XDebugView {
   }
 
   /**
+   * Get the exact text which is used for the UI node representing the frame.
+   * <p/>
+   * NOTE 1: we can't rely on {@link XStackFrame#toString()} because it doesn't have any contract
+   * <p/>
+   * NOTE 2: this logic is called only when users type in the frames list.
+   * So the performance of the default case (when speed search is not used) is not affected.
+   * But when the user types in the speedsearch field the nodes are effectively rendered twice:
+   * 1) for presentation in UI
+   * 2) for speedsearch
+   */
+  @NotNull
+  private static String getStackFramePresentableText(XStackFrame frame) {
+    StringBuilderTextContainer builder = new StringBuilderTextContainer();
+    frame.customizePresentation(builder);
+    return builder.getText();
+  }
+
+  /**
+   * Text container, which collects all text fragments and ignores all text attributes
+   *
    * @implNote this class is not thread safe
    * @implNote this class could be extracted somewhere in `com.intellij.ui` package as it's quite simple.
    * Similar minimalistic implementations can be found in {@link SimpleColoredText} and {@link TextTransferable.ColoredStringBuilder}.
@@ -398,15 +411,15 @@ public final class XFramesView extends XDebugView {
       ThreadingAssertions.assertEventDispatchThread();
       if (currentStackFrame != null) {
         myFramesList.setSelectedValue(currentStackFrame, true);
-        mySelectedFrameIndex = myFramesList.getSelectedIndex();
-        myExecutionStacksWithSelection.put(mySelectedStack, mySelectedFrameIndex);
+        mySelectedFrame = currentStackFrame;
+        myExecutionStacksWithSelection.put(mySelectedStack, currentStackFrame);
       }
       return;
     }
 
     EdtExecutorService.getInstance().execute(() -> {
       if (event != SessionEvent.SETTINGS_CHANGED) {
-        mySelectedFrameIndex = 0;
+        mySelectedFrame = null;
         mySelectedStack = null;
         myVisibleRect = null;
       }
@@ -480,7 +493,7 @@ public final class XFramesView extends XDebugView {
             myThreadComboBox.addItem(executionStack);
           }
         }
-        myExecutionStacksWithSelection.put(executionStack, 0);
+        myExecutionStacksWithSelection.put(executionStack, null);
       }
     }
     return addBeforeSelection;
@@ -496,10 +509,10 @@ public final class XFramesView extends XDebugView {
 
     mySelectedStack = executionStack;
     if (executionStack != null) {
-      mySelectedFrameIndex = myExecutionStacksWithSelection.getInt(executionStack);
+      mySelectedFrame = myExecutionStacksWithSelection.get(executionStack);
       StackFramesListBuilder builder = getOrCreateBuilder(executionStack, session);
       builder.setRefresh(refresh);
-      builder.setToSelect(frameToSelect != null ? frameToSelect : mySelectedFrameIndex);
+      builder.setToSelect(frameToSelect != null ? frameToSelect : mySelectedFrame);
       myListenersEnabled = false;
       boolean selected = builder.initModel(myFramesList.getModel());
       myListenersEnabled = !builder.start() || selected;
@@ -524,14 +537,15 @@ public final class XFramesView extends XDebugView {
   }
 
   private void processFrameSelection(XDebugSession session, boolean force) {
-    mySelectedFrameIndex = myFramesList.getSelectedIndex();
-    myExecutionStacksWithSelection.put(mySelectedStack, mySelectedFrameIndex);
+    mySelectedFrame = myFramesList.getSelectedFrame();
+    myExecutionStacksWithSelection.put(mySelectedStack, mySelectedFrame);
     withCurrentBuilder(b -> b.setToSelect(null));
 
     Object selected = myFramesList.getSelectedValue();
     if (selected instanceof XStackFrame) {
       if (session != null) {
         if (force || (!myRefresh && session.getCurrentStackFrame() != selected)) {
+          int mySelectedFrameIndex = myFramesList.getSelectedIndex();
           session.setCurrentStackFrame(mySelectedStack, (XStackFrame)selected, mySelectedFrameIndex == 0);
           if (force) {
             XDebuggerActionsCollector.frameSelected.log(XDebuggerActionsCollector.PLACE_FRAMES_VIEW);
@@ -695,6 +709,9 @@ public final class XFramesView extends XDebugView {
       else if (toSelect instanceof Integer) {
         if (myFramesList.selectFrame((int)toSelect)) return true;
       }
+      else if (toSelect == null && myFramesList.getSelectedIndex() == -1) {
+        if (myFramesList.selectFrame(0)) return true;
+      }
       return false;
     }
 
@@ -711,20 +728,25 @@ public final class XFramesView extends XDebugView {
     }
   }
 
-  private static class HiddenStackFramesItem extends XStackFrame implements XDebuggerFramesList.ItemWithCustomBackgroundColor,
-                                                                            XDebuggerFramesList.ItemWithSeparatorAbove {
+  /**
+   * Synthetic frame which encapsulates hidden library frames as a single fold.
+   *
+   * @see #shouldFoldHiddenFrames()
+   */
+  public static class HiddenStackFramesItem extends XStackFrame implements XDebuggerFramesList.ItemWithCustomBackgroundColor,
+                                                                           ItemWithSeparatorAbove {
+    final List<XStackFrame> hiddenFrames;
 
-    private final int hiddenFrameCount;
-    private final @NotNull XStackFrame firstHiddenFrame;
-
-    private HiddenStackFramesItem(int hiddenFrameCount, @NotNull XStackFrame firstHiddenFrame) {
-      this.hiddenFrameCount = hiddenFrameCount;
-      this.firstHiddenFrame = firstHiddenFrame;
+    public HiddenStackFramesItem(List<XStackFrame> hiddenFrames) {
+      this.hiddenFrames = List.copyOf(hiddenFrames);
+      if (hiddenFrames.isEmpty()) {
+        throw new IllegalArgumentException();
+      }
     }
 
     @Override
     public void customizePresentation(@NotNull ColoredTextContainer component) {
-      component.append(XDebuggerBundle.message("label.hidden.frames", hiddenFrameCount), SimpleTextAttributes.GRAYED_ATTRIBUTES);
+      component.append(XDebuggerBundle.message("label.folded.frames", hiddenFrames.size()), SimpleTextAttributes.GRAYED_ATTRIBUTES);
       component.setIcon(EmptyIcon.ICON_16);
     }
 
@@ -733,27 +755,31 @@ public final class XFramesView extends XDebugView {
       return null;
     }
 
+    private Optional<ItemWithSeparatorAbove> findFrameWithSeparator() {
+      // We check only the first frame; otherwise, it's not clear what to do.
+      // Might be reconsidered in the future.
+      return hiddenFrames.get(0) instanceof ItemWithSeparatorAbove frame
+             ? Optional.of(frame)
+             : Optional.empty();
+    }
+
     @Override
     public boolean hasSeparatorAbove() {
-      if (firstHiddenFrame instanceof XDebuggerFramesList.ItemWithSeparatorAbove item) {
-        return item.hasSeparatorAbove();
-      }
-      return false;
+      return findFrameWithSeparator().map(ItemWithSeparatorAbove::hasSeparatorAbove).orElse(false);
     }
 
     @Override
     public String getCaptionAboveOf() {
-      if (firstHiddenFrame instanceof XDebuggerFramesList.ItemWithSeparatorAbove item) {
-        return item.getCaptionAboveOf();
-      }
-      return null;
+      return findFrameWithSeparator().map(ItemWithSeparatorAbove::getCaptionAboveOf).orElse(null);
     }
   }
 
-  public static List<XStackFrame> createHiddenFramePlaceholder(int hiddenFrameCount, @NotNull XStackFrame firstHiddenFrame) {
-    return Registry.is("debugger.hidden.frames.placeholder")
-           ? Collections.singletonList(new HiddenStackFramesItem(hiddenFrameCount, firstHiddenFrame))
-           : Collections.emptyList();
+  /**
+   * Whether hidden frames are folded into a single-item placeholder.
+   * Otherwise, they completely disappear.
+   */
+  public static boolean shouldFoldHiddenFrames() {
+    return Registry.is("debugger.library.frames.fold.instead.of.hide");
   }
 
 

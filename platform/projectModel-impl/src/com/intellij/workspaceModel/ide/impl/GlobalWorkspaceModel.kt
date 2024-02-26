@@ -13,7 +13,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.backend.workspace.GlobalWorkspaceModelCache
 import com.intellij.platform.backend.workspace.WorkspaceModel
-import com.intellij.platform.diagnostic.telemetry.helpers.addMeasuredTimeMillis
+import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
 import com.intellij.platform.workspace.jps.JpsGlobalFileEntitySource
 import com.intellij.platform.workspace.jps.entities.*
 import com.intellij.platform.workspace.storage.*
@@ -34,6 +34,7 @@ import com.intellij.workspaceModel.ide.legacyBridge.GlobalSdkTableBridge
 import io.opentelemetry.api.metrics.Meter
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
+import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.system.measureTimeMillis
 
@@ -48,7 +49,7 @@ class GlobalWorkspaceModel : Disposable {
 
   // Marker indicating that changes came from global storage
   internal var isFromGlobalWorkspaceModel: Boolean = false
-  private val virtualFileManager: VirtualFileUrlManager = IdeVirtualFileUrlManagerImpl()
+  private var virtualFileManager: VirtualFileUrlManager = IdeVirtualFileUrlManagerImpl()
   private val globalWorkspaceModelCache = GlobalWorkspaceModelCache.getInstance()?.apply { setVirtualFileUrlManager(virtualFileManager) }
   private val globalEntitiesFilter = { entitySource: EntitySource -> entitySource is JpsGlobalFileEntitySource
                                                                      || entitySource is LegacyCustomLibraryEntitySource }
@@ -132,7 +133,7 @@ class GlobalWorkspaceModel : Disposable {
       entityStorage.replace(newStorage, changes, this::onBeforeChanged, this::onChanged)
     }.apply {
       updatesCounter.incrementAndGet()
-      totalUpdatesTimeMs.addAndGet(this)
+      totalUpdatesTimeMs.duration.addAndGet(this)
     }
 
     LOG.info("Global model updated to version ${entityStorage.pointer.version} in $generalTime ms: $description")
@@ -154,6 +155,12 @@ class GlobalWorkspaceModel : Disposable {
    */
   @ApiStatus.Internal
   fun getVirtualFileUrlManager(): VirtualFileUrlManager = virtualFileManager
+
+  @TestOnly
+  fun resetVirtualFileUrlManager() {
+    virtualFileManager = IdeVirtualFileUrlManagerImpl()
+    globalWorkspaceModelCache?.setVirtualFileUrlManager(virtualFileManager)
+  }
 
   override fun dispose() = Unit
 
@@ -189,11 +196,11 @@ class GlobalWorkspaceModel : Disposable {
   }
 
   @RequiresWriteLock
-  fun applyStateToProject(targetProject: Project) = applyStateToProjectTimeMs.addMeasuredTimeMillis {
+  fun applyStateToProject(targetProject: Project) = applyStateToProjectTimeMs.addMeasuredTime {
     ThreadingAssertions.assertWriteAccess()
 
     if (targetProject === filteredProject) {
-      return@addMeasuredTimeMillis
+      return@addMeasuredTime
     }
 
     val workspaceModel = WorkspaceModel.getInstance(targetProject)
@@ -205,7 +212,7 @@ class GlobalWorkspaceModel : Disposable {
   }
 
   fun applyStateToProjectBuilder(project: Project,
-                                 targetBuilder: MutableEntityStorage) = applyStateToProjectBuilderTimeMs.addMeasuredTimeMillis {
+                                 targetBuilder: MutableEntityStorage) = applyStateToProjectBuilderTimeMs.addMeasuredTime {
     LOG.info("Sync global entities with mutable entity storage")
     targetBuilder.replaceBySource(globalEntitiesFilter,
                                   copyEntitiesToEmptyStorage(entityStorage.current,
@@ -213,7 +220,7 @@ class GlobalWorkspaceModel : Disposable {
   }
 
   @RequiresWriteLock
-  fun syncEntitiesWithProject(sourceProject: Project) = syncEntitiesWithProjectTimeMs.addMeasuredTimeMillis {
+  fun syncEntitiesWithProject(sourceProject: Project) = syncEntitiesWithProjectTimeMs.addMeasuredTime {
     ThreadingAssertions.assertWriteAccess()
 
     filteredProject = sourceProject
@@ -310,10 +317,10 @@ class GlobalWorkspaceModel : Disposable {
     fun getInstance(): GlobalWorkspaceModel = ApplicationManager.getApplication().service()
 
     private val updatesCounter: AtomicLong = AtomicLong()
-    private val totalUpdatesTimeMs: AtomicLong = AtomicLong()
-    private val applyStateToProjectTimeMs: AtomicLong = AtomicLong()
-    private val applyStateToProjectBuilderTimeMs: AtomicLong = AtomicLong()
-    private val syncEntitiesWithProjectTimeMs: AtomicLong = AtomicLong()
+    private val totalUpdatesTimeMs = MillisecondsMeasurer()
+    private val applyStateToProjectTimeMs = MillisecondsMeasurer()
+    private val applyStateToProjectBuilderTimeMs = MillisecondsMeasurer()
+    private val syncEntitiesWithProjectTimeMs = MillisecondsMeasurer()
 
     private fun setupOpenTelemetryReporting(meter: Meter): Unit {
       val updateTimesCounter = meter.counterBuilder("workspaceModel.global.updates.count").buildObserver()
@@ -325,10 +332,10 @@ class GlobalWorkspaceModel : Disposable {
       meter.batchCallback(
         {
           updateTimesCounter.record(updatesCounter.get())
-          totalUpdatesTimeCounter.record(totalUpdatesTimeMs.get())
-          applyStateToProjectTimeCounter.record(applyStateToProjectTimeMs.get())
-          applyStateToProjectBuilderTimeCounter.record(applyStateToProjectBuilderTimeMs.get())
-          syncEntitiesWithProjectTimeCounter.record(syncEntitiesWithProjectTimeMs.get())
+          totalUpdatesTimeCounter.record(totalUpdatesTimeMs.asMilliseconds())
+          applyStateToProjectTimeCounter.record(applyStateToProjectTimeMs.asMilliseconds())
+          applyStateToProjectBuilderTimeCounter.record(applyStateToProjectBuilderTimeMs.asMilliseconds())
+          syncEntitiesWithProjectTimeCounter.record(syncEntitiesWithProjectTimeMs.asMilliseconds())
         },
         updateTimesCounter, totalUpdatesTimeCounter, applyStateToProjectTimeCounter,
         applyStateToProjectBuilderTimeCounter, syncEntitiesWithProjectTimeCounter

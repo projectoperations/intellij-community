@@ -17,16 +17,22 @@ import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.TerminalTitle
 import com.intellij.terminal.bindApplicationTitle
 import com.intellij.ui.util.preferredHeight
+import com.intellij.util.ui.JBInsets
 import com.jediterm.core.util.TermSize
 import com.jediterm.terminal.RequestOrigin
 import com.jediterm.terminal.TtyConnector
+import org.jetbrains.plugins.terminal.action.TerminalInterruptCommandAction
+import org.jetbrains.plugins.terminal.action.TerminalMoveCaretToLineEndAction
+import org.jetbrains.plugins.terminal.action.TerminalMoveCaretToLineStartAction
 import org.jetbrains.plugins.terminal.exp.BlockTerminalController.BlockTerminalControllerListener
 import org.jetbrains.plugins.terminal.exp.TerminalPromptController.PromptStateListener
-import java.awt.BorderLayout
+import org.jetbrains.plugins.terminal.util.ShellType
 import java.awt.Dimension
+import java.awt.Rectangle
 import java.awt.event.*
 import javax.swing.JComponent
 import javax.swing.JPanel
+import kotlin.math.max
 
 class BlockTerminalView(
   private val project: Project,
@@ -36,10 +42,10 @@ class BlockTerminalView(
 ) : TerminalContentView, TerminalCommandExecutor {
   private val controller: BlockTerminalController
   private val selectionController: TerminalSelectionController
-  private val focusModel: TerminalFocusModel
+  private val focusModel: TerminalFocusModel = TerminalFocusModel(project, this)
 
-  private val outputView: TerminalOutputView = TerminalOutputView(project, session, settings)
-  private val promptView: TerminalPromptView = TerminalPromptView(project, settings, session, this)
+  val outputView: TerminalOutputView = TerminalOutputView(project, session, settings, focusModel)
+  val promptView: TerminalPromptView = TerminalPromptView(project, settings, session, this)
   private var alternateBufferView: SimpleTerminalView? = null
 
   override val component: JComponent = BlockTerminalPanel()
@@ -53,7 +59,6 @@ class BlockTerminalView(
     }
 
   init {
-    focusModel = TerminalFocusModel(project, this, outputView, promptView)
     selectionController = TerminalSelectionController(focusModel, outputView.controller.selectionModel, outputView.controller.outputModel)
     controller = BlockTerminalController(project, session, outputView.controller, promptView.controller, selectionController, focusModel)
 
@@ -78,6 +83,12 @@ class BlockTerminalView(
         if (promptView.component.preferredHeight != promptView.component.height) {
           component.revalidate()
         }
+      }
+    })
+
+    outputView.controller.addDocumentListener(object : DocumentListener {
+      override fun documentChanged(event: DocumentEvent) {
+        component.revalidate()
       }
     })
 
@@ -121,6 +132,8 @@ class BlockTerminalView(
 
     installPromptAndOutput()
 
+    installActions()
+
     focusModel.addListener(object: TerminalFocusModel.TerminalFocusListener {
       override fun activeStateChanged(isActive: Boolean) {
         if (isActive) {
@@ -135,7 +148,7 @@ class BlockTerminalView(
       }
     })
     session.commandManager.addListener(object: ShellCommandListener {
-      override fun commandFinished(command: String?, exitCode: Int, duration: Long?) {
+      override fun commandFinished(event: CommandFinishedEvent) {
         SaveAndSyncHandler.getInstance().scheduleRefresh()
       }
     }, this)
@@ -168,7 +181,7 @@ class BlockTerminalView(
 
     with(component) {
       removeAll()
-      add(view.component, BorderLayout.CENTER)
+      add(view.component)
       revalidate()
     }
   }
@@ -176,8 +189,8 @@ class BlockTerminalView(
   private fun installPromptAndOutput() {
     with(component) {
       removeAll()
-      add(outputView.component, BorderLayout.CENTER)
-      add(promptView.component, BorderLayout.SOUTH)
+      add(outputView.component)
+      add(promptView.component)
       revalidate()
     }
   }
@@ -193,6 +206,22 @@ class BlockTerminalView(
         }
       }
     })
+  }
+
+  // todo: Would be great to have a separate lists of actions for each shell
+  //  in something like TerminalShellSupport, to get them from the method instead of using if's.
+  private fun installActions() {
+    TerminalInterruptCommandAction().registerCustomShortcutSet(component, null)
+    if (session.shellIntegration.shellType != ShellType.POWERSHELL) {
+      // Do not add custom actions for moving the caret in PowerShell because Home and End shortcuts are used there.
+      // But Home and End are already handled by default editor action implementations.
+      listOf(
+        TerminalMoveCaretToLineStartAction(),
+        TerminalMoveCaretToLineEndAction()
+      ).forEach {
+        it.registerCustomShortcutSet(component, null)
+      }
+    }
   }
 
   override fun startCommandExecution(command: String) {
@@ -232,7 +261,6 @@ class BlockTerminalView(
   private inner class BlockTerminalPanel : JPanel(), DataProvider {
     init {
       background = TerminalUi.terminalBackground
-      layout = BorderLayout()
     }
 
     override fun getData(dataId: String): Any? {
@@ -246,6 +274,38 @@ class BlockTerminalView(
         BlockTerminalSession.DATA_KEY.name -> session
         else -> null
       }
+    }
+
+    override fun doLayout() {
+      val rect = bounds
+      JBInsets.removeFrom(rect, insets)
+      when (componentCount) {
+        1 -> {
+          // it is an alternate buffer editor
+          val component = getComponent(0)
+          component.bounds = rect
+        }
+        2 -> layoutPromptAndOutput(rect)
+        else -> error("Maximum 2 components expected")
+      }
+    }
+
+    /**
+     * Place output at the top and the prompt (bottomComponent) below it.
+     * Always honor the preferred height of the prompt, decrease the height of the output in favor of prompt.
+     * So, initially, when output is empty, the prompt is on the top.
+     * But when there is a long output, the prompt is stick to the bottom.
+     */
+    private fun layoutPromptAndOutput(rect: Rectangle) {
+      val topComponent = getComponent(0)
+      val bottomComponent = getComponent(1)
+      val topPrefSize = if (topComponent.isVisible) topComponent.preferredSize else Dimension()
+      val bottomPrefSize = if (bottomComponent.isVisible) bottomComponent.preferredSize else Dimension()
+
+      val bottomHeight = max(rect.height - topPrefSize.height, bottomPrefSize.height)
+      val topHeight = rect.height - bottomHeight
+      topComponent.bounds = Rectangle(rect.x, rect.y, rect.width, topHeight)
+      bottomComponent.bounds = Rectangle(rect.x, rect.y + topHeight, rect.width, bottomHeight)
     }
   }
 }

@@ -196,9 +196,12 @@
     <action id="OpenElementInNewWindow" class="com.intellij.ide.actions.OpenElementInNewWindowAction" />
     <action id="SearchEverywhere" class="com.intellij.ide.actions.SearchEverywhereAction" icon="AllIcons.Actions.Find"/>
     <action id="TestSearchContributors" class="com.intellij.ide.actions.searcheverywhere.setesting.TestSearchEverywhereAction" internal="true"/>
-    <action id="SettingsEntryPoint" class="com.intellij.ide.actions.SettingsEntryPointAction" icon="AllIcons.General.GearPlain"/>
+    <group id="SettingsEntryPoint" class="com.intellij.ide.actions.SettingsEntryPointAction" icon="AllIcons.General.GearPlain"/>
 
-    <action id="SpeedSearch" class="com.intellij.ide.actions.speedSearch.SpeedSearchAction" use-shortcut-of="Find" />
+    <action id="SpeedSearch"
+            class="com.intellij.ide.actions.speedSearch.SpeedSearchAction"
+            icon="AllIcons.Actions.Find"
+            use-shortcut-of="Find" />
 
     <action id="RunAnything" icon="AllIcons.Actions.Run_anything" class="com.intellij.ide.actions.runAnything.RunAnythingAction"/>
     <action id="EnableNewUi" class="com.intellij.ide.actions.EnableNewUiAction" icon="AllIcons.Actions.EnableNewUi"/>
@@ -343,6 +346,11 @@
     <action id="Refresh" class="com.intellij.ide.actions.RefreshAction" icon="AllIcons.Actions.Refresh"/>
     <action id="ForceRefresh" class="com.intellij.openapi.actionSystem.EmptyAction" icon="AllIcons.Actions.ForceRefresh"/>
 
+    <group id="TextEditorWithPreview.LayoutGroup">
+      <action id="TextEditorWithPreview.Layout.EditorOnly" class="com.intellij.openapi.fileEditor.ChangePreviewLayoutAction$EditorOnly"/>
+      <action id="TextEditorWithPreview.Layout.EditorAndPreview" class="com.intellij.openapi.fileEditor.ChangePreviewLayoutAction$EditorAndPreview"/>
+      <action id="TextEditorWithPreview.Layout.PreviewOnly" class="com.intellij.openapi.fileEditor.ChangePreviewLayoutAction$PreviewOnly"/>
+    </group>
     <group id="TextEditorWithPreview.SplitGroup" popup="true" class="com.intellij.openapi.fileEditor.EditorSplitGroup">
       <action id="TextEditorWithPreview.SplitVertically" class="com.intellij.openapi.fileEditor.SplitVerticallyAction"/>
       <action id="TextEditorWithPreview.SplitHorizontally" class="com.intellij.openapi.fileEditor.SplitHorizontallyAction"/>
@@ -537,6 +545,7 @@
           <action id="$Delete" class="com.intellij.ide.actions.DeleteAction"/>
         </group>
         <separator/>
+        <action id="ToggleFindInSelection" class="com.intellij.find.editorHeaderActions.ToggleFindInSelectionAction"/>
         <group id="FindMenuGroup" popup="true">
           <action id="Find" class="com.intellij.openapi.editor.actions.IncrementalFindAction" icon="AllIcons.Actions.Find"/>
           <action id="Replace" class="com.intellij.openapi.editor.actions.ReplaceAction" icon="AllIcons.Actions.Replace"/>
@@ -549,7 +558,7 @@
           <action id="SelectAllOccurrences" class="com.intellij.openapi.editor.actions.SelectAllOccurrencesAction"/>
           <reference ref="SelectNextOccurrence"/>
           <action id="UnselectPreviousOccurrence" class="com.intellij.openapi.editor.actions.UnselectPreviousOccurrenceAction"/>
-          <action id="ToggleFindInSelection" class="com.intellij.find.editorHeaderActions.ToggleSelectionOnlyAction"/>
+          <reference id="ToggleFindInSelection"/>
           <separator/>
           <action id="FindWordAtCaret" class="com.intellij.openapi.editor.actions.FindWordAtCaretAction"/>
           <action id="FindPrevWordAtCaret" class="com.intellij.openapi.editor.actions.FindPrevWordAtCaretAction"/>
@@ -561,6 +570,7 @@
             <synonym key="action.ReplaceInPath.synonym1"/>
           </action>
         </group>
+        <group id="Editor.Search.Filter.Results"/>
         <separator/>
         <reference ref="EditorToggleColumnMode"/>
         <group id="EditSelectGroup">
@@ -747,7 +757,8 @@
       <group id="WindowMenu" popup="true">
         <action id="MinimizeCurrentWindow" class="com.intellij.ide.actions.MinimizeCurrentWindowAction"/>
         <action id="ZoomCurrentWindow" class="com.intellij.ide.actions.ZoomCurrentWindowAction"/>
-        <group id="LayoutsGroup" popup="true">
+        <group id="LayoutsGroup" popup="true" class="com.intellij.ide.actions.LayoutsGroup">
+          <override-text place="MainMenu"/>
           <action id="RestoreFactoryDefaultLayout" class="com.intellij.ide.actions.RestoreFactoryDefaultLayoutAction" />
           <separator/>
           <group id="CustomLayoutsGroup" class="com.intellij.ide.actions.CustomLayoutsActionGroup" />
@@ -1117,7 +1128,7 @@
     <group id="EditorGutterPopupMenu.Appearance" popup="true">
       <action id="EditorGutterToggleGlobalLineNumbers" class="com.intellij.openapi.editor.actions.ToggleShowLineNumbersGloballyAction"/>
       <action id="EditorGutterToggleGlobalIndentLines" class="com.intellij.openapi.editor.actions.ToggleShowIndentLinesGloballyAction"/>
-
+      <action id="EditorGutterToggleGlobalStickyLines" class="com.intellij.openapi.editor.impl.stickyLines.ToggleShowStickyLinesGloballyAction"/>
     </group>
 
     <group id="EditorGutterPopupMenu">
@@ -1174,7 +1185,9 @@
       <action id="ChangeColorScheme" class="com.intellij.ide.actions.QuickChangeColorSchemeAction"/>
       <action id="ChangeKeymap" class="com.intellij.ide.actions.QuickChangeKeymapAction"/>
       <action id="ChangeView" class="com.intellij.ide.actions.QuickChangeViewModeAction"/>
-      <action id="ChangeToolWindowLayout" class="com.intellij.ide.actions.QuickChangeToolWindowLayout"/>
+      <action id="ChangeToolWindowLayout" class="com.intellij.ide.actions.QuickChangeToolWindowLayout">
+        <override-text place="GoToAction"/>
+      </action>
       <action id="ChangeIdeScale" class="com.intellij.ide.actions.QuickChangeIdeScaleAction"/>
     </group>
 
@@ -1321,6 +1334,7 @@
         <action id="TestProgressWindow" internal="true" class="com.intellij.internal.TestProgressWindow"/>
         <action id="TestCoroutineProgress" internal="true" class="com.intellij.internal.TestCoroutineProgressAction"/>
         <separator/>
+        <action id="ShowBundleLocalizationDialogAction" internal="true" class="com.intellij.openapi.wm.impl.status.ShowBundleMessagesDialogAction"/>
         <action id="TestGestureAction" class="com.intellij.openapi.keymap.impl.ui.TestGestureAction"/>
         <action id="TestDndAction" class="com.intellij.internal.validation.TestDnd"/>
         <action id="PositionTrackerTestAction" internal="true" class="com.intellij.internal.ui.PositionTrackerTestAction"/>
@@ -1391,6 +1405,7 @@
         <action id="DirDiffMenu.MirrorToLeft" class="com.intellij.openapi.diff.impl.dir.actions.popup.MirrorToLeftAction"
                 icon="AllIcons.Diff.Arrow"/>
         <separator/>
+        <action id="DirDiffMenu.Exclude" class="com.intellij.openapi.diff.impl.dir.actions.popup.ExcludeAction"/>
         <action id="DirDiffMenu.SetDefault" class="com.intellij.openapi.diff.impl.dir.actions.popup.SetDefault"/>
         <action id="DirDiffMenu.WarnOnDeletion" class="com.intellij.openapi.diff.impl.dir.actions.popup.WarnOnDeletion"/>
       </group>
@@ -1580,12 +1595,11 @@
       <action id="EditorBreadcrumbsShowBelow" class="com.intellij.xml.breadcrumbs.ToggleBreadcrumbsSettingsAction$ShowBelow"/>
       <action id="EditorBreadcrumbsHideBoth" class="com.intellij.xml.breadcrumbs.ToggleBreadcrumbsSettingsAction$HideBoth"/>
       <add-to-group group-id="Other.KeymapGroup" anchor="last"/>
-      <add-to-group group-id="EditorGutterPopupMenu.Appearance" relative-to-action="EditorGutterToggleGlobalIndentLines" anchor="after"/>
+      <add-to-group group-id="EditorGutterPopupMenu.Appearance" relative-to-action="EditorGutterToggleGlobalStickyLines" anchor="after"/>
     </group>
 
-    <group id="EditorStickyLinesSettings" popup="true">
-      <action id="EditorStickyLinesHide" class="com.intellij.openapi.editor.impl.stickyLines.StickyLinesSettingsHideAction"/>
-      <add-to-group group-id="EditorGutterPopupMenu.Appearance" relative-to-action="EditorBreadcrumbsSettings" anchor="after"/>
+    <group id="EditorStickyLinesSettings" popup="true" searchable="false">
+      <action id="EditorStickyLinesDisable" class="com.intellij.openapi.editor.impl.stickyLines.StickyLinesSettingsDisableAction"/>
     </group>
 
     <action class="com.intellij.ide.plugins.InstallFromDiskAction" id="plugin.InstallFromDiskAction"/>
@@ -1608,7 +1622,7 @@
     <action class="com.intellij.diagnostic.FixWSLFirewallAction" id="FixWSLFirewall"/>
 
     <group id="UpdateEntryPointGroup"/>
-    <group id="SettingsEntryPointGroup">
+    <group id="SettingsEntryPointGroup" class="com.intellij.ide.actions.SettingsEntryPointGroup">
       <reference id="RunAnything"/>
       <separator/>
       <reference id="ShowSettings"/>
@@ -1653,8 +1667,16 @@
       <reference id="ChangeProjectColorActionGroup"/>
       <reference id="WelcomeScreen.ChangeProjectIcon"/>
       <action id="ColoredHeaderAction" class="com.intellij.ide.ui.customization.UseProjectColorsCheckboxAction"/>
+      <separator/>
+      <action id="MergeMenuWithWindowTitleAction" class="com.intellij.ide.actions.MergeMenuWithWindowTitleAction"/>
     </group>
 
     <action id="RemoveMainToolbarActionsAction" class="com.intellij.openapi.wm.impl.headertoolbar.RemoveMainToolbarActionsAction" internal="true"/>
+
+    <group id="Search.Everywhere.Preview.Close">
+      <action id="search.everywhere.preview.close"
+              class="com.intellij.ide.actions.searcheverywhere.CloseSearchEverywherePreview"
+              icon="AllIcons.Actions.CloseDarkGrey"/>
+    </group>
   </actions>
 </idea-plugin>

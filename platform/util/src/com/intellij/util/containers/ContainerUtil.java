@@ -472,6 +472,7 @@ public final class ContainerUtil {
    */
   @Contract(pure = true)
   @Deprecated
+  @ApiStatus.ScheduledForRemoval
   public static @Unmodifiable @NotNull <E> ImmutableList<E> immutableSingletonList(E element) {
     return ImmutableList.singleton(element);
   }
@@ -2142,6 +2143,7 @@ public final class ContainerUtil {
    * The former method is here to highlight incorrect usages of the latter.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval
   @Contract(pure = true)
   public static @Unmodifiable @NotNull <T> Set<T> set(T t) {
     return Collections.singleton(t);
@@ -2223,6 +2225,7 @@ public final class ContainerUtil {
    * @deprecated use {@link Map#getOrDefault(Object, Object)}
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval
   @Contract(pure = true)
   public static @NotNull <T, V> V getOrElse(@NotNull Map<? extends T, V> map, T key, @NotNull V defValue) {
     return map.getOrDefault(key, defValue);
@@ -2581,6 +2584,11 @@ public final class ContainerUtil {
     return ContainerUtilRt.emptyList();
   }
 
+  /**
+   * Creates empty {@link CopyOnWriteArrayList}, avoiding initial allocation of an empty array, unlike the {@link CopyOnWriteArrayList#CopyOnWriteArrayList()}.
+   * However, subsequent modifications could lead to the empty array garbage nevertheless, so consider using {@link #createLockFreeCopyOnWriteList()} instead,
+   * which guarantees to not allocate empty arrays evar.
+   */
   @Contract(value = " -> new", pure = true)
   public static @NotNull <T> CopyOnWriteArrayList<T> createEmptyCOWList() {
     // does not create garbage new Object[0]

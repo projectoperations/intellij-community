@@ -5,7 +5,7 @@ import com.intellij.diff.DiffContext
 import com.intellij.diff.EditorDiffViewer
 import com.intellij.diff.FrameDiffTool
 import com.intellij.diff.FrameDiffTool.DiffViewer
-import com.intellij.diff.impl.ui.DiffInfo
+import com.intellij.diff.tools.combined.search.CombinedDiffSearchContext
 import com.intellij.diff.tools.fragmented.UnifiedDiffViewer
 import com.intellij.diff.tools.simple.SimpleDiffViewer
 import com.intellij.diff.tools.util.DiffDataKeys
@@ -19,6 +19,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataProvider
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.*
 import com.intellij.openapi.editor.actions.EditorActionUtil
 import com.intellij.openapi.editor.ex.EditorEventMulticasterEx
@@ -28,6 +29,7 @@ import com.intellij.openapi.editor.impl.ScrollingModelImpl
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.platform.util.coroutines.namedChildScope
 import com.intellij.ui.JBColor
 import com.intellij.ui.ListenerUtil
 import com.intellij.ui.components.JBLayeredPane
@@ -36,9 +38,14 @@ import com.intellij.ui.components.panels.Wrapper
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.Alarm
 import com.intellij.util.EventDispatcher
+import com.intellij.util.cancelOnDispose
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.update.MergingUpdateQueue
 import com.intellij.util.ui.update.Update
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import org.jetbrains.annotations.NonNls
 import java.awt.Dimension
 import java.awt.Point
@@ -51,15 +58,20 @@ import javax.swing.event.ChangeEvent
 import javax.swing.event.ChangeListener
 import kotlin.math.min
 import kotlin.math.roundToInt
+
 class CombinedDiffViewer(
   private val context: DiffContext,
   blockListener: BlockListener,
-  private val blockState: BlockState
+  private val blockState: BlockState,
+  private val viewState: CombinedDiffUIState
   ) : CombinedDiffNavigation,
     CombinedDiffCaretNavigation,
     DataProvider,
     Disposable {
   private val project = context.project!! // CombinedDiffContext expected
+
+  @OptIn(DelicateCoroutinesApi::class)
+  private val cs = GlobalScope.namedChildScope("CombinedDiffViewer", Dispatchers.EDT)
 
   private val diffViewers: MutableMap<CombinedBlockId, DiffViewer> = hashMapOf()
   private val diffBlocks: MutableMap<CombinedBlockId, CombinedDiffBlock<*>> = hashMapOf()
@@ -105,25 +117,24 @@ class CombinedDiffViewer(
 
   private val blockListeners = EventDispatcher.create(BlockListener::class.java)
 
-  private val diffInfo = object : DiffInfo() {
-    private var currentIndex: Int = 0
-    private val currentBlock get() = blockState[currentIndex] ?: getCurrentBlockId()
-
-    fun updateForBlock(blockId: CombinedBlockId) {
-      val newIndex = blockState.indexOf(blockId)
-      if (currentIndex != newIndex) {
-        currentIndex = newIndex
-        update()
-      }
+  private fun updateDiffInfo(blockId: CombinedBlockId) {
+    val viewer = diffViewers[blockId] as? DiffViewerBase
+    if (viewer == null) {
+      viewState.setDiffInfo(CombinedDiffUIState.DiffInfoState.Empty)
+      return
     }
 
-    override fun getContentTitles(): List<String?> {
-      return currentBlock.let { blockId -> diffViewers[blockId] as? DiffViewerBase }?.request?.contentTitles ?: return emptyList()
+    val titles = viewer.request.contentTitles.filter { it.isNotBlank() }
+    val newDiffInfo = when (titles.size) {
+      0 -> CombinedDiffUIState.DiffInfoState.Empty
+      1 -> CombinedDiffUIState.DiffInfoState.SingleTitle(titles[0])
+      else -> CombinedDiffUIState.DiffInfoState.TwoTitles(titles[0], titles[1])
     }
+    viewState.setDiffInfo(newDiffInfo)
   }
 
   private val combinedEditorSettingsAction =
-    CombinedEditorSettingsAction(TextDiffViewerUtil.getTextSettings(context), ::foldingModels, ::editors)
+    CombinedEditorSettingsActionGroup(TextDiffViewerUtil.getTextSettings(context), ::foldingModels, ::editors)
 
   private val visibleBlocksUpdateQueue =
     MergingUpdateQueue("CombinedDiffViewer.visibleBlocksUpdateQueue", 100, true, null, this, null, Alarm.ThreadToUse.SWING_THREAD)
@@ -132,6 +143,12 @@ class CombinedDiffViewer(
   init {
     blockListeners.listeners.add(blockListener)
     selectDiffBlock(blockState.currentBlock, true)
+
+    cs.launch {
+      viewState.separatorState.collect { visible ->
+        separatorPanel.background = if (visible) JBColor.border() else CombinedDiffUI.MAIN_HEADER_BACKGROUND
+      }
+    }.cancelOnDispose(this)
   }
 
   internal fun updateBlockContent(newContent: CombinedDiffBlockContent) {
@@ -151,7 +168,7 @@ class CombinedDiffViewer(
       createDiffBlock.component.validate()
       newViewer.init()
 
-      diffInfo.update()
+      updateDiffInfo(blockState.currentBlock)
       val requestFocus = DiffUtil.isUserDataFlagSet(COMBINED_DIFF_VIEWER_INITIAL_FOCUS_REQUEST, context)
       if (requestFocus && blockState.currentBlock == blockId) {
         requestFocusInDiffViewer(blockId)
@@ -196,7 +213,6 @@ class CombinedDiffViewer(
   fun init(): FrameDiffTool.ToolbarComponents {
     val components = FrameDiffTool.ToolbarComponents()
     components.toolbarActions = createToolbarActions()
-    components.diffInfo = diffInfo
     components.needTopToolbarBorder = true
     return components
   }
@@ -218,6 +234,8 @@ class CombinedDiffViewer(
 
     return null
   }
+
+  fun getMainUI() = context.getUserData(COMBINED_DIFF_MAIN_UI)!!
 
   private inner class ViewportChangeListener : ChangeListener {
 
@@ -343,7 +361,7 @@ class CombinedDiffViewer(
     val viewRect = scrollPane.viewport.viewRect
     val bounds = blocksPanel.getBlockBounds().firstOrNull { viewRect.intersects(it) } ?: return
     val block = diffBlocks[bounds.blockId]
-    separatorPanel.background = CombinedDiffUI.MAIN_HEADER_BACKGROUND
+    viewState.setStickyHeaderUnderBorder(false)
 
     if (block == null || bounds.minY > viewRect.minY) {
       stickyHeaderPanel.setContent(null)
@@ -368,17 +386,17 @@ class CombinedDiffViewer(
 
     val showBorder = headerHeightInViewport < headerHeight
     if (showBorder) {
-      separatorPanel.background = JBColor.border()
+      viewState.setStickyHeaderUnderBorder(true)
     }
 
-    diffInfo.updateForBlock(block.id)
+    updateDiffInfo(block.id)
   }
 
   fun getCurrentBlockId(): CombinedBlockId = blockState.currentBlock
 
   fun getDiffBlocksCount(): Int = blockState.blocksCount
 
-  private fun getCurrentDiffViewer(): DiffViewer? = diffViewers[blockState.currentBlock]
+  fun getCurrentDiffViewer(): DiffViewer? = diffViewers[blockState.currentBlock]
 
   internal fun getDiffViewerForId(id: CombinedBlockId): DiffViewer? = diffViewers[id]
 
@@ -401,7 +419,8 @@ class CombinedDiffViewer(
                               scrollPolicy: ScrollPolicy? = null,
                               focusBlock: Boolean = true,
                               animated: Boolean = true,
-                              scrollType: ScrollType = ScrollType.CENTER) {
+                              scrollType: ScrollType = ScrollType.CENTER,
+                              editorToFocus: Editor? = null) {
     val doSelect = {
       blockState.currentBlock = blockId
       scrollSupport.scroll(scrollPolicy, blockId, animated = animated, scrollType = scrollType)
@@ -411,15 +430,16 @@ class CombinedDiffViewer(
       doSelect()
       return
     }
-    requestFocusInDiffViewer(blockId)
+    requestFocusInDiffViewer(blockId, editorToFocus)
     IdeFocusManager.getInstance(project).doWhenFocusSettlesDown(doSelect)
   }
 
-  private fun requestFocusInDiffViewer(blockId: CombinedBlockId) {
+  private fun requestFocusInDiffViewer(blockId: CombinedBlockId, editor: Editor? = null) {
     val viewer = diffViewers[blockId] ?: return
     val componentToFocus =
       with(viewer) {
         when {
+          editor != null -> editor.contentComponent
           isEditorBased -> currentEditor?.contentComponent
           preferredFocusedComponent != null -> preferredFocusedComponent
           else -> component
@@ -437,6 +457,11 @@ class CombinedDiffViewer(
   internal fun contentChanged() {
     combinedEditorSettingsAction.installGutterPopup()
     combinedEditorSettingsAction.applyDefaults()
+    updateSearch() //as a possible optimization, this should be done after all requests were loaded
+  }
+
+  private fun updateSearch() {
+    getMainUI().updateSearch(createSearchContext())
   }
 
   private val foldingModels: List<FoldingModelSupport>
@@ -511,6 +536,22 @@ class CombinedDiffViewer(
     scrollSupport.combinedEditorsScrollingModel.scrollToCaret(ScrollType.RELATIVE)
   }
 
+  fun scrollToEditor(editor: Editor, focus: Boolean) {
+    val entry = diffViewers.entries.find { editor in it.value.editors } ?: return
+    val blockId = entry.key
+
+    if (blockId != getCurrentBlockId()) {
+      selectDiffBlock(blockId, ScrollPolicy.SCROLL_TO_BLOCK, focusBlock = focus, editorToFocus = editor)
+    }
+  }
+
+  fun createSearchContext(): CombinedDiffSearchContext {
+    return CombinedDiffSearchContext(blockState.iterateBlocks()
+                                       .asSequence()
+                                       .mapNotNull { id -> diffViewers[id]?.editors }
+                                       .map(CombinedDiffSearchContext::EditorHolder)
+                                       .toList())
+  }
 
   internal val editors: List<Editor>
     get() = diffViewers.values.flatMap { it.editors }
@@ -556,7 +597,10 @@ class CombinedDiffViewer(
       newViewer.editors.forEach { editor ->
         (editor.scrollingModel as? ScrollingModelImpl)
           ?.addScrollRequestListener({ _, scrollType ->
-                                       combinedEditorsScrollingModel.scrollToCaret(scrollType)
+                                       if (editor in viewer.getCurrentDiffViewer()?.editors.orEmpty()) {
+                                         //e.g., scroll to caret emitted from editor search session (next/prev occurence action)
+                                         combinedEditorsScrollingModel.scrollToCaret(scrollType)
+                                       }
                                      }, newViewer)
       }
     }
@@ -706,7 +750,7 @@ private fun runPreservingViewportContent(scroll: JBScrollPane, blocksPanel: Comb
   scroll.viewport.viewPosition = Point(newViewRect.x, newViewRect.y)
 }
 
-private val DiffViewer.currentEditor: Editor?
+val DiffViewer.currentEditor: Editor?
   get() = when (this) {
     is EditorDiffViewer -> currentEditor
     else -> null

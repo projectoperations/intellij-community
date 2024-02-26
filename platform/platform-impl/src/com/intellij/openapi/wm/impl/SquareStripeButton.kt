@@ -92,7 +92,7 @@ internal class SquareStripeButton(action: SquareAnActionButton, val toolWindow: 
           return JBUI.CurrentTheme.ActionButton.pressedBackground()
         }
         if (isHovered()) {
-          return StripeButtonUi.BACKGROUND_COLOR
+          return JBUI.CurrentTheme.ActionButton.hoverBackground()
         }
         return this@SquareStripeButton.background
       }
@@ -132,7 +132,7 @@ internal class SquareStripeButton(action: SquareAnActionButton, val toolWindow: 
 
           val f = getTextFont()
           val fm = getFontMetrics(f)
-          val text = toolWindow.stripeTitleProvider.get()
+          val text = toolWindow.stripeShortTitleProvider?.get() ?: toolWindow.stripeTitleProvider.get()
           val button = this@SquareStripeButton
           val insets = button.insets
           val x = insets.left + JBUI.scale(6)
@@ -222,7 +222,7 @@ internal class SquareStripeButton(action: SquareAnActionButton, val toolWindow: 
     HelpTooltip()
       .setTitle(toolWindow.stripeTitleProvider)
       .setLocation(getAlignment(toolWindow.anchor, toolWindow.isSplitMode))
-      .setShortcut(ActionManager.getInstance().getKeyboardShortcut(ActivateToolWindowAction.getActionIdForToolWindow(toolWindow.id)))
+      .setShortcut(ActionManager.getInstance().getKeyboardShortcut(ActivateToolWindowAction.Manager.getActionIdForToolWindow(toolWindow.id)))
       .setInitialDelay(0)
       .setHideDelay(0)
       .installOn(this)

@@ -19,6 +19,7 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.ProjectScope;
 import com.intellij.util.ArrayUtilRt;
 import com.jetbrains.python.PyPsiBundle;
+import com.jetbrains.python.ast.PyAstFunction;
 import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyFunction;
 import org.jetbrains.annotations.NotNull;
@@ -44,7 +45,7 @@ public final class PySignatureCacheManagerImpl extends PySignatureCacheManager {
     .build(
       new CacheLoader<>() {
         @Override
-        public String load(VirtualFile key) throws Exception {
+        public @NotNull String load(@NotNull VirtualFile key) {
           return readAttributeFromFile(key);
         }
       });
@@ -127,7 +128,7 @@ public final class PySignatureCacheManagerImpl extends PySignatureCacheManager {
 
   @Override
   @Nullable
-  public String findParameterType(@NotNull PyFunction function, @NotNull String name) {
+  public String findParameterType(@NotNull PyAstFunction function, @NotNull String name) {
     final PySignature signature = findSignature(function);
     if (signature != null) {
       return signature.getArgTypeQualifiedName(name);
@@ -137,10 +138,10 @@ public final class PySignatureCacheManagerImpl extends PySignatureCacheManager {
 
   @Override
   @Nullable
-  public PySignature findSignature(@NotNull PyFunction function) {
-    VirtualFile file = getFile(function);
+  public PySignature findSignature(@NotNull PyAstFunction function) {
+    VirtualFile file = getFile((PyFunction)function);
     if (file != null) {
-      return readSignatureAttributeFromFile(file, getFunctionName(function));
+      return readSignatureAttributeFromFile(file, getFunctionName((PyFunction)function));
     }
     else {
       return null;

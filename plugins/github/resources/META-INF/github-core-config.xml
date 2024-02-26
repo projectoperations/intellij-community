@@ -25,6 +25,10 @@
     <backgroundPostStartupActivity implementation="org.jetbrains.plugins.github.pullrequest.GHServerVersionsCollector$Initializer"/>
 
     <diff.DiffExtension implementation="org.jetbrains.plugins.github.pullrequest.ui.diff.GHPRReviewDiffExtension"/>
+
+    <editorFactoryListener
+      implementation="org.jetbrains.plugins.github.pullrequest.ui.editor.GHPRReviewInEditorController$InstallerListener"/>
+
     <openapi.vcs.ui.cloneDialog.VcsCloneDialogExtension
       id="org.jetbrains.plugins.github.ui.cloneDialog.GHCloneDialogExtension"
       implementation="org.jetbrains.plugins.github.ui.cloneDialog.GHCloneDialogExtension"
@@ -45,7 +49,9 @@
     <fileIconProvider implementation="org.jetbrains.plugins.github.extensions.GithubYamlIconProvider"/>
 
     <registryKey defaultValue="true" description="Applying suggested changes" key="github.suggested.changes.apply"/>
-    <registryKey defaultValue="true" description="Enable all-in-one diff for GitHub pull requests" key="github.enable.combined.diff"/>
+
+    <registryKey defaultValue="14" description="Clear 'last seen state' after this many days" key="github.clear.last.seen.state.days"/>
+
     <iconMapper mappingFile="GithubIconMappings.json"/>
   </extensions>
 
@@ -55,6 +61,9 @@
     <gitRepositoryHostingService implementation="org.jetbrains.plugins.github.extensions.GHRepositoryHostingService"/>
     <gitProtectedBranchProvider implementation="org.jetbrains.plugins.github.util.GithubProtectedBranchProvider"/>
     <gitFetchHandler implementation="org.jetbrains.plugins.github.extensions.GHProtectedBranchRulesLoader"/>
+    <gitCurrentBranchPresenter
+      implementation="org.jetbrains.plugins.github.pullrequest.ui.review.GHPROnCurrentBranchService$BranchPresenter"/>
+    <gitPushNotificationCustomizer implementation="org.jetbrains.plugins.github.notification.GHPushNotificationCustomizer"/>
   </extensions>
 
   <actions>
@@ -190,12 +199,22 @@
                     relative-to-action="Vcs.Diff.ToggleDiffAligningMode"
                     anchor="before"/>
     </group>
-  </actions>
 
-  <projectListeners>
-    <listener class="org.jetbrains.plugins.github.notification.GHPushNotificationListener"
-              topic="git4idea.push.GitPushListener"
-              activeInHeadlessMode="false"
-              activeInTestMode="false"/>
-  </projectListeners>
+    <group id="Github.Pull.Request.Branch.Popup.Actions">
+      <separator/>
+      <action id="Github.Pull.Request.Show.In.Toolwindow"
+              class="org.jetbrains.plugins.github.pullrequest.ui.review.GHPROnCurrentBranchService$ShowAction"
+              icon="AllIcons.Vcs.Vendors.Github">
+      </action>
+      <reference id="Github.PullRequest.Review.Submit"/>
+      <action id="Github.Pull.Request.Branch.Update"
+              class="org.jetbrains.plugins.github.pullrequest.ui.review.GHPROnCurrentBranchService$UpdateAction"
+              icon="org.jetbrains.plugins.github.GithubIcons.GithubWarning">
+      </action>
+      <action id="Github.Pull.Request.Review.In.Editor.Toggle"
+              class="org.jetbrains.plugins.github.pullrequest.ui.review.GHPROnCurrentBranchService$ToggleReviewAction">
+      </action>
+      <add-to-group group-id="Git.Experimental.Branch.Popup.Actions"/>
+    </group>
+  </actions>
 </idea-plugin>

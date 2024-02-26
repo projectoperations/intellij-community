@@ -1,7 +1,6 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.menu
 
-import com.intellij.DynamicBundle
 import com.intellij.ide.ui.UISettings
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.impl.ActionMenu
@@ -232,7 +231,7 @@ internal fun doUpdateAppMenu() {
   }
 
   // 1. rename with localized
-  Menu.renameAppMenuItems(DynamicBundle(IdeJMenuBar::class.java, "messages.MacAppMenuBundle"))
+  Menu.renameAppMenuItems()
 
   //
   // 2. add custom new items in AppMenu
@@ -270,7 +269,9 @@ internal fun installAppMenuIfNeeded(frame: JFrame) {
 }
 
 private fun JMenu.isTryingToShowPopupMenu(): Boolean =
-  if (this is ActionMenu)
+  if (this is ActionMenu) {
     isTryingToShowPopupMenu
-  else
+  }
+  else {
     isPopupMenuVisible
+  }

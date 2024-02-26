@@ -9,11 +9,14 @@ import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.PluginAware;
 import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.DefaultBundleService;
+import com.intellij.util.LocalizationUtil;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.xmlb.annotations.Attribute;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.ApiStatus.Obsolete;
 import org.jetbrains.annotations.ApiStatus.ScheduledForRemoval;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -23,14 +26,17 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
 import java.util.*;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 public class DynamicBundle extends AbstractBundle {
   private static final Logger LOG = Logger.getInstance(DynamicBundle.class);
 
   private static @NotNull String ourLangTag = Locale.ENGLISH.toLanguageTag();
 
+  public static final Map<String, ResourceBundle> bundles = new HashMap<>();
   /**
    * Creates a new instance of the message bundle. It's usually stored in a private static final field, and static methods delegating
    * to its {@link #getMessage} and {@link #getLazyMessage} methods are added.
@@ -43,9 +49,14 @@ public class DynamicBundle extends AbstractBundle {
   }
 
   /**
+   * <h3>Obsolescence notice</h3>
+   * <p>
+   * It's better to prefer delegation to inheritance, and use {@link #DynamicBundle(Class, String)} instead.
+   * </p>
+   * <p/>
    * Use this constructor in bundle classes which inherit from this class.
-   * Note that it's better to prefer delegation to inheritance, and use {@link #DynamicBundle(Class, String)} instead.
    */
+  @Obsolete
   protected DynamicBundle(@NotNull String pathToBundle) {
     super(pathToBundle);
   }
@@ -60,30 +71,54 @@ public class DynamicBundle extends AbstractBundle {
     return resolveResourceBundle(
       getBundleClassLoader(),
       baseLoader,
-      loader -> {
-        return super.findBundle(pathToBundle, loader, control, getLocale());
-      }
+      (loader, locale) -> {
+        return super.findBundle(pathToBundle, loader, control, locale);
+      }, pathToBundle, getLocale()
     );
   }
 
   private static @NotNull ResourceBundle resolveResourceBundle(
     @NotNull ClassLoader bundleClassLoader,
     @NotNull ClassLoader baseLoader,
-    @NotNull Function<? super @NotNull ClassLoader, ? extends @NotNull ResourceBundle> bundleResolver
+    @NotNull BiFunction<? super @NotNull ClassLoader, Locale, ? extends @NotNull ResourceBundle> bundleResolver,
+    @NotNull String defaultPath,
+    @NotNull Locale locale
   ) {
-    ResourceBundle base = bundleResolver.apply(baseLoader);
-    ClassLoader pluginClassLoader = languagePluginClassLoader(bundleClassLoader);
-    if (pluginClassLoader == null) {
-      return base;
+    Path bundlePath = FileSystems.getDefault().getPath(FileUtil.toCanonicalPath(defaultPath, '.'));
+    ClassLoader pluginClassLoader = languagePluginClassLoader(bundleClassLoader, locale);
+    List<Path> paths = LocalizationUtil.INSTANCE.getLocalizedPaths(bundlePath, locale);
+    Map<BundleOrder, ResourceBundle> bundleOrderMap = new HashMap<>();
+    if (pluginClassLoader != null) {
+      resolveBundleOrder(pluginClassLoader, true, bundlePath, paths, bundleOrderMap, bundleResolver, locale);
     }
-    ResourceBundle pluginBundle = bundleResolver.apply(pluginClassLoader);
-    if (!setBundleParent(pluginBundle, base)) {
-      return base;
+    resolveBundleOrder(baseLoader, false, bundlePath, paths, bundleOrderMap, bundleResolver, locale);
+    reorderParents(bundleOrderMap);
+    Optional<Map.Entry<BundleOrder, ResourceBundle>> resourceBundleEntry = bundleOrderMap.entrySet().stream().min(Map.Entry.comparingByKey());
+    if (!resourceBundleEntry.isPresent()) {
+      throw new RuntimeException("No such resource bundle: " + bundlePath);
     }
-    return pluginBundle;
+    ResourceBundle bundle = resourceBundleEntry.get().getValue();
+    bundles.put(defaultPath, bundle);
+    return bundle;
   }
 
-  private static @Nullable ClassLoader languagePluginClassLoader(@NotNull ClassLoader bundleClassLoader) {
+  @ApiStatus.Internal
+  private static List<ResourceBundle> getBundlesFromLocalizationFolder(Path pathToBundle, ClassLoader loader, Locale locale) {
+    List<Path> paths = LocalizationUtil.INSTANCE.getFolderLocalizedPaths(pathToBundle, locale);
+    List<ResourceBundle> resourceBundles = new ArrayList<>();
+    for (Path path : paths) {
+      try {
+        ResourceBundle resourceBundle = bundleResolver(FileUtil.toSystemIndependentName(path.toString())).apply(loader, locale);
+        resourceBundles.add(resourceBundle);
+      }
+      catch (MissingResourceException e) {
+        LOG.debug(e);
+      }
+    }
+    return resourceBundles;
+  }
+
+  private static @Nullable ClassLoader languagePluginClassLoader(@NotNull ClassLoader bundleClassLoader, @NotNull Locale locale) {
     if (DefaultBundleService.isDefaultBundle()) {
       return null;
     }
@@ -91,36 +126,13 @@ public class DynamicBundle extends AbstractBundle {
     if (langBundle == null) {
       return null;
     }
+    if (!Objects.equals(locale.getLanguage(), getLocale().getLanguage()) ||
+        (locale.getCountry() != null && !Objects.equals(locale.getCountry(), getLocale().getCountry()))) {
+      return null;
+    }
     PluginDescriptor pluginDescriptor = langBundle.pluginDescriptor;
     return pluginDescriptor == null ? bundleClassLoader
                                     : pluginDescriptor.getClassLoader();
-  }
-
-  private static boolean setBundleParent(@NotNull ResourceBundle pluginBundle, ResourceBundle base) {
-    if (pluginBundle == base) {
-      return true;
-    }
-    try {
-      Map<Integer, ResourceBundle> bundles = new HashMap<>();
-      addBundleWithParents(pluginBundle, true, bundles);
-      addBundleWithParents(base, false, bundles);
-      reorderParents(bundles);
-      return true;
-    }
-    catch (Throwable e) {
-      LOG.warn(e);
-      return false;
-    }
-  }
-
-  private static void addBundleWithParents(ResourceBundle bundle, boolean isPluginBundle, Map<Integer, ResourceBundle> bundles)
-    throws Throwable {
-    bundles.put(getPriority(bundle, isPluginBundle), bundle);
-    ResourceBundle parent = getParent(bundle);
-    while (parent != null) {
-      bundles.put(getPriority(parent, isPluginBundle), parent);
-      parent = getParent(parent);
-    }
   }
 
   private static ResourceBundle getParent(ResourceBundle bundle) throws Throwable {
@@ -130,46 +142,64 @@ public class DynamicBundle extends AbstractBundle {
     return null;
   }
 
-  /* 5 - plugin region localization
-   * 4 - platform region localization
-   * 3 - plugin language localization
-   * 2 - platform language localization
-   * 1 - plugin default localization
-   * 0 - platform default localization
-   * */
-  private static int getPriority(ResourceBundle bundle, Boolean isPluginBundle) {
-    int result = isPluginBundle ? 1 : 0;
-    if (isRegionBundle(bundle)) {
-      result += 4;
+  private static void resolveBundleOrder(ClassLoader loader,
+                                         Boolean isPluginClassLoader,
+                                         Path pathToBundle,
+                                         List<Path> orderedPaths,
+                                         Map<BundleOrder, ResourceBundle> bundleOrderMap,
+                                         @NotNull BiFunction<? super @NotNull ClassLoader, Locale, ? extends @NotNull ResourceBundle> bundleResolver,
+                                         @NotNull Locale locale) {
+    ResourceBundle bundle = bundleResolver.apply(loader, locale);
+    try {
+      while (bundle != null) {
+        putBundleOrder(bundle, bundleOrderMap, orderedPaths, isPluginClassLoader);
+        bundle = getParent(bundle);
+      }
     }
-    else if (!isDefaultBundle(bundle)) {
-      result += 2;
+    catch (Throwable throwable) {
+      LOG.info(throwable);
     }
-    return result;
+    for (ResourceBundle localizedBundle : getBundlesFromLocalizationFolder(pathToBundle, loader, locale)) {
+      putBundleOrder(localizedBundle, bundleOrderMap, orderedPaths, isPluginClassLoader);
+    }
   }
 
-  private static boolean isRegionBundle(ResourceBundle bundle) {
-    return !bundle.getLocale().getCountry().isEmpty();
+  private static void putBundleOrder(ResourceBundle bundle,
+                                     Map<BundleOrder, ResourceBundle> bundleOrderMap,
+                                     List<Path> orderedPaths,
+                                     Boolean isPluginClassLoader) {
+    String bundlePath = FileUtil.toCanonicalPath(bundle.getBaseBundleName(), '.');
+    if (!bundle.getLocale().toString().isEmpty()) {
+      bundlePath += "_" + bundle.getLocale().toString();
+    }
+    Path path = FileSystems.getDefault().getPath(bundlePath);
+    BundleOrder bundleOrder = BundleOrder.getBundleOrder(orderedPaths, path, isPluginClassLoader);
+    if (bundleOrder == null) {
+      LOG.debug("Order cannot be defined for the bundle: " + path +
+                "; Current locale: " + getLocale() +
+                "; Paths for locale: " + orderedPaths);
+      return;
+    }
+    bundleOrderMap.put(bundleOrder, bundle);
   }
 
-  private static boolean isDefaultBundle(ResourceBundle bundle) {
-    return bundle.getLocale().getLanguage().isEmpty();
-  }
-
-  private static void reorderParents(Map<Integer, ResourceBundle> bundlesWithPriority) throws Throwable {
-    int currentValue = 0;
-    ResourceBundle parentBundle = null;
-    while (currentValue <= 5) {
-      ResourceBundle resourceBundle = bundlesWithPriority.get(currentValue);
-      if (resourceBundle != null && resourceBundle != parentBundle) {
-        if (parentBundle != null) {
+  private static void reorderParents(Map<BundleOrder, ResourceBundle> bundleOrderMap) {
+    ResourceBundle resourceBundle = null;
+    for (BundleOrder bundleOrder : BundleOrder.values()) {
+      ResourceBundle parentBundle = bundleOrderMap.get(bundleOrder);
+      if (parentBundle != null && parentBundle != resourceBundle) {
+        if (resourceBundle != null) {
           if (DynamicBundleInternal.SET_PARENT != null) {
-            DynamicBundleInternal.SET_PARENT.bindTo(resourceBundle).invoke(parentBundle);
+            try {
+              DynamicBundleInternal.SET_PARENT.bindTo(resourceBundle).invoke(parentBundle);
+            }
+            catch (Throwable e) {
+              LOG.warn(e);
+            }
           }
         }
-        parentBundle = resourceBundle;
+        resourceBundle = parentBundle;
       }
-      currentValue++;
     }
   }
 
@@ -261,6 +291,12 @@ public class DynamicBundle extends AbstractBundle {
       .computeIfAbsent(pathToBundle, __ -> resolveResourceBundle(loader, pathToBundle));
   }
 
+  public static @NotNull ResourceBundle getResourceBundle(@NotNull ClassLoader loader, @NotNull @NonNls String pathToBundle, @NotNull Locale locale) {
+    return (DefaultBundleService.isDefaultBundle() ? ourDefaultCache : ourCache)
+      .computeIfAbsent(loader, __ -> CollectionFactory.createConcurrentSoftValueMap())
+      .computeIfAbsent(pathToBundle, __ -> resolveResourceBundle(loader, pathToBundle, locale));
+  }
+
   public static @Nullable ResourceBundle getPluginBundle(@NotNull PluginDescriptor pluginDescriptor) {
     ClassLoader classLoader = pluginDescriptor.getPluginClassLoader();
     String baseName = pluginDescriptor.getResourceBundleBaseName();
@@ -271,15 +307,24 @@ public class DynamicBundle extends AbstractBundle {
     return resolveResourceBundleWithFallback(
       () -> resolveResourceBundle(
         DynamicBundle.class.getClassLoader(),
-        loader,
-        bundleResolver(pathToBundle)
+        loader, bundleResolver(pathToBundle), pathToBundle, getLocale()
       ),
       loader, pathToBundle
     );
   }
 
-  private static @NotNull Function<@NotNull ClassLoader, @NotNull ResourceBundle> bundleResolver(@NonNls @NotNull String pathToBundle) {
-    return l -> AbstractBundle.resolveBundle(l, getLocale(), pathToBundle);
+  private static @NotNull ResourceBundle resolveResourceBundle(@NotNull ClassLoader loader, @NonNls @NotNull String pathToBundle, @NotNull Locale locale) {
+    return resolveResourceBundleWithFallback(
+      () -> resolveResourceBundle(
+        DynamicBundle.class.getClassLoader(),
+        loader, bundleResolver(pathToBundle), pathToBundle, locale
+      ),
+      loader, pathToBundle
+    );
+  }
+
+  private static @NotNull BiFunction<@NotNull ClassLoader, @NotNull Locale, @NotNull ResourceBundle> bundleResolver(@NonNls @NotNull String pathToBundle) {
+    return (loader, locale) -> resolveBundle(loader, locale, pathToBundle);
   }
 
   /**
@@ -325,5 +370,37 @@ public class DynamicBundle extends AbstractBundle {
 
   public static @NotNull Locale getLocale() {
     return Locale.forLanguageTag(ourLangTag);
+  }
+
+  private enum BundleOrder {
+    FOLDER_REGION_LEVEL_PLUGIN(0), //localization/zh/CN/
+    FOLDER_REGION_LEVEL_PLATFORM(1),
+    SUFFIX_REGION_LEVEL_PLUGIN(2), //name_zh_CN.properties
+    SUFFIX_REGION_LEVEL_PLATFORM(3),
+    FOLDER_LANGUAGE_LEVEL_PLUGIN(4), //localization/zh/
+    FOLDER_LANGUAGE_LEVEL_PLATFORM(5),
+    SUFFIX_LANGUAGE_LEVEL_PLUGIN(6), //name_zh.properties
+    SUFFIX_LANGUAGE_LEVEL_PLATFORM(7),
+    DEFAULT_PLUGIN(8), //name.properties
+    DEFAULT_PLATFORM(9);
+
+    private final int index;
+
+    BundleOrder(int index) {
+      this.index = index;
+    }
+
+    @Nullable
+    private static BundleOrder getBundleOrderByIndex(int ind) {
+      Optional<BundleOrder> matchingBundleOrder = Arrays.stream(values()).filter(b -> b.index == ind).findFirst();
+      return matchingBundleOrder.orElse(null);
+    }
+
+    @Nullable
+    public static BundleOrder getBundleOrder(List<Path> orderedPaths, Path bundlePath, Boolean isPluginClassLoader) {
+      int order = orderedPaths.indexOf(bundlePath);
+      order = isPluginClassLoader ? order * 2 : order * 2 + 1;
+      return getBundleOrderByIndex(order);
+    }
   }
 }

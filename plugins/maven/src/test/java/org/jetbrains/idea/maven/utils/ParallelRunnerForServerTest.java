@@ -4,7 +4,6 @@ package org.jetbrains.idea.maven.utils;
 import org.jetbrains.idea.maven.server.ParallelRunnerForServer;
 import org.junit.Test;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -18,7 +17,7 @@ public class ParallelRunnerForServerTest {
   public void testSequential() {
     var in = List.of(1, 2, 3, 4, 5);
     var out = new ArrayList<Integer>();
-    ParallelRunnerForServer.runSequentially(in, out::add);
+    ParallelRunnerForServer.execute(false, in, out::add);
     assertEquals(in, out);
   }
 
@@ -28,8 +27,8 @@ public class ParallelRunnerForServerTest {
     var text = "should be rethrown";
     var in = List.of(1, 2, 3, 4, 5);
     try {
-      ParallelRunnerForServer.<Integer, Exception>runSequentiallyRethrow(in, it -> {
-        throw new Exception(text);
+      ParallelRunnerForServer.<Integer, Integer>execute(false, in, it -> {
+        throw new RuntimeException(text);
       });
     } catch (Exception e) {
       rethrown = e;
@@ -38,12 +37,12 @@ public class ParallelRunnerForServerTest {
     assertEquals(text, rethrown.getMessage());
   }
 
-  @Test(expected = IOException.class)
+  @Test(expected = RuntimeException.class)
   public void testSequentialSneakyRethrow() {
     var text = "should be rethrown";
     var in = List.of(1, 2, 3, 4, 5);
-    ParallelRunnerForServer.runSequentiallyRethrow(in, it -> {
-      throw new IOException(text);
+    ParallelRunnerForServer.execute(false, in, it -> {
+      throw new RuntimeException(text);
     });
   }
 
@@ -51,7 +50,7 @@ public class ParallelRunnerForServerTest {
   public void testParallel() {
     var in = Set.of(1, 2, 3, 4, 5);
     var out = new ConcurrentHashMap<Integer, Integer>();
-    ParallelRunnerForServer.runInParallel(in, it -> out.put(it, it));
+    ParallelRunnerForServer.execute(true, in, it -> out.put(it, it));
     assertEquals(in, out.keySet());
   }
 
@@ -61,7 +60,7 @@ public class ParallelRunnerForServerTest {
     var text = "should be rethrown";
     var in = List.of(1, 2, 3, 4, 5);
     try {
-      ParallelRunnerForServer.runInParallel(in, it -> {
+      ParallelRunnerForServer.execute(true, in, it -> {
         throw new RuntimeException(text);
       });
     } catch (RuntimeException e) {
@@ -77,35 +76,23 @@ public class ParallelRunnerForServerTest {
     var text = "should be rethrown";
     var in = List.of(1, 2, 3, 4, 5);
     try {
-      ParallelRunnerForServer.<Integer, MyTestException>runInParallelRethrow(in, it -> {
-        throw new MyTestException(text);
+      ParallelRunnerForServer.<Integer, Integer>execute(true, in, it -> {
+        throw new RuntimeException(text);
       });
-    } catch (MyTestException e) {
+    } catch (RuntimeException e) {
       rethrown = e;
     }
     assertNotNull(rethrown);
     assertEquals(text, rethrown.getMessage());
   }
 
-  @Test(expected = IOException.class)
+  @Test(expected = RuntimeException.class)
   public void testParallelSneakyThrow() {
     var text = "should be rethrown";
     var in = List.of(1, 2, 3, 4, 5);
-    ParallelRunnerForServer.runInParallelRethrow(in, it -> {
-      throw new IOException(text);
+    ParallelRunnerForServer.execute(true, in, it -> {
+      throw new RuntimeException(text);
     });
-  }
-
-  class MyTestException extends Exception {
-    private final String message;
-    MyTestException(String message) {
-      this.message = message;
-    }
-
-    @Override
-    public String getMessage() {
-      return message;
-    }
   }
 
 }

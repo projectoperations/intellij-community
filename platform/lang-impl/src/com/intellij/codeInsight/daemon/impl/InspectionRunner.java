@@ -53,6 +53,7 @@ class InspectionRunner {
   private final boolean myIgnoreSuppressed;
   private final InspectionProfileWrapper myInspectionProfileWrapper;
   private final Map<String, Set<PsiElement>> mySuppressedElements;
+  private final List<PsiFile> myInjectedFragments = Collections.synchronizedList(new ArrayList<>());
 
   InspectionRunner(@NotNull PsiFile psiFile,
                    @NotNull TextRange restrictRange,
@@ -155,8 +156,8 @@ class InspectionRunner {
 
           List<Class<?>> acceptingPsiTypes = InspectionVisitorsOptimizer.getAcceptingPsiTypes(visitor);
           List<? extends PsiElement> sortedInside = highlightInfoUpdater.sortByPsiElementFertility(myPsiFile, toolWrapper, toolWrapper.runForWholeFile() ? wholeInside : restrictedInside);
-          List<? extends PsiElement> sortedOutside = highlightInfoUpdater.sortByPsiElementFertility(myPsiFile, toolWrapper, toolWrapper.runForWholeFile() ? wholeOutside : restrictedOutside);
-          InspectionContext context = new InspectionContext(toolWrapper, holder, visitor, sortedInside, sortedOutside, true, acceptingPsiTypes, myPsiFile);
+          List<? extends PsiElement> outside = toolWrapper.runForWholeFile() ? wholeOutside : restrictedOutside;
+          InspectionContext context = new InspectionContext(toolWrapper, holder, visitor, sortedInside, outside, true, acceptingPsiTypes, myPsiFile);
           init.add(context);
           if (LOG.isTraceEnabled()) {
             LOG.trace("inspect: created context: "+myPsiFile+"; host="+InjectedLanguageManager.getInstance(myPsiFile.getProject()).injectedToHost(myPsiFile, myPsiFile.getTextRange())+"; context="+context+"; acceptingPsiTypes="+acceptingPsiTypes+
@@ -179,7 +180,7 @@ class InspectionRunner {
         });
         return true;
       };
-      if (!((JobLauncherImpl)JobLauncher.getInstance()).procInOrderAsync(new SensitiveProgressWrapper(myProgress), initSize, contextProcessor, addToQueue -> {
+      if (!JobLauncher.getInstance().procInOrderAsync(new SensitiveProgressWrapper(myProgress), initSize, contextProcessor, addToQueue -> {
         // have to do all this even for empty elements, to perform correct cleanup/inspectionFinished
         if (init.isEmpty()) {
           addToQueue.finish();
@@ -189,15 +190,16 @@ class InspectionRunner {
             addToQueue.enqueue(context);
           }
         }
+        reportIdsOfInspectionsReportedAnyProblemToFUS(init);
 
         if (myInspectInjected && InjectionUtils.shouldInspectInjectedFiles(myPsiFile)) {
           // we don't run whole-file tools on injected fragments
           List<LocalInspectionToolWrapper> localTools = ContainerUtil.filter(toolWrappers, t -> !t.runForWholeFile());
-          inspectInjectedPsi(session, localTools, injectedContexts, applyIncrementallyCallback,
-                             contextFinishedCallback, enabledToolsPredicate, addToInjectedQueue ->
+          return inspectInjectedPsi(session, localTools, injectedContexts, applyIncrementallyCallback,
+                                    contextFinishedCallback, enabledToolsPredicate, addToInjectedQueue ->
               getInjectedWithHosts(ContainerUtil.concat(restrictedInside, restrictedOutside), addToInjectedQueue));
         }
-        reportIdsOfInspectionsReportedAnyProblemToFUS(init);
+        return true;
       })) {
         throw new ProcessCanceledException();
       }
@@ -208,7 +210,7 @@ class InspectionRunner {
         InspectionProfilerDataHolder.saveStats(myPsiFile, init);
       }
       if (myIsOnTheFly && addRedundantSuppressions) {
-        addRedundantSuppressions(init, toolWrappers, redundantContexts, applyIncrementallyCallback, contextFinishedCallback);
+        addRedundantSuppressions(init, toolWrappers, redundantContexts, applyIncrementallyCallback, contextFinishedCallback, restrictedInside, restrictedOutside);
       }
     });
     return ContainerUtil.concat(init, redundantContexts, injectedContexts);
@@ -310,7 +312,9 @@ class InspectionRunner {
                                         @NotNull List<? extends LocalInspectionToolWrapper> toolWrappers,
                                         @NotNull List<? super InspectionContext> result,
                                         @NotNull ApplyIncrementallyCallback applyIncrementallyCallback,
-                                        @NotNull Consumer<? super InspectionContext> contextFinishedCallback) {
+                                        @NotNull Consumer<? super InspectionContext> contextFinishedCallback,
+                                        @NotNull List<? extends PsiElement> restrictedInside,
+                                        @NotNull List<? extends PsiElement> restrictedOutside) {
     for (InspectionContext context : init) {
       LocalInspectionToolWrapper toolWrapper = context.tool;
       LocalInspectionTool tool = toolWrapper.getTool();
@@ -348,7 +352,8 @@ class InspectionRunner {
       }
     }
     InspectionToolWrapper<?,?> redundantSuppressTool = inspectionProfile.getInspectionTool(RedundantSuppressInspectionBase.SHORT_NAME, myPsiFile);
-    LocalInspectionTool rsLocalTool = ((RedundantSuppressInspectionBase)redundantSuppressTool.getTool()).createLocalTool(redundantSuppressionDetector, mySuppressedElements, activeTools);
+    RedundantSuppressInspectionBase redundantSuppressGlobalTool = (RedundantSuppressInspectionBase)redundantSuppressTool.getTool();
+    LocalInspectionTool rsLocalTool = redundantSuppressGlobalTool.createLocalTool(redundantSuppressionDetector, mySuppressedElements, activeTools, myRestrictRange);
     List<LocalInspectionToolWrapper> wrappers = Collections.singletonList(new LocalInspectionToolWrapper(rsLocalTool));
     InspectionRunner runner = new InspectionRunner(myPsiFile, myRestrictRange, myPriorityRange, myInspectInjected, true, myProgress, false,
                                                    myInspectionProfileWrapper, mySuppressedElements);
@@ -418,7 +423,7 @@ class InspectionRunner {
                                      @NotNull ApplyIncrementallyCallback addDescriptorIncrementallyCallback,
                                      @NotNull Consumer<? super InspectionContext> contextFinishedCallback,
                                      @Nullable Condition<? super LocalInspectionToolWrapper> enabledToolsPredicate,
-                                     @NotNull Consumer<? super JobLauncherImpl.QueueController<? super Pair<PsiFile, PsiElement>>> otherActions) {
+                                     @NotNull Processor<? super JobLauncherImpl.QueueController<? super Pair<PsiFile, PsiElement>>> otherActions) {
     PairProcessor<? super Pair<PsiFile, PsiElement>, JobLauncherImpl.QueueController<? super Pair<PsiFile, PsiElement>>> injectedProcessor = (pair,__) -> {
       executeInImpatientReadAction(() -> {
         PsiFile injectedPsi = pair.getFirst();
@@ -458,7 +463,7 @@ class InspectionRunner {
       return true;
     };
 
-    return ((JobLauncherImpl)JobLauncher.getInstance()).procInOrderAsync(new SensitiveProgressWrapper(myProgress), Integer.MAX_VALUE, injectedProcessor, otherActions);
+    return JobLauncher.getInstance().procInOrderAsync(new SensitiveProgressWrapper(myProgress), Integer.MAX_VALUE, injectedProcessor, otherActions);
   }
 
   private void applyInjectedDescriptor(@NotNull List<? extends ProblemDescriptor> descriptors,
@@ -495,8 +500,8 @@ class InspectionRunner {
     }
   }
 
-  private void getInjectedWithHosts(@NotNull List<? extends PsiElement> elements,
-                                    @NotNull JobLauncherImpl.QueueController<? super Pair<PsiFile, PsiElement>> addToQueue) {
+  private boolean getInjectedWithHosts(@NotNull List<? extends PsiElement> elements,
+                                       @NotNull JobLauncherImpl.QueueController<? super Pair<PsiFile, PsiElement>> addToQueue) {
     Map<PsiFile, PsiElement> injectedToHost = createInjectedFileMap();
     Project project = myPsiFile.getProject();
     for (PsiElement element : elements) {
@@ -510,6 +515,8 @@ class InspectionRunner {
       });
     }
     addToQueue.finish(); // no more injections
+    myInjectedFragments.addAll(injectedToHost.keySet());
+    return true;
   }
 
   interface ApplyIncrementallyCallback {
@@ -614,5 +621,10 @@ class InspectionRunner {
     return highlightingLevelManager != null
            && highlightingLevelManager.shouldInspect(file)
            && !highlightingLevelManager.runEssentialHighlightingOnly(file);
+  }
+
+  @NotNull
+  List<PsiFile> getInjectedFragments() {
+    return myInjectedFragments;
   }
 }

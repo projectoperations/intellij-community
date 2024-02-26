@@ -10,6 +10,7 @@ import com.intellij.patterns.StandardPatterns
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.elementType
+import com.intellij.psi.util.parentOfTypes
 import com.intellij.ui.JBColor
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.idea.completion.handlers.WithTailInsertHandler
@@ -39,9 +40,6 @@ tailrec fun <T : Any> LookupElement.getUserDataDeep(key: Key<T>): T? {
         getUserData(key)
     }
 }
-
-val PsiElement.isInsideKtTypeReference: Boolean
-    get() = getNonStrictParentOfType<KtTypeReference>() != null
 
 fun createKeywordElement(
     keyword: String,
@@ -215,6 +213,9 @@ fun isPositionSuitableForNull(position: PsiElement): Boolean = when {
     else -> position.context?.getPrevSiblingIgnoringWhitespaceAndComments() is KtOperationReferenceExpression
             || position.context?.getNextSiblingIgnoringWhitespaceAndComments() is KtOperationReferenceExpression
 }
+
+fun isPositionInsideImportOrPackageDirective(position: PsiElement): Boolean =
+   position.parentOfTypes(KtImportDirective::class, KtPackageDirective::class) != null
 
 fun KtElement.reference() = when (this) {
     is KtCallExpression -> calleeExpression?.mainReference

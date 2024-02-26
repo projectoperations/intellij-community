@@ -13,11 +13,17 @@ import com.intellij.platform.util.coroutines.childScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
+import org.jetbrains.plugins.github.pullrequest.config.GithubPullRequestsProjectUISettings
 import org.jetbrains.plugins.github.pullrequest.data.GHPRDataContext
 import org.jetbrains.plugins.github.pullrequest.data.GHPRIdentifier
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDataProvider
+import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRThreadsViewModels
 import org.jetbrains.plugins.github.pullrequest.ui.diff.GHPRDiffViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.diff.GHPRDiffViewModelImpl
+import org.jetbrains.plugins.github.pullrequest.ui.editor.GHPRReviewInEditorViewModel
+import org.jetbrains.plugins.github.pullrequest.ui.editor.GHPRReviewInEditorViewModelImpl
+import org.jetbrains.plugins.github.pullrequest.ui.review.GHPRBranchWidgetViewModel
+import org.jetbrains.plugins.github.pullrequest.ui.review.GHPRBranchWidgetViewModelImpl
 import org.jetbrains.plugins.github.pullrequest.ui.review.GHPRReviewViewModelHelper
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRTimelineViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRTimelineViewModelImpl
@@ -40,14 +46,32 @@ internal class GHPRViewModelContainer(
   private val diffSelectionRequests = MutableSharedFlow<ChangesSelection>(1)
 
   private val lazyInfoVm = lazy {
-    GHPRInfoViewModel(project, cs, dataContext, dataProvider)
+    GHPRInfoViewModel(project, cs, dataContext, dataProvider).apply {
+      setup()
+    }
   }
   val infoVm: GHPRInfoViewModel by lazyInfoVm
+  private val reviewVmHelper: GHPRReviewViewModelHelper by lazy { GHPRReviewViewModelHelper(cs, dataProvider) }
 
-  private val reviewVmHelper = GHPRReviewViewModelHelper(cs, dataProvider)
+  private val branchStateVm by lazy {
+    GHPRReviewBranchStateSharedViewModel(cs, dataContext, dataProvider)
+  }
+  private val settings = GithubPullRequestsProjectUISettings.getInstance(project)
+  val branchWidgetVm: GHPRBranchWidgetViewModel by lazy {
+    GHPRBranchWidgetViewModelImpl(cs, settings, dataProvider, projectVm, branchStateVm, reviewVmHelper, pullRequestId)
+  }
+
+  private val threadsVms = GHPRThreadsViewModels(project, cs, dataContext, dataProvider)
   val diffVm: GHPRDiffViewModel by lazy {
-    GHPRDiffViewModelImpl(project, cs, dataContext, dataProvider, reviewVmHelper).apply {
+    GHPRDiffViewModelImpl(project, cs, dataContext, dataProvider, reviewVmHelper, threadsVms).apply {
       setup()
+    }
+  }
+
+  val editorVm: GHPRReviewInEditorViewModel by lazy {
+    GHPRReviewInEditorViewModelImpl(project, cs, settings, dataContext, dataProvider, branchStateVm, threadsVms) {
+      diffSelectionRequests.tryEmit(it)
+      projectVm.openPullRequestDiff(pullRequestId, true)
     }
   }
 
@@ -59,7 +83,15 @@ internal class GHPRViewModelContainer(
 
   init {
     cs.launchNow {
-      infoVm.detailsVm.flatMapLatest { detailsVmResult ->
+      dataProvider.stateData.stateChangeSignal.collectLatest {
+        projectVm.refreshPrOnCurrentBranch()
+      }
+    }
+  }
+
+  private fun GHPRInfoViewModel.setup() {
+    cs.launchNow {
+      detailsVm.flatMapLatest { detailsVmResult ->
         detailsVmResult.getOrNull()?.changesVm?.changeListVm?.flatMapLatest {
           it.getOrNull()?.changesSelection ?: flowOf(null)
         } ?: flowOf(null)

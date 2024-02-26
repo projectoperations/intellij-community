@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.future.asDeferred
 import kotlinx.coroutines.future.await
 import org.jetbrains.plugins.github.api.data.GHActor
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewComment
@@ -141,7 +142,7 @@ class UpdateableGHPRTimelineThreadViewModel internal constructor(
       currentChanges.value = null
       cs.launchNow {
         currentChanges.value = try {
-          it.await()
+          it.asDeferred().await()
         }
         catch (e: Exception) {
           null
@@ -161,7 +162,7 @@ class UpdateableGHPRTimelineThreadViewModel internal constructor(
         }
         else {
           reviewData.resolveThread(EmptyProgressIndicator(), id)
-        }.await()
+        }.asDeferred().await()
       }
       catch (e: Exception) {
         if (e is ProcessCanceledException || e is CancellationException) return@launch
@@ -183,6 +184,7 @@ class UpdateableGHPRTimelineThreadViewModel internal constructor(
   override fun unfoldReplies() {
     _repliesFolded.value = false
     _collapsed.value = false
+    newReplyVm.requestFocus()
   }
 
   override fun showDiff() {
@@ -234,7 +236,7 @@ class UpdateableGHPRTimelineThreadViewModel internal constructor(
 
   private fun CoroutineScope.createComment(comment: IndexedValue<GHPullRequestReviewComment>): UpdateableGHPRReviewThreadCommentViewModel =
     UpdateableGHPRReviewThreadCommentViewModel(project, this, dataContext, dataProvider,
-                                                 this@UpdateableGHPRTimelineThreadViewModel, comment)
+                                               this@UpdateableGHPRTimelineThreadViewModel, comment)
 
   private fun Collection<RefComparisonChange>.findByFilePath(path: String): RefComparisonChange? {
     val repoRoot = dataContext.repositoryDataService.remoteCoordinates.repository.root

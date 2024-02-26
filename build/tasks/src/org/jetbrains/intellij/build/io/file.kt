@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("LiftReturnOrAssignment")
 
 package org.jetbrains.intellij.build.io
@@ -19,7 +19,7 @@ import java.util.regex.Pattern
 val W_CREATE_NEW: EnumSet<StandardOpenOption> = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)
 
 fun copyFileToDir(file: Path, targetDir: Path) {
-  doCopyFile(file, targetDir.resolve(file.fileName), targetDir)
+  doCopyFile(file = file, target = targetDir.resolve(file.fileName), targetDir = targetDir)
 }
 
 fun moveFile(source: Path, target: Path) {
@@ -41,12 +41,11 @@ private fun doCopyFile(file: Path, target: Path, targetDir: Path) {
   Files.copy(file, target, StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING)
 }
 
-@JvmOverloads
 fun copyDir(sourceDir: Path, targetDir: Path, dirFilter: Predicate<Path>? = null, fileFilter: Predicate<Path>? = null) {
   Files.createDirectories(targetDir)
   Files.walkFileTree(sourceDir, CopyDirectoryVisitor(
-    sourceDir,
-    targetDir,
+    sourceDir = sourceDir,
+    targetDir = targetDir,
     dirFilter = dirFilter ?: Predicate { true },
     fileFilter = fileFilter ?: Predicate { true },
   ))
@@ -95,7 +94,7 @@ private class CopyDirectoryVisitor(private val sourceDir: Path,
     }
 
     val targetFile = sourceToTargetFile(sourceFile)
-    Files.copy(sourceFile, targetFile, StandardCopyOption.COPY_ATTRIBUTES)
+    Files.copy(sourceFile, targetFile, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)
     return FileVisitResult.CONTINUE
   }
 }

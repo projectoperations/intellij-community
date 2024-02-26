@@ -4,10 +4,14 @@ package com.intellij.toolWindow
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.ToggleToolbarAction
+import com.intellij.ide.actions.ToolwindowFusEventFields
 import com.intellij.ide.ui.UISettings.Companion.setupAntialiasing
+import com.intellij.internal.statistic.eventLog.events.EventPair
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
+import com.intellij.openapi.actionSystem.impl.FusAwareAction
+import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.ui.SimpleToolWindowPanel
@@ -31,6 +35,7 @@ import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.accessibility.AccessibleContextUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
 import net.miginfocom.layout.CC
+import org.jetbrains.annotations.ApiStatus
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -44,6 +49,7 @@ import javax.swing.SwingUtilities
 import javax.swing.event.PopupMenuEvent
 import javax.swing.event.PopupMenuListener
 
+@ApiStatus.Internal
 abstract class ToolWindowHeader internal constructor(
   private val toolWindow: ToolWindowImpl,
   private val contentUi: ToolWindowContentUi,
@@ -63,6 +69,22 @@ abstract class ToolWindowHeader internal constructor(
 
   var isPopupShowing: Boolean = false
     private set
+
+  var sideComponent: JComponent? = null
+    set(value) {
+      val old = field
+      if (old !== value) {
+        if (old != null) {
+          westPanel.remove(old)
+        }
+        if (value != null) {
+          westPanel.add(value)
+        }
+        field = value
+        westPanel.revalidate()
+        westPanel.repaint()
+      }
+    }
 
   private fun setPopupShowing(showing: Boolean) {
     if (isPopupShowing != showing) {
@@ -137,7 +159,7 @@ abstract class ToolWindowHeader internal constructor(
     }
 
     toolbar.targetComponent = toolbar.component
-    toolbar.layoutPolicy = ActionToolbar.NOWRAP_LAYOUT_POLICY
+    toolbar.layoutStrategy = ToolbarLayoutStrategy.NOWRAP_STRATEGY
     toolbar.setReservePlaceAutoPopupIcon(false)
     val component = toolbar.component
     component.border = JBUI.Borders.empty(2, 0)
@@ -187,6 +209,9 @@ abstract class ToolWindowHeader internal constructor(
           }
           else {
             toolWindow.fireActivated(ToolWindowEventSource.ToolWindowHeader)
+            // Move focus the context component.
+            val decorator = InternalDecoratorImpl.findNearestDecorator(this@ToolWindowHeader)
+            decorator?.requestContentFocus()
           }
         }
       }
@@ -222,7 +247,7 @@ abstract class ToolWindowHeader internal constructor(
     }
     // Makes sure toolbar stays after the tab component
     val allowDnd = ClientProperty.isTrue(toolWindow.component as Component?, ToolWindowContentUi.ALLOW_DND_FOR_TABS)
-    westPanel.add(contentUi.tabComponent, if (allowDnd) CC().grow().pushX() else CC().growY())
+    westPanel.add(contentUi.tabComponent, if (allowDnd) CC().grow() else CC().growY())
     toolbarWest?.apply { westPanel.add(component, CC().pushX()) }
   }
 
@@ -266,7 +291,7 @@ abstract class ToolWindowHeader internal constructor(
       with(toolbarWest as ActionToolbarImpl) {
         targetComponent = this
         setForceMinimumSize(true)
-        layoutPolicy = ActionToolbar.NOWRAP_LAYOUT_POLICY
+        layoutStrategy = ToolbarLayoutStrategy.NOWRAP_STRATEGY
         setReservePlaceAutoPopupIcon(false)
         isOpaque = false
         border = JBUI.Borders.empty()
@@ -298,7 +323,7 @@ abstract class ToolWindowHeader internal constructor(
     val type = toolWindow.type
     val nearestDecorator = InternalDecoratorImpl.findNearestDecorator(this@ToolWindowHeader)
     val isNewUi = toolWindow.toolWindowManager.isNewUi
-    val drawTopLine = type != ToolWindowType.FLOATING && !ClientProperty.isTrue(nearestDecorator, InternalDecoratorImpl.INACTIVE_LOOK)
+    val drawTopLine = type != ToolWindowType.FLOATING && locationOnScreen.y == toolWindow.decorator?.locationOnScreen?.y
     var drawBottomLine = true
 
     if (isNewUi) {
@@ -339,8 +364,8 @@ abstract class ToolWindowHeader internal constructor(
     return Dimension(size.width, height)
   }
 
-  private inner class ShowOptionsAction : DumbAwareAction() {
-    val myPopupState = PopupState.forPopupMenu()
+  inner class ShowOptionsAction : DumbAwareAction(), FusAwareAction {
+    private val myPopupState = PopupState.forPopupMenu()
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
@@ -362,6 +387,10 @@ abstract class ToolWindowHeader internal constructor(
       myPopupState.prepareToShow(popupMenu.component)
       popupMenu.component.addPopupMenuListener(popupMenuListener)
       popupMenu.component.show(inputEvent!!.component, x, y)
+    }
+
+    override fun getAdditionalUsageData(event: AnActionEvent): List<EventPair<*>> {
+      return listOf(ToolwindowFusEventFields.TOOLWINDOW with toolWindow.id)
     }
 
     init {

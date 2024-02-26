@@ -58,6 +58,7 @@ import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.*
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.impl.ZipHandler
 import com.intellij.openapi.wm.IdeFocusManager
@@ -382,7 +383,12 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       // somebody can start progress here, do not wrap in write action
       fireProjectClosing(project)
       if (project is ProjectImpl) {
-        cancelAndJoinBlocking(project)
+        if (Registry.`is`("ide.await.project.scope.completion")) {
+          cancelAndJoinBlocking(project)
+        }
+        else {
+          cancelAndTryJoin(project)
+        }
       }
     }
 
@@ -868,7 +874,8 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
                                      projectInitObserver: ProjectInitObserver?): Project {
     var conversionResult: ConversionResult? = null
     if (options.runConversionBeforeOpen) {
-      val conversionService = ConversionService.getInstance()
+      val conversionService = (ApplicationManager.getApplication() as ComponentManagerEx)
+        .getServiceAsyncIfDefined(ConversionService::class.java)
       if (conversionService != null) {
         conversionResult = span("project conversion") {
           conversionService.convert(projectStoreBaseDir)
@@ -1253,7 +1260,11 @@ internal suspend inline fun projectInitListeners(crossinline executor: suspend (
     .getExtensionPoint<ProjectServiceContainerInitializedListener>("com.intellij.projectServiceContainerInitializedListener")
   for (adapter in ep.sortedAdapters) {
     val pluginDescriptor = adapter.pluginDescriptor
-    if (!isCorePlugin(pluginDescriptor)) {
+    if (!isCorePlugin(pluginDescriptor) &&
+        !(pluginDescriptor.pluginId.idString == "com.jetbrains.codeWithMe"
+          && adapter.assignableToClassName == "com.jetbrains.rdserver.unattendedHost.UnattendedHostManager\$ProjectAttachActivity")
+        && !(pluginDescriptor.pluginId.idString == "intellij.rider.plugins.cwm"
+          && adapter.assignableToClassName == "com.jetbrains.rdserver.unattendedHost.UnattendedHostManager\$ProjectAttachActivity")) {
       LOG.error(PluginException("Plugin $pluginDescriptor is not approved to add ${ep.name}", pluginDescriptor.pluginId))
       continue
     }

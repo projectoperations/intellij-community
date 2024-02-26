@@ -2,7 +2,6 @@
 package com.intellij.codeInsight.template.postfix.templates;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInsight.generation.surroundWith.JavaExpressionSurrounder;
 import com.intellij.codeInsight.template.postfix.util.JavaPostfixTemplatesUtils;
 import com.intellij.java.JavaBundle;
@@ -14,10 +13,11 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.pom.java.LanguageLevel;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -38,15 +38,14 @@ public class SwitchStatementPostfixTemplate extends SurroundPostfixTemplateBase 
       if (type == null) return false;
       if (PsiTypes.intType().isAssignableFrom(type)) return true;
       if (type instanceof PsiClassType classType) {
-        if (HighlightingFeature.PATTERNS_IN_SWITCH.isAvailable(expression)) return true;
+        if (PsiUtil.isAvailable(JavaFeature.PATTERNS_IN_SWITCH, expression)) return true;
 
         final PsiClass psiClass = classType.resolve();
         if (psiClass != null && psiClass.isEnum()) return true;
       }
 
       if (type.equalsToText(CommonClassNames.JAVA_LANG_STRING) && expression.getContainingFile() instanceof PsiJavaFile javaFile) {
-        LanguageLevel level = javaFile.getLanguageLevel();
-        if (level.isAtLeast(LanguageLevel.JDK_1_7)) return true;
+        if (PsiUtil.isAvailable(JavaFeature.STRING_SWITCH, javaFile)) return true;
       }
 
       return false;
@@ -76,7 +75,7 @@ public class SwitchStatementPostfixTemplate extends SurroundPostfixTemplateBase 
           PsiSwitchStatement switchStatement = (PsiSwitchStatement)factory.createStatementFromText("switch(1){case 1:}", null);
           return postprocessSwitch(editor, expr, codeStyleManager, parent, switchStatement);
         }
-        else if (HighlightingFeature.ENHANCED_SWITCH.isAvailable(expr)) {
+        else if (PsiUtil.isAvailable(JavaFeature.ENHANCED_SWITCH, expr)) {
           PsiSwitchExpression switchExpression = (PsiSwitchExpression)factory.createExpressionFromText("switch(1){case 1->1;}", null);
           return postprocessSwitch(editor, expr, codeStyleManager, expr, switchExpression);
         }
@@ -122,7 +121,7 @@ public class SwitchStatementPostfixTemplate extends SurroundPostfixTemplateBase 
     return new PostfixTemplateExpressionSelectorBase(additionalFilter) {
       @Override
       protected List<PsiElement> getNonFilteredExpressions(@NotNull PsiElement context, @NotNull Document document, int offset) {
-        boolean isEnhancedSwitchAvailable = HighlightingFeature.ENHANCED_SWITCH.isAvailable(context);
+        boolean isEnhancedSwitchAvailable = PsiUtil.isAvailable(JavaFeature.ENHANCED_SWITCH, context);
         List<PsiElement> result = new ArrayList<>();
 
         for (PsiElement element = PsiTreeUtil.getNonStrictParentOfType(context, PsiExpression.class, PsiStatement.class);

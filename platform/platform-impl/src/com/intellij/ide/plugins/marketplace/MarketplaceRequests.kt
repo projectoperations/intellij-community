@@ -21,7 +21,9 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginAdvertiserService
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginAdvertiserService.Companion.marketplaceIdeCodes
 import com.intellij.openapi.util.BuildNumber
+import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.TimeoutCachedValue
+import com.intellij.util.PlatformUtils
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence
 import com.intellij.util.io.*
@@ -61,6 +63,7 @@ private val PLUGIN_NAMES_IN_COMMUNITY_EDITION: Map<String, String> = mapOf(
 
 private val objectMapper: ObjectMapper by lazy { ObjectMapper() }
 
+@OptIn(IntellijInternalApi::class, DelicateCoroutinesApi::class)
 @ApiStatus.Internal
 class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginInfoProvider {
   companion object {
@@ -231,23 +234,25 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
   }
 
   @Throws(IOException::class)
-  fun getFeatures(param: Map<String, String>): List<FeatureImpl> {
+  suspend fun getFeatures(param: Map<String, String>): List<FeatureImpl> {
     if (param.isEmpty()) {
       return emptyList()
     }
 
     try {
-      return HttpRequests
-        .request(MarketplaceUrls.getFeatureImplUrl(param))
-        .throwStatusCodeException(false)
-        .productNameAsUserAgent()
-        .setHeadersViaTuner()
-        .connect {
-          objectMapper.readValue(
-            it.inputStream,
-            object : TypeReference<List<FeatureImpl>>() {}
-          )
-        }
+      return computeDetached {
+        HttpRequests
+          .request(MarketplaceUrls.getFeatureImplUrl(param))
+          .throwStatusCodeException(false)
+          .productNameAsUserAgent()
+          .setHeadersViaTuner()
+          .connect {
+            objectMapper.readValue(
+              it.inputStream,
+              object : TypeReference<List<FeatureImpl>>() {}
+            )
+          }
+      }
     }
     catch (e: Exception) {
       LOG.infoOrDebug("Can not get features from Marketplace", e)
@@ -256,7 +261,7 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
   }
 
   @Throws(IOException::class)
-  internal fun getFeatures(
+  internal suspend fun getFeatures(
     featureType: String,
     implementationName: String,
   ): List<FeatureImpl> {
@@ -372,12 +377,20 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
     return pluginNode.name
   }
 
-  private fun getTagsForUi(pluginNode: PluginNode): MutableList<String> {
+  private fun getTagsForUi(pluginNode: PluginNode): Collection<String> {
     if (pluginNode.suggestedCommercialIde != null) {
-      // drop Paid in Community edition if it is Ultimate-only plugin
+      // drop Paid in a Community edition if it is Ultimate-only plugin
       val newTags = (pluginNode.tags ?: emptyList()).toMutableList()
-      newTags -= Tags.Paid.name
-      newTags += Tags.Ultimate.name
+
+      if (PlatformUtils.isIdeaCommunity()) {
+        newTags -= Tags.Paid.name
+        newTags += Tags.Ultimate.name
+      }
+      else if (PlatformUtils.isPyCharmCommunity()) {
+        newTags -= Tags.Paid.name
+        newTags += Tags.Pro.name
+      }
+
       return newTags
     }
 

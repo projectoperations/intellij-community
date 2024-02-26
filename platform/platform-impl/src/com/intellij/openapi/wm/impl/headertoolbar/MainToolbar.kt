@@ -16,6 +16,7 @@ import com.intellij.openapi.actionSystem.ex.ComboBoxAction.ComboBoxButton
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
+import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.keymap.impl.ui.ActionsTreeUtil
@@ -47,10 +48,7 @@ import java.awt.*
 import java.awt.event.MouseEvent
 import javax.accessibility.AccessibleContext
 import javax.accessibility.AccessibleRole
-import javax.swing.Icon
-import javax.swing.JComponent
-import javax.swing.JFrame
-import javax.swing.JPanel
+import javax.swing.*
 import kotlin.math.max
 import kotlin.math.min
 
@@ -269,7 +267,7 @@ private fun createActionBar(group: ActionGroup, customizationGroup: ActionGroup?
 
   toolbar.setMinimumButtonSize { ActionToolbar.experimentalToolbarMinimumButtonSize() }
   toolbar.targetComponent = null
-  toolbar.layoutPolicy = ActionToolbar.NOWRAP_LAYOUT_POLICY
+  toolbar.layoutStrategy = MainToolbarLayoutStrategy()
   val component = toolbar.component
   component.border = JBUI.Borders.empty()
   component.isOpaque = false
@@ -307,15 +305,6 @@ internal class MyActionToolbarImpl(group: ActionGroup, customizationGroup: Actio
     updateActionsWithoutLoadingIcon(/* includeInvisible = */ false)
   }
 
-  override fun calculateBounds(size2Fit: Dimension, bounds: MutableList<Rectangle>) {
-    super.calculateBounds(size2Fit, bounds)
-    for (i in 0 until bounds.size) {
-      val prevRect = if (i > 0) bounds[i - 1] else null
-      val rect = bounds[i]
-      fitRectangle(prevRect, rect, getComponent(i), size2Fit.height)
-    }
-  }
-
   override fun getChildPreferredSize(index: Int): Dimension {
     val pref = super.getChildPreferredSize(index)
 
@@ -324,17 +313,6 @@ internal class MyActionToolbarImpl(group: ActionGroup, customizationGroup: Actio
     return Dimension(min(pref.width, max.width), min(pref.height, max.height))
   }
 
-  private fun fitRectangle(prevRect: Rectangle?, currRect: Rectangle, cmp: Component, toolbarHeight: Int) {
-    val minSize = ActionToolbar.experimentalToolbarMinimumButtonSize()
-    if (!isSeparator(cmp) && currRect.width != 0) {
-      currRect.width = max(currRect.width, minSize.width)
-    }
-    currRect.height = max(currRect.height, minSize.height)
-    if (prevRect != null && prevRect.maxX > currRect.minX) {
-      currRect.x = prevRect.maxX.toInt()
-    }
-    currRect.y = (toolbarHeight - currRect.height) / 2
-  }
 
   override fun createCustomComponent(action: CustomComponentAction, presentation: Presentation): JComponent {
     val component = super.createCustomComponent(action, presentation)
@@ -515,4 +493,58 @@ private fun schemaChanged() {
     TouchbarSupport.reloadAllActions()
   }
   CustomActionsListener.fireSchemaChanged()
+}
+
+private class MainToolbarLayoutStrategy(): ToolbarLayoutStrategy {
+
+  private val delegate : ToolbarLayoutStrategy = ToolbarLayoutStrategy.NOWRAP_STRATEGY
+
+  override fun calculateBounds(toolbar: ActionToolbar): MutableList<Rectangle> {
+    val bounds = delegate.calculateBounds(toolbar)
+    val component = toolbar.component
+    for (i in 0 until bounds.size) {
+      val prevRect = if (i > 0) bounds[i - 1] else null
+      val rect = bounds[i]
+      fitRectangle(prevRect, rect, component.getComponent(i), component.height)
+    }
+
+    return bounds
+  }
+
+  override fun calcPreferredSize(toolbar: ActionToolbar): Dimension {
+    val res = Dimension()
+
+    val minButtonSize = ActionToolbar.experimentalToolbarMinimumButtonSize()
+    toolbar.component.components.forEach {
+      val size = it.preferredSize
+      if (!ActionToolbarImpl.isSeparator(it)) {
+        size.width = max(size.width, minButtonSize.width)
+      }
+      size.height = max(size.height, minButtonSize.height)
+
+      res.width += size.width
+      res.height = max(res.height, size.height)
+    }
+
+    JBInsets.addTo(res, toolbar.component.insets)
+    return res
+  }
+
+  override fun calcMinimumSize(toolbar: ActionToolbar): Dimension = delegate.calcMinimumSize(toolbar)
+
+  private fun fitRectangle(prevRect: Rectangle?, currRect: Rectangle, cmp: Component, toolbarHeight: Int) {
+    val minButtonSize = ActionToolbar.experimentalToolbarMinimumButtonSize()
+    if (!ActionToolbarImpl.isSeparator(cmp) && currRect.width != 0) {
+      currRect.width = max(currRect.width, minButtonSize.width)
+    }
+    currRect.height = max(currRect.height, minButtonSize.height)
+
+    if (currRect.x == Int.MAX_VALUE || currRect.y == Int.MAX_VALUE) return
+
+    if (prevRect != null && prevRect.maxX > currRect.minX) {
+      currRect.x = prevRect.maxX.toInt()
+    }
+    currRect.y = (toolbarHeight - currRect.height) / 2
+  }
+
 }

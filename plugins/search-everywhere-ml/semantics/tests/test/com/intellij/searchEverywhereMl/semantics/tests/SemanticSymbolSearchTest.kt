@@ -3,8 +3,9 @@ package com.intellij.searchEverywhereMl.semantics.tests
 import com.intellij.ide.actions.searcheverywhere.PsiItemWithSimilarity
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereUI
 import com.intellij.ide.util.gotoByName.GotoSymbolModel2
-import com.intellij.platform.ml.embeddings.services.LocalArtifactsManager
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.util.Disposer
+import com.intellij.platform.ml.embeddings.search.services.FileBasedEmbeddingStoragesManager
 import com.intellij.platform.ml.embeddings.search.services.IndexableClass
 import com.intellij.platform.ml.embeddings.search.services.SymbolEmbeddingStorage
 import com.intellij.psi.PsiClass
@@ -12,7 +13,6 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiMethod
 import com.intellij.searchEverywhereMl.semantics.contributors.SemanticSymbolSearchEverywhereContributor
 import com.intellij.platform.ml.embeddings.search.utils.ScoredText
-import com.intellij.platform.ml.embeddings.search.services.SemanticSearchFileChangeListener
 import com.intellij.searchEverywhereMl.semantics.settings.SearchEverywhereSemanticSettings
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.utils.editor.commitToPsi
@@ -21,6 +21,7 @@ import com.intellij.testFramework.utils.vfs.deleteRecursively
 import com.intellij.util.TimeoutUtil
 import kotlinx.coroutines.test.runTest
 import org.jetbrains.kotlin.psi.KtFunction
+import kotlin.time.Duration.Companion.seconds
 
 
 class SemanticSymbolSearchTest : SemanticSearchBaseTestCase() {
@@ -49,10 +50,16 @@ class SemanticSymbolSearchTest : SemanticSearchBaseTestCase() {
     assertEquals(1, storage.index.size)
   }
 
-  fun `test search everywhere contributor`() = runTest {
+  fun `test search everywhere contributor`() = runTest(
+    timeout = 45.seconds // increased timeout because of a bug in symbol index
+  ) {
     setupTest("java/ProjectIndexingTask.java", "kotlin/ScoresFileManager.kt")
-    val searchEverywhereUI = SearchEverywhereUI(project, listOf(SemanticSymbolSearchEverywhereContributor(createEvent())),
-                                                { _ -> null }, null)
+
+    val contributor = SemanticSymbolSearchEverywhereContributor(createEvent())
+    Disposer.register(project, contributor)
+    val searchEverywhereUI = SearchEverywhereUI(project, listOf(contributor), { _ -> null }, null)
+    Disposer.register(project, searchEverywhereUI)
+
     val elements = PlatformTestUtil.waitForFuture(searchEverywhereUI.findElementsForPattern("begin indexing"))
     assertEquals(2, elements.size)
 
@@ -104,7 +111,7 @@ class SemanticSymbolSearchTest : SemanticSearchBaseTestCase() {
     assertEquals(setOf("handleScoresFile", "clearFileWithScores"), neighbours)
 
     WriteCommandAction.runWriteCommandAction(project) {
-      myFixture.editor.virtualFile.deleteRecursively() // deletes the currently open file: java/IndexProjectAction.java
+      myFixture.editor.virtualFile.deleteRecursively() // deletes the currently open file: java/ProjectIndexingTask.java
     }
 
     TimeoutUtil.sleep(2000) // wait for two seconds for index update
@@ -125,11 +132,9 @@ class SemanticSymbolSearchTest : SemanticSearchBaseTestCase() {
   }
 
   private suspend fun setupTest(vararg filePaths: String) {
-    SemanticSearchFileChangeListener.getInstance(project).clearEvents()
     myFixture.configureByFiles(*filePaths)
-    LocalArtifactsManager.getInstance().downloadArtifactsIfNecessary()
     SearchEverywhereSemanticSettings.getInstance().enabledInSymbolsTab = true
-    storage.generateEmbeddingsIfNecessary().join()
-    SemanticSearchFileChangeListener.getInstance(project).changeEntityTracking(storage, true)
+    storage.index.clear()
+    FileBasedEmbeddingStoragesManager.getInstance(project).prepareForSearch().join()
   }
 }

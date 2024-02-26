@@ -53,7 +53,7 @@ final class HeadlessLafManagerImpl extends LafManager {
   }
 
   @Override
-  public ListCellRenderer<LafReference> getLookAndFeelCellRenderer() {
+  public ListCellRenderer<LafReference> getLookAndFeelCellRenderer(JComponent component) {
     return null;
   }
 
@@ -99,6 +99,9 @@ final class HeadlessLafManagerImpl extends LafManager {
 
   @Override
   public void setPreferredLightLaf(@NotNull UIThemeLookAndFeelInfo value) { }
+
+  @Override
+  public void resetPreferredEditorColorScheme() { }
 
   @Override
   public void setRememberSchemeForLaf(boolean rememberSchemeForLaf) { }

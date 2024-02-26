@@ -33,6 +33,7 @@ import com.intellij.psi.codeStyle.CodeStyleSchemes
 import com.intellij.psi.codeStyle.CodeStyleSettings
 import com.intellij.testFramework.CodeStyleSettingsTracker
 import com.intellij.testFramework.IdeaTestUtil
+import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.RunAll.Companion.runAll
 import com.intellij.util.ThrowableRunnable
@@ -385,10 +386,10 @@ abstract class MavenImportingTestCase : MavenTestCase() {
     }
     else {
       initProjectsManager(false)
-      projectsManager.addManagedFilesWithProfilesAndUpdate(files, MavenExplicitProfiles.NONE, null, null)
+      projectsManager.addManagedFilesWithProfiles(files, MavenExplicitProfiles.NONE, null, null, true)
     }
 
-
+    IndexingTestUtil.suspendUntilIndexesAreReady(project)
   }
 
   protected fun importProjectWithProfiles(vararg profiles: String) {
@@ -458,9 +459,11 @@ abstract class MavenImportingTestCase : MavenTestCase() {
     assertTrue("Auto-reload is disabled for tests by default", isAutoReloadEnabled)
   }
 
-  protected fun assertHasPendingProjectForReload() {
+  protected suspend fun assertHasPendingProjectForReload() {
     assertAutoReloadIsInitialized()
-    assertTrue("Expected notification about pending projects for auto-reload", myNotificationAware!!.isNotificationVisible())
+    assertWithinTimeout(10) {
+      assertTrue("Expected notification about pending projects for auto-reload", myNotificationAware!!.isNotificationVisible())
+    }
     assertNotEmpty(myNotificationAware!!.getProjectsWithNotification())
   }
 
@@ -502,7 +505,19 @@ abstract class MavenImportingTestCase : MavenTestCase() {
   }
 
   protected suspend fun updateAllProjects() {
-    projectsManager.updateAllMavenProjects(MavenSyncSpec.full("MavenImportingTestCase"))
+    projectsManager.updateAllMavenProjects(MavenSyncSpec.incremental("MavenImportingTestCase incremental sync"))
+  }
+
+  /**
+   * Use updateAllProjects()
+   *
+   * This method runs full sync.
+   * However, in most cases, incremental sync should be sufficient.
+   * If it is not, consider improving incremental sync instead of using full sync.
+   */
+  @Obsolete
+  protected suspend fun updateAllProjectsFullSync() {
+    projectsManager.updateAllMavenProjects(MavenSyncSpec.full("MavenImportingTestCase full sync"))
   }
 
   protected suspend fun downloadArtifacts() {

@@ -12,13 +12,16 @@ import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.jetbrains.python.extensions.getSdk
+import com.intellij.util.asSafely
 import com.jetbrains.python.PythonLanguage
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.remote.PyRemoteSdkAdditionalDataBase
+import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.PythonSdkType
 import com.jetbrains.python.sdk.PythonSdkUtil
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
 import com.jetbrains.python.sdk.flavors.VirtualEnvReader
+import com.jetbrains.python.sdk.flavors.conda.CondaEnvSdkFlavor
 import com.jetbrains.python.sdk.pipenv.isPipEnv
 import com.jetbrains.python.sdk.poetry.isPoetry
 import com.jetbrains.python.statistics.InterpreterCreationMode.*
@@ -40,6 +43,7 @@ fun getPythonSpecificInfo(module: Module) =
  */
 fun getPythonSpecificInfo(sdk: Sdk): List<EventPair<*>> {
   val data = ArrayList<EventPair<*>>()
+  if (!PythonSdkUtil.isPythonSdk(sdk)) return data
   data.add(EventFields.Language.with(PythonLanguage.INSTANCE))
   data.add(PYTHON_VERSION.with(sdk.version.toPythonVersion()))
   data.add(PYTHON_IMPLEMENTATION.with(sdk.pythonImplementation))
@@ -137,7 +141,7 @@ val Sdk.interpreterType: InterpreterType
     // The order of checks is important here since e.g. a pipenv is a virtualenv
     isPipEnv -> PIPENV
     isPoetry -> POETRY
-    PythonSdkUtil.isConda(this) -> CONDAVENV
+    PythonSdkUtil.isConda(this) || this.sdkAdditionalData.asSafely<PythonSdkAdditionalData>()?.flavor is CondaEnvSdkFlavor -> CONDAVENV
     VirtualEnvReader.Instance.isPyenvSdk(getHomePath()) -> PYENV
     PythonSdkUtil.isVirtualEnv(this) -> VIRTUALENV
     else -> REGULAR

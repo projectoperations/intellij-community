@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.cce.report
 
 import com.intellij.cce.core.Lookup
@@ -10,7 +10,6 @@ import kotlinx.html.*
 import kotlinx.html.stream.createHTML
 import java.io.File
 import java.nio.file.Path
-import java.text.DecimalFormat
 
 abstract class BaseCompletionGolfFileReportGenerator(
   filterName: String,
@@ -51,11 +50,11 @@ abstract class BaseCompletionGolfFileReportGenerator(
           div {
             label("labelText") { +"With delimiter:" }
             select("delimiter-pick") {
+              delOption("cg-delimiter-none", "none")
               delOption("cg-delimiter-integral", "&int;")
               delOption("cg-delimiter-box-small", "&#10073;")
               delOption("cg-delimiter-box-big", "&#10074;")
               delOption("cg-delimiter-underscore", "_")
-              delOption("cg-delimiter-none", "none")
             }
           }
           div("trigger") {
@@ -65,6 +64,24 @@ abstract class BaseCompletionGolfFileReportGenerator(
           div("red-code") {
             label("labelText") { +"Filters check " }
             span("stats-absent") { +"skipped" }
+          }
+          div("wrong-filters") {
+            label("labelText") { +"Highlight wrong filters: " }
+            select {
+              id = "wrong-filters"
+              option {
+                value="no"
+                label = "no"
+              }
+              option {
+                value="raw"
+                label = "raw"
+              }
+              option {
+                value="analyzed"
+                label = "analyzed"
+              }
+            }
           }
           div("thresholds") {
             label("labelText") { +"Threshold grades:" }
@@ -91,7 +108,7 @@ abstract class BaseCompletionGolfFileReportGenerator(
             }
           }
         }
-        code("cg-file cg-delimiter-integral") {
+        code("cg-file cg-delimiter-none") {
           table {
             getTable(fileEvaluations, text)
           }
@@ -246,7 +263,7 @@ abstract class BaseCompletionGolfFileReportGenerator(
   ): Int {
     val text = expectedText[offset].toString()
 
-    span("code-span completion ${getKindClass(lookup, expectedText)} $delimiter") {
+    span("code-span completion ${getKindClass(lookup, expectedText)} ${getBackgroundClass(lookup, expectedText)} $delimiter") {
       attributes["data-cl"] = "$columnId"
       attributes["data-id"] = uuid
       attributes["data-offset"] = offsetInFile.toString()
@@ -281,6 +298,8 @@ abstract class BaseCompletionGolfFileReportGenerator(
 
   protected abstract fun getKindClass(lookup: Lookup, expectedText: String): String
 
+  protected abstract fun getBackgroundClass(lookup: Lookup, expectedText: String): String
+
   protected abstract fun getThresholds(): List<BaseThreshold>
 
   protected abstract fun getThresholdClass(value: Double?): String
@@ -292,8 +311,6 @@ abstract class BaseCompletionGolfFileReportGenerator(
     operator fun Double.compareTo(t: BaseThreshold) = compareTo(t.value)
     operator fun compareTo(d: Double) = value.compareTo(d)
   }
-
-  protected fun Double.format() = DecimalFormat("0.##").format(this)
 
   companion object {
     const val perfectLineSign: String = "\uD83C\uDF89" // :tada emoji:

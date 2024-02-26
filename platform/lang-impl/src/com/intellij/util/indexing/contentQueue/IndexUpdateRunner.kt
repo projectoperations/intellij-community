@@ -20,9 +20,11 @@ import com.intellij.openapi.vfs.newvfs.impl.CachedFileType
 import com.intellij.util.PathUtil
 import com.intellij.util.indexing.*
 import com.intellij.util.indexing.IndexingFlag.unlockFile
+import com.intellij.util.indexing.dependencies.FileIndexingStamp
 import com.intellij.util.indexing.dependencies.IndexingRequestToken
 import com.intellij.util.indexing.diagnostic.IndexingFileSetStatistics
 import com.intellij.util.indexing.diagnostic.ProjectDumbIndexingHistoryImpl
+import com.intellij.util.indexing.events.FileIndexingRequest
 import com.intellij.util.indexing.roots.IndexableFilesDeduplicateFilter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
@@ -53,9 +55,12 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
    */
   class IndexingInterruptedException(cause: Throwable) : Exception(cause)
 
-  class FileSet @JvmOverloads constructor(project: Project, val debugName: String, val files: Collection<VirtualFile>,
+  class FileSet @JvmOverloads constructor(project: Project, val debugName: String, internal val files: Collection<FileIndexingRequest>,
                                           val progressText: @NlsContexts.ProgressText String? = null) {
     val statistics: IndexingFileSetStatistics = IndexingFileSetStatistics(project, debugName)
+
+    fun isEmpty(): Boolean = files.isEmpty()
+    fun size(): Int = files.size
   }
 
   @Throws(IndexingInterruptedException::class)
@@ -81,7 +86,7 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
   }
 
   private fun doIndexFiles(project: Project, fileSets: List<FileSet>) {
-    if (fileSets.all { b: FileSet -> b.files.isEmpty() }) {
+    if (fileSets.all { b: FileSet -> b.isEmpty() }) {
       return
     }
 
@@ -125,22 +130,45 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
   @Throws(ProcessCanceledException::class)
   private fun indexOneFileOfJob(indexingJob: IndexingJob) {
     val startTime = System.nanoTime()
-    val contentLoadingTime: Long
-    val loadingResult: ContentLoadingResult
 
     val fileIndexingJob = indexingJob.myQueueOfFiles.poll()
     if (fileIndexingJob == null) {
       return
     }
+    indexingJob.setLocationBeingIndexed(fileIndexingJob)
 
-    val file = fileIndexingJob.file
+    val fileIndexingRequest = fileIndexingJob.fileIndexingRequest
     // snapshot at the beginning: if file changes while being processed, we can detect this on the following scanning
-    val indexingStamp = indexingRequest.getFileIndexingStamp(file)
+    val indexingStamp = indexingRequest.getFileIndexingStamp(fileIndexingRequest.file)
+
+    if (fileIndexingRequest.file.isDirectory) {
+      LOG.info("Directory was passed for indexing unexpectedly: " + fileIndexingRequest.file.path)
+    }
+
     try {
-      // Propagate ProcessCanceledException and unchecked exceptions. The latter fails the whole indexing.
-      loadingResult = loadContent(file, indexingJob.myContentLoader)
+      val (applier, contentLoadingTime, length) = if (fileIndexingJob.fileIndexingRequest.isDeleteRequest) {
+        val applierOrNullIfResurrected = getApplierForFileIndexDelete(indexingStamp, fileIndexingRequest.file, indexingJob)
+        if (applierOrNullIfResurrected == null) {
+          getApplierForFileIndexUpdate(indexingStamp, startTime, fileIndexingRequest.file, indexingJob)
+        }
+        else {
+          Triple(applierOrNullIfResurrected, 0L, 0L)
+        }
+      }
+      else {
+        getApplierForFileIndexUpdate(indexingStamp, startTime, fileIndexingRequest.file, indexingJob)
+      }
+
+      try {
+        writeIndexesForFile(indexingJob, fileIndexingJob, applier, startTime, length, contentLoadingTime)
+      }
+      catch (t: Throwable) {
+        releaseFile(fileIndexingRequest.file) // the file is "locked" in the applier constructor
+        throw t
+      }
     }
     catch (e: ProcessCanceledException) {
+      // Push back the file.
       indexingJob.myQueueOfFiles.add(fileIndexingJob)
       throw e
     }
@@ -151,26 +179,49 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
         statistics.addTooLargeForIndexingFile(e.file)
       }
       FileBasedIndexImpl.LOG.info("File: " + e.file.url + " is too large for indexing")
-      return
     }
     catch (e: FailedToLoadContentException) {
       indexingJob.oneMoreFileProcessed()
       logFailedToLoadContentException(e)
-      return
     }
-    finally {
-      contentLoadingTime = System.nanoTime() - startTime
+    catch (e: Throwable) {
+      indexingJob.oneMoreFileProcessed()
+      FileBasedIndexImpl.LOG.error("""
+  Error while indexing ${fileIndexingRequest.file.presentableUrl}
+  To reindex this file IDEA has to be restarted
+  """.trimIndent(), e)
     }
+  }
+
+  private fun incIndexingSuccessfulCountAndLogIfNeeded(){
+    myIndexingSuccessfulCount.incrementAndGet()
+    if (LOG.isTraceEnabled && myIndexingSuccessfulCount.toLong() % 10000 == 0L) {
+      LOG.trace("File indexing attempts = ${myIndexingAttemptCount.get()}, indexed file count = ${myIndexingSuccessfulCount.get()}")
+    }
+  }
+
+  private fun getApplierForFileIndexDelete(indexingStamp: FileIndexingStamp,
+                                           file: VirtualFile, indexingJob: IndexingJob): FileIndexesValuesApplier? {
+    val applier = ReadAction
+      .nonBlocking<FileIndexesValuesApplier?> {
+        myFileBasedIndex.getApplierToRemoveDataFromIndexesForFile(file, indexingStamp)
+      }
+      .expireWith(indexingJob.myProject)
+      .executeSynchronously()
+    incIndexingSuccessfulCountAndLogIfNeeded()
+    return applier
+  }
+
+  private fun getApplierForFileIndexUpdate(indexingStamp: FileIndexingStamp, startTime: Long,
+                                           file: VirtualFile, indexingJob: IndexingJob): Triple<FileIndexesValuesApplier, Long, Long> {
+    // Propagate ProcessCanceledException and unchecked exceptions. The latter fails the whole indexing.
+    val loadingResult: ContentLoadingResult = loadContent(file, indexingJob.myContentLoader)
+    val contentLoadingTime: Long = System.nanoTime() - startTime
 
     val fileContent = loadingResult.cachedFileContent
     val length = loadingResult.fileLength
 
-    if (file.isDirectory) {
-      LOG.info("Directory was passed for indexing unexpectedly: " + file.path)
-    }
-
     try {
-      indexingJob.setLocationBeingIndexed(fileIndexingJob)
       val fileTypeChangeChecker = CachedFileType.getFileTypeChangeChecker()
       val type = FileTypeRegistry.getInstance().getFileTypeByFile(file, fileContent.bytes)
       val applier = ReadAction
@@ -181,27 +232,11 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
         }
         .expireWith(indexingJob.myProject)
         .executeSynchronously()
-      myIndexingSuccessfulCount.incrementAndGet()
-      if (LOG.isTraceEnabled && myIndexingSuccessfulCount.toLong() % 10000 == 0L) {
-        LOG.trace(
-          "File indexing attempts = " + myIndexingAttemptCount.toLong() + ", indexed file count = " + myIndexingSuccessfulCount.toLong())
-      }
-
-      writeIndexesForFile(indexingJob, fileIndexingJob, applier, startTime, length, contentLoadingTime)
+      incIndexingSuccessfulCountAndLogIfNeeded()
+      return Triple(applier, contentLoadingTime, length)
     }
-    catch (e: ProcessCanceledException) {
-      // Push back the file.
-      indexingJob.myQueueOfFiles.add(fileIndexingJob)
-      releaseFile(file, length)
-      throw e
-    }
-    catch (e: Throwable) {
-      indexingJob.oneMoreFileProcessed()
-      releaseFile(file, length)
-      FileBasedIndexImpl.LOG.error("""
-  Error while indexing ${file.presentableUrl}
-  To reindex this file IDEA has to be restarted
-  """.trimIndent(), e)
+    finally {
+      signalThatFileIsUnloaded(length)
     }
   }
 
@@ -240,7 +275,7 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
   private data class ContentLoadingResult(val cachedFileContent: CachedFileContent, val fileLength: Long)
 
   @JvmRecord
-  private data class FileIndexingJob(val file: VirtualFile, val fileSet: FileSet)
+  private data class FileIndexingJob(val fileIndexingRequest: FileIndexingRequest, val fileSet: FileSet)
 
   private class IndexingJob(val myProject: Project,
                             val progressReporter: IndexingProgressReporter2,
@@ -249,7 +284,7 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
     val myQueueOfFiles: ArrayBlockingQueue<FileIndexingJob> // the size for Community sources is about 615K entries
 
     init {
-      val maxFilesCount = fileSets.sumOf { fileSet: FileSet -> fileSet.files.size }
+      val maxFilesCount = fileSets.sumOf { fileSet: FileSet -> fileSet.size() }
       myQueueOfFiles = ArrayBlockingQueue(maxFilesCount)
       // UnindexedFilesIndexer may produce duplicates during merging.
       // E.g., Indexer([origin:someFiles]) + Indexer[anotherOrigin:someFiles] => Indexer([origin:someFiles, anotherOrigin:someFiles])
@@ -258,7 +293,7 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
       val deduplicateFilter = IndexableFilesDeduplicateFilter.create()
       for (fileSet in fileSets) {
         for (file in fileSet.files) {
-          if (deduplicateFilter.accept(file)) {
+          if (deduplicateFilter.accept(file.file)) {
             myQueueOfFiles.add(FileIndexingJob(file, fileSet))
           }
         }
@@ -280,7 +315,7 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
     }
 
     fun setLocationBeingIndexed(fileIndexingJob: FileIndexingJob) {
-      val presentableLocation = getPresentableLocationBeingIndexed(myProject, fileIndexingJob.file)
+      val presentableLocation = getPresentableLocationBeingIndexed(myProject, fileIndexingJob.fileIndexingRequest.file)
       progressReporter.setLocationBeingIndexed(fileIndexingJob.fileSet.progressText, presentableLocation)
     }
   }
@@ -334,13 +369,12 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
                                     startTime: Long,
                                     length: Long,
                                     contentLoadingTime: Long) {
-      signalThatFileIsUnloaded(length)
       val preparingTime = System.nanoTime() - startTime
-      applier.apply(fileIndexingJob.file, {
+      applier.apply(fileIndexingJob.fileIndexingRequest.file, {
         val statistics = indexingJob.getStatistics(fileIndexingJob)
         synchronized(statistics) {
           val applicationTime = applier.separateApplicationTimeNanos
-          statistics.addFileStatistics(fileIndexingJob.file,
+          statistics.addFileStatistics(fileIndexingJob.fileIndexingRequest.file,
                                        applier.stats,
                                        preparingTime + applicationTime,
                                        contentLoadingTime,
@@ -349,16 +383,11 @@ class IndexUpdateRunner(private val myFileBasedIndex: FileBasedIndexImpl,
           )
         }
         indexingJob.oneMoreFileProcessed()
-        doReleaseFile(fileIndexingJob.file)
+        releaseFile(fileIndexingJob.fileIndexingRequest.file)
       }, false)
     }
 
-    private fun releaseFile(file: VirtualFile, length: Long) {
-      signalThatFileIsUnloaded(length)
-      doReleaseFile(file)
-    }
-
-    private fun doReleaseFile(file: VirtualFile) {
+    private fun releaseFile(file: VirtualFile) {
       IndexingStamp.flushCache(FileBasedIndex.getFileId(file))
       unlockFile(file)
     }

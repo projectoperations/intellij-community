@@ -4,6 +4,7 @@ package com.intellij.pom.java;
 import com.intellij.core.JavaPsiBundle;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.lang.JavaVersion;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
@@ -20,10 +21,14 @@ import java.util.stream.Stream;
 /**
  * Represents a language level (i.e. features available) of a Java code.
  * The {@link org.jetbrains.jps.model.java.LanguageLevel} class is a compiler-side counterpart of this enum.
+ * <p>
+ * Unsupported language levels are marked as {@link ApiStatus.Obsolete} to draw attention. They should not be normally used,
+ * except probably in rare tests and inside {@link JavaFeature}.
  *
  * @see com.intellij.openapi.roots.LanguageLevelModuleExtension
  * @see com.intellij.openapi.roots.LanguageLevelProjectExtension
  * @see JavaSdkVersion
+ * @see JavaFeature
  */
 public enum LanguageLevel {
   JDK_1_3(JavaPsiBundle.messagePointer("jdk.1.3.language.level.description"), 3),
@@ -41,26 +46,23 @@ public enum LanguageLevel {
   JDK_15(JavaPsiBundle.messagePointer("jdk.15.language.level.description"), 15),
   JDK_16(JavaPsiBundle.messagePointer("jdk.16.language.level.description"), 16),
   JDK_17(JavaPsiBundle.messagePointer("jdk.17.language.level.description"), 17),
+  @ApiStatus.Obsolete
+  JDK_17_PREVIEW(17),
   JDK_18(JavaPsiBundle.messagePointer("jdk.18.language.level.description"), 18),
+  @ApiStatus.Obsolete
+  JDK_18_PREVIEW(18),
   JDK_19(JavaPsiBundle.messagePointer("jdk.19.language.level.description"), 19),
+  @ApiStatus.Obsolete
+  JDK_19_PREVIEW(19),
   JDK_20(JavaPsiBundle.messagePointer("jdk.20.language.level.description"), 20),
-  JDK_20_PREVIEW(JavaPsiBundle.messagePointer("jdk.20.preview.language.level.description"), 20),
+  @ApiStatus.Obsolete
+  JDK_20_PREVIEW(20),
   JDK_21(JavaPsiBundle.messagePointer("jdk.21.language.level.description"), 21),
   JDK_21_PREVIEW(JavaPsiBundle.messagePointer("jdk.21.preview.language.level.description"), 21),
   JDK_22(JavaPsiBundle.messagePointer("jdk.22.language.level.description"), 22),
   JDK_22_PREVIEW(JavaPsiBundle.messagePointer("jdk.22.preview.language.level.description"), 22),
   JDK_X(JavaPsiBundle.messagePointer("jdk.X.language.level.description"), 23),
 
-  // Unsupported
-  // Marked as obsolete to draw attention, as they should not be normally used in code or in tests,
-  // except the tests that explicitly test the obsolete levels
-
-  @ApiStatus.Obsolete
-  JDK_17_PREVIEW(17, JDK_20_PREVIEW),
-  @ApiStatus.Obsolete
-  JDK_18_PREVIEW(18, JDK_20_PREVIEW),
-  @ApiStatus.Obsolete
-  JDK_19_PREVIEW(19, JDK_20_PREVIEW),
   ;
 
   /**
@@ -71,27 +73,27 @@ public enum LanguageLevel {
   private final Supplier<@Nls String> myPresentableText;
   private final JavaVersion myVersion;
   private final boolean myPreview;
-  private final @Nullable LanguageLevel myAlias;
+  private final boolean myUnsupported;
   private static final Map<Integer, LanguageLevel> ourStandardVersions =
     Stream.of(values()).filter(ver -> !ver.isPreview())
       .collect(Collectors.toMap(ver -> ver.myVersion.feature, Function.identity()));
 
   LanguageLevel(Supplier<@Nls String> presentableTextSupplier, int major) {
-    this(presentableTextSupplier, major, null);
+    this(presentableTextSupplier, major, false);
   }
 
-  LanguageLevel(int major, @NotNull LanguageLevel alias) {
-    this(JavaPsiBundle.messagePointer("jdk.unsupported.preview.language.level.description", major), major, alias);
+  LanguageLevel(int major) {
+    this(JavaPsiBundle.messagePointer("jdk.unsupported.preview.language.level.description", major), major, true);
   }
 
-  LanguageLevel(Supplier<@Nls String> presentableTextSupplier, int major, @Nullable LanguageLevel alias) {
+  LanguageLevel(Supplier<@Nls String> presentableTextSupplier, int major, boolean unsupported) {
     myPresentableText = presentableTextSupplier;
     myVersion = JavaVersion.compose(major);
-    if (alias != null && alias.isUnsupported()) {
-      throw new IllegalArgumentException("Cannot alias to unsupported version");
-    }
-    myAlias = alias;
+    myUnsupported = unsupported;
     myPreview = name().endsWith("_PREVIEW") || name().endsWith("_X");
+    if (myUnsupported && !myPreview) {
+      throw new IllegalArgumentException("Only preview versions could be unsupported: " + name());
+    }
   }
 
   public boolean isPreview() {
@@ -101,19 +103,9 @@ public enum LanguageLevel {
   /**
    * @return true if this language level is not supported anymore. It's still possible to invoke compiler or launch the program
    * using this language level. However, it's not guaranteed that the code insight features will work correctly.
-   * All the code insight features will use the {@linkplain #getSupportedLevel() alias level} instead
    */
   public boolean isUnsupported() {
-    return myAlias != null;
-  }
-
-  /**
-   * @return the closest supported language level for the unsupported level;
-   * returns this for supported level
-   */
-  @ApiStatus.Experimental
-  public @NotNull LanguageLevel getSupportedLevel() {
-    return myAlias == null ? this : myAlias;
+    return myUnsupported;
   }
 
   /**
@@ -143,17 +135,47 @@ public enum LanguageLevel {
     return myPresentableText.get();
   }
 
+  /**
+   * @param level level to compare to
+   * @return true, if this language level is at least the same or newer than the level we are comparing to.
+   * A preview level for Java version X is assumed to be between non-preview version X and non-preview version X+1
+   */
   public boolean isAtLeast(@NotNull LanguageLevel level) {
     return compareTo(level) >= 0;
   }
 
+  /**
+   * @param level level to compare to
+   * @return true if this language level is strictly less than the level we are comparing to.
+   * A preview level for Java version X is assumed to be between non-preview version X and non-preview version X+1
+   */
   public boolean isLessThan(@NotNull LanguageLevel level) {
     return compareTo(level) < 0;
   }
 
+  /**
+   * @return the {@link JavaVersion} object that corresponds to this language level 
+   */
   @NotNull
   public JavaVersion toJavaVersion() {
     return myVersion;
+  }
+
+  /**
+   * @return the language level feature number (like 8 for {@link #JDK_1_8}).
+   */
+  public int feature() {
+    return myVersion.feature;
+  }
+
+  /**
+   * @return short representation of the corresponding language level, like '8', or '21-preview'
+   */
+  public @NlsSafe String getShortText() {
+    if (this == JDK_X) {
+      return "X";
+    }
+    return feature() + (isPreview() ? "-preview" : "");
   }
 
   /** See {@link JavaVersion#parse(String)} for supported formats. */

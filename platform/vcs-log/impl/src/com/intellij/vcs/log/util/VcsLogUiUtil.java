@@ -7,12 +7,10 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.intellij.ide.IdeTooltip;
 import com.intellij.ide.IdeTooltipManager;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.changes.EditorTabDiffPreviewManager;
 import com.intellij.ui.*;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.ui.navigation.History;
@@ -25,6 +23,7 @@ import com.intellij.vcs.log.VcsLogBundle;
 import com.intellij.vcs.log.data.VcsLogData;
 import com.intellij.vcs.log.data.VcsLogProgress;
 import com.intellij.vcs.log.impl.VcsLogNavigationUtil;
+import com.intellij.vcs.log.statistics.VcsLogUsageTriggerCollector;
 import com.intellij.vcs.log.ui.AbstractVcsLogUi;
 import com.intellij.vcs.log.ui.VcsLogUiEx;
 import com.intellij.vcs.log.ui.filter.VcsLogFilterUiEx;
@@ -47,12 +46,12 @@ public final class VcsLogUiUtil {
                                                     @NotNull String logId,
                                                     @NotNull Disposable disposableParent) {
     ProgressStripe progressStripe = new ProgressStripe(component, disposableParent) {
-        @Override
-        public void updateUI() {
-          super.updateUI();
-          if (myDecorator != null && logData.getProgress().isRunning()) startLoadingImmediately();
-        }
-      };
+      @Override
+      public void updateUI() {
+        super.updateUI();
+        if (myDecorator != null && logData.getProgress().isRunning()) startLoadingImmediately();
+      }
+    };
     logData.getProgress().addProgressIndicatorListener(new VcsLogProgress.ProgressListener() {
       @Override
       public void progressStarted(@NotNull Collection<? extends VcsLogProgress.ProgressKey> keys) {
@@ -95,6 +94,14 @@ public final class VcsLogUiUtil {
     return scrollPane;
   }
 
+  @NotNull
+  public static JComponent installScrollingAndProgress(@NotNull VcsLogGraphTable table, @NotNull Disposable disposableParent) {
+    JScrollPane scrollPane = setupScrolledGraph(table, SideBorder.NONE);
+    JComponent tableWithProgress = installProgress(scrollPane, table.getLogData(), table.getId(), disposableParent);
+    ScrollableContentBorder.setup(scrollPane, Side.TOP, tableWithProgress);
+    return tableWithProgress;
+  }
+
   public static void showTooltip(@NotNull JComponent component,
                                  @NotNull Point point,
                                  @NotNull Balloon.Position position,
@@ -115,7 +122,10 @@ public final class VcsLogUiUtil {
     return history;
   }
 
-  public static @NotNull @Nls String shortenTextToFit(@NotNull @Nls String text, @NotNull FontMetrics fontMetrics, int availableWidth, int maxLength,
+  public static @NotNull @Nls String shortenTextToFit(@NotNull @Nls String text,
+                                                      @NotNull FontMetrics fontMetrics,
+                                                      int availableWidth,
+                                                      int maxLength,
                                                       @NotNull @Nls String symbol) {
     if (fontMetrics.stringWidth(text) <= availableWidth) return text;
 
@@ -140,10 +150,6 @@ public final class VcsLogUiUtil {
 
   public static void appendResetFiltersActionToEmptyText(@NotNull VcsLogFilterUiEx filterUi, @Nls @NotNull StatusText emptyText) {
     appendActionToEmptyText(emptyText, VcsLogBundle.message("vcs.log.reset.filters.status.action"), filterUi::clearFilters);
-  }
-
-  public static boolean isDiffPreviewInEditor(@NotNull Project project) {
-    return EditorTabDiffPreviewManager.getInstance(project).isEditorDiffPreviewAvailable();
   }
 
   public static @NotNull Dimension expandToFitToolbar(@NotNull Dimension size, @NotNull JComponent toolbar) {
@@ -179,6 +185,8 @@ public final class VcsLogUiUtil {
 
       Object value = place.getPath(PLACE_KEY);
       if (!(value instanceof Integer commitIndex)) return ActionCallback.REJECTED;
+
+      VcsLogUsageTriggerCollector.triggerPlaceHistoryUsed(myUi.getLogData().getProject());
 
       ActionCallback callback = new ActionCallback();
 

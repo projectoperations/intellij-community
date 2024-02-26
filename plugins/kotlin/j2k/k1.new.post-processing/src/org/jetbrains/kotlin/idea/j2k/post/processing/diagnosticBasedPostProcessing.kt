@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.j2k.post.processing
 
@@ -13,6 +13,7 @@ import org.jetbrains.kotlin.idea.codeinsight.api.classic.quickfixes.QuickFixFact
 import org.jetbrains.kotlin.idea.quickfix.ChangeVisibilityFix.*
 import org.jetbrains.kotlin.idea.quickfix.asKotlinIntentionActionsFactory
 import org.jetbrains.kotlin.idea.resolve.ResolutionFacade
+import org.jetbrains.kotlin.j2k.FileBasedPostProcessing
 import org.jetbrains.kotlin.nj2k.NewJ2kConverterContext
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile

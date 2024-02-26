@@ -57,14 +57,21 @@
     <smartEnterProcessorFixer
             language="kotlin"
             implementationClass="org.jetbrains.kotlin.idea.base.codeInsight.handlers.fixers.KotlinFinallyBodyFixer"/>
-
+    <smartEnterProcessorFixer
+            language="kotlin"
+            implementationClass="org.jetbrains.kotlin.idea.codeInsight.handlers.fixers.KtLastLambdaParameterFixer"/>
     <smartEnterProcessorFixer
             language="kotlin"
             implementationClass="org.jetbrains.kotlin.idea.base.codeInsight.handlers.fixers.KotlinClassInitializerFixer"/>
 
     <smartEnterProcessorFixer
             language="kotlin"
+            implementationClass="org.jetbrains.kotlin.idea.codeInsight.handlers.fixers.KtClassBodyFixer"/>
+
+    <smartEnterProcessorFixer
+            language="kotlin"
             implementationClass="org.jetbrains.kotlin.idea.base.codeInsight.handlers.fixers.KotlinValueArgumentListFixer"/>
+
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -112,5 +119,7 @@
 
     <applicationService serviceInterface="org.jetbrains.kotlin.idea.codeInsight.KotlinReferenceImporterFacility"
                         serviceImplementation="org.jetbrains.kotlin.idea.k2.codeinsight.K2ReferenceImporterFacility"/>
+
+    <registryKey key="kotlin.k2.allow.constant.computation.on.EDT" defaultValue="true" description="When enabled, error about analysis on EDT is disabled"/>
   </extensions>
 </idea-plugin>
