@@ -1,10 +1,7 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.dataFlow.jvm.descriptors;
 
-import com.intellij.codeInspection.dataFlow.DfaNullability;
-import com.intellij.codeInspection.dataFlow.DfaPsiUtil;
-import com.intellij.codeInspection.dataFlow.TypeConstraint;
-import com.intellij.codeInspection.dataFlow.TypeConstraints;
+import com.intellij.codeInspection.dataFlow.*;
 import com.intellij.codeInspection.dataFlow.memory.DfaMemoryState;
 import com.intellij.codeInspection.dataFlow.types.DfAntiConstantType;
 import com.intellij.codeInspection.dataFlow.types.DfConstantType;
@@ -32,13 +29,16 @@ import java.util.Objects;
 public final class GetterDescriptor extends PsiVarDescriptor {
   private static final CallMatcher STABLE_METHODS = CallMatcher.anyOf(
     CallMatcher.instanceCall(CommonClassNames.JAVA_LANG_OBJECT, "getClass").parameterCount(0),
+    CallMatcher.instanceCall(CommonClassNames.JAVA_LANG_STRING, "trim", "stripLeading", "stripTrailing", "strip").parameterCount(0),
     CallMatcher.instanceCall("java.lang.reflect.Member", "getName", "getModifiers", "getDeclaringClass", "isSynthetic"),
     CallMatcher.instanceCall("java.lang.reflect.Executable", "getParameterCount", "isVarArgs"),
     CallMatcher.instanceCall("java.lang.reflect.Field", "getType"),
     CallMatcher.instanceCall("java.lang.reflect.Method", "getReturnType"),
     CallMatcher.instanceCall(CommonClassNames.JAVA_LANG_CLASS, "getName", "isInterface", "isArray", "isPrimitive", "isSynthetic",
                              "isAnonymousClass", "isLocalClass", "isMemberClass", "getDeclaringClass", "getEnclosingClass",
-                             "getSimpleName", "getCanonicalName")
+                             "getSimpleName", "getCanonicalName"),
+    CallMatcher.instanceCall(CommonClassNames.JAVA_IO_FILE, "getName", "getParent", "getPath", "getAbsolutePath", 
+                             "getParentFile", "getAbsoluteFile", "toPath")
   );
   private final @NotNull PsiMethod myGetter;
   private final boolean myStable;
@@ -89,6 +89,20 @@ public final class GetterDescriptor extends PsiVarDescriptor {
       return factory.getVarFactory().createVariableValue(this);
     }
     return super.createValue(factory, qualifier);
+  }
+
+  @Override
+  public @NotNull DfType restrictFromState(@NotNull DfaVariableValue qualifier, @NotNull DfaMemoryState state) {
+    CustomMethodHandlers.CustomMethodHandler handler = CustomMethodHandlers.find(myGetter);
+    if (handler != null) {
+      DfaValue value = handler.getMethodResultValue(
+        new DfaCallArguments(qualifier, DfaValue.EMPTY_ARRAY, MutationSignature.pure()),
+        state, qualifier.getFactory(), myGetter);
+      if (value != null) {
+        return state.getDfType(value);
+      }
+    }
+    return super.restrictFromState(qualifier, state);
   }
 
   @Override

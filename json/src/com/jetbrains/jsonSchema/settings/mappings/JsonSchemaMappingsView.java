@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.jsonSchema.settings.mappings;
 
 import com.intellij.icons.AllIcons;
@@ -20,14 +20,12 @@ import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.PopupStep;
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.openapi.util.NlsContexts.PopupContent;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.AnActionButton;
-import com.intellij.ui.AnActionButtonRunnable;
-import com.intellij.ui.DocumentAdapter;
-import com.intellij.ui.ToolbarDecorator;
+import com.intellij.ui.*;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBTextField;
@@ -118,8 +116,8 @@ public final class JsonSchemaMappingsView implements Disposable {
         }
       }).showInCenterOf(urlButton);
     });
-    SwingHelper.installFileCompletionAndBrowseDialog(myProject, mySchemaField, JsonBundle.message("json.schema.add.schema.chooser.title"),
-                                                     FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor());
+    var descriptor = FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor().withTitle(JsonBundle.message("json.schema.add.schema.chooser.title"));
+    SwingHelper.installFileCompletionAndBrowseDialog(myProject, mySchemaField, descriptor);
     mySchemaField.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
       protected void textChanged(@NotNull DocumentEvent e) {
@@ -148,6 +146,9 @@ public final class JsonSchemaMappingsView implements Disposable {
     schemaSelector.setBorder(JBUI.Borders.emptyRight(10));
     JBLabel versionLabel = new JBLabel(JsonBundle.message("json.schema.version.selector.title"));
     mySchemaVersionComboBox = new ComboBox<>(new DefaultComboBoxModel<>(JsonSchemaVersion.values()));
+    mySchemaVersionComboBox.setRenderer(
+      SimpleListCellRenderer.create((presentation, value, index) -> { presentation.setText(getPresentableSchemaName(value)); })
+    );
     versionLabel.setLabelFor(mySchemaVersionComboBox);
     versionLabel.setBorder(JBUI.Borders.empty(0, 10));
     builder.addLabeledComponent(versionLabel, mySchemaVersionComboBox);
@@ -301,11 +302,11 @@ public final class JsonSchemaMappingsView implements Disposable {
         }
 
         @Override
-        public PopupStep onChosen(JsonMappingKind selectedValue, boolean finalChoice) {
+        public PopupStep<?> onChosen(JsonMappingKind selectedValue, boolean finalChoice) {
           if (finalChoice) {
             return doFinalStep(() -> doRun(selectedValue));
           }
-          return PopupStep.FINAL_CHOICE;
+          return FINAL_CHOICE;
         }
       }).show(point);
     }
@@ -350,5 +351,18 @@ public final class JsonSchemaMappingsView implements Disposable {
         myTreeUpdater.updateTree(true);
       }
     }
+  }
+
+  private static @NlsSafe String getPresentableSchemaName(@Nullable JsonSchemaVersion version) {
+    if (version == null) return "unknown";
+    var versionSuffix = switch (version) {
+      case SCHEMA_4 -> "v4";
+      case SCHEMA_6 -> "v6";
+      case SCHEMA_7 -> "v7";
+      case SCHEMA_2019_09 -> "2019.09";
+      case SCHEMA_2020_12 -> "2020.12";
+    };
+
+    return JsonBundle.message("schema.of.version", versionSuffix);
   }
 }

@@ -1,13 +1,14 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.history.integration.ui.models
 
+import com.intellij.history.core.HistoryPathFilter
 import com.intellij.history.core.LocalHistoryFacade
 import com.intellij.history.core.RevisionsCollector
 import com.intellij.history.core.processContents
 import com.intellij.history.core.revisions.CurrentRevision
 import com.intellij.history.core.revisions.Revision
+import com.intellij.history.core.tree.RootEntry
 import com.intellij.history.integration.IdeaGateway
-import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lvcs.impl.RevisionId
@@ -22,18 +23,14 @@ internal fun Revision.toRevisionId() = if (changeSetId == null) RevisionId.Curre
 internal fun collectRevisionData(project: Project,
                                  gateway: IdeaGateway,
                                  facade: LocalHistoryFacade,
+                                 root: RootEntry,
                                  file: VirtualFile,
                                  filter: String? = null,
                                  before: Boolean = true): RevisionData {
-  return runReadAction {
-    gateway.registerUnsavedDocuments(facade)
-
-    val root = gateway.createTransientRootEntry()
-    val path = gateway.getPathOrUrl(file)
-
-    val revisionItems = mergeLabelsWithRevisions(RevisionsCollector.collect(facade, root, path, project.getLocationHash(), filter, before))
-    RevisionData(CurrentRevision(root, path), revisionItems)
-  }
+  gateway.registerUnsavedDocuments(facade)
+  val path = gateway.getPathOrUrl(file)
+  val revisionItems = mergeLabelsWithRevisions(RevisionsCollector.collect(facade, root, path, project.getLocationHash(), HistoryPathFilter.create(filter, project), before))
+  return RevisionData(CurrentRevision(root, path), revisionItems)
 }
 
 private fun mergeLabelsWithRevisions(revisions: List<Revision>): List<RevisionItem> {

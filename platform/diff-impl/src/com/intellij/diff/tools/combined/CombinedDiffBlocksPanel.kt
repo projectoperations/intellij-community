@@ -1,11 +1,14 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff.tools.combined
 
 import com.intellij.ui.scale.JBUIScale
+import org.jetbrains.annotations.ApiStatus
 import java.awt.*
+import java.util.*
 import javax.swing.JComponent
 import javax.swing.JPanel
 
+@ApiStatus.Experimental
 data class BlockBounds(val blockId: CombinedBlockId, val minY: Int, val maxY: Int) {
   val height: Int
     get() = maxY - minY
@@ -21,102 +24,141 @@ private class RealComponent(val component: Component) : Holder() {
 }
 
 internal class CombinedDiffBlocksPanel(private val blockOrder: BlockOrder,
-                                       private val lastBlockHeightLogic: (Int) -> Int) : JPanel(null) {
+                                       private val lastBlockHeightLogic: (Pair<CombinedBlockId, Int>) -> Int) : JPanel(null) {
   private val blocksLayout = CombinedDiffBlocksLayout()
-  private val holders: MutableMap<CombinedBlockId, Holder> = mutableMapOf()
+  private val holders: MutableList<Holder?> = mutableListOf()
 
   init {
     layout = blocksLayout
 
-    blockOrder.iterateBlocks().forEach { it ->
-      setPlaceholder(it)
-    }
+    holders.addAll(Collections.nCopies(blockOrder.blocksCount, null))
   }
 
   fun setContent(blockId: CombinedBlockId, component: JComponent) {
-    val holder = holders[blockId]
-    if (holder is RealComponent) {
-      remove(holder.component)
+    val blockIndex = blockOrder.indexOf(blockId)
+
+    val newHolder = RealComponent(component)
+    val oldHolder = holders.set(blockIndex, newHolder)
+
+    if (oldHolder is RealComponent) {
+      remove(oldHolder.component)
     }
-    holders[blockId] = RealComponent(component)
     add(component)
   }
 
   fun setPlaceholder(blockId: CombinedBlockId, height: Int? = null) {
-    val holder = holders[blockId]
-    holders[blockId] = Placeholder(height ?: CombinedDiffLoadingBlock.DEFAULT_LOADING_BLOCK_HEIGHT.get())
-    holder ?: return
-    if (holder is RealComponent) {
-      remove(holder.component)
+    val blockIndex = blockOrder.indexOf(blockId)
+    setPlaceholder(blockIndex, height)
+  }
+
+  private fun setPlaceholder(blockIndex: Int, height: Int? = null) {
+    val oldHolder = if (height != null) {
+      holders.set(blockIndex, Placeholder(height))
+    }
+    else {
+      holders.set(blockIndex, null)
+    }
+
+    if (oldHolder is RealComponent) {
+      remove(oldHolder.component)
     }
   }
 
+  fun getHeightForBlock(blockId: CombinedBlockId): Int {
+    val defaultPlaceholderHeight = defaultPlaceholderBlockHeight()
+
+    val blockIndex = blockOrder.indexOf(blockId)
+    val holder = holders[blockIndex]
+    return calcHeight(blockIndex, holder, defaultPlaceholderHeight)
+  }
+
   fun getBoundsForBlock(blockId: CombinedBlockId): BlockBounds {
+    val gap = gap()
+    val defaultPlaceholderHeight = defaultPlaceholderBlockHeight()
+
+    val blockIndex = blockOrder.indexOf(blockId)
+
     var minY = 0
     var maxY = 0
-    holders[blockId] ?: throw IllegalStateException()
 
-    for ((index, id) in blockOrder.iterateBlocks().withIndex()) {
-      val holder = getHolder(id)
+    for ((index, _) in blockOrder.iterateBlocks().withIndex()) {
+      val holder = holders[index]
       minY = maxY
-      maxY = minY + calcHeight(index, holder)
+      maxY = minY + calcHeight(index, holder, defaultPlaceholderHeight)
 
-      if (id == blockId) break
-      maxY+= gap()
+      if (index == blockIndex) break
+      maxY += gap
     }
 
     return BlockBounds(blockId, minY, maxY)
   }
 
   fun getBlockBounds(): List<BlockBounds> {
+    val gap = gap()
+    val defaultPlaceholderHeight = defaultPlaceholderBlockHeight()
+
     var minY: Int
     var maxY = 0
     val bounds = mutableListOf<BlockBounds>()
     for ((index, id) in blockOrder.iterateBlocks().withIndex()) {
-      val holder = getHolder(id)
+      val holder = holders[index]
       minY = maxY
-      maxY = minY + calcHeight(index, holder)
+      maxY = minY + calcHeight(index, holder, defaultPlaceholderHeight)
 
       bounds.add(BlockBounds(id, minY, maxY))
-      maxY+= gap()
+      maxY += gap
     }
+
     return bounds
   }
 
-  private fun calcHeight(index: Int, holder: Holder): Int {
-    if (index == holders.size - 1) {
-      return lastBlockHeightLogic(holder.height)
+  private fun calcHeight(index: Int, holder: Holder?, defaultPlaceholderHeight: Int): Int {
+    val height = holder?.height ?: defaultPlaceholderHeight
+    val blockId = blockOrder.getOrNull(index)
+    if (index == holders.size - 1 && blockId != null) {
+      return lastBlockHeightLogic(blockId to height)
     }
-
-    return holder.height
+    else {
+      return height
+    }
   }
-
-  private fun getHolder(id: CombinedBlockId): Holder = holders[id]!!
 
   private inner class CombinedDiffBlocksLayout : LayoutManager2 {
     override fun preferredLayoutSize(parent: Container?): Dimension {
       parent ?: return Dimension(0, 0)
 
-      val w = parent.width
-      val h = holders.values.mapIndexed { index, holder -> calcHeight(index, holder) + gap() }.sum()
+      val gap = gap()
+      val defaultPlaceholderHeight = defaultPlaceholderBlockHeight()
 
-      return Dimension(w, h)
+      val w = parent.width
+
+      var sumH = 0
+      for ((index, _) in blockOrder.iterateBlocks().withIndex()) {
+        val holder = holders[index]
+        sumH += calcHeight(index, holder, defaultPlaceholderHeight) + gap
+      }
+
+      return Dimension(w, sumH)
     }
 
     override fun layoutContainer(parent: Container?) {
       parent ?: return
+
+      val gap = gap()
+      val defaultPlaceholderHeight = defaultPlaceholderBlockHeight()
+
       val x = left()
       var y = 0
       val w = parent.width - left() - right()
 
-      blockOrder.iterateBlocks().forEachIndexed { index, it ->
-        val holder = getHolder(it)
-        val height = calcHeight(index, holder)
+      for ((index, _) in blockOrder.iterateBlocks().withIndex()) {
+        val holder = holders[index]
+        val height = calcHeight(index, holder, defaultPlaceholderHeight)
         if (holder is RealComponent) {
           holder.component.bounds = Rectangle(x, y, w, height)
         }
 
-        y += height + gap()
+        y += height + gap
       }
     }
 
@@ -134,7 +176,8 @@ internal class CombinedDiffBlocksPanel(private val blockOrder: BlockOrder,
   }
 }
 
+private fun defaultPlaceholderBlockHeight() = CombinedDiffLoadingBlock.DEFAULT_LOADING_BLOCK_HEIGHT.get()
 private fun gap(): Int = JBUIScale.scale(CombinedDiffUI.GAP_BETWEEN_BLOCKS)
 private fun left(): Int = JBUIScale.scale(CombinedDiffUI.LEFT_RIGHT_INSET)
-private fun right(): Int =JBUIScale.scale(CombinedDiffUI.LEFT_RIGHT_INSET)
+private fun right(): Int = JBUIScale.scale(CombinedDiffUI.LEFT_RIGHT_INSET)
 

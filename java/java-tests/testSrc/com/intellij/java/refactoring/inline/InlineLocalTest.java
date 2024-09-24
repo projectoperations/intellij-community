@@ -1,8 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.refactoring.inline;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.codeInsight.TargetElementUtil;
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
@@ -281,11 +282,12 @@ public class InlineLocalTest extends LightJavaCodeInsightTestCase {
   }
 
   public void testLocalVarInsideLambdaBodyWriteUsage() {
-    UiInterceptors.register(new ChooserInterceptor(
-      List.of("This reference only", "All 2 references and remove the variable"),
-      "All 2 references and remove the variable"));
     doTest("Cannot perform refactoring.\n" +
            "Variable 'hello' is accessed for writing");
+  }
+
+  public void testReassignedVariableNoOption() {
+    doTest();
   }
 
   public void testInlineVariableIntoNestedLambda() {
@@ -354,6 +356,13 @@ public class InlineLocalTest extends LightJavaCodeInsightTestCase {
   public void testCompositeAssignment() { doTest(); }
   
   public void testCompositeAssignmentCast() { doTest(); }
+  
+  public void testLambdaInitialization() { doTest(); }
+  
+  public void testSeparateInitialization() { doTest(); }
+  public void testSeparateInitialization2() { doTest(); }
+  public void testSeparateInitialization3() { doTest("Cannot perform refactoring.\nVariable aaa has no initializer"); }
+  public void testSeparateInitialization4() { doTest(); }
 
   private void doTest(String conflictMessage) {
     try {
@@ -380,6 +389,10 @@ public class InlineLocalTest extends LightJavaCodeInsightTestCase {
       JavaRefactoringSettings.getInstance().INLINE_LOCAL_THIS = initialSetting;
     }
   }
+  
+  public void testInLambda() {
+    doTest(LanguageLevel.JDK_1_8);
+  }
 
   private void doTest() {
     doTest(LanguageLevel.JDK_1_7);
@@ -388,6 +401,7 @@ public class InlineLocalTest extends LightJavaCodeInsightTestCase {
   private void doTest(LanguageLevel languageLevel) {
     String fileName = prepareTest(languageLevel);
     performInline(getProject(), getEditor());
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
     checkResultByFile(fileName + ".after");
   }
 

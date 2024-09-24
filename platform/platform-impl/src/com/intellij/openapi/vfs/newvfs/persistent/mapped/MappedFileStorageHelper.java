@@ -8,9 +8,9 @@ import com.intellij.openapi.vfs.newvfs.persistent.FSRecordsImpl;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSConnection;
 import com.intellij.util.io.CleanableStorage;
 import com.intellij.util.io.Unmappable;
-import com.intellij.util.io.dev.mmapped.MMappedFileStorage;
-import com.intellij.util.io.dev.mmapped.MMappedFileStorage.Page;
-import com.intellij.util.io.dev.mmapped.MMappedFileStorageFactory;
+import com.intellij.platform.util.io.storages.mmapped.MMappedFileStorage;
+import com.intellij.platform.util.io.storages.mmapped.MMappedFileStorage.Page;
+import com.intellij.platform.util.io.storages.mmapped.MMappedFileStorageFactory;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -27,6 +27,7 @@ import java.util.function.IntSupplier;
 import java.util.function.IntUnaryOperator;
 import java.util.function.LongUnaryOperator;
 
+import static com.intellij.platform.util.io.storages.mmapped.MMappedFileStorageFactory.IfNotPageAligned.CLEAN;
 import static com.intellij.util.io.IOUtil.MiB;
 import static java.lang.invoke.MethodHandles.byteBufferViewVarHandle;
 import static java.nio.ByteOrder.nativeOrder;
@@ -72,7 +73,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
     Files.createDirectories(storageDir);
     PersistentFSConnection connection = vfs.connection();
 
-    var recordsStorage = connection.getRecords();
+    var recordsStorage = connection.records();
 
     synchronized (storagesRegistry) {
       MappedFileStorageHelper alreadyExistingHelper = storagesRegistry.get(absoluteStoragePath);
@@ -88,6 +89,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
 
       return MMappedFileStorageFactory.withDefaults()
         .pageSize(DEFAULT_PAGE_SIZE)
+        .ifFileIsNotPageAligned(CLEAN)
         .wrapStorageSafely(
           absoluteStoragePath,
           mappedFileStorage -> {
@@ -115,7 +117,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
                                                             int bytesPerRow,
                                                             boolean checkFileIdsBelowMax) throws IOException {
     PersistentFSConnection connection = vfs.connection();
-    Path fastAttributesDir = connection.getPersistentFSPaths().storagesSubDir("extended-attributes");
+    Path fastAttributesDir = connection.paths().storagesSubDir("extended-attributes");
     Path storagePath = fastAttributesDir.resolve(storageName).toAbsolutePath();
     return openHelper(vfs, storagePath, bytesPerRow, checkFileIdsBelowMax);
   }
@@ -227,7 +229,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   private MappedFileStorageHelper(@NotNull MMappedFileStorage storage,
                                   int bytesPerRow,
                                   @NotNull IntSupplier maxRowsSupplier,
-                                  boolean checkFileIdsBelowMax) throws IOException {
+                                  boolean checkFileIdsBelowMax) {
     if (storage.pageSize() % bytesPerRow != 0) {
       throw new IllegalArgumentException(
         "bytesPerRow(=" + bytesPerRow + ") is not aligned with pageSize(=" + storage.pageSize() + "): rows must be page-aligned");
@@ -379,7 +381,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   //         expose clearRow() method? If users want to clear the row -- they could implement it with
   //         .writeXXXField() methods.
   private void clearRow(int fileId) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId);
+    long offsetInFile = toOffsetInFile(fileId);
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -390,7 +392,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
 
   //public byte readByteField(int fileId,
   //                          int fieldOffsetInRow) throws IOException {
-  //  int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+  //  long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
   //  int offsetInPage = storage.toOffsetInPage(offsetInFile);
   //
   //  Page page = storage.pageByOffset(offsetInFile);
@@ -402,7 +404,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   //public void writeByteField(int fileId,
   //                           int fieldOffsetInRow,
   //                           byte attributeValue) throws IOException {
-  //  int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+  //  long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
   //  int offsetInPage = storage.toOffsetInPage(offsetInFile);
   //
   //  Page page = storage.pageByOffset(offsetInFile);
@@ -414,7 +416,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
 
   public short readShortField(int fileId,
                               int fieldOffsetInRow) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+    long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -426,7 +428,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   public void writeShortField(int fileId,
                               int fieldOffsetInRow,
                               short attributeValue) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+    long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -437,7 +439,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
 
   public int readIntField(int fileId,
                           int fieldOffsetInRow) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+    long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -449,7 +451,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   public void writeIntField(int fileId,
                             int fieldOffsetInRow,
                             int attributeValue) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+    long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -461,7 +463,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   public int updateIntField(int fileId,
                             int fieldOffsetInRow,
                             @NotNull IntUnaryOperator updateOperator) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+    long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -478,7 +480,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
 
   public long readLongField(int fileId,
                             int fieldOffsetInRow) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+    long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -490,7 +492,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   public void writeLongField(int fileId,
                              int fieldOffsetInRow,
                              long attributeValue) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+    long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -502,7 +504,7 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   public long updateLongField(int fileId,
                               int fieldOffsetInRow,
                               @NotNull LongUnaryOperator updateOperator) throws IOException {
-    int offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
+    long offsetInFile = toOffsetInFile(fileId) + fieldOffsetInRow;
     int offsetInPage = storage.toOffsetInPage(offsetInFile);
 
     Page page = storage.pageByOffset(offsetInFile);
@@ -547,9 +549,9 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
 
   // ============== implementation: ======================================================================
 
-  private int toOffsetInFile(int fileId) {
+  private long toOffsetInFile(int fileId) {
     checkFileIdValid(fileId);
-    int offsetInFile = (fileId - FSRecords.ROOT_FILE_ID) * bytesPerRow + HeaderLayout.HEADER_SIZE;
+    long offsetInFile = (fileId - FSRecords.ROOT_FILE_ID) * (long)bytesPerRow + HeaderLayout.HEADER_SIZE;
     if (offsetInFile < 0) {
       throw new AssertionError("fileId(=" + fileId + ") x bytesPerRow(=" + bytesPerRow + ") is too big: " +
                                "offsetInFile(=" + offsetInFile + ") must be positive");
@@ -585,10 +587,9 @@ public final class MappedFileStorageHelper implements Closeable, CleanableStorag
   }
 
   private static int extractFileId(@NotNull VirtualFile vFile) {
-    if (!(vFile instanceof VirtualFileWithId)) {
+    if (!(vFile instanceof VirtualFileWithId fileWithId)) {
       throw new IllegalArgumentException(vFile + " must be VirtualFileWithId");
     }
-    VirtualFileWithId fileWithId = (VirtualFileWithId)vFile;
 
     return fileWithId.getId();
   }

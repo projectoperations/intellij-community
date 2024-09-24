@@ -1,7 +1,9 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module
 
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
@@ -16,7 +18,7 @@ import com.intellij.openapi.util.component2
 import com.intellij.platform.PlatformProjectOpenProcessor.Companion.PROJECT_LOADED_FROM_CACHE_BUT_HAS_NO_MODULES
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.WorkspaceModelTopics
-import com.intellij.platform.backend.workspace.impl.internal
+import com.intellij.platform.backend.workspace.impl.WorkspaceModelInternal
 import com.intellij.platform.diagnostic.telemetry.helpers.Milliseconds
 import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
 import com.intellij.platform.diagnostic.telemetry.impl.span
@@ -53,12 +55,16 @@ private fun setupOpenTelemetryReporting(meter: Meter) {
 }
 
 private class ModuleBridgeLoaderService : ProjectServiceContainerInitializedListener {
-  override suspend fun execute(project: Project) {
+  override suspend fun execute(project: Project, workspaceIndexReady: () -> Unit) {
     coroutineScope {
       val projectModelSynchronizer = project.serviceAsync<JpsProjectModelSynchronizer>()
       val workspaceModel = project.serviceAsync<WorkspaceModel>() as WorkspaceModelImpl
 
-      launch { project.serviceAsync<ProjectRootManager>() }
+      launch {
+        readAction {
+          ProjectRootManager.getInstance(project)
+        }
+      }
 
       val start = Milliseconds.now()
 
@@ -91,7 +97,8 @@ private class ModuleBridgeLoaderService : ProjectServiceContainerInitializedList
           projectEntities
         }
         if (projectEntities?.builder != null) {
-          WorkspaceModelTopics.getInstance(project).notifyModulesAreLoaded()
+          @Suppress("DEPRECATION")
+          project.serviceAsync<WorkspaceModelTopics>().notifyModulesAreLoaded()
         }
         projectModelSynchronizer.applyLoadedStorage(projectEntities)
         project.messageBus.syncPublisher(JpsProjectLoadedListener.LOADED).loaded()
@@ -107,6 +114,7 @@ private class ModuleBridgeLoaderService : ProjectServiceContainerInitializedList
           projectRootManager.setupTrackedLibrariesAndJdks()
         }
       }
+
       span("workspace file index initialization") {
         try {
           (project.serviceAsync<WorkspaceFileIndex>() as WorkspaceFileIndexEx).initialize()
@@ -116,11 +124,16 @@ private class ModuleBridgeLoaderService : ProjectServiceContainerInitializedList
           WorkspaceModelCacheImpl.invalidateCaches()
           throw RuntimeException(e)
         }
+        finally {
+          workspaceIndexReady()
+        }
       }
 
       moduleLoadingTimeMs.addElapsedTime(start)
     }
-    WorkspaceModelTopics.getInstance(project).notifyModulesAreLoaded()
+
+    @Suppress("DEPRECATION")
+    project.serviceAsync<WorkspaceModelTopics>().notifyModulesAreLoaded()
   }
 }
 
@@ -134,18 +147,19 @@ private suspend fun loadModules(project: Project,
       val (modulesToLoad, modulesToUnload) = moduleManager.calculateUnloadModules(targetBuilder, targetUnloadedEntitiesBuilder)
       moduleManager.updateUnloadedStorage(modulesToLoad, modulesToUnload)
     }
+
     val entities = (targetBuilder ?: moduleManager.entityStore.current).entities(ModuleEntity::class.java).toList()
-    val unloadedEntities = (targetUnloadedEntitiesBuilder ?: WorkspaceModel.getInstance(project).internal.currentSnapshotOfUnloadedEntities)
+    val unloadedEntities = (targetUnloadedEntitiesBuilder
+                            ?: (project.serviceAsync<WorkspaceModel>() as WorkspaceModelInternal).currentSnapshotOfUnloadedEntities)
       .entities(ModuleEntity::class.java)
       .toList()
     moduleManager.loadModules(loadedEntities = entities,
                               unloadedEntities = unloadedEntities,
                               targetBuilder = targetBuilder,
                               initializeFacets = loadedFromCache)
-    //childActivity?.setDescription("modules count: ${moduleManager.modules.size}")
   }
 
   span("libraries instantiation") {
-    (LibraryTablesRegistrar.getInstance().getLibraryTable(project) as ProjectLibraryTableBridgeImpl).loadLibraries(targetBuilder)
+    (serviceAsync<LibraryTablesRegistrar>().getLibraryTable(project) as ProjectLibraryTableBridgeImpl).loadLibraries(targetBuilder)
   }
 }

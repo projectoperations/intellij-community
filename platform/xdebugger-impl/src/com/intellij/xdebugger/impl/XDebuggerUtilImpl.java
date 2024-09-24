@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl;
 
 import com.intellij.CommonBundle;
@@ -51,7 +51,7 @@ import com.intellij.xdebugger.impl.breakpoints.XBreakpointManagerImpl;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointUtil;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
 import com.intellij.xdebugger.impl.breakpoints.ui.grouping.XBreakpointFileGroupingRule;
-import com.intellij.xdebugger.impl.evaluate.quick.common.ValueLookupManager;
+import com.intellij.xdebugger.impl.evaluate.ValueLookupManagerController;
 import com.intellij.xdebugger.impl.frame.XStackFrameContainerEx;
 import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl;
 import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
@@ -61,6 +61,7 @@ import com.intellij.xdebugger.impl.ui.tree.actions.XDebuggerTreeActionBase;
 import com.intellij.xdebugger.settings.XDebuggerSettings;
 import com.intellij.xdebugger.ui.DebuggerColors;
 import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.AsyncPromise;
@@ -78,6 +79,7 @@ import java.util.stream.Stream;
 import static org.jetbrains.concurrency.Promises.rejectedPromise;
 import static org.jetbrains.concurrency.Promises.resolvedPromise;
 
+@ApiStatus.Internal
 public class XDebuggerUtilImpl extends XDebuggerUtil {
   private static final Logger LOG = Logger.getInstance(XDebuggerUtilImpl.class);
   
@@ -143,7 +145,7 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
                                                                                                   final int line,
                                                                                                   final boolean temporary) {
     XSourcePositionImpl position = XSourcePositionImpl.create(file, line);
-    return toggleAndReturnLineBreakpoint(project, Collections.singletonList(type), position, temporary, null, true);
+    return toggleAndReturnLineBreakpoint(project, Collections.singletonList(type), position, false, temporary, null, true);
   }
 
   /**
@@ -278,51 +280,74 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
     return bestBreakpoint;
   }
 
+  /**
+   * @deprecated use {@link #toggleAndReturnLineBreakpoint(Project, List, XSourcePosition, boolean, boolean, Editor, boolean)}
+   */
+  @Deprecated
   @NotNull
   public static Promise<@Nullable XLineBreakpoint> toggleAndReturnLineBreakpoint(@NotNull final Project project,
-                                                                       @NotNull List<? extends XLineBreakpointType> types,
-                                                                       @NotNull final XSourcePosition position,
-                                                                       final boolean temporary,
-                                                                       @Nullable final Editor editor,
-                                                                       boolean canRemove) {
+                                                                                 @NotNull List<? extends XLineBreakpointType> types,
+                                                                                 @NotNull final XSourcePosition position,
+                                                                                 final boolean temporary,
+                                                                                 @Nullable final Editor editor,
+                                                                                 boolean canRemove) {
+    return toggleAndReturnLineBreakpoint(project, types, position, true, temporary, editor, canRemove);
+  }
+
+  @NotNull
+  public static Promise<@Nullable XLineBreakpoint> toggleAndReturnLineBreakpoint(@NotNull final Project project,
+                                                                                 @NotNull List<? extends XLineBreakpointType> types,
+                                                                                 @NotNull final XSourcePosition position,
+                                                                                 boolean selectVariantByPositionColumn,
+                                                                                 final boolean temporary,
+                                                                                 @Nullable final Editor editor,
+                                                                                 boolean canRemove) {
     final VirtualFile file = position.getFile();
     final int line = position.getLine();
-    // FIXME[inline-bp]: it seems to work as good as editor.getCaretModel().getOffset() and in case of folding even better?
-    //                   think about it a bit more
-    final int caretOffset = position.getOffset();
     final XBreakpointManager breakpointManager = XDebuggerManager.getInstance(project).getBreakpointManager();
 
     Promise<List<? extends XLineBreakpointType.XLineBreakpointVariant>> variantsAsync = getLineBreakpointVariants(project, types, position);
-    if (areInlineBreakpointsEnabled()) {
+    if (areInlineBreakpointsEnabled(file)) {
       return variantsAsync.then(variantsWithAll -> {
-        var variants = variantsWithAll.stream().filter(v -> !v.isMultiVariant()).toList();
-
-        var breakpointOrVariant = getBestMatchingBreakpoint(caretOffset,
-                                                            Stream.concat(
-                                                              types.stream().flatMap(t -> breakpointManager.findBreakpointsAtLine(t, file, line).stream()),
-                                                              variants.stream()).iterator(),
-                                                            o ->
-                                                              // FIXME[inline-bp]: introduce HasHighlightRange interface?
-                                                              o instanceof XLineBreakpoint b
-                                                              ? b.getType().getHighlightRange(b)
-                                                              : ((XLineBreakpointType.XLineBreakpointVariant)o).getHighlightRange());
-
-        if (breakpointOrVariant instanceof XLineBreakpoint existingBreakpoint) {
-          if (!temporary && canRemove) {
-            removeBreakpointWithConfirmation(project, existingBreakpoint);
-          }
+        var variants = variantsWithAll.stream().filter(v -> v.shouldUseAsInlineVariant()).toList();
+        if (variants.isEmpty()) {
+          LOG.error("Unexpected empty variants");
           return null;
         }
 
-        if (breakpointOrVariant instanceof XLineBreakpointType.XLineBreakpointVariant variant) {
-          return addLineBreakpoint(breakpointManager, variant, file, line, temporary);
+        var breakpoints = types.stream().flatMap(t -> breakpointManager.findBreakpointsAtLine(t, file, line).stream()).toList();
+
+        XLineBreakpointType.XLineBreakpointVariant variant;
+        if (selectVariantByPositionColumn) {
+          var breakpointOrVariant = getBestMatchingBreakpoint(position.getOffset(),
+                                                              Stream.concat(breakpoints.stream(), variants.stream()).iterator(),
+                                                              o ->
+                                                                o instanceof XLineBreakpoint b
+                                                                ? b.getType().getHighlightRange(b)
+                                                                : ((XLineBreakpointType.XLineBreakpointVariant)o).getHighlightRange());
+
+          if (breakpointOrVariant instanceof XLineBreakpoint existingBreakpoint) {
+            if (!temporary && canRemove) {
+              removeBreakpointWithConfirmation(project, existingBreakpoint);
+            }
+            return null;
+          }
+
+          variant = (XLineBreakpointType.XLineBreakpointVariant)breakpointOrVariant;
+        }
+        else {
+          if (!breakpoints.isEmpty()) {
+            if (!temporary && canRemove) {
+              removeBreakpointsWithConfirmation(project, breakpoints);
+            }
+            return null;
+          }
+
+          variant = variants.stream().max(Comparator.comparing(v -> v.getPriority(project))).get();
         }
 
-        assert !variants.isEmpty();
-        LOG.error("Unexpected breakpoint toggle state, any variant would be considered as the best one");
-        return null;
+        return addLineBreakpoint(breakpointManager, variant, file, line, temporary);
       });
-      // FIXME[inline-bp]: review code below, I was able to loose something non-trivial there
     }
 
     for (XLineBreakpointType type : types) {
@@ -385,7 +410,7 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
             }
           }
 
-          final int defaultIndex = getIndexOfBestMatchingInlineVariant(caretOffset, variants);
+          final int defaultIndex = getIndexOfBestMatchingInlineVariant(position.getOffset(), variants);
 
           final MySelectionListener selectionListener = new MySelectionListener();
           BaseListPopupStep<XLineBreakpointType.XLineBreakpointVariant> step =
@@ -408,7 +433,7 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
               }
 
               @Override
-              public PopupStep onChosen(final XLineBreakpointType.XLineBreakpointVariant selectedValue, boolean finalChoice) {
+              public PopupStep<?> onChosen(final XLineBreakpointType.XLineBreakpointVariant selectedValue, boolean finalChoice) {
                 selectionListener.clearHighlighter();
                 addLineBreakpoint(res, breakpointManager, selectedValue, file, line, temporary);
                 return FINAL_CHOICE;
@@ -491,6 +516,21 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
 
   public static boolean removeBreakpointWithConfirmation(final XBreakpointBase<?, ?, ?> breakpoint) {
     return removeBreakpointWithConfirmation(breakpoint.getProject(), breakpoint);
+  }
+
+  public static <B extends XBreakpoint<?>> void removeBreakpointsWithConfirmation(final Project project, final List<B> breakpoints) {
+    // FIXME[inline-bp]: support multiple breakpoints restore
+    // FIXME[inline-bp]: Reconsider this, maybe we should have single confirmation for all breakpoints.
+    for (XBreakpoint<?> b : breakpoints) {
+      removeBreakpointWithConfirmation(project, b);
+    }
+  }
+
+  public static <B extends XBreakpointBase<?, ?, ?>> void removeBreakpointsWithConfirmation(final List<B> breakpoints) {
+    if (breakpoints.isEmpty()) return;
+    var project = breakpoints.get(0).getProject();
+    LOG.assertTrue(ContainerUtil.and(breakpoints, b -> b.getProject().equals(project)));
+    removeBreakpointsWithConfirmation(project, breakpoints);
   }
 
   public static void reshowInlayRunToCursor(@NotNull AnActionEvent e) {
@@ -737,7 +777,7 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
 
   @Override
   public void disableValueLookup(@NotNull Editor editor) {
-    ValueLookupManager.DISABLE_VALUE_LOOKUP.set(editor, Boolean.TRUE);
+    ValueLookupManagerController.DISABLE_VALUE_LOOKUP.set(editor, Boolean.TRUE);
   }
 
 

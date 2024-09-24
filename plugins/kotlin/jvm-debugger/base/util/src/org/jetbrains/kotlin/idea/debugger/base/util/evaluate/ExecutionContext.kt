@@ -53,7 +53,7 @@ class DefaultExecutionContext(evaluationContext: EvaluationContextImpl) : BaseEx
 
 sealed class BaseExecutionContext(val evaluationContext: EvaluationContextImpl) {
     val vm: VirtualMachineProxyImpl
-        get() = evaluationContext.debugProcess.virtualMachineProxy
+        get() = evaluationContext.suspendContext.virtualMachineProxy
 
     val classLoader: ClassLoaderReference?
         get() = evaluationContext.classLoader
@@ -88,11 +88,6 @@ sealed class BaseExecutionContext(val evaluationContext: EvaluationContextImpl) 
     @Throws(EvaluateException::class)
     fun newInstance(type: ClassType, constructor: Method, args: List<Value?>): ObjectReference {
         return debugProcess.newInstance(evaluationContext, type, constructor, args)
-    }
-
-    @Throws(EvaluateException::class)
-    fun newInstance(arrayType: ArrayType, dimension: Int): ArrayReference {
-        return debugProcess.newInstance(arrayType, dimension)
     }
 
     @Throws(EvaluateException::class)

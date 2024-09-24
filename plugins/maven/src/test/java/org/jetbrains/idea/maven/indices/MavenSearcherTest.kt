@@ -15,15 +15,17 @@
  */
 package org.jetbrains.idea.maven.indices
 
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.writeIntentReadAction
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.indices.searcher.MavenLuceneIndexer
 import org.jetbrains.idea.maven.model.MavenRepositoryInfo
+import org.junit.Ignore
 import org.junit.Test
 import java.util.*
 
 class MavenSearcherTest : MavenIndicesTestCase() {
-  override fun runInDispatchThread() = true
-
   private val JUNIT_VERSIONS = arrayOf("junit:junit:4.0", "junit:junit:3.8.2", "junit:junit:3.8.1")
   private val JMOCK_VERSIONS = arrayOf("jmock:jmock:1.2.0", "jmock:jmock:1.1.0", "jmock:jmock:1.0.0")
   private val COMMONS_IO_VERSIONS = arrayOf("commons-io:commons-io:2.4")
@@ -33,10 +35,14 @@ class MavenSearcherTest : MavenIndicesTestCase() {
 
 
   @Throws(Exception::class)
-  override fun setUp() {
+  override fun setUp()  {
     super.setUp()
-    myIndicesFixture = MavenIndicesTestFixture(dir.toPath(), project, testRootDisposable)
-    myIndicesFixture.setUp()
+    runBlocking(Dispatchers.EDT) {
+      writeIntentReadAction {
+        myIndicesFixture = MavenIndicesTestFixture(dir.toPath(), project, testRootDisposable)
+        myIndicesFixture.setUp()
+      }
+    }
     runBlocking {
       MavenSystemIndicesManager.getInstance().waitAllGavsUpdatesCompleted()
       myRepo = MavenIndexUtils.getLocalRepository(project)!!
@@ -46,7 +52,7 @@ class MavenSearcherTest : MavenIndicesTestCase() {
   }
 
   @Throws(Exception::class)
-  override fun tearDown() {
+  override fun tearDown() = runBlocking(Dispatchers.EDT) {
     try {
       myIndicesFixture.tearDown()
     }
@@ -59,7 +65,7 @@ class MavenSearcherTest : MavenIndicesTestCase() {
   }
 
   @Test
-  fun testClassSearch() = runBlocking {
+  fun testClassSearch() = runBlocking(Dispatchers.EDT) {
     assertClassSearchResults("TestCas",
                              "TestCase(junit.framework) junit:junit:4.0 junit:junit:3.8.2 junit:junit:3.8.1",
                              "TestCaseClassLoader(junit.runner) junit:junit:3.8.2 junit:junit:3.8.1")
@@ -109,7 +115,7 @@ class MavenSearcherTest : MavenIndicesTestCase() {
   }
 
   @Test
-  fun testArtifactSearch() = runBlocking {
+  fun testArtifactSearch() = runBlocking(Dispatchers.EDT) {
     assertArtifactSearchResults("")
     assertArtifactSearchResults("j:j", *(JMOCK_VERSIONS + JUNIT_VERSIONS))
     assertArtifactSearchResults("junit", *JUNIT_VERSIONS)
@@ -125,7 +131,7 @@ class MavenSearcherTest : MavenIndicesTestCase() {
   }
 
   @Test
-  fun testArtifactSearchDash() = runBlocking {
+  fun testArtifactSearchDash() = runBlocking(Dispatchers.EDT) {
     assertArtifactSearchResults("commons", *COMMONS_IO_VERSIONS)
     assertArtifactSearchResults("commons-", *COMMONS_IO_VERSIONS)
     assertArtifactSearchResults("commons-io", *COMMONS_IO_VERSIONS)

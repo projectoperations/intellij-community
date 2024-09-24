@@ -6,7 +6,8 @@ import com.intellij.openapi.externalSystem.autolink.ExternalSystemProjectLinkLis
 import com.intellij.openapi.externalSystem.autolink.ExternalSystemUnlinkedProjectAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
-import org.jetbrains.plugins.gradle.service.project.open.linkAndRefreshGradleProject
+import org.jetbrains.plugins.gradle.service.project.open.GradleOpenProjectProvider
+import org.jetbrains.plugins.gradle.service.project.open.linkAndSyncGradleProject
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettingsListener
@@ -37,7 +38,11 @@ class GradleUnlinkedProjectAware : ExternalSystemUnlinkedProjectAware {
     }, parentDisposable)
   }
 
-  override fun linkAndLoadProject(project: Project, externalProjectPath: String) {
-    linkAndRefreshGradleProject(externalProjectPath, project)
+  override suspend fun linkAndLoadProjectAsync(project: Project, externalProjectPath: String) {
+    linkAndSyncGradleProject(project, externalProjectPath)
+  }
+
+  override suspend fun unlinkProject(project: Project, externalProjectPath: String) {
+    GradleOpenProjectProvider().unlinkProject(project, externalProjectPath)
   }
 }

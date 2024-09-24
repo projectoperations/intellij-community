@@ -1,6 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.uast.test.common.kotlin
 
+import com.intellij.lang.jvm.JvmModifier
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.uast.testFramework.env.findElementByText
@@ -10,6 +11,7 @@ import com.intellij.psi.*
 import com.intellij.psi.impl.source.PsiClassReferenceType
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.testFramework.UsefulTestCase
+import com.intellij.testFramework.assertInstanceOf
 import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture
 import com.intellij.testFramework.replaceService
 import junit.framework.TestCase
@@ -34,8 +36,9 @@ import org.jetbrains.uast.visitor.AbstractUastVisitor
 import kotlin.io.path.Path
 import kotlin.io.path.extension
 import kotlin.io.path.nameWithoutExtension
+import kotlin.test.assertEquals
 
-interface UastResolveApiFixtureTestBase : UastPluginSelection {
+interface UastResolveApiFixtureTestBase {
     fun checkResolveStringFromUast(myFixture: JavaCodeInsightTestFixture, project: Project) {
         val file = myFixture.addFileToProject(
             "s.kt", """fun foo(){
@@ -56,6 +59,42 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
             "resolved expression $resolve should be equivalent to ${variable.sourcePsi}",
             PsiManager.getInstance(project).areElementsEquivalent(resolve, variable.sourcePsi)
         )
+    }
+
+    fun checkResolveBuiltinOperator(myFixture: JavaCodeInsightTestFixture, project: Project) {
+        val file = myFixture.addFileToProject("s.kt", """
+            class Main { 
+                fun bar(arg: String.(String) -> String) { }
+            
+                fun main() { 
+                    bar(String::plus) 
+                } 
+            }
+        """.trimIndent()
+        )
+
+        val refs = file.toUElement()!!.findElementByTextFromPsi<UCallableReferenceExpression>("String::plus")
+        val resolved = refs.cast<UCallableReferenceExpression>().resolve()
+        assertInstanceOf<PsiMethod>(resolved)
+        assertEquals((resolved as PsiMethod).name, "plus")
+    }
+
+    fun checkResolveBuiltinClass(myFixture: JavaCodeInsightTestFixture, project: Project) {
+        val file = myFixture.addFileToProject("s.kt", """
+            class Main { 
+                fun bar(arg: String.(String) -> String) { }
+            
+                fun main() { 
+                    bar(String::plus) 
+                } 
+            }
+        """.trimIndent()
+        )
+
+        val refs = file.toUElement()!!.findElementByTextFromPsi<UCallableReferenceExpression>("String::plus")
+        val resolved = refs.cast<UCallableReferenceExpression>().qualifierExpression?.tryResolve()
+        assertInstanceOf<PsiClass>(resolved)
+        assertEquals((resolved as PsiClass).name, "String")
     }
 
     fun checkMultiResolve(myFixture: JavaCodeInsightTestFixture) {
@@ -397,7 +436,52 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         TestCase.assertEquals(PsiTypes.intType(), functionCall.getExpressionType())
     }
 
-    fun checkLocalResolve(myFixture: JavaCodeInsightTestFixture) {
+    fun checkLocalResolve_class(myFixture: JavaCodeInsightTestFixture) {
+        myFixture.configureByText(
+            "main.kt", """
+                fun test() {
+                  class LocalClass(i: Int)
+                  
+                  val lc = LocalClass(42)
+                  
+                  class LocalClassWithImplicitConstructor
+                  
+                  val lcwic = LocalClassWithImplicitConstructor()
+                  
+                  class LocalClassWithGeneric<T>(t: T)
+                  
+                  val lgc = LocalClassWithGeneric<String>("hi")
+                }
+            """.trimIndent()
+        )
+        myFixture.file.toUElement()!!.accept(
+            object : AbstractUastVisitor() {
+                override fun visitCallExpression(node: UCallExpression): Boolean {
+                    val resolved = node.resolve()
+                    TestCase.assertNotNull(resolved)
+                    TestCase.assertTrue(resolved!!.isConstructor)
+
+                    val resolvedViaReference = node.classReference?.resolve()
+                    TestCase.assertNotNull(resolvedViaReference)
+                    TestCase.assertTrue(resolvedViaReference is PsiClass)
+                    TestCase.assertTrue((resolvedViaReference as PsiClass).name?.startsWith("LocalClass") == true)
+
+                    // KTIJ-17870
+                    val type = node.getExpressionType()
+                    TestCase.assertTrue(type is PsiClassType)
+                    TestCase.assertTrue((type as PsiClassType).name.startsWith("LocalClass"))
+                    val resolvedFromType = type.resolve()
+                    TestCase.assertNotNull(resolvedFromType)
+                    TestCase.assertTrue(resolvedFromType is PsiClass)
+                    TestCase.assertTrue((resolvedFromType as PsiClass).name?.startsWith("LocalClass") == true)
+
+                    return super.visitCallExpression(node)
+                }
+            }
+        )
+    }
+
+    fun checkLocalResolve_function(myFixture: JavaCodeInsightTestFixture) {
         myFixture.configureByText(
             "MyClass.kt", """
             fun foo() {
@@ -413,6 +497,25 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         val resolved = uCallExpression.resolve()
             .orFail("cant resolve from $uCallExpression")
         TestCase.assertEquals("bar", resolved.name)
+    }
+
+    fun checkGetJavaClass(myFixture: JavaCodeInsightTestFixture) {
+        myFixture.configureByText(
+            "main.kt", """
+                class Test {
+                  fun test() {
+                    val x = Test::class.ja<caret>va
+                  }
+                }
+            """
+        )
+        val j = myFixture.file.findElementAt(myFixture.caretOffset).toUElement()?.getParentOfType<USimpleNameReferenceExpression>()
+            .orFail("cant convert to USimpleNameReferenceExpression")
+        val resolved = j.resolve() as? PsiMethod
+        // With @JvmName("getJavaClass") on getter
+        TestCase.assertEquals("getJavaClass", resolved?.name)
+        // Java Class, not KClass
+        TestCase.assertEquals("java.lang.Class<T>", resolved?.returnType?.canonicalText)
     }
 
     fun checkResolveLocalDefaultConstructor(myFixture: JavaCodeInsightTestFixture) {
@@ -594,6 +697,41 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         val resolved = (ref.resolve() as? PsiParameter)
             .orFail("cant resolve implicit lambda parameter")
         TestCase.assertEquals("it", resolved.name)
+    }
+
+    fun checkNullityOfResolvedLambdaParameter(myFixture: JavaCodeInsightTestFixture) {
+        myFixture.addClass(
+            """
+                class MyLiveData<T> {
+                  public void addSource(MyLiveData<S> source, Observer<? super S> onChanged) {}
+                  public void setValue(T value) {}
+                }
+            """.trimIndent()
+        )
+        myFixture.configureByText(
+            "main.kt", """
+                fun interface Observer<T> {
+                  fun onChanged(value: T)
+                }
+                
+                class Test {
+                  val myData = MyLiveData<List<Boolean>>()
+                  
+                  init {
+                    myData.addSource(getSources()) { data ->
+                      myData.value = da<caret>ta
+                    }
+                  }
+                  
+                  private fun getSources(): MyLiveData<List<Boolean>> = TODO()
+                }
+            """.trimIndent()
+        )
+        val ref = myFixture.file.findElementAt(myFixture.caretOffset).toUElement()?.getParentOfType<UReferenceExpression>()
+            .orFail("cant convert to UReferenceExpression")
+        val resolved = (ref.resolve() as? PsiParameter)
+            .orFail("cant resolve lambda parameter")
+        TestCase.assertFalse(resolved.annotations.any { it.isNullnessAnnotation })
     }
 
     fun checkResolveSyntheticMethod(myFixture: JavaCodeInsightTestFixture) {
@@ -930,6 +1068,50 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         }
     }
 
+    fun checkParameterForArgument_extensionReceiver_suspend(myFixture: JavaCodeInsightTestFixture) {
+        val mockLibraryFacility = myFixture.configureLibraryByText(
+            "test/pkg/HttpClient.kt", """
+                interface HttpClient
+
+                interface HttpRequestBuilder
+
+                interface DefaultClientWebSocketSession
+
+                public suspend fun HttpClient.webSocket(
+                    request: HttpRequestBuilder.() -> Unit,
+                    block: suspend DefaultClientWebSocketSession.() -> Unit
+                ) {}
+
+                public suspend fun HttpClient.webSocket(
+                    urlString: String,
+                    request: HttpRequestBuilder.() -> Unit = {},
+                    block: suspend DefaultClientWebSocketSession.() -> Unit
+                ) {}
+            """.trimIndent()
+        )
+        myFixture.configureByText(
+            "main.kt", """
+                import test.pkg.*
+
+                suspend fun bar(client: HttpClient) {
+                    client.web<caret>Socket("http://localhost/abc") {}
+                }
+            """.trimIndent()
+        )
+
+        try {
+            val uCallExpression = myFixture.file.findElementAt(myFixture.caretOffset).toUElement().getUCallExpression()
+                .orFail("cant convert to UCallExpression")
+            val arg = uCallExpression.getArgumentForParameter(1)
+                .orFail("cant get the first argument (except for the extension receiver)")
+            val psiParam = uCallExpression.getParameterForArgument(arg)
+            TestCase.assertNotNull(psiParam)
+            TestCase.assertEquals("urlString", psiParam!!.name)
+        } finally {
+          mockLibraryFacility.tearDown(myFixture.module)
+        }
+    }
+
     fun checkSyntheticEnumMethods(myFixture: JavaCodeInsightTestFixture) {
         myFixture.configureByText(
             "MyClass.kt", """
@@ -1055,6 +1237,47 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         TestCase.assertEquals("E", augmentedResolved.returnType?.canonicalText)
     }
 
+    fun checkPrimitiveOperator(myFixture: JavaCodeInsightTestFixture) {
+        myFixture.configureByText(
+            "main.kt", """
+                fun testString(s1: String, s2: String) {
+                    return s1 + s2
+                }
+
+                fun testLong(l1: Long, l2: Long) {
+                    return l1 + l2
+                }
+
+                fun testInt(i1: Int, i2: Int) {
+                    return i1 + i2
+                }
+
+                fun testIntRange(ir1: IntRange, ir2: IntRange) {
+                    return ir1 + ir2
+                }
+            """.trimIndent()
+        )
+        val uFile = myFixture.file.toUElement()!!
+
+        var count = 0
+        uFile.accept(
+            object : AbstractUastVisitor() {
+                override fun visitBinaryExpression(node: UBinaryExpression): Boolean {
+                    val resolved = node.resolveOperator()
+                    val receiverType = node.leftOperand.getExpressionType()
+                    if (receiverType in PsiTypes.primitiveTypes()) {
+                        TestCase.assertNull("${resolved?.containingClass?.name}#${resolved?.name}", resolved)
+                    } else {
+                        TestCase.assertEquals(node.sourcePsi?.text, "plus", resolved?.name)
+                    }
+                    count++
+                    return super.visitBinaryExpression(node)
+                }
+            }
+        )
+        TestCase.assertEquals(4, count)
+    }
+
     fun checkOperatorOverloads(myFixture: JavaCodeInsightTestFixture) {
         myFixture.configureByText(
             "main.kt", """
@@ -1077,6 +1300,8 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
                   u++
                   u + 1
                   u + v
+                  var x = Point(0, 0)
+                  x += Point(4, 2)
                 }
             """.trimIndent()
         )
@@ -1136,7 +1361,15 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         val uPlusV = uFile.findElementByTextFromPsi<UBinaryExpression>("u + v", strict = false)
             .orFail("cant convert to UBinaryExpression")
         TestCase.assertEquals("+", uPlusV.operatorIdentifier?.name)
-        val plusPoint = uPlusV.resolveOperator()
+        var plusPoint = uPlusV.resolveOperator()
+        TestCase.assertEquals("plus", plusPoint?.name)
+        TestCase.assertEquals("other", plusPoint?.parameters?.get(0)?.name)
+        TestCase.assertEquals("Point", plusPoint?.containingClass?.name)
+
+        val xPlusEq = uFile.findElementByTextFromPsi<UBinaryExpression>("x +=", strict = false)
+            .orFail("cant convert to UBinaryExpression")
+        TestCase.assertEquals("+", uPlusV.operatorIdentifier?.name)
+        plusPoint = xPlusEq.resolveOperator()
         TestCase.assertEquals("plus", plusPoint?.name)
         TestCase.assertEquals("other", plusPoint?.parameters?.get(0)?.name)
         TestCase.assertEquals("Point", plusPoint?.containingClass?.name)
@@ -1273,7 +1506,7 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         val plusEq = uFile.findElementByTextFromPsi<UBinaryExpression>("x.foo +=", strict = false)
             .orFail("cant convert to UBinaryExpression")
         val wholePlusEq = plusEq.resolveOperator()
-        TestCase.assertNull(wholePlusEq)
+        TestCase.assertNull("${wholePlusEq?.containingClass?.name}#${wholePlusEq?.name}", wholePlusEq)
         // `x.foo` from `x.foo += 42`
         val left = (plusEq.leftOperand as? UResolvable)?.resolve() as? PsiMethod
         if (isK2) {
@@ -1293,7 +1526,7 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         val plusPlus = uFile.findElementByTextFromPsi<UUnaryExpression>("x.foo++", strict = false)
             .orFail("cant convert to UUnaryExpression")
         val wholePlusPlus = plusPlus.resolveOperator()
-        TestCase.assertNull(wholePlusPlus)
+        TestCase.assertNull("${wholePlusPlus?.containingClass?.name}#${wholePlusPlus?.name}", wholePlusPlus)
         // `x.foo` from `x.foo++`
         val operand = (plusPlus.operand as? UResolvable)?.resolve() as? PsiMethod
         if (isK2) {
@@ -1311,7 +1544,7 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         )
     }
 
-    fun checkResolveSyntheticJavaPropertyAccessor(myFixture: JavaCodeInsightTestFixture) {
+    fun checkResolveSyntheticJavaPropertyAccessor_setter(myFixture: JavaCodeInsightTestFixture) {
         myFixture.addClass(
             """public class X {
         |String getFoo();
@@ -1338,6 +1571,44 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         val resolvedPsiElements = visitor.resolvedElements.values.toSet()
         TestCase.assertEquals(1, resolvedPsiElements.size)
         TestCase.assertEquals("setFoo", (resolvedPsiElements.single() as PsiMethod).name)
+    }
+
+    fun checkResolveSyntheticJavaPropertyAccessor_getter(myFixture: JavaCodeInsightTestFixture) {
+        myFixture.addClass(
+            """public class X {
+        |String getFoo();
+        |void setFoo(String s);
+        |}""".trimMargin()
+        )
+
+        myFixture.addClass(
+            """public interface I {
+        |String getFoo();
+        |}""".trimMargin()
+        )
+
+        myFixture.configureByText(
+            "main.kt", """
+                class Y : X(), I {
+                }
+                fun box(y : Y): Boolean {
+                  val yo = y.foo ?: return false
+                  return yo == "42"
+                }
+            """.trimIndent()
+        )
+
+        val visitor = PropertyAccessorVisitor { it.endsWith("foo") || it.endsWith("getFoo") }
+        myFixture.file.toUElement()!!.accept(visitor)
+        TestCase.assertEquals(2, visitor.resolvedElements.size)
+        val nodes = visitor.resolvedElements.keys
+        TestCase.assertTrue(nodes.any { it is USimpleNameReferenceExpression })
+        // Will create on-the-fly accessor call for Java synthetic property
+        TestCase.assertTrue(nodes.any { it is UCallExpression})
+        // Both simple name reference (`foo`) and its on-the-fly accessor call are resolved to the same Java synthetic property accessor.
+        val resolvedPsiElements = visitor.resolvedElements.values.toSet()
+        TestCase.assertEquals(1, resolvedPsiElements.size)
+        TestCase.assertEquals("getFoo", (resolvedPsiElements.single() as PsiMethod).name)
     }
 
     fun checkResolveKotlinPropertyAccessor(myFixture: JavaCodeInsightTestFixture) {
@@ -1989,11 +2260,13 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
             add("DEPENDENCY_TOP_LEVEL_VAL_FLAG")
         }
 
-        myFixture.file.toUElement()!!.accept(
-            PropertyFromBinaryDependencyVisitor(containingClassQueue, fieldQueue)
-        )
-
-        mockLibraryFacility.tearDown(myFixture.module)
+        try {
+            myFixture.file.toUElement()!!.accept(
+                PropertyFromBinaryDependencyVisitor(containingClassQueue, fieldQueue)
+            )
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
     }
 
     fun checkResolvePropertiesInInnerClassFromBinaryDependency(myFixture: JavaCodeInsightTestFixture) {
@@ -2052,11 +2325,13 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
             }
         }
 
-        myFixture.file.toUElement()!!.accept(
-            PropertyFromBinaryDependencyVisitor(containingClassQueue, fieldQueue)
-        )
-
-        mockLibraryFacility.tearDown(myFixture.module)
+        try {
+            myFixture.file.toUElement()!!.accept(
+                PropertyFromBinaryDependencyVisitor(containingClassQueue, fieldQueue)
+            )
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
     }
 
     private class PropertyFromBinaryDependencyVisitor(
@@ -2102,6 +2377,43 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
         }
     }
 
+    fun checkResolveConstructorCallFromLibrary(myFixture: JavaCodeInsightTestFixture) {
+        val mockLibraryFacility = myFixture.configureLibraryByText(
+            "Test.kt", """
+                package test.pkg
+
+                open class Test(
+                    val p: String
+                )
+            """.trimIndent()
+        )
+        myFixture.configureByText(
+            "main.kt", """
+                import test.pkg.Test
+                
+                object : Test("hi")
+            """.trimIndent()
+        )
+
+        try {
+            val uFile = myFixture.file.toUElementOfType<UFile>()!!
+            uFile.accept(object : AbstractUastVisitor() {
+                override fun visitCallExpression(node: UCallExpression): Boolean {
+                    val resolved = node.resolve()
+                    TestCase.assertNotNull(resolved)
+
+                    TestCase.assertTrue(resolved!!.isConstructor)
+                    val containingClass = resolved.containingClass
+                    TestCase.assertEquals("Test", containingClass?.name)
+
+                    return super.visitCallExpression(node)
+                }
+            })
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
+    }
+
     fun checkResolveTopLevelInlineReifiedFromLibrary(myFixture: JavaCodeInsightTestFixture, withJvmName: Boolean) {
         val anno = if (withJvmName) "@file:JvmName(\"Mocking\")" else ""
         val mockLibraryFacility = myFixture.configureLibraryByText(
@@ -2131,29 +2443,35 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
             """.trimIndent()
         )
 
-        val uFile = myFixture.file.toUElementOfType<UFile>()!!
-        uFile.accept(object : AbstractUastVisitor() {
-            var first: Boolean = true
+        try {
+            val uFile = myFixture.file.toUElementOfType<UFile>()!!
+            uFile.accept(object : AbstractUastVisitor() {
+                var first: Boolean = true
 
-            override fun visitCallExpression(node: UCallExpression): Boolean {
-                val resolved = node.resolve()
-                TestCase.assertNotNull(resolved)
-                TestCase.assertEquals("mock", resolved!!.name)
-                if (first) {
-                    TestCase.assertEquals("Mock", resolved.containingClass?.name)
-                    first = false
-                } else {
-                    TestCase.assertEquals(
-                        if (withJvmName) "Mocking" else "MockingKt",
-                        resolved.containingClass?.name
-                    )
+                override fun visitCallExpression(node: UCallExpression): Boolean {
+                    val resolved = node.resolve()
+                    TestCase.assertNotNull(resolved)
+                    TestCase.assertEquals("mock", resolved!!.name)
+                    if (first) {
+                        TestCase.assertEquals("Mock", resolved.containingClass?.name)
+                        TestCase.assertFalse(resolved.hasModifier(JvmModifier.STATIC))
+                        first = false
+                    } else {
+                        TestCase.assertEquals(
+                            if (withJvmName) "Mocking" else "MockingKt",
+                            resolved.containingClass?.name
+                        )
+                        TestCase.assertTrue(resolved.hasModifier(JvmModifier.STATIC))
+                    }
+                    TestCase.assertNotNull(resolved.returnType)
+                    TestCase.assertEquals("MyClass", resolved.returnType!!.canonicalText)
+
+                    return super.visitCallExpression(node)
                 }
-
-                return super.visitCallExpression(node)
-            }
-        })
-
-        mockLibraryFacility.tearDown(myFixture.module)
+            })
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
     }
 
     fun checkResolveTopLevelInlineInFacadeFromLibrary(myFixture: JavaCodeInsightTestFixture, isK2: Boolean) {
@@ -2180,23 +2498,25 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
             """.trimIndent()
         )
 
-        val uFile = myFixture.file.toUElementOfType<UFile>()!!
-        uFile.accept(object : AbstractUastVisitor() {
-            override fun visitCallExpression(node: UCallExpression): Boolean {
-                val resolved = node.resolve()
-                TestCase.assertNotNull(resolved)
+        try {
+            val uFile = myFixture.file.toUElementOfType<UFile>()!!
+            uFile.accept(object : AbstractUastVisitor() {
+                override fun visitCallExpression(node: UCallExpression): Boolean {
+                    val resolved = node.resolve()
+                    TestCase.assertNotNull(resolved)
 
-                val containingClass = resolved!!.containingClass
-                val expectedName =
-                    if (isK2) "MyStringsKt" // multi-file facade
-                    else "MyStringsKt__MyStringJVMKt" // multi-file class part
-                TestCase.assertEquals(expectedName, containingClass?.name)
+                    val containingClass = resolved!!.containingClass
+                    val expectedName =
+                        if (isK2) "MyStringsKt" // multi-file facade
+                        else "MyStringsKt__MyStringJVMKt" // multi-file class part
+                    TestCase.assertEquals(expectedName, containingClass?.name)
 
-                return super.visitCallExpression(node)
-            }
-        })
-
-        mockLibraryFacility.tearDown(myFixture.module)
+                    return super.visitCallExpression(node)
+                }
+            })
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
     }
 
     fun checkResolveInnerInlineFromLibrary(myFixture: JavaCodeInsightTestFixture) {
@@ -2232,26 +2552,223 @@ interface UastResolveApiFixtureTestBase : UastPluginSelection {
             """.trimIndent()
         )
 
-        val uFile = myFixture.file.toUElementOfType<UFile>()!!
-        uFile.accept(object : AbstractUastVisitor() {
-            var first: Boolean = true
+        try {
+            val uFile = myFixture.file.toUElementOfType<UFile>()!!
+            uFile.accept(object : AbstractUastVisitor() {
+                var first: Boolean = true
 
-            override fun visitCallExpression(node: UCallExpression): Boolean {
-                val resolved = node.resolve()
-                TestCase.assertNotNull(resolved)
-                TestCase.assertEquals("mock", resolved!!.name)
-                if (first) {
-                    TestCase.assertEquals("Companion", resolved.containingClass?.name)
-                    first = false
-                } else {
-                    TestCase.assertEquals("Named", resolved.containingClass?.name)
+                override fun visitCallExpression(node: UCallExpression): Boolean {
+                    val resolved = node.resolve()
+                    TestCase.assertNotNull(resolved)
+                    TestCase.assertEquals("mock", resolved!!.name)
+                    if (first) {
+                        TestCase.assertEquals("Companion", resolved.containingClass?.name)
+                        first = false
+                    } else {
+                        TestCase.assertEquals("Named", resolved.containingClass?.name)
+                    }
+
+                    return super.visitCallExpression(node)
+                }
+            })
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
+    }
+
+    fun checkResolveJvmNameOnFunctionFromLibrary(myFixture: JavaCodeInsightTestFixture) {
+        val mockLibraryFacility = myFixture.configureLibraryByText(
+            "test/pkg/LibObj.kt", """
+                package test.pkg
+
+                object LibObj{
+                    @JvmName("notFoo")
+                    fun foo() {}
+                }
+            """.trimIndent()
+        )
+        myFixture.configureByText(
+            "main.kt", """
+                import test.pkg.LibObj
+
+                fun test() {
+                    LibObj.f<caret>oo()
+                }
+            """.trimIndent()
+        )
+
+        try {
+            val uCallExpression = myFixture.file.findElementAt(myFixture.caretOffset).toUElement().getUCallExpression()
+                .orFail("cant convert to UCallExpression")
+            val resolved = uCallExpression.resolve()
+            TestCase.assertNotNull(resolved)
+            TestCase.assertEquals("notFoo", resolved!!.name)
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
+    }
+
+    fun checkResolveJvmNameOnGetterFromLibrary(myFixture: JavaCodeInsightTestFixture) {
+        val mockLibraryFacility = myFixture.configureLibraryByText(
+            "test/pkg/util.kt", """
+                package test.pkg
+                
+                val Int.prop: Int
+                    @JvmName("ownPropGetter")
+                    get() = this * 31
+            """.trimIndent()
+        )
+        myFixture.configureByText(
+            "main.kt", """
+                import test.pkg.*
+
+                fun test() {
+                    42.p<caret>rop
+                }
+            """.trimIndent()
+        )
+
+        try {
+            val p = myFixture.file.findElementAt(myFixture.caretOffset).toUElement()?.getParentOfType<USimpleNameReferenceExpression>()
+                .orFail("cant convert to USimpleNameReferenceExpression")
+            val resolved = p.resolve() as? PsiMethod
+            TestCase.assertNotNull(resolved)
+            TestCase.assertEquals("ownPropGetter", resolved!!.name)
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
+    }
+
+    fun checkResolveJvmNameOnSetterFromLibrary(myFixture: JavaCodeInsightTestFixture) {
+        val mockLibraryFacility = myFixture.configureLibraryByText(
+            "test/pkg/Test.kt", """
+                package test.pkg
+                
+                class Test(
+                    var x: Int
+                ) {
                 }
 
-                return super.visitCallExpression(node)
-            }
-        })
+                var Test.ext: Int
+                    get() = this.x
+                    @JvmName("ownPropSetter")
+                    set(value) {
+                        this.x = value * 31
+                    }
+            """.trimIndent()
+        )
+        myFixture.configureByText(
+            "main.kt", """
+                import test.pkg.*
 
-        mockLibraryFacility.tearDown(myFixture.module)
+                fun test(t: Test) {
+                    t.ex<caret>t = 42
+                }
+            """.trimIndent()
+        )
+
+        try {
+            val ext = myFixture.file.findElementAt(myFixture.caretOffset).toUElement()?.getParentOfType<USimpleNameReferenceExpression>()
+                .orFail("cant convert to USimpleNameReferenceExpression")
+            val resolved = ext.resolve() as? PsiMethod
+            TestCase.assertNotNull(resolved)
+            TestCase.assertEquals("ownPropSetter", resolved!!.name)
+        } finally {
+            mockLibraryFacility.tearDown(myFixture.module)
+        }
+    }
+
+    fun checkResolveProtoDSL(myFixture: JavaCodeInsightTestFixture, isK2: Boolean) {
+        // Generated by the protocol buffer compiler for the following proto
+        //
+        // message ProtoObject {
+        //   ProtoType proto_type = 1;
+        // }
+        //
+        // enum ProtoType {
+        //   option features.enum_type = CLOSED;
+        //
+        //   PROTO_TYPE_UNKNOWN = 0;
+        //   PROTO_TYPE_A = 1;
+        //   PROTO_TYPE_B = 2;
+        //   PROTO_TYPE_C = 3;
+        // }
+        val mockLibraryFacility = myFixture.configureLibraryByText(
+            "test/pkg/proto.kt", """
+                package test.pkg
+
+                @kotlin.jvm.JvmName("-initializeprotoObject")
+                public inline fun protoObject(block: ProtoObjectKt.Dsl.() -> kotlin.Unit): ProtoObject =
+                  ProtoObjectKt.Dsl._create(ProtoObject.newBuilder()).apply { block() }._build()
+
+                public object ProtoObjectKt {
+                  public class Dsl private constructor(
+                    private val _builder: ProtoObject.Builder
+                  ) {
+                    public companion object {
+                      @kotlin.jvm.JvmSynthetic
+                      @kotlin.PublishedApi
+                      internal fun _create(builder: ProtoObject.Builder): Dsl = Dsl(builder)
+                    }
+
+                    @kotlin.jvm.JvmSynthetic
+                    @kotlin.PublishedApi
+                    internal fun _build(): ProtoObject = _builder.build()
+
+                    public var protoType: ProtoType
+                      @JvmName("getProtoType")
+                      get() = _builder.protoType
+                      @JvmName("setProtoType")
+                      set(value) {
+                        _builder.protoType = value
+                      }
+                  }
+                }
+
+                // mimic Java counterpart
+                class ProtoObject {
+                  companion object {
+                    fun newBuilder(): Builder = Builder()
+                  }
+                  class Builder {
+                    fun build(): ProtoObject = ProtoObject()
+                    internal var protoType: ProtoType = ProtoType.PROTO_TYPE_UNKNOWN
+                  }
+                }
+
+                // mimic Java counterpart
+                enum class ProtoType {
+                  PROTO_TYPE_UNKNOWN, PROTO_TYPE_A, PROTO_TYPE_B;
+                }
+            """.trimIndent()
+        )
+        myFixture.configureByText(
+            "main.kt", """
+                import test.pkg.*
+                
+                fun test() {
+                  val protoObject = protoObject {
+                    protoType <caret>= ProtoType.PROTO_TYPE_A
+                  }
+                }
+            """.trimIndent()
+        )
+        try {
+            val eq = myFixture.file.findElementAt(myFixture.caretOffset).toUElement()?.getParentOfType<UBinaryExpression>()
+                .orFail("cant convert to UBinaryExpression")
+            val resolvedOp = eq.resolveOperator()
+            if (isK2) {
+                TestCase.assertNotNull(resolvedOp)
+                TestCase.assertEquals("setProtoType", resolvedOp!!.name)
+            } else {
+                TestCase.assertNull(resolvedOp)
+            }
+            val resolvedLHS = (eq.leftOperand as USimpleNameReferenceExpression).resolve() as? PsiMethod
+            TestCase.assertNotNull(resolvedLHS)
+            TestCase.assertEquals("setProtoType", resolvedLHS!!.name)
+        } finally {
+          mockLibraryFacility.tearDown(myFixture.module)
+        }
     }
 
     private fun JavaCodeInsightTestFixture.configureLibraryByText(

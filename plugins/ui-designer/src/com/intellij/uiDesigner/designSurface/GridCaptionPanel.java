@@ -36,7 +36,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
 
-public final class GridCaptionPanel extends JPanel implements ComponentSelectionListener, DataProvider {
+public final class GridCaptionPanel extends JPanel implements ComponentSelectionListener, UiDataProvider {
   private static final Logger LOG = Logger.getInstance(GridCaptionPanel.class);
 
   private final GuiEditor myEditor;
@@ -212,8 +212,7 @@ public final class GridCaptionPanel extends JPanel implements ComponentSelection
 
   private @Nullable RadContainer getSelectedGridContainer() {
     final ArrayList<RadComponent> selection = FormEditingUtil.getSelectedComponents(myEditor);
-    if (selection.size() == 1 && selection.get(0) instanceof RadContainer) {
-      RadContainer container = (RadContainer) selection.get(0);
+    if (selection.size() == 1 && selection.get(0) instanceof RadContainer container) {
       if (container.getLayoutManager().isGrid() && (container.getParent() instanceof RadRootContainer || container.getComponentCount() > 0)) {
         return container;
       }
@@ -247,17 +246,11 @@ public final class GridCaptionPanel extends JPanel implements ComponentSelection
   }
 
   @Override
-  public @Nullable Object getData(@NotNull String dataId) {
-    if (GuiEditor.DATA_KEY.is(dataId)) {
-      return myEditor;
-    }
-    if (CaptionSelection.DATA_KEY.is(dataId)) {
-      return new CaptionSelection(mySelectedContainer, myIsRow, getSelectedCells(null), mySelectionModel.getLeadSelectionIndex());
-    }
-    if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId)) {
-      return myDeleteProvider;
-    }
-    return myEditor.getData(dataId);
+  public void uiDataSnapshot(@NotNull DataSink sink) {
+    sink.set(GuiEditor.DATA_KEY, myEditor);
+    sink.set(CaptionSelection.DATA_KEY, new CaptionSelection(mySelectedContainer, myIsRow, getSelectedCells(null), mySelectionModel.getLeadSelectionIndex()));
+    sink.set(PlatformDataKeys.DELETE_ELEMENT_PROVIDER, myDeleteProvider);
+    DataSink.uiDataSnapshot(sink, myEditor);
   }
 
   public void attachToScrollPane(final JScrollPane scrollPane) {

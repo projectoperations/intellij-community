@@ -1,12 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.wsl;
 
-import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.openapi.application.Experiments;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,7 +11,7 @@ import java.util.List;
 
 public final class WSLCommandLineOptions {
 
-  private boolean myLaunchWithWslExe = !Registry.is("wsl.use.remote.agent.for.launch.processes", true);
+  private boolean myLaunchWithWslExe = !WslIjentAvailabilityService.getInstance().runWslCommandsViaIjent();
   private boolean myExecuteCommandInShell = true;
   private boolean myExecuteCommandInInteractiveShell = false;
   private boolean myExecuteCommandInLoginShell = true;
@@ -92,17 +88,6 @@ public final class WSLCommandLineOptions {
   @ApiStatus.Experimental
   public @NotNull WSLCommandLineOptions setExecuteCommandInDefaultShell(boolean executeCommandInDefaultShell) {
     myExecuteCommandInDefaultShell = executeCommandInDefaultShell;
-    return this;
-  }
-
-  /**
-   * @see WSLDistribution#patchCommandLine(GeneralCommandLine, Project, WSLCommandLineOptions)
-   * @deprecated shell path always defaults to {@linkplain WSLDistribution#getShellPath() user's default login shell}.
-   * This method does nothing and is here only for the sake of backward compatibility.
-   * Do not use this method, as it will be removed in the future releases.
-   */
-  @Deprecated(forRemoval = true)
-  public @NotNull WSLCommandLineOptions setShellPath(@Nls @NotNull String __) {
     return this;
   }
 

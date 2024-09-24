@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.codeInspection.actions;
 
@@ -16,6 +16,7 @@ import com.intellij.lang.LangBundle;
 import com.intellij.modcommand.ModCommandQuickFix;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.diagnostic.ReportingClassSubstitutor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
@@ -30,10 +31,9 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 public final class CleanupInspectionIntention implements IntentionAction, HighPriorityAction {
-  @NotNull
-  private final InspectionToolWrapper<?,?> myToolWrapper;
+  private final @NotNull InspectionToolWrapper<?,?> myToolWrapper;
   private final FileModifier myQuickfix;
-  @Nullable private final PsiFile myFile;
+  private final @Nullable PsiFile myFile;
   private final String myText;
 
   public CleanupInspectionIntention(@NotNull InspectionToolWrapper<?,?> toolWrapper,
@@ -47,19 +47,17 @@ public final class CleanupInspectionIntention implements IntentionAction, HighPr
   }
 
   @Override
-  @NotNull
-  public String getText() {
+  public @NotNull String getText() {
     return InspectionsBundle.message("fix.all.inspection.problems.in.file", myToolWrapper.getDisplayName());
   }
 
   @Override
-  @NotNull
-  public String getFamilyName() {
+  public @NotNull String getFamilyName() {
     return getText();
   }
 
   @Override
-  public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
+  public void invoke(final @NotNull Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
     String message = findAndFix(project, file);
 
     if (message != null) {
@@ -67,9 +65,7 @@ public final class CleanupInspectionIntention implements IntentionAction, HighPr
     }
   }
 
-  @NlsContexts.HintText
-  @Nullable
-  public String findAndFix(@NotNull Project project, PsiFile file) {
+  public @NlsContexts.HintText @Nullable String findAndFix(@NotNull Project project, PsiFile file) {
     assert !ApplicationManager.getApplication().isWriteAccessAllowed() : "do not run under write action";
     PsiFile targetFile = myFile == null ? file : myFile;
     List<ProblemDescriptor> descriptions;
@@ -86,7 +82,8 @@ public final class CleanupInspectionIntention implements IntentionAction, HighPr
     String message = null;
     if (!descriptions.isEmpty() && FileModificationService.getInstance().preparePsiElementForWrite(targetFile)) {
       AbstractPerformFixesTask fixesTask = CleanupInspectionUtil.getInstance()
-        .applyFixes(project, LangBundle.message("apply.fixes"), descriptions, myQuickfix.getClass(), myQuickfix.startInWriteAction());
+        .applyFixes(project, LangBundle.message("apply.fixes"), descriptions, ReportingClassSubstitutor.getClassToReport(myQuickfix), 
+                    myQuickfix.startInWriteAction());
 
       message = fixesTask.getResultMessage(myText);
     }
@@ -94,7 +91,7 @@ public final class CleanupInspectionIntention implements IntentionAction, HighPr
   }
 
   @Override
-  public boolean isAvailable(@NotNull final Project project, final Editor editor, final PsiFile file) {
+  public boolean isAvailable(final @NotNull Project project, final Editor editor, final PsiFile file) {
     return myQuickfix.getClass() != EmptyIntentionAction.class &&
            (myQuickfix.startInWriteAction() || myQuickfix instanceof BatchQuickFix || myQuickfix instanceof ModCommandQuickFix) &&
            editor != null &&

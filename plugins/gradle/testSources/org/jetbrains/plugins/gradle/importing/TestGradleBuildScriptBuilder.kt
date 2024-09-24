@@ -2,7 +2,6 @@
 package org.jetbrains.plugins.gradle.importing
 
 import com.intellij.openapi.util.Version
-import com.intellij.testFramework.UsefulTestCase
 import org.gradle.util.GradleVersion
 import org.jetbrains.plugins.gradle.frameworkSupport.buildscript.GroovyDslGradleBuildScriptBuilder
 import org.jetbrains.plugins.gradle.frameworkSupport.buildscript.isTaskConfigurationAvoidanceSupported
@@ -14,7 +13,7 @@ import kotlin.apply as applyKt
 
 @Suppress("MemberVisibilityCanBePrivate", "unused")
 open class TestGradleBuildScriptBuilder(
-  gradleVersion: GradleVersion
+  gradleVersion: GradleVersion,
 ) : GroovyDslGradleBuildScriptBuilder<TestGradleBuildScriptBuilder>(gradleVersion) {
 
   override fun apply(action: TestGradleBuildScriptBuilder.() -> Unit) = applyKt(action)
@@ -107,26 +106,6 @@ open class TestGradleBuildScriptBuilder(
     applyPlugin("org.jetbrains.gradle.plugin.idea-ext")
   }
 
-  override fun withBuildScriptMavenCentral() =
-    withBuildScriptRepository {
-      mavenCentralRepository()
-    }
-
-  override fun withMavenCentral() =
-    withRepository {
-      mavenCentralRepository()
-    }
-
-  private fun ScriptTreeBuilder.mavenCentralRepository() {
-    if (UsefulTestCase.IS_UNDER_TEAMCITY) {
-      mavenRepository("https://repo.labs.intellij.net/repo1", false)
-    }
-    else {
-      // IntelliJ internal maven repo is not available in local environment
-      call("mavenCentral")
-    }
-  }
-
   override fun generate(): String {
     if (this !is TestGradleBuildScriptChildBuilder) {
       // Needed to identify how was created test script
@@ -155,17 +134,5 @@ open class TestGradleBuildScriptBuilder(
     @JvmStatic
     fun extPluginVersionIsAtLeast(version: String) =
       Version.parseVersion(IDEA_EXT_PLUGIN_VERSION)!! >= Version.parseVersion(version)!!
-
-    fun ScriptTreeBuilder.mavenRepository(url: String, useOldStyleMetadata: Boolean) {
-      call("maven") {
-        call("url", url)
-        if (useOldStyleMetadata) {
-          call("metadataSources") {
-            call("mavenPom")
-            call("artifact")
-          }
-        }
-      }
-    }
   }
 }

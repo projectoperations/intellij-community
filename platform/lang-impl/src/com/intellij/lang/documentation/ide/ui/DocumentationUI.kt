@@ -11,6 +11,7 @@ import com.intellij.codeInsight.documentation.DocumentationManager.SELECTED_QUIC
 import com.intellij.codeInsight.documentation.DocumentationManager.decorate
 import com.intellij.codeInsight.documentation.DocumentationScrollPane
 import com.intellij.codeInsight.hint.DefinitionSwitcher
+import com.intellij.codeInsight.hint.LineTooltipRenderer
 import com.intellij.ide.DataManager
 import com.intellij.lang.documentation.DocumentationImageResolver
 import com.intellij.lang.documentation.DocumentationMarkup.CLASS_CONTENT
@@ -19,6 +20,7 @@ import com.intellij.lang.documentation.ide.actions.registerBackForwardActions
 import com.intellij.lang.documentation.ide.impl.DocumentationBrowser
 import com.intellij.lang.documentation.ide.impl.DocumentationPage
 import com.intellij.lang.documentation.ide.impl.DocumentationPageContent
+import com.intellij.lang.documentation.ide.ui.PopupUpdateEvent.ContentUpdateKind
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataProvider
 import com.intellij.openapi.application.EDT
@@ -37,11 +39,13 @@ import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.accessibility.ScreenReader
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collectLatest
 import org.jetbrains.annotations.Nls
 import java.awt.Color
 import java.awt.Rectangle
-import java.beans.PropertyChangeEvent
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JScrollPane
@@ -60,30 +64,27 @@ internal class DocumentationUI(
   private var imageResolver: DocumentationImageResolver? = null
   private val linkHandler: DocumentationLinkHandler
   private val cs = CoroutineScope(Dispatchers.EDT)
-  private val editorBackground: MutableStateFlow<Color>
-  private val myContentUpdates = MutableSharedFlow<Unit>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-  val contentUpdates: SharedFlow<Unit> = myContentUpdates.asSharedFlow()
-  private val myContentSizeUpdates = MutableSharedFlow<String>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-  val contentSizeUpdates: SharedFlow<String> = myContentSizeUpdates.asSharedFlow()
+  private val myContentUpdates = MutableSharedFlow<ContentUpdateKind>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+  val contentUpdates: SharedFlow<ContentUpdateKind> = myContentUpdates.asSharedFlow()
+  private val myContentSizeUpdates = MutableSharedFlow<PopupUpdateEvent>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+  val contentSizeUpdates: SharedFlow<PopupUpdateEvent> = myContentSizeUpdates.asSharedFlow()
   private val switcher: DefinitionSwitcher<DocumentationRequest>
+  private var contentKind: ContentKind? = null
 
   init {
     scrollPane = DocumentationScrollPane()
     editorPane = DocumentationHintEditorPane(project, DocumentationScrollPane.keyboardActions(scrollPane)) {
       imageResolver?.resolveImage(it)
     }
-    editorBackground = MutableStateFlow(editorPane.background)
-    editorPane.addPropertyChangeListener { evt: PropertyChangeEvent ->
-      if (evt.propertyName.let { it == "background" || it == "UI" }) {
-        editorBackground.value = editorPane.background
-      }
-    }
     Disposer.register(this, editorPane)
     scrollPane.addMouseWheelListener(FontSizeMouseWheelListener(fontSize))
     linkHandler = DocumentationLinkHandler.createAndRegister(editorPane, this, ::linkActivated)
     switcher = createSwitcher()
     switcherToolbarComponent = switcher.createToolbar().component.apply {
-      border = JBUI.Borders.emptyTop(5)
+      border = JBUI.Borders.empty(DocumentationHtmlUtil.spaceBeforeParagraph,
+                                  DocumentationHtmlUtil.contentOuterPadding - 4,
+                                  0,
+                                  DocumentationHtmlUtil.contentOuterPadding - 4)
     }
     val textTrimmer = SwingTextTrimmer.createCenterTrimmer(0.8f)
     locationLabel = object : JLabel() {
@@ -92,14 +93,20 @@ internal class DocumentationUI(
     }.apply {
       iconTextGap = 6
       border = JBUI.Borders.empty(
-        0, 2 + DocumentationHtmlUtil.contentOuterPadding + DocumentationHtmlUtil.contentInnerPadding,
+        DocumentationHtmlUtil.spaceBeforeParagraph,
+        LineTooltipRenderer.CONTENT_PADDING,
         2 + DocumentationHtmlUtil.contentOuterPadding, DocumentationHtmlUtil.contentOuterPadding)
       putClientProperty(SwingTextTrimmer.KEY, textTrimmer)
     }
     scrollPane.setViewportView(editorPane, locationLabel)
     trackDocumentationBackgroundChange(this) {
-      scrollPane.viewport.background = it
-      locationLabel.background = it
+      // Force update of the background color for scroll pane
+      @Suppress("UseJBColor")
+      val color = Color(it.rgb)
+      editorPane.parent.background = color
+      scrollPane.viewport.background = color
+      locationLabel.background = color
+      switcherToolbarComponent.background = color
     }
 
     browser.ui = this
@@ -128,12 +135,12 @@ internal class DocumentationUI(
     cs.launch(CoroutineName("DocumentationUI font size update"), start = CoroutineStart.UNDISPATCHED) {
       fontSize.updates.collect {
         editorPane.applyFontProps(it)
-        myContentSizeUpdates.emit("font change")
+        myContentSizeUpdates.emit(PopupUpdateEvent.FontChanged)
       }
     }
     cs.launch(CoroutineName("DocumentationUI content size update emission"), start = CoroutineStart.UNDISPATCHED) {
       myContentUpdates.collect {
-        myContentSizeUpdates.emit("content change")
+        myContentSizeUpdates.emit(PopupUpdateEvent.ContentChanged(it))
       }
     }
   }
@@ -161,7 +168,7 @@ internal class DocumentationUI(
 
   fun trackDocumentationBackgroundChange(disposable: Disposable, onChange: (Color) -> Unit) {
     val job = cs.launch {
-      editorBackground.collectLatest {
+      editorPane.backgroundFlow.collectLatest {
         withContext(Dispatchers.EDT) {
           onChange(it)
         }
@@ -192,8 +199,12 @@ internal class DocumentationUI(
     }
   }
 
-  public fun updateSwitcherVisibility() {
-    switcherToolbarComponent.isVisible = switcher.elements.count() > 1
+  fun updateSwitcherVisibility() {
+    val visible = switcher.elements.count() > 1
+    switcherToolbarComponent.isVisible = visible
+    editorPane.border = JBUI.Borders.emptyTop(
+      if (visible) 0 else DocumentationHtmlUtil.contentOuterPadding - DocumentationHtmlUtil.spaceBeforeParagraph
+    )
   }
 
   private suspend fun handleContent(presentation: TargetPresentation, pageContent: DocumentationPageContent?) {
@@ -222,7 +233,7 @@ internal class DocumentationUI(
     imageResolver = content.imageResolver
     val linkChunk = linkChunk(presentation.presentableText, pageContent.links)
     val decorated = decorate(content.html, null, linkChunk, pageContent.downloadSourcesLink)
-    if (!updateContent(decorated, presentation)) {
+    if (!updateContent(decorated, presentation, ContentKind.DocumentationPage)) {
       return
     }
     val uiState = pageContent.uiState
@@ -233,11 +244,11 @@ internal class DocumentationUI(
   }
 
   private fun fetchingMessage() {
-    updateContent(message(CodeInsightBundle.message("javadoc.fetching.progress")), null)
+    updateContent(message(CodeInsightBundle.message("javadoc.fetching.progress")), null, ContentKind.InfoMessage)
   }
 
   private fun noDocumentationMessage() {
-    updateContent(message(CodeInsightBundle.message("no.documentation.found")), null)
+    updateContent(message(CodeInsightBundle.message("no.documentation.found")), null, ContentKind.InfoMessage)
   }
 
   private fun message(message: @Nls String): @Nls String {
@@ -249,13 +260,18 @@ internal class DocumentationUI(
       .toString()
   }
 
-  private fun updateContent(text: @Nls String, presentation: TargetPresentation?): Boolean {
+  private fun updateContent(text: @Nls String,
+                            presentation: TargetPresentation?,
+                            newContentKind: ContentKind): Boolean {
     EDT.assertIsEdt()
     if (editorPane.text == text &&
         locationLabel.text == presentation?.locationText &&
-        locationLabel.icon == presentation?.icon) {
+        locationLabel.icon == presentation?.icon &&
+        contentKind == newContentKind) {
       return false
     }
+    val oldContentKind = contentKind
+    contentKind = newContentKind
     editorPane.text = text
     if (presentation?.locationText != null) {
       locationLabel.text = presentation.locationText
@@ -267,7 +283,14 @@ internal class DocumentationUI(
       locationLabel.text = ""
       locationLabel.isVisible = false
     }
-    check(myContentUpdates.tryEmit(Unit))
+    check(myContentUpdates.tryEmit(
+      when (newContentKind) {
+        ContentKind.InfoMessage -> ContentUpdateKind.InfoMessage
+        ContentKind.DocumentationPage -> if (oldContentKind != newContentKind)
+          ContentUpdateKind.DocumentationPageOpened
+        else
+          ContentUpdateKind.DocumentationPageNavigated
+      }))
     return true
   }
 
@@ -316,5 +339,10 @@ internal class DocumentationUI(
     return DefinitionSwitcher(requests.toTypedArray(), scrollPane) {
       browser.resetBrowser(it)
     }
+  }
+
+  private enum class ContentKind {
+    InfoMessage,
+    DocumentationPage,
   }
 }

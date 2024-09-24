@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInsight.daemon
 
 import com.intellij.JavaTestUtil
@@ -38,12 +38,15 @@ class LightJava11HighlightingTest : LightJavaCodeInsightFixtureTestCase() {
     doTest()
   }
 
+  fun testStaticImportArrayCopyOfAccess() {
+    doTest()
+  }
+
   fun testJavaShebang() {
     val file = myFixture.configureByText("hello",
                                          """#!/path/to/java
                                  |class Main {{
                                  |int i = 0;
-                                 |i*<error descr="Expression expected"><error descr="Unexpected token">*</error></error>;
                                  |}}""".trimMargin())
     myFixture.checkHighlighting()
     Assert.assertTrue(JavaHighlightUtil.isJavaHashBangScript(file))

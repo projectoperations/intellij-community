@@ -1,22 +1,28 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl.headertoolbar
 
 import com.intellij.accessibility.AccessibilityUtils
 import com.intellij.ide.ProjectWindowCustomizerService
+import com.intellij.ide.ui.LafManagerListener
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.customization.ActionUrl
 import com.intellij.ide.ui.customization.CustomActionsListener
 import com.intellij.ide.ui.customization.CustomActionsSchema
 import com.intellij.ide.ui.customization.CustomizationUtil
 import com.intellij.ide.ui.laf.darcula.ui.MainToolbarComboBoxButtonUI
+import com.intellij.idea.AppMode
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction.ComboBoxButton
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
-import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
+import com.intellij.openapi.actionSystem.impl.ActionToolbarPresentationFactory
+import com.intellij.openapi.actionSystem.impl.PresentationFactory
+import com.intellij.openapi.actionSystem.toolbarLayout.CompressingLayoutStrategy
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.keymap.impl.ui.ActionsTreeUtil
@@ -24,8 +30,9 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.wm.impl.IdeBackgroundUtil
-import com.intellij.openapi.wm.impl.IdeFrameDecorator
-import com.intellij.openapi.wm.impl.IdeRootPane
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil.hideNativeLinuxTitle
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil.isMenuButtonInToolbar
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.toolbar.ExpandableMenu
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.toolbar.HeaderToolbarButtonLook
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.toolbar.MainMenuButton
@@ -33,11 +40,11 @@ import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.ui.*
 import com.intellij.ui.components.panels.HorizontalLayout
 import com.intellij.ui.mac.touchbar.TouchbarSupport
-import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.CurrentTheme.Toolbar.mainToolbarButtonInsets
+import com.intellij.util.ui.showingScope
 import com.jetbrains.WindowDecorations
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,10 +53,14 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.*
 import java.awt.event.MouseEvent
+import java.lang.ref.WeakReference
+import java.util.*
 import javax.accessibility.AccessibleContext
 import javax.accessibility.AccessibleRole
-import javax.swing.*
-import kotlin.math.max
+import javax.swing.Icon
+import javax.swing.JComponent
+import javax.swing.JFrame
+import javax.swing.JPanel
 import kotlin.math.min
 
 private const val MAIN_TOOLBAR_ID = IdeActions.GROUP_MAIN_TOOLBAR_NEW_UI
@@ -77,25 +88,41 @@ private class MenuButtonInToolbarMainToolbarFlavor(coroutineScope: CoroutineScop
 
 private data object DefaultMainToolbarFlavor : MainToolbarFlavor
 
+private const val layoutGap = 10
+
 @Internal
 class MainToolbar(
   private val coroutineScope: CoroutineScope,
   private val frame: JFrame,
   isOpaque: Boolean = false,
   background: Color? = null,
-) : JPanel(HorizontalLayout(10)) {
+  private val isFullScreen: () -> Boolean,
+) : JPanel(HorizontalLayout(layoutGap)) {
   private val flavor: MainToolbarFlavor
 
   init {
     this.background = background
     this.isOpaque = isOpaque
-    flavor = if (IdeRootPane.isMenuButtonInToolbar) {
+    flavor = if (isMenuButtonInToolbar(UISettings.shadowInstance)) {
       MenuButtonInToolbarMainToolbarFlavor(headerContent = this, coroutineScope = coroutineScope, frame = frame)
     }
     else {
       DefaultMainToolbarFlavor
     }
     ClientProperty.put(this, IdeBackgroundUtil.NO_BACKGROUND, true)
+    showingScope("Main toolbar update") {
+      ApplicationManager.getApplication().messageBus.connect(this).subscribe(LafManagerListener.TOPIC, LafManagerListener {
+        updateToolbarActions()
+      })
+    }
+  }
+
+  private fun updateToolbarActions() {
+    for (component in components) {
+      if (component is ActionToolbarImpl) {
+        component.updateActionsAsync()
+      }
+    }
   }
 
   override fun getComponentGraphics(g: Graphics): Graphics = super.getComponentGraphics(IdeBackgroundUtil.getOriginalGraphics(g))
@@ -132,6 +159,18 @@ class MainToolbar(
     }
 
     migratePreviousCustomizations(schema)
+    migrateVcsActions(schema)
+  }
+
+  private fun migrateVcsActions(schema: CustomActionsSchema) {
+    if (AppMode.isRemoteDevHost()) return
+    val allActions = schema.getActions().toMutableList()
+    val actionsToRemove = setOf("Vcs.Push", "Vcs.UpdateProject")
+    val wereRemoved = allActions.removeIf { it.groupPath.contains("Main Toolbar") && it.component in actionsToRemove }
+    if (wereRemoved) {
+      schema.setActions(allActions)
+      schemaChanged()
+    }
   }
 
   /*
@@ -198,13 +237,13 @@ class MainToolbar(
 
   override fun paintComponent(g: Graphics?) {
     super.paintComponent(g)
-    if ((frame.rootPane as? IdeRootPane)?.isToolbarInHeader() == false) {
+    if (!CustomWindowHeaderUtil.isToolbarInHeader(UISettings.getInstance(), isFullScreen())) {
       ProjectWindowCustomizerService.getInstance().paint(frame, this, g as Graphics2D)
     }
   }
 
   private fun installClickListener(popupHandler: PopupHandler, customTitleBar: WindowDecorations.CustomTitleBar?) {
-    if (IdeRootPane.hideNativeLinuxTitle && !UISettings.shadowInstance.separateMainMenu) {
+    if (hideNativeLinuxTitle(UISettings.shadowInstance) && !UISettings.shadowInstance.separateMainMenu) {
       WindowMoveListener(this).apply {
         setLeftMouseButtonOnly(true)
         installTo(this@MainToolbar)
@@ -267,7 +306,11 @@ private fun createActionBar(group: ActionGroup, customizationGroup: ActionGroup?
 
   toolbar.setMinimumButtonSize { ActionToolbar.experimentalToolbarMinimumButtonSize() }
   toolbar.targetComponent = null
-  toolbar.layoutStrategy = MainToolbarLayoutStrategy()
+  toolbar.layoutStrategy = object : CompressingLayoutStrategy() {
+    override fun getNonCompressibleWidth(mainToolbar: Container): Int {
+      return super.getNonCompressibleWidth(mainToolbar) + layoutGap * 4
+    }
+  }
   val component = toolbar.component
   component.border = JBUI.Borders.empty()
   component.isOpaque = false
@@ -297,6 +340,22 @@ internal class MyActionToolbarImpl(group: ActionGroup, customizationGroup: Actio
     installPopupHandler(true, customizationGroup, MAIN_TOOLBAR_ID)
   }
 
+  override fun createPresentationFactory(): PresentationFactory {
+    return object : ActionToolbarPresentationFactory(this) {
+      override fun postProcessPresentation(action: AnAction, presentation: Presentation) {
+        super.postProcessPresentation(action, presentation)
+
+        presentation.icon = presentation.icon?.let { iconUpdater.updateIcon(it) }
+        presentation.selectedIcon = presentation.selectedIcon?.let { iconUpdater.updateIcon(it) }
+        presentation.hoveredIcon = presentation.hoveredIcon?.let { iconUpdater.updateIcon(it) }
+        presentation.disabledIcon = presentation.disabledIcon?.let { iconUpdater.updateIcon(it) }
+        presentation.getClientProperty(ActionUtil.SECONDARY_ICON)?.let {
+          presentation.putClientProperty(ActionUtil.SECONDARY_ICON, iconUpdater.updateIcon(it))
+        }
+      }
+    }
+  }
+
   override fun updateActionsOnAdd() {
     // do nothing - called explicitly
   }
@@ -321,9 +380,6 @@ internal class MyActionToolbarImpl(group: ActionGroup, customizationGroup: Actio
       @Suppress("UnregisteredNamedColor")
       component.foreground = JBColor.namedColor("MainToolbar.foreground", component.foreground)
     }
-
-    adjustIcons(presentation)
-
     (component as? ActionButton)?.setMinimumButtonSize(ActionToolbar.experimentalToolbarMinimumButtonSize())
 
     if (action is ComboBoxAction) {
@@ -340,14 +396,8 @@ internal class MyActionToolbarImpl(group: ActionGroup, customizationGroup: Actio
     return component
   }
 
-  private fun adjustIcons(presentation: Presentation) {
-    PresentationIconUpdater.updateIcons(presentation) { icon ->
-      iconUpdater.updateIcon(icon)
-    }
-  }
-
   override fun getSeparatorColor(): Color {
-    return JBColor.namedColor("MainToolbar.separatorColor", super.getSeparatorColor())
+    return JBColor.namedColor("MainToolbar.separatorColor", super.separatorColor)
   }
 
   private fun findComboButton(c: Container): ComboBoxButton? {
@@ -405,7 +455,10 @@ private suspend fun computeMainActionGroups(customActionSchema: CustomActionsSch
   return result
 }
 
-@RequiresBlockingContext
+internal fun blockingComputeMainActionGroups(): List<Pair<ActionGroup, HorizontalLayout.Group>> {
+  return blockingComputeMainActionGroups(CustomActionsSchema.getInstance())
+}
+
 internal fun blockingComputeMainActionGroups(customActionSchema: CustomActionsSchema): List<Pair<ActionGroup, HorizontalLayout.Group>> {
   return getMainToolbarGroups()
     .mapNotNull { info ->
@@ -424,34 +477,23 @@ private fun getMainToolbarGroups(): Sequence<GroupInfo> {
   )
 }
 
-internal fun isToolbarInHeader(isFullscreen: Boolean): Boolean {
-  if (IdeFrameDecorator.isCustomDecorationAvailable) {
-    if (SystemInfoRt.isMac) {
-      return true
-    }
-    val settings = UISettings.getInstance()
-    if (SystemInfoRt.isWindows && !settings.separateMainMenu && settings.mergeMainMenuWithWindowTitle && !isFullscreen) {
-      return true
-    }
-  }
-  if (IdeRootPane.hideNativeLinuxTitle && !UISettings.getInstance().separateMainMenu && !isFullscreen) {
-    return true
-  }
-  return false
-}
-
 internal fun isDarkHeader(): Boolean = ColorUtil.isDark(JBColor.namedColor("MainToolbar.background"))
 
 fun adjustIconForHeader(icon: Icon): Icon = if (isDarkHeader()) IconLoader.getDarkIcon(icon = icon, dark = true) else icon
 
 private class HeaderIconUpdater {
-  private val iconCache = ContainerUtil.createWeakSet<Icon>()
+  val iconCache = WeakHashMap<Icon, WeakReference<Icon>>()
+  val alreadyUpdated = ContainerUtil.createWeakSet<Icon>()
 
   fun updateIcon(sourceIcon: Icon): Icon {
-    if (sourceIcon in iconCache) return sourceIcon
+    if (sourceIcon in alreadyUpdated) return sourceIcon
+
+    val cached = iconCache[sourceIcon]?.get()
+    if (cached != null) return cached
 
     val replaceIcon = adjustIconForHeader(sourceIcon)
-    iconCache.add(replaceIcon)
+    iconCache[sourceIcon] = WeakReference(replaceIcon)
+    alreadyUpdated.add(replaceIcon)
     return replaceIcon
   }
 }
@@ -493,58 +535,4 @@ private fun schemaChanged() {
     TouchbarSupport.reloadAllActions()
   }
   CustomActionsListener.fireSchemaChanged()
-}
-
-private class MainToolbarLayoutStrategy(): ToolbarLayoutStrategy {
-
-  private val delegate : ToolbarLayoutStrategy = ToolbarLayoutStrategy.NOWRAP_STRATEGY
-
-  override fun calculateBounds(toolbar: ActionToolbar): MutableList<Rectangle> {
-    val bounds = delegate.calculateBounds(toolbar)
-    val component = toolbar.component
-    for (i in 0 until bounds.size) {
-      val prevRect = if (i > 0) bounds[i - 1] else null
-      val rect = bounds[i]
-      fitRectangle(prevRect, rect, component.getComponent(i), component.height)
-    }
-
-    return bounds
-  }
-
-  override fun calcPreferredSize(toolbar: ActionToolbar): Dimension {
-    val res = Dimension()
-
-    val minButtonSize = ActionToolbar.experimentalToolbarMinimumButtonSize()
-    toolbar.component.components.forEach {
-      val size = it.preferredSize
-      if (!ActionToolbarImpl.isSeparator(it)) {
-        size.width = max(size.width, minButtonSize.width)
-      }
-      size.height = max(size.height, minButtonSize.height)
-
-      res.width += size.width
-      res.height = max(res.height, size.height)
-    }
-
-    JBInsets.addTo(res, toolbar.component.insets)
-    return res
-  }
-
-  override fun calcMinimumSize(toolbar: ActionToolbar): Dimension = delegate.calcMinimumSize(toolbar)
-
-  private fun fitRectangle(prevRect: Rectangle?, currRect: Rectangle, cmp: Component, toolbarHeight: Int) {
-    val minButtonSize = ActionToolbar.experimentalToolbarMinimumButtonSize()
-    if (!ActionToolbarImpl.isSeparator(cmp) && currRect.width != 0) {
-      currRect.width = max(currRect.width, minButtonSize.width)
-    }
-    currRect.height = max(currRect.height, minButtonSize.height)
-
-    if (currRect.x == Int.MAX_VALUE || currRect.y == Int.MAX_VALUE) return
-
-    if (prevRect != null && prevRect.maxX > currRect.minX) {
-      currRect.x = prevRect.maxX.toInt()
-    }
-    currRect.y = (toolbarHeight - currRect.height) / 2
-  }
-
 }

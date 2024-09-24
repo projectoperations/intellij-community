@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util;
 
 import com.intellij.openapi.application.ApplicationNamesInfo;
@@ -13,7 +13,6 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,7 +35,7 @@ public final class Restarter {
     return ourRestartSupported.get();
   }
 
-  private static final NullableLazyValue<Path> ourStarter = lazyNullable(() -> {
+  private static final NullableLazyValue<Path> ourStarterWithoutRemoteDevOverride = lazyNullable(() -> {
     if (SystemInfo.isWindows) {
       var name = ApplicationNamesInfo.getInstance().getScriptName() + (Boolean.getBoolean("ide.native.launcher") ? "64.exe" : ".bat");
       var starter = Path.of(PathManager.getBinPath(), name);
@@ -51,13 +50,27 @@ public final class Restarter {
       }
     }
     else if (SystemInfo.isLinux) {
-      var starter = Path.of(PathManager.getBinPath(), ApplicationNamesInfo.getInstance().getScriptName() + ".sh");
+      var name = ApplicationNamesInfo.getInstance().getScriptName() + (Boolean.getBoolean("ide.native.launcher") ? "" : ".sh");
+      var starter = Path.of(PathManager.getBinPath(), name);
       if (Files.exists(starter)) {
         return starter;
       }
     }
 
     return null;
+  });
+
+  private static final NullableLazyValue<Path> ourStarter = lazyNullable(() -> {
+    if (Boolean.getBoolean("ide.started.from.remote.dev.launcher")) {
+      var starter = Path.of(PathManager.getBinPath(), "remote-dev-server" + (SystemInfo.isWindows ? ".exe" : ""));
+      if (Files.exists(starter)) {
+        return starter;
+      } else {
+        Logger.getInstance(Restarter.class).error("RemDev starter property is set, but launcher file at " + starter + " was not found? Will restart using default entry point");
+      }
+    }
+
+    return ourStarterWithoutRemoteDevOverride.getValue();
   });
 
   private static final Supplier<Boolean> ourRestartSupported = new SynchronizedClearableLazy<>(() -> {
@@ -149,7 +162,8 @@ public final class Restarter {
   }
 
   public static @Nullable Path getIdeStarter() {
-    return ourStarter.getValue();
+    // The RemDev starter binary is an implementation detail that should not be exposed externally
+    return ourStarterWithoutRemoteDevOverride.getValue();
   }
 
   private static void restartOnWindows(boolean elevate, List<String> beforeRestart, List<String> args) throws IOException {
@@ -169,13 +183,22 @@ public final class Restarter {
     var appDir = ourStarter.getValue();
     if (appDir == null) throw new IOException("Application bundle not found: " + PathManager.getHomePath());
     var command = prepareCommand(beforeRestart);
-    command.add(String.valueOf(args.isEmpty() ? 2 : args.size() + 3));
-    command.add("/usr/bin/open");
-    command.add(appDir.toString());
+    
+    var runProcessCommand = new ArrayList<String>();
+    runProcessCommand.add("/usr/bin/open");
+
+    /* JetBrains Client process may be started from the same bundle as the full IDE, so we need to force 'open' command to run a new 
+       process from that bundle instead of focusing on the existing application if it's running */
+    runProcessCommand.add("-n");
+    
+    runProcessCommand.add(appDir.toString());
     if (!args.isEmpty()) {
-      command.add("--args");
-      command.addAll(args);
+      runProcessCommand.add("--args");
+      runProcessCommand.addAll(args);
     }
+
+    command.add(String.valueOf(runProcessCommand.size()));
+    command.addAll(runProcessCommand);
     runRestarter(command);
   }
 
@@ -229,6 +252,8 @@ public final class Restarter {
     processBuilder.environment().put("IJ_RESTARTER_LOG", PathManager.getLogDir().resolve("restarter.log").toString());
 
     if (SystemInfo.isUnix && !SystemInfo.isMac) setDesktopStartupId(processBuilder);
+
+    if (SystemInfo.isWindows) processBuilder.environment().remove("IJ_LAUNCHER_DEBUG");
 
     processBuilder.start();
   }

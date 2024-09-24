@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.updateSettings.impl
 
 import com.intellij.icons.AllIcons
@@ -70,6 +70,13 @@ class UpdateSettingsConfigurable @JvmOverloads constructor (private val checkNow
         checkBox(IdeBundle.message("updates.plugins.settings.checkbox"))
           .bindSelected(settings.state::isPluginsCheckNeeded)
       }
+      indent {
+        row {
+          checkBox(IdeBundle.message("updates.plugins.autoupdate.settings.checkbox"))
+            .bindSelected(settings.state::isPluginsAutoUpdateEnabled)
+            .comment(IdeBundle.message("updates.plugins.autoupdate.settings.comment"))
+        }
+      }
 
       row {
         if (checkNowEnabled) {
@@ -113,6 +120,10 @@ class UpdateSettingsConfigurable @JvmOverloads constructor (private val checkNow
         }
       }
 
+      UpdateSettingsUIProvider.EP_NAME.forEachExtensionSafe {
+        it.init(this)
+      }
+
       if (!(manager == ExternalUpdateManager.TOOLBOX || Registry.`is`("ide.hide.toolbox.promo"))) {
         group(indent = false) {
           customizeSpacingConfiguration(EmptySpacingConfiguration()) {
@@ -139,11 +150,8 @@ class UpdateSettingsConfigurable @JvmOverloads constructor (private val checkNow
       onApply {
         val isEnabled = settings.isCheckNeeded || settings.isPluginsCheckNeeded
         if (isEnabled != wasEnabled) {
-          if (isEnabled) {
-            UpdateCheckerService.getInstance().queueNextCheck()
-          }
-          else {
-            UpdateCheckerService.getInstance().cancelChecks()
+          UpdateCheckerService.getInstance().apply {
+            if (isEnabled) queueNextCheck() else cancelChecks()
           }
           wasEnabled = isEnabled
         }

@@ -9,32 +9,50 @@ import com.intellij.codeInsight.daemon.impl.analysis.HighlightingLevelManager
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInsight.intention.IntentionActionWithOptions
 import com.intellij.codeInsight.quickfix.UnresolvedReferenceQuickFixUpdater
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import com.intellij.xml.util.XmlStringUtil
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.KtDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.diagnostics.KtDiagnostic
-import org.jetbrains.kotlin.analysis.api.diagnostics.KtDiagnosticWithPsi
+import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
+import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnostic
+import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
+import org.jetbrains.kotlin.analysis.api.diagnostics.KaSeverity
 import org.jetbrains.kotlin.analysis.api.diagnostics.getDefaultMessageWithFactoryName
-import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KtFirDiagnostic
-import org.jetbrains.kotlin.diagnostics.Severity
+import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.idea.base.analysis.isInjectedFileShouldBeAnalyzed
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixService
+import org.jetbrains.kotlin.idea.highlighter.KotlinUnresolvedReferenceKind
+import org.jetbrains.kotlin.idea.highlighter.KotlinUnresolvedReferenceKind.UnresolvedDelegateFunction
+import org.jetbrains.kotlin.idea.highlighter.clearAllKotlinUnresolvedReferenceKinds
+import org.jetbrains.kotlin.idea.highlighter.registerKotlinUnresolvedReferenceKind
 import org.jetbrains.kotlin.idea.inspections.suppress.CompilerWarningIntentionAction
 import org.jetbrains.kotlin.idea.inspections.suppress.KotlinSuppressableWarningProblemGroup
 import org.jetbrains.kotlin.idea.statistics.compilationError.KotlinCompilationErrorFrequencyStatsCollector
+import org.jetbrains.kotlin.psi.KtCodeFragment
 import org.jetbrains.kotlin.psi.KtFile
+
 
 class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
     // map TextRange -> list of diagnostics for that range obtained from collectDiagnosticsForFile()
     // we have to extract diags from this map according to the range of the current element being visited, to avoid flickers
-    private lateinit var diagnosticRanges: MutableMap<TextRange, MutableList<HighlightInfo.Builder>>
+    private lateinit var diagnosticRanges: MutableMap<TextRange, MutableList<HighlightInfo.Builder?>>
     private var holder: HighlightInfoHolder? = null
     override fun suitableForFile(file: PsiFile): Boolean {
+        val viewProvider = file.viewProvider
+        val isInjection = InjectedLanguageManager.getInstance(file.project).isInjectedViewProvider(viewProvider)
+        if (isInjection && !viewProvider.isInjectedFileShouldBeAnalyzed) {
+            // do not highlight errors in injected code
+            return false
+        }
         return file is KtFile
     }
 
@@ -60,23 +78,46 @@ class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
         return true
     }
 
-    private fun analyzeFile(file: KtFile): MutableMap<TextRange, MutableList<HighlightInfo.Builder>> {
+    private fun analyzeFile(file: KtFile): MutableMap<TextRange, MutableList<HighlightInfo.Builder?>> {
         analyze(file) {
-            val analysis = file.collectDiagnosticsForFile(KtDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+
+            //remove filtering when KTIJ-29195 is fixed
+            val isIJProject = IntelliJProjectUtil.isIntelliJPlatformProject(file.project)
+            val analysis = file.collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
             val diagnostics = analysis
+                .filterOutCodeFragmentVisibilityErrors(file)
+                .filterNot { isIJProject && it.diagnosticClass == KaFirDiagnostic.ContextReceiversDeprecated::class }
+                .onEach { diagnostic -> diagnostic.psi.clearAllKotlinUnresolvedReferenceKinds() }
                 .flatMap { diagnostic -> diagnostic.textRanges.map { range -> Pair(range, diagnostic) } }
-                .groupByTo(HashMap(), { it.first }, { convertToBuilder(file, it.first, it.second) })
+                .groupByTo(HashMap(), { it.first }, {
+                    try {
+                        convertToBuilder(file, it.first, it.second)
+                    } catch (e: ProcessCanceledException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Logger.getInstance(KotlinDiagnosticHighlightVisitor::class.java).error(e)
+                        null
+                    }
+                })
 
             KotlinCompilationErrorFrequencyStatsCollector.recordCompilationErrorsHappened(
-                analysis.asSequence().filter { it.severity == Severity.ERROR }.mapNotNull(KtDiagnosticWithPsi<*>::factoryName), file
+                analysis.asSequence().filter { it.severity == KaSeverity.ERROR }.mapNotNull(KaDiagnosticWithPsi<*>::factoryName), file
             )
             return diagnostics
         }
     }
 
-    context(KtAnalysisSession)
-    private fun convertToBuilder(file: KtFile, range: TextRange, diagnostic: KtDiagnosticWithPsi<*>) : HighlightInfo.Builder{
-        val isWarning = diagnostic.severity == Severity.WARNING
+    private fun <PSI : PsiElement> Collection<KaDiagnosticWithPsi<PSI>>.filterOutCodeFragmentVisibilityErrors(file: KtFile): Collection<KaDiagnosticWithPsi<PSI>> {
+        if (file !is KtCodeFragment) return this
+        return filterNot { diagnostic ->
+            diagnostic.diagnosticClass == KaFirDiagnostic.InvisibleReference::class
+                    || diagnostic.diagnosticClass == KaFirDiagnostic.InvisibleSetter::class
+        }
+    }
+
+    context(KaSession)
+    private fun convertToBuilder(file: KtFile, range: TextRange, diagnostic: KaDiagnosticWithPsi<*>): HighlightInfo.Builder {
+        val isWarning = diagnostic.severity == KaSeverity.WARNING
         val psiElement = diagnostic.psi
         val factoryName = diagnostic.factoryName
         val fixes = KotlinQuickFixService.getInstance().getQuickFixesFor(diagnostic).takeIf { it.isNotEmpty() }
@@ -85,8 +126,11 @@ class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
             KotlinSuppressableWarningProblemGroup(factoryName)
         } else null
 
+        val message = diagnostic.getMessageToRender()
+        val htmlMessage = XmlStringUtil.wrapInHtml(XmlStringUtil.escapeString(message).replace("\n", "<br>"))
         val infoBuilder = HighlightInfo.newHighlightInfo(diagnostic.getHighlightInfoType())
-            .descriptionAndTooltip(diagnostic.getMessageToRender())
+            .escapedToolTip(htmlMessage)
+            .description(message)
             .range(range)
         if (problemGroup != null) {
             infoBuilder.problemGroup(problemGroup)
@@ -104,16 +148,34 @@ class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
             }
             infoBuilder.registerFix(quickFixInfo, options, null, null, null)
         }
-        if (diagnostic is KtFirDiagnostic.UnresolvedImport || diagnostic is KtFirDiagnostic.UnresolvedReference) {
-            psiElement.reference?.let {
-                UnresolvedReferenceQuickFixUpdater.getInstance(file.project).registerQuickFixesLater(it, infoBuilder)
+
+        if (diagnostic is KaFirDiagnostic.DelegateSpecialFunctionMissing) {
+            psiElement.registerKotlinUnresolvedReferenceKind(UnresolvedDelegateFunction(diagnostic.expectedFunctionSignature))
+        }
+
+        if (diagnostic is KaFirDiagnostic.DelegateSpecialFunctionNoneApplicable) {
+            psiElement.registerKotlinUnresolvedReferenceKind(UnresolvedDelegateFunction(diagnostic.expectedFunctionSignature))
+        }
+
+        if (diagnostic is KaFirDiagnostic.UnresolvedImport || diagnostic is KaFirDiagnostic.UnresolvedReference) {
+            psiElement.registerKotlinUnresolvedReferenceKind(KotlinUnresolvedReferenceKind.Regular)
+        }
+
+        if (
+            diagnostic is KaFirDiagnostic.UnresolvedImport || diagnostic is KaFirDiagnostic.UnresolvedReference ||
+            diagnostic is KaFirDiagnostic.DelegateSpecialFunctionMissing ||
+            diagnostic is KaFirDiagnostic.DelegateSpecialFunctionNoneApplicable
+        ) {
+            psiElement.reference?.let { ref ->
+                UnresolvedReferenceQuickFixUpdater.getInstance(file.project).registerQuickFixesLater(ref, infoBuilder)
             }
         }
+
         return infoBuilder
     }
 
     @NlsSafe
-    private fun KtDiagnostic.getMessageToRender(): String =
+    private fun KaDiagnostic.getMessageToRender(): String =
         if (isInternalOrUnitTestMode())
             getDefaultMessageWithFactoryName()
         else defaultMessage
@@ -124,32 +186,32 @@ class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
     }
 
 
-    context(KtAnalysisSession)
-    private fun KtDiagnosticWithPsi<*>.getHighlightInfoType(): HighlightInfoType {
-       return when {
+    context(KaSession)
+    private fun KaDiagnosticWithPsi<*>.getHighlightInfoType(): HighlightInfoType {
+        return when {
             isUnresolvedDiagnostic() -> HighlightInfoType.WRONG_REF
             isDeprecatedDiagnostic() -> HighlightInfoType.DEPRECATED
-            else ->  when (severity) {
-                Severity.INFO -> HighlightInfoType.INFORMATION
-                Severity.ERROR -> HighlightInfoType.ERROR
-                Severity.WARNING -> HighlightInfoType.WARNING
+            else -> when (severity) {
+                KaSeverity.INFO -> HighlightInfoType.INFORMATION
+                KaSeverity.ERROR -> HighlightInfoType.ERROR
+                KaSeverity.WARNING -> HighlightInfoType.WARNING
             }
         }
     }
 
-    context(KtAnalysisSession)
-    private fun KtDiagnosticWithPsi<*>.isUnresolvedDiagnostic() = when (this) {
-        is KtFirDiagnostic.UnresolvedReference -> true
-        is KtFirDiagnostic.UnresolvedLabel -> true
-        is KtFirDiagnostic.UnresolvedReferenceWrongReceiver -> true
-        is KtFirDiagnostic.UnresolvedImport -> true
-        is KtFirDiagnostic.MissingStdlibClass -> true
+    context(KaSession)
+    private fun KaDiagnosticWithPsi<*>.isUnresolvedDiagnostic() = when (this) {
+        is KaFirDiagnostic.UnresolvedReference -> true
+        is KaFirDiagnostic.UnresolvedLabel -> true
+        is KaFirDiagnostic.UnresolvedReferenceWrongReceiver -> true
+        is KaFirDiagnostic.UnresolvedImport -> true
+        is KaFirDiagnostic.MissingStdlibClass -> true
         else -> false
     }
 
-    context(KtAnalysisSession)
-    private fun KtDiagnosticWithPsi<*>.isDeprecatedDiagnostic() = when (this) {
-        is KtFirDiagnostic.Deprecation -> true
+    context(KaSession)
+    private fun KaDiagnosticWithPsi<*>.isDeprecatedDiagnostic() = when (this) {
+        is KaFirDiagnostic.Deprecation -> true
         else -> false
     }
 
@@ -161,7 +223,7 @@ class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
         val iterator = diagnosticRanges.iterator()
         for (entry in iterator) {
             if (entry.key in elementRange) {
-                val diagnostics = entry.value
+                val diagnostics = entry.value.filterNotNull()
                 for (builder in diagnostics) {
                     holder!!.add(builder.create())
                 }

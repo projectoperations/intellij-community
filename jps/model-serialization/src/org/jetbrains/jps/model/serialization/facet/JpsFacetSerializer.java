@@ -3,6 +3,7 @@ package org.jetbrains.jps.model.serialization.facet;
 
 import com.intellij.util.xmlb.XmlSerializer;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -14,6 +15,7 @@ import org.jetbrains.jps.model.serialization.JpsModelSerializerExtension;
 
 import java.util.List;
 
+@ApiStatus.Internal
 public final class JpsFacetSerializer {
   @NonNls public static final String FACET_TAG = "facet";
   @NonNls public static final String TYPE_ATTRIBUTE = "type";
@@ -44,7 +46,7 @@ public final class JpsFacetSerializer {
   }
 
   @Nullable
-  private static JpsFacetConfigurationSerializer<?> getModuleExtensionSerializer(@NotNull String typeId) {
+  public static JpsFacetConfigurationSerializer<?> getModuleExtensionSerializer(@NotNull String typeId) {
     for (JpsModelSerializerExtension extension : JpsModelSerializerExtension.getExtensions()) {
       for (JpsFacetConfigurationSerializer<?> serializer : extension.getFacetConfigurationSerializers()) {
         if (serializer.getFacetTypeId().equals(typeId)) {

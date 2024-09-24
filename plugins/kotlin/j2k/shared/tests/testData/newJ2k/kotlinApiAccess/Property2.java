@@ -1,4 +1,4 @@
-//file
+// !ADD_KOTLIN_API
 import kotlinApi.*
 
 class C {

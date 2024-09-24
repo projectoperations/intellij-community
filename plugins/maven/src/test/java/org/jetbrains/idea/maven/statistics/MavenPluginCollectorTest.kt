@@ -10,6 +10,8 @@ import org.junit.Test
 
 class MavenPluginCollectorTest : MavenImportingTestCase() {
 
+  override fun runInDispatchThread(): Boolean = false
+
   @Test
   fun `test should collect info about plugins`() = runBlocking {
     importProjectAsync("""

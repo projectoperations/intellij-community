@@ -41,6 +41,8 @@
         <lang.formatter language="TOML" implementationClass="org.toml.ide.formatter.TomlFormattingModelBuilder"/>
         <langCodeStyleSettingsProvider
             implementation="org.toml.ide.formatter.settings.TomlLanguageCodeStyleSettingsProvider"/>
+        <enterBetweenBracesDelegate language="TOML"
+                                    implementationClass="com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesAndBracketsDelegate"/>
 
         <!-- Folding -->
         <lang.foldingBuilder language="TOML" implementationClass="org.toml.ide.folding.TomlFoldingBuilder"/>
@@ -70,6 +72,5 @@
         </intentionAction>
 
         <registryKey key="org.toml.json.schema" defaultValue="true" description="JSON schemas support for TOML"/>
-        <iconMapper mappingFile="TomlIconMappings.json"/>
     </extensions>
 </idea-plugin>

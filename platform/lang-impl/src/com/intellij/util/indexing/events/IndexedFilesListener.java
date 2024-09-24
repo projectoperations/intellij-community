@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing.events;
 
 import com.intellij.openapi.progress.ProgressManager;
@@ -10,16 +10,16 @@ import com.intellij.openapi.vfs.newvfs.events.*;
 import com.intellij.util.indexing.FileBasedIndexImpl;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
+@Internal
 public abstract class IndexedFilesListener implements AsyncFileListener {
-  @NotNull
-  private final VfsEventsMerger myEventMerger = new VfsEventsMerger();
+  private final @NotNull VfsEventsMerger myEventMerger = new VfsEventsMerger();
 
-  @NotNull
-  public VfsEventsMerger getEventMerger() {
+  public @NotNull VfsEventsMerger getEventMerger() {
     return myEventMerger;
   }
 
@@ -62,8 +62,7 @@ public abstract class IndexedFilesListener implements AsyncFileListener {
   }
 
   @Override
-  @NotNull
-  public ChangeApplier prepareChange(@NotNull List<? extends @NotNull VFileEvent> events) {
+  public @NotNull ChangeApplier prepareChange(@NotNull List<? extends @NotNull VFileEvent> events) {
     Int2ObjectMap<VirtualFile> deletedFiles = new Int2ObjectOpenHashMap<>();
     for (VFileEvent event : events) {
       if (event instanceof VFileDeleteEvent) {

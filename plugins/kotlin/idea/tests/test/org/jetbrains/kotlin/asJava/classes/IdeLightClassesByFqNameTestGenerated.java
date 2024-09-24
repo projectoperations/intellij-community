@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.asJava.classes;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 import static org.jetbrains.kotlin.idea.base.plugin.artifacts.TestKotlinArtifacts.compilerTestData;
 
@@ -23,6 +24,12 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../../out/kotlinc-testdata-2/compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors")
     public static class CompilationErrors extends AbstractIdeLightClassesByFqNameTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -183,6 +190,11 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/unresolvedQuialifierInAnnotation.kt"));
         }
 
+        @TestMetadata("valueClassInSuperType.kt")
+        public void testValueClassInSuperType() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/valueClassInSuperType.kt"));
+        }
+
         @TestMetadata("WrongAnnotations.kt")
         public void testWrongAnnotations() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/WrongAnnotations.kt"));
@@ -192,6 +204,12 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../../out/kotlinc-testdata-2/compiler/testData/asJava/lightClasses/lightClassByFqName/delegation")
     public static class Delegation extends AbstractIdeLightClassesByFqNameTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -221,6 +239,12 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../../out/kotlinc-testdata-2/compiler/testData/asJava/lightClasses/lightClassByFqName/facades")
     public static class Facades extends AbstractIdeLightClassesByFqNameTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -234,6 +258,16 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
         @TestMetadata("AllPrivate.kt")
         public void testAllPrivate() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/facades/AllPrivate.kt"));
+        }
+
+        @TestMetadata("DelegatedProperty.kt")
+        public void testDelegatedProperty() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/facades/DelegatedProperty.kt"));
+        }
+
+        @TestMetadata("Deprecated.kt")
+        public void testDeprecated() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/facades/Deprecated.kt"));
         }
 
         @TestMetadata("FunctionTypeParameterAnnotation.kt")
@@ -275,6 +309,12 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../../out/kotlinc-testdata-2/compiler/testData/asJava/lightClasses/lightClassByFqName/ideRegression")
     public static class IdeRegression extends AbstractIdeLightClassesByFqNameTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -329,6 +369,12 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../../out/kotlinc-testdata-2/compiler/testData/asJava/lightClasses/lightClassByFqName/nullabilityAnnotations")
     public static class NullabilityAnnotations extends AbstractIdeLightClassesByFqNameTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -448,6 +494,12 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../../out/kotlinc-testdata-2/compiler/testData/asJava/lightClasses/lightClassByFqName/script")
     public static class Script extends AbstractIdeLightClassesByFqNameTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -472,6 +524,12 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../../out/kotlinc-testdata-2/compiler/testData/asJava/lightClasses/lightClassByFqName")
     public static class Uncategorized extends AbstractIdeLightClassesByFqNameTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -547,6 +605,11 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/CompanionObject.kt"));
         }
 
+        @TestMetadata("CompanionObjectWithAConflictingProperty.kt")
+        public void testCompanionObjectWithAConflictingProperty() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/CompanionObjectWithAConflictingProperty.kt"));
+        }
+
         @TestMetadata("Constructors.kt")
         public void testConstructors() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/Constructors.kt"));
@@ -570,6 +633,11 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
         @TestMetadata("Delegation.kt")
         public void testDelegation() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/Delegation.kt"));
+        }
+
+        @TestMetadata("Deprecated.kt")
+        public void testDeprecated() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/Deprecated.kt"));
         }
 
         @TestMetadata("DeprecatedEnumEntry.kt")
@@ -637,6 +705,16 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/InterfaceTypeParameterAnnotation.kt"));
         }
 
+        @TestMetadata("InterfaceWithDefaultMethodAndCompanion.kt")
+        public void testInterfaceWithDefaultMethodAndCompanion() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/InterfaceWithDefaultMethodAndCompanion.kt"));
+        }
+
+        @TestMetadata("internalValueClass.kt")
+        public void testInternalValueClass() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/internalValueClass.kt"));
+        }
+
         @TestMetadata("InvalidJavaIdentifierAsAnnotationArgument.kt")
         public void testInvalidJavaIdentifierAsAnnotationArgument() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/InvalidJavaIdentifierAsAnnotationArgument.kt"));
@@ -682,6 +760,11 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/NestedObjects.kt"));
         }
 
+        @TestMetadata("NestedTypeAnnotations.kt")
+        public void testNestedTypeAnnotations() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/NestedTypeAnnotations.kt"));
+        }
+
         @TestMetadata("NonDataClassWithComponentFunctions.kt")
         public void testNonDataClassWithComponentFunctions() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/NonDataClassWithComponentFunctions.kt"));
@@ -695,6 +778,11 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
         @TestMetadata("PrivateObject.kt")
         public void testPrivateObject() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/PrivateObject.kt"));
+        }
+
+        @TestMetadata("privateValueClass.kt")
+        public void testPrivateValueClass() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/privateValueClass.kt"));
         }
 
         @TestMetadata("PropertyTypeParameterAnnotation.kt")
@@ -750,6 +838,36 @@ public abstract class IdeLightClassesByFqNameTestGenerated extends AbstractIdeLi
         @TestMetadata("ValueClassInParametersWithJvmName.kt")
         public void testValueClassInParametersWithJvmName() throws Exception {
             runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/ValueClassInParametersWithJvmName.kt"));
+        }
+
+        @TestMetadata("valueClassMembers.kt")
+        public void testValueClassMembers() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/valueClassMembers.kt"));
+        }
+
+        @TestMetadata("valueClassWithDelegatedSuperInterface.kt")
+        public void testValueClassWithDelegatedSuperInterface() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/valueClassWithDelegatedSuperInterface.kt"));
+        }
+
+        @TestMetadata("valueClassWithInternalParam.kt")
+        public void testValueClassWithInternalParam() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/valueClassWithInternalParam.kt"));
+        }
+
+        @TestMetadata("valueClassWithPrivateParam.kt")
+        public void testValueClassWithPrivateParam() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/valueClassWithPrivateParam.kt"));
+        }
+
+        @TestMetadata("valueClassWithSuperInterface.kt")
+        public void testValueClassWithSuperInterface() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/valueClassWithSuperInterface.kt"));
+        }
+
+        @TestMetadata("valueClassWithValueClass.kt")
+        public void testValueClassWithValueClass() throws Exception {
+            runTest(compilerTestData("compiler/testData/asJava/lightClasses/lightClassByFqName/valueClassWithValueClass.kt"));
         }
 
         @TestMetadata("VarArgs.kt")

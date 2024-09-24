@@ -5,8 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
-import org.jetbrains.intellij.build.createBuildTasks
 import org.jetbrains.intellij.build.impl.BuildContextImpl
+import org.jetbrains.intellij.build.impl.buildDistributions
 import org.jetbrains.intellij.build.pycharm.PyCharmBuildUtils
 import org.jetbrains.intellij.build.pycharm.PyCharmCommunityProperties
 
@@ -16,25 +16,21 @@ object PyCharmCommunityInstallersBuildTarget {
   fun main(args: Array<String>) {
     runBlocking(Dispatchers.Default) {
       val options = BuildOptions().apply {
-        // we cannot provide a consistent build number for PyCharm Community
-        // if it's built separately so use *.SNAPSHOT number to avoid confusion
-        buildNumber = null
-
         // do not bother external users about clean/incremental
         // just remove out/ directory for clean build
         incrementalCompilation = true
         useCompiledClassesFromProjectOutput = false
-        buildStepsToSkip.addAll(listOf(
+        buildStepsToSkip += listOf(
           BuildOptions.MAC_SIGN_STEP,
           PyCharmBuildUtils.SKELETONS_COPY_STEP,
-        ))
+        )
       }
       val context = BuildContextImpl.createContext(
         projectHome = COMMUNITY_ROOT.communityRoot,
         productProperties = PyCharmCommunityProperties(COMMUNITY_ROOT.communityRoot),
         options = options,
       )
-      createBuildTasks(context).buildDistributions()
+      buildDistributions(context)
     }
   }
 }

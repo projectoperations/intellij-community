@@ -30,7 +30,7 @@ public class MarkupModelImpl extends UserDataHolderBase implements MarkupModelEx
   private static final Logger LOG = Logger.getInstance(MarkupModelImpl.class);
   private final DocumentEx myDocument;
 
-  private RangeHighlighter[] myCachedHighlighters;
+  private volatile RangeHighlighter[] myCachedHighlighters;
   private final List<MarkupModelListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final RangeHighlighterTree myHighlighterTree;          // this tree holds regular highlighters with target = HighlighterTargetArea.EXACT_RANGE
   private final RangeHighlighterTree myHighlighterTreeForLines;  // this tree holds line range highlighters with target = HighlighterTargetArea.LINES_IN_RANGE
@@ -100,7 +100,8 @@ public class MarkupModelImpl extends UserDataHolderBase implements MarkupModelEx
 
     PersistentRangeHighlighterImpl highlighter = PersistentRangeHighlighterImpl.create(
       this, offset, layer, HighlighterTargetArea.LINES_IN_RANGE, textAttributesKey, false);
-    return addRangeHighlighter(highlighter, changeAction);
+    addRangeHighlighter(highlighter, changeAction);
+    return highlighter;
   }
 
   // NB: Can return invalid highlighters
@@ -108,17 +109,20 @@ public class MarkupModelImpl extends UserDataHolderBase implements MarkupModelEx
   public @NotNull RangeHighlighter @NotNull [] getAllHighlighters() {
     RangeHighlighter[] cachedHighlighters = myCachedHighlighters;
     if (cachedHighlighters == null) {
-      int size = myHighlighterTree.size() + myHighlighterTreeForLines.size();
-      if (size == 0) return RangeHighlighter.EMPTY_ARRAY;
-      List<RangeHighlighterEx> list = new ArrayList<>(size);
-      CommonProcessors.CollectProcessor<RangeHighlighterEx> collectProcessor = new CommonProcessors.CollectProcessor<>(list);
-      myHighlighterTree.processAll(collectProcessor);
-      myHighlighterTreeForLines.processAll(collectProcessor);
-      myCachedHighlighters = cachedHighlighters = list.toArray(RangeHighlighter.EMPTY_ARRAY);
+      myCachedHighlighters = cachedHighlighters = computeAllHighlighters();
     }
     return cachedHighlighters;
   }
 
+  private @NotNull RangeHighlighter @NotNull [] computeAllHighlighters() {
+    int size = myHighlighterTree.size() + myHighlighterTreeForLines.size();
+    if (size == 0) return RangeHighlighter.EMPTY_ARRAY;
+    List<RangeHighlighterEx> list = new ArrayList<>(size);
+    CommonProcessors.CollectProcessor<RangeHighlighterEx> collectProcessor = new CommonProcessors.CollectProcessor<>(list);
+    myHighlighterTree.processAll(collectProcessor);
+    myHighlighterTreeForLines.processAll(collectProcessor);
+    return list.toArray(RangeHighlighter.EMPTY_ARRAY);
+  }
   @Override
   public @NotNull RangeHighlighterEx addRangeHighlighterAndChangeAttributes(@Nullable TextAttributesKey textAttributesKey,
                                                                             int startOffset,
@@ -130,17 +134,16 @@ public class MarkupModelImpl extends UserDataHolderBase implements MarkupModelEx
     RangeHighlighterImpl highlighter = isPersistent ?
       PersistentRangeHighlighterImpl.create(this, startOffset, layer, targetArea, textAttributesKey, true)
       : new RangeHighlighterImpl(this, startOffset, endOffset, layer, targetArea, textAttributesKey, false, false);
-    return addRangeHighlighter(highlighter, changeAttributesAction);
+    addRangeHighlighter(highlighter, changeAttributesAction);
+    return highlighter;
   }
 
-  private @NotNull RangeHighlighterEx addRangeHighlighter(@NotNull RangeHighlighterImpl highlighter,
-                                                          @Nullable Consumer<? super RangeHighlighterEx> changeAttributesAction) {
+  private void addRangeHighlighter(@NotNull RangeHighlighterImpl highlighter, @Nullable Consumer<? super RangeHighlighterEx> changeAttributesAction) {
     myCachedHighlighters = null;
     if (changeAttributesAction != null) {
       highlighter.changeAttributesNoEvents(changeAttributesAction);
     }
     fireAfterAdded(highlighter);
-    return highlighter;
   }
 
   @Override

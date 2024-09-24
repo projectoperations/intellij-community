@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.ijent
 
 import com.intellij.execution.process.SelfKiller
@@ -16,11 +16,16 @@ import java.util.concurrent.TimeUnit
  *
  * See also [IjentChildPtyProcessAdapter].
  */
-@ApiStatus.Experimental
-class IjentChildProcessAdapter(coroutineScope: CoroutineScope, private val ijentChildProcess: IjentChildProcess) : Process(), SelfKiller {
+@ApiStatus.Internal
+class IjentChildProcessAdapter(
+  coroutineScope: CoroutineScope,
+  private val ijentChildProcess: IjentChildProcess,
+  redirectStderr: Boolean,
+) : Process(), SelfKiller {
   private val delegate = IjentChildProcessAdapterDelegate(
     coroutineScope,
     ijentChildProcess,
+    redirectStderr = redirectStderr,
   )
 
   override fun toString(): String = "${javaClass.simpleName}($ijentChildProcess)"
@@ -59,4 +64,6 @@ class IjentChildProcessAdapter(coroutineScope: CoroutineScope, private val ijent
   override fun exitValue(): Int = delegate.exitValue()
 
   override fun destroy(): Unit = delegate.destroy()
+
+  override fun tryDestroyGracefully(): Boolean = delegate.tryDestroyGracefully()
 }

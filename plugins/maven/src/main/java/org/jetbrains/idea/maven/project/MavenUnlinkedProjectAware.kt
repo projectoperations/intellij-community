@@ -32,13 +32,12 @@ internal class MavenUnlinkedProjectAware : ExternalSystemUnlinkedProjectAware {
     mavenProjectsManager.addProjectsTreeListener(ProjectsTreeListener(project, listener), parentDisposable)
   }
 
-  @Deprecated("use async method instead")
-  override fun linkAndLoadProject(project: Project, externalProjectPath: String) {
-    MavenOpenProjectProvider().linkToExistingProject(externalProjectPath, project)
-  }
-
   override suspend fun linkAndLoadProjectAsync(project: Project, externalProjectPath: String) {
     MavenOpenProjectProvider().linkToExistingProjectAsync(externalProjectPath, project)
+  }
+
+  override suspend fun unlinkProject(project: Project, externalProjectPath: String) {
+    MavenOpenProjectProvider().unlinkProject(project, externalProjectPath)
   }
 
   private class ProjectsTreeListener(project: Project, val listener: ExternalSystemProjectLinkListener) : MavenProjectsTree.Listener {

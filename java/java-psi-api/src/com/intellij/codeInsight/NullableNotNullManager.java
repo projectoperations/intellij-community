@@ -5,7 +5,8 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
-import com.intellij.psi.util.*;
+import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -88,9 +89,17 @@ public abstract class NullableNotNullManager {
       }
 
       PsiModifierList modifierList = target.getModifierList();
+      PsiType usedType = null;
+      if(target instanceof PsiVariable){
+        usedType = ((PsiVariable)target).getType();
+      }
+      else if (target instanceof PsiMethod) {
+        usedType = ((PsiMethod)target).getReturnType();
+      }
       // type annotations are part of target's type and should not to be copied explicitly to avoid duplication
       if (modifierList != null &&
-          !AnnotationTargetUtil.isStrictlyTypeUseAnnotation(modifierList, annotation) &&
+          (!AnnotationTargetUtil.isStrictlyTypeUseAnnotation(modifierList, annotation) ||
+           (usedType != null && !usedType.hasAnnotation(qualifiedName))) &&
           !modifierList.hasAnnotation(qualifiedName)) {
         return modifierList.addAnnotation(qualifiedName);
       }
@@ -131,20 +140,14 @@ public abstract class NullableNotNullManager {
   }
 
   /**
-   * Returns nullability annotation info which has effect for given element.
+   * Returns nullability annotation info which has effect for a given element.
    *
    * @param owner element to find an annotation for
    * @return effective nullability annotation info, or null if not found.
    */
-  public @Nullable NullabilityAnnotationInfo findEffectiveNullabilityInfo(@NotNull PsiModifierListOwner owner) {
-    PsiType type = PsiUtil.getTypeByPsiElement(owner);
-    if (type == null || TypeConversionUtil.isPrimitiveAndNotNull(type)) return null;
+  public abstract @Nullable NullabilityAnnotationInfo findEffectiveNullabilityInfo(@NotNull PsiModifierListOwner owner);
 
-    return CachedValuesManager.getCachedValue(owner, () -> CachedValueProvider.Result
-      .create(doFindEffectiveNullabilityAnnotation(owner), PsiModificationTracker.MODIFICATION_COUNT));
-  }
-
-  private @Nullable NullabilityAnnotationInfo doFindEffectiveNullabilityAnnotation(@NotNull PsiModifierListOwner owner) {
+  protected final @Nullable NullabilityAnnotationInfo doFindEffectiveNullabilityAnnotation(@NotNull PsiModifierListOwner owner) {
     @Nullable NullabilityAnnotationInfo result = findPlainAnnotation(owner, true, false, getAllNullabilityAnnotationsWithNickNames());
     if (result != null) {
       return result;
@@ -251,6 +254,7 @@ public abstract class NullableNotNullManager {
       return new NullabilityAnnotationInfo(memberAnno.annotation, nullability, memberAnno.owner == owner ? null : memberAnno.owner, false);
     }
     if (type instanceof PsiPrimitiveType) return null;
+    if (owner instanceof PsiLocalVariable) return null;
     return findAnnotationInTypeHierarchy(type, annotations);
   }
 

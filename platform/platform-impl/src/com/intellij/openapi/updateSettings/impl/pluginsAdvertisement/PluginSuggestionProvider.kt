@@ -13,18 +13,29 @@ import com.intellij.ui.EditorNotifications
 import org.jetbrains.annotations.ApiStatus
 import java.util.function.Function
 
+/**
+ * Provides a suggestion to install a plugin in the editor based on the file properties and content, usually required in cases when standard
+ * file type and dependency support mappings cannot be applied.
+ *
+ * Implemented only by bundled IDE plugins, must not be used outside of distribution.
+ */
 @ApiStatus.Internal
 interface PluginSuggestionProvider {
-  fun getSuggestion(project: Project, file: VirtualFile): Function<FileEditor, EditorNotificationPanel?>?
+  fun getSuggestion(project: Project, file: VirtualFile): PluginSuggestion?
+}
+
+@ApiStatus.Internal
+interface PluginSuggestion : Function<FileEditor, EditorNotificationPanel?> {
+  val pluginIds: List<String>
 }
 
 internal class DefaultPluginSuggestion(
   private val project: Project,
-  private val pluginIds: List<String>,
+  override val pluginIds: List<String>,
   private val pluginName: String,
   private val fileLabel: String,
   private val suggestionDismissKey: String
-) : Function<FileEditor, EditorNotificationPanel?> {
+) : PluginSuggestion {
   override fun apply(fileEditor: FileEditor): EditorNotificationPanel {
     val panel = EditorNotificationPanel(fileEditor, EditorNotificationPanel.Status.Info)
 
@@ -47,16 +58,19 @@ internal class DefaultPluginSuggestion(
   }
 }
 
+@ApiStatus.Internal
 fun buildSuggestionIfNeeded(project: Project,
                             pluginIds: List<String>,
                             pluginName: String,
                             fileLabel: String,
-                            suggestionDismissKey: String): Function<FileEditor, EditorNotificationPanel?>? {
+                            suggestionDismissKey: String): PluginSuggestion? {
   if (PropertiesComponent.getInstance().isTrueValue(suggestionDismissKey)) return null
 
+  val enabledPlugins = PluginManager.getLoadedPlugins()
   val requiredPluginIds = pluginIds.filter { id ->
     val requiredPluginId = PluginId.getId(id)
-    !PluginManager.isPluginInstalled(requiredPluginId)
+    val isEnabled = enabledPlugins.any { it.pluginId == requiredPluginId }
+    !isEnabled
   }
 
   if (requiredPluginIds.isEmpty()) return null
@@ -68,10 +82,11 @@ fun buildSuggestionIfNeeded(project: Project,
                                  suggestionDismissKey = suggestionDismissKey)
 }
 
+@ApiStatus.Internal
 fun buildSuggestionIfNeeded(project: Project,
                             pluginId: String,
                             pluginName: String,
                             fileLabel: String,
-                            suggestionDismissKey: String): Function<FileEditor, EditorNotificationPanel?>? {
+                            suggestionDismissKey: String): PluginSuggestion? {
   return buildSuggestionIfNeeded(project, listOf(pluginId), pluginName, fileLabel, suggestionDismissKey)
 }

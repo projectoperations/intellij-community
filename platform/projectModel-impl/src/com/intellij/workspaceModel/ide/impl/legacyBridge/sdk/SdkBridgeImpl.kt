@@ -28,6 +28,7 @@ import com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModel
 import org.jdom.Element
 import org.jetbrains.annotations.ApiStatus
 import java.util.function.Function
+import kotlin.io.path.Path
 
 
 // SdkBridgeImpl.clone called from com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel.reset
@@ -68,13 +69,15 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
   override fun getRootProvider(): RootProvider = this
 
   override fun getUrls(rootType: OrderRootType): Array<String> {
-    return sdkEntityBuilder.roots.filter { it.type.name == rootType.customName }
+    val customName = rootType.customName
+    return sdkEntityBuilder.roots.filter { it.type.name == customName }
       .map { it.url.url }
       .toTypedArray()
   }
 
   override fun getFiles(rootType: OrderRootType): Array<VirtualFile> {
-    return sdkEntityBuilder.roots.filter { it.type.name == rootType.customName }
+    val customName = rootType.customName
+    return sdkEntityBuilder.roots.filter { it.type.name == customName }
       .mapNotNull { it.url.virtualFile }
       .toTypedArray()
   }
@@ -135,7 +138,8 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
 
   private fun createSerializer(): JpsSdkEntitySerializer {
     val sortedRootTypes = OrderRootType.getSortedRootTypes().mapNotNull { it.sdkRootName }
-    return JpsGlobalEntitiesSerializers.createSdkSerializer(GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager(), sortedRootTypes)
+    return JpsGlobalEntitiesSerializers.createSdkSerializer(GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager(), sortedRootTypes,
+                                                            Path(PathManager.getOptionsPath()))
   }
 
   fun getRawSdkAdditionalData(): String = sdkEntityBuilder.additionalData
@@ -165,7 +169,7 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
     sdkEntity.applyChangesFrom(sdkEntityBuilder)
   }
 
-  fun getEntity(): SdkEntity = sdkEntityBuilder
+  fun getEntityBuilder(): SdkEntity.Builder = sdkEntityBuilder
 
   override fun toString(): String {
     return "$name Version:$versionString Path:($homePath)"
@@ -182,7 +186,7 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
     fun createEmptySdkEntity(name: String, type: String, homePath: String = "", version: String? = null): SdkEntity.Builder {
       val sdkEntitySource = createEntitySourceForSdk()
       val virtualFileUrlManager = GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager()
-      val homePathVfu = virtualFileUrlManager.getOrCreateFromUri(homePath)
+      val homePathVfu = virtualFileUrlManager.getOrCreateFromUrl(homePath)
       return SdkEntity(name, type, emptyList(), "", sdkEntitySource) {
         this.homePath = homePathVfu
         this.version = version
@@ -191,7 +195,7 @@ class SdkBridgeImpl(private var sdkEntityBuilder: SdkEntity.Builder) : UserDataH
 
     fun createEntitySourceForSdk(): EntitySource {
       val virtualFileUrlManager = GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager()
-      val globalLibrariesFile = virtualFileUrlManager.getOrCreateFromUri(
+      val globalLibrariesFile = virtualFileUrlManager.getOrCreateFromUrl(
         PathManager.getOptionsFile(JpsGlobalEntitiesSerializers.SDK_FILE_NAME).absolutePath)
       return JpsGlobalFileEntitySource(globalLibrariesFile)
     }
@@ -204,6 +208,7 @@ internal fun SdkEntity.Builder.getSdkType(): SdkTypeId {
 
 // At serialization, we have access only to `sdkRootName` so our roots contains only this names
 // that's why we need to associate such names with the actual root type
+@get:ApiStatus.Internal
 val OrderRootType.customName: String
   get() {
     if (this is PersistentOrderRootType) {
@@ -215,6 +220,18 @@ val OrderRootType.customName: String
       return name()
     }
   }
+
+@ApiStatus.Internal
+fun SdkEntity.Builder.applyChangesFrom(fromSdk: SdkEntity.Builder) {
+  name = fromSdk.name
+  type = fromSdk.type
+  version = fromSdk.version
+  homePath = fromSdk.homePath
+  val sdkRoots = fromSdk.roots.mapTo(mutableListOf()) { SdkRoot(it.url, it.type) }
+  roots = sdkRoots
+  additionalData = fromSdk.additionalData
+  entitySource = fromSdk.entitySource
+}
 
 @ApiStatus.Internal
 fun SdkEntity.Builder.applyChangesFrom(fromSdk: SdkEntity) {

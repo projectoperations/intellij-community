@@ -3,6 +3,7 @@ package com.intellij.openapi.externalSystem.autolink
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
 import com.intellij.openapi.progress.blockingContext
@@ -10,6 +11,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus.Internal
 
 /**
  * Allows to show and hide notification about unlinked projects with [systemId].
@@ -35,6 +37,10 @@ interface ExternalSystemUnlinkedProjectAware {
     }
   }
 
+  suspend fun unlinkProject(project: Project, externalProjectPath: String) {
+    throw UnsupportedOperationException()
+  }
+
   fun subscribe(project: Project, listener: ExternalSystemProjectLinkListener, parentDisposable: Disposable)
 
   companion object {
@@ -45,5 +51,18 @@ interface ExternalSystemUnlinkedProjectAware {
     fun getInstance(systemId: ProjectSystemId): ExternalSystemUnlinkedProjectAware? {
       return EP_NAME.findFirstSafe { it.systemId == systemId }
     }
+
+    @JvmStatic
+    @Internal
+    suspend fun unlinkOtherLinkedProjects(project: Project, externalProjectPath: String, systemId: ProjectSystemId) {
+      EP_NAME.forEachExtensionSafeAsync { extension ->
+        if (extension.systemId != systemId && extension.isLinkedProject(project, externalProjectPath)) {
+          LOG.info("Unlinking $systemId project ${externalProjectPath}")
+          extension.unlinkProject(project, externalProjectPath)
+        }
+      }
+    }
   }
 }
+
+private val LOG = logger<ExternalSystemUnlinkedProjectAware>()

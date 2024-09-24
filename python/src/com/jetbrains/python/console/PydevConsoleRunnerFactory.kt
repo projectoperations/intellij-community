@@ -3,20 +3,20 @@ package com.jetbrains.python.console
 
 import com.intellij.execution.target.TargetEnvironment
 import com.intellij.execution.target.value.*
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectRootManager
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.util.PathMapper
+import com.intellij.util.SystemProperties
 import com.jetbrains.python.console.PyConsoleOptions.PyConsoleSettings
 import com.jetbrains.python.remote.PyRemotePathMapper
 import com.jetbrains.python.run.*
 import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory.Companion.findPythonTargetInterpreter
-import com.jetbrains.python.run.PythonScriptCommandLineState.getExpandedWorkingDir
 import com.jetbrains.python.sdk.PythonEnvUtil
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.InvalidPathException
@@ -68,16 +68,9 @@ open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
     val pathMapper = getPathMapper(project, sdk, settingsProvider)
     val envs = settingsProvider.envs.toMutableMap()
     putIPythonEnvFlag(project, envs)
-    if (Registry.`is`("python.use.targets.api")) {
-      val workingDirFunction = getWorkingDirFunction(project, module, pathMapper, settingsProvider)
-      val setupScriptFunction = createSetupScriptFunction(project, module, workingDirFunction, pathMapper, settingsProvider)
-      return TargetedConsoleParameters(project, sdk, workingDirFunction, envs, PyConsoleType.PYTHON, settingsProvider, setupScriptFunction)
-    }
-    else {
-      val workingDir = getWorkingDir(project, module, pathMapper, settingsProvider)
-      val setupFragment = createSetupFragment(module, workingDir, pathMapper, settingsProvider)
-      return ConstantConsoleParameters(project, sdk, workingDir, envs, PyConsoleType.PYTHON, settingsProvider, setupFragment)
-    }
+    val workingDirFunction = getWorkingDirFunction(project, module, pathMapper, settingsProvider)
+    val setupScriptFunction = createSetupScriptFunction(project, module, workingDirFunction, pathMapper, settingsProvider)
+    return TargetedConsoleParameters(project, sdk, workingDirFunction, envs, PyConsoleType.PYTHON, settingsProvider, setupScriptFunction)
   }
 
   override fun createConsoleRunner(project: Project, contextModule: Module?): PydevConsoleRunner {
@@ -171,24 +164,7 @@ open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
           return root.path
         }
       }
-      return System.getProperty("user.home")
-    }
-
-    fun createSetupFragment(module: Module?,
-                            workingDir: String?,
-                            pathMapper: PathMapper?,
-                            settingsProvider: PyConsoleSettings): Array<String> {
-      var customStartScript = settingsProvider.customStartScript
-      if (customStartScript.isNotBlank()) {
-        customStartScript = "\n" + customStartScript
-      }
-      var pythonPath = PythonCommandLineState.collectPythonPath(module, settingsProvider.shouldAddContentRoots(),
-                                                                settingsProvider.shouldAddSourceRoots())
-      if (pathMapper != null) {
-        pythonPath = pathMapper.convertToRemote(pythonPath)
-      }
-      val selfPathAppend = constructPyPathAndWorkingDirCommand(pythonPath, workingDir, customStartScript)
-      return arrayOf(selfPathAppend)
+      return SystemProperties.getUserHome()
     }
 
     private fun makeStartWithEmptyLine(line: String): String {
@@ -216,9 +192,13 @@ open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
       paths.add(getTargetEnvironmentValueForLocalPath(Path.of(projectRoot)))
 
       val targetEnvironmentRequest = findPythonTargetInterpreter(sdk, project)
-      val helpersTargetPath = targetEnvironmentRequest.preparePyCharmHelpers()
-      for (helper in listOf("pycharm", "pydev")) {
-        paths.add(helpersTargetPath.getRelativeTargetPath(helper))
+      val communityHelpers = targetEnvironmentRequest.preparePyCharmHelpers().helpers.find { it.localPath.endsWith("helpers") }
+      if (communityHelpers != null) {
+        for (helper in listOf("pycharm", "pydev")) {
+          paths.add(communityHelpers.targetPathFun.getRelativeTargetPath(helper))
+        }
+      } else {
+        Logger.getInstance(PydevConsoleRunnerFactory::class.java).error("Python Community helpers dir path not found")
       }
 
       val pathStr = paths.joinToStringFunction(separator = ", ", transform = String::toStringLiteral)

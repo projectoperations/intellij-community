@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.fileTemplates.impl;
 
 import com.intellij.application.options.CodeStyle;
@@ -8,7 +8,6 @@ import com.intellij.openapi.components.RoamingType;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.openapi.util.io.StreamUtil;
@@ -67,7 +66,7 @@ final class FTManager {
       String qName = bundled.getQualifiedName();
       FileTemplateBase previous = templates.put(qName, bundled);
       if (previous != null) {
-        LOG.error("Duplicate bundled template " + qName + " [" + template + ", " + previous + ']');
+        LOG.warn("Duplicate bundled template " + qName + " [" + template + ", " + previous + ']');
       }
     }
   }
@@ -102,7 +101,7 @@ final class FTManager {
     }
 
     if (includeDisabled) {
-      return Collections.unmodifiableCollection(sorted);
+      return sorted;
     }
 
     List<FileTemplateBase> list = new ArrayList<>(sorted.size());
@@ -223,7 +222,7 @@ final class FTManager {
     Set<String> processedNames = new HashSet<>();
     List<FileTemplateBase> children = new ArrayList<>();
     FileTypeManager fileTypeManager = FileTypeManager.getInstance();
-    if (!processTemplates((fileName, stream, aBoolean) -> {
+    if (!processLocal((fileName, stream, aBoolean) -> {
       // check it here and not in filter to reuse fileName
       if (fileTypeManager.isFileIgnored(fileName)) {
         return true;
@@ -273,13 +272,6 @@ final class FTManager {
     }
   }
 
-  private boolean processTemplates(Function3<String, InputStream, Boolean, Boolean> processor) {
-    if (!streamProvider.processChildren(getSpec(""), RoamingType.DEFAULT, s -> true, processor)) {
-      if (processLocal(processor)) return false;
-    }
-    return true;
-  }
-
   private boolean processLocal(Function3<String, InputStream, Boolean, Boolean> processor) {
     try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(templateDir,
                                                                  file -> !Files.isDirectory(file) && !Files.isHidden(file))) {
@@ -293,13 +285,12 @@ final class FTManager {
     }
     catch (IOException e) {
       LOG.error(e);
-      return true;
+      return false;
     }
-    return false;
+    return true;
   }
 
-  @NotNull
-  private @NonNls String getSpec(String fileName) {
+  private @NotNull @NonNls String getSpec(String fileName) {
     return FileUtil.toSystemIndependentName(templatePath.resolve(fileName).toString());
   }
 
@@ -321,15 +312,6 @@ final class FTManager {
   }
 
   private String readFile(@NotNull String fileName) {
-    Ref<String> ref = Ref.create();
-    if (streamProvider.read(getSpec(fileName), RoamingType.DEFAULT, inputStream -> {
-      if (inputStream != null) {
-        ref.set(readText(inputStream));
-      }
-      return null;
-    })) {
-      return ref.get();
-    }
     try {
       return Files.readString(templateDir.resolve(fileName));
     }

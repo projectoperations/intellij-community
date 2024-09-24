@@ -6,6 +6,7 @@ import com.intellij.facet.ui.FacetDependentToolWindow;
 import com.intellij.ide.actions.ToolWindowMoveAction.Anchor;
 import com.intellij.ide.actions.ToolWindowViewModeAction.ViewMode;
 import com.intellij.internal.statistic.eventLog.events.EventFields;
+import com.intellij.internal.statistic.eventLog.events.EventPair;
 import com.intellij.internal.statistic.eventLog.events.VarargEventId;
 import com.intellij.internal.statistic.eventLog.validator.ValidationResultType;
 import com.intellij.internal.statistic.eventLog.validator.rules.EventContext;
@@ -23,6 +24,7 @@ import com.intellij.openapi.wm.ext.LibraryDependentToolWindow;
 import com.intellij.openapi.wm.impl.WindowInfoImpl;
 import com.intellij.toolWindow.ToolWindowEventSource;
 import kotlin.Unit;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,6 +48,7 @@ import static com.intellij.openapi.wm.ToolWindowId.*;
  *   in plugin.xml {@link #EP_NAME} or here in {@link ToolWindowCollector#toolwindowAllowList}
  * </p>
  */
+@ApiStatus.Internal
 public final class ToolWindowCollector {
   private static final ExtensionPointName<ToolWindowAllowlistEP> EP_NAME = new ExtensionPointName<>("com.intellij.toolWindowAllowlist");
 
@@ -94,6 +97,18 @@ public final class ToolWindowCollector {
     }
   }
 
+  public void recordResized(@NotNull Project project, @NotNull WindowInfoImpl info, @NotNull Boolean isMaximized) {
+    if (StringUtil.isEmpty(info.getId())) {
+      return;
+    }
+
+    RESIZED.log(project, data -> {
+      addDefaultFields(info.getId(), info, null, data);
+      data.add(WEIGHT.with(info.getWeight()));
+      data.add(IS_MAXIMIZED.with(isMaximized));
+    });
+  }
+
   public void recordActivation(@NotNull Project project,
                                @Nullable String toolWindowId,
                                @Nullable WindowInfoImpl info,
@@ -121,17 +136,24 @@ public final class ToolWindowCollector {
     }
 
     event.log(project, data -> {
-      PluginInfo info = getToolWindowInfo(toolWindowId);
-      data.add(TOOLWINDOW_ID.with(toolWindowId));
-      data.add(EventFields.PluginInfo.with(info));
-      if (windowInfo != null) {
-        data.add(VIEW_MODE.with(ViewMode.fromWindowInfo(windowInfo)));
-        data.add(LOCATION.with(Anchor.fromWindowInfo(windowInfo)));
-      }
-      if (source != null) {
-        data.add(SOURCE.with(source));
-      }
+      addDefaultFields(toolWindowId, windowInfo, source, data);
     });
+  }
+
+  private static void addDefaultFields(@NotNull String toolWindowId,
+                                @Nullable WindowInfoImpl windowInfo,
+                                @Nullable ToolWindowEventSource source,
+                                List<EventPair<?>> data) {
+    PluginInfo info = getToolWindowInfo(toolWindowId);
+    data.add(TOOLWINDOW_ID.with(toolWindowId));
+    data.add(EventFields.PluginInfo.with(info));
+    if (windowInfo != null) {
+      data.add(VIEW_MODE.with(ViewMode.fromWindowInfo(windowInfo)));
+      data.add(LOCATION.with(Anchor.fromWindowInfo(windowInfo)));
+    }
+    if (source != null) {
+      data.add(SOURCE.with(source));
+    }
   }
 
   private static @NotNull PluginInfo getToolWindowInfo(@NotNull String toolWindowId) {

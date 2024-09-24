@@ -8,10 +8,12 @@ import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.projectRoots.SdkTypeId;
 import com.intellij.openapi.roots.ui.configuration.DefaultModulesProvider;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 public abstract class ProjectBuilder {
   public boolean isUpdate() {
@@ -44,5 +46,14 @@ public abstract class ProjectBuilder {
 
   public @Nullable Project createProject(String name, String path) {
     return ProjectManager.getInstance().createProject(name, path);
+  }
+
+  /**
+   * Configure project when it's added to workspace as module.
+   */
+  @ApiStatus.Internal
+  @Nullable
+  public Consumer<Module> createModuleConfigurator() {
+    return null;
   }
 }

@@ -1,0 +1,29 @@
+<idea-plugin>
+  <content>
+    <module name="intellij.platform.settings.local"/>
+    <module name="intellij.libraries.ktor.client"/>
+    <module name="intellij.libraries.ktor.client.cio"/>
+    <module name="intellij.libraries.skiko" />
+    <module name="intellij.libraries.compose.desktop" />
+    <module name="intellij.platform.compose" />
+
+    <module name="intellij.platform.rpc.backend"/>
+    <module name="intellij.platform.kernel.backend"/>
+    <module name="intellij.platform.project.backend"/>
+    <module name="intellij.platform.progress.backend"/>
+
+    <!-- todo navbar is not essential-->
+    <module name="intellij.platform.navbar"/>
+    <module name="intellij.platform.navbar.backend"/>
+    <module name="intellij.platform.navbar.frontend"/>
+    <module name="intellij.platform.navbar.monolith"/>
+    <module name="intellij.platform.clouds"/>
+    <module name="intellij.platform.execution.dashboard"/>
+    <module name="intellij.platform.execution.serviceView"/>
+
+    <module name="intellij.platform.debugger.impl.frontend"/>
+    <module name="intellij.platform.debugger.impl.backend"/>
+
+    <module name="intellij.platform.tips"/>
+  </content>
+</idea-plugin>

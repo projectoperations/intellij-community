@@ -1,8 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.yaml;
 
 import com.intellij.json.JsonSchemaSpellcheckerClient;
 import com.intellij.lang.ASTNode;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.ElementManipulators;
 import com.intellij.psi.PsiElement;
@@ -19,7 +20,7 @@ import org.jetbrains.yaml.psi.YAMLKeyValue;
 import org.jetbrains.yaml.psi.YAMLQuotedText;
 import org.jetbrains.yaml.psi.YAMLScalar;
 
-final class YAMLSpellcheckerStrategy extends SpellcheckingStrategy {
+final class YAMLSpellcheckerStrategy extends SpellcheckingStrategy implements DumbAware {
 
   private final Tokenizer<YAMLQuotedText> myQuotedTextTokenizer = new Tokenizer<>() {
     @Override
@@ -32,9 +33,8 @@ final class YAMLSpellcheckerStrategy extends SpellcheckingStrategy {
     }
   };
 
-  @NotNull
   @Override
-  public Tokenizer<?> getTokenizer(final PsiElement element) {
+  public @NotNull Tokenizer<?> getTokenizer(final PsiElement element) {
     final ASTNode node = element.getNode();
     if (node != null){
       final IElementType type = node.getElementType();
@@ -69,7 +69,7 @@ final class YAMLSpellcheckerStrategy extends SpellcheckingStrategy {
   }
 
   private static class JsonSchemaSpellcheckerClientForYaml extends JsonSchemaSpellcheckerClient {
-    @NotNull private final PsiElement element;
+    private final @NotNull PsiElement element;
 
     protected JsonSchemaSpellcheckerClientForYaml(@NotNull PsiElement element) {
       this.element = element;

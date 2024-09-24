@@ -1,3 +1,5 @@
+// IGNORE_K2
+// !ADD_KOTLIN_API
 package test;
 
 import kotlinApi.*;

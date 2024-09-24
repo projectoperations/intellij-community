@@ -11,8 +11,9 @@ internal class MockSettingsSyncIdeMediator : SettingsSyncIdeMediator {
   internal val files = mutableMapOf<String, String>()
 
   private var exceptionToThrowOnApply: Exception? = null
+  private var exceptionToThrowOnGetInitial: Exception? = null
 
-  override fun applyToIde(snapshot: SettingsSnapshot, settings: SettingsSyncState?) {
+  override suspend fun applyToIde(snapshot: SettingsSnapshot, settings: SettingsSyncState?) {
     if (exceptionToThrowOnApply != null) {
       throw exceptionToThrowOnApply!!
     }
@@ -34,11 +35,18 @@ internal class MockSettingsSyncIdeMediator : SettingsSyncIdeMediator {
   }
 
   override fun getInitialSnapshot(appConfigPath: Path, lastSavedSnapshot: SettingsSnapshot): SettingsSnapshot {
+    if (exceptionToThrowOnGetInitial != null) {
+      throw exceptionToThrowOnGetInitial!!
+    }
     return getAllFilesFromSettingsAsSnapshot(appConfigPath)
   }
 
   fun throwOnApply(exception: Exception) {
     exceptionToThrowOnApply = exception
+  }
+
+  fun throwOnGetInitial(exception: Exception) {
+    exceptionToThrowOnGetInitial = exception
   }
 
   companion object {

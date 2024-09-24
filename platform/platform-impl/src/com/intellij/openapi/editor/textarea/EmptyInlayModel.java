@@ -3,6 +3,7 @@ package com.intellij.openapi.editor.textarea;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.editor.*;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -10,6 +11,7 @@ import java.awt.*;
 import java.util.Collections;
 import java.util.List;
 
+@ApiStatus.Internal
 public final class EmptyInlayModel implements InlayModel {
   @Override
   public @Nullable <T extends EditorCustomElementRenderer> Inlay<T> addInlineElement(int offset,

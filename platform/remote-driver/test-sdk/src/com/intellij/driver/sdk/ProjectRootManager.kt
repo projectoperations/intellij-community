@@ -4,8 +4,9 @@ import com.intellij.driver.client.Driver
 import com.intellij.driver.client.Remote
 import com.intellij.driver.client.service
 import com.intellij.driver.client.utility
+import com.intellij.driver.model.RdTarget
 
-@Remote("com.intellij.openapi.roots.ProjectRootManager")
+@Remote("com.intellij.openapi.roots.ProjectRootManager", rdTarget = RdTarget.BACKEND)
 interface ProjectRootManager {
   fun getContentRoots(): Array<VirtualFile>
 
@@ -14,10 +15,21 @@ interface ProjectRootManager {
   fun setProjectSdk(sdk: Sdk?)
 }
 
-fun Driver.findFile(project: Project? = null, relativePath: String): VirtualFile? {
+@Remote("com.intellij.openapi.roots.ProjectRootManager", rdTarget = RdTarget.FRONTEND)
+interface FrontendProjectRootManager {
+  fun getContentRoots(): Array<VirtualFile>
+}
+
+fun Driver.findFile(relativePath: String, project: Project? = null): VirtualFile? {
   return withReadAction {
-    service<ProjectRootManager>(project ?: singleProject()).getContentRoots()
-      .firstNotNullOfOrNull { it.findFileByRelativePath(relativePath) }
+    if (isRemoteIdeMode) {
+      service<FrontendProjectRootManager>(project ?: singleProject()).getContentRoots()
+        .firstNotNullOfOrNull { it.findFileByRelativePath(relativePath) }
+    } else {
+      // On Frontend the file will not be found unless it was opened previously
+      service<ProjectRootManager>(project ?: singleProject()).getContentRoots()
+        .firstNotNullOfOrNull { it.findFileByRelativePath(relativePath) }
+    }
   }
 }
 
@@ -30,7 +42,9 @@ interface Sdk {
   fun getHomePath(): String?
 }
 
-@Remote(value = "com.jetbrains.performancePlugin.commands.SetupProjectSdkUtil", plugin = "com.jetbrains.performancePlugin")
+@Remote(value = "com.jetbrains.performancePlugin.commands.SetupProjectSdkUtil",
+        plugin = "com.jetbrains.performancePlugin",
+        rdTarget = RdTarget.BACKEND)
 interface SetupProjectSdkUtil {
   fun setupOrDetectSdk(project: Project, name: String, type: String, home: String)
 

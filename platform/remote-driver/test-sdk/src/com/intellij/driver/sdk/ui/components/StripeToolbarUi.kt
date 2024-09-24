@@ -13,14 +13,12 @@ fun Finder.rightToolBar(@Language("xpath") xpath: String = "//div[@class='ToolWi
 
 class ToolWindowToolbarUiComponent(data: ComponentData) : UiComponent(data) {
 
-  private val fixture by lazy { driver.cast(component, ToolWindowToolbarRef::class) }
-
   val moreButton
     get() = x("//div[@class='MoreSquareStripeButton']", UiComponent::class.java)
 
   fun openToolWindowFromMore(title: String) {
     moreButton.click()
-    driver.ui.popup().findAllText().first { it.text == title }.click()
+    driver.ui.popup().waitAnyTexts(text = title).first().click()
   }
 
   fun openToolWindow(title: String) {
@@ -41,11 +39,11 @@ class ToolWindowToolbarUiComponent(data: ComponentData) : UiComponent(data) {
 
 class StripeButtonUiComponent(data: ComponentData) : UiComponent(data) {
 
-  private val fixture by lazy { driver.cast(component, SquareStripeButtonRef::class) }
+  private val stripeButtonComponent by lazy { driver.cast(component, SquareStripeButtonRef::class) }
 
-  fun getTitle() = fixture.toolWindow.getId()
+  fun getTitle() = stripeButtonComponent.toolWindow.getId()
 
-  fun isSelected() = fixture.toolWindow.windowInfo.isVisible
+  fun isSelected() = stripeButtonComponent.toolWindow.windowInfo.isVisible
 }
 
 @Remote("com.intellij.toolWindow.ToolWindowToolbar")

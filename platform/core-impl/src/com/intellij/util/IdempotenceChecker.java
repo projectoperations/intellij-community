@@ -23,12 +23,13 @@ import org.jetbrains.annotations.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 public final class IdempotenceChecker {
   private static final Logger LOG = Logger.getInstance(IdempotenceChecker.class);
   private static final Set<Class<?>> ourReportedValueClasses = Collections.synchronizedSet(new HashSet<>());
-  private static final ThreadLocal<Integer> ourRandomCheckNesting = ThreadLocal.withInitial(() -> 0);
+  private static final ThreadLocal<AtomicInteger> ourRandomCheckNesting = ThreadLocal.withInitial(() -> new AtomicInteger());
   @SuppressWarnings("SSBasedInspection") private static final ThreadLocal<List<String>> ourLog = new ThreadLocal<>();
 
   private static final Supplier<RegistryValue> rateCheckProperty = new SynchronizedClearableLazy<>(() -> {
@@ -77,9 +78,57 @@ public final class IdempotenceChecker {
                                           @Nullable T fresh,
                                           @NotNull Class<?> providerClass,
                                           @Nullable Computable<? extends T> recomputeValue) {
+    checkEquivalence(existing, fresh, providerClass, recomputeValue, null);
+  }
+
+  /**
+   * Perform some basic checks whether the two given objects are equivalent and interchangeable,
+   * as described in e.g {@link com.intellij.psi.util.CachedValue} contract. This method should be used
+   * in places caching results of various computations, which are expected to be idempotent:
+   * they can be performed several times, or on multiple threads, and the results should be interchangeable.<p></p>
+   * <p>
+   * What to do if you get an error from here:
+   * <ul>
+   *   <li>
+   *     Start by looking carefully at the computation (which usually can be found by navigating the stack trace)
+   *     and find out why it could be non-idempotent. See common culprits below.</li>
+   *   <li>
+   *     Add logging inside the computation by using {@link #logTrace}.
+   *   </li>
+   *   <li>
+   *     If the computation is complex and depends on other caches, you could try to perform
+   *     {@code IdempotenceChecker.checkEquivalence()} for their results as well, localizing the error.</li>
+   *   <li>
+   *     If it's a test, you could try reproducing and debugging it. To increase the probability of failure,
+   *     you can temporarily add {@code Registry.get("platform.random.idempotence.check.rate").setValue(1, getTestRootDisposable())}
+   *     to perform the idempotence check on every cache access. Note that this can make your test much slower.
+   *   </li>
+   * </ul>
+   * <p>
+   * Common culprits:
+   * <ul>
+   *   <li>Caching and returning a mutable object (e.g. array or List), which clients then mutate from different threads;
+   *   to fix, either clone the return value or use unmodifiable wrappers</li>
+   *   <li>Depending on a {@link ThreadLocal} or method parameters with different values.</li>
+   *   <li>For failures from {@link #applyForRandomCheck}: outdated cached value (not all dependencies are specified, or their modification counters aren't properly incremented)</li>
+   * </ul>
+   *  @param existing the value computed on the first invocation
+   *
+   * @param fresh               the value computed a bit later, expected to be equivalent
+   * @param providerClass       a class of the function performing the computation, used to prevent reporting the same error multiple times
+   * @param recomputeValue      optionally, a way to recalculate the value one more time with {@link #isLoggingEnabled()} true,
+   *                            and include the log collected via {@link #logTrace} into exception report.
+   * @param contextInfoSupplier a supplier that may provide additional contextual information to log
+   */
+  static <T> void checkEquivalence(@Nullable T existing,
+                                   @Nullable T fresh,
+                                   @NotNull Class<?> providerClass,
+                                   @Nullable Computable<? extends T> recomputeValue,
+                                   @Nullable Supplier<String> contextInfoSupplier) {
     String msg = checkValueEquivalence(existing, fresh);
     if (msg != null) {
-      reportFailure(existing, fresh, providerClass, recomputeValue, msg);
+      reportFailure(existing, fresh, providerClass, recomputeValue,
+                    msg + (contextInfoSupplier == null ? "" : "\n" + contextInfoSupplier.get()));
     }
   }
 
@@ -145,10 +194,10 @@ public final class IdempotenceChecker {
   private static @NonNls String objAndClass(Object o) {
     if (o == null) return "null";
 
-    String s = o.toString();
+    String s = o instanceof Object[] ? Arrays.toString((Object[])o) : o.toString();
     return s.contains(o.getClass().getSimpleName()) || o instanceof String || o instanceof Number || o instanceof Class
            ? s
-           : s + " (class " + o.getClass().getName() + ")";
+           : s + " (" + (o.getClass().isArray() ? o.getClass().getComponentType()+"[]": o.getClass()) + ")";
   }
 
   private static String checkValueEquivalence(@Nullable Object existing, @Nullable Object fresh) {
@@ -213,7 +262,7 @@ public final class IdempotenceChecker {
   }
 
   private static String whichIsField(@NotNull @NonNls String field, @NotNull Object existing, @NotNull Object fresh, @Nullable String msg) {
-    return msg == null ? null : appendDetail(msg, "which is " + field + " of " + existing + " and " + fresh);
+    return msg == null ? null : appendDetail(msg, "which is `." + field + "` of " + existing + " and " + fresh);
   }
 
   private static Object @Nullable [] asArray(@NotNull Object o) {
@@ -353,8 +402,8 @@ public final class IdempotenceChecker {
   public static <T> void applyForRandomCheck(@NotNull T data, @NotNull Object provider, @NotNull Computable<? extends T> recomputeValue) {
     if (areRandomChecksEnabled() && shouldPerformRandomCheck()) {
       RecursionGuard.StackStamp stamp = RecursionManager.markStack();
-      Integer prevNesting = ourRandomCheckNesting.get();
-      ourRandomCheckNesting.set(prevNesting + 1);
+      AtomicInteger prevNesting = ourRandomCheckNesting.get();
+      prevNesting.incrementAndGet();
       try {
         T fresh = recomputeValue.compute();
         if (stamp.mayCacheNow()) {
@@ -362,7 +411,7 @@ public final class IdempotenceChecker {
         }
       }
       finally {
-        ourRandomCheckNesting.set(prevNesting);
+        prevNesting.decrementAndGet();
       }
     }
   }
@@ -374,7 +423,7 @@ public final class IdempotenceChecker {
 
   @TestOnly
   public static boolean isCurrentThreadInsideRandomCheck() {
-    return ourRandomCheckNesting.get() > 0;
+    return ourRandomCheckNesting.get().get() > 0;
   }
 
   /**

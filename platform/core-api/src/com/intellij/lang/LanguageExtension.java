@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.lang;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -7,18 +7,15 @@ import com.intellij.openapi.util.KeyedExtensionCollector;
 import com.intellij.util.KeyedLazyInstance;
 import com.intellij.util.containers.ContainerUtil;
 import kotlinx.collections.immutable.PersistentList;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.*;
 
 import java.util.*;
 
 import static kotlinx.collections.immutable.ExtensionsKt.persistentListOf;
 
 public class LanguageExtension<T> extends KeyedExtensionCollector<T, Language> {
-  private final T myDefaultImplementation;
-  private final /* non static!!! */ Key<T> myCacheKey;
+  private final T defaultImplementation;
+  private final /* non static!!! */ Key<T> cacheKey;
   private final /* non static!!! */ Key<PersistentList<T>> allCacheKey;
 
   public LanguageExtension(final @NotNull ExtensionPointName<? extends KeyedLazyInstance<T>> epName) {
@@ -35,8 +32,8 @@ public class LanguageExtension<T> extends KeyedExtensionCollector<T, Language> {
 
   public LanguageExtension(@NonNls String epName, @Nullable T defaultImplementation) {
     super(epName);
-    myDefaultImplementation = defaultImplementation;
-    myCacheKey = Key.create("EXTENSIONS_IN_LANGUAGE_" + epName);
+    this.defaultImplementation = defaultImplementation;
+    cacheKey = Key.create("EXTENSIONS_IN_LANGUAGE_" + epName);
     allCacheKey = Key.create("ALL_EXTENSIONS_IN_LANGUAGE_" + epName);
   }
 
@@ -71,7 +68,7 @@ public class LanguageExtension<T> extends KeyedExtensionCollector<T, Language> {
   }
 
   private void clearCacheForLanguage(@NotNull Language language) {
-    language.putUserData(myCacheKey, null);
+    language.putUserData(cacheKey, null);
     language.putUserData(allCacheKey, null);
     super.invalidateCacheForExtension(language.getID());
   }
@@ -86,13 +83,13 @@ public class LanguageExtension<T> extends KeyedExtensionCollector<T, Language> {
     }
   }
 
-  public T forLanguage(@NotNull Language l) {
-    T cached = l.getUserData(myCacheKey);
+  public @UnknownNullability T forLanguage(@NotNull Language l) {
+    T cached = l.getUserData(cacheKey);
     if (cached != null) return cached;
 
     T result = findForLanguage(l);
     if (result == null) return null;
-    result = l.putUserDataIfAbsent(myCacheKey, result);
+    result = l.putUserDataIfAbsent(cacheKey, result);
     return result;
   }
 
@@ -103,7 +100,7 @@ public class LanguageExtension<T> extends KeyedExtensionCollector<T, Language> {
         return extensions.get(0);
       }
     }
-    return myDefaultImplementation;
+    return defaultImplementation;
   }
 
   /**
@@ -163,7 +160,7 @@ public class LanguageExtension<T> extends KeyedExtensionCollector<T, Language> {
   }
 
   protected T getDefaultImplementation() {
-    return myDefaultImplementation;
+    return defaultImplementation;
   }
 
   @Override

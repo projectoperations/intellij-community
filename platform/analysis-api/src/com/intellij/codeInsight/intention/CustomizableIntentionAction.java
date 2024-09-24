@@ -47,6 +47,25 @@ public interface CustomizableIntentionAction extends IntentionAction {
   }
 
   /**
+   * @return true if light bulb must be shown when such action is available
+   */
+  default boolean isShowLightBulb() {
+    return true;
+  }
+
+  /**
+   * Define if icon of this action must override the light bulb.
+   * It may be necessary for promoting promising language-specific actions
+   * that get blend in with other intentions.
+   * If there are many custom icons, the default yellow bulb will be shown.
+   *
+   * @see com.intellij.codeInsight.intention.impl.IntentionHintComponent.LightBulbUtil#findSingleCustomBulbIcon
+   */
+  default boolean isOverrideIntentionBulb() {
+    return false;
+  }
+
+  /**
    * Get text specifically for tooltip view
    */
   default @NlsContexts.Tooltip String getTooltipText() {
@@ -60,6 +79,14 @@ public interface CustomizableIntentionAction extends IntentionAction {
    */
   default @NotNull List<RangeToHighlight> getRangesToHighlight(@NotNull Editor editor, @NotNull PsiFile file) {
     return List.of();
+  }
+
+  /**
+   * Determines if there is a separator above the customizable intention action.
+   * @return {@code true} if there is a separator above the action, {@code false} otherwise.
+   */
+  default boolean hasSeparatorAbove() {
+    return false;
   }
 
   /** The highlighting request to be returned from {@link #getRangesToHighlight} */

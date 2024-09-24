@@ -5,7 +5,7 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.plus
 import org.jetbrains.intellij.build.*
-import org.jetbrains.intellij.build.impl.PluginLayout
+import org.jetbrains.intellij.build.impl.qodana.QodanaProductProperties
 import org.jetbrains.intellij.build.io.copyFileToDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -19,43 +19,27 @@ class PyCharmCommunityProperties(private val communityHome: Path) : PyCharmPrope
     applicationInfoModule = "intellij.pycharm.community"
     brandingResourcePaths = listOf(communityHome.resolve("python/resources"))
     customJvmMemoryOptions = persistentMapOf("-Xms" to "256m", "-Xmx" to "1500m")
-    additionalVmOptions += "-Dide.show.tips.on.startup.default.value=false"
     scrambleMainJar = false
     buildSourcesArchive = true
 
-    /* main module for JetBrains Client isn't available in the intellij-community project, 
-       so this property is set only when PyCharm Community is built from the intellij-ultimate project. */
-    embeddedJetBrainsClientMainModule = null
-
-    productLayout.mainModules = listOf("intellij.pycharm.community.main")
     productLayout.productApiModules = listOf("intellij.xml.dom")
     productLayout.productImplementationModules = listOf(
-      "intellij.xml.dom.impl",
-      "intellij.platform.main",
+      "intellij.platform.starter",
       "intellij.pycharm.community",
+      "intellij.platform.whatsNew",
     )
-    productLayout.bundledPluginModules.add("intellij.python.community.plugin")
-    productLayout.bundledPluginModules.add("intellij.pycharm.community.customization")
-    productLayout.bundledPluginModules.add("intellij.ae.database.community")
-    productLayout.bundledPluginModules.add("intellij.vcs.github.community")
-    productLayout.bundledPluginModules.addAll(Files.readAllLines(communityHome.resolve("python/build/plugin-list.txt")))
+    productLayout.bundledPluginModules +=
+      sequenceOf(
+        "intellij.python.community.plugin", // Python language
+        "intellij.pycharm.community.customization", // Convert Intellij to PyCharm
+        "intellij.vcs.github.community") +
+      Files.readAllLines(communityHome.resolve("python/build/plugin-list.txt"))
 
-    productLayout.pluginLayouts = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS.addAll(listOf(
-      PluginLayout.plugin(listOf(
-        "intellij.pycharm.community.customization",
-        "intellij.pycharm.community.ide.impl",
-        "intellij.pycharm.community.ide.impl.promotion",
-        "intellij.jupyter.viewOnly",
-        "intellij.jupyter.core"
-      )
-      ),
-      CommunityRepositoryModules.githubPlugin("intellij.vcs.github.community")
-    )
-    )
     productLayout.pluginModulesToPublish = persistentSetOf("intellij.python.community.plugin")
     baseDownloadUrl = "https://download.jetbrains.com/python/"
 
     mavenArtifacts.forIdeModules = true
+    qodanaProductProperties = QodanaProductProperties("QDPYC", "Qodana Community for Python")
   }
 
   override suspend fun copyAdditionalFiles(context: BuildContext, targetDir: Path) {

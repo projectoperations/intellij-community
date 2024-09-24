@@ -2,54 +2,33 @@
 
 package org.jetbrains.kotlin.j2k
 
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.runWriteAction
-import com.intellij.openapi.roots.LanguageLevelProjectExtension
-import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.pom.java.LanguageLevel
-import com.intellij.util.ThrowableRunnable
+import com.intellij.testFramework.LightProjectDescriptor
+import org.jetbrains.kotlin.idea.base.test.IgnoreTests.DIRECTIVES.IGNORE_K1
+import org.jetbrains.kotlin.idea.base.test.IgnoreTests.DIRECTIVES.IGNORE_K2
 import org.jetbrains.kotlin.idea.base.test.KotlinRoot
-import org.jetbrains.kotlin.idea.caches.PerModulePackageCacheService.Companion.DEBUG_LOG_ENABLE_PerModulePackageCache
 import org.jetbrains.kotlin.idea.test.KotlinLightCodeInsightFixtureTestCase
-import org.jetbrains.kotlin.idea.test.KotlinTestUtils
-import org.jetbrains.kotlin.idea.test.invalidateLibraryCache
-import org.jetbrains.kotlin.idea.test.runAll
+import org.jetbrains.kotlin.idea.test.dumpTextWithErrors
+import org.jetbrains.kotlin.psi.KtFile
 import java.io.File
 
+private val ignoreDirectives: Set<String> = setOf(IGNORE_K1, IGNORE_K2)
+
 abstract class AbstractJavaToKotlinConverterTest : KotlinLightCodeInsightFixtureTestCase() {
-    private var vfsDisposable: Ref<Disposable>? = null
+    override fun getProjectDescriptor(): LightProjectDescriptor = J2K_PROJECT_DESCRIPTOR
 
     override fun setUp() {
         super.setUp()
-        project.DEBUG_LOG_ENABLE_PerModulePackageCache = true
-
-        val testName = getTestName(false)
-        if (testName.contains("Java17") || testName.contains("java17")) {
-            LanguageLevelProjectExtension.getInstance(project).languageLevel = LanguageLevel.JDK_17
-        }
-        vfsDisposable = KotlinTestUtils.allowProjectRootAccess(this)
-        invalidateLibraryCache(project)
-        addFile("KotlinApi.kt", "kotlinApi")
-        addFile("JavaApi.java", "javaApi")
         addJavaLangRecordClass()
-        addJpaColumnAnnotations()
     }
 
-    override fun tearDown() {
-        runAll(
-            ThrowableRunnable { KotlinTestUtils.disposeVfsRootAccess(vfsDisposable) },
-            ThrowableRunnable { project.DEBUG_LOG_ENABLE_PerModulePackageCache = false },
-            ThrowableRunnable { super.tearDown() },
-        )
-    }
-
-    private fun addFile(fileName: String, dirName: String? = null) {
+    protected fun addFile(fileName: String, dirName: String? = null) {
         addFile(File(KotlinRoot.DIR, "j2k/shared/tests/testData/$fileName"), dirName)
     }
 
-    protected fun addFile(file: File, dirName: String?): VirtualFile {
+    protected fun addFile(file: File, dirName: String? = null): VirtualFile {
         return addFile(FileUtil.loadFile(file, true), file.name, dirName)
     }
 
@@ -62,6 +41,18 @@ abstract class AbstractJavaToKotlinConverterTest : KotlinLightCodeInsightFixture
         runWriteAction { virtualFile.delete(this) }
     }
 
+    protected fun getDisableTestDirective(): String =
+        if (isFirPlugin) IGNORE_K2 else IGNORE_K1
+
+    protected fun File.getFileTextWithoutDirectives(): String =
+        readText().getTextWithoutDirectives()
+
+    protected fun String.getTextWithoutDirectives(): String =
+        split("\n").filterNot { it.trim() in ignoreDirectives }.joinToString(separator = "\n")
+
+    protected fun KtFile.getFileTextWithErrors(): String =
+        if (isFirPlugin) getK2FileTextWithErrors(this) else dumpTextWithErrors()
+
     // Needed to make the Kotlin compiler think it is running on JDK 16+
     // see org.jetbrains.kotlin.resolve.jvm.checkers.JvmRecordApplicabilityChecker
     private fun addJavaLangRecordClass() {
@@ -73,7 +64,7 @@ abstract class AbstractJavaToKotlinConverterTest : KotlinLightCodeInsightFixture
         )
     }
 
-    private fun addJpaColumnAnnotations() {
+    protected fun addJpaColumnAnnotations() {
         myFixture.addClass(
             """
             package javax.persistence;
@@ -99,4 +90,31 @@ abstract class AbstractJavaToKotlinConverterTest : KotlinLightCodeInsightFixture
             """.trimIndent()
         )
     }
+
+    // A hack to workaround KTIJ-26751 bug in K2 import optimizer
+    // that leads to trivial test failures.
+    // TODO remove this hack once the optimizer is fixed
+    protected fun removeRedundantImports(actualText: String): String {
+        if (!isFirPlugin) return actualText
+
+        var result = actualText
+        for (regex in redundantImportLines) {
+            result = result.replace(regex, "")
+        }
+
+        return result
+    }
+
+    private val redundantImportLines: List<Regex> = listOf(
+        Regex("""import kotlin\.\w+\n\n"""),
+        Regex("""import kotlin\.\w+\n"""),
+        Regex("""import kotlin\.jvm\..+\n\n"""),
+        Regex("""import kotlin\.jvm\..+\n"""),
+        Regex("""import java\.lang\.\w+\n\n"""),
+        Regex("""import java\.lang\.\w+\n"""),
+        Regex("""import java\.util\.Hash\w+\n\n"""),
+        Regex("""import java\.util\.Hash\w+\n"""),
+        Regex("""import java\.util\.ArrayList\n\n"""),
+        Regex("""import java\.util\.ArrayList\n"""),
+    )
 }

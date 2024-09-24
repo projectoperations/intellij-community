@@ -1,9 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInsight.javadoc;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.JavaCodeInsightTestCase;
+import com.intellij.codeInsight.daemon.impl.quickfix.JetBrainsAnnotationsExternalLibraryResolver;
 import com.intellij.codeInsight.javadoc.JavaDocInfoGenerator;
 import com.intellij.java.codeInsight.JavaExternalDocumentationTest;
 import com.intellij.lang.java.JavaDocumentationProvider;
@@ -20,14 +21,14 @@ import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.platform.testFramework.core.FileComparisonFailedError;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.platform.testFramework.core.FileComparisonFailedError;
 import com.intellij.testFramework.DumbModeTestUtils;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor;
+import com.intellij.testFramework.fixtures.MavenDependencyUtil;
 import com.intellij.util.lang.JavaVersion;
 import com.intellij.util.ui.UIUtil;
 import org.intellij.lang.annotations.Flow;
@@ -41,7 +42,7 @@ import java.util.List;
 public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
   private static final String TEST_DATA_FOLDER = "/codeInsight/javadocIG/";
 
-  private int myJdkVersion = 7;
+  private int myJdkVersion = 21;
 
   @NotNull
   @Override
@@ -59,7 +60,8 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
     super.setUpModule();
     if (!getTestName(false).equals("HideNonDocumentedFlowAnnotations")) {
       ModuleRootModificationUtil.updateModel(
-        myModule, model -> DefaultLightProjectDescriptor.addJetBrainsAnnotations(model));
+        myModule, model -> MavenDependencyUtil.addFromMaven(
+          model, "org.jetbrains:annotations:" + JetBrainsAnnotationsExternalLibraryResolver.getVersion()));
     }
   }
 
@@ -75,11 +77,15 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
   public void testEscapingStringValue() { doTestMethod(); }
   public void testIdeadev2326() { doTestMethod(); }
   public void testMethodTypeParameter() { doTestMethod(); }
+  public void testMethodTypeParameter2() { doTestAtCaret(); }
+  public void testMethodTypeParameter3() { doTestAtCaret(); }
   public void testInheritedDocInThrows() { doTestMethod(); }
   public void testInheritedDocInThrows1() { doTestMethod(); }
+  public void testMultipleThrowsSameType() { doTestMethod(); }
   public void testEscapeValues() { doTestClass(); }
   public void testClassTypeParameter() { doTestClass(); }
   public void testClassTypeParameter1() { doTestClass(); }
+  public void testClassTypeParameter2() { doTestAtCaret(); }
   public void testUnicodeEscapes() { doTestClass(); }
   public void testEnumValueOf() { doTestMethod(); }
   public void testMethodFormatting() { doTestMethod(); }
@@ -90,6 +96,10 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
   public void testInitializerWithReference() { doTestField(); }
   public void testAnnotations() { doTestField(); }
   public void testAnnotationsInParams() { doTestMethod(); }
+  public void testInferredAnnotationsOnArray() { doTestMethod(); }
+  public void testInferredAnnotationsOnArrayMethod() { doTestMethod(); }
+  public void testInferredAnnotationsOnArray2d() { doTestMethod(); }
+  public void testTypeAnnoMultiDimArray() { doTestMethod(); }
   public void testApiNotes() { doTestMethod(); }
   public void testLiteral() { doTestField(); }
   public void testEscapingInLiteral() { doTestField(); }
@@ -109,10 +119,11 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
   public void testHtmlLinkWithRef() { verifyJavaDoc(getTestClass()); }
   public void testMultipleSpacesInLiteral() { useJava8(); verifyJavaDoc(getTestClass()); }
   public void testLegacySpacesInLiteral() { useJava7(); verifyJavaDoc(getTestClass()); }
-  public void testDocumentationForJdkClassWithReferencesToClassesFromJavaLang() { doTestAtCaret(); }
-  public void testDocumentationForUncheckedExceptionsInSupers() { doTestAtCaret(); }
+  public void testDocumentationForJdkClassWithReferencesToClassesFromJavaLang() { useJava7(); doTestAtCaret(); }
+  public void testDocumentationForUncheckedExceptionsInSupers() { useJava7(); doTestAtCaret(); }
   public void testDocumentationForGetterByField() { doTestAtCaret(); }
   public void testParamInJavadoc() { doTestAtCaret(); }
+  public void testParamInMethod() { doTestAtCaret(); }
   public void testExternalLinksInJavadoc() { doTestAtCaret(); }
   public void testLiteralInsideCode() { useJava8(); doTestClass(); }
   public void testSuperJavadocExactResolve() { doTestAtCaret(); }
@@ -126,8 +137,9 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
   public void testTypeAnnotationArray() { useJava8(); doTestAtCaret(); }
   public void testTypeAnnotationClass() { useJava8(); doTestClass(); }
   public void testInlineTagIndex() { useJava9(); doTestClass(); }
-  public void testInlineTagSummary() { useJava10(); doTestClass(); }
+  public void testInlineTagSummary() { doTestClass(); }
   public void testLeadingSpacesInPre() { doTestClass(); }
+  public void testBlockquotePre() { doTestAtCaret(); }
   public void testPreInDeprecated() { doTestClass(); }
   public void testEscapeHtmlInCode() { doTestClass(); }
   public void testEscapeAngleBracketsInCode() { doTestClass(); }
@@ -171,7 +183,38 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
   public void testUnknownInlineMultilineTag() { doTestClass(); }
   public void testUnknownTag() { doTestMethod(); }
   public void testUnknownClassTag() { doTestClass(); }
-  public void testReflectConstructor() { useJava10(); doTestAtCaret(); }
+  public void testReflectConstructor() { doTestAtCaret(); }
+  public void testMarkdownGeneralFeatures() { doTestClass(); }
+  public void testMarkdownCodeBlock(){ doTestClass(); }
+  public void testMarkdownReferenceLink(){ doTestClass(); }
+  public void testMarkdownInheritDoc() {
+    configureByFile();
+    PsiClass outerClass = ((PsiJavaFile) myFile).getClasses()[1];
+    verifyJavaDoc(outerClass.getMethods()[0]);
+  }
+  public void testMarkdownInlineWithTags(){
+    configureByFile();
+    PsiClass outerClass = ((PsiJavaFile) myFile).getClasses()[0];
+    verifyJavaDoc(outerClass.getMethods()[0]);
+  }
+  public void testMarkdownJepExample(){
+    doTestMethod();
+  }
+  public void testHtmlCodeInMarkdown() {
+    doTestMethod();
+  }
+  public void testMarkdownInlineCodeBlock() { doTestClass(); }
+
+  public void testEscapeHtmlCodesInCodeBlock(){
+    doTestClass();
+  }
+  public void testPreTagLeakBeforeCode() {
+    doTestClass();
+  }
+  public void testPreTagStrictBeforeCode(){
+    doTestClass();
+  }
+
 
   public void testRepeatableAnnotations() {
     useJava8();
@@ -275,6 +318,7 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
   }
 
   public void testDocumentationForJdkClassWhenExternalDocIsNotAvailable() {
+    useJava7();
     PsiClass aClass = myJavaFacade.findClass("java.lang.String");
     assertNotNull(aClass);
     verifyJavaDoc(aClass, Collections.singletonList("dummyUrl"));
@@ -284,6 +328,14 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
     DumbModeTestUtils.runInDumbModeSynchronously(myProject, () -> {
       doTestAtCaret();
     });
+  }
+  
+  public void testExternalTypeAnnotations() {
+    PsiClass aClass = myJavaFacade.findClass("java.util.concurrent.CompletableFuture");
+    assertNotNull(aClass);
+    PsiMethod[] whenComplete = aClass.findMethodsByName("whenComplete", false);
+    assertEquals(1, whenComplete.length);
+    verifyJavaDoc(whenComplete[0]);
   }
 
   public void testLibraryPackageDocumentation() {
@@ -422,7 +474,7 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
   }
 
   static void assertEqualsFileText(@NotNull String expectedFile, @NotNull String actual) {
-    String actualText = replaceEnvironmentDependentContent(actual);
+    String actualText = replaceEnvironmentDependentContent(actual).replaceAll("[ \t]+\\n", "\n");
     File htmlPath = new File(expectedFile);
     String expectedText = loadFile(htmlPath);
     if (!StringUtil.equals(expectedText, actualText)) {
@@ -443,11 +495,6 @@ public class JavaDocInfoGeneratorTest extends JavaCodeInsightTestCase {
 
   private void useJava9() {
     myJdkVersion = 9;
-    setUpJdk();
-  }
-
-  private void useJava10() {
-    myJdkVersion = 10;
     setUpJdk();
   }
 

@@ -1,22 +1,20 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.maven
 
-import com.intellij.openapi.externalSystem.project.PackagingModel
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.UserDataHolderEx
-import com.intellij.packaging.artifacts.ModifiableArtifactModel
 import com.intellij.platform.workspace.jps.entities.LibraryDependency
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
+import com.intellij.platform.workspace.jps.entities.modifyModuleEntity
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.util.ArrayUtil
 import org.jetbrains.idea.maven.execution.MavenRunner
 import org.jetbrains.idea.maven.importing.MavenWorkspaceConfigurator
-
 import org.jetbrains.idea.maven.importing.MavenWorkspaceFacetConfigurator
 import org.jetbrains.idea.maven.importing.workspaceModel.getSourceRootUrls
 import org.jetbrains.idea.maven.project.MavenProject
-import org.jetbrains.idea.maven.project.MavenProjectsProcessorTask
-import org.jetbrains.idea.maven.project.MavenProjectsTree
+import org.jetbrains.jps.model.serialization.SerializationConstants
 import org.jetbrains.kotlin.cli.common.arguments.*
 import org.jetbrains.kotlin.config.*
 import org.jetbrains.kotlin.idea.base.platforms.IdePlatformKindProjectStructure
@@ -24,32 +22,29 @@ import org.jetbrains.kotlin.idea.base.util.substringAfterLastOrNull
 import org.jetbrains.kotlin.idea.compiler.configuration.*
 import org.jetbrains.kotlin.idea.facet.*
 import org.jetbrains.kotlin.idea.workspaceModel.*
-import org.jetbrains.kotlin.idea.workspaceModel.CompilerSettingsData
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.idePlatformKind
 import org.jetbrains.kotlin.platform.impl.isKotlinNative
 import org.jetbrains.kotlin.platform.jvm.JvmPlatforms
 import org.jetbrains.kotlin.utils.PathUtil.KOTLIN_JAVA_STDLIB_NAME
 import java.util.stream.Stream
+import kotlin.streams.asStream
 
 class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigurator {
     override fun isFacetDetectionDisabled(project: Project): Boolean {
         return false
     }
 
-    override fun getAdditionalSourceFolders(context: MavenWorkspaceConfigurator.FoldersContext): Stream<String> {
-        return collectSourceDirectories(context.mavenProject).filter {
-            it.first == SourceType.PROD
-        }.map { it.second }.stream()
+    override fun getAdditionalFolders(context: MavenWorkspaceConfigurator.FoldersContext): Stream<MavenWorkspaceConfigurator.AdditionalFolder> {
+        return collectSourceDirectories(context.mavenProject)
+            .map {
+                val type =
+                    if (it.first == SourceType.PROD) MavenWorkspaceConfigurator.FolderType.SOURCE else MavenWorkspaceConfigurator.FolderType.TEST_SOURCE
+                MavenWorkspaceConfigurator.AdditionalFolder(it.second, type)
+            }.asSequence().asStream()
     }
 
-    override fun getAdditionalTestSourceFolders(context: MavenWorkspaceConfigurator.FoldersContext): Stream<String> {
-        return collectSourceDirectories(context.mavenProject).filter {
-            it.first == SourceType.TEST
-        }.map { it.second }.stream()
-    }
-
-    private fun createWorkspaceEntity(module: ModuleEntity): KotlinSettingsEntity =
+    private fun createWorkspaceEntity(module: ModuleEntity): KotlinSettingsEntity.Builder =
         KotlinSettingsEntity(
             KotlinFacetType.INSTANCE.presentableName,
             module.symbolicId,
@@ -59,34 +54,28 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
             emptyList(),
             emptyList(),
             emptySet(),
-            "",
-            "",
             emptyList(),
             false,
             "",
             false,
             emptyList(),
             KotlinModuleKind.DEFAULT,
-            "",
-            CompilerSettingsData("", "", "", true, "lib", true),
-            "",
             emptyList(),
             KotlinFacetSettings.CURRENT_VERSION,
             false,
             module.entitySource
-        ) {
-            this.module = module
-        }
+        )
 
     override fun preProcess(
         storage: MutableEntityStorage,
         module: ModuleEntity,
         project: Project,
-        mavenProject: MavenProject,
-        artifactModel: ModifiableArtifactModel
+        mavenProject: MavenProject
     ) {
         if (!isMigratedToConfigurator) return
-        storage.addEntity(createWorkspaceEntity(module))
+        storage.modifyModuleEntity(module) {
+            this.kotlinSettings += createWorkspaceEntity(module)
+        }
 
         val mavenPlugin = mavenProject.findKotlinMavenPlugin() ?: return
         val currentVersion = mavenPlugin.compilerVersion
@@ -98,12 +87,7 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
         storage: MutableEntityStorage,
         module: ModuleEntity,
         project: Project,
-        mavenProject: MavenProject,
-        mavenTree: MavenProjectsTree,
-        mavenProjectToModuleName: Map<MavenProject, String>,
-        packagingModel: PackagingModel,
-        postTasks: MutableList<MavenProjectsProcessorTask>,
-        userDataHolder: UserDataHolderEx
+        mavenProject: MavenProject
     ) {
         if (!isMigratedToConfigurator) return
 
@@ -116,11 +100,15 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
 
         //detect version
         project.getUserData(KOTLIN_JPS_VERSION_ACCUMULATOR)?.let { version ->
-            KotlinJpsPluginSettings.importKotlinJpsVersionFromExternalBuildSystem(
-                project,
-                version.rawVersion,
-                isDelegatedToExtBuild = MavenRunner.getInstance(project).settings.isDelegateBuildToMaven
-            )
+            // Need to execute this and wait to avoid a race condition
+            ApplicationManager.getApplication().invokeAndWait {
+                KotlinJpsPluginSettings.importKotlinJpsVersionFromExternalBuildSystem(
+                    project,
+                    version.rawVersion,
+                    isDelegatedToExtBuild = MavenRunner.getInstance(project).settings.isDelegateBuildToMaven,
+                    externalSystemId = SerializationConstants.MAVEN_EXTERNAL_SOURCE_ID
+                )
+            }
 
             project.putUserData(KOTLIN_JPS_VERSION_ACCUMULATOR, null)
         }
@@ -130,6 +118,7 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
         kotlinFacetSettings.useProjectSettings = false
 
         // configure facet
+        LOG.debug("Configuring facet")
         with(kotlinFacetSettings) {
             this.compilerArguments = null
             this.targetPlatform = null
@@ -149,6 +138,7 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
             val commonArguments = KotlinCommonCompilerArgumentsHolder.getInstance(project).settings
             if (compilerArguments == null) {
                 val targetPlatform = platform ?: getDefaultTargetPlatform(project)
+                LOG.debug("Detected target platform ", targetPlatform)
 
                 val argumentsForPlatform = IdePlatformKindProjectStructure.getInstance(project)
                     .getCompilerArguments(targetPlatform.idePlatformKind)
@@ -175,6 +165,7 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
             if (shouldInferLanguageLevel) {
                 languageLevel = (if (useProjectSettings) LanguageVersion.fromVersionString(commonArguments.languageVersion) else null)
                     ?: getDefaultLanguageLevel(compilerVersion, coerceRuntimeLibraryVersionToReleased = false)
+                LOG.debug("Inferred languageLevel to ", languageLevel)
             }
 
             if (shouldInferAPILevel) {
@@ -198,14 +189,9 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
                         languageLevel
                     }
                 }
+                LOG.debug("Inferred apiLevel to ", apiLevel)
             }
             // end of initialize
-
-            val apiLevel = apiLevel
-            val languageLevel = languageLevel
-            if (languageLevel != null && apiLevel != null && apiLevel > languageLevel) {
-                this.apiLevel = languageLevel
-            }
             this.pureKotlinSourceFolders = pureKotlinSourceFolders
         }
         // end of facet configuration
@@ -216,6 +202,7 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
         val executionArguments = mavenPlugin.executions
             ?.firstOrNull { it.goals.any { s -> s in compilationGoals } }
             ?.configurationElement?.let { getCompilerArgumentsByConfigurationElement(mavenProject, it, configuredPlatform, project) }
+        LOG.debug("Parsing compiler arguments: ", sharedArguments.args)
         parseCompilerArgumentsToFacetSettings(sharedArguments.args, kotlinFacetSettings, null) //modifiableModelsProvider -> null
         if (executionArguments != null) {
             parseCompilerArgumentsToFacetSettings(executionArguments.args, kotlinFacetSettings, null) //modifiableModelsProvider -> null
@@ -236,14 +223,14 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
         }
 
         val kotlinSettingsEntity = storage.entities(KotlinSettingsEntity::class.java).first { it.module.name == moduleName }
-        storage.modifyEntity(kotlinSettingsEntity) {
+        storage.modifyKotlinSettingsEntity(kotlinSettingsEntity) {
             this.sourceRoots = sourceRoots.toMutableList()
             this.useProjectSettings = kotlinFacetSettings.useProjectSettings
             this.implementedModuleNames = kotlinFacetSettings.implementedModuleNames.toMutableList()
             this.dependsOnModuleNames = kotlinFacetSettings.dependsOnModuleNames.toMutableList()
             this.additionalVisibleModuleNames = kotlinFacetSettings.additionalVisibleModuleNames.toMutableSet()
-            this.productionOutputPath = kotlinFacetSettings.productionOutputPath ?: ""
-            this.testOutputPath = kotlinFacetSettings.testOutputPath ?: ""
+            this.productionOutputPath = kotlinFacetSettings.productionOutputPath
+            this.testOutputPath = kotlinFacetSettings.testOutputPath
             this.sourceSetNames = kotlinFacetSettings.sourceSetNames.toMutableList()
             this.isTestModule = kotlinFacetSettings.isTestModule
             this.externalProjectId = "Maven"
@@ -251,18 +238,16 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
             this.pureKotlinSourceFolders = kotlinFacetSettings.pureKotlinSourceFolders.toMutableList()
             this.kind = kotlinFacetSettings.kind
             this.compilerArguments = CompilerArgumentsSerializer.serializeToString(kotlinFacetSettings.compilerArguments)
-            val compilerSettings = kotlinFacetSettings.compilerSettings
-            this.compilerSettings =
-                if (compilerSettings == null) CompilerSettingsData("", "", "", true, "lib", false)
-                else CompilerSettingsData(
-                    compilerSettings.additionalArguments,
-                    compilerSettings.scriptTemplates,
-                    compilerSettings.scriptTemplatesClasspath,
-                    compilerSettings.copyJsLibraryFiles,
-                    compilerSettings.outputDirectoryForJsLibraryFiles,
-                    true
+            this.compilerSettings = kotlinFacetSettings.compilerSettings?.let {
+                CompilerSettingsData(
+                    it.additionalArguments,
+                    it.scriptTemplates,
+                    it.scriptTemplatesClasspath,
+                    it.copyJsLibraryFiles,
+                    it.outputDirectoryForJsLibraryFiles
                 )
-            this.targetPlatform = kotlinFacetSettings.targetPlatform?.serializeComponentPlatforms() ?: ""
+            }
+            this.targetPlatform = kotlinFacetSettings.targetPlatform?.serializeComponentPlatforms()
         }
     }
 
@@ -274,5 +259,9 @@ class KotlinMavenImporterEx : KotlinMavenImporter(), MavenWorkspaceFacetConfigur
         val jvmTarget =
             Kotlin2JvmCompilerArgumentsHolder.getInstance(project).settings.jvmTarget?.let { JvmTarget.fromString(it) } ?: JvmTarget.JVM_1_8
         return JvmPlatforms.jvmPlatformByTargetVersion(jvmTarget)
+    }
+
+    companion object {
+        private val LOG = logger<KotlinMavenImporterEx>()
     }
 }

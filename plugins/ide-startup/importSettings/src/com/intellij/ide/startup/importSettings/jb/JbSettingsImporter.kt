@@ -1,34 +1,45 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.jb
 
-import com.intellij.codeInspection.ex.ApplicationInspectionProfileManager
 import com.intellij.configurationStore.*
 import com.intellij.configurationStore.schemeManager.SchemeManagerFactoryBase
 import com.intellij.diagnostic.VMOptions
 import com.intellij.ide.fileTemplates.FileTemplatesScheme
 import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.ide.plugins.PluginInstaller
+import com.intellij.ide.plugins.RepositoryHelper
+import com.intellij.ide.plugins.marketplace.MarketplaceRequests
+import com.intellij.ide.startup.importSettings.ImportSettingsBundle
+import com.intellij.ide.startup.importSettings.data.SettingsService
+import com.intellij.ide.startup.importSettings.statistics.ImportSettingsEventsCollector
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.laf.LafManagerImpl
 import com.intellij.openapi.application.*
 import com.intellij.openapi.components.*
+import com.intellij.openapi.components.impl.stores.stateStore
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.keymap.impl.KeymapManagerImpl
 import com.intellij.openapi.options.SchemeManagerFactory
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.updateSettings.impl.UpdateChecker
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.registry.EarlyAccessRegistryManager
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.util.registry.RegistryValueListener
+import com.intellij.profile.codeInspection.InspectionProfileManager
 import com.intellij.psi.codeStyle.CodeStyleSchemes
 import com.intellij.serviceContainer.ComponentManagerImpl
 import com.intellij.ui.ExperimentalUI
+import com.intellij.util.application
 import com.intellij.util.io.copy
+import kotlinx.coroutines.CoroutineScope
 import java.io.FileInputStream
 import java.io.InputStream
 import java.nio.file.FileVisitResult
@@ -72,7 +83,7 @@ class JbSettingsImporter(private val configDirPath: Path,
         KeymapManager.getInstance()
         componentStore.reloadState(KeymapManagerImpl::class.java)
       }
-      if (categories.contains(SettingsCategory.UI)) {
+      if (categories.contains(SettingsCategory.UI) && !ExperimentalUI.wasThemeReset) {
         // ensure component is loaded
         LafManager.getInstance()
         EditorColorsManager.getInstance()
@@ -172,7 +183,7 @@ class JbSettingsImporter(private val configDirPath: Path,
 
     // load code style scheme manager
     CodeStyleSchemes.getInstance()
-    ApplicationInspectionProfileManager.getInstanceImpl()
+    InspectionProfileManager.getInstance()
     val schemeManagerFactory = SchemeManagerFactory.getInstance() as SchemeManagerFactoryBase
     schemeManagerFactory.process {
       progressIndicator.checkCanceled()
@@ -207,12 +218,18 @@ class JbSettingsImporter(private val configDirPath: Path,
 
     withExternalStreamProvider(arrayOf(storageManager, defaultProjectStore.storageManager)) {
       progressIndicator.checkCanceled()
-      componentStore.reloadComponents(changedFileSpecs = componentFiles + schemeFiles,
-                                      deletedFileSpecs = emptyList(),
-                                      componentNames2reload = appComponentNames,
-                                      forceReloadNonReloadable = true)
-      defaultProjectStore.reinitComponents(projectDefaultComponentNames, setOf(defaultProjectStorage), emptySet())
+      application.runReadAction {
+        componentStore.reloadComponents(changedFileSpecs = componentFiles + schemeFiles,
+                                        deletedFileSpecs = emptyList(),
+                                        componentNames2reload = appComponentNames,
+                                        forceReloadNonReloadable = true)
+      }
+      progressIndicator.checkCanceled()
+      application.runReadAction {
+        defaultProjectStore.reinitComponents(projectDefaultComponentNames, setOf(defaultProjectStorage), emptySet())
+      }
     }
+    progressIndicator.checkCanceled()
     JbImportSpecialHandler.postProcess(configDirPath)
     RegistryManager.getInstanceAsync().resetValueChangeListener()
 
@@ -235,7 +252,7 @@ class JbSettingsImporter(private val configDirPath: Path,
     return retval
   }
 
-  private suspend fun withExternalStreamProvider(storageManagers: Array<StateStorageManager>, action: suspend () -> Unit) {
+  private suspend fun withExternalStreamProvider(storageManagers: Array<StateStorageManager>, action: () -> Unit) {
     val provider = ImportStreamProvider(configDirPath)
     for (storageManager in storageManagers) {
       storageManager.addStreamProvider(provider)
@@ -304,7 +321,7 @@ class JbSettingsImporter(private val configDirPath: Path,
     val retval = ArrayList<String>()
     for (entry in dir.listDirectoryEntries()) {
       if (entry.isRegularFile()) {
-        if (prefix.isNullOrEmpty()) {
+        if (prefix.isEmpty()) {
           retval.add(entry.name)
         }
         else {
@@ -382,40 +399,95 @@ class JbSettingsImporter(private val configDirPath: Path,
     return retval
   }
 
-  fun installPlugins(progressIndicator: ProgressIndicator, pluginIds: List<String>) {
-    val importOptions = configImportOptions(progressIndicator, pluginIds)
+  suspend fun installPlugins(
+    coroutineScope: CoroutineScope,
+    progressIndicator: ProgressIndicator,
+    pluginsMap: Map<PluginId, IdeaPluginDescriptor?>,
+  ) {
+    if (!SettingsService.getInstance().pluginIdsPreloaded) {
+      LOG.warn("Couldn't preload plugin ids, which indicates problems with connection. Will use old import")
+      val importOptions = configImportOptions(progressIndicator, pluginsMap.keys)
+      ImportSettingsEventsCollector.jbPluginsOldImport()
+      ConfigImportHelper.migratePlugins(
+        pluginsPath,
+        configDirPath,
+        PathManager.getPluginsDir(),
+        PathManager.getConfigDir(),
+        importOptions
+      ) { false }
+      return
+    }
+    ImportSettingsEventsCollector.jbPluginsNewImport()
+    RepositoryHelper.updatePluginHostsFromConfigDir(configDirPath, LOG)
+    val updateableMap = HashMap(pluginsMap)
+    progressIndicator.text2 = ImportSettingsBundle.message("progress.details.checking.for.plugin.updates")
+    val internalPluginUpdates = UpdateChecker.getInternalPluginUpdates(
+      buildNumber = null,
+      indicator = progressIndicator,
+      updateablePluginsMap = updateableMap
+    )
+    for (pluginDownloader in internalPluginUpdates.pluginUpdates.all) {
+      LOG.info("Downloading ${pluginDownloader.id}")
+      if (pluginDownloader.prepareToInstall(progressIndicator)) {
+        PluginInstaller.unpackPlugin(pluginDownloader.filePath, PathManager.getPluginsDir())
+        LOG.info("Downloaded and unpacked newer version of plugin '${pluginDownloader.id}' : ${pluginDownloader.pluginVersion}")
+      }
+      else {
+        val descriptor = pluginsMap[pluginDownloader.id] ?: continue
+        updateableMap[pluginDownloader.id] = descriptor
+        // failed to download - should copy instead
+        ImportSettingsEventsCollector.jbPluginImportConnectionError()
+        LOG.info("Failed to download a newer version of '${pluginDownloader.id}' : ${pluginDownloader.pluginVersion}. " +
+                 "Will try to copy old version (${descriptor.version}) instead")
+      }
+    }
+    checkPluginsCompatibility(updateableMap, progressIndicator)
+    progressIndicator.text2 = ImportSettingsBundle.message("progress.details.copying.plugins")
     ConfigImportHelper.migratePlugins(
-      pluginsPath,
-      configDirPath,
       PathManager.getPluginsDir(),
-      PathManager.getConfigDir(),
-      importOptions
-    ) { false }
+      updateableMap.values.toList(),
+      LOG
+    )
+  }
+
+  private fun checkPluginsCompatibility(
+    updateablePluginsMap: MutableMap<PluginId, IdeaPluginDescriptor?>,
+    progressIndicator: ProgressIndicator
+  ) {
+    val myIdeData = IDEData.getSelf() ?: return
+    progressIndicator.text2 = ImportSettingsBundle.message("progress.details.checking.plugins.compatibility")
+    val updates = MarketplaceRequests.getNearestUpdate(updateablePluginsMap.keys)
+    for (update in updates) {
+      if (update.compatible)
+        continue
+
+      if (!update.products.contains(myIdeData.marketplaceCode)) {
+        val pluginId = PluginId.findId(update.pluginId) ?: continue
+        LOG.info("Plugins ${update.pluginId} is incompatible with ${myIdeData.fullName}. Will not migrate it")
+        updateablePluginsMap.remove(pluginId)
+      }
+    }
   }
 
   private fun configImportOptions(progressIndicator: ProgressIndicator,
-                                  pluginIds: List<String>): ConfigImportHelper.ConfigImportOptions {
+                                  pluginIds: Collection<PluginId>): ConfigImportHelper.ConfigImportOptions {
     val importOptions = ConfigImportHelper.ConfigImportOptions(LOG)
     importOptions.isHeadless = true
     importOptions.headlessProgressIndicator = progressIndicator
     importOptions.importSettings = object : ConfigImportSettings {
-      private val oldEarlyAccessRegistryTxt = configDirPath.resolve(EarlyAccessRegistryManager.fileName)
       override fun processPluginsToMigrate(newConfigDir: Path,
                                            oldConfigDir: Path,
                                            bundledPlugins: MutableList<IdeaPluginDescriptor>,
                                            nonBundledPlugins: MutableList<IdeaPluginDescriptor>) {
-        nonBundledPlugins.removeIf { !pluginIds.contains(it.pluginId.idString) }
-        bundledPlugins.removeIf { !pluginIds.contains(it.pluginId.idString) }
-      }
-
-      override fun shouldForceCopy(path: Path): Boolean {
-        return path == oldEarlyAccessRegistryTxt
+        nonBundledPlugins.removeIf { !pluginIds.contains(it.pluginId) }
+        bundledPlugins.removeIf { !pluginIds.contains(it.pluginId) }
       }
     }
     return importOptions
   }
 
   fun importRaw() {
+    val startTime = System.currentTimeMillis()
     val externalVmOptionsFile = configDirPath.listDirectoryEntries("*.vmoptions").firstOrNull()
     if (externalVmOptionsFile != null) {
       val currentVMFile = PathManager.getConfigDir().resolve(VMOptions.getFileName())
@@ -428,6 +500,15 @@ class JbSettingsImporter(private val configDirPath: Path,
       ConfigImportHelper.updateVMOptions(PathManager.getConfigDir(), LOG)
     }
     CustomConfigMigrationOption.MigrateFromCustomPlace(configDirPath).writeConfigMarkerFile(PathManager.getConfigDir())
+    migrateLocalization()
+    (System.currentTimeMillis() - startTime).let {
+      LOG.info("Raw import finished in $it ms.")
+      ImportSettingsEventsCollector.jbTotalImportTimeSpent(it)
+    }
+  }
+
+  fun migrateLocalization() {
+    ConfigImportHelper.migrateLocalization(configDirPath, pluginsPath)
   }
 
   internal class ImportStreamProvider(private val configDirPath: Path) : StreamProvider {
@@ -498,8 +579,6 @@ class JbSettingsImporter(private val configDirPath: Path,
     }
 
   }
-
-  companion object {
-    val LOG = logger<JbSettingsImporter>()
-  }
 }
+
+private val LOG = logger<JbSettingsImporter>()

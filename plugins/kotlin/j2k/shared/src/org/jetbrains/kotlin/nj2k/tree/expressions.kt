@@ -17,6 +17,7 @@ abstract class JKExpression : JKAnnotationMemberValue(), PsiOwner by PsiOwnerImp
     protected abstract val expressionType: JKType?
 
     open fun calculateType(typeFactory: JKTypeFactory): JKType? {
+        if (expressionType != null) return expressionType
         val psiType = (psi as? PsiExpression)?.type ?: return null
         return typeFactory.fromPsiType(psiType)
     }
@@ -50,6 +51,7 @@ class JKPrefixExpression(
     override val expressionType: JKType? = null,
 ) : JKUnaryExpression() {
     override var expression by child(expression)
+
     override fun accept(visitor: JKVisitor) = visitor.visitPrefixExpression(this)
 }
 
@@ -59,6 +61,7 @@ class JKPostfixExpression(
     override val expressionType: JKType? = null
 ) : JKUnaryExpression() {
     override var expression by child(expression)
+
     override fun accept(visitor: JKVisitor) = visitor.visitPostfixExpression(this)
 }
 
@@ -72,8 +75,18 @@ class JKQualifiedExpression(
     override fun accept(visitor: JKVisitor) = visitor.visitQualifiedExpression(this)
 }
 
+class JKArrayAccessExpression(
+    receiver: JKExpression,
+    indexExpression: JKExpression,
+    override val expressionType: JKType? = null,
+) : JKExpression() {
+    var receiver: JKExpression by child(receiver)
+    var indexExpression: JKExpression by child(indexExpression)
+    override fun accept(visitor: JKVisitor) = visitor.visitArrayAccessExpression(this)
+}
+
 /**
- * @param shouldBePreserved - parentheses came from original Java code and should be preserved
+ * @param shouldBePreserved - parentheses came from the original Java code and should be preserved
  * (don't run "Remove unnecessary parentheses" inspection on them)
  */
 class JKParenthesizedExpression(
@@ -150,6 +163,9 @@ class JKSuperExpression(
     override fun accept(visitor: JKVisitor) = visitor.visitSuperExpression(this)
 }
 
+/**
+ * @see JKIfElseStatement
+ */
 class JKIfElseExpression(
     condition: JKExpression,
     thenBranch: JKExpression,
@@ -195,17 +211,38 @@ class JKDelegationConstructorCall(
     override fun accept(visitor: JKVisitor) = visitor.visitDelegationConstructorCall(this)
 }
 
+/**
+ * @param canMoveLambdaOutsideParentheses if the last argument is a lambda, it can definitely be printed outside parentheses.
+ * Can be set to `true` for some known library methods.
+ * But for arbitrary methods, we try to determine this information on a best-effort basis in the `JKCodeBuilder`.
+ */
 class JKCallExpressionImpl(
     override var identifier: JKMethodSymbol,
     arguments: JKArgumentList = JKArgumentList(),
     typeArgumentList: JKTypeArgumentList = JKTypeArgumentList(),
     override val expressionType: JKType? = null,
+    val canMoveLambdaOutsideParentheses: Boolean = false
 ) : JKCallExpression() {
     override var typeArgumentList by child(typeArgumentList)
     override var arguments by child(arguments)
+
+    override fun calculateType(typeFactory: JKTypeFactory): JKType? {
+        if (expressionType != null) return expressionType
+
+        // If the call is qualified, we may not save its original PSI in this node,
+        // instead we save it in the parent JKQualifiedExpression
+        val psiType = ((parent as? JKQualifiedExpression)?.psi as? PsiExpression)?.type
+            ?: (this.psi as? PsiExpression)?.type
+            ?: return null
+        return typeFactory.fromPsiType(psiType)
+    }
+
     override fun accept(visitor: JKVisitor) = visitor.visitCallExpressionImpl(this)
 }
 
+/**
+ * @param canMoveLambdaOutsideParentheses - see [JKCallExpressionImpl.canMoveLambdaOutsideParentheses]
+ */
 class JKNewExpression(
     val classSymbol: JKClassSymbol,
     arguments: JKArgumentList,
@@ -213,6 +250,7 @@ class JKNewExpression(
     classBody: JKClassBody = JKClassBody(),
     val isAnonymousClass: Boolean = false,
     override val expressionType: JKType? = null,
+    val canMoveLambdaOutsideParentheses: Boolean = false
 ) : JKExpression() {
     var typeArgumentList by child(typeArgumentList)
     var arguments by child(arguments)
@@ -320,6 +358,7 @@ class JKAssignmentChainLetLink(
 class JKIsExpression(expression: JKExpression, type: JKTypeElement) : JKExpression() {
     var type by child(type)
     var expression by child(expression)
+    var isNegated = false
     override val expressionType: JKType? get() = null
     override fun calculateType(typeFactory: JKTypeFactory) = typeFactory.types.boolean
     override fun accept(visitor: JKVisitor) = visitor.visitIsExpression(this)
@@ -392,6 +431,7 @@ class JKJavaAssignmentExpression(
 ) : JKExpression() {
     var field by child(field)
     var expression by child(expression)
+
     override fun accept(visitor: JKVisitor) = visitor.visitJavaAssignmentExpression(this)
 }
 

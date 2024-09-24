@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins.newui;
 
 import com.intellij.accessibility.AccessibilityUtils;
@@ -9,6 +9,7 @@ import com.intellij.internal.inspector.PropertyBean;
 import com.intellij.internal.inspector.UiInspectorContextProvider;
 import com.intellij.internal.inspector.UiInspectorUtil;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.extensions.PluginId;
@@ -31,6 +32,7 @@ import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.*;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -51,6 +53,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+@ApiStatus.Internal
 public final class ListPluginComponent extends JPanel {
   public static final Color DisabledColor = JBColor.namedColor("Plugins.disabledForeground", new JBColor(0xB1B1B1, 0x696969));
   public static final Color GRAY_COLOR = JBColor.namedColor("Label.infoForeground", new JBColor(Gray._120, Gray._135));
@@ -63,6 +66,7 @@ public final class ListPluginComponent extends JPanel {
   private final LinkListener<Object> mySearchListener;
   private final boolean myMarketplace;
   private final boolean myIsAvailable;
+  private final boolean myIsEssential;
   private @NotNull IdeaPluginDescriptor myPlugin;
   private PluginNode myInstalledPluginMarketplaceNode;
   private final @NotNull PluginsGroup myGroup;
@@ -103,10 +107,12 @@ public final class ListPluginComponent extends JPanel {
     myPluginModel = pluginModel;
     mySearchListener = searchListener;
     myMarketplace = marketplace;
+    PluginId pluginId = plugin.getPluginId();
     boolean compatible = plugin instanceof PluginNode // FIXME: dependencies not available here, hard coded for now
-                         ? !"com.intellij.kmm".equals(plugin.getPluginId().getIdString()) || SystemInfoRt.isMac
-                         : PluginManagerCore.INSTANCE.getIncompatiblePlatform(plugin) == null;
+                         ? !"com.intellij.kmm".equals(pluginId.getIdString()) || SystemInfoRt.isMac
+                         : PluginManagerCore.INSTANCE.getIncompatibleOs(plugin) == null;
     myIsAvailable = (compatible || isInstalledAndEnabled()) && PluginManagementPolicy.getInstance().canEnablePlugin(plugin);
+    myIsEssential = ApplicationInfo.getInstance().isEssentialPlugin(pluginId);
     pluginModel.addComponent(this);
 
     setOpaque(true);
@@ -342,6 +348,7 @@ public final class ListPluginComponent extends JPanel {
 
     myLayout.addButtonComponent(myEnableDisableButton);
     myEnableDisableButton.setOpaque(false);
+    myEnableDisableButton.setEnabled(!myIsEssential);
     myEnableDisableButton.getAccessibleContext()
       .setAccessibleName(IdeBundle.message("plugins.configurable.enable.checkbox.accessible.name"));
   }
@@ -874,6 +881,10 @@ public final class ListPluginComponent extends JPanel {
     return myMarketplace;
   }
 
+  public boolean isEssential() {
+    return myIsEssential;
+  }
+
   public boolean isRestartEnabled() {
     return myRestartButton != null && myRestartButton.isVisible();
   }
@@ -896,6 +907,10 @@ public final class ListPluginComponent extends JPanel {
 
   public void createPopupMenu(@NotNull DefaultActionGroup group,
                               @NotNull List<? extends ListPluginComponent> selection) {
+    if (selection.isEmpty()) {
+      return;
+    }
+
     if (!myIsAvailable) {
       return;
     }
@@ -983,6 +998,10 @@ public final class ListPluginComponent extends JPanel {
 
   public void handleKeyAction(@NotNull KeyEvent event,
                               @NotNull List<? extends ListPluginComponent> selection) {
+    if (selection.isEmpty()) {
+      return;
+    }
+
     // If the focus is not on a ListPluginComponent, the focused component will handle the event.
     Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
     if (event.getKeyCode() == KeyEvent.VK_SPACE && !(focusOwner instanceof ListPluginComponent)) {

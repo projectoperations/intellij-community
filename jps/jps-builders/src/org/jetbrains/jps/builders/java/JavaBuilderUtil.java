@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.builders.java;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -9,6 +9,7 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FileCollectionFactory;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -46,11 +47,6 @@ import java.io.IOException;
 import java.util.*;
 
 public final class JavaBuilderUtil {
-  /**
-   * @deprecated This functionality is obsolete and is not used by dependency analysis anymore. To be removed in future releases
-   */
-  @Deprecated(forRemoval = true)
-  public static final Key<Callbacks.ConstantAffectionResolver> CONSTANT_SEARCH_SERVICE = Key.create("_constant_search_service_");
 
   private static final Logger LOG = Logger.getInstance(Builder.class);
   private static final Key<Set<File>> ALL_AFFECTED_FILES_KEY = Key.create("_all_affected_files_");
@@ -120,6 +116,7 @@ public final class JavaBuilderUtil {
     return pair.second;
   }
 
+  @ApiStatus.Internal
   public static boolean updateMappingsOnRoundCompletion(
     CompileContext context, DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dirtyFilesHolder, ModuleChunk chunk) throws IOException {
 
@@ -128,21 +125,21 @@ public final class JavaBuilderUtil {
     if(isDepGraphEnabled() && graphConfig != null) {
       Delta delta = null;
       BackendCallbackToGraphDeltaAdapter callback = GRAPH_DELTA_CALLBACK_KEY.get(context);
-      
-      if (callback != null) {
-        Set<File> compiledWithErrors = getFilesContainer(context, COMPILED_WITH_ERRORS_KEY);
 
+      NodeSourcePathMapper pathMapper = graphConfig.getPathMapper();
+      Set<File> inputFiles = getFilesContainer(context, FILES_TO_COMPILE_KEY);
+
+      if (callback != null) {
         // Important: in case of errors some sources sent to recompilation might not have corresponding output classes either because a source has compilation errors
         // or because compiler stopped compilation and has not managed to compile some sources.
         // In this case use empty set of delta's "base sources" for dependency calculation, so that only actually recompiled sources will take part in dependency analysis and affected files calculation.
         // Otherwise, some classes that correspond to non-compiled sources might be considered as "deleted" which might result in a large set of affected files,
         // so the next compilation might compile much more files than is actually needed.
-        Iterable<File> inputFiles = Utils.errorsDetected(context)? Collections.emptyList() : Iterators.filter(getFilesContainer(context, FILES_TO_COMPILE_KEY), f -> !compiledWithErrors.contains(f));
-
-        NodeSourcePathMapper pathMapper = graphConfig.getPathMapper();
+        Set<File> deltaBaseSources = Utils.errorsDetected(context)? Collections.emptySet() : inputFiles;
         delta = graphConfig.getGraph().createDelta(
-          Iterators.map(inputFiles, pathMapper::toNodeSource),
-          Iterators.map(getRemovedPaths(chunk, dirtyFilesHolder), pathMapper::toNodeSource)
+          Iterators.map(deltaBaseSources, pathMapper::toNodeSource),
+          Iterators.map(getRemovedPaths(chunk, dirtyFilesHolder), pathMapper::toNodeSource),
+          false
         );
         for (var nodeData : callback.getNodes()) {
           delta.associate(nodeData.getFirst(), nodeData.getSecond());
@@ -158,10 +155,7 @@ public final class JavaBuilderUtil {
       for (Key<?> key : List.of(GRAPH_DELTA_CALLBACK_KEY, FILES_TO_COMPILE_KEY, COMPILED_WITH_ERRORS_KEY, SUCCESSFULLY_COMPILED_FILES_KEY)) {
         key.set(context, null);
       }
-      if (delta == null) {
-        return false;
-      }
-      return updateDependencyGraph(context, delta, chunk, CompilationRound.NEXT, createOrFilter(SKIP_MARKING_DIRTY_FILTERS_KEY.get(context)));
+      return delta != null && updateDependencyGraph(context, delta, chunk, CompilationRound.NEXT, createOrFilter(SKIP_MARKING_DIRTY_FILTERS_KEY.get(context)));
     }
 
     Mappings delta = null;
@@ -195,6 +189,7 @@ public final class JavaBuilderUtil {
    * {@link #registerSuccessfullyCompiled(CompileContext, Collection)} instead.
    */
   @Deprecated
+  @ApiStatus.Internal
   public static boolean updateMappings(CompileContext context,
                                        final Mappings delta,
                                        DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dirtyFilesHolder,
@@ -205,20 +200,25 @@ public final class JavaBuilderUtil {
   }
 
   public static void markDirtyDependenciesForInitialRound(CompileContext context, DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dfh, ModuleChunk chunk) throws IOException {
-    if (hasRemovedPaths(chunk, dfh)) {
-      BuildDataManager dataManager = context.getProjectDescriptor().dataManager;
-      GraphConfiguration graphConfig = dataManager.getDependencyGraph();
-      if (isDepGraphEnabled() && graphConfig != null) {
-        NodeSourcePathMapper mapper = graphConfig.getPathMapper();
+    BuildDataManager dataManager = context.getProjectDescriptor().dataManager;
+    GraphConfiguration graphConfig = dataManager.getDependencyGraph();
+    if (isDepGraphEnabled() && graphConfig != null) {
+      NodeSourcePathMapper mapper = graphConfig.getPathMapper();
+      Set<NodeSource> toCompile = new HashSet<>();
+      dfh.processDirtyFiles((target, file, root) -> toCompile.add(mapper.toNodeSource(file)));
+      if (!toCompile.isEmpty() || hasRemovedPaths(chunk, dfh)) {
         Delta delta = graphConfig.getGraph().createDelta(
-          Collections.emptyList(), Iterators.map(getRemovedPaths(chunk, dfh), mapper::toNodeSource)
+          toCompile, Iterators.map(getRemovedPaths(chunk, dfh), mapper::toNodeSource), true
         );
         updateDependencyGraph(context, delta, chunk, CompilationRound.CURRENT, null);
-        return;
       }
-      final Mappings delta = dataManager.getMappings().createDelta();
-      final Set<File> empty = Collections.emptySet();
-      updateMappings(context, delta, dfh, chunk, empty, empty, CompilationRound.CURRENT, null);
+    }
+    else {
+      if (hasRemovedPaths(chunk, dfh)) {
+        final Mappings delta = dataManager.getMappings().createDelta();
+        final Set<File> empty = Collections.emptySet();
+        updateMappings(context, delta, dfh, chunk, empty, empty, CompilationRound.CURRENT, null);
+      }
     }
   }
 
@@ -530,6 +530,7 @@ public final class JavaBuilderUtil {
     }
 
     if (performIntegrate) {
+      context.processMessage(new ProgressMessage(JpsBuildBundle.message("progress.message.updating.dependency.information.0", chunk.getPresentableShortName())));
       dependencyGraph.integrate(diffResult);
     }
 
@@ -668,9 +669,10 @@ public final class JavaBuilderUtil {
   }
 
   private static final class ModulesBasedFileFilter implements Mappings.DependentFilesFilter {
+    private static final Key<Map<BuildTarget<?>, Set<BuildTarget<?>>>> TARGETS_CACHE_KEY = Key.create("__recursive_target-deps_cache__");
     private final CompileContext myContext;
     private final Set<? extends BuildTarget<?>> myChunkTargets;
-    private final Map<BuildTarget<?>, Set<BuildTarget<?>>> myCache = new HashMap<>();
+    private final Map<BuildTarget<?>, Set<BuildTarget<?>>> myCache;
     private final BuildRootIndex myBuildRootIndex;
     private final BuildTargetIndex myBuildTargetIndex;
 
@@ -679,6 +681,11 @@ public final class JavaBuilderUtil {
       myChunkTargets = chunk.getTargets();
       myBuildRootIndex = context.getProjectDescriptor().getBuildRootIndex();
       myBuildTargetIndex = context.getProjectDescriptor().getBuildTargetIndex();
+      Map<BuildTarget<?>, Set<BuildTarget<?>>> cache = TARGETS_CACHE_KEY.get(context);
+      if (cache == null) {
+        TARGETS_CACHE_KEY.set(context, cache = new HashMap<>());
+      }
+      myCache = cache;
     }
 
     @Override
@@ -691,16 +698,15 @@ public final class JavaBuilderUtil {
       if (myChunkTargets.contains(targetOfFile)) {
         return true;
       }
-      Set<BuildTarget<?>> targetOfFileWithDependencies = myCache.get(targetOfFile);
-      if (targetOfFileWithDependencies == null) {
-        targetOfFileWithDependencies = Iterators.collect(Iterators.recurseDepth(targetOfFile, new Iterators.Function<BuildTarget<?>, Iterable<? extends BuildTarget<?>>>() {
+      Set<BuildTarget<?>> targetOfFileWithDependencies = myCache.computeIfAbsent(
+        targetOfFile,
+        trg -> Iterators.collect(Iterators.recurseDepth(trg, new Iterators.Function<BuildTarget<?>, Iterable<? extends BuildTarget<?>>>() {
           @Override
           public Iterable<? extends BuildTarget<?>> fun(BuildTarget<?> t) {
             return myBuildTargetIndex.getDependencies(t, myContext);
           }
-        }, false), new LinkedHashSet<>());
-        myCache.put(targetOfFile, targetOfFileWithDependencies);
-      }
+        }, false), new HashSet<>())
+      );
       return ContainerUtil.intersects(targetOfFileWithDependencies, myChunkTargets);
     }
 

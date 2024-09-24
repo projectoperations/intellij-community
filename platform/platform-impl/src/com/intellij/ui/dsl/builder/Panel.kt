@@ -33,11 +33,11 @@ interface Panel : CellBase<Panel> {
 
   override fun enabledIf(predicate: ComponentPredicate): Panel
 
-  @Deprecated("Use align(AlignX.LEFT/CENTER/RIGHT/FILL) method instead")
+  @Deprecated("Use align(AlignX.LEFT/CENTER/RIGHT/FILL) method instead", level = DeprecationLevel.HIDDEN)
   @ApiStatus.ScheduledForRemoval
   override fun horizontalAlign(horizontalAlign: HorizontalAlign): Panel
 
-  @Deprecated("Use align(AlignY.TOP/CENTER/BOTTOM/FILL) method instead")
+  @Deprecated("Use align(AlignY.TOP/CENTER/BOTTOM/FILL) method instead", level = DeprecationLevel.HIDDEN)
   @ApiStatus.ScheduledForRemoval
   override fun verticalAlign(verticalAlign: VerticalAlign): Panel
 
@@ -47,7 +47,7 @@ interface Panel : CellBase<Panel> {
 
   override fun gap(rightGap: RightGap): Panel
 
-  @Deprecated("Use customize(UnscaledGaps) instead")
+  @Deprecated("Use customize(UnscaledGaps) instead", level = DeprecationLevel.HIDDEN)
   @ApiStatus.ScheduledForRemoval
   override fun customize(customGaps: Gaps): Panel
 

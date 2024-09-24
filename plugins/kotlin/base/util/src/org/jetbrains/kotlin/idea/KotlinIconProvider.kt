@@ -17,9 +17,8 @@ import com.intellij.util.PlatformIcons
 import org.jetbrains.kotlin.analysis.decompiled.light.classes.KtLightClassForDecompiledDeclarationBase
 import org.jetbrains.kotlin.asJava.classes.KtLightClass
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
-import org.jetbrains.kotlin.asJava.classes.KtLightClassForSourceDeclaration
 import org.jetbrains.kotlin.asJava.elements.KtLightMethod
-import org.jetbrains.kotlin.asJava.elements.LightVariableBuilder
+import org.jetbrains.kotlin.asJava.elements.KtLightParameter
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.fileClasses.JvmFileClassUtil
 import org.jetbrains.kotlin.idea.KotlinIcons.*
@@ -123,7 +122,7 @@ abstract class KotlinIconProvider : IconProvider(), DumbAware {
                 null
             }
 
-            return icon?.let(IconManager.getInstance()::getPlatformIcon) ?: PlatformIcons.PUBLIC_ICON
+            return (icon ?: com.intellij.ui.PlatformIcons.Public).let(IconManager.getInstance()::getPlatformIcon)
         }
 
         private fun PsiFile.scriptIcon(): Icon = when {
@@ -135,7 +134,7 @@ abstract class KotlinIconProvider : IconProvider(), DumbAware {
             is KtPackageDirective -> AllIcons.Nodes.Package
             is KtFile, is KtLightClassForFacade -> FILE
             is KtScript -> (parent as? KtFile)?.scriptIcon()
-            is KtLightClassForSourceDeclaration -> navigationElement.getBaseIcon()
+            is KtLightClass -> navigationElement.getBaseIcon()
             is KtNamedFunction -> when {
                 receiverTypeReference != null ->
                     if (KtPsiUtil.isAbstract(this)) ABSTRACT_EXTENSION_FUNCTION else EXTENSION_FUNCTION
@@ -151,7 +150,7 @@ abstract class KotlinIconProvider : IconProvider(), DumbAware {
                     IconManager.getInstance().getPlatformIcon(com.intellij.ui.PlatformIcons.Method)
                 else -> IconManager.getInstance().getPlatformIcon(com.intellij.ui.PlatformIcons.Method)
             }
-            is LightVariableBuilder -> IconManager.getInstance().getPlatformIcon(com.intellij.ui.PlatformIcons.Variable)
+            is KtLightParameter -> IconManager.getInstance().getPlatformIcon(com.intellij.ui.PlatformIcons.Variable)
             is KtFunctionLiteral -> LAMBDA
             is KtClass -> when {
                 isInterface() -> INTERFACE

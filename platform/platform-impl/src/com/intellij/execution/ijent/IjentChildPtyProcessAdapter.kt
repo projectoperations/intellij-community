@@ -1,12 +1,14 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.ijent
 
 import com.intellij.execution.process.SelfKiller
+import com.intellij.platform.eel.EelProcess
 import com.intellij.platform.ijent.IjentChildProcess
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.pty4j.PtyProcess
 import com.pty4j.WinSize
 import kotlinx.coroutines.CoroutineScope
+import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -18,6 +20,7 @@ import java.util.concurrent.TimeUnit
  *
  * See also [IjentChildProcessAdapter].
  */
+@ApiStatus.Internal
 class IjentChildPtyProcessAdapter(
   coroutineScope: CoroutineScope,
   private val ijentChildProcess: IjentChildProcess,
@@ -25,6 +28,7 @@ class IjentChildPtyProcessAdapter(
   private val delegate = IjentChildProcessAdapterDelegate(
     coroutineScope,
     ijentChildProcess,
+    redirectStderr = false,  // There can't be the stderr in a PTY at all.
   )
 
   override fun toString(): String = "${javaClass.simpleName}($ijentChildProcess)"
@@ -50,7 +54,7 @@ class IjentChildPtyProcessAdapter(
     try {
       delegate.ijentChildProcess.resizePty(columns = winSize.columns, rows = winSize.rows)
     }
-    catch (err: IjentChildProcess.ResizePtyError) {
+    catch (err: EelProcess.ResizePtyError) {
       // The other implementation throw IllegalStateException in such cases.
       throw IllegalStateException(err.message, err)
     }
@@ -82,4 +86,7 @@ class IjentChildPtyProcessAdapter(
 
   override fun onExit(): CompletableFuture<Process> =
     delegate.onExit().thenApply { this }
+
+  override fun tryDestroyGracefully(): Boolean =
+    delegate.tryDestroyGracefully()
 }

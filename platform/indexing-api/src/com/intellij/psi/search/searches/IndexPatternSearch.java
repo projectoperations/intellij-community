@@ -11,6 +11,7 @@ import com.intellij.psi.search.IndexPatternProvider;
 import com.intellij.util.Processor;
 import com.intellij.util.Query;
 import com.intellij.util.QueryExecutor;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -19,6 +20,7 @@ import org.jetbrains.annotations.NotNull;
  * @see IndexPatternProvider
  * @see com.intellij.psi.search.PsiTodoSearchHelper#processFilesWithTodoItems(Processor)
  */
+@Internal
 public abstract class IndexPatternSearch extends ExtensibleQueryFactory<IndexPatternOccurrence, IndexPatternSearch.SearchParameters> {
   public static final ExtensionPointName<QueryExecutor<IndexPatternOccurrence, IndexPatternSearch.SearchParameters>> EP_NAME = ExtensionPointName.create("com.intellij.indexPatternSearch");
   private static IndexPatternSearch ourInstance;
@@ -124,6 +126,19 @@ public abstract class IndexPatternSearch extends ExtensibleQueryFactory<IndexPat
                                                      int startOffset,
                                                      int endOffset) {
     final SearchParameters parameters = new SearchParameters(file, pattern, new TextRange(startOffset, endOffset));
+    return getInstance().createQuery(parameters);
+  }
+
+  /**
+   * Returns a query which can be used to process occurrences of any pattern from the specified provider in the specified text range.
+   * The query is executed by parsing the contents of the file.
+   */
+  @NotNull
+  public static Query<IndexPatternOccurrence> search(@NotNull PsiFile file,
+                                                     @NotNull IndexPatternProvider patternProvider,
+                                                     int startOffset,
+                                                     int endOffset, boolean multiLines) {
+    final SearchParameters parameters = new SearchParameters(file, patternProvider, new TextRange(startOffset, endOffset), multiLines);
     return getInstance().createQuery(parameters);
   }
 

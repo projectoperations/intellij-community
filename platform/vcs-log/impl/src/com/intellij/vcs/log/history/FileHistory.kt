@@ -11,7 +11,7 @@ import com.intellij.openapi.vcs.changes.ChangesUtil
 import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.containers.HashingStrategy
 import com.intellij.util.containers.MultiMap
-import com.intellij.vcs.log.data.index.VcsLogPathsIndex.ChangeKind
+import com.intellij.vcs.log.data.index.ChangeKind
 import com.intellij.vcs.log.graph.api.LinearGraph
 import com.intellij.vcs.log.graph.api.LiteLinearGraph
 import com.intellij.vcs.log.graph.api.permanent.PermanentGraphInfo
@@ -25,7 +25,6 @@ import it.unimi.dsi.fastutil.ints.IntSet
 import org.jetbrains.annotations.ApiStatus
 import java.util.function.BiConsumer
 
-@ApiStatus.Internal
 class FileHistory internal constructor(internal val commitToFileStateMap: Map<Int, CommitFileState>,
                                        internal val processedAdditionsDeletions: Set<AdditionDeletion> = emptySet(),
                                        internal val unmatchedAdditionsDeletions: Set<AdditionDeletion> = emptySet(),
@@ -146,6 +145,7 @@ internal class FileHistoryBuilder(private val startCommit: Int?,
   }
 }
 
+@ApiStatus.Internal
 fun removeTrivialMerges(controller: LinearGraphController,
                         permanentGraphInfo: PermanentGraphInfo<Int>,
                         fileHistoryData: FileHistoryData,
@@ -219,6 +219,7 @@ private fun hideTrivialMerge(collapsedGraph: CollapsedGraph, graph: LiteLinearGr
   }
 }
 
+@ApiStatus.Internal
 abstract class FileHistoryData(internal val startPaths: Collection<FilePath>) {
   // file -> (commitId -> (parent commitId -> change kind))
   private val affectedCommits = CollectionFactory.createCustomHashingStrategyMap<FilePath, Int2ObjectMap<Int2ObjectMap<ChangeKind>>>(FILE_PATH_HASHING_STRATEGY)

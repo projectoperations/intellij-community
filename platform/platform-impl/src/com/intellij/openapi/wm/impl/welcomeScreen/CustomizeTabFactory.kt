@@ -9,6 +9,7 @@ import com.intellij.ide.actions.QuickChangeLookAndFeel
 import com.intellij.ide.actions.ShowSettingsUtilImpl
 import com.intellij.ide.ui.*
 import com.intellij.ide.ui.laf.LafManagerImpl
+import com.intellij.ide.ui.localization.statistics.EventSource
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.application.ApplicationManager
@@ -93,6 +94,8 @@ private class CustomizeTab(val parentDisposable: Disposable) : DefaultWelcomeScr
   private val keymapProperty = propertyGraph.lazyProperty { keymapManager.activeKeymap }
   private val colorBlindnessProperty = propertyGraph.lazyProperty { settings.colorBlindness ?: supportedColorBlindness.firstOrNull() }
   private val adjustColorsProperty = propertyGraph.lazyProperty { settings.colorBlindness != null }
+  private val lafConnection = ApplicationManager.getApplication().getMessageBus().connect(parentDisposable)
+
 
   private var keymapComboBox: ComboBox<Keymap>? = null
   private var colorThemeComboBox: ComboBox<LafReference>? = null
@@ -197,22 +200,30 @@ private class CustomizeTab(val parentDisposable: Disposable) : DefaultWelcomeScr
 
       header(IdeBundle.message("welcome.screen.color.theme.header"), true)
       row(IdeBundle.message("combobox.look.and.feel")) {
-        val themeBuilder = comboBox(LafComboBoxModelWrapper(laf.lafComboBoxModel))
+        val themeBuilder = comboBox(LafComboBoxModelWrapper { laf.lafComboBoxModel })
           .bindItem(lafProperty)
           .accessibleName(IdeBundle.message("welcome.screen.color.theme.header"))
         themeBuilder.component.isSwingPopup = false
         themeBuilder.component.renderer = laf.getLookAndFeelCellRenderer(themeBuilder.component)
 
         colorThemeComboBox = themeBuilder.component
-        checkBox(IdeBundle.message("preferred.theme.autodetect.selector"))
-          .bindSelected(syncThemeProperty)
+        val checkBox = checkBox(IdeBundle.message("preferred.theme.autodetect.selector"))
+        checkBox.bindSelected(syncThemeProperty)
           .applyToComponent {
             isOpaque = false
             isVisible = laf.autodetectSupported
           }
+          .gap(RightGap.SMALL)
 
         themeBuilder.enabledIf(syncThemeAndEditorSchemePredicate.not())
-        cell(laf.settingsToolbar).visibleIf(syncThemeAndEditorSchemePredicate)
+        cell(laf.createSettingsToolbar())
+          .visible(laf.autodetectSupported)
+
+        lafConnection.subscribe(LafManagerListener.TOPIC, LafManagerListener { source: LafManager? ->
+          if (laf.autodetect != syncThemeProperty.get()) {
+            checkBox.selected(laf.autodetect)
+          }
+        })
       }
 
       indent {
@@ -236,12 +247,21 @@ private class CustomizeTab(val parentDisposable: Disposable) : DefaultWelcomeScr
           }.onReset {
             colorAndFontsOptions.reset()
           }.enabledIf(syncThemeAndEditorSchemePredicate.not())
+
+          syncThemeAndEditorSchemePredicate.addListener { isSyncOn ->
+            if (isSyncOn) {
+              colorAndFontsOptions.reset()
+            }
+          }
         }
 
         parentDisposable.whenDisposed {
           colorAndFontsOptions.disposeUIResources()
         }
       }
+
+      header(IdeBundle.message("title.language.and.region"))
+      LanguageAndRegionUi.createContent(this, propertyGraph, parentDisposable, lafConnection, EventSource.WELCOME_SCREEN)
 
       header(IdeBundle.message("title.accessibility"))
 

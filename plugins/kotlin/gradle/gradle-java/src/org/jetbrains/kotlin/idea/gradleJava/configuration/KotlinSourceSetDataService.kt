@@ -33,17 +33,22 @@ import org.jetbrains.kotlin.idea.projectModel.KotlinCompilation
 import org.jetbrains.kotlin.idea.projectModel.KotlinComponent
 import org.jetbrains.kotlin.idea.projectModel.KotlinPlatform
 import org.jetbrains.kotlin.idea.projectModel.KotlinSourceSet
+import org.jetbrains.kotlin.idea.projectModel.KotlinSourceSet.Companion.COMMON_MAIN_SOURCE_SET_NAME
+import org.jetbrains.kotlin.idea.projectModel.KotlinSourceSet.Companion.COMMON_TEST_SOURCE_SET_NAME
 import org.jetbrains.kotlin.platform.IdePlatformKind
 import org.jetbrains.kotlin.platform.JsPlatform
 import org.jetbrains.kotlin.platform.SimplePlatform
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.impl.JvmIdePlatformKind
 import org.jetbrains.kotlin.platform.impl.NativeIdePlatformKind
+import org.jetbrains.kotlin.platform.impl.WasmIdePlatformKind
 import org.jetbrains.kotlin.platform.jvm.JvmPlatform
 import org.jetbrains.kotlin.platform.jvm.JvmPlatforms
 import org.jetbrains.kotlin.platform.jvm.isJvm
 import org.jetbrains.kotlin.platform.konan.NativePlatform
 import org.jetbrains.kotlin.platform.konan.NativePlatforms
+import org.jetbrains.kotlin.platform.wasm.WasmPlatform
+import org.jetbrains.kotlin.platform.wasm.WasmPlatforms
 import org.jetbrains.plugins.gradle.model.data.GradleSourceSetData
 import org.jetbrains.plugins.gradle.util.GradleConstants
 
@@ -85,7 +90,8 @@ class KotlinSourceSetDataService : AbstractProjectDataService<GradleSourceSetDat
             val platform = kotlinSourceSet.actualPlatforms
             val rootModel = modelsProvider.getModifiableRootModel(ideModule)
 
-            if (platform.platforms.any { it != KotlinPlatform.JVM && it != KotlinPlatform.ANDROID }) {
+            if (platform.platforms.any { (it != KotlinPlatform.JVM && it != KotlinPlatform.ANDROID)} ||
+                listOf(COMMON_MAIN_SOURCE_SET_NAME, COMMON_TEST_SOURCE_SET_NAME).contains(sourceSetData.moduleName)) {
                 migrateNonJvmSourceFolders(rootModel, ExternalSystemApiUtil.toExternalSource(nodeToImport.data.owner))
                 populateNonJvmSourceRootTypes(nodeToImport, ideModule)
             }
@@ -119,10 +125,10 @@ class KotlinSourceSetDataService : AbstractProjectDataService<GradleSourceSetDat
 
         private fun SimplePlatform.isRelevantFor(projectPlatforms: List<KotlinPlatform>): Boolean {
             val jvmPlatforms = listOf(KotlinPlatform.ANDROID, KotlinPlatform.JVM, KotlinPlatform.COMMON)
-            val jsPlatforms = listOf(KotlinPlatform.JS, KotlinPlatform.WASM)
             return when (this) {
                 is JvmPlatform -> projectPlatforms.intersect(jvmPlatforms).isNotEmpty()
-                is JsPlatform -> projectPlatforms.intersect(jsPlatforms).isNotEmpty()
+                is JsPlatform -> KotlinPlatform.JS in projectPlatforms
+                is WasmPlatform -> KotlinPlatform.WASM in projectPlatforms
                 is NativePlatform -> KotlinPlatform.NATIVE in projectPlatforms
                 else -> true
             }
@@ -142,6 +148,10 @@ class KotlinSourceSetDataService : AbstractProjectDataService<GradleSourceSetDat
 
             if (this is NativeIdePlatformKind) {
                 return NativePlatforms.nativePlatformByTargetNames(sourceSetModuleData.konanTargets)
+            }
+
+            if (this is WasmIdePlatformKind) {
+                return WasmPlatforms.wasmPlatformByTargetNames(sourceSetModuleData.wasmTargets)
             }
 
             return if (isHmppModule) {
@@ -285,15 +295,10 @@ class KotlinSourceSetDataService : AbstractProjectDataService<GradleSourceSetDat
                     modelsProvider.findIdeModule(data)?.name
                 }
 
-                if (kotlinSourceSet.isTestModule) {
-                    testOutputPath = (kotlinSourceSet.compilerArguments as? K2JSCompilerArguments)?.outputDir
-                        ?: (kotlinSourceSet.compilerArguments as? K2JSCompilerArguments)?.outputFile
-                    productionOutputPath = null
-                } else {
-                    productionOutputPath = (kotlinSourceSet.compilerArguments as? K2JSCompilerArguments)?.outputDir
-                        ?: (kotlinSourceSet.compilerArguments as? K2JSCompilerArguments)?.outputFile
-                    testOutputPath = null
-                }
+                testOutputPath = (compilerArguments as? K2JSCompilerArguments)?.outputDir
+                    ?: (compilerArguments as? K2JSCompilerArguments)?.outputFile
+                productionOutputPath = (compilerArguments as? K2JSCompilerArguments)?.outputDir
+                    ?: (compilerArguments as? K2JSCompilerArguments)?.outputFile
             }
 
             return kotlinFacet
@@ -302,6 +307,7 @@ class KotlinSourceSetDataService : AbstractProjectDataService<GradleSourceSetDat
 }
 
 private const val KOTLIN_NATIVE_TARGETS_PROPERTY = "konanTargets"
+private const val KOTLIN_WASM_TARGETS_PROPERTY = "wasmTargets"
 
 var ModuleData.konanTargets: Set<String>
     get() {
@@ -309,6 +315,13 @@ var ModuleData.konanTargets: Set<String>
         return if (value.isNotEmpty()) value.split(',').toSet() else emptySet()
     }
     set(value) = setProperty(KOTLIN_NATIVE_TARGETS_PROPERTY, value.takeIf { it.isNotEmpty() }?.joinToString(","))
+
+var ModuleData.wasmTargets: Set<String>
+    get() {
+        val value = getProperty(KOTLIN_WASM_TARGETS_PROPERTY) ?: return emptySet()
+        return if (value.isNotEmpty()) value.split(',').toSet() else emptySet()
+    }
+    set(value) = setProperty(KOTLIN_WASM_TARGETS_PROPERTY, value.takeIf { it.isNotEmpty() }?.joinToString(","))
 
 private fun populateNonJvmSourceRootTypes(sourceSetNode: DataNode<GradleSourceSetData>, module: Module) {
     val sourceFolderManager = SourceFolderManager.getInstance(module.project)

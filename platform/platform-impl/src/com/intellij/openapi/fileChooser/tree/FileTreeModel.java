@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileChooser.tree;
 
 import com.intellij.execution.wsl.WSLDistribution;
@@ -196,7 +196,7 @@ public final class FileTreeModel extends AbstractTreeModel implements InvokerSup
     for (VirtualFile parent : parents) {
       for (Root root : roots) {
         Entry<Node> entry = root.tree.findEntry(parent);
-        if (entry != null) {
+        if (entry != null && !entry.isLoadingRequired()) {
           UpdateResult<Node> update = root.updateChildren(state, entry);
           //TODO:listeners.isEmpty
           boolean removed = !update.getRemoved().isEmpty();
@@ -363,7 +363,7 @@ public final class FileTreeModel extends AbstractTreeModel implements InvokerSup
     }
 
     private void addRoots(@NotNull List<Root> roots, @NotNull List<Root> rootsToAdd) {
-      if (rootsToAdd.size() > 0) {
+      if (!rootsToAdd.isEmpty()) {
         if (LOG.isDebugEnabled()) {
           LOG.debug("Adding " + toRootFiles(rootsToAdd));
         }

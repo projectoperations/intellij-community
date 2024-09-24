@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.folding.impl;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -18,24 +18,22 @@ import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.ex.FoldingModelEx;
 import com.intellij.openapi.extensions.ExtensionPointListener;
 import com.intellij.openapi.extensions.PluginDescriptor;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.fileEditor.impl.text.CodeFoldingState;
-import com.intellij.openapi.fileEditor.impl.text.foldingGrave.FoldingModelGrave;
-import com.intellij.openapi.fileEditor.impl.text.foldingGrave.FoldingState;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.UserDataHolderEx;
 import com.intellij.psi.LanguageInjector;
-import com.intellij.psi.PsiCompiledFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.KeyedLazyInstance;
 import com.intellij.util.SlowOperations;
 import com.intellij.util.concurrency.ThreadingAssertions;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.WeakList;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -43,18 +41,20 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 public final class CodeFoldingManagerImpl extends CodeFoldingManager implements Disposable {
   private static final Key<Boolean> FOLDING_STATE_KEY = Key.create("FOLDING_STATE_KEY");
+  private static final Key<Boolean> ASYNC_FOLDING_UPDATE = Key.create("ASYNC_FOLDING_UPDATE");
+  private static final Key<Map<TextRange, Boolean>> ASYNC_FOLDING_CACHE = Key.create("ASYNC_FOLDING_CACHE");
+  private static final Key<Boolean> AUTO_CREATED = Key.create("AUTO_CREATED");
+
   private final Project myProject;
   private final Collection<Document> myDocumentsWithFoldingInfo = new WeakList<>();
   private final Key<DocumentFoldingInfo> myFoldingInfoInDocumentKey = Key.create("FOLDING_INFO_IN_DOCUMENT_KEY");
-  private final FoldingModelGrave myFoldingGrave;
 
   public CodeFoldingManagerImpl(Project project) {
     myProject = project;
-    myFoldingGrave = project.getService(FoldingModelGrave.class);
-    myFoldingGrave.subscribeEditorClosed();
 
     LanguageFolding.EP_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
       @Override
@@ -100,8 +100,8 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
   }
 
   @Override
+  @RequiresEdt
   public void releaseFoldings(@NotNull Editor editor) {
-    ThreadingAssertions.assertEventDispatchThread();
     EditorFoldingInfo.disposeForEditor(editor);
   }
 
@@ -139,7 +139,6 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
       return null;
     }
 
-    FoldingState zombie = raiseZombie(document, file);
     List<RegionInfo> regionInfos = FoldingUpdate.getFoldingsFor(file, true);
 
     boolean supportsDumbModeFolding = FoldingUpdate.supportsDumbModeFolding(file);
@@ -151,25 +150,8 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
       if (!foldingModel.isFoldingEnabled()) return;
       if (isFoldingsInitializedInEditor(editor)) return;
       if (DumbService.isDumb(myProject) && !supportsDumbModeFolding) return;
-      if (zombie != null) {
-        boolean applied = zombie.applyState(document, foldingModel);
-        if (!applied) {
-          updateAndInitFolding(editor, foldingModel, file, regionInfos);
-        }
-      }
-      else {
-        updateAndInitFolding(editor, foldingModel, file, regionInfos);
-      }
+      updateAndInitFolding(editor, foldingModel, file, regionInfos);
     };
-  }
-
-  private @Nullable FoldingState raiseZombie(@NotNull Document document, @NotNull PsiFile file) {
-    if (file instanceof PsiCompiledFile) {
-      // disable folding cache if there is no following folding pass IDEA-341064
-      // com.intellij.codeInsight.daemon.impl.TextEditorBackgroundHighlighterKt.IGNORE_FOR_COMPILED
-      return null;
-    }
-    return myFoldingGrave.raise(FileDocumentManager.getInstance().getFile(document));
   }
 
   private void updateAndInitFolding(Editor editor, FoldingModelEx foldingModel, PsiFile file, List<RegionInfo> regionInfos) {
@@ -186,8 +168,40 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
     return region.getUserData(UpdateFoldRegionsOperation.COLLAPSED_BY_DEFAULT);
   }
 
+  public void setCollapsedByDefault(@NotNull FoldRegion region, boolean isCollapsed) {
+    region.putUserData(UpdateFoldRegionsOperation.COLLAPSED_BY_DEFAULT, isCollapsed);
+  }
+
   public void markForUpdate(FoldRegion region) {
     UpdateFoldRegionsOperation.UPDATE_REGION.set(region, Boolean.TRUE);
+  }
+
+  public void markUpdated(FoldRegion region) {
+    UpdateFoldRegionsOperation.UPDATE_REGION.set(region, null);
+  }
+
+  public static void markAsAutoCreated(@NotNull FoldRegion region) {
+    AUTO_CREATED.set(region, true);
+  }
+
+  public static boolean isAutoCreated(@Nullable FoldRegion region) {
+    return AUTO_CREATED.isIn(region);
+  }
+
+  public static Map<TextRange, Boolean> getAsyncExpandStatusMap(@Nullable Editor editor) {
+    return ASYNC_FOLDING_CACHE.get(editor);
+  }
+
+  public static void setAsyncExpandStatusMap(@Nullable Editor editor, @Nullable Map<TextRange, Boolean> regionExpansionStates) {
+    ASYNC_FOLDING_CACHE.set(editor, regionExpansionStates);
+  }
+
+  public static void markAsAsyncFoldingUpdater(@Nullable Editor editor) {
+    ASYNC_FOLDING_UPDATE.set(editor, true);
+  }
+
+  public static boolean isAsyncFoldingUpdater(@Nullable Editor editor) {
+    return ASYNC_FOLDING_UPDATE.get(editor) == Boolean.TRUE;
   }
 
   @Override
@@ -301,7 +315,7 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
     return info;
   }
 
-  private static boolean isFoldingsInitializedInEditor(@NotNull Editor editor) {
+  static boolean isFoldingsInitializedInEditor(@NotNull Editor editor) {
     return Boolean.TRUE.equals(editor.getUserData(FOLDING_STATE_KEY));
   }
 }

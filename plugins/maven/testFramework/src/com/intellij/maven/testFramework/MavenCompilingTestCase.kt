@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.compiler.CompileScope
 import com.intellij.openapi.compiler.CompilerMessageCategory
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.progress.blockingContextScope
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl
 import com.intellij.openapi.roots.JdkOrderEntry
 import com.intellij.openapi.roots.ModuleRootManager
@@ -23,15 +24,33 @@ import java.io.IOException
 import java.util.*
 
 abstract class MavenCompilingTestCase : MavenMultiVersionImportingTestCase() {
-  protected fun compileModules(vararg moduleNames: String) {
-    compile(createModulesCompileScope(*moduleNames))
+  protected suspend fun compileModules(vararg moduleNames: String) {
+    // blockingContextScope here because we want to propagate cancellation to invokeAndWait
+    blockingContextScope {
+      compile(createModulesCompileScope(*moduleNames))
+    }
   }
 
   @Throws(Exception::class)
-  protected fun compileFile(moduleName: String, file: VirtualFile) {
+  protected suspend fun rebuildProject() {
+    val tester = CompilerTester(project, listOf(), null)
+    try {
+      blockingContextScope {
+        tester.rebuild()
+      }
+    }
+    finally {
+      tester.tearDown()
+    }
+  }
+
+  @Throws(Exception::class)
+  protected suspend fun compileFile(moduleName: String, file: VirtualFile) {
     val tester = CompilerTester(project, listOf(getModule(moduleName)), null)
     try {
-      tester.compileFiles(file)
+      blockingContextScope {
+        tester.compileFiles(file)
+      }
     }
     finally {
       tester.tearDown()
@@ -93,6 +112,14 @@ abstract class MavenCompilingTestCase : MavenMultiVersionImportingTestCase() {
 
   protected fun assertCopied(path: String) {
     assertTrue(File(projectPom.parent.path, path).exists())
+  }
+
+  protected fun assertExists(path: String) {
+    assertCopied(path)
+  }
+
+  protected fun assertDoesNotExist(path: String) {
+    assertNotCopied(path)
   }
 
   @Throws(IOException::class)

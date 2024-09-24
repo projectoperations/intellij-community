@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.application.options.CodeStyle;
@@ -90,8 +90,8 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
 
     extend(CompletionType.BASIC, PsiJavaPatterns.psiElement().inside(PsiDocComment.class), new CompletionProvider<>() {
       @Override
-      protected void addCompletions(@NotNull final CompletionParameters parameters,
-                                    @NotNull final ProcessingContext context,
+      protected void addCompletions(final @NotNull CompletionParameters parameters,
+                                    final @NotNull ProcessingContext context,
                                     @NotNull CompletionResultSet result) {
         final PsiElement position = parameters.getPosition();
         boolean isArg = PsiJavaPatterns.psiElement().afterLeaf("(").accepts(position);
@@ -138,9 +138,9 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
 
     extend(CompletionType.SMART, THROWS_TAG_EXCEPTION, new CompletionProvider<>() {
       @Override
-      public void addCompletions(@NotNull final CompletionParameters parameters,
-                                 @NotNull final ProcessingContext context,
-                                 @NotNull final CompletionResultSet result) {
+      public void addCompletions(final @NotNull CompletionParameters parameters,
+                                 final @NotNull ProcessingContext context,
+                                 final @NotNull CompletionResultSet result) {
         final PsiElement element = parameters.getPosition();
         final Set<PsiClass> throwsSet = new HashSet<>();
         final PsiMethod method = PsiTreeUtil.getContextOfType(element, PsiMethod.class, true);
@@ -221,8 +221,7 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
     });
   }
 
-  @NotNull
-  private List<LookupElement> completeJavadocReference(PsiElement position, PsiJavaReference ref) {
+  private @NotNull List<LookupElement> completeJavadocReference(PsiElement position, PsiJavaReference ref) {
     JavaCompletionProcessor processor = new JavaCompletionProcessor(position, TrueFilter.INSTANCE, JavaCompletionProcessor.Options.CHECK_NOTHING, Conditions.alwaysTrue());
     ref.processVariants(processor);
     return ContainerUtil.map(processor.getResults(), (completionResult) -> {
@@ -265,7 +264,7 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
   }
 
   @Override
-  public void fillCompletionVariants(@NotNull final CompletionParameters parameters, @NotNull final CompletionResultSet result) {
+  public void fillCompletionVariants(final @NotNull CompletionParameters parameters, final @NotNull CompletionResultSet result) {
     PsiElement position = parameters.getPosition();
     if (position instanceof PsiDocToken && ((PsiDocToken)position).getTokenType() == JavaDocTokenType.DOC_TAG_VALUE_TOKEN) {
       PsiElement parent = position.getParent();
@@ -335,8 +334,7 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
     }
   }
 
-  @NotNull
-  private static LookupElementBuilder wrapIntoCodeTag(LookupElementBuilder element) {
+  private static @NotNull LookupElementBuilder wrapIntoCodeTag(LookupElementBuilder element) {
     String tagText = "{@code " + element.getLookupString() + "}";
     return element.withPresentableText(tagText).withInsertHandler(
       (context, item) -> context.getDocument().replaceString(context.getStartOffset(), context.getTailOffset(), tagText));
@@ -378,8 +376,7 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
     return c == '.' || Character.isJavaIdentifierPart(c);
   }
 
-  @NotNull
-  private static <T extends LookupElement> InsertHandler<T> wrapIntoLinkTag(InsertHandler<T> delegate) {
+  private static @NotNull <T extends LookupElement> InsertHandler<T> wrapIntoLinkTag(InsertHandler<T> delegate) {
     return (context, item) -> {
       Document document = context.getDocument();
 
@@ -434,7 +431,7 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
   private static class TagChooser extends CompletionProvider<CompletionParameters> {
 
     @Override
-    protected void addCompletions(@NotNull final CompletionParameters parameters, @NotNull final ProcessingContext context, @NotNull final CompletionResultSet result) {
+    protected void addCompletions(final @NotNull CompletionParameters parameters, final @NotNull ProcessingContext context, final @NotNull CompletionResultSet result) {
       final PsiElement position = parameters.getPosition();
 
       final boolean isInline = position.getContext() instanceof PsiInlineDocTag;
@@ -452,8 +449,7 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
     }
   }
 
-  @NotNull
-  private static List<String> getTags(PsiElement position, boolean isInline) {
+  private static @NotNull List<String> getTags(PsiElement position, boolean isInline) {
     final PsiDocComment comment = PsiTreeUtil.getParentOfType(position, PsiDocComment.class);
     assert comment != null;
     JavadocTagInfo[] infos = getTagInfos(position, comment);
@@ -608,6 +604,8 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
       PsiElement element = context.getFile().findElementAt(signatureOffset - 1);
       final CodeStyleSettings styleSettings = CodeStyle.getSettings(context.getFile());
       PsiDocTag tag = PsiTreeUtil.getParentOfType(element, PsiDocTag.class);
+      final PsiMarkdownReferenceLink link = tag == null ? PsiTreeUtil.getParentOfType(element, PsiMarkdownReferenceLink.class) : null;
+
       if (context.getCompletionChar() == Lookup.REPLACE_SELECT_CHAR && tag != null) {
         PsiDocTagValue valueElement = tag.getValueElement();
         int valueEnd = valueElement != null ? valueElement.getTextRange().getEndOffset() : -1;
@@ -624,22 +622,33 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
       String methodName = method.getName();
       int beforeParenth = signatureOffset + methodName.length();
       PsiParameter[] parameters = method.getParameterList().getParameters();
-      String signature = "(" +
-                         StringUtil.join(parameters,
-                                         p -> TypeConversionUtil.erasure(p.getType()).getCanonicalText(),
-                                         "," + (styleSettings.getCommonSettings(JavaLanguage.INSTANCE).SPACE_AFTER_COMMA ? " " : "")) +
-                         ")";
+
+      String signatureSeparator = "," + (styleSettings.getCommonSettings(JavaLanguage.INSTANCE).SPACE_AFTER_COMMA ? " " : "");
+      String signatureContent = link == null
+                                 ? StringUtil.join(parameters,
+                                                   p -> TypeConversionUtil.erasure(p.getType()).getCanonicalText(),
+                                                   signatureSeparator)
+                                 : StringUtil.join(parameters,
+                                                   p -> escapeBrackets(TypeConversionUtil.erasure(p.getType()).getCanonicalText()),
+                                                   signatureSeparator);
+      String signature = "(" + signatureContent + ")";
+
       String insertString = methodName + signature;
-      if (!(tag instanceof PsiInlineDocTag)) {
-        insertString += " ";
-      }
-      else {
+      if (tag instanceof PsiInlineDocTag) {
         if (chars.charAt(signatureOffset) == '}') {
           afterSharp++;
         }
         else {
           insertString += "} ";
         }
+      }
+      else if (link != null) {
+        if(chars.charAt(signatureOffset) == ']') {
+          afterSharp++;
+        }
+      }
+      else {
+        insertString += " ";
       }
 
       document.insertString(signatureOffset, insertString);
@@ -653,6 +662,11 @@ public final class JavaDocCompletionContributor extends CompletionContributor im
       if (parameters.length > 0) {
         startParameterListTemplate(context, editor, document, project, paramListMarker);
       }
+    }
+
+    /** @return Escaped brackets to conform with the JEP-467 */
+    private static String escapeBrackets(String input) {
+      return input.replace("[", "\\[").replace("]", "\\]");
     }
 
     private static void startParameterListTemplate(@NotNull InsertionContext context,

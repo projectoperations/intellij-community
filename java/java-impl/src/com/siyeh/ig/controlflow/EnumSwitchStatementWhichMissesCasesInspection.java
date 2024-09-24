@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2024 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -52,8 +52,7 @@ public final class EnumSwitchStatementWhichMissesCasesInspection extends Abstrac
   @SuppressWarnings("PublicField")
   public boolean ignoreSwitchStatementsWithDefault = true;
 
-  @NotNull
-  static @InspectionMessage String buildErrorString(String enumName, Set<String> names) {
+  static @NotNull @InspectionMessage String buildErrorString(String enumName, Set<String> names) {
     if (names.size() == 1) {
       return InspectionGadgetsBundle
         .message("enum.switch.statement.which.misses.cases.problem.descriptor.single", enumName, names.iterator().next());
@@ -73,9 +72,8 @@ public final class EnumSwitchStatementWhichMissesCasesInspection extends Abstrac
     return Set.of(JavaFeature.ENUMS);
   }
 
-  @NotNull
   @Override
-  public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
+  public @NotNull PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
     return new JavaElementVisitor() {
       @Override
       public void visitSwitchStatement(@NotNull PsiSwitchStatement statement) {
@@ -92,7 +90,7 @@ public final class EnumSwitchStatementWhichMissesCasesInspection extends Abstrac
         if (expression == null) return;
         final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(expression.getType());
         if (aClass == null || !aClass.isEnum()) return;
-        Set<String> constants = StreamEx.of(aClass.getAllFields()).select(PsiEnumConstant.class).map(PsiEnumConstant::getName)
+        Set<String> constants = StreamEx.of(aClass.getFields()).select(PsiEnumConstant.class).map(PsiEnumConstant::getName)
           .toCollection(LinkedHashSet::new);
         if (constants.isEmpty()) return;
         boolean hasDefault = false;

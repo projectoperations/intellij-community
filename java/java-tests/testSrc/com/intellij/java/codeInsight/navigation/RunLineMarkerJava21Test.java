@@ -1,14 +1,40 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInsight.navigation;
 
 import com.intellij.codeInsight.daemon.GutterMark;
+import com.intellij.codeInsight.daemon.LineMarkerInfo;
+import com.intellij.execution.application.ApplicationRunLineMarkerProvider;
+import com.intellij.execution.lineMarker.RunLineMarkerContributor;
+import com.intellij.icons.AllIcons;
 import com.intellij.pom.java.LanguageLevel;
+import com.intellij.psi.*;
+import com.intellij.testFramework.DumbModeTestUtils;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 
 import java.util.List;
 
 public class RunLineMarkerJava21Test extends LightJavaCodeInsightFixtureTestCase {
+
+  public void testBasic() {
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_11, () -> {
+      myFixture.configureByText("MainTest.java", """
+      class A{
+        public static void main<caret>(String[] args) {
+        }
+      }
+      """);
+      List<GutterMark> marks = myFixture.findGuttersAtCaret();
+      assertEquals(1, marks.size());
+      GutterMark mark = marks.get(0);
+      assertTrue(mark instanceof LineMarkerInfo.LineMarkerGutterIconRenderer);
+      LineMarkerInfo.LineMarkerGutterIconRenderer gutterIconRenderer = (LineMarkerInfo.LineMarkerGutterIconRenderer)mark;
+      PsiElement element = gutterIconRenderer.getLineMarkerInfo().getElement();
+      assertEquals(AllIcons.RunConfigurations.TestState.Run, gutterIconRenderer.getIcon());
+      assertTrue(element instanceof PsiIdentifier);
+      assertEquals("main", element.getText());
+    });
+  }
 
   public void testImplicitAllowsNonStatic() {
     IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_21_PREVIEW, () -> {
@@ -20,6 +46,7 @@ public class RunLineMarkerJava21Test extends LightJavaCodeInsightFixtureTestCase
       assertEquals(1, marks.size());
     });
   }
+
 
   public void testClassWithConstructorWithoutParamsAndInstanceMainIsAllowed() {
     IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_21_PREVIEW, () -> {
@@ -158,6 +185,17 @@ public class RunLineMarkerJava21Test extends LightJavaCodeInsightFixtureTestCase
     });
   }
 
+  public void testStaticMainMethodInSuperClass() {
+    myFixture.addClass("public class B { public static void main(String[] args) {} }");
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_21, () -> {
+      myFixture.configureByText("MainTest.java", """
+      class A implements B {}
+      """);
+      List<GutterMark> marks = myFixture.findAllGutters();
+      assertEquals(1, marks.size());
+    });
+  }
+
   public void testAbstractInstanceMainMethodInSuperInterface() {
     myFixture.addClass("public interface B {  void main(); }");
     IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_22_PREVIEW, () -> {
@@ -214,7 +252,7 @@ public class RunLineMarkerJava21Test extends LightJavaCodeInsightFixtureTestCase
             public static void main(String[] args) {
                 System.out.println("main with parameters");
             }
-                
+        
             static void main() {
                 System.out.println("main without parameters");
             }
@@ -233,14 +271,47 @@ public class RunLineMarkerJava21Test extends LightJavaCodeInsightFixtureTestCase
               int hello() {
                   return 1;
               }
-          
+        
               public static void main(String[] args) {
-          
+        
               }
           }
         """);
       List<GutterMark> marks = myFixture.findAllGutters();
       assertEquals(2, marks.size()); // class and one method
+    });
+  }
+
+  public void testImplicitClassDumbMode() {
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_21_PREVIEW, () -> {
+      PsiJavaFile file = (PsiJavaFile) myFixture.configureByText("MainTest.java", """
+        void main<caret>() {
+        }
+        """);
+      PsiClass implicitClass = file.getClasses()[0];
+      PsiMethod mainMethod = implicitClass.getMethods()[0];
+      ApplicationRunLineMarkerProvider provider = new ApplicationRunLineMarkerProvider();
+      DumbModeTestUtils.runInDumbModeSynchronously(getProject(), () -> {
+        RunLineMarkerContributor.Info info = provider.getInfo(mainMethod.getNameIdentifier());
+        assertNotNull(info);
+      });
+    });
+  }
+
+  public void testClassWithMainMethodDumbMode() {
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_21_PREVIEW, () -> {
+      PsiJavaFile file = (PsiJavaFile) myFixture.configureByText("MainTest.java", """
+        public class MainTest<caret>{
+          public static void main<caret>() {
+          }
+        }
+        """);
+      PsiClass psiClass = file.getClasses()[0];
+      ApplicationRunLineMarkerProvider provider = new ApplicationRunLineMarkerProvider();
+      DumbModeTestUtils.runInDumbModeSynchronously(getProject(), () -> {
+        RunLineMarkerContributor.Info info = provider.getInfo(psiClass.getNameIdentifier());
+        assertNotNull(info);
+      });
     });
   }
 }

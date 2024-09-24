@@ -1,7 +1,6 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.internal.inspector.components;
 
-import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.actions.BaseNavigateToSourceAction;
 import com.intellij.ide.ui.laf.darcula.ui.DarculaSeparatorUI;
@@ -9,7 +8,7 @@ import com.intellij.idea.ActionsBundle;
 import com.intellij.internal.InternalActionsBundle;
 import com.intellij.internal.inspector.PropertyBean;
 import com.intellij.internal.inspector.UiInspectorAction;
-import com.intellij.internal.inspector.UiInspectorUtil;
+import com.intellij.internal.inspector.UiInspectorImpl;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction;
@@ -22,6 +21,7 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.DimensionService;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.pom.Navigatable;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.JBSplitter;
@@ -40,6 +40,8 @@ import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import javax.swing.tree.TreePath;
 import java.awt.*;
@@ -106,61 +108,6 @@ public final class InspectorWindow extends JDialog implements Disposable {
         updateHighlighting();
       }
     };
-    DataProvider provider = dataId -> {
-      if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
-        return new Navigatable() {
-          final String selectedClassName = findSelectedClassName();
-
-          @Override
-          public void navigate(boolean requestFocus) {
-            if (selectedClassName != null) {
-              UiInspectorUtil.openClassByFqn(myProject, selectedClassName, requestFocus);
-            }
-          }
-
-          @Override
-          public boolean canNavigate() {
-            return selectedClassName != null;
-          }
-
-          @Override
-          public boolean canNavigateToSource() {
-            return canNavigate();
-          }
-
-          private String findSelectedClassName() {
-            if (myHierarchyTree.hasFocus()) {
-              if (!myComponents.isEmpty()) {
-                return myComponents.get(0).getClass().getName();
-              }
-              else {
-                TreePath path = myHierarchyTree.getSelectionPath();
-                if (path != null) {
-                  Object obj = path.getLastPathComponent();
-                  if (obj instanceof HierarchyTree.ComponentNode) {
-                    Component comp = ((HierarchyTree.ComponentNode)obj).getComponent();
-                    if (comp != null) {
-                      return comp.getClass().getName();
-                    }
-                  }
-                }
-              }
-            }
-            else if (myInspectorTable.getTable().hasFocus()) {
-              int row = myInspectorTable.getTable().getSelectedRow();
-              String value = myInspectorTable.getCellTextValue(row, 1);
-              // remove hashcode, properties description, take first from enumeration
-              String[] parts = value.split("[@,\\[]");
-              return parts[0];
-            }
-            return null;
-          }
-        };
-      }
-      return null;
-    };
-    DataManager.registerDataProvider(getRootPane(), provider);
-
     Splitter splitPane = new JBSplitter(false, "UiInspector.splitter.proportion", 0.5f);
     splitPane.setSecondComponent(myWrapperPanel);
     splitPane.setFirstComponent(new JBScrollPane(myHierarchyTree));
@@ -176,6 +123,8 @@ public final class InspectorWindow extends JDialog implements Disposable {
     actions.add(new ShowDataContextAction());
     actions.addSeparator();
     actions.add(new MyNavigateAction());
+    actions.addSeparator();
+    actions.add(new ShowAccessibilityIssuesAction());
 
     ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.CONTEXT_TOOLBAR, actions, true);
     toolbar.setTargetComponent(getRootPane());
@@ -238,6 +187,13 @@ public final class InspectorWindow extends JDialog implements Disposable {
     });
     updateHighlighting();
     getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "CLOSE");
+  }
+
+  @Override
+  protected JRootPane createRootPane() {
+    JRootPane rp = new MyRootPane();
+    rp.setOpaque(true);
+    return rp;
   }
 
   public static String getDimensionServiceKey() {
@@ -408,6 +364,58 @@ public final class InspectorWindow extends JDialog implements Disposable {
     }
   }
 
+  private String findSelectedClassName() {
+    if (myHierarchyTree.hasFocus()) {
+      if (!myComponents.isEmpty()) {
+        return myComponents.get(0).getClass().getName();
+      }
+      else {
+        TreePath path = myHierarchyTree.getSelectionPath();
+        if (path != null) {
+          Object obj = path.getLastPathComponent();
+          if (obj instanceof HierarchyTree.ComponentNode) {
+            Component comp = ((HierarchyTree.ComponentNode)obj).getComponent();
+            if (comp != null) {
+              return comp.getClass().getName();
+            }
+          }
+        }
+      }
+    }
+    else if (myInspectorTable.getTable().hasFocus()) {
+      int row = myInspectorTable.getTable().getSelectedRow();
+      String value = myInspectorTable.getCellTextValue(row, 1);
+      // remove hashcode, properties description, take first from enumeration
+      String[] parts = value.split("[@,\\[]");
+      return parts[0];
+    }
+    return null;
+  }
+
+  private class MyRootPane extends JRootPane implements UiDataProvider {
+    @Override
+    public void uiDataSnapshot(@NotNull DataSink sink) {
+      String selectedClassName = findSelectedClassName();
+      if (selectedClassName == null) return;
+      sink.set(CommonDataKeys.NAVIGATABLE, new Navigatable() {
+        @Override
+        public void navigate(boolean requestFocus) {
+          UiInspectorImpl.openClassByFqn(myProject, selectedClassName, requestFocus);
+        }
+
+        @Override
+        public boolean canNavigate() {
+          return true;
+        }
+
+        @Override
+        public boolean canNavigateToSource() {
+          return true;
+        }
+      });
+    }
+  }
+
   private final class ToggleHighlightAction extends MyTextAction {
     private ToggleHighlightAction() {
       super(IdeBundle.messagePointer("action.Anonymous.text.highlight"));
@@ -427,6 +435,50 @@ public final class InspectorWindow extends JDialog implements Disposable {
     @Override
     public @NotNull ActionUpdateThread getActionUpdateThread() {
       return ActionUpdateThread.EDT;
+    }
+  }
+
+  private final class ShowAccessibilityIssuesAction extends MyTextAction {
+    private final boolean isAccessibilityAuditEnabled = Registry.is("ui.inspector.accessibility.audit", false);
+    private boolean showAccessibilityIssues = false;
+
+    private ShowAccessibilityIssuesAction() {
+      super(InternalActionsBundle.messagePointer("action.Anonymous.text.ShowAccessibilityIssues"));
+    }
+
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      showAccessibilityIssues = !showAccessibilityIssues;
+
+      updateTreeWithAccessibilityStatus();
+    }
+
+    @Override
+    public void update(@NotNull AnActionEvent e) { e.getPresentation().setEnabledAndVisible(isAccessibilityAuditEnabled); }
+
+    @Override
+    public @NotNull ActionUpdateThread getActionUpdateThread() { return ActionUpdateThread.BGT; }
+
+    private void updateTreeWithAccessibilityStatus() {
+      TreeUtil.visitVisibleRows(myHierarchyTree, path -> {
+        Object node = path.getLastPathComponent();
+        if (node instanceof HierarchyTree.ComponentNode componentNode) {
+          if (showAccessibilityIssues) {
+            Component c = componentNode.getComponent();
+
+            if (c instanceof Accessible a) {
+              AccessibleContext ac = a.getAccessibleContext();
+              componentNode.runAccessibilityTests(ac);
+            }
+          } else {
+            componentNode.clearAccessibilityTestsResult();
+          }
+        }
+
+        return TreeVisitor.Action.CONTINUE;
+      });
+
+      myHierarchyTree.repaint();
     }
   }
 

@@ -2,46 +2,47 @@
 
 package org.jetbrains.kotlin.j2k
 
+import com.intellij.openapi.actionSystem.ex.ActionUtil
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiManager
-import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
 import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider
+import org.jetbrains.kotlin.idea.base.test.IgnoreTests
 import org.jetbrains.kotlin.idea.codeinsight.utils.commitAndUnblockDocument
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils
 import org.jetbrains.kotlin.idea.test.KotlinWithJdkAndRuntimeLightProjectDescriptor
-import org.jetbrains.kotlin.idea.test.dumpTextWithErrors
 import org.jetbrains.kotlin.idea.test.withCustomCompilerOptions
 import org.jetbrains.kotlin.idea.util.application.executeWriteCommand
-import org.jetbrains.kotlin.j2k.J2kConverterExtension.Kind.*
+import org.jetbrains.kotlin.j2k.J2kConverterExtension.Kind.K1_NEW
+import org.jetbrains.kotlin.j2k.J2kConverterExtension.Kind.K2
 import org.jetbrains.kotlin.psi.KtFile
 import java.io.File
 
 abstract class AbstractJavaToKotlinConverterMultiFileTest : AbstractJavaToKotlinConverterTest() {
+    override fun getProjectDescriptor(): KotlinWithJdkAndRuntimeLightProjectDescriptor =
+        KotlinWithJdkAndRuntimeLightProjectDescriptor()
+
     fun doTest(dirPath: String) {
         val directory = File(dirPath)
-        val filesToConvert = directory.listFiles { _, name -> name.endsWith(".java") }!!
-        val firstFileText = filesToConvert.first().readText()
-        withCustomCompilerOptions(firstFileText, project, module) {
-            doTest(directory, filesToConvert)
+        val filesToConvert = directory.listFiles { _, name -> name.endsWith(".java") }!!.sortedBy { it.name }
+        val firstFile = filesToConvert.first()
+
+        IgnoreTests.runTestIfNotDisabledByFileDirective(firstFile.toPath(), getDisableTestDirective()) {
+            withCustomCompilerOptions(firstFile.readText(), project, module) {
+                doTest(directory, filesToConvert)
+            }
         }
     }
 
-    @OptIn(KtAllowAnalysisOnEdt::class)
-    private fun doTest(directory: File, filesToConvert: Array<File>) {
+    @OptIn(KaAllowAnalysisOnEdt::class)
+    private fun doTest(directory: File, filesToConvert: List<File>) {
         val psiManager = PsiManager.getInstance(project)
 
         val psiFilesToConvert = filesToConvert.map { javaFile ->
-            val expectedFileName = "${javaFile.nameWithoutExtension}.external"
-            val expectedFiles = directory.listFiles { _, name ->
-                name == "$expectedFileName.kt" || name == "$expectedFileName.java"
-            }!!.filterNotNull()
-            for (expectedFile in expectedFiles) {
-                addFile(expectedFile, dirName = null)
-            }
-
-            val virtualFile = addFile(javaFile, "test")
+            val virtualFile = addFile(javaFile, dirName = "test")
             psiManager.findFile(virtualFile) as PsiJavaFile
         }
 
@@ -52,25 +53,25 @@ abstract class AbstractJavaToKotlinConverterMultiFileTest : AbstractJavaToKotlin
             }.orEmpty()
 
         val externalPsiFiles = externalFiles.map { file ->
-            val virtualFile = addFile(file, "test")
+            val virtualFile = addFile(file, dirName = "test")
             val psiFile = psiManager.findFile(virtualFile)!!
             assert(psiFile is PsiJavaFile || psiFile is KtFile)
             psiFile
         }
 
-        val j2kKind = if (KotlinPluginModeProvider.isK2Mode()) K2 else K1_NEW
-        val extension = J2kConverterExtension.extension(j2kKind)
-        val converter = extension.createJavaToKotlinConverter(project, module, ConverterSettings.defaultSettings)
-        val postProcessor = extension.createPostProcessor()
+        var r: FilesResult? = null
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(
+            { r = convertFilesToKotlin(psiFilesToConvert) }, "", true, project)
 
-        val (results, externalCodeProcessor) = converter.filesToKotlin(psiFilesToConvert, postProcessor)
-        val process = externalCodeProcessor?.prepareWriteOperation(progress = null)
+        val (results, externalCodeProcessor) = r!!
+        val externalUsagesFixerProcess = externalCodeProcessor?.prepareWriteOperation(progress = null)
 
         fun expectedResultFile(i: Int) = File(filesToConvert[i].path.replace(".java", ".kt"))
 
         val resultFiles = psiFilesToConvert.mapIndexed { i, javaFile ->
             deleteFile(javaFile.virtualFile)
-            val virtualFile = addFile(results[i], expectedResultFile(i).name, "test")
+            val kotlinFileText = results[i].getTextWithoutDirectives()
+            val virtualFile = addFile(kotlinFileText, expectedResultFile(i).name, dirName = "test")
             psiManager.findFile(virtualFile) as KtFile
         }
 
@@ -84,22 +85,31 @@ abstract class AbstractJavaToKotlinConverterMultiFileTest : AbstractJavaToKotlin
         }
 
         project.executeWriteCommand("") {
-            process?.invoke()
+            externalUsagesFixerProcess?.invoke()
         }
 
         for ((i, kotlinFile) in resultFiles.withIndex()) {
-            KotlinTestUtils.assertEqualsToFile(expectedResultFile(i), kotlinFile.dumpTextWithErrors())
+            val expectedFile = expectedResultFile(i)
+            val actualText = kotlinFile.getFileTextWithErrors()
+            val actualTextWithoutRedundantImports = removeRedundantImports(actualText)
+            KotlinTestUtils.assertEqualsToFile(expectedFile, actualTextWithoutRedundantImports)
         }
 
         for ((externalFile, externalPsiFile) in externalFiles.zip(externalPsiFiles)) {
             val expectedFile = File(externalFile.path + ".expected")
             val resultText = when (externalPsiFile) {
-                is KtFile -> externalPsiFile.dumpTextWithErrors()
+                is KtFile -> externalPsiFile.getFileTextWithErrors()
                 else -> externalPsiFile.text
             }
             KotlinTestUtils.assertEqualsToFile(expectedFile, resultText)
         }
     }
 
-    override fun getProjectDescriptor() = KotlinWithJdkAndRuntimeLightProjectDescriptor()
+    private fun convertFilesToKotlin(psiFilesToConvert: List<PsiJavaFile>): FilesResult {
+        val j2kKind = if (KotlinPluginModeProvider.isK2Mode()) K2 else K1_NEW
+        val extension = J2kConverterExtension.extension(j2kKind)
+        val converter = extension.createJavaToKotlinConverter(project, module, ConverterSettings.defaultSettings)
+        val postProcessor = extension.createPostProcessor()
+        return converter.filesToKotlin(psiFilesToConvert, postProcessor)
+    }
 }

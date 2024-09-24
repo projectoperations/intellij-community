@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.impl;
 
 import com.intellij.debugger.JavaDebuggerBundle;
@@ -23,6 +23,7 @@ import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.ex.JavaSdkUtil;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.PathUtil;
 import com.intellij.util.PathsList;
@@ -32,7 +33,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.intellij.build.BuildDependenciesJps;
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot;
-import org.jetbrains.intellij.build.dependencies.BuildDependenciesConstants;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -127,35 +127,15 @@ public class RemoteConnectionBuilder {
       addRtJar(parameters.getClassPath());
 
       if (myAsyncAgent) {
-        addDebuggerAgent(parameters, myProject);
+        addDebuggerAgent(parameters, myProject, true);
       }
 
-      final boolean forceNoJIT = DebuggerSettings.getInstance().DISABLE_JIT;
-      final String debugKey = System.getProperty(DEBUG_KEY_NAME, "-Xdebug");
-      final boolean needDebugKey = forceNoJIT || !"-Xdebug".equals(debugKey) /*the key is non-standard*/;
+      parameters.getVMParametersList().replaceOrPrepend("-Xrunjdwp:", "");
+      parameters.getVMParametersList().replaceOrPrepend("-agentlib:jdwp=", "-agentlib:jdwp=" + _debuggeeRunProperties);
 
-      if (forceNoJIT || needDebugKey) {
-        parameters.getVMParametersList().replaceOrPrepend("-Xrunjdwp:", "-Xrunjdwp:" + _debuggeeRunProperties);
-      }
-      else {
-        // use newer JVMTI if available
-        parameters.getVMParametersList().replaceOrPrepend("-Xrunjdwp:", "");
-        parameters.getVMParametersList().replaceOrPrepend("-agentlib:jdwp=", "-agentlib:jdwp=" + _debuggeeRunProperties);
-      }
-
-      if (forceNoJIT) {
-        parameters.getVMParametersList().replaceOrPrepend("-Djava.compiler=", "-Djava.compiler=NONE");
-        parameters.getVMParametersList().replaceOrPrepend("-Xnoagent", "-Xnoagent");
-      }
-
-      if (needDebugKey) {
-        parameters.getVMParametersList().replaceOrPrepend(debugKey, debugKey);
-      }
-      else {
-        // deliberately skip outdated parameter because it can disable full-speed debugging for some jdk builds
-        // see http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6272174
-        parameters.getVMParametersList().replaceOrPrepend("-Xdebug", "");
-      }
+      // deliberately skip outdated parameter because it can disable full-speed debugging for some jdk builds
+      // see http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6272174
+      parameters.getVMParametersList().replaceOrPrepend("-Xdebug", "");
     });
 
     return new RemoteConnection(useSockets, DebuggerManagerImpl.LOCALHOST_ADDRESS_FALLBACK, address, myServer);
@@ -179,67 +159,73 @@ public class RemoteConnectionBuilder {
   }
 
   private static final String AGENT_JAR_NAME = "debugger-agent.jar";
-  private static final String DEBUG_KEY_NAME = "idea.xdebug.key";
 
-  private static void addDebuggerAgent(JavaParameters parameters, @Nullable Project project) {
+  public static void addDebuggerAgent(JavaParameters parameters, @Nullable Project project, boolean checkJdkVersion) {
     if (AsyncStacksUtils.isAgentEnabled()) {
       String prefix = "-javaagent:";
       ParametersList parametersList = parameters.getVMParametersList();
       if (!ContainerUtil.exists(parametersList.getParameters(), p -> p.startsWith(prefix) && p.contains(AGENT_JAR_NAME))) {
         Sdk jdk = parameters.getJdk();
-        if (jdk != null) {
-          JavaSdkVersion sdkVersion = JavaSdk.getInstance().getVersion(jdk);
-          if (sdkVersion != null && sdkVersion.isAtLeast(JavaSdkVersion.JDK_1_7)) {
-            Path agentArtifactPath;
+        if (checkJdkVersion && jdk == null) {
+          return;
+        }
+        JavaSdkVersion sdkVersion = jdk != null ? JavaSdk.getInstance().getVersion(jdk) : null;
+        if (checkJdkVersion && (sdkVersion == null || !sdkVersion.isAtLeast(JavaSdkVersion.JDK_1_7))) {
+          LOG.warn("Capture agent is not supported for JRE " + sdkVersion);
+          return;
+        }
+        Path agentArtifactPath;
 
-            Path classesRoot = Path.of(PathUtil.getJarPathForClass(DebuggerManagerImpl.class));
-            // isDirectory(classesRoot) is used instead of `PluginManagerCore.isRunningFromSources()`
-            // because we want to use installer's layout when running "IDEA (dev build)" run configuration
-            // where the layout is quite the same as in installers.
-            // but `PluginManagerCore.isRunningFromSources()` still returns `true` in this case
-            if (Files.isDirectory(classesRoot)) {
-              // Code runs from IDEA run configuration (code from .class file in out/ directory)
-              try {
-                // The agent file must have a fixed name (AGENT_JAR_NAME) which is mentioned in MANIFEST.MF inside
-                Path debuggerAgentDir =
-                  FileUtil.createTempDirectory(new File(PathManager.getTempPath()), "debugger-agent", "", true).toPath();
-                agentArtifactPath = debuggerAgentDir.resolve(AGENT_JAR_NAME);
+        Path classesRoot = Path.of(PathUtil.getJarPathForClass(DebuggerManagerImpl.class));
+        // isDirectory(classesRoot) is used instead of `PluginManagerCore.isRunningFromSources()`
+        // because we want to use installer's layout when running "IDEA (dev build)" run configuration
+        // where the layout is quite the same as in installers.
+        // but `PluginManagerCore.isRunningFromSources()` still returns `true` in this case
+        if (Files.isDirectory(classesRoot)) {
+          // Code runs from IDEA run configuration (code from .class file in out/ directory)
+          try {
+            // The agent file must have a fixed name (AGENT_JAR_NAME) which is mentioned in MANIFEST.MF inside
+            Path debuggerAgentDir =
+              FileUtil.createTempDirectory(new File(PathManager.getTempPath()), "debugger-agent", "", true).toPath();
+            agentArtifactPath = debuggerAgentDir.resolve(AGENT_JAR_NAME);
 
-                Path communityRoot = Path.of(PathManager.getCommunityHomePath());
-                Path iml = BuildDependenciesJps.getProjectModule(communityRoot, "intellij.java.debugger.agent.holder");
-                Path downloadedAgent = BuildDependenciesJps.getModuleLibrarySingleRoot(
-                  iml,
-                  "debugger-agent",
-                  BuildDependenciesConstants.INTELLIJ_DEPENDENCIES_URL,
-                  new BuildDependenciesCommunityRoot(Path.of(PathManager.getCommunityHomePath())));
+            Path communityRoot = Path.of(PathManager.getCommunityHomePath());
+            Path iml = BuildDependenciesJps.getProjectModule(communityRoot, "intellij.java.debugger.agent.holder");
+            Path downloadedAgent = BuildDependenciesJps.getModuleLibrarySingleRoot(
+              iml,
+              "debugger-agent",
+              "https://cache-redirector.jetbrains.com/intellij-dependencies",
+              new BuildDependenciesCommunityRoot(Path.of(PathManager.getCommunityHomePath())));
 
-                Files.copy(downloadedAgent, agentArtifactPath);
-              }
-              catch (IOException e) {
-                throw new RuntimeException(e);
-              }
-            }
-            else {
-              agentArtifactPath = classesRoot.resolveSibling("rt").resolve(AGENT_JAR_NAME);
-            }
+            Files.copy(downloadedAgent, agentArtifactPath);
+          }
+          catch (IOException e) {
+            throw new RuntimeException(e);
+          }
+        }
+        else {
+          agentArtifactPath = classesRoot.resolveSibling("rt").resolve(AGENT_JAR_NAME);
+        }
 
-            if (Files.exists(agentArtifactPath)) {
-              String agentPath = JavaExecutionUtil.handleSpacesInAgentPath(agentArtifactPath.toAbsolutePath().toString(),
-                                                                           "captureAgent", null,
-                                                                           f -> f.getName().startsWith("debugger-agent"));
-              if (agentPath != null) {
-                try (AccessToken ignore = SlowOperations.knownIssue("IDEA-307303, EA-835503")) {
-                  parametersList.add(prefix + agentPath + generateAgentSettings(project));
-                }
-              }
-            }
-            else {
-              LOG.error("Capture agent not found: " + agentArtifactPath);
+        if (Files.exists(agentArtifactPath)) {
+          String agentPath = JavaExecutionUtil.handleSpacesInAgentPath(agentArtifactPath.toAbsolutePath().toString(),
+                                                                       "captureAgent", null,
+                                                                       f -> f.getName().startsWith("debugger-agent"));
+          if (agentPath != null) {
+            try (AccessToken ignore = SlowOperations.knownIssue("IDEA-307303, EA-835503")) {
+              parametersList.add(prefix + agentPath + generateAgentSettings(project));
             }
           }
-          else {
-            LOG.warn("Capture agent is not supported for JRE " + sdkVersion);
-          }
+        }
+        else {
+          LOG.error("Capture agent not found: " + agentArtifactPath);
+        }
+      }
+      if (Registry.is("debugger.async.stacks.coroutines", false)) {
+        parametersList.addProperty("kotlinx.coroutines.debug.enable.creation.stack.trace", "false");
+        parametersList.addProperty("debugger.agent.enable.coroutines", "true");
+        if (Registry.is("debugger.async.stacks.flows", false)) {
+          parametersList.addProperty("kotlinx.coroutines.debug.enable.flows.stack.trace", "true");
         }
       }
     }
@@ -247,6 +233,9 @@ public class RemoteConnectionBuilder {
 
   private static String generateAgentSettings(@Nullable Project project) {
     Properties properties = CaptureSettingsProvider.getPointsProperties(project);
+    if (Registry.is("debugger.run.suspend.helper")) {
+      properties.setProperty("suspendHelper", "true");
+    }
     if (!properties.isEmpty()) {
       try {
         File file = FileUtil.createTempFile("capture", ".props");

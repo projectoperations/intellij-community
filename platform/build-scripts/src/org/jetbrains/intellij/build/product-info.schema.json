@@ -3,7 +3,7 @@
   "$id": "http://jetbrains.org/intellij/schema/product.schema.json",
   "title": "IntelliJ-based IDE installation",
   "description": "Meta-information about installation of an IDE based on IntelliJ Platform",
-  "version": "0.3",
+  "version": "0.4",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -28,6 +28,10 @@
     },
     "productCode": {
       "description": "Product code (e.g. 'IC' for IntelliJ IDEA Community Edition) as used in full build number",
+      "type": "string"
+    },
+    "envVarBaseName": {
+      "description": "A prefix for names of environment variables used by product distributions to allow users to customize location of the product runtime (`<PRODUCT>_JDK` variable), *.vmoptions file (`<PRODUCT>_VM_OPTIONS`), `idea.properties` file (`<PRODUCT>_PROPERTIES`).",
       "type": "string"
     },
     "dataDirectoryName": {
@@ -181,10 +185,38 @@
       }
     },
     "modules": {
-      "description": "IDs of product modules (non-removable bundled plugins) contained in this distribution, e.g. 'com.intellij.modules.lang'; see https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html#modules",
+      "description": "IDs of plugin aliases (non-removable bundled plugins) contained in this distribution, e.g. 'com.intellij.modules.lang'; see https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html#modules",
       "type": "array",
       "items": {
         "type": "string"
+      }
+    },
+    "layout": {
+      "description": "IDs of product modules (non-removable bundled plugins)",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "minItems": 0,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "classPath": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minItems": 0
+            }
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ]
       }
     },
     "flavors": {
@@ -198,8 +230,8 @@
         "properties": {
           "id": {
             "type": "string"
+            }
           }
-        }
       }
     }
   }

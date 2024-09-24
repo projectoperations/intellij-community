@@ -4,6 +4,9 @@ package com.intellij.platform.feedback
 import com.intellij.openapi.extensions.PluginAware
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.project.Project
+import com.intellij.util.concurrency.ThreadingAssertions
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import org.jetbrains.annotations.TestOnly
 
 /**
  * Represents a feedback survey.
@@ -31,11 +34,14 @@ abstract class FeedbackSurvey : PluginAware {
     return pluginDescriptor
   }
 
+  @RequiresBackgroundThread
   internal fun isSuitableToShow(project: Project): Boolean {
+    ThreadingAssertions.assertBackgroundThread()
     return feedbackSurveyType.isSuitableToShow(project)
   }
 
-  internal fun showNotification(project: Project, forTest: Boolean = false) {
+  @TestOnly
+  fun showNotification(project: Project, forTest: Boolean = false) {
     feedbackSurveyType.showNotification(project, forTest)
   }
 }

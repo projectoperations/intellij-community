@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.search;
 
 import com.intellij.diagnostic.LoadingState;
@@ -6,7 +6,6 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.newvfs.FileAttribute;
 import com.intellij.openapi.vfs.newvfs.persistent.FSRecords;
@@ -16,6 +15,7 @@ import com.intellij.openapi.vfs.newvfs.persistent.mapped.MappedFileStorageHelper
 import com.intellij.util.indexing.FileBasedIndexExtension;
 import com.intellij.util.indexing.FileContent;
 import com.intellij.util.indexing.StorageException;
+import com.intellij.util.indexing.StorageUpdate;
 import com.intellij.util.indexing.containers.*;
 import com.intellij.util.indexing.impl.ValueContainerImpl;
 import com.intellij.util.io.ResilientFileChannel;
@@ -23,6 +23,7 @@ import it.unimi.dsi.fastutil.Hash;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import kotlin.ranges.IntRange;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,6 +41,7 @@ import java.util.function.IntConsumer;
 import static com.intellij.util.SystemProperties.getBooleanProperty;
 import static com.intellij.util.SystemProperties.getIntProperty;
 
+@Internal
 public final class MappedFileTypeIndex extends FileTypeIndexImplBase {
   private static final Logger LOG = Logger.getInstance(MappedFileTypeIndex.class);
 
@@ -102,15 +104,15 @@ public final class MappedFileTypeIndex extends FileTypeIndexImplBase {
   }
 
   @Override
-  public @NotNull Computable<Boolean> mapInputAndPrepareUpdate(int inputId, @Nullable FileContent content) {
+  public @NotNull StorageUpdate mapInputAndPrepareUpdate(int inputId, @Nullable FileContent content) {
     try {
       int fileTypeId = getFileTypeId(content == null ? null : content.getFileType());
-      if (LOG.isDebugEnabled()) {
+      if (LOG.isTraceEnabled()) {
         if (content == null) {
-          LOG.debug("Map input: inputId(" + inputId + ") -> null, because content is null");
+          LOG.trace("Map input: inputId(" + inputId + ") -> null, because content is null");
         }
         else {
-          LOG.debug("Map input: inputId(" + inputId + ") -> fileType(" + content.getFileType() + ", fileTypeId=" + fileTypeId + ")");
+          LOG.trace("Map input: inputId(" + inputId + ") -> fileType(" + content.getFileType() + ", fileTypeId=" + fileTypeId + ")");
         }
       }
       return () -> updateIndex(inputId, checkFileTypeIdIsShort(fileTypeId));
@@ -287,6 +289,7 @@ public final class MappedFileTypeIndex extends FileTypeIndexImplBase {
       if (data != 0) {
         myInvertedIndex.computeIfAbsent(data, __ -> createContainerForInvertedIndex()).add(inputId);
       }
+      //TODO RC: should we do the notification under the lock?
       triggerOnInvertedIndexChangeCallback(data, indexedData);
     }
 
@@ -656,7 +659,7 @@ public final class MappedFileTypeIndex extends FileTypeIndexImplBase {
     public void processEntries(@NotNull EntriesProcessor processor) throws StorageException {
       try {
         boolean isCheckCanceledNeeded = isCheckCanceledNeeded();
-        int maxAllocatedID = FSRecords.getInstance().connection().getRecords().maxAllocatedID();
+        int maxAllocatedID = FSRecords.getInstance().connection().records().maxAllocatedID();
         for (int fileId = FSRecords.ROOT_FILE_ID; fileId <= maxAllocatedID; fileId++) {
           if (isCheckCanceledNeeded) {
             ProgressManager.checkCanceled();

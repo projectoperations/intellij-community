@@ -1,5 +1,3 @@
-// RUNTIME_WITH_FULL_JDK
-
 import java.nio.charset.Charset;
 import java.util.*;
 

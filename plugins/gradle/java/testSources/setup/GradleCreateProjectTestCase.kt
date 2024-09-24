@@ -28,15 +28,16 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.getResolvedPath
 import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.testFramework.PlatformTestUtil
-import com.intellij.testFramework.closeOpenedProjectsIfFailAsync
 import com.intellij.testFramework.utils.vfs.getDirectory
 import com.intellij.testFramework.withProjectAsync
 import com.intellij.ui.UIBundle
+import org.jetbrains.plugins.gradle.frameworkSupport.buildscript.GradleBuildScriptBuilder
 import org.jetbrains.plugins.gradle.service.project.wizard.GradleJavaNewProjectWizardData.Companion.javaGradleData
 import org.jetbrains.plugins.gradle.service.project.wizard.GradleNewProjectWizardStep
 import org.jetbrains.plugins.gradle.testFramework.GradleTestCase
 import org.jetbrains.plugins.gradle.testFramework.util.ModuleInfo
 import org.jetbrains.plugins.gradle.testFramework.util.ProjectInfo
+import org.jetbrains.plugins.gradle.testFramework.util.withBuildFile
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.BeforeEach
@@ -91,18 +92,16 @@ abstract class GradleCreateProjectTestCase : GradleTestCase() {
 
   suspend fun createProjectByWizard(
     group: String,
-    wait: Boolean = true,
-    configure: NewProjectWizardStep.() -> Unit
+    numProjectSyncs: Int = 1,
+    configure: NewProjectWizardStep.() -> Unit,
   ): Project {
     val wizard = createAndConfigureWizard(group, null, configure)
-    return closeOpenedProjectsIfFailAsync {
-      awaitAnyGradleProjectReload(wait = wait) {
-        blockingContext {
-          invokeAndWaitIfNeeded {
-            val project = NewProjectUtil.createFromWizard(wizard, null)!!
-            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-            project
-          }
+    return awaitOpenProjectConfiguration(numProjectSyncs) {
+      blockingContext {
+        invokeAndWaitIfNeeded {
+          val project = NewProjectUtil.createFromWizard(wizard, null)!!
+          PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+          project
         }
       }
     }
@@ -111,18 +110,16 @@ abstract class GradleCreateProjectTestCase : GradleTestCase() {
   suspend fun createModuleByWizard(
     project: Project,
     group: String,
-    wait: Boolean = true,
-    configure: NewProjectWizardStep.() -> Unit
+    numProjectSyncs: Int = 1,
+    configure: NewProjectWizardStep.() -> Unit,
   ): Module? {
     val wizard = createAndConfigureWizard(group, project, configure)
-    return closeOpenedProjectsIfFailAsync {
-      awaitAnyGradleProjectReload(wait = wait) {
-        blockingContext {
-          invokeAndWaitIfNeeded {
-            val module = NewModuleAction().createModuleFromWizard(project, null, wizard)
-            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-            module
-          }
+    return awaitProjectConfiguration(project, numProjectSyncs) {
+      blockingContext {
+        invokeAndWaitIfNeeded {
+          val module = NewModuleAction().createModuleFromWizard(project, null, wizard)
+          PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+          module
         }
       }
     }
@@ -175,6 +172,23 @@ abstract class GradleCreateProjectTestCase : GradleTestCase() {
       addVersion(version)
       withJavaPlugin()
       withJUnit()
+    }
+  }
+
+  override fun ModuleInfo.Builder.withBuildFile(configure: GradleBuildScriptBuilder<*>.() -> Unit) {
+    filesConfiguration.withBuildFile(
+      useKotlinDsl = useKotlinDsl,
+      content = GradleBuildScriptBuilder.create(gradleVersion, useKotlinDsl).apply(configure).generate()
+    )
+  }
+
+  fun assertBuildFiles(projectInfo: ProjectInfo) {
+    for (compositeInfo in projectInfo.composites) {
+      assertBuildFiles(compositeInfo)
+    }
+    for (moduleInfo in projectInfo.modules) {
+      val moduleRoot = testRoot.getDirectory(moduleInfo.relativePath)
+      moduleInfo.filesConfiguration.assertContentsAreEqual(moduleRoot)
     }
   }
 

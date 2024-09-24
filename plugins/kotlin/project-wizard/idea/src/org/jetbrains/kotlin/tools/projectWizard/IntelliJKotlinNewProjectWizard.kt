@@ -2,9 +2,10 @@
 package org.jetbrains.kotlin.tools.projectWizard
 
 import com.intellij.ide.projectWizard.NewProjectWizardCollector.Kotlin.logUseCompactProjectStructureChanged
+import com.intellij.ide.projectWizard.NewProjectWizardCollector.Kotlin.logUseCompactProjectStructureFinished
 import com.intellij.ide.projectWizard.NewProjectWizardConstants.BuildSystem.INTELLIJ
+import com.intellij.ide.projectWizard.generators.AssetsNewProjectWizardStep
 import com.intellij.ide.projectWizard.generators.IntelliJNewProjectWizardStep
-import com.intellij.ide.starters.local.StandardAssetsProvider
 import com.intellij.ide.wizard.NewProjectWizardChainStep.Companion.nextStep
 import com.intellij.ide.wizard.NewProjectWizardStep
 import com.intellij.openapi.application.readAction
@@ -22,9 +23,11 @@ import com.intellij.ui.dsl.builder.whenStateChangedFromUi
 import com.intellij.util.indexing.DumbModeAccessType
 import com.intellij.util.indexing.FileBasedIndex
 import org.jetbrains.kotlin.idea.vfilefinder.KotlinStdlibIndex
-import org.jetbrains.kotlin.tools.projectWizard.wizard.AssetsKotlinNewProjectWizardStep
+import org.jetbrains.kotlin.tools.projectWizard.core.KotlinAssetsProvider
 import org.jetbrains.kotlin.tools.projectWizard.wizard.KotlinNewProjectWizardUIBundle
+import org.jetbrains.kotlin.tools.projectWizard.wizard.prepareKotlinSampleOnboardingTips
 import org.jetbrains.kotlin.tools.projectWizard.wizard.ui.StdlibVersionChooserDialog
+import org.jetbrains.kotlin.tools.projectWizard.wizard.withKotlinSampleCode
 
 internal class IntelliJKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizard {
 
@@ -69,6 +72,7 @@ internal class IntelliJKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizar
                 checkBox(KotlinNewProjectWizardUIBundle.message("label.project.wizard.new.project.use.compact.project.structure"))
                     .bindSelected(useCompactProjectStructureProperty)
                     .whenStateChangedFromUi { logUseCompactProjectStructureChanged(it) }
+                    .onApply { logUseCompactProjectStructureFinished(useCompactProjectStructure) }
                     .gap(RightGap.SMALL)
                 contextHelp(KotlinNewProjectWizardUIBundle.message("tooltip.project.wizard.new.project.use.compact.project.structure"))
             }
@@ -131,24 +135,18 @@ internal class IntelliJKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizar
         }
     }
 
-    private class AssetsStep(private val parent: Step) : AssetsKotlinNewProjectWizardStep(parent) {
-        private fun shouldAddOnboardingTips(): Boolean = parent.addSampleCode && parent.generateOnboardingTips
-
+    private class AssetsStep(private val parent: Step) : AssetsNewProjectWizardStep(parent) {
         override fun setupAssets(project: Project) {
             if (context.isCreatingNewProject) {
-                addAssets(StandardAssetsProvider().getIntelliJIgnoreAssets())
+                addAssets(KotlinAssetsProvider.getKotlinIgnoreAssets())
             }
             if (parent.addSampleCode) {
+                if (parent.generateOnboardingTips) {
+                    prepareKotlinSampleOnboardingTips(project)
+                }
                 val sourceRootPath = if (parent.useCompactProjectStructure) "src" else "src/main/kotlin"
-                withKotlinSampleCode(sourceRootPath, null, shouldAddOnboardingTips())
+                withKotlinSampleCode(sourceRootPath, null, parent.generateOnboardingTips)
             }
-        }
-
-        override fun setupProject(project: Project) {
-            if (shouldAddOnboardingTips()) {
-                prepareOnboardingTips(project)
-            }
-            super.setupProject(project)
         }
     }
 }

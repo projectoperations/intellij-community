@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.quickfix;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -22,6 +23,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/abstract")
     public static class Abstract extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -208,6 +215,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addAnnotationTarget/requiresOptIn")
         public static class RequiresOptIn extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -241,6 +254,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addAnnotationTarget")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -400,6 +419,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addAnnotationUseSiteTarget")
     public static class AddAnnotationUseSiteTarget extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -413,11 +438,22 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         public void testGet() throws Exception {
             runTest("testData/quickfix/addAnnotationUseSiteTarget/get.kt");
         }
+
+        @TestMetadata("notApplicable.kt")
+        public void testNotApplicable() throws Exception {
+            runTest("testData/quickfix/addAnnotationUseSiteTarget/notApplicable.kt");
+        }
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addConstructorParameter")
     public static class AddConstructorParameter extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -431,6 +467,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addConstructorParameterFromSuperTypeCall")
     public static class AddConstructorParameterFromSuperTypeCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -489,6 +531,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addConversionCall")
     public static class AddConversionCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -512,6 +560,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addCrossinline")
     public static class AddCrossinline extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -530,6 +584,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addDataModifier")
     public static class AddDataModifier extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -618,6 +678,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addDefaultConstructor")
     public static class AddDefaultConstructor extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -642,9 +708,19 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             runTest("testData/quickfix/addDefaultConstructor/expectAnnotation3.kt");
         }
 
+        @TestMetadata("expectAnnotationWithUnresolvedParams.kt")
+        public void testExpectAnnotationWithUnresolvedParams() throws Exception {
+            runTest("testData/quickfix/addDefaultConstructor/expectAnnotationWithUnresolvedParams.kt");
+        }
+
         @TestMetadata("expectInterface.kt")
         public void testExpectInterface() throws Exception {
             runTest("testData/quickfix/addDefaultConstructor/expectInterface.kt");
+        }
+
+        @TestMetadata("expectWithUnresolvedParams.kt")
+        public void testExpectWithUnresolvedParams() throws Exception {
+            runTest("testData/quickfix/addDefaultConstructor/expectWithUnresolvedParams.kt");
         }
 
         @TestMetadata("interface.kt")
@@ -656,6 +732,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addElseBranchToIf")
     public static class AddElseBranchToIf extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -699,6 +781,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addEmptyArgumentList")
     public static class AddEmptyArgumentList extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -712,8 +800,34 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addEqEqTrue")
     public static class AddEqEqTrue extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("argument.kt")
+        public void testArgument() throws Exception {
+            runTest("testData/quickfix/addEqEqTrue/argument.kt");
+        }
+
+        @TestMetadata("assignment.kt")
+        public void testAssignment() throws Exception {
+            runTest("testData/quickfix/addEqEqTrue/assignment.kt");
+        }
+
+        @TestMetadata("condition.kt")
+        public void testCondition() throws Exception {
+            runTest("testData/quickfix/addEqEqTrue/condition.kt");
+        }
+
+        @TestMetadata("initializer.kt")
+        public void testInitializer() throws Exception {
+            runTest("testData/quickfix/addEqEqTrue/initializer.kt");
         }
 
         @TestMetadata("notBoolean.kt")
@@ -726,14 +840,9 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             runTest("testData/quickfix/addEqEqTrue/notBoolean2.kt");
         }
 
-        @TestMetadata("simple.kt")
-        public void testSimple() throws Exception {
-            runTest("testData/quickfix/addEqEqTrue/simple.kt");
-        }
-
-        @TestMetadata("simple2.kt")
-        public void testSimple2() throws Exception {
-            runTest("testData/quickfix/addEqEqTrue/simple2.kt");
+        @TestMetadata("return.kt")
+        public void testReturn() throws Exception {
+            runTest("testData/quickfix/addEqEqTrue/return.kt");
         }
     }
 
@@ -743,6 +852,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addExclExclCall/typeMismatch")
         public static class TypeMismatch extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -755,6 +870,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @TestMetadata("assignmentRValue.kt")
             public void testAssignmentRValue() throws Exception {
                 runTest("testData/quickfix/addExclExclCall/typeMismatch/assignmentRValue.kt");
+            }
+
+            @TestMetadata("condition.kt")
+            public void testCondition() throws Exception {
+                runTest("testData/quickfix/addExclExclCall/typeMismatch/condition.kt");
             }
 
             @TestMetadata("initializer.kt")
@@ -821,6 +941,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addExclExclCall")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1015,6 +1141,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addFunModifier")
     public static class AddFunModifier extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1078,6 +1210,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addGenericUpperBound")
     public static class AddGenericUpperBound extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1111,6 +1249,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addInitializer")
     public static class AddInitializer extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1234,6 +1378,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addInline")
     public static class AddInline extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1252,6 +1402,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addInlineToReifiedFunctionFix")
     public static class AddInlineToReifiedFunctionFix extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1265,6 +1421,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addIsToWhenCondition")
     public static class AddIsToWhenCondition extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1278,6 +1440,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addJvmInline")
     public static class AddJvmInline extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1296,6 +1464,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addJvmStaticAnnotation")
     public static class AddJvmStaticAnnotation extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1314,6 +1488,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addNewLineAfterAnnotations")
     public static class AddNewLineAfterAnnotations extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1342,6 +1522,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addNoinline")
     public static class AddNoinline extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1370,6 +1556,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addPropertyAccessors")
     public static class AddPropertyAccessors extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1398,6 +1590,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addReifiedToTypeParameterOfFunctionFix")
     public static class AddReifiedToTypeParameterOfFunctionFix extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1421,6 +1619,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addReturnExpression")
     public static class AddReturnExpression extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1428,6 +1632,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("emptyBody.kt")
         public void testEmptyBody() throws Exception {
             runTest("testData/quickfix/addReturnExpression/emptyBody.kt");
+        }
+
+        @TestMetadata("noRightBrace.kt")
+        public void testNoRightBrace() throws Exception {
+            runTest("testData/quickfix/addReturnExpression/noRightBrace.kt");
         }
 
         @TestMetadata("simple.kt")
@@ -1439,6 +1648,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addReturnToLastExpressionInFunction")
     public static class AddReturnToLastExpressionInFunction extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1477,6 +1692,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addReturnToUnusedLastExpressionInFunction")
     public static class AddReturnToUnusedLastExpressionInFunction extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1515,6 +1736,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addRunBeforeLambda")
     public static class AddRunBeforeLambda extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1528,6 +1755,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addSemicolonBeforeLambdaExpression")
     public static class AddSemicolonBeforeLambdaExpression extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1604,6 +1837,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addStarProjections/cast")
         public static class Cast extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1722,6 +1961,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addStarProjections/checkType")
         public static class CheckType extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1755,6 +2000,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addStarProjections/inner")
         public static class Inner extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1803,6 +2054,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addStarProjections")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1841,6 +2098,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addStarProjections/when")
         public static class When extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1880,6 +2143,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addSuspend")
     public static class AddSuspend extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1918,6 +2187,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addTypeAnnotationToValueParameter")
     public static class AddTypeAnnotationToValueParameter extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1976,6 +2251,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addUnsafeVarianceAnnotation")
     public static class AddUnsafeVarianceAnnotation extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1997,6 +2278,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addValVar/inline")
         public static class Inline extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2015,6 +2302,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addValVar")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2038,11 +2331,22 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             public void testExpectAnnotation() throws Exception {
                 runTest("testData/quickfix/addValVar/expectAnnotation.kt");
             }
+
+            @TestMetadata("library.kt")
+            public void testLibrary() throws Exception {
+                runTest("testData/quickfix/addValVar/library.kt");
+            }
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/addValVar/value")
         public static class Value extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2067,6 +2371,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/addVarianceModifier")
     public static class AddVarianceModifier extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -2090,6 +2400,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/assignToProperty")
     public static class AssignToProperty extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -2161,6 +2477,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/autoImports/callablesDeclaredInClasses")
         public static class CallablesDeclaredInClasses extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2389,6 +2711,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/autoImports/kt21515")
         public static class Kt21515 extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2412,6 +2740,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/autoImports")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2669,6 +3003,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/callFromPublicInline/nonPublic")
         public static class NonPublic extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2712,6 +3052,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/callFromPublicInline/protected")
         public static class Protected extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2745,6 +3091,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/callFromPublicInline/super")
         public static class Super extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2774,6 +3126,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/canBeParameter")
     public static class CanBeParameter extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -2802,6 +3160,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/canBePrimaryConstructorProperty")
     public static class CanBePrimaryConstructorProperty extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -2835,6 +3199,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/castDueToProgressionResolveChange")
     public static class CastDueToProgressionResolveChange extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -2888,6 +3258,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/changeObjectToClass")
     public static class ChangeObjectToClass extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -2906,6 +3282,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/changeSignature")
     public static class ChangeSignature extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3234,6 +3616,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/changeSuperTypeListEntryTypeArgument")
     public static class ChangeSuperTypeListEntryTypeArgument extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3262,6 +3650,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/changeToLabeledReturn")
     public static class ChangeToLabeledReturn extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3325,6 +3719,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/changeToMutableCollection")
     public static class ChangeToMutableCollection extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3358,6 +3758,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/changeToUseSpreadOperator")
     public static class ChangeToUseSpreadOperator extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3365,6 +3771,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("differentTypeParameter.kt")
         public void testDifferentTypeParameter() throws Exception {
             runTest("testData/quickfix/changeToUseSpreadOperator/differentTypeParameter.kt");
+        }
+
+        @TestMetadata("differentTypeParameterGeneric.kt")
+        public void testDifferentTypeParameterGeneric() throws Exception {
+            runTest("testData/quickfix/changeToUseSpreadOperator/differentTypeParameterGeneric.kt");
         }
 
         @TestMetadata("mapOf.kt")
@@ -3375,6 +3786,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("multipleParams.kt")
         public void testMultipleParams() throws Exception {
             runTest("testData/quickfix/changeToUseSpreadOperator/multipleParams.kt");
+        }
+
+        @TestMetadata("nestedGeneric.kt")
+        public void testNestedGeneric() throws Exception {
+            runTest("testData/quickfix/changeToUseSpreadOperator/nestedGeneric.kt");
         }
 
         @TestMetadata("nonArray.kt")
@@ -3409,6 +3825,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/checkArguments/addNameToArgument")
         public static class AddNameToArgument extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3452,6 +3874,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/checkArguments")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3466,6 +3894,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/compilerError")
     public static class CompilerError extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3479,6 +3913,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/conflictingImports")
     public static class ConflictingImports extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3502,6 +3942,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/convertCollectionLiteralToIntArrayOf")
     public static class ConvertCollectionLiteralToIntArrayOf extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3530,6 +3976,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/convertIllegalEscapeToUnicodeEscape")
     public static class ConvertIllegalEscapeToUnicodeEscape extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3548,6 +4000,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/convertLateinitPropertyToNotNullDelegate")
     public static class ConvertLateinitPropertyToNotNullDelegate extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3591,6 +4049,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/convertPropertyInitializerToGetter")
     public static class ConvertPropertyInitializerToGetter extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3614,6 +4078,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/convertToAnonymousObject")
     public static class ConvertToAnonymousObject extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3682,6 +4152,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/convertToBlockBody")
     public static class ConvertToBlockBody extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3695,6 +4171,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/convertToIsArrayOfCall")
     public static class ConvertToIsArrayOfCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -3744,6 +4226,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createClass/annotationEntry")
             public static class AnnotationEntry extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -3795,6 +4283,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createClass/callExpression/typeArguments")
                 public static class TypeArguments extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -3863,6 +4357,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createClass/callExpression")
                 public static class Uncategorized extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -4077,6 +4577,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createClass/delegationSpecifier")
             public static class DelegationSpecifier extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -4158,6 +4664,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createClass/importDirective/kt21515")
                 public static class Kt21515 extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -4191,6 +4703,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createClass/importDirective")
                 public static class Uncategorized extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -4265,6 +4783,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createClass/referenceExpression")
             public static class ReferenceExpression extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -4508,6 +5032,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createClass/typeReference")
             public static class TypeReference extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -4670,6 +5200,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/binaryOperations")
             public static class BinaryOperations extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -4761,6 +5297,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createFunction/call/abstract")
                 public static class Abstract extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -4829,6 +5371,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createFunction/call/extension")
                 public static class Extension extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -4848,6 +5396,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/extension/brokenPsi.kt");
                     }
 
+                    @TestMetadata("explicitVsImplicitReceiver.kt")
+                    public void testExplicitVsImplicitReceiver() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/extension/explicitVsImplicitReceiver.kt");
+                    }
+
+                    @TestMetadata("extension.kt")
+                    public void testExtension() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/extension/extension.kt");
+                    }
+
                     @TestMetadata("extensionFunOnClassNoClassObject.kt")
                     public void testExtensionFunOnClassNoClassObject() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/extension/extensionFunOnClassNoClassObject.kt");
@@ -4863,9 +5421,29 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/extension/extensionFunOnInterface.kt");
                     }
 
+                    @TestMetadata("extensionOfInt.kt")
+                    public void testExtensionOfInt() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/extension/extensionOfInt.kt");
+                    }
+
+                    @TestMetadata("extensionPartialSubstitution.kt")
+                    public void testExtensionPartialSubstitution() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/extension/extensionPartialSubstitution.kt");
+                    }
+
                     @TestMetadata("extensionRefInImport.kt")
                     public void testExtensionRefInImport() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/extension/extensionRefInImport.kt");
+                    }
+
+                    @TestMetadata("extensionWithReceiverArg.kt")
+                    public void testExtensionWithReceiverArg() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/extension/extensionWithReceiverArg.kt");
+                    }
+
+                    @TestMetadata("extensionWithTypeParameterAsReceiver.kt")
+                    public void testExtensionWithTypeParameterAsReceiver() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/extension/extensionWithTypeParameterAsReceiver.kt");
                     }
 
                     @TestMetadata("funOnLibObject.kt")
@@ -4892,6 +5470,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createFunction/call/extensionByExtensionReceiver")
                 public static class ExtensionByExtensionReceiver extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -4925,6 +5509,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createFunction/call/member")
                 public static class Member extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -5029,6 +5619,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/member/funWithNullableTypeParameter.kt");
                     }
 
+                    @TestMetadata("implicitThisInLocalClassWithTypeParameterFromExtensionParent.kt")
+                    public void testImplicitThisInLocalClassWithTypeParameterFromExtensionParent() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/member/implicitThisInLocalClassWithTypeParameterFromExtensionParent.kt");
+                    }
+
+                    @TestMetadata("implicitThisInNestedClassWithTypeParameterFromParent.kt")
+                    public void testImplicitThisInNestedClassWithTypeParameterFromParent() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/member/implicitThisInNestedClassWithTypeParameterFromParent.kt");
+                    }
+
                     @TestMetadata("inconsistentTypes.kt")
                     public void testInconsistentTypes() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/member/inconsistentTypes.kt");
@@ -5088,6 +5688,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createFunction/call/simple")
                 public static class Simple extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -5202,6 +5808,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/simple/insideIfConditionWithNegation.kt");
                     }
 
+                    @TestMetadata("insideWhen.kt")
+                    public void testInsideWhen() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/simple/insideWhen.kt");
+                    }
+
                     @TestMetadata("kt10983.kt")
                     public void testKt10983() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/simple/kt10983.kt");
@@ -5217,6 +5828,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/simple/memberFunNoReceiver.kt");
                     }
 
+                    @TestMetadata("memberLocalVarDelegateRuntime.kt")
+                    public void testMemberLocalVarDelegateRuntime() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/simple/memberLocalVarDelegateRuntime.kt");
+                    }
+
                     @TestMetadata("memberValDelegateRuntime.kt")
                     public void testMemberValDelegateRuntime() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/simple/memberValDelegateRuntime.kt");
@@ -5225,6 +5841,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                     @TestMetadata("memberVarDelegateRuntime.kt")
                     public void testMemberVarDelegateRuntime() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/simple/memberVarDelegateRuntime.kt");
+                    }
+
+                    @TestMetadata("noInferCheck.kt")
+                    public void testNoInferCheck() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/simple/noInferCheck.kt");
                     }
 
                     @TestMetadata("notExactArgument.kt")
@@ -5281,6 +5902,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createFunction/call/typeArguments")
                 public static class TypeArguments extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -5308,26 +5935,6 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                     @TestMetadata("classMemberWithReceiverArg.kt")
                     public void testClassMemberWithReceiverArg() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/typeArguments/classMemberWithReceiverArg.kt");
-                    }
-
-                    @TestMetadata("extension.kt")
-                    public void testExtension() throws Exception {
-                        runTest("testData/quickfix/createFromUsage/createFunction/call/typeArguments/extension.kt");
-                    }
-
-                    @TestMetadata("extensionPartialSubstitution.kt")
-                    public void testExtensionPartialSubstitution() throws Exception {
-                        runTest("testData/quickfix/createFromUsage/createFunction/call/typeArguments/extensionPartialSubstitution.kt");
-                    }
-
-                    @TestMetadata("extensionWithReceiverArg.kt")
-                    public void testExtensionWithReceiverArg() throws Exception {
-                        runTest("testData/quickfix/createFromUsage/createFunction/call/typeArguments/extensionWithReceiverArg.kt");
-                    }
-
-                    @TestMetadata("extensionWithTypeParameterAsReceiver.kt")
-                    public void testExtensionWithTypeParameterAsReceiver() throws Exception {
-                        runTest("testData/quickfix/createFromUsage/createFunction/call/typeArguments/extensionWithTypeParameterAsReceiver.kt");
                     }
 
                     @TestMetadata("memberWithTypeParameterAsReceiver.kt")
@@ -5360,6 +5967,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/callableReferences")
             public static class CallableReferences extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5428,6 +6041,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/component")
             public static class Component extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5451,6 +6070,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/delegateAccessors")
             public static class DelegateAccessors extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5489,6 +6114,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/get")
             public static class Get extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5562,6 +6193,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/hasNext")
             public static class HasNext extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5580,6 +6217,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/invoke")
             public static class Invoke extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5608,6 +6251,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/iterator")
             public static class Iterator extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5631,6 +6280,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/next")
             public static class Next extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5649,6 +6304,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/set")
             public static class Set extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5677,6 +6338,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createFunction/unaryOperations")
             public static class UnaryOperations extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5711,6 +6378,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/createFromUsage/createSecondaryConstructor")
         public static class CreateSecondaryConstructor extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -5812,6 +6485,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createTypeParameter/inContainingDeclaration")
             public static class InContainingDeclaration extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5920,6 +6599,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createTypeParameter/inReferencedDeclaration")
             public static class InReferencedDeclaration extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -5967,6 +6652,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createVariable/localVariable")
             public static class LocalVariable extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -6100,6 +6791,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createVariable/parameter")
             public static class Parameter extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -6383,6 +7080,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/createFromUsage/createVariable/primaryParameter")
             public static class PrimaryParameter extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -6459,6 +7162,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createVariable/property/abstract")
                 public static class Abstract extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -6492,6 +7201,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @RunWith(JUnit3RunnerWithInners.class)
                 @TestMetadata("testData/quickfix/createFromUsage/createVariable/property")
                 public static class Uncategorized extends AbstractK1QuickFixTest {
+                    @java.lang.Override
+                    @org.jetbrains.annotations.NotNull
+                    public final KotlinPluginMode getPluginMode() {
+                        return KotlinPluginMode.K1;
+                    }
+
                     private void runTest(String testDataFilePath) throws Exception {
                         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                     }
@@ -6733,6 +7448,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/createLabel")
     public static class CreateLabel extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -6784,8 +7505,48 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("testData/quickfix/dataClassConstructorVsCopyVisibility")
+    public static class DataClassConstructorVsCopyVisibility extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("AddConsistentCopyVisibilityAnnotation.kt")
+        public void testAddConsistentCopyVisibilityAnnotation() throws Exception {
+            runTest("testData/quickfix/dataClassConstructorVsCopyVisibility/AddConsistentCopyVisibilityAnnotation.kt");
+        }
+
+        @TestMetadata("DataClassConsistentCopyAndExposedCopyAreIncompatibleAnnotations.kt")
+        public void testDataClassConsistentCopyAndExposedCopyAreIncompatibleAnnotations() throws Exception {
+            runTest("testData/quickfix/dataClassConstructorVsCopyVisibility/DataClassConsistentCopyAndExposedCopyAreIncompatibleAnnotations.kt");
+        }
+
+        @TestMetadata("DataClassConsistentCopyWrongAnnotationTarget.kt")
+        public void testDataClassConsistentCopyWrongAnnotationTarget() throws Exception {
+            runTest("testData/quickfix/dataClassConstructorVsCopyVisibility/DataClassConsistentCopyWrongAnnotationTarget.kt");
+        }
+
+        @TestMetadata("RemoveRedundantConsistentCopyVisibilityAnnotation.kt")
+        public void testRemoveRedundantConsistentCopyVisibilityAnnotation() throws Exception {
+            runTest("testData/quickfix/dataClassConstructorVsCopyVisibility/RemoveRedundantConsistentCopyVisibilityAnnotation.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/declarationCantBeInlined")
     public static class DeclarationCantBeInlined extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -6804,6 +7565,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/declaringJavaClass")
     public static class DeclaringJavaClass extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -6837,13 +7604,39 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/decreaseVisibility")
     public static class DecreaseVisibility extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("exposedConstructorParameterType.kt")
+        public void testExposedConstructorParameterType() throws Exception {
+            runTest("testData/quickfix/decreaseVisibility/exposedConstructorParameterType.kt");
+        }
+
+        @TestMetadata("exposedConstructorParameterType_privateVal.kt")
+        public void testExposedConstructorParameterType_privateVal() throws Exception {
+            runTest("testData/quickfix/decreaseVisibility/exposedConstructorParameterType_privateVal.kt");
+        }
+
+        @TestMetadata("exposedConstructorParameterType_val.kt")
+        public void testExposedConstructorParameterType_val() throws Exception {
+            runTest("testData/quickfix/decreaseVisibility/exposedConstructorParameterType_val.kt");
         }
 
         @TestMetadata("exposedParameterType.kt")
         public void testExposedParameterType() throws Exception {
             runTest("testData/quickfix/decreaseVisibility/exposedParameterType.kt");
+        }
+
+        @TestMetadata("exposedParameterType_privateType.kt")
+        public void testExposedParameterType_privateType() throws Exception {
+            runTest("testData/quickfix/decreaseVisibility/exposedParameterType_privateType.kt");
         }
 
         @TestMetadata("exposedPropertyType.kt")
@@ -6915,6 +7708,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/deprecatedJavaAnnotation")
     public static class DeprecatedJavaAnnotation extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -6946,6 +7745,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/argumentSideEffects")
         public static class ArgumentSideEffects extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7057,6 +7862,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/deprecatedSymbolUsage/classUsages")
             public static class Uncategorized extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -7280,6 +8091,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/deprecatedSymbolUsage/classUsages/wholeProject")
             public static class WholeProject extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -7297,6 +8114,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/deprecatedSymbolUsage/functionLiteralArguments")
             public static class Uncategorized extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -7330,6 +8153,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/deprecatedSymbolUsage/functionLiteralArguments/wholeProject")
             public static class WholeProject extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -7359,6 +8188,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/keepComments")
         public static class KeepComments extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7402,6 +8237,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/keepLineBreaks")
         public static class KeepLineBreaks extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7425,6 +8266,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/operatorCalls")
         public static class OperatorCalls extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7473,6 +8320,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/optionalParameters")
         public static class OptionalParameters extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7546,6 +8399,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/properties")
         public static class Properties extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7579,6 +8438,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/publishedApi")
         public static class PublishedApi extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7642,6 +8507,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/safeCall")
         public static class SafeCall extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7690,6 +8561,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/typeAliases")
         public static class TypeAliases extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -7771,6 +8648,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/deprecatedSymbolUsage/typeArguments")
             public static class Uncategorized extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -7904,6 +8787,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/deprecatedSymbolUsage/typeArguments/wholeProject")
             public static class WholeProject extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -7918,6 +8807,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -8216,6 +9111,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/deprecatedSymbolUsage/vararg")
         public static class Vararg extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -8343,6 +9244,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/equalityNotApplicable/charLiteralConversion")
         public static class CharLiteralConversion extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -8386,6 +9293,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/equalityNotApplicable/numberConversion")
         public static class NumberConversion extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -8415,6 +9328,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/expressions")
     public static class Expressions extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -8623,6 +9542,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/final")
     public static class Final extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -8656,6 +9581,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/foldTryCatch")
     public static class FoldTryCatch extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -8692,6 +9623,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/functionWithLambdaExpressionBody/removeBraces")
         public static class RemoveBraces extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -8740,6 +9677,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/functionWithLambdaExpressionBody/wrapRun")
         public static class WrapRun extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -8759,6 +9702,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/implement")
     public static class Implement extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -8801,6 +9750,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("enum.kt")
         public void testEnum() throws Exception {
             runTest("testData/quickfix/implement/enum.kt");
+        }
+
+        @TestMetadata("fakeOverride.kt")
+        public void testFakeOverride() throws Exception {
+            runTest("testData/quickfix/implement/fakeOverride.kt");
         }
 
         @TestMetadata("finalClass.kt")
@@ -8863,9 +9817,14 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             runTest("testData/quickfix/implement/local.kt");
         }
 
-        @TestMetadata("menyImplMemberNotImplemented.kt")
-        public void testMenyImplMemberNotImplemented() throws Exception {
-            runTest("testData/quickfix/implement/menyImplMemberNotImplemented.kt");
+        @TestMetadata("manyImplMemberNotImplemented.kt")
+        public void testManyImplMemberNotImplemented() throws Exception {
+            runTest("testData/quickfix/implement/manyImplMemberNotImplemented.kt");
+        }
+
+        @TestMetadata("manyInterfacesMemberNotImplemented.kt")
+        public void testManyInterfacesMemberNotImplemented() throws Exception {
+            runTest("testData/quickfix/implement/manyInterfacesMemberNotImplemented.kt");
         }
 
         @TestMetadata("nested.kt")
@@ -8962,6 +9921,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/importAlias")
     public static class ImportAlias extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -8983,6 +9948,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/increaseVisibility/invisibleFake")
         public static class InvisibleFake extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9041,6 +10012,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/increaseVisibility")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9165,6 +10142,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/initializeWithConstructorParameter")
     public static class InitializeWithConstructorParameter extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9187,6 +10170,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("memberPropertyInClassNameClashInPrimaryConstructor.kt")
         public void testMemberPropertyInClassNameClashInPrimaryConstructor() throws Exception {
             runTest("testData/quickfix/initializeWithConstructorParameter/memberPropertyInClassNameClashInPrimaryConstructor.kt");
+        }
+
+        @TestMetadata("memberPropertyInClassNameClashInPrimaryConstructor2.kt")
+        public void testMemberPropertyInClassNameClashInPrimaryConstructor2() throws Exception {
+            runTest("testData/quickfix/initializeWithConstructorParameter/memberPropertyInClassNameClashInPrimaryConstructor2.kt");
         }
 
         @TestMetadata("memberPropertyInClassNameClashInSecondaryConstructor.kt")
@@ -9249,6 +10237,21 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             runTest("testData/quickfix/initializeWithConstructorParameter/multipleConstructors.kt");
         }
 
+        @TestMetadata("multipleConstructorsClash.kt")
+        public void testMultipleConstructorsClash() throws Exception {
+            runTest("testData/quickfix/initializeWithConstructorParameter/multipleConstructorsClash.kt");
+        }
+
+        @TestMetadata("multipleConstructorsClash2.kt")
+        public void testMultipleConstructorsClash2() throws Exception {
+            runTest("testData/quickfix/initializeWithConstructorParameter/multipleConstructorsClash2.kt");
+        }
+
+        @TestMetadata("namelessProperty.kt")
+        public void testNamelessProperty() throws Exception {
+            runTest("testData/quickfix/initializeWithConstructorParameter/namelessProperty.kt");
+        }
+
         @TestMetadata("topLevelProperty.kt")
         public void testTopLevelProperty() throws Exception {
             runTest("testData/quickfix/initializeWithConstructorParameter/topLevelProperty.kt");
@@ -9258,6 +10261,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/inlineClass")
     public static class InlineClass extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9286,6 +10295,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/inlineTypeParameterFix")
     public static class InlineTypeParameterFix extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9319,8 +10334,19 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/insertDelegationCall")
     public static class InsertDelegationCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("cyclicCallDefaultParam.kt")
+        public void testCyclicCallDefaultParam() throws Exception {
+            runTest("testData/quickfix/insertDelegationCall/cyclicCallDefaultParam.kt");
         }
 
         @TestMetadata("nonApplicableInsertSuper.kt")
@@ -9367,6 +10393,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/isEnumEntry")
     public static class IsEnumEntry extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9398,6 +10430,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/javaClassOnCompanion/replaceWithClassJava")
         public static class ReplaceWithClassJava extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9421,6 +10459,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/javaClassOnCompanion/replaceWithCompanionClassJava")
         public static class ReplaceWithCompanionClassJava extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9450,6 +10494,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/kdocMissingDocumentation")
     public static class KdocMissingDocumentation extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9468,6 +10518,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/lateinit")
     public static class Lateinit extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9506,6 +10562,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/leakingThis")
     public static class LeakingThis extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9554,6 +10616,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/libraries")
     public static class Libraries extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9572,6 +10640,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/localVariableWithTypeParameters")
     public static class LocalVariableWithTypeParameters extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9585,6 +10659,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/makeConstructorParameterProperty")
     public static class MakeConstructorParameterProperty extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9618,6 +10698,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/makeTypeParameterReified")
     public static class MakeTypeParameterReified extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9641,6 +10727,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/makeUpperBoundNonNullable")
     public static class MakeUpperBoundNonNullable extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9704,6 +10796,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/memberVisibilityCanBePrivate")
     public static class MemberVisibilityCanBePrivate extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -9740,6 +10838,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/migration/commasInWhenWithoutArgument")
         public static class CommasInWhenWithoutArgument extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9758,6 +10862,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/migration/conflictingExtension")
         public static class ConflictingExtension extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9836,6 +10946,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/migration/experimentalToRequiresOptIn")
         public static class ExperimentalToRequiresOptIn extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9899,6 +11015,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/migration/jsExternal")
         public static class JsExternal extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9962,6 +11084,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/migration/missingConstructorKeyword")
         public static class MissingConstructorKeyword extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -9985,6 +11113,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/migration/obsoleteLabelSyntax")
         public static class ObsoleteLabelSyntax extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -10003,6 +11137,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/migration/removeNameFromFunctionExpression")
         public static class RemoveNameFromFunctionExpression extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -10016,6 +11156,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/migration/typeParameterList")
         public static class TypeParameterList extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -10035,6 +11181,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/missingConstructorBrackets")
     public static class MissingConstructorBrackets extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -10051,6 +11203,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/modifiers/addOpenToClassDeclaration")
         public static class AddOpenToClassDeclaration extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -10149,6 +11307,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/modifiers/suspend")
         public static class Suspend extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -10222,6 +11386,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/modifiers")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -10576,6 +11746,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/moveMemberToCompanionObject")
     public static class MoveMemberToCompanionObject extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -10589,6 +11765,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/moveReceiverAnnotation")
     public static class MoveReceiverAnnotation extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -10617,6 +11799,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/moveToConstructorParameters")
     public static class MoveToConstructorParameters extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -10685,8 +11873,19 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/moveTypeAliasToTopLevel")
     public static class MoveTypeAliasToTopLevel extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("importList.kt")
+        public void testImportList() throws Exception {
+            runTest("testData/quickfix/moveTypeAliasToTopLevel/importList.kt");
         }
 
         @TestMetadata("inClass.kt")
@@ -10708,6 +11907,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         public void testInFunction2() throws Exception {
             runTest("testData/quickfix/moveTypeAliasToTopLevel/inFunction2.kt");
         }
+
+        @TestMetadata("package.kt")
+        public void testPackage() throws Exception {
+            runTest("testData/quickfix/moveTypeAliasToTopLevel/package.kt");
+        }
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
@@ -10716,6 +11920,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/nullables")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -10744,6 +11954,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/nullables/unsafeInfixCall")
         public static class UnsafeInfixCall extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -10813,6 +12029,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/obsoleteKotlinJsPackages")
     public static class ObsoleteKotlinJsPackages extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -10852,6 +12074,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/optIn/scripts/general")
             public static class General extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -11135,6 +12363,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/optIn/scripts/withLocalElements")
             public static class WithLocalElements extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -11204,6 +12438,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/optIn")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -11241,11 +12481,6 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @TestMetadata("basicFunctionNotApplicable.kt")
             public void testBasicFunctionNotApplicable() throws Exception {
                 runTest("testData/quickfix/optIn/basicFunctionNotApplicable.kt");
-            }
-
-            @TestMetadata("basicFunctionNotApplicableFir.kt")
-            public void testBasicFunctionNotApplicableFir() throws Exception {
-                runTest("testData/quickfix/optIn/basicFunctionNotApplicableFir.kt");
             }
 
             @TestMetadata("basicModule.kt")
@@ -11398,11 +12633,6 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 runTest("testData/quickfix/optIn/override.kt");
             }
 
-            @TestMetadata("overrideFir.kt")
-            public void testOverrideFir() throws Exception {
-                runTest("testData/quickfix/optIn/overrideFir.kt");
-            }
-
             @TestMetadata("propagateOptIn.kt")
             public void testPropagateOptIn() throws Exception {
                 runTest("testData/quickfix/optIn/propagateOptIn.kt");
@@ -11523,6 +12753,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/optimizeImports")
     public static class OptimizeImports extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -11559,6 +12795,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/override/nothingToOverride")
         public static class NothingToOverride extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -11812,6 +13054,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/override/overrideDeprecation")
         public static class OverrideDeprecation extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -11855,6 +13103,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/override/typeMismatchOnOverride")
         public static class TypeMismatchOnOverride extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -11963,6 +13217,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/override")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -11995,6 +13255,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @TestMetadata("implementMember.kt")
             public void testImplementMember() throws Exception {
                 runTest("testData/quickfix/override/implementMember.kt");
+            }
+
+            @TestMetadata("implementMemberByEnumEntry.kt")
+            public void testImplementMemberByEnumEntry() throws Exception {
+                runTest("testData/quickfix/override/implementMemberByEnumEntry.kt");
             }
 
             @TestMetadata("implementMemberFromAbstractClass.kt")
@@ -12092,6 +13357,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/platformClasses")
     public static class PlatformClasses extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12120,6 +13391,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/platformTypesInspection")
     public static class PlatformTypesInspection extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12148,6 +13425,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/primitiveCastToConversion")
     public static class PrimitiveCastToConversion extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12179,6 +13462,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/properties/extensionPropertyInitializerToGetter")
         public static class ExtensionPropertyInitializerToGetter extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -12213,6 +13502,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/protectedInFinal")
     public static class ProtectedInFinal extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12241,6 +13536,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/redundantConst")
     public static class RedundantConst extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12254,6 +13555,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/redundantFun")
     public static class RedundantFun extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12267,6 +13574,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/redundantIf")
     public static class RedundantIf extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12291,6 +13604,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             runTest("testData/quickfix/redundantIf/comment.kt");
         }
 
+        @TestMetadata("commentLiftedUpReturn.kt")
+        public void testCommentLiftedUpReturn() throws Exception {
+            runTest("testData/quickfix/redundantIf/commentLiftedUpReturn.kt");
+        }
+
         @TestMetadata("expression.kt")
         public void testExpression() throws Exception {
             runTest("testData/quickfix/redundantIf/expression.kt");
@@ -12304,6 +13622,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("labeledReturn.kt")
         public void testLabeledReturn() throws Exception {
             runTest("testData/quickfix/redundantIf/labeledReturn.kt");
+        }
+
+        @TestMetadata("multiLineCommentLiftedUpReturn.kt")
+        public void testMultiLineCommentLiftedUpReturn() throws Exception {
+            runTest("testData/quickfix/redundantIf/multiLineCommentLiftedUpReturn.kt");
         }
 
         @TestMetadata("negate.kt")
@@ -12355,6 +13678,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/redundantInline")
     public static class RedundantInline extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12368,6 +13697,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/redundantLateinit")
     public static class RedundantLateinit extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12381,6 +13716,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/redundantModalityModifier")
     public static class RedundantModalityModifier extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12399,6 +13740,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/redundantSuspend")
     public static class RedundantSuspend extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12412,6 +13759,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/redundantVisibilityModifier")
     public static class RedundantVisibilityModifier extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12430,6 +13783,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeAnnotation")
     public static class RemoveAnnotation extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12493,6 +13852,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeArgument")
     public static class RemoveArgument extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12526,6 +13891,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeAtFromAnnotationArgument")
     public static class RemoveAtFromAnnotationArgument extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12554,6 +13925,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeDefaultParameterValue")
     public static class RemoveDefaultParameterValue extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12577,6 +13954,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeFinalUpperBound")
     public static class RemoveFinalUpperBound extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12595,6 +13978,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeNoConstructor")
     public static class RemoveNoConstructor extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12623,6 +14012,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeRedundantAssignment")
     public static class RemoveRedundantAssignment extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12651,6 +14046,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeRedundantInitializer")
     public static class RemoveRedundantInitializer extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12669,6 +14070,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeRedundantLabel")
     public static class RemoveRedundantLabel extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12687,6 +14094,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeRedundantSpreadOperator")
     public static class RemoveRedundantSpreadOperator extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12700,6 +14113,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeSingleLambdaParameter")
     public static class RemoveSingleLambdaParameter extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12753,6 +14172,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeSuspend")
     public static class RemoveSuspend extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12791,6 +14216,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeToStringInStringTemplate")
     public static class RemoveToStringInStringTemplate extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12829,6 +14260,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeTypeVariance")
     public static class RemoveTypeVariance extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12847,6 +14284,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeUnused")
     public static class RemoveUnused extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -12995,6 +14438,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeUnusedParameter")
     public static class RemoveUnusedParameter extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13123,6 +14572,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeUnusedReceiver")
     public static class RemoveUnusedReceiver extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13141,6 +14596,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/removeUseSiteTarget")
     public static class RemoveUseSiteTarget extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13169,6 +14630,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/renameToRem")
     public static class RenameToRem extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13197,6 +14664,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/renameToUnderscore")
     public static class RenameToUnderscore extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13245,6 +14718,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/renameUnresolvedReference")
     public static class RenameUnresolvedReference extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13283,6 +14762,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/reorderParameters")
     public static class ReorderParameters extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13346,6 +14831,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/replaceInfixOrOperatorCall")
     public static class ReplaceInfixOrOperatorCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13464,6 +14955,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/replaceJvmFieldWithConst")
     public static class ReplaceJvmFieldWithConst extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13517,6 +15014,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/replaceWithArrayCallInAnnotation")
     public static class ReplaceWithArrayCallInAnnotation extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13550,6 +15053,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/replaceWithDotCall")
     public static class ReplaceWithDotCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13603,6 +15112,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/replaceWithSafeCall")
     public static class ReplaceWithSafeCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13756,6 +15271,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/replaceWithSafeCallForScopeFunction")
     public static class ReplaceWithSafeCallForScopeFunction extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -13852,6 +15373,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/restrictedRetentionForExpressionAnnotation/addSourceRetention")
         public static class AddSourceRetention extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -13885,6 +15412,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/restrictedRetentionForExpressionAnnotation/changeRetentionToSource")
         public static class ChangeRetentionToSource extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -13918,6 +15451,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/restrictedRetentionForExpressionAnnotation/removeExpressionTarget")
         public static class RemoveExpressionTarget extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -13957,6 +15496,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/simplifyComparison")
     public static class SimplifyComparison extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14000,6 +15545,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/smartCastImpossibleInIfThen")
     public static class SmartCastImpossibleInIfThen extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14068,6 +15619,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/specifyOverrideExplicitly")
     public static class SpecifyOverrideExplicitly extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14097,6 +15654,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             runTest("testData/quickfix/specifyOverrideExplicitly/notPossible.kt");
         }
 
+        @TestMetadata("objectDeclaration.kt")
+        public void testObjectDeclaration() throws Exception {
+            runTest("testData/quickfix/specifyOverrideExplicitly/objectDeclaration.kt");
+        }
+
         @TestMetadata("outer.kt")
         public void testOuter() throws Exception {
             runTest("testData/quickfix/specifyOverrideExplicitly/outer.kt");
@@ -14111,6 +15673,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/specifySuperExplicitly")
     public static class SpecifySuperExplicitly extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14169,6 +15737,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/specifySuperType")
     public static class SpecifySuperType extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14227,6 +15801,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/specifyTypeExplicitly")
     public static class SpecifyTypeExplicitly extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14240,6 +15820,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/specifyVisibilityInExplicitApiMode")
     public static class SpecifyVisibilityInExplicitApiMode extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14273,6 +15859,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/superTypeIsExtensionType")
     public static class SuperTypeIsExtensionType extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14280,6 +15872,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("typeWith1Argument.kt")
         public void testTypeWith1Argument() throws Exception {
             runTest("testData/quickfix/superTypeIsExtensionType/typeWith1Argument.kt");
+        }
+
+        @TestMetadata("typeWithAnnotations.kt")
+        public void testTypeWithAnnotations() throws Exception {
+            runTest("testData/quickfix/superTypeIsExtensionType/typeWithAnnotations.kt");
         }
 
         @TestMetadata("typeWithNoArgument.kt")
@@ -14296,6 +15893,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/supercalls")
     public static class Supercalls extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14309,6 +15912,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/supertypeInitialization")
     public static class SupertypeInitialization extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -14480,6 +16089,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suppress/annotationPosition")
         public static class AnnotationPosition extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -14553,6 +16168,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suppress/availability")
         public static class Availability extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -14636,6 +16257,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suppress/declarationKinds")
         public static class DeclarationKinds extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -14704,6 +16331,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suppress/errorRecovery")
         public static class ErrorRecovery extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -14722,6 +16355,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suppress/external")
         public static class External extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -14743,6 +16382,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/suppress/forStatement/unavailable")
             public static class Unavailable extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -14806,6 +16451,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/suppress/forStatement")
             public static class Uncategorized extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -15008,6 +16659,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/suppress/inspections/codeStructure")
             public static class CodeStructure extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -15211,6 +16868,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/suppress/inspections")
             public static class Uncategorized extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -15235,6 +16898,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suppress/redundant")
         public static class Redundant extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -15264,6 +16933,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/surroundWithArrayOfForNamedArgumentsToVarargs")
     public static class SurroundWithArrayOfForNamedArgumentsToVarargs extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -15317,6 +16992,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/surroundWithNullCheck")
     public static class SurroundWithNullCheck extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -15436,6 +17117,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             runTest("testData/quickfix/surroundWithNullCheck/unsafeCallInsideWhile.kt");
         }
 
+        @TestMetadata("unstableTopLevelValueWithGetter.kt")
+        public void testUnstableTopLevelValueWithGetter() throws Exception {
+            runTest("testData/quickfix/surroundWithNullCheck/unstableTopLevelValueWithGetter.kt");
+        }
+
+        @TestMetadata("unstableTopLevelVariable.kt")
+        public void testUnstableTopLevelVariable() throws Exception {
+            runTest("testData/quickfix/surroundWithNullCheck/unstableTopLevelVariable.kt");
+        }
+
         @TestMetadata("unstableValue.kt")
         public void testUnstableValue() throws Exception {
             runTest("testData/quickfix/surroundWithNullCheck/unstableValue.kt");
@@ -15448,6 +17139,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suspiciousCollectionReassignment/changeTypeToMutable")
         public static class ChangeTypeToMutable extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -15511,6 +17208,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suspiciousCollectionReassignment/joinWithInitializer")
         public static class JoinWithInitializer extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -15539,6 +17242,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suspiciousCollectionReassignment/replaceWithAssignment")
         public static class ReplaceWithAssignment extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -15622,6 +17331,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suspiciousCollectionReassignment/replaceWithFilter")
         public static class ReplaceWithFilter extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -15650,6 +17365,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/suspiciousCollectionReassignment/replaceWithOrdinaryAssignment")
         public static class ReplaceWithOrdinaryAssignment extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -15664,6 +17385,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/toString")
     public static class ToString extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -15707,6 +17434,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/tooLongCharLiteralToString")
     public static class TooLongCharLiteralToString extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -15750,6 +17483,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/typeAddition")
     public static class TypeAddition extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -15777,6 +17516,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("noExplicitTypeInApiMode.kt")
         public void testNoExplicitTypeInApiMode() throws Exception {
             runTest("testData/quickfix/typeAddition/noExplicitTypeInApiMode.kt");
+        }
+
+        @TestMetadata("privatePropertyReference.kt")
+        public void testPrivatePropertyReference() throws Exception {
+            runTest("testData/quickfix/typeAddition/privatePropertyReference.kt");
         }
 
         @TestMetadata("propertyHasType.kt")
@@ -15858,6 +17602,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/typeImports")
     public static class TypeImports extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -15891,13 +17641,39 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/typeInferenceExpectedTypeMismatch")
     public static class TypeInferenceExpectedTypeMismatch extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
-        @TestMetadata("convertClassToKClass1Runtime.kt")
-        public void testConvertClassToKClass1Runtime() throws Exception {
-            runTest("testData/quickfix/typeInferenceExpectedTypeMismatch/convertClassToKClass1Runtime.kt");
+        @TestMetadata("argument.kt")
+        public void testArgument() throws Exception {
+            runTest("testData/quickfix/typeInferenceExpectedTypeMismatch/argument.kt");
+        }
+
+        @TestMetadata("assignment.kt")
+        public void testAssignment() throws Exception {
+            runTest("testData/quickfix/typeInferenceExpectedTypeMismatch/assignment.kt");
+        }
+
+        @TestMetadata("initializer.kt")
+        public void testInitializer() throws Exception {
+            runTest("testData/quickfix/typeInferenceExpectedTypeMismatch/initializer.kt");
+        }
+
+        @TestMetadata("notKClass.kt")
+        public void testNotKClass() throws Exception {
+            runTest("testData/quickfix/typeInferenceExpectedTypeMismatch/notKClass.kt");
+        }
+
+        @TestMetadata("return.kt")
+        public void testReturn() throws Exception {
+            runTest("testData/quickfix/typeInferenceExpectedTypeMismatch/return.kt");
         }
     }
 
@@ -15907,6 +17683,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/casts")
         public static class Casts extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -15980,6 +17762,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/componentFunctionReturnTypeMismatch")
         public static class ComponentFunctionReturnTypeMismatch extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -16018,6 +17806,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/convertCollection")
         public static class ConvertCollection extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -16045,6 +17839,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @TestMetadata("arrayToSequence.kt")
             public void testArrayToSequence() throws Exception {
                 runTest("testData/quickfix/typeMismatch/convertCollection/arrayToSequence.kt");
+            }
+
+            @TestMetadata("assignment.kt")
+            public void testAssignment() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertCollection/assignment.kt");
+            }
+
+            @TestMetadata("initializer.kt")
+            public void testInitializer() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertCollection/initializer.kt");
             }
 
             @TestMetadata("iterableToArray.kt")
@@ -16084,8 +17888,63 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/quickfix/typeMismatch/convertKClassToJavaClass")
+        public static class ConvertKClassToJavaClass extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("argument.kt")
+            public void testArgument() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertKClassToJavaClass/argument.kt");
+            }
+
+            @TestMetadata("argumentVariable.kt")
+            public void testArgumentVariable() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertKClassToJavaClass/argumentVariable.kt");
+            }
+
+            @TestMetadata("assignment.kt")
+            public void testAssignment() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertKClassToJavaClass/assignment.kt");
+            }
+
+            @TestMetadata("initializer.kt")
+            public void testInitializer() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertKClassToJavaClass/initializer.kt");
+            }
+
+            @TestMetadata("return.kt")
+            public void testReturn() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertKClassToJavaClass/return.kt");
+            }
+
+            @TestMetadata("subtype.kt")
+            public void testSubtype() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertKClassToJavaClass/subtype.kt");
+            }
+
+            @TestMetadata("typeMismatch.kt")
+            public void testTypeMismatch() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertKClassToJavaClass/typeMismatch.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/definitelyNonNullableTypes")
         public static class DefinitelyNonNullableTypes extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -16129,6 +17988,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/fixOverloadedOperator")
         public static class FixOverloadedOperator extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -16152,6 +18017,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/incompatibleTypes")
         public static class IncompatibleTypes extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -16198,6 +18069,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/typeMismatch/numberConversion/fromChar")
             public static class FromChar extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -16251,6 +18128,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/typeMismatch/numberConversion/toByte")
             public static class ToByte extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -16279,6 +18162,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/typeMismatch/numberConversion/toChar")
             public static class ToChar extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -16337,6 +18226,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/typeMismatch/numberConversion/toShort")
             public static class ToShort extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -16365,6 +18260,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/typeMismatch/numberConversion")
             public static class Uncategorized extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -16394,6 +18295,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/parameterTypeMismatch")
         public static class ParameterTypeMismatch extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -16438,24 +18345,9 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 runTest("testData/quickfix/typeMismatch/parameterTypeMismatch/changePrimaryConstructorParameterTypeOnPropertyDelegate.kt");
             }
 
-            @TestMetadata("convertKClassToJavaClass.kt")
-            public void testConvertKClassToJavaClass() throws Exception {
-                runTest("testData/quickfix/typeMismatch/parameterTypeMismatch/convertKClassToJavaClass.kt");
-            }
-
-            @TestMetadata("convertKClassToJavaClassSubtype.kt")
-            public void testConvertKClassToJavaClassSubtype() throws Exception {
-                runTest("testData/quickfix/typeMismatch/parameterTypeMismatch/convertKClassToJavaClassSubtype.kt");
-            }
-
-            @TestMetadata("convertKClassToJavaClassTypeMismatch.kt")
-            public void testConvertKClassToJavaClassTypeMismatch() throws Exception {
-                runTest("testData/quickfix/typeMismatch/parameterTypeMismatch/convertKClassToJavaClassTypeMismatch.kt");
-            }
-
-            @TestMetadata("convertKClassToJavaClassVariable.kt")
-            public void testConvertKClassToJavaClassVariable() throws Exception {
-                runTest("testData/quickfix/typeMismatch/parameterTypeMismatch/convertKClassToJavaClassVariable.kt");
+            @TestMetadata("char.kt")
+            public void testChar() throws Exception {
+                runTest("testData/quickfix/typeMismatch/parameterTypeMismatch/char.kt");
             }
 
             @TestMetadata("genericType.kt")
@@ -16487,6 +18379,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/roundNumber")
         public static class RoundNumber extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -16528,6 +18426,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/typeMismatch/typeMismatchOnReturnedExpression/multiReturn")
             public static class MultiReturn extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -16571,6 +18475,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/typeMismatch/typeMismatchOnReturnedExpression")
             public static class Uncategorized extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -16730,6 +18640,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -16777,6 +18693,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @TestMetadata("anyInReturn.kt")
             public void testAnyInReturn() throws Exception {
                 runTest("testData/quickfix/typeMismatch/anyInReturn.kt");
+            }
+
+            @TestMetadata("cannotConvertStringToCharLiteral.kt")
+            public void testCannotConvertStringToCharLiteral() throws Exception {
+                runTest("testData/quickfix/typeMismatch/cannotConvertStringToCharLiteral.kt");
             }
 
             @TestMetadata("changeFunctionLiteralParameterTypeToFunctionType.kt")
@@ -16859,9 +18780,19 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 runTest("testData/quickfix/typeMismatch/constantTypeMismatch.kt");
             }
 
-            @TestMetadata("convertStringToCharLiteral.kt")
-            public void testConvertStringToCharLiteral() throws Exception {
-                runTest("testData/quickfix/typeMismatch/convertStringToCharLiteral.kt");
+            @TestMetadata("convertAssignedStringToCharLiteral.kt")
+            public void testConvertAssignedStringToCharLiteral() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertAssignedStringToCharLiteral.kt");
+            }
+
+            @TestMetadata("convertReturnStringToCharLiteral.kt")
+            public void testConvertReturnStringToCharLiteral() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertReturnStringToCharLiteral.kt");
+            }
+
+            @TestMetadata("convertStringInitializerToCharLiteral.kt")
+            public void testConvertStringInitializerToCharLiteral() throws Exception {
+                runTest("testData/quickfix/typeMismatch/convertStringInitializerToCharLiteral.kt");
             }
 
             @TestMetadata("dontChangeOverriddenPropertyTypeToErrorType.kt")
@@ -17143,13 +19074,29 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/wrapWithCollectionLiteral")
         public static class WrapWithCollectionLiteral extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("assignment.kt")
+            public void testAssignment() throws Exception {
+                runTest("testData/quickfix/typeMismatch/wrapWithCollectionLiteral/assignment.kt");
             }
 
             @TestMetadata("inAnnotation.kt")
             public void testInAnnotation() throws Exception {
                 runTest("testData/quickfix/typeMismatch/wrapWithCollectionLiteral/inAnnotation.kt");
+            }
+
+            @TestMetadata("initializer.kt")
+            public void testInitializer() throws Exception {
+                runTest("testData/quickfix/typeMismatch/wrapWithCollectionLiteral/initializer.kt");
             }
 
             @TestMetadata("noMutableList.kt")
@@ -17221,6 +19168,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/wrongPrimitive")
         public static class WrongPrimitive extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -17300,6 +19253,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/typeOfAnnotationMember")
     public static class TypeOfAnnotationMember extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -17353,6 +19312,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/typeParameters")
     public static class TypeParameters extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -17371,6 +19336,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/typeProjection")
     public static class TypeProjection extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -17414,6 +19385,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/unnecessaryLateinit")
     public static class UnnecessaryLateinit extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -17452,6 +19429,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/unusedSuppressAnnotation")
     public static class UnusedSuppressAnnotation extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -17480,6 +19463,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/useFullyqualifiedCall")
     public static class UseFullyqualifiedCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -17509,6 +19498,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/variables/changeMutability/canBeVal")
             public static class CanBeVal extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -17562,6 +19557,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/quickfix/variables/changeMutability")
             public static class Uncategorized extends AbstractK1QuickFixTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K1;
+                }
+
                 private void runTest(String testDataFilePath) throws Exception {
                     KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
                 }
@@ -17630,12 +19631,28 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 public void testVarAnnotationParameter() throws Exception {
                     runTest("testData/quickfix/variables/changeMutability/varAnnotationParameter.kt");
                 }
+
+                @TestMetadata("volatileOnValue.kt")
+                public void testVolatileOnValue() throws Exception {
+                    runTest("testData/quickfix/variables/changeMutability/volatileOnValue.kt");
+                }
+
+                @TestMetadata("volatileOnValueLocal.kt")
+                public void testVolatileOnValueLocal() throws Exception {
+                    runTest("testData/quickfix/variables/changeMutability/volatileOnValueLocal.kt");
+                }
             }
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/variables/changeToFunctionInvocation")
         public static class ChangeToFunctionInvocation extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -17643,6 +19660,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @TestMetadata("funInvWithoutParentheses.kt")
             public void testFunInvWithoutParentheses() throws Exception {
                 runTest("testData/quickfix/variables/changeToFunctionInvocation/funInvWithoutParentheses.kt");
+            }
+
+            @TestMetadata("genericFunction.kt")
+            public void testGenericFunction() throws Exception {
+                runTest("testData/quickfix/variables/changeToFunctionInvocation/genericFunction.kt");
             }
 
             @TestMetadata("inStringTemplate.kt")
@@ -17674,39 +19696,31 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/variables/changeToPropertyAccess")
         public static class ChangeToPropertyAccess extends AbstractK1QuickFixTest {
-            private void runTest(String testDataFilePath) throws Exception {
-                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
             }
 
-            @TestMetadata("enumEntryCall.kt")
-            public void testEnumEntryCall() throws Exception {
-                runTest("testData/quickfix/variables/changeToPropertyAccess/enumEntryCall.kt");
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
             @TestMetadata("nonSimpleName.kt")
             public void testNonSimpleName() throws Exception {
                 runTest("testData/quickfix/variables/changeToPropertyAccess/nonSimpleName.kt");
             }
-
-            @TestMetadata("objectCall.kt")
-            public void testObjectCall() throws Exception {
-                runTest("testData/quickfix/variables/changeToPropertyAccess/objectCall.kt");
-            }
-
-            @TestMetadata("propertyCall.kt")
-            public void testPropertyCall() throws Exception {
-                runTest("testData/quickfix/variables/changeToPropertyAccess/propertyCall.kt");
-            }
-
-            @TestMetadata("propertyCallWithArguments.kt")
-            public void testPropertyCallWithArguments() throws Exception {
-                runTest("testData/quickfix/variables/changeToPropertyAccess/propertyCallWithArguments.kt");
-            }
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/variables/removeValVarFromParameter")
         public static class RemoveValVarFromParameter extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -17750,6 +19764,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/variables")
         public static class Uncategorized extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -17809,6 +19829,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/when")
     public static class When extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -17881,6 +19907,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("addRemainingBranchesEnumStatement.kt")
         public void testAddRemainingBranchesEnumStatement() throws Exception {
             runTest("testData/quickfix/when/addRemainingBranchesEnumStatement.kt");
+        }
+
+        @TestMetadata("addRemainingBranchesGeneric.kt")
+        public void testAddRemainingBranchesGeneric() throws Exception {
+            runTest("testData/quickfix/when/addRemainingBranchesGeneric.kt");
+        }
+
+        @TestMetadata("addRemainingBranchesGeneric2.kt")
+        public void testAddRemainingBranchesGeneric2() throws Exception {
+            runTest("testData/quickfix/when/addRemainingBranchesGeneric2.kt");
         }
 
         @TestMetadata("addRemainingBranchesInNonDefaultPackage.kt")
@@ -18007,6 +20043,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/wrapArgumentWithParentheses")
     public static class WrapArgumentWithParentheses extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -18025,6 +20067,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/wrapWhenExpressionInParentheses")
     public static class WrapWhenExpressionInParentheses extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -18038,6 +20086,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/wrapWithSafeLetCall")
     public static class WrapWithSafeLetCall extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -18216,6 +20270,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/wrongLongSuffix")
     public static class WrongLongSuffix extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -18229,6 +20289,12 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/quickfix/yieldUnsupported")
     public static class YieldUnsupported extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }

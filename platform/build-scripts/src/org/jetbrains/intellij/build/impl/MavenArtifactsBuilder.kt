@@ -1,7 +1,6 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl
 
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
 import com.intellij.util.text.NameUtilCore
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
@@ -14,8 +13,9 @@ import org.apache.maven.model.Model
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.DirSource
-import org.jetbrains.intellij.build.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.buildJar
+import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
+import org.jetbrains.intellij.build.telemetry.use
 import org.jetbrains.jps.model.java.*
 import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsMavenRepositoryLibraryDescriptor
@@ -35,7 +35,7 @@ import java.util.function.BiConsumer
  * @see [org.jetbrains.intellij.build.ProductProperties.mavenArtifacts]
  * @see [org.jetbrains.intellij.build.BuildOptions.Companion.MAVEN_ARTIFACTS_STEP]
  */
-open class MavenArtifactsBuilder(protected val context: BuildContext, private val skipNothing: Boolean = false) {
+open class MavenArtifactsBuilder(protected val context: BuildContext) {
   companion object {
     @JvmStatic
     fun generateMavenCoordinatesSquashed(moduleName: String, version: String): MavenCoordinates {
@@ -48,7 +48,15 @@ open class MavenArtifactsBuilder(protected val context: BuildContext, private va
       if (names.size < 2) {
         throw RuntimeException("Cannot generate Maven artifacts: incorrect module name '${moduleName}'")
       }
-
+      // handle "fleet.*" modules
+      if (names.first() == "fleet") {
+        val groupId = "com.jetbrains.intellij.fleet"
+        val artifactId = names.drop(1).flatMap { s ->
+          splitByCamelHumpsMergingNumbers(s).map { it.lowercase(Locale.US) }
+        }.joinToString(separator = "-")
+        return MavenCoordinates(groupId, artifactId, version)
+      }
+      // handle "intellij.*" modules
       val groupId = "com.jetbrains.${names.take(2).joinToString(separator = ".")}"
       val firstMeaningful = if (names.size > 2 && COMMON_GROUP_NAMES.contains(names[1])) 2 else 1
       val artifactId = names.drop(firstMeaningful).flatMap { s ->
@@ -61,7 +69,7 @@ open class MavenArtifactsBuilder(protected val context: BuildContext, private va
       val result = LinkedHashMap<JpsDependencyElement, DependencyScope>()
       for (dependency in module.dependenciesList.dependencies) {
         val extension = JpsJavaExtensionService.getInstance().getDependencyExtension(dependency) ?: continue
-        result.put(dependency, when (extension.scope) {
+        result[dependency] = when (extension.scope) {
           JpsJavaDependencyScope.COMPILE ->
             //if a dependency isn't exported, transitive dependencies will include it in runtime classpath only
             if (extension.isExported) DependencyScope.COMPILE else DependencyScope.RUNTIME
@@ -74,7 +82,7 @@ open class MavenArtifactsBuilder(protected val context: BuildContext, private va
             continue
           else ->
             continue
-        })
+        }
       }
       return result
     }
@@ -91,18 +99,48 @@ open class MavenArtifactsBuilder(protected val context: BuildContext, private va
     fun createDependencyTagByLibrary(descriptor: JpsMavenRepositoryLibraryDescriptor): Dependency {
       return createDependencyTag(createArtifactDependencyByLibrary(descriptor, DependencyScope.COMPILE))
     }
+
+    private val FLEET_MODULES_IN_COMMUNITY = setOf(
+      "fleet.kernel",
+      "fleet.preferences",
+      "fleet.reporting.api",
+      "fleet.rhizomedb",
+      "fleet.rpc",
+      "fleet.rpc.server",
+      "fleet.util.core",
+      "fleet.util.logging.api",
+      "fleet.util.os",
+    )
   }
 
-  suspend fun generateMavenArtifacts(moduleNamesToPublish: Collection<String>,
-                                     moduleNamesToSquashAndPublish: List<String>,
-                                     outputDir: String) {
-    val modulesToPublish = HashMap<MavenArtifactData, List<JpsModule>>()
+  suspend fun generateMavenArtifacts(
+    moduleNamesToPublish: Collection<String>,
+    moduleNamesToSquashAndPublish: List<String> = emptyList(),
+    outputDir: String,
+  ) {
+    generateMavenArtifacts(
+      moduleNamesToPublish,
+      moduleNamesToSquashAndPublish,
+      outputDir,
+      ignoreNonMavenizable = false,
+      builtArtifacts = mutableSetOf(),
+    )
+  }
 
-    generateMavenArtifactData(moduleNamesToPublish).forEach(BiConsumer { aModule, artifactData ->
-      modulesToPublish.put(artifactData, listOf(aModule))
+  internal suspend fun generateMavenArtifacts(
+    moduleNamesToPublish: Collection<String>,
+    moduleNamesToSquashAndPublish: List<String> = emptyList(),
+    outputDir: String,
+    ignoreNonMavenizable: Boolean = false,
+    builtArtifacts: MutableSet<MavenArtifactData>,
+  ) {
+    val artifactsToBuild = HashMap<MavenArtifactData, List<JpsModule>>()
+
+    generateMavenArtifactData(moduleNamesToPublish, ignoreNonMavenizable).forEach(BiConsumer { aModule, artifactData ->
+      artifactsToBuild[artifactData] = listOf(aModule)
     })
 
-    val squashingMavenArtifactsData = generateMavenArtifactData(moduleNamesToSquashAndPublish)
+    val squashingMavenArtifactsData = generateMavenArtifactData(moduleNamesToSquashAndPublish, ignoreNonMavenizable)
     for (moduleName in moduleNamesToSquashAndPublish) {
       val module = context.findRequiredModule(moduleName)
       val modules = JpsJavaExtensionService.dependencies(module)
@@ -117,23 +155,28 @@ open class MavenArtifactsBuilder(protected val context: BuildContext, private va
         .toList()
 
       val coordinates = generateMavenCoordinatesForSquashedModule(module, context)
-      modulesToPublish.put(MavenArtifactData(coordinates, dependencies), modules.toList())
+      artifactsToBuild[MavenArtifactData(coordinates, dependencies)] = modules.toList()
     }
-
+    artifactsToBuild -= builtArtifacts
     spanBuilder("layout maven artifacts")
-      .setAttribute(AttributeKey.stringArrayKey("modules"), modulesToPublish.entries.map { entry ->
+      .setAttribute(AttributeKey.stringArrayKey("modules"), artifactsToBuild.entries.map { entry ->
         "  [${entry.value.joinToString(separator = ",") { it.name }}] -> ${entry.key.coordinates}"
-      }).useWithScope {
-        layoutMavenArtifacts(modulesToPublish, context.paths.artifactDir.resolve(outputDir), context)
+      }).use {
+        layoutMavenArtifacts(artifactsToBuild, context.paths.artifactDir.resolve(outputDir), context)
       }
+    builtArtifacts += artifactsToBuild.keys
   }
 
-  private fun generateMavenArtifactData(moduleNames: Collection<String>): Map<JpsModule, MavenArtifactData> {
+  private fun generateMavenArtifactData(moduleNames: Collection<String>, ignoreNonMavenizable: Boolean): Map<JpsModule, MavenArtifactData> {
     val results = HashMap<JpsModule, MavenArtifactData>()
     val nonMavenizableModulesSet = HashSet<JpsModule>()
     val computationInProgressSet = HashSet<JpsModule>()
     for (module in moduleNames.asSequence().map(context::findRequiredModule)) {
       generateMavenArtifactData(module, results, nonMavenizableModulesSet, computationInProgressSet)
+    }
+    val nonMavenizableModules by lazy { moduleNames.intersect(nonMavenizableModulesSet.asSequence().map { it.name }.toSet()) }
+    check(ignoreNonMavenizable || nonMavenizableModules.isEmpty()) {
+      nonMavenizableModules.joinToString(prefix = "Modules cannot be published as Maven artifacts:\n", separator = "\n")
     }
     return results
   }
@@ -207,7 +250,7 @@ open class MavenArtifactsBuilder(protected val context: BuildContext, private va
         else if (!isOptionalDependency(library)) {
           Span.current().addEvent("module depends on non-maven library", Attributes.of(
             AttributeKey.stringKey("module"), module.name,
-            AttributeKey.stringKey("library"), LibraryLicensesListGenerator.getLibraryName(library),
+            AttributeKey.stringKey("library"), getLibraryFilename(library),
           ))
           mavenizable = false
         }
@@ -220,12 +263,13 @@ open class MavenArtifactsBuilder(protected val context: BuildContext, private va
     }
 
     val artifactData = MavenArtifactData(generateMavenCoordinatesForModule(module), dependencies)
-    results.put(module, artifactData)
+    results[module] = artifactData
     return artifactData
   }
 
   protected open fun shouldSkipModule(moduleName: String, moduleIsDependency: Boolean): Boolean {
-    return if (skipNothing || moduleIsDependency) false else !moduleName.startsWith("intellij.")
+    val moduleShouldBePublished = moduleIsDependency || moduleName in FLEET_MODULES_IN_COMMUNITY || moduleName.startsWith("intellij.")
+    return !moduleShouldBePublished
   }
 
   protected open fun generateMavenCoordinatesForModule(module: JpsModule): MavenCoordinates {

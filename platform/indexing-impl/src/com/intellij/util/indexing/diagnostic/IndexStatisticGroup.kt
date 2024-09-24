@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing.diagnostic
 
 import com.intellij.internal.statistic.collectors.fus.PluginIdRuleValidator
@@ -8,69 +8,27 @@ import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesColle
 import com.intellij.internal.statistic.utils.StatisticsUtil
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
-import com.intellij.psi.stubs.StubInconsistencyReporter
-import com.intellij.psi.stubs.StubInconsistencyReporter.InconsistencyType
-import com.intellij.psi.stubs.StubInconsistencyReporter.SourceOfCheck
+import com.intellij.util.ExceptionUtil
 import com.intellij.util.indexing.FileBasedIndex.RebuildRequestedByUserAction
 import com.intellij.util.indexing.ID
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.util.*
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 @Internal
 object IndexStatisticGroup {
-  val GROUP = EventLogGroup("indexing.statistics", 12)
+  internal val GROUP = EventLogGroup("indexing.statistics", 18)
 
-  private val sourceOfCheckField =
-    EventFields.Enum<SourceOfCheck>("check_source") { type -> type.fusDescription }
-  private val inconsistencyTypeField = EventFields.Enum<InconsistencyType>("inconsistency_type") { type -> type.fusDescription }
-  private val enforcedInconsistencyTypeField =
-    EventFields.Enum<StubInconsistencyReporter.EnforcedInconsistencyType>("enforced_inconsistency") { type -> type.fusDescription }
-
-  private val stubIndexInconsistencyRegistered = GROUP.registerVarargEvent("stub.index.inconsistency", sourceOfCheckField,
-                                                                           inconsistencyTypeField, enforcedInconsistencyTypeField)
-
-  @JvmStatic
-  fun reportEnforcedStubInconsistency(project: Project,
-                                      sourceOfCheck: SourceOfCheck,
-                                      enforcedInconsistencyType: StubInconsistencyReporter.EnforcedInconsistencyType) {
-    stubIndexInconsistencyRegistered.log(project,
-                                         sourceOfCheckField.with(sourceOfCheck),
-                                         enforcedInconsistencyTypeField.with(enforcedInconsistencyType))
-  }
-
-  /**
-   * `stub.index.inconsistency` event with only a project in versions of collector <= 11
-   *  corresponds in collectors of version 12+ to a `stub.index.inconsistency` event with a project,
-   *  SourceOfCheck.WrongTypePsiInStubHelper,
-   *  any InconsistencyType including none,
-   *  and EnforcedInconsistencyType.PsiOfUnexpectedClass
-   */
-  @JvmStatic
-  fun reportStubInconsistency(project: Project,
-                              sourceOfCheck: SourceOfCheck,
-                              inconsistencyType: InconsistencyType,
-                              enforcedInconsistencyType: StubInconsistencyReporter.EnforcedInconsistencyType?) {
-    if (enforcedInconsistencyType == null) {
-      stubIndexInconsistencyRegistered.log(project, sourceOfCheckField.with(sourceOfCheck), inconsistencyTypeField.with(inconsistencyType))
-    }
-    else {
-      stubIndexInconsistencyRegistered.log(project, sourceOfCheckField.with(sourceOfCheck), inconsistencyTypeField.with(inconsistencyType),
-                                           enforcedInconsistencyTypeField.with(enforcedInconsistencyType))
-    }
-  }
-
-  private val indexIdField =
-    EventFields.StringValidatedByCustomRule("index_id", IndexIdRuleValidator::class.java)
-  private val rebuildCauseField =
-    EventFields.Class("rebuild_cause")
+  private val indexIdField = EventFields.StringValidatedByCustomRule("index_id", IndexIdRuleValidator::class.java)
+  private val rebuildCauseField = EventFields.Class("rebuild_cause")
   private val requestorPluginId = EventFields.StringValidatedByCustomRule(
     "requestor_plugin_id",
     PluginIdRuleValidator::class.java,
   )
-  private val insideIndexInitialization =
-    EventFields.Boolean("inside_index_initialization")
+  private val insideIndexInitialization = EventFields.Boolean("inside_index_initialization")
 
-  private val indexRebuildEvent = GROUP.registerVarargEvent (
+  private val indexRebuildEvent = GROUP.registerVarargEvent(
     "index_rebuild",
     indexIdField,
     rebuildCauseField,
@@ -79,10 +37,12 @@ object IndexStatisticGroup {
   )
 
   @JvmStatic
-  fun reportIndexRebuild(indexId: ID<*, *>,
-                         cause: Throwable,
-                         isInsideIndexInitialization: Boolean) {
-    val realCause = (if (cause.javaClass == Throwable::class.java) cause.cause else cause) ?: cause
+  fun reportIndexRebuild(
+    indexId: ID<*, *>,
+    cause: Throwable,
+    isInsideIndexInitialization: Boolean,
+  ) {
+    val realCause = ExceptionUtil.getRootCause(cause)
     val causeClass = realCause.javaClass
 
     var requestorPluginID: PluginId? = null
@@ -161,7 +121,7 @@ object IndexStatisticGroup {
     dumbTimeWithoutPauses: Long,
     numberOfHandledFiles: Int,
     numberOfFilesIndexedByExtensions: Int,
-    isCancelled: Boolean
+    isCancelled: Boolean,
   ) {
     indexingActivityFinished.log(
       project,
@@ -191,7 +151,7 @@ object IndexStatisticGroup {
     indexingWritingTimeWithPauses: Long,
     numberOfHandledFiles: Int,
     numberOfFilesIndexedByExtensions: Int,
-    isCancelled: Boolean
+    isCancelled: Boolean,
   ) {
     indexingActivityFinished.log(
       project,
@@ -210,8 +170,66 @@ object IndexStatisticGroup {
       this.isCancelled.with(isCancelled)
     )
   }
+
+  /* ====================== internal (technical) indexing statistics: ============================================ */
+
+  /** How long the whole indexing takes -- a wall time, ms*/
+  private val totalIndexingDurationMs = EventFields.Long("total_indexing_ms")
+
+  /** Total time (ms) indexers were idle (suspended, slept) during indexing, due to backpressure from index writers */
+  private val totalTimeIndexersSleptMs = EventFields.Long("indexers_slept_ms")
+
+  /** How many indexers were in play (it depends on user hardware) */
+  private val indexersCount = EventFields.Int("indexers")
+
+  /** How many CPUs a user machine has */
+  private val cpusCount = EventFields.Int("cpus")
+
+  /** How many files were indexed in this indexing run */
+  private val totalFilesIndexed = EventFields.Int("files")
+
+  /**
+   * `=indexers_slept_ms/total_indexing_ms/indexersCount`.
+   * (It could be calculated from other fields, but not in FUS web UI)
+   */
+  private val fractionOfTimeSlept = EventFields.Double("fraction_of_time_slept")
+
+  private val indexingInternalStatistics = GROUP.registerVarargEvent(
+    "indexing_run_internal_statistics",
+    totalIndexingDurationMs,
+    totalTimeIndexersSleptMs,
+    indexersCount,
+    cpusCount,
+    totalFilesIndexed,
+    fractionOfTimeSlept
+  )
+
+  @JvmStatic
+  fun reportIndexingInternalStatistics(
+    totalFiles: Int,
+    indexersCount: Int,
+    cpusCount: Int = Runtime.getRuntime().availableProcessors(),
+    totalIndexingDuration: Duration,
+    indexersSlept: Duration,
+  ) {
+    if( totalIndexingDuration < 10.seconds ) {
+      //short indexing runs are not representative -- queueing effects are too significant
+      return
+    }
+
+    val fractionOfTimeSlept = indexersSlept * 1.0 / indexersCount / totalIndexingDuration
+    indexingInternalStatistics.log(
+      totalIndexingDurationMs.with(totalIndexingDuration.inWholeMilliseconds),
+      totalTimeIndexersSleptMs.with(indexersSlept.inWholeMilliseconds),
+      this.indexersCount.with(indexersCount),
+      this.cpusCount.with(cpusCount),
+      totalFilesIndexed.with(totalFiles),
+      this.fractionOfTimeSlept.with(fractionOfTimeSlept)
+    )
+  }
 }
 
+@Internal
 class ProjectIndexingHistoryFusReporter : CounterUsagesCollector() {
   override fun getGroup(): EventLogGroup = IndexStatisticGroup.GROUP
 }

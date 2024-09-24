@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.compiler
 
 import com.intellij.debugger.DebuggerManagerEx
@@ -11,12 +11,12 @@ import com.intellij.debugger.engine.evaluation.CodeFragmentKind
 import com.intellij.debugger.engine.evaluation.EvaluateException
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl
 import com.intellij.debugger.engine.evaluation.TextWithImportsImpl
-import com.intellij.debugger.engine.events.DebuggerCommandImpl
 import com.intellij.debugger.engine.events.DebuggerContextCommandImpl
 import com.intellij.debugger.impl.DebuggerContextImpl
 import com.intellij.debugger.impl.DebuggerContextUtil
 import com.intellij.debugger.impl.DebuggerManagerImpl
 import com.intellij.debugger.impl.DebuggerSession
+import com.intellij.debugger.impl.PrioritizedTask
 import com.intellij.debugger.ui.impl.watch.WatchItemDescriptor
 import com.intellij.debugger.ui.tree.render.DescriptorLabelListener
 import com.intellij.execution.configurations.RunProfile
@@ -33,20 +33,23 @@ import com.intellij.util.ExceptionUtil
 import com.intellij.util.concurrency.Semaphore
 import groovy.transform.CompileStatic
 import org.jetbrains.annotations.NotNull
+import org.jetbrains.annotations.Nullable
 
 import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait
 
 @CompileStatic
-trait DebuggerMethods extends CompilerMethods {
+trait DebuggerMethods implements CompilerMethods {
 
   private static final int ourTimeout = 60000
 
   abstract Logger getLogger()
 
+  @Nullable
   DebugProcessImpl getDebugProcess() {
     debugSession?.process
   }
 
+  @Nullable
   DebuggerSession getDebugSession() {
     DebuggerManagerEx.getInstanceEx(project).context.debuggerSession
   }
@@ -57,8 +60,8 @@ trait DebuggerMethods extends CompilerMethods {
         if (type == ProcessOutputTypes.STDERR) {
           println evt.text
         }
-      }] as ProcessAdapter
-      runConfiguration(DefaultDebugExecutor, listener, configuration)
+      }] as ProcessListener
+      runConfiguration(DefaultDebugExecutor, listener, configuration, null)
     }
     logger.debug("after start")
     try {
@@ -69,9 +72,9 @@ trait DebuggerMethods extends CompilerMethods {
       throw t
     }
     finally {
-      def handler = debugProcess.processHandler
+      def handler = debugProcess?.processHandler
       resume()
-      if (!handler.waitFor(ourTimeout)) {
+      if (handler != null && !handler.waitFor(ourTimeout)) {
         if (handler instanceof OSProcessHandler) {
           OSProcessUtil.killProcessTree((handler as OSProcessHandler).process)
         }
@@ -95,10 +98,7 @@ trait DebuggerMethods extends CompilerMethods {
     semaphore.down()
     def process = debugProcess
     // wait for all events processed
-    DebuggerCommandImpl cl = {
-                                     semaphore.up()
-                                   }
-    process.managerThread.schedule  cl
+    process.managerThread.invoke(PrioritizedTask.Priority.NORMAL, { semaphore.up() })
     def finished = semaphore.waitFor(ourTimeout)
     assert finished: 'Too long debugger actions'
 

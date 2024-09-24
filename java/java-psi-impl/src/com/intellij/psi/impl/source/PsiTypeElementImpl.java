@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.source;
 
 import com.intellij.codeInsight.daemon.impl.analysis.JavaGenericsUtil;
@@ -193,6 +193,10 @@ public class PsiTypeElementImpl extends CompositePsiElement implements PsiTypeEl
     else {
       for (PsiElement e = this; e != null; e = e.getNextSibling()) {
         if (e instanceof PsiExpression) {
+          if (!PsiTreeUtil.processElements(
+            e, PsiReferenceExpression.class, ref -> !ref.isReferenceTo(parent))) {
+            return null;
+          }
           if (!(e instanceof PsiArrayInitializerExpression)) {
             PsiExpression expression = (PsiExpression)e;
             RecursionGuard.StackStamp stamp = RecursionManager.markStack();
@@ -228,8 +232,7 @@ public class PsiTypeElementImpl extends CompositePsiElement implements PsiTypeEl
     return ClassReferencePointer.constant(ref);
   }
 
-  @Nullable
-  private static PsiTypeElement getRootTypeElement(@NotNull PsiJavaCodeReferenceElement ref) {
+  private static @Nullable PsiTypeElement getRootTypeElement(@NotNull PsiJavaCodeReferenceElement ref) {
     PsiElement root = SyntaxTraverser.psiApi()
       .parents(ref.getParent())
       .takeWhile(it -> it instanceof PsiTypeElement || it instanceof PsiReferenceParameterList || it instanceof PsiJavaCodeReferenceElement)
@@ -237,8 +240,7 @@ public class PsiTypeElementImpl extends CompositePsiElement implements PsiTypeEl
     return ObjectUtils.tryCast(root, PsiTypeElement.class);
   }
 
-  @NotNull
-  private static JBIterable<PsiJavaCodeReferenceElement> allReferencesInside(@NotNull PsiTypeElement rootType) {
+  private static @NotNull JBIterable<PsiJavaCodeReferenceElement> allReferencesInside(@NotNull PsiTypeElement rootType) {
     return SyntaxTraverser.psiTraverser(rootType).filter(PsiJavaCodeReferenceElement.class);
   }
 
@@ -260,14 +262,12 @@ public class PsiTypeElementImpl extends CompositePsiElement implements PsiTypeEl
         return result;
       }
 
-      @Nullable
-      private PsiJavaCodeReferenceElement findReferenceByIndex(PsiClassReferenceType type) {
+      private @Nullable PsiJavaCodeReferenceElement findReferenceByIndex(PsiClassReferenceType type) {
         PsiTypeElement root = getRootTypeElement(type.getReference());
         return root == null ? null : allReferencesInside(root).get(index);
       }
 
-      @Nullable
-      private PsiType calcTypeByParent() {
+      private @Nullable PsiType calcTypeByParent() {
         if (!parent.isValid()) return null;
 
         PsiType type = parent instanceof PsiMethod ? ((PsiMethod)parent).getReturnType() : ((PsiVariable)parent).getType();
@@ -404,6 +404,28 @@ public class PsiTypeElementImpl extends CompositePsiElement implements PsiTypeEl
     if (isInferredType()) return false;
     PsiType type = getType();
     return !PsiTypes.voidType().equals(type) && !PsiTypes.nullType().equals(type);
+  }
+
+  @Override
+  public PsiElement getOriginalElement() {
+    PsiElement parent = getParent();
+    if (parent instanceof PsiVariable) {
+      PsiElement originalVariable = parent.getOriginalElement();
+      if (originalVariable != parent && originalVariable instanceof PsiVariable) {
+        return ((PsiVariable)originalVariable).getTypeElement();
+      }
+    }
+    if (parent instanceof PsiMethod) {
+      PsiElement originalMethod = parent.getOriginalElement();
+      if (originalMethod != parent && originalMethod instanceof PsiMethod) {
+        return ((PsiMethod)originalMethod).getReturnTypeElement();
+      }
+    }
+    if (parent instanceof PsiTypeElement || parent instanceof PsiJavaCodeReferenceElement ||
+        parent instanceof PsiReferenceParameterList) {
+      return PsiImplUtil.getCorrespondingOriginalElementOfType(this, PsiTypeElement.class);
+    }
+    return this;
   }
 
   @Override

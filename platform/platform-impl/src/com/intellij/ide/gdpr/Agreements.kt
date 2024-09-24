@@ -5,8 +5,8 @@ package com.intellij.ide.gdpr
 
 import com.intellij.DynamicBundle
 import com.intellij.diagnostic.LoadingState
-import com.intellij.ide.SystemLanguage
 import com.intellij.idea.AppExitCodes
+import com.intellij.l10n.LocalizationUtil
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.ex.ApplicationEx
 import com.intellij.openapi.application.ex.ApplicationManagerEx
@@ -16,12 +16,13 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.ui.AppUIUtil
+import org.jetbrains.annotations.VisibleForTesting
 import java.util.*
 import kotlin.system.exitProcess
 
 fun showEndUserAndDataSharingAgreements(agreement: EndUserAgreement.Document) {
   val isPrivacyPolicy = agreement.isPrivacyPolicy
-  val bundle = DynamicBundle.getResourceBundle(DynamicBundle::class.java.classLoader, "messages.AgreementsBundle", SystemLanguage.getInstance().locale)
+  val bundle = DynamicBundle.getResourceBundle(DynamicBundle::class.java.classLoader, "messages.AgreementsBundle", LocalizationUtil.getLocale())
   showAgreementUi {
     htmlText = agreement.text
     title = if (isPrivacyPolicy) {
@@ -54,7 +55,7 @@ fun showEndUserAndDataSharingAgreements(agreement: EndUserAgreement.Document) {
       }
     )
 
-    if (ApplicationInfoImpl.getShadowInstance().isEAP) {
+    if (ApplicationInfoImpl.getShadowInstance().isEAP && !isReleaseAgreementsEnabled()) {
       acceptButton(
         text = bundle.getString("userAgreement.dialog.continue"),
         isEnabled = false,
@@ -85,7 +86,7 @@ fun showEndUserAndDataSharingAgreements(agreement: EndUserAgreement.Document) {
 
 internal fun showDataSharingAgreement() {
   showAgreementUi {
-    configureDataSharing(bundle = DynamicBundle.getResourceBundle(this::class.java.classLoader, "messages.AgreementsBundle", SystemLanguage.getInstance().locale))
+    configureDataSharing(bundle = DynamicBundle.getResourceBundle(this::class.java.classLoader, "messages.AgreementsBundle", Locale.getDefault()))
   }
 }
 
@@ -129,3 +130,7 @@ private fun prepareConsentsHtml(consent: Consent, bundle: ResourceBundle): HtmlC
     .append(preferenceChunk)
     .wrapWithHtmlBody()
 }
+
+//test.release.agreements property is only for test purposes. To get release dialogs on EAP versions
+@VisibleForTesting
+internal fun isReleaseAgreementsEnabled(): Boolean = System.getProperty("test.release.agreements").toBoolean()

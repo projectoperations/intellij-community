@@ -6,7 +6,8 @@ import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DataProvider
-import com.intellij.openapi.actionSystem.impl.ActionButton
+import com.intellij.openapi.actionSystem.DataSink
+import com.intellij.openapi.actionSystem.impl.ActionButtonUtil
 import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.project.Project
@@ -20,6 +21,7 @@ import com.intellij.openapi.vcs.actions.ShowCommitOptionsAction
 import com.intellij.openapi.vcs.changes.InclusionListener
 import com.intellij.openapi.vcs.ui.CommitMessage
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.toolWindow.InternalDecoratorImpl
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.util.EventDispatcher
@@ -28,7 +30,6 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.Borders.empty
 import com.intellij.util.ui.JBUI.Borders.emptyLeft
 import com.intellij.util.ui.JBUI.scale
-import com.intellij.util.ui.UIUtil.uiTraverser
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.vcsUtil.VcsUIUtil
 import org.jetbrains.annotations.Nls
@@ -85,6 +86,8 @@ abstract class NonModalCommitPanel(
     withPreferredHeight(85)
     commitMessage.editorField.setDisposedWith(this)
     bottomPanel.background = getButtonPanelBackground()
+
+    InternalDecoratorImpl.preventRecursiveBackgroundUpdateOnToolwindow(this)
   }
 
   override fun updateUI() {
@@ -100,15 +103,16 @@ abstract class NonModalCommitPanel(
   override fun getComponent(): JComponent = this
   override fun getPreferredFocusableComponent(): JComponent = commitMessage.editorField
 
-  override fun getData(dataId: String): Any? {
-    return getDataFromProviders(dataId) ?: commitMessage.getData(dataId)
+  override fun uiDataSnapshot(sink: DataSink) {
+    DataSink.uiDataSnapshot(sink, commitMessage)
+    uiDataSnapshotFromProviders(sink)
   }
 
-  fun getDataFromProviders(dataId: String): Any? {
-    for (dataProvider in dataProviders) {
-      return dataProvider.getData(dataId) ?: continue
+  @Deprecated("Use UiDataRule instead")
+  fun uiDataSnapshotFromProviders(sink: DataSink) {
+    dataProviders.forEach {
+      DataSink.uiDataSnapshot(sink, it)
     }
-    return null
   }
 
   override fun addDataProvider(provider: DataProvider) {
@@ -140,7 +144,7 @@ abstract class NonModalCommitPanel(
   }
 
   override fun showCommitOptions(options: CommitOptions, actionName: @Nls String, isFromToolbar: Boolean, dataContext: DataContext) {
-    val commitOptionsPanel = CommitOptionsPanel(project, actionNameSupplier = { actionName }, nonFocusable = false)
+    val commitOptionsPanel = CommitOptionsPanel(project, actionNameSupplier = { actionName }, nonFocusable = false, nonModalCommit = true)
     commitOptionsPanel.setOptions(options)
 
     val commitOptionsComponent = commitOptionsPanel.component.apply {
@@ -189,7 +193,6 @@ abstract class NonModalCommitPanel(
   }
 }
 
-private fun CommitActionsPanel.getShowCommitOptionsButton(): JComponent? =
-  uiTraverser(this)
-    .filter(ActionButton::class.java)
-    .find { it.action is ShowCommitOptionsAction }
+private fun CommitActionsPanel.getShowCommitOptionsButton(): JComponent? = ActionButtonUtil.findActionButton(this) {
+  it.action is ShowCommitOptionsAction
+}

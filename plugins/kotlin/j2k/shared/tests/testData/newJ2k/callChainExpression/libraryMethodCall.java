@@ -1,12 +1,12 @@
 class Library {
   static void call() {}
 
-  static String getString() { return ""; }
+  static String string() { return ""; }
 }
 
 class User {
   void main() {
     Library.call();
-    Library.getString().isEmpty();
+    Library.string().isEmpty();
   }
 }

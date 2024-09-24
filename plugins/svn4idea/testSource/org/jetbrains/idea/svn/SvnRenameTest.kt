@@ -243,6 +243,17 @@ class SvnRenameTest : SvnTestCase() {
 
     refreshVfs()   // wait for end of refresh operations initiated from SvnFileSystemListener
     changeListManager.ensureUpToDate()
+
+    runAndVerifyStatus(
+      "D child", "> moved to newchild",
+      "D child/a.txt",
+      "D child/grandChild",
+      "D child/grandChild/b.txt",
+      "A + newchild", "> moved from child",
+      "D + newchild/a.txt", "> moved to newchild/anew.txt",
+      "A + newchild/anew.txt", "> moved from newchild/a.txt"
+    )
+
     commit(changeListManager.defaultChangeList.changes.toList(), "test")
   }
 
@@ -490,7 +501,7 @@ class SvnRenameTest : SvnTestCase() {
   /*
    * Try to workaround IDEA-182560
    */
-  private inline fun makeVfsRefreshBehaveMaybe(crossinline runnable: () -> Unit) {
+  private fun makeVfsRefreshBehaveMaybe(runnable: () -> Unit) {
     runInEdtAndWait(runnable)
   }
 }

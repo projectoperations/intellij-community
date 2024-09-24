@@ -4,6 +4,7 @@ package com.jetbrains.jsonSchema.impl.light.nodes
 import com.fasterxml.jackson.databind.node.MissingNode
 import com.intellij.openapi.vfs.VirtualFile
 import com.jetbrains.jsonSchema.impl.IfThenElse
+import com.jetbrains.jsonSchema.impl.JsonSchemaMetadataEntry
 import com.jetbrains.jsonSchema.impl.JsonSchemaObject
 import com.jetbrains.jsonSchema.impl.JsonSchemaType
 import com.jetbrains.jsonSchema.impl.light.SCHEMA_ROOT_POINTER
@@ -16,11 +17,7 @@ internal object MissingJsonSchemaObject : JsonSchemaObjectBackedByJacksonBase(Mi
   override fun isValidByExclusion(): Boolean {
     throw UnsupportedOperationException(ERROR_MESSAGE)
   }
-
-  override fun resolveId(id: String): String? {
-    throw UnsupportedOperationException(ERROR_MESSAGE)
-  }
-
+  
   override fun getPointer(): String {
     throw UnsupportedOperationException(ERROR_MESSAGE)
   }
@@ -42,6 +39,10 @@ internal object MissingJsonSchemaObject : JsonSchemaObjectBackedByJacksonBase(Mi
   }
 
   override fun getType(): JsonSchemaType? {
+    throw UnsupportedOperationException(ERROR_MESSAGE)
+  }
+
+  override fun getConstantSchema(): Boolean? {
     throw UnsupportedOperationException(ERROR_MESSAGE)
   }
 
@@ -262,6 +263,14 @@ internal object MissingJsonSchemaObject : JsonSchemaObjectBackedByJacksonBase(Mi
   }
 
   override fun getProperties(): Map<String, JsonSchemaObjectBackedByJacksonBase> {
+    throw UnsupportedOperationException(ERROR_MESSAGE)
+  }
+
+  override fun getMetadata(): MutableList<JsonSchemaMetadataEntry>? {
+    throw UnsupportedOperationException(ERROR_MESSAGE)
+  }
+
+  override fun hasChildFieldsExcept(namesToSkip: Array<String>): Boolean {
     throw UnsupportedOperationException(ERROR_MESSAGE)
   }
 

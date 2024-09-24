@@ -8,7 +8,6 @@
 
     <projectService serviceImplementation="com.jetbrains.python.findUsages.PyFindUsagesOptions"/>
 
-    <highlightRangeExtension implementation="com.jetbrains.python.validation.PyHighlightingAnnotator"/>
     <!-- We run it before FilePathCompletionContributor (id="filePath") to get help text about full path results in the extended completion -->
     <psi.referenceContributor implementation="com.jetbrains.python.codeInsight.PySoftFileReferenceContributor" language="Python"
                               order="before filePath"/>
@@ -30,6 +29,12 @@
 
     <projectService serviceInterface="com.jetbrains.python.debugger.PySignatureCacheManager"
                     serviceImplementation="com.jetbrains.python.debugger.PySignatureCacheManagerImpl"/>
+
+    <!-- ML API -->
+    <platform.ml.featureProvider implementation="com.jetbrains.python.codeInsight.imports.mlapi.features.CandidatesListFeatures"/>
+    <platform.ml.featureProvider implementation="com.jetbrains.python.codeInsight.imports.mlapi.features.ImportCandidateRelativeFeatures"/>
+    <platform.ml.featureProvider implementation="com.jetbrains.python.codeInsight.imports.mlapi.features.PrimitiveImportFeatures"/>
+    <platform.ml.featureProvider implementation="com.jetbrains.python.codeInsight.imports.mlapi.features.PsiStructureFeatures"/>
 
     <stubIndex implementation="com.jetbrains.python.psi.stubs.PyClassNameIndex"/>
     <stubIndex implementation="com.jetbrains.python.psi.stubs.PyClassNameIndexInsensitive"/>
@@ -137,9 +142,9 @@
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyStringFormatCompletionContributor" />
 
-    <completion.contributor language="Python"
+    <completion.contributor language="Python" order="last"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyClassNameCompletionContributor"/>
-    <completion.contributor language="Python"
+    <completion.contributor language="Python" order="last"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyModulePackageCompletionContributor"/>
     <completion.contributor language="Python" order="first" id="pyModuleNameCompletionContributor"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyModuleNameCompletionContributor"/>
@@ -149,6 +154,8 @@
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyFStringLikeCompletionContributor"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyMultipleArgumentsCompletionContributor"/>
+    <completion.contributor language="Python"
+                            implementationClass="com.jetbrains.python.codeInsight.completion.PyLiteralTypeCompletionContributor"/>
 
     <lang.tokenSeparatorGenerator language="Python" implementationClass="com.jetbrains.python.PyTokenSeparatorGenerator"/>
 
@@ -457,11 +464,15 @@
     <registryKey defaultValue="true"
                  description="Enable pyi stubs distributed with numpy (see https://github.com/numpy/numpy/issues/18565)"
                  key="enable.numpy.pyi.stubs"/>
+    <registryKey defaultValue="false"
+                 description="Enable pyi tensorflow stubs in Typeshed"
+                 key="enable.tensorflow.pyi.stubs"/>
     <registryKey key="python.explicit.namespace.packages" defaultValue="true" restartRequired="true"
                  description="Require marking namespace packages explicitly, treat regular directories as implicit source roots"/>
     <registryKey key="python.type.hints.literal.string" defaultValue="true"
                  description="When enabled, activates LiteralString inference for Python string literals" />
-
+    <registryKey key="python.statement.lists.incremental.reparse" defaultValue="false"
+                 description="Enables incremental reparse for statement lists"/>
   </extensions>
 
   <extensionPoints>
@@ -471,9 +482,8 @@
     <extensionPoint qualifiedName="Pythonid.customClassStubType"
                     interface="com.jetbrains.python.psi.impl.stubs.PyCustomClassStubType"
                     dynamic="true"/>
-
-    <extensionPoint qualifiedName="Pythonid.decoratorIndexer"
-                    interface="com.jetbrains.python.PyCustomDecoratorIndexer"
+    <extensionPoint qualifiedName="Pythonid.customDecoratorStubType"
+                    interface="com.jetbrains.python.psi.impl.stubs.PyCustomDecoratorStubType"
                     dynamic="true"/>
 
     <extensionPoint qualifiedName="Pythonid.visitorFilter"
@@ -496,6 +506,9 @@
     <extensionPoint qualifiedName="Pythonid.pyiStubSuppressor"
                     interface="com.jetbrains.python.pyi.PyiStubSuppressor"
                     dynamic="true"/>
+    <extensionPoint qualifiedName="com.jetbrains.python.pythonHelpersLocator"
+                    interface="com.jetbrains.python.PythonHelpersLocator"
+                    dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="Pythonid">
@@ -511,12 +524,11 @@
     <customTargetExpressionStubType implementation="com.jetbrains.python.psi.impl.stubs.PyTypingNewTypeStubType"/>
 
     <customClassStubType implementation="com.jetbrains.python.psi.impl.stubs.PyDataclassStubType"/>
-
-    <dialectsTokenSetContributor implementation="com.jetbrains.python.PythonTokenSetContributor"/>
+    <customDecoratorStubType implementation="com.jetbrains.python.psi.stubs.PyTestFixtureDecoratorStubType"/>
+    <customDecoratorStubType implementation="com.jetbrains.python.psi.stubs.PyFunctoolsWrapsDecoratorStubType"/>
+    <customDecoratorStubType implementation="com.jetbrains.python.psi.stubs.PyDataclassTransformDecoratorStubType"/>
 
     <typeProvider implementation="com.jetbrains.python.psi.types.PyCollectionTypeByModificationsProvider" order="last"/>
-    <typeProvider implementation="com.jetbrains.python.codeInsight.decorator.PyDecoratedFunctionTypeProvider"/>
-
 
     <!-- typing -->
     <typeProvider implementation="com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider"/>
@@ -549,7 +561,8 @@
     <typeProvider implementation="com.jetbrains.python.codeInsight.typing.PyAncestorTypeProvider" order="last"/>
 
     <!-- NumPy -->
-    <typeProvider implementation="com.jetbrains.python.numpy.codeInsight.NumpyDocStringTypeProvider" order="before pythonDocstringTypeProvider"/>
+    <typeProvider implementation="com.jetbrains.python.numpy.codeInsight.NumpyDocStringTypeProvider"
+                  order="before pythonDocstringTypeProvider"/>
     <pyClassMembersProvider implementation="com.jetbrains.python.numpy.codeInsight.NumpyClassMembersProvider"/>
     <pyModuleMembersProvider implementation="com.jetbrains.python.numpy.codeInsight.NumpyModuleMembersProvider"/>
     <resolveResultRater implementation="com.jetbrains.python.numpy.codeInsight.NumpyResolveRater"/>
@@ -559,6 +572,10 @@
     <canonicalPathProvider implementation="com.jetbrains.python.codeInsight.stdlib.PyStdlibCanonicalPathProvider"/>
     <inspectionExtension implementation="com.jetbrains.python.inspections.stdlib.PyStdlibInspectionExtension"/>
     <typeProvider implementation="com.jetbrains.python.codeInsight.stdlib.PyDataclassTypeProvider"/>
+    <typeProvider implementation="com.jetbrains.python.codeInsight.decorator.PyDecoratedFunctionTypeProvider"
+                  id="pyDecoratedFunctionTypeProvider"/>
+    <typeProvider implementation="com.jetbrains.python.codeInsight.decorator.PyFunctoolsWrapsDecoratedFunctionTypeProvider"
+                  order="before pyDecoratedFunctionTypeProvider"/>
     <typeProvider implementation="com.jetbrains.python.codeInsight.stdlib.PyNamedTupleTypeProvider"/>
     <!-- This provider should be able to override the results on anything else, including types coming from .pyi stubs -->
     <typeProvider implementation="com.jetbrains.python.codeInsight.stdlib.PyStdlibTypeProvider" order="first"/>
@@ -569,6 +586,11 @@
     <!-- TensorFlow -->
     <importResolver implementation="com.jetbrains.python.tensorFlow.PyTensorFlowImportResolver"/>
     <pyModuleMembersProvider implementation="com.jetbrains.python.tensorFlow.PyTensorFlowModuleMembersProvider"/>
+    <pyiStubSuppressor implementation="com.jetbrains.python.tensorFlow.TensorflowPyiStubsSuppressor"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="com.jetbrains.python">
+    <pythonHelpersLocator implementation="com.jetbrains.python.PythonHelpersLocatorDefault" />
   </extensions>
 
 </idea-plugin>

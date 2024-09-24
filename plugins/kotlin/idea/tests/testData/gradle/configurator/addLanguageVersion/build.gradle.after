@@ -11,10 +11,18 @@ buildscript {
 apply plugin: 'kotlin'
 
 dependencies {
-    compile "org.jetbrains.kotlin:kotlin-stdlib"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib"
 }
+
 compileKotlin {
     kotlinOptions {
+        jvmTarget = "1.8"
         languageVersion = "1.1"
+    }
+}
+
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
     }
 }

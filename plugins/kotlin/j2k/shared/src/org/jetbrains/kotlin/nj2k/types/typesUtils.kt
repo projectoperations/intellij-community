@@ -5,8 +5,8 @@ package org.jetbrains.kotlin.nj2k.types
 import com.intellij.psi.*
 import com.intellij.psi.impl.compiled.ClsMethodImpl
 import com.intellij.psi.impl.source.PsiAnnotationMethodImpl
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
-import org.jetbrains.kotlin.analysis.api.types.KtNonErrorClassType
+import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.builtins.PrimitiveType
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.builtins.jvm.JavaToKotlinClassMap
@@ -41,11 +41,12 @@ val PsiType.isKotlinFunctionalType: Boolean
         return functionalTypeRegex.matches(fqName.asString())
     }
 
-context(KtAnalysisSession) // TODO: currently unused, will be used in the K2 implementation
+context(KaSession) // TODO: currently unused, will be used in the K2 implementation
 fun PsiParameter.typeFqNamePossiblyMappedToKotlin(): FqName {
     // TODO: support (nested) array types: KTIJ-28739
     // TODO: use `asKtType` function in the K2 implementation (it doesn't work in K1 yet: KT-65545)
-    //val ktType = type.asKtType(useSitePosition = this) as? KtNonErrorClassType ?: return null
+    // TODO: revise vararg support (depends on KT-66058)
+    //val ktType = type.asKtType(useSitePosition = this) as? KaClassType ?: return null
     //return ktType.classId.asSingleFqName()
 
     val typeName = if (type is PsiEllipsisType) type.canonicalText.trimEnd('.') else type.canonicalText
@@ -78,17 +79,17 @@ private val primitiveTypeMapping: Map<String, String> = mapOf(
     "${PsiTypes.doubleType().name}[]" to "kotlin.DoubleArray"
 )
 
-context(KtAnalysisSession)
+context(KaSession)
 fun KtParameter.typeFqName(): FqName? {
-    val type = getParameterSymbol().returnType as? KtNonErrorClassType
+    val type = symbol.returnType as? KaClassType
     return type?.classId?.asSingleFqName()
 }
 
 private val functionalTypeRegex = """(kotlin\.jvm\.functions|kotlin)\.Function[\d+]""".toRegex()
 
-context(KtAnalysisSession)
+context(KaSession)
 fun KtTypeReference.toJK(typeFactory: JKTypeFactory): JKType =
-    typeFactory.fromKtType(getKtType())
+    typeFactory.fromKaType(type)
 
 infix fun JKJavaPrimitiveType.isStrongerThan(other: JKJavaPrimitiveType) =
     jvmPrimitiveTypesPriority.getValue(this.jvmPrimitiveType.primitiveType) >

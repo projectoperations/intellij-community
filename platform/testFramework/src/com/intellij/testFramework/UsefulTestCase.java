@@ -9,6 +9,7 @@ import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileTypeManager;
+import com.intellij.openapi.progress.Cancellation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.IconLoader;
@@ -23,10 +24,10 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileVisitor;
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
+import com.intellij.platform.testFramework.core.FileComparisonFailedError;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
-import com.intellij.rt.execution.junit.FileComparisonFailure;
 import com.intellij.testFramework.common.TestApplicationKt;
 import com.intellij.testFramework.common.ThreadUtil;
 import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy;
@@ -38,6 +39,7 @@ import com.intellij.util.io.PathKt;
 import com.intellij.util.ui.UIUtil;
 import junit.framework.AssertionFailedError;
 import junit.framework.TestCase;
+import kotlinx.coroutines.Job;
 import org.jdom.Element;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
@@ -61,6 +63,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiPredicate;
@@ -119,8 +122,6 @@ public abstract class UsefulTestCase extends TestCase {
   private static final ObjectIntMap<String> TOTAL_TEARDOWN_COST_MILLIS = new ObjectIntHashMap<>();
   private static final ObjectIntMap<String> TOTAL_TEARDOWN_COUNT = new ObjectIntHashMap<>();
 
-  protected static final Logger LOG = Logger.getInstance(UsefulTestCase.class);
-
   private @Nullable Disposable myTestRootDisposable;
   private @Nullable List<Path> myPathsToKeep;
   private @Nullable Path myTempDir;
@@ -129,6 +130,10 @@ public abstract class UsefulTestCase extends TestCase {
 
   static {
     initializeTestEnvironment();
+  }
+  protected static final Logger LOG = Logger.getInstance(UsefulTestCase.class);
+  static {
+    assert LOG.getClass().getName().equals("com.intellij.testFramework.TestLoggerFactory$TestLogger") : "Logger must be queried after initializeTestEnvironment() call to get TestLogger, but got: "+LOG.getClass();
   }
 
   protected void setDefaultCodeInsightSettings(@NotNull CodeInsightSettings settings) {
@@ -293,6 +298,7 @@ public abstract class UsefulTestCase extends TestCase {
   protected void tearDown() throws Exception {
     // to make stack trace reading easier, don't use method references here
     new RunAll(
+      () -> checkContextJobCanceled(),
       () -> {
         if (isIconRequired()) {
           IconManager.Companion.deactivate();
@@ -318,6 +324,16 @@ public abstract class UsefulTestCase extends TestCase {
       () -> waitForAppLeakingThreads(10, TimeUnit.SECONDS),
       () -> clearFields(this)
     ).run(mySuppressedExceptions);
+  }
+
+  private static void checkContextJobCanceled() {
+    Job currentJob = Cancellation.currentJob();
+    if (currentJob != null && currentJob.isCancelled()) {
+      throw new IllegalStateException("""
+The context job for test framework was canceled during execution. It can cause incomplete cleanup of the test.
+Most likely there was an uncaught exception in asynchronous execution that resulted in a failure of the whole computation tree for the test.
+""", currentJob.getCancellationException());
+    }
   }
 
   protected final void disposeRootDisposable() {
@@ -490,6 +506,11 @@ public abstract class UsefulTestCase extends TestCase {
       UITestUtil.replaceIdeEventQueueSafely();
       EdtTestUtil.runInEdtAndWait(() -> defaultRunBare(wrappedRunnable));
     }
+    else if (runFromCoroutine()) {
+      CoroutineKt.runTestInCoroutineScope(() -> {
+        defaultRunBare(wrappedRunnable);
+      }, getCoroutineTimeout());
+    }
     else {
       defaultRunBare(wrappedRunnable);
     }
@@ -524,6 +545,14 @@ public abstract class UsefulTestCase extends TestCase {
       return policy.runInDispatchThread();
     }
     return true;
+  }
+
+  protected boolean runFromCoroutine() {
+    return false;
+  }
+
+  protected Duration getCoroutineTimeout() {
+    return Duration.ofMinutes(1);
   }
 
   protected static <T extends Throwable> void edt(@NotNull ThrowableRunnable<T> runnable) throws T {
@@ -971,7 +1000,7 @@ public abstract class UsefulTestCase extends TestCase {
     String expected = StringUtil.convertLineSeparators(trimBeforeComparing ? fileText.trim() : fileText);
     String actual = StringUtil.convertLineSeparators(trimBeforeComparing ? actualText.trim() : actualText);
     if (!Objects.equals(expected, actual)) {
-      throw new FileComparisonFailure(messageProducer == null ? null : messageProducer.get(), expected, actual, filePath);
+      throw new FileComparisonFailedError(messageProducer == null ? null : messageProducer.get(), expected, actual, filePath);
     }
   }
 
@@ -981,7 +1010,7 @@ public abstract class UsefulTestCase extends TestCase {
 
   public static void assertTextEquals(@Nullable String message, @NotNull String expectedText, @NotNull String actualText) {
     if (!expectedText.equals(actualText)) {
-      throw new FileComparisonFailure(Strings.notNullize(message), expectedText, actualText, null);
+      throw new FileComparisonFailedError(Strings.notNullize(message), expectedText, actualText, null);
     }
   }
 
@@ -1089,7 +1118,7 @@ public abstract class UsefulTestCase extends TestCase {
       }
 
       if (expectedErrorMsgPart != null) {
-        assertTrue(cause.getClass()+" message was expected to contain '"+expectedErrorMsgPart+"', but got: '"+cause.getMessage()+"'", cause.getMessage().contains(expectedErrorMsgPart));
+        assertTrue(cause.getClass()+" message was expected to contain '"+expectedErrorMsgPart+"', but got: '"+cause.getMessage()+"'", ObjectUtils.notNull(cause.getMessage(), "").contains(expectedErrorMsgPart));
       }
     }
     finally {

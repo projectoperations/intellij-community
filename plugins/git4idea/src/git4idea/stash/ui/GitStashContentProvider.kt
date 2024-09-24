@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.stash.ui
 
 import com.intellij.icons.AllIcons
@@ -17,19 +17,16 @@ import com.intellij.openapi.util.registry.RegistryValueListener
 import com.intellij.openapi.vcs.changes.savedPatches.SavedPatchesUi
 import com.intellij.openapi.vcs.changes.savedPatches.ShelfProvider
 import com.intellij.openapi.vcs.changes.shelf.ShelvedChangesViewManager
-import com.intellij.openapi.vcs.changes.ui.ChangesViewContentI
-import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager
-import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManagerListener
-import com.intellij.openapi.vcs.changes.ui.ChangesViewContentProvider
+import com.intellij.openapi.vcs.changes.ui.*
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.IdeFocusManager
-import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.content.Content
 import com.intellij.util.messages.Topic
 import git4idea.config.GitVcsApplicationSettings
 import git4idea.i18n.GitBundle
 import git4idea.index.showToolWindowTab
+import git4idea.repo.GitRepositoryManager
 import git4idea.stash.GitStashTracker
 import git4idea.stash.GitStashTrackerListener
 import git4idea.stash.isNotEmpty
@@ -46,12 +43,12 @@ internal class GitStashContentProvider(private val project: Project) : ChangesVi
 
     val disposable = Disposer.newDisposable("Git Stash Content Provider")
     val savedPatchesUi = GitSavedPatchesUi(GitStashProvider(project, disposable), ShelfProvider(project, disposable), disposable)
-    project.messageBus.connect(disposable).subscribe(ChangesViewContentManagerListener.TOPIC, object : ChangesViewContentManagerListener {
-      override fun toolWindowMappingChanged() = savedPatchesUi.updateLayout()
+
+    val busConnection = project.messageBus.connect(disposable)
+    busConnection.subscribe(GitStashSettingsListener.TOPIC, object : GitStashSettingsListener {
+      override fun onSplitDiffPreviewSettingChanged() = savedPatchesUi.updateLayout()
     })
-    project.messageBus.connect(disposable).subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
-      override fun stateChanged(toolWindowManager: ToolWindowManager) = savedPatchesUi.updateLayout()
-    })
+    busConnection.subscribeOnVcsToolWindowLayoutChanges { savedPatchesUi.updateLayout() }
 
     content.component = savedPatchesUi
     content.setDisposer(disposable)
@@ -59,18 +56,18 @@ internal class GitStashContentProvider(private val project: Project) : ChangesVi
 
   private inner class GitSavedPatchesUi(private val stashProvider: GitStashProvider, private val shelfProvider: ShelfProvider,
                                         parentDisposable: Disposable) :
-    SavedPatchesUi(project, listOf(stashProvider, shelfProvider), isVertical = ::isVertical, isEditorDiffPreview = ::isEditorDiffPreview,
-                   focusMainUi = ::returnFocusToToolWindow, parentDisposable) {
+    SavedPatchesUi(project, listOf(stashProvider, shelfProvider), isVertical = ::isVertical, isWithSplitDiffPreview = ::isWithSplitDiffPreview,
+                   isShowDiffWithLocal = ::isShowDiffWithLocal, focusMainUi = ::returnFocusToToolWindow, parentDisposable) {
 
     init {
-      tree.emptyText
+      patchesTree.emptyText
         .appendLine("")
         .appendLine(AllIcons.General.ContextHelp, GitBundle.message("stash.empty.text.help.link"),
                     SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) {
           HelpManager.getInstance().invokeHelp("reference.VersionControl.Git.StashAndShelf")
         }
       project.messageBus.connect(this).subscribe(GitStashSettingsListener.TOPIC, object : GitStashSettingsListener {
-        override fun stashesAndShelvesTabSettingChanged() {
+        override fun onCombineStashAndShelveSettingChanged() {
           updateVisibleProviders()
           updateTabName()
         }
@@ -90,9 +87,7 @@ internal class GitStashContentProvider(private val project: Project) : ChangesVi
     }
   }
 
-  private fun isVertical() = ChangesViewContentManager.getToolWindowFor(project, TAB_NAME)?.anchor?.isHorizontal == false
-
-  private fun isEditorDiffPreview() = ChangesViewContentManager.isCommitToolWindowShown(project)
+  private fun isVertical() = isStashTabVertical(project)
 
   private fun returnFocusToToolWindow(componentToFocus: Component?) {
     val toolWindow = ChangesViewContentManager.getToolWindowFor(project, TAB_NAME) ?: return
@@ -105,6 +100,14 @@ internal class GitStashContentProvider(private val project: Project) : ChangesVi
     toolWindow.activate({
                           IdeFocusManager.getInstance(project).requestFocus(componentToFocus, true)
                         }, false)
+  }
+
+  private fun isShowDiffWithLocal(): Boolean {
+    return GitVcsApplicationSettings.getInstance().isCompareWithLocalInStashesEnabled
+  }
+
+  private fun isWithSplitDiffPreview(): Boolean {
+    return GitVcsApplicationSettings.getInstance().isSplitDiffPreviewInStashesEnabled
   }
 
   companion object {
@@ -159,7 +162,7 @@ internal class GitStashStartupActivity : ProjectActivity {
       }
     }, gitStashTracker)
     project.messageBus.connect(gitStashTracker).subscribe(GitStashSettingsListener.TOPIC, object : GitStashSettingsListener {
-      override fun stashesAndShelvesTabSettingChanged() {
+      override fun onCombineStashAndShelveSettingChanged() {
         project.messageBus.syncPublisher(ChangesViewContentManagerListener.TOPIC).toolWindowMappingChanged()
       }
     })
@@ -167,7 +170,8 @@ internal class GitStashStartupActivity : ProjectActivity {
 }
 
 interface GitStashSettingsListener {
-  fun stashesAndShelvesTabSettingChanged()
+  fun onCombineStashAndShelveSettingChanged() = Unit
+  fun onSplitDiffPreviewSettingChanged() = Unit
 
   companion object {
     val TOPIC: Topic<GitStashSettingsListener> = Topic(GitStashSettingsListener::class.java)
@@ -191,13 +195,23 @@ internal fun setStashesAndShelvesTabEnabled(enabled: Boolean) {
 
   applicationSettings.isCombinedStashesAndShelvesTabEnabled = enabled
 
-  ApplicationManager.getApplication().messageBus.syncPublisher(GitStashSettingsListener.TOPIC).stashesAndShelvesTabSettingChanged()
+  ApplicationManager.getApplication().messageBus.syncPublisher(GitStashSettingsListener.TOPIC).onCombineStashAndShelveSettingChanged()
 }
 
-internal fun showStashes(project: Project) {
+@JvmOverloads
+internal fun showStashes(project: Project, root: VirtualFile? = null) {
+  val repository = root?.let { GitRepositoryManager.getInstance(project).getRepositoryForRootQuick(root) }
   showToolWindowTab(project, GitStashContentProvider.TAB_NAME) { component ->
     val savedPatchesUi = component as? SavedPatchesUi ?: return@showToolWindowTab
     val provider = savedPatchesUi.providers.filterIsInstance<GitStashProvider>().firstOrNull() ?: return@showToolWindowTab
-    savedPatchesUi.expandPatchesByProvider(provider)
+    if (repository == null) {
+      savedPatchesUi.showFirstUnderProvider(provider)
+    } else {
+      savedPatchesUi.showFirstUnderObject(provider, repository)
+    }
   }
+}
+
+internal fun isStashTabVertical(project: Project): Boolean {
+  return ChangesViewContentManager.isToolWindowTabVertical(project, GitStashContentProvider.TAB_NAME)
 }

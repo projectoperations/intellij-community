@@ -18,6 +18,8 @@ public final class ToggleFindInSelectionAction extends ToggleAction implements C
                                                                                ActionRemoteBehaviorSpecification.Frontend {
   public ToggleFindInSelectionAction() {
     super(FindBundle.message("find.selection.only"), null, AllIcons.Actions.InSelection);
+
+    getTemplatePresentation().setKeepPopupOnPerform(KeepPopupOnPerform.IfRequested);
   }
 
   @Override
@@ -45,9 +47,8 @@ public final class ToggleFindInSelectionAction extends ToggleAction implements C
     }
   }
 
-  @Nullable
   @Override
-  public ShortcutSet getShortcut(@NotNull DataContext context) {
+  public @Nullable ShortcutSet getShortcut(@NotNull DataContext context) {
     if (KeymapUtil.isEmacsKeymap()) return null;
     SearchSession search = context.getData(SearchSession.KEY);
     if (search != null) {

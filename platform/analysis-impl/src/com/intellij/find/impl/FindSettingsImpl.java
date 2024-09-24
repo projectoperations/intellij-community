@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.find.impl;
 
 import com.intellij.find.FindBundle;
@@ -15,15 +15,13 @@ import com.intellij.util.xmlb.XmlSerializerUtil;
 import com.intellij.util.xmlb.annotations.Property;
 import com.intellij.util.xmlb.annotations.Transient;
 import com.intellij.util.xmlb.annotations.XCollection;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @State(name = "FindSettings", storages = @Storage("find.xml"))
+@ApiStatus.Internal
 public class FindSettingsImpl extends FindSettings implements PersistentStateComponent<FindSettingsImpl> {
   private static final @NonNls String FIND_DIRECTION_FORWARD = "forward";
   private static final @NonNls String FIND_DIRECTION_BACKWARD = "backward";
@@ -331,7 +329,8 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
     }
   }
 
-  private static @Nls String getDefaultSearchScope() {
+  @ApiStatus.Internal
+  public static @Nls String getDefaultSearchScope() {
     return FindBundle.message("find.scope.all.project.classes");
   }
 }

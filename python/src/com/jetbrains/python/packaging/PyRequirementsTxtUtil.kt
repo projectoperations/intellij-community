@@ -67,10 +67,14 @@ private class PyCollectImportsTask(
   override fun compute(indicator: ProgressIndicator): Set<String> {
     val imported = mutableSetOf<String>()
     ReadAction.run<Throwable> {
-      module.rootManager.fileIndex.iterateContent {
+      module.rootManager.fileIndex.iterateContent { virtualFile ->
         indicator.checkCanceled()
-        if (PythonFileType.INSTANCE == FileTypeRegistry.getInstance().getFileTypeByFileName(it.name)) {
-          addImports(psiManager.findFile(it) as PyFile, imported)
+        val fileName = FileTypeRegistry.getInstance().getFileTypeByFileName(virtualFile.name)
+
+        if (PythonFileType.INSTANCE == fileName || fileName.defaultExtension == "ipynb") {
+          val findFile = psiManager.findFile(virtualFile)
+          val pyFile = findFile?.viewProvider?.allFiles?.firstOrNull { it is PyFile } as? PyFile ?: return@iterateContent true
+          addImports(pyFile, imported)
         }
         return@iterateContent true
       }
@@ -84,7 +88,7 @@ internal fun syncWithImports(module: Module) {
   val sdk = PythonSdkUtil.findPythonSdk(module)
   if (sdk == null) {
     val configureSdkAction = NotificationAction.createSimpleExpiring(PySdkBundle.message("python.configure.interpreter.action")) {
-      PySdkPopupFactory.createAndShow(module.project, module)
+      PySdkPopupFactory.createAndShow(module)
     }
     showNotification(notificationGroup,
                      NotificationType.ERROR,
@@ -156,7 +160,7 @@ private fun prepareRequirementsText(module: Module, sdk: Sdk, settings: PyPackag
   val installedPackages = PyPackageManager.getInstance(sdk).refreshAndGetPackages(false)
   val importedPackages = task.result.asSequence()
     .flatMap { topLevelPackage ->
-      val alias = PyPsiPackageUtil.PACKAGES_TOPLEVEL[topLevelPackage] ?: ""
+      val alias = PyPsiPackageUtil.moduleToPackageName(topLevelPackage, default = "")
       sequence {  
         yield(topLevelPackage)
         if (alias.isNotEmpty()) yield(alias)

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE")
 package com.intellij.openapi.wm.impl
 
@@ -6,7 +6,6 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.HelpTooltip
 import com.intellij.ide.actions.ActivateToolWindowAction
 import com.intellij.ide.actions.ToolWindowMoveAction
-import com.intellij.ide.actions.ToolWindowShowNamesAction
 import com.intellij.ide.ui.UISettings
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.impl.ActionButton
@@ -43,8 +42,7 @@ internal abstract class AbstractSquareStripeButton(
     setLook(SquareStripeButtonLook(this))
     addMouseListener(object : PopupHandler() {
       override fun invokePopup(component: Component, x: Int, y: Int) {
-        val popupMenu = ActionManager.getInstance().createActionPopupMenu(ActionPlaces.TOOLWINDOW_POPUP, popupBuilder.invoke())
-        popupMenu.component.show(component, x, y)
+        ResizeStripeManager.showPopup(popupBuilder.invoke(), component, x, y)
       }
     })
   }
@@ -55,15 +53,16 @@ internal abstract class AbstractSquareStripeButton(
       JBInsets.removeFrom(it, SquareStripeButtonLook.ICON_PADDING)
     }
 
+    val color = JBUI.CurrentTheme.ToolWindow.DragAndDrop.BUTTON_FLOATING_BACKGROUND
     val rect = Rectangle(areaSize)
-    buttonLook.paintLookBackground(g, rect, JBUI.CurrentTheme.ActionButton.pressedBackground())
+    buttonLook.paintLookBackground(g, rect, color)
     icon.let {
       val x = (areaSize.width - it.iconWidth) / 2
       val y = (areaSize.height - it.iconHeight) / 2
       buttonLook.paintIcon(g, this, it, x, y)
     }
 
-    buttonLook.paintLookBorder(g, rect, JBUI.CurrentTheme.ActionButton.pressedBorder())
+    buttonLook.paintLookBorder(g, rect, color)
   }
 }
 
@@ -132,68 +131,104 @@ internal class SquareStripeButton(action: SquareAnActionButton, val toolWindow: 
 
           val f = getTextFont()
           val fm = getFontMetrics(f)
-          val text = toolWindow.stripeShortTitleProvider?.get() ?: toolWindow.stripeTitleProvider.get()
+          val texts = getStripeSplitText()
           val button = this@SquareStripeButton
           val insets = button.insets
-          val x = insets.left + JBUI.scale(6)
-          val y = iconPosition.y + JBUI.scale(2)
-          val totalWidth = button.width - insets.left - insets.right - JBUI.scale(12)
-          val textWidth = SwingUtilities2.stringWidth(this@SquareStripeButton, fm, text)
+          val textOffset = if (UISettings.Companion.getInstance().compactMode) 4 else 6
+          val x = insets.left + JBUI.scale(textOffset)
+          var y = iconPosition.y + JBUI.scale(3)
+          val totalWidth = button.width - insets.left - insets.right - JBUI.scale(textOffset * 2)
           val textHeight = fm.height
+          var firstX: Int? = null
 
-          val g2d = g!!.create() as Graphics2D
+          for (text in texts) {
+            val textWidth = SwingUtilities2.stringWidth(this@SquareStripeButton, fm, text)
 
-          try {
-            g2d.color = getForegroundColor()
-            g2d.font = f
-            UISettings.setupAntialiasing(g2d)
-            UIUtil.drawCenteredString(g2d, Rectangle(x, y, totalWidth, textHeight), text)
+            val g2d = g!!.create() as Graphics2D
 
-            if (textWidth > totalWidth) {
-              val gradientWidth = JBUI.scale(4)
-              val gradientX = x + totalWidth - gradientWidth
-              var bgColor = getBackgroundColor()
-
-              // special case if we have hover/pressed color (0,0,0,alpha) or (255,255,255,alpha) that we don't know result bg color and will need calculate it
-              if ((bgColor.red == 0 && bgColor.green == 0 && bgColor.blue == 0 ||
-                   bgColor.red == 255 && bgColor.green == 255 && bgColor.blue == 255) && bgColor.alpha < 255) {
-                val pressedColorKey = "${button.background.rgb}:${bgColor.rgb}"
-                if (myPressedColor == null || pressedColorKey != myPressedColorKey) {
-                  val image = UIUtil.createImage(button, 4, 4, BufferedImage.TYPE_INT_ARGB)
-                  val imageG = image.createGraphics()
-                  try {
-                    imageG.color = button.background
-                    imageG.fill(Rectangle(0, 0, 4, 4))
-                    imageG.color = bgColor
-                    imageG.fill(Rectangle(0, 0, 4, 4))
-                  }
-                  finally {
-                    imageG.dispose()
-                  }
-                  @Suppress("UseJBColor")
-                  myPressedColor = Color(image.getRGB(2, 2))
-                  myPressedColorKey = pressedColorKey
-                }
-                bgColor = myPressedColor!!
+            try {
+              g2d.color = getForegroundColor()
+              g2d.font = f
+              UISettings.setupAntialiasing(g2d)
+              if (firstX == null || texts[0].length != texts[1].length) {
+                UIUtil.drawCenteredString(g2d, Rectangle(x, y, totalWidth, textHeight), text)
+                firstX = x.coerceAtLeast(x + (totalWidth - fm.stringWidth(text) - 1) / 2)
               }
-              g2d.paint = GradientPaint(gradientX.toFloat(), y.toFloat(), ColorUtil.withAlpha(bgColor, 0.4),
-                                        (gradientX + gradientWidth).toFloat(), y.toFloat(), bgColor)
+              else {
+                g2d.drawString(text, firstX, y.coerceAtLeast(y + textHeight / 2 + fm.ascent * 2 / 5))
+              }
 
-              g2d.fill(Rectangle(gradientX, y, gradientWidth, textHeight))
+              if (textWidth > totalWidth) {
+                val gradientWidth = JBUI.scale(3)
+                val gradientX = x + totalWidth - gradientWidth
+                var bgColor = getBackgroundColor()
+
+                // special case if we have hover/pressed color (0,0,0,alpha) or (255,255,255,alpha) that we don't know result bg color and will need calculate it
+                if ((bgColor.red == 0 && bgColor.green == 0 && bgColor.blue == 0 ||
+                     bgColor.red == 255 && bgColor.green == 255 && bgColor.blue == 255) && bgColor.alpha < 255) {
+                  val pressedColorKey = "${button.background.rgb}:${bgColor.rgb}"
+                  if (myPressedColor == null || pressedColorKey != myPressedColorKey) {
+                    val image = UIUtil.createImage(button, 4, 4, BufferedImage.TYPE_INT_ARGB)
+                    val imageG = image.createGraphics()
+                    try {
+                      imageG.color = button.background
+                      imageG.fill(Rectangle(0, 0, 4, 4))
+                      imageG.color = bgColor
+                      imageG.fill(Rectangle(0, 0, 4, 4))
+                    }
+                    finally {
+                      imageG.dispose()
+                    }
+                    @Suppress("UseJBColor")
+                    myPressedColor = Color(image.getRGB(2, 2))
+                    myPressedColorKey = pressedColorKey
+                  }
+                  bgColor = myPressedColor!!
+                }
+                g2d.paint = GradientPaint(gradientX.toFloat(), y.toFloat(), ColorUtil.withAlpha(bgColor, 0.4),
+                                          (gradientX + gradientWidth).toFloat(), y.toFloat(), bgColor)
+
+                g2d.fill(Rectangle(gradientX, y, gradientWidth, textHeight))
+              }
+
+              y += textHeight
             }
-          }
-          finally {
-            g2d.dispose()
+            finally {
+              g2d.dispose()
+            }
           }
         }
       }
     })
   }
 
+  private fun getStripeText(): String = (toolWindow.stripeShortTitleProvider?.get() ?: toolWindow.stripeTitleProvider.get()).trim()
+
+  private fun getStripeSplitText(): Array<String> {
+    val text = getStripeText()
+    val index = text.indexOf(' ')
+    if (index == -1) {
+      return arrayOf(text)
+    }
+    return arrayOf(text.substring(0, index), text.substring(index + 1))
+  }
+
   override fun paintButtonLook(g: Graphics?) {
+    if (!myShowName) {
+      super.paintButtonLook(g)
+      return
+    }
+
     val look = buttonLook
     look.paintBackground(g, this)
     look.paintIcon(g, this, icon)
+
+    val color = if (popState == PUSHED) JBUI.CurrentTheme.ActionButton.pressedBorder()
+    else JBUI.CurrentTheme.ActionButton.hoverBorder()
+
+    if (color.alpha == 255) {
+      look.paintBorder(g, this)
+    }
   }
 
   override fun updateUI() {
@@ -211,7 +246,7 @@ internal class SquareStripeButton(action: SquareAnActionButton, val toolWindow: 
 
   fun isHovered(): Boolean = myRollover
 
-  open fun isFocused(): Boolean = toolWindow.isActive
+  fun isFocused(): Boolean = toolWindow.isActive
 
   fun resetDrop() {
     resetMouseState()
@@ -233,7 +268,7 @@ internal class SquareStripeButton(action: SquareAnActionButton, val toolWindow: 
 
   override fun checkSkipPressForEvent(e: MouseEvent) = e.button != MouseEvent.BUTTON1
 
-  protected open fun getAlignment(anchor: ToolWindowAnchor, splitMode: Boolean): HelpTooltip.Alignment {
+  private fun getAlignment(anchor: ToolWindowAnchor, splitMode: Boolean): HelpTooltip.Alignment {
     return when (anchor) {
       ToolWindowAnchor.RIGHT -> HelpTooltip.Alignment.LEFT
       ToolWindowAnchor.TOP -> HelpTooltip.Alignment.LEFT
@@ -244,15 +279,18 @@ internal class SquareStripeButton(action: SquareAnActionButton, val toolWindow: 
   }
 
   fun setOrUpdateShowName(value: Boolean) {
-    myShowName = value
-    revalidate()
-    repaint()
+    if (myShowName != value) {
+      myShowName = value
+      revalidate()
+      repaint()
+    }
   }
 
   override fun getPreferredSize(): Dimension {
     val size = super.getPreferredSize()
     if (myShowName) {
-      size.height += JBUI.scale(2) + getFontMetrics(getTextFont()).height
+      val lines = if (getStripeText().contains(' ')) 2 else 1
+      size.height += JBUI.scale(3) + getFontMetrics(getTextFont()).height * lines
     }
     return size
   }
@@ -280,7 +318,9 @@ private fun createPopupGroup(toolWindow: ToolWindowImpl): DefaultActionGroup {
   group.addSeparator()
   group.add(createMoveGroup())
   group.addSeparator()
-  group.add(ToolWindowShowNamesAction())
+  if (ResizeStripeManager.enabled()) {
+    group.add(ActionManager.getInstance().getAction("ToolWindowShowNamesAction")!!)
+  }
   return group
 }
 
@@ -301,7 +341,8 @@ internal open class SquareAnActionButton(@JvmField protected val window: ToolWin
   override fun getActionUpdateThread() = ActionUpdateThread.EDT
 
   override fun isSelected(e: AnActionEvent): Boolean {
-    e.presentation.icon = scaleIcon((window.icon ?: AllIcons.Toolbar.Unknown) as ScalableIcon)
+    val icon = window.icon ?: AllIcons.Toolbar.Unknown
+    e.presentation.icon = if (icon is ScalableIcon) scaleIcon(icon) else icon
     e.presentation.isVisible = window.isShowStripeButton && window.isAvailable
     return window.isVisible
   }

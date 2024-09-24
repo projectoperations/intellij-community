@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.hint;
 
 import com.intellij.codeInsight.CodeInsightActionHandler;
@@ -28,11 +28,11 @@ public final class ShowContainerInfoHandler implements CodeInsightActionHandler 
   private static final Key<PsiElement> CONTAINER_KEY = Key.create("CONTAINER_KEY");
 
   @Override
-  public void invoke(@NotNull final Project project, @NotNull final Editor editor, @NotNull PsiFile file) {
+  public void invoke(final @NotNull Project project, final @NotNull Editor editor, @NotNull PsiFile file) {
 
     PsiElement container = getProcessedHint(editor);
 
-    StructureViewBuilder builder = LanguageStructureViewBuilder.INSTANCE.getStructureViewBuilder(file);
+    StructureViewBuilder builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(file);
     if (builder instanceof TreeBasedStructureViewBuilder) {
       StructureViewModel model = ((TreeBasedStructureViewBuilder) builder).createStructureViewModel(editor);
       boolean goOneLevelUp = true;
@@ -91,8 +91,7 @@ public final class ShowContainerInfoHandler implements CodeInsightActionHandler 
    *
    * null if context info was new executed, or not actual anymore
    */
-  @Nullable
-  public static PsiElement getProcessedHint(@NotNull Editor editor) {
+  public static @Nullable PsiElement getProcessedHint(@NotNull Editor editor) {
     WeakReference<LightweightHint> ref = editor.getUserData(MY_LAST_HINT_KEY);
     LightweightHint hint = SoftReference.dereference(ref);
     if (hint != null && hint.isVisible()){

@@ -2,17 +2,17 @@
 package org.jetbrains.idea.maven.wizards
 
 import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleCodeChanged
-import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleOnboardingTipsChangedEvent
+import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleCodeFinished
+import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleOnboardingTipsChanged
+import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleOnboardingTipsFinished
 import com.intellij.ide.projectWizard.NewProjectWizardConstants.BuildSystem.MAVEN
-import com.intellij.ide.projectWizard.generators.AssetsJavaNewProjectWizardStep
-import com.intellij.ide.projectWizard.generators.AssetsJavaNewProjectWizardStep.Companion.proposeToGenerateOnboardingTipsByDefault
-import com.intellij.ide.projectWizard.generators.BuildSystemJavaNewProjectWizard
-import com.intellij.ide.projectWizard.generators.BuildSystemJavaNewProjectWizardData
-import com.intellij.ide.projectWizard.generators.JavaNewProjectWizard
+import com.intellij.ide.projectWizard.generators.*
+import com.intellij.ide.projectWizard.generators.AssetsOnboardingTips.proposeToGenerateOnboardingTipsByDefault
 import com.intellij.ide.starters.local.StandardAssetsProvider
 import com.intellij.ide.wizard.NewProjectWizardChainStep.Companion.nextStep
 import com.intellij.ide.wizard.NewProjectWizardStep
 import com.intellij.ide.wizard.NewProjectWizardStep.Companion.ADD_SAMPLE_CODE_PROPERTY_NAME
+import com.intellij.ide.wizard.RootNewProjectWizardStep
 import com.intellij.openapi.observable.util.bindBooleanStorage
 import com.intellij.openapi.project.Project
 import com.intellij.ui.UIBundle
@@ -35,6 +35,8 @@ class MavenJavaNewProjectWizard : BuildSystemJavaNewProjectWizard {
     BuildSystemJavaNewProjectWizardData by parent,
     MavenJavaNewProjectWizardData {
 
+    private val builder = MavenJavaModuleBuilder()
+
     override val addSampleCodeProperty = propertyGraph.property(true)
       .bindBooleanStorage(ADD_SAMPLE_CODE_PROPERTY_NAME)
     override val generateOnboardingTipsProperty = propertyGraph.property(proposeToGenerateOnboardingTipsByDefault())
@@ -48,6 +50,7 @@ class MavenJavaNewProjectWizard : BuildSystemJavaNewProjectWizard {
         checkBox(UIBundle.message("label.project.wizard.new.project.add.sample.code"))
           .bindSelected(addSampleCodeProperty)
           .whenStateChangedFromUi { logAddSampleCodeChanged(it) }
+          .onApply { logAddSampleCodeFinished(addSampleCode) }
       }
     }
 
@@ -56,7 +59,8 @@ class MavenJavaNewProjectWizard : BuildSystemJavaNewProjectWizard {
         row {
           checkBox(UIBundle.message("label.project.wizard.new.project.generate.onboarding.tips"))
             .bindSelected(generateOnboardingTipsProperty)
-            .whenStateChangedFromUi { logAddSampleOnboardingTipsChangedEvent(it) }
+            .whenStateChangedFromUi { logAddSampleOnboardingTipsChanged(it) }
+            .onApply { logAddSampleOnboardingTipsFinished(generateOnboardingTips) }
         }
       }.enabledIf(addSampleCodeProperty)
     }
@@ -74,30 +78,29 @@ class MavenJavaNewProjectWizard : BuildSystemJavaNewProjectWizard {
     }
 
     override fun setupProject(project: Project) {
-      linkMavenProject(project, MavenJavaModuleBuilder())
+      linkMavenProject(project, builder)
     }
 
     init {
       data.putUserData(MavenJavaNewProjectWizardData.KEY, this)
+      data.putUserData(RootNewProjectWizardStep.PROJECT_BUILDER_KEY, builder)
     }
   }
 
-  private class AssetsStep(private val parent: Step) : AssetsJavaNewProjectWizardStep(parent) {
+  private class AssetsStep(
+    private val parent: Step
+  ) : AssetsNewProjectWizardStep(parent) {
 
     override fun setupAssets(project: Project) {
       if (context.isCreatingNewProject) {
         addAssets(StandardAssetsProvider().getMavenIgnoreAssets())
       }
       if (parent.addSampleCode) {
+        if (parent.generateOnboardingTips) {
+          prepareJavaSampleOnboardingTips(project)
+        }
         withJavaSampleCodeAsset("src/main/java", parent.groupId, parent.generateOnboardingTips)
       }
-    }
-
-    override fun setupProject(project: Project) {
-      if (parent.generateOnboardingTips) {
-        prepareOnboardingTips(project)
-      }
-      super.setupProject(project)
     }
   }
 }

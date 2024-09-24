@@ -125,32 +125,24 @@ public class AnnotationUtil {
   private static final ParameterizedCachedValueProvider<Map<Collection<String>, List<PsiAnnotation>>, PsiModifierListOwner> NON_CODE_ANNOTATIONS_PROVIDER =
     (PsiModifierListOwner listOwner) -> {
       Map<Collection<String>, List<PsiAnnotation>> value = ConcurrentFactoryMap.createMap(
-        annotationNames1 -> {
+        annotationNames -> {
           PsiUtilCore.ensureValid(listOwner);
           final Project project = listOwner.getProject();
-          List<PsiAnnotation> annotations = null;
           final ExternalAnnotationsManager externalAnnotationsManager = ExternalAnnotationsManager.getInstance(project);
-          for (String annotationName : annotationNames1) {
-            List<PsiAnnotation> externalAnnotations = externalAnnotationsManager.findExternalAnnotations(listOwner, annotationName);
-            if (!externalAnnotations.isEmpty()) {
-              if (annotations == null) {
-                annotations = new SmartList<>();
-              }
-              annotations.addAll(externalAnnotations);
-            }
-          }
+          List<PsiAnnotation> externalAnnotations = externalAnnotationsManager.findExternalAnnotations(listOwner, annotationNames);
 
           final InferredAnnotationsManager inferredAnnotationsManager = InferredAnnotationsManager.getInstance(project);
-          for (String annotationName : annotationNames1) {
+          List<PsiAnnotation> inferredAnnotations = null;
+          for (String annotationName : annotationNames) {
             final PsiAnnotation annotation = inferredAnnotationsManager.findInferredAnnotation(listOwner, annotationName);
             if (annotation != null) {
-              if (annotations == null) {
-                annotations = new SmartList<>();
+              if (inferredAnnotations == null) {
+                inferredAnnotations = new SmartList<>();
               }
-              annotations.add(annotation);
+              inferredAnnotations.add(annotation);
             }
           }
-          return annotations;
+          return inferredAnnotations == null ? externalAnnotations : ContainerUtil.concat(externalAnnotations, inferredAnnotations);
         }
       );
       return CachedValueProvider.Result.create(value, PsiModificationTracker.MODIFICATION_COUNT);
@@ -486,9 +478,7 @@ public class AnnotationUtil {
 
     final Project project = owner.getProject();
     final PsiAnnotation[] externalAnnotations = ExternalAnnotationsManager.getInstance(project).findExternalAnnotations(owner);
-    if (externalAnnotations != null) {
-      annotations = ArrayUtil.mergeArrays(annotations, externalAnnotations, PsiAnnotation.ARRAY_FACTORY);
-    }
+    annotations = ArrayUtil.mergeArrays(annotations, externalAnnotations, PsiAnnotation.ARRAY_FACTORY);
     if (withInferred) {
       final PsiAnnotation[] inferredAnnotations = InferredAnnotationsManager.getInstance(project).findInferredAnnotations(owner);
       annotations = ArrayUtil.mergeArrays(annotations, inferredAnnotations, PsiAnnotation.ARRAY_FACTORY);

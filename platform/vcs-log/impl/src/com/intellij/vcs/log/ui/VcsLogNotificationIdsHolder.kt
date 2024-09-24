@@ -1,11 +1,19 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.log.ui
 
 import com.intellij.notification.impl.NotificationIdsHolder
+import org.jetbrains.annotations.ApiStatus
 
+@ApiStatus.Internal
 class VcsLogNotificationIdsHolder : NotificationIdsHolder {
   override fun getNotificationIds(): List<String> {
-    return listOf(LOG_NOT_AVAILABLE, FATAL_ERROR, COMMIT_NOT_FOUND, NAVIGATION_ERROR, FILE_HISTORY_ACTION_LOAD_DETAILS_ERROR)
+    return listOf(
+      LOG_NOT_AVAILABLE,
+      FATAL_ERROR,
+      COMMIT_NOT_FOUND,
+      NAVIGATION_ERROR,
+      FILE_HISTORY_ACTION_LOAD_DETAILS_ERROR
+    )
   }
 
   companion object {

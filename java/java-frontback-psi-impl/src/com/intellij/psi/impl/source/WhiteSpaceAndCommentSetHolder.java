@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.source;
 
 import com.intellij.lang.WhitespacesAndCommentsBinder;
@@ -17,7 +17,8 @@ import static com.intellij.psi.tree.ParentAwareTokenSet.orSet;
 public class WhiteSpaceAndCommentSetHolder {
   public static final WhiteSpaceAndCommentSetHolder INSTANCE = new WhiteSpaceAndCommentSetHolder();
   private static final ParentAwareTokenSet PRECEDING_COMMENT_SET =
-    orSet(create(BasicJavaElementType.BASIC_MODULE), BasicElementTypes.BASIC_FULL_MEMBER_BIT_SET);
+    orSet(create(BasicJavaElementType.BASIC_MODULE, BasicJavaElementType.BASIC_IMPLICIT_CLASS), 
+          BasicElementTypes.BASIC_FULL_MEMBER_BIT_SET);
 
   private static final ParentAwareTokenSet TRAILING_COMMENT_SET =
     orSet(create(BasicJavaElementType.BASIC_PACKAGE_STATEMENT), BasicElementTypes.BASIC_IMPORT_STATEMENT_BASE_BIT_SET,

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.ui.impl.watch;
 
 import com.intellij.Patches;
@@ -39,6 +39,7 @@ import com.intellij.xdebugger.frame.presentation.XRegularValuePresentation;
 import com.intellij.xdebugger.impl.frame.XValueMarkers;
 import com.intellij.xdebugger.impl.ui.tree.ValueMarkup;
 import com.sun.jdi.*;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.Promise;
@@ -50,16 +51,17 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.RejectedExecutionException;
 
 public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements ValueDescriptor {
   protected final Project myProject;
+  private final CompletableFuture<Void> myInitFuture;
 
   NodeRenderer myRenderer = null;
 
   NodeRenderer myAutoRenderer = null;
 
   private Value myValue;
-  private volatile boolean myValueReady;
 
   private EvaluateException myValueException;
   protected EvaluationContextImpl myStoredEvaluationContext = null;
@@ -89,15 +91,16 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
   protected ValueDescriptorImpl(Project project, Value value) {
     myProject = project;
     myValue = value;
-    myValueReady = true;
+    myInitFuture = CompletableFuture.completedFuture(null);
   }
 
   protected ValueDescriptorImpl(Project project) {
     myProject = project;
+    myInitFuture = new CompletableFuture<>();
   }
 
   private void assertValueReady() {
-    if (!myValueReady) {
+    if (!isValueReady()) {
       LOG.error("Value is not yet calculated for " + getClass());
     }
   }
@@ -156,7 +159,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
   }
 
   public boolean isValueReady() {
-    return myValueReady;
+    return myInitFuture.isDone();
   }
 
   @Override
@@ -237,7 +240,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
       myIsExpandable = false;
     }
     finally {
-      myValueReady = true;
+      myInitFuture.complete(null);
     }
 
     myIsNew = false;
@@ -253,6 +256,11 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
 
   public void setOnDemandPresentationProvider(@NotNull OnDemandPresentationProvider onDemandPresentationProvider) {
     myOnDemandPresentationProvider = onDemandPresentationProvider;
+  }
+
+  @ApiStatus.Internal
+  public CompletableFuture<Void> getInitFuture() {
+    return myInitFuture;
   }
 
   @Nullable
@@ -276,12 +284,8 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
         Value trace = invokeExceptionGetStackTrace(exceptionObj, evaluationContext);
 
         // print to console as well
-        if (printToConsole && trace instanceof ArrayReference traceArray) {
-          DebugProcessImpl process = evaluationContext.getDebugProcess();
-          process.printToConsole(DebuggerUtils.getValueAsString(evaluationContext, exceptionObj) + "\n");
-          for (Value stackElement : traceArray.getValues()) {
-            process.printToConsole("\tat " + DebuggerUtils.getValueAsString(evaluationContext, stackElement) + "\n");
-          }
+        if (printToConsole && trace instanceof ArrayReference) {
+          evaluationContext.getDebugProcess().printToConsole(DebuggerUtilsImpl.getExceptionText(evaluationContext, exceptionObj));
         }
       }
       catch (EvaluateException ignored) {
@@ -297,11 +301,11 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
   public void setAncestor(NodeDescriptor oldDescriptor) {
     super.setAncestor(oldDescriptor);
     myIsNew = false;
-    if (!myValueReady) {
+    if (!isValueReady()) {
       ValueDescriptorImpl other = (ValueDescriptorImpl)oldDescriptor;
-      if (other.myValueReady) {
+      if (other.isValueReady()) {
         myValue = other.getValue();
-        myValueReady = true;
+        myInitFuture.complete(null);
       }
     }
   }
@@ -327,7 +331,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
           if (throwable instanceof CancellationException) {
             message = JavaDebuggerBundle.message("error.context.has.changed");
           }
-          else if (throwable instanceof VMDisconnectedException) {
+          else if (throwable instanceof VMDisconnectedException || throwable instanceof RejectedExecutionException) {
             message = JavaDebuggerBundle.message("error.vm.disconnected");
           }
           else {
@@ -530,11 +534,13 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
       customCheck = myRenderer.isApplicableAsync(type);
     }
     return customCheck.thenCompose(custom -> {
+      DebuggerManagerThreadImpl.assertIsManagerThread();
       if (custom) {
         return CompletableFuture.completedFuture(myRenderer);
       }
       else {
-        return debugProcess.getAutoRendererAsync(type).thenApply(r -> myAutoRenderer = r);
+        return DebuggerUtilsAsync.reschedule(debugProcess.getAutoRendererAsync(type))
+          .thenApply(r -> myAutoRenderer = r);
       }
     });
   }
@@ -736,7 +742,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
   }
 
   public boolean canSetValue() {
-    return myValueReady && isLvalue();
+    return isValueReady() && isLvalue();
   }
 
   public XValueModifier getModifier(JavaValue value) {
@@ -774,7 +780,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
   }
 
   public boolean canMark() {
-    if (!myValueReady) {
+    if (!isValueReady()) {
       return false;
     }
     return getValue() instanceof ObjectReference;

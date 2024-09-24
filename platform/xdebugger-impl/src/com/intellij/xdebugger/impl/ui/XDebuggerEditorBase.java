@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.ui;
 
 import com.intellij.icons.AllIcons;
@@ -11,6 +11,7 @@ import com.intellij.lang.LanguageUtil;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actions.AbstractToggleUseSoftWrapsAction;
@@ -25,6 +26,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
@@ -84,11 +86,21 @@ public abstract class XDebuggerEditorBase implements Expandable {
                                 @NotNull EvaluationMode mode,
                                 @Nullable @NonNls String historyId,
                                 final @Nullable XSourcePosition sourcePosition) {
+    this(project, debuggerEditorsProvider, mode, historyId, sourcePosition, null);
+  }
+
+  XDebuggerEditorBase(final Project project,
+                                @NotNull XDebuggerEditorsProvider debuggerEditorsProvider,
+                                @NotNull EvaluationMode mode,
+                                @Nullable @NonNls String historyId,
+                                final @Nullable XSourcePosition sourcePosition,
+                                @Nullable PsiElement psiContext) {
     myProject = project;
     myDebuggerEditorsProvider = debuggerEditorsProvider;
     myMode = mode;
     myHistoryId = historyId;
     mySourcePosition = sourcePosition;
+    myContext = psiContext;
 
     // setup expand button
     myExpandButton.setToolTipText(KeymapUtil.createTooltipText(IdeBundle.message("action.expand"), "ExpandExpandableComponent"));
@@ -367,7 +379,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
 
     XDebuggerExpressionEditor expressionEditor =
       new XDebuggerExpressionEditor(myProject, myDebuggerEditorsProvider, myHistoryId, mySourcePosition,
-                                    getExpression(), true, true, false) {
+                                    getExpression(), true, true, false, myContext) {
         @Override
         protected JComponent decorate(JComponent component, boolean multiline, boolean showEditor) {
           return component;
@@ -402,7 +414,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
             new KeyEvent(getComponent(), KeyEvent.KEY_PRESSED, System.currentTimeMillis(), InputEvent.CTRL_MASK, KeyEvent.VK_ENTER, '\r'));
         }
       }, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_MASK))))
-      .setCancelCallback(() -> {
+      .setCancelCallback(() -> WriteIntentReadAction.compute((Computable<Boolean>)()-> { //maybe readaction
         setExpression(expressionEditor.getExpression());
         requestFocusInEditor();
         Editor baseEditor = getEditor();
@@ -416,7 +428,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
         }
         myExpandedPopup = null;
         return true;
-      }).createPopup();
+      })).createPopup();
 
     myExpandedPopup.show(new RelativePoint(getComponent(), new Point(0, 0)));
 

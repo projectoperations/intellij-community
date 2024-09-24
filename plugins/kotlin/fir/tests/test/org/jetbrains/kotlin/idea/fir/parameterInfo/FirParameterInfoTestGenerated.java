@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.fir.parameterInfo;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -22,6 +23,12 @@ public abstract class FirParameterInfoTestGenerated extends AbstractFirParameter
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/parameterInfo/annotations")
     public static class Annotations extends AbstractFirParameterInfoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -45,6 +52,12 @@ public abstract class FirParameterInfoTestGenerated extends AbstractFirParameter
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/parameterInfo/arrayAccess")
     public static class ArrayAccess extends AbstractFirParameterInfoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -91,8 +104,33 @@ public abstract class FirParameterInfoTestGenerated extends AbstractFirParameter
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../idea/tests/testData/parameterInfo/fromJava")
+    public static class FromJava extends AbstractFirParameterInfoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("Usage.java")
+        public void testUsage() throws Exception {
+            runTest("../../idea/tests/testData/parameterInfo/fromJava/Usage.java");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/parameterInfo/functionCall")
     public static class FunctionCall extends AbstractFirParameterInfoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -195,6 +233,11 @@ public abstract class FirParameterInfoTestGenerated extends AbstractFirParameter
         @TestMetadata("InheritedWithCurrentFunctions.kt")
         public void testInheritedWithCurrentFunctions() throws Exception {
             runTest("../../idea/tests/testData/parameterInfo/functionCall/InheritedWithCurrentFunctions.kt");
+        }
+
+        @TestMetadata("InvalidCandidates.kt")
+        public void testInvalidCandidates() throws Exception {
+            runTest("../../idea/tests/testData/parameterInfo/functionCall/InvalidCandidates.kt");
         }
 
         @TestMetadata("Invoke.kt")
@@ -546,6 +589,12 @@ public abstract class FirParameterInfoTestGenerated extends AbstractFirParameter
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/parameterInfo/typeArguments")
     public static class TypeArguments extends AbstractFirParameterInfoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -669,6 +718,12 @@ public abstract class FirParameterInfoTestGenerated extends AbstractFirParameter
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/parameterInfo/withLib1")
     public static class WithLib1 extends AbstractFirParameterInfoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -682,6 +737,12 @@ public abstract class FirParameterInfoTestGenerated extends AbstractFirParameter
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/parameterInfo/withLib2")
     public static class WithLib2 extends AbstractFirParameterInfoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -695,6 +756,12 @@ public abstract class FirParameterInfoTestGenerated extends AbstractFirParameter
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/parameterInfo/withLib3")
     public static class WithLib3 extends AbstractFirParameterInfoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }

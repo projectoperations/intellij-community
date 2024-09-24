@@ -212,8 +212,6 @@ fun applyCompilerArgumentsToFacetSettings(
                 K2JVMCompilerArguments::allowNoSourceFiles.name,
                 K2JVMCompilerArguments::jvmDefault.name,
                 K2JVMCompilerArguments::reportPerf.name,
-                K2JVMCompilerArguments::noKotlinNothingValueException.name,
-                K2JVMCompilerArguments::noOptimizedCallableReferences,
 
                 K2NativeCompilerArguments::enableAssertions.name,
                 K2NativeCompilerArguments::debug.name,
@@ -255,12 +253,6 @@ fun applyCompilerArgumentsToFacetSettings(
             /* 'Reset' ignored fields and arguments that will be exposed as 'additional arguments' to the user */
             with(this::class.java.getDeclaredConstructor().newInstance()) {
                 copyFieldsSatisfying(this, this@updateCompilerArguments) { exposeAsAdditionalArgument(it) || it.name in ignoredFields }
-            }
-
-            val languageLevel = languageLevel
-            val apiLevel = apiLevel
-            if (languageLevel != null && apiLevel != null && apiLevel > languageLevel) {
-                this@with.apiLevel = languageLevel
             }
 
             updateMergedArguments()

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection;
 
 import com.intellij.analysis.AnalysisScope;
@@ -22,6 +22,8 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.progress.impl.ProgressRunner;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.openapi.progress.util.ProgressIndicatorWithDelayedPresentation;
 import com.intellij.openapi.project.DumbService;
@@ -62,7 +64,6 @@ import one.util.streamex.StreamEx;
 import org.jdom.JDOMException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 import org.jetbrains.concurrency.AsyncPromise;
 
 import javax.xml.stream.XMLStreamException;
@@ -80,7 +81,7 @@ import java.util.function.Predicate;
 import static com.intellij.configurationStore.StoreUtilKt.forPoorJavaClientOnlySaveProjectIndEdtDoNotUseThisMethod;
 
 public class InspectionApplicationBase implements CommandLineInspectionProgressReporter {
-  private static final Logger LOG = Logger.getInstance(InspectionApplicationBase.class);
+  public static final Logger LOG = Logger.getInstance(InspectionApplicationBase.class);
 
   public static final String PROJECT_STRUCTURE_DIR = "projectStructure";
 
@@ -272,8 +273,7 @@ public class InspectionApplicationBase implements CommandLineInspectionProgressR
     return project;
   }
 
-  @VisibleForTesting
-  public @Nullable AnalysisScope getAnalysisScope(@NotNull Project project) throws ExecutionException, InterruptedException {
+  private @Nullable AnalysisScope getAnalysisScope(@NotNull Project project) throws ExecutionException, InterruptedException {
     SearchScope scope = getSearchScope(project);
     if (scope == null) return null;
     return new AnalysisScope(scope, project);
@@ -497,7 +497,7 @@ public class InspectionApplicationBase implements CommandLineInspectionProgressR
         List<File> results = ContainerUtil.map(inspectionsResults, Path::toFile);
         reportConverter.convert(resultsDataPath.toString(), myOutPath, context.getTools(),
                                 results);
-        InspectResultsConsumer.runConsumers(context.getTools(), results, project);
+        InspectResultsConsumerEP.runConsumers(context.getTools(), results, project);
         if (myOutPath != null) {
           reportConverter.projectData(project, Paths.get(myOutPath).resolve(PROJECT_STRUCTURE_DIR));
         }
@@ -667,19 +667,27 @@ public class InspectionApplicationBase implements CommandLineInspectionProgressR
                                 @NotNull AnalysisScope scope,
                                 @NotNull Path resultsDataPath,
                                 @NotNull List<? super Path> inspectionsResults) {
-    ProgressManager.getInstance().runProcess(() -> {
-      configureProject(projectPath, project, scope);
+    Task.Backgroundable task = new Task.Backgroundable(project, "") {
+      @Override
+      public void run(@NotNull ProgressIndicator indicator) {
+        configureProject(projectPath, project, scope);
 
-      if (!GlobalInspectionContextUtil.canRunInspections(project, false, () -> {
-      })) {
-        onFailure(InspectionsBundle.message("inspection.application.cannot.configure.project.to.run.inspections"));
+        if (!GlobalInspectionContextUtil.canRunInspections(project, false, () -> {
+        })) {
+          onFailure(InspectionsBundle.message("inspection.application.cannot.configure.project.to.run.inspections"));
+        }
+        context.launchInspectionsOffline(scope, resultsDataPath, myRunGlobalToolsOnly, inspectionsResults);
+        reportMessage(1, "\n" + InspectionsBundle.message("inspection.capitalized.done") + "\n");
+        if (!myErrorCodeRequired) {
+          closeProject(project);
+        }
       }
-      context.launchInspectionsOffline(scope, resultsDataPath, myRunGlobalToolsOnly, inspectionsResults);
-      reportMessage(1, "\n" + InspectionsBundle.message("inspection.capitalized.done") + "\n");
-      if (!myErrorCodeRequired) {
-        closeProject(project);
-      }
-    }, createProgressIndicator());
+    };
+    new ProgressRunner<>(task)
+        .onThread(ProgressRunner.ThreadToUse.POOLED)
+        .withProgress(createProgressIndicator())
+        .sync()
+        .submitAndGet();
   }
 
   private @NotNull ProgressIndicatorBase createProgressIndicator() {

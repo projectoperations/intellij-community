@@ -80,7 +80,7 @@ abstract class PythonBasedLangSupport : AbstractLangSupport() {
     val module = project.modules.first()
     val existingSdks = getExistingSdks()
     val baseSdks = findBaseSdks(existingSdks, module, project)
-    val preferredSdk = findPreferredVirtualEnvBaseSdk(baseSdks)
+    val preferredSdk = findPreferredVirtualEnvBaseSdk(baseSdks) ?: return
     invokeLater {
       val venvSdk = applyBaseSdk(project, preferredSdk, existingSdks, module)
       if (venvSdk != null) {
@@ -90,12 +90,12 @@ abstract class PythonBasedLangSupport : AbstractLangSupport() {
   }
 
   private fun applyBaseSdk(project: Project,
-                           preferredSdk: Sdk?,
+                           preferredSdk: Sdk,
                            existingSdks: List<Sdk>,
                            module: Module?): Sdk? {
     val venvRoot = FileUtil.toSystemDependentName(PySdkSettings.instance.getPreferredVirtualEnvBasePath(project.basePath))
     val venvSdk = createVirtualEnvSynchronously(preferredSdk, existingSdks, venvRoot, project.basePath, project, module, project)
-    return venvSdk?.also {
+    return venvSdk.also {
       SdkConfigurationUtil.addSdk(it)
     }
   }

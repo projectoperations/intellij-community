@@ -1,10 +1,11 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.analysis.problemsView.toolWindow;
 
 import com.intellij.ide.actions.ToggleToolbarAction;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
+import com.intellij.openapi.editor.impl.inspector.RedesignedInspectionsManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -48,7 +49,9 @@ public final class ProblemsView implements DumbAware, ToolWindowFactory {
       toolWindowManager.activateToolWindow(window.getId(), null, true, ToolWindowEventSource.InspectionsWidget);
     }
     else if (file.equals(panel.getCurrentFile())) {
-      toolWindowManager.hideToolWindow(window.getId(), false, true, false, ToolWindowEventSource.InspectionsWidget);
+      if(!RedesignedInspectionsManager.isAvailable()) {
+        toolWindowManager.hideToolWindow(window.getId(), false, true, false, ToolWindowEventSource.InspectionsWidget);
+      }
     }
     else {
       panel.setCurrentFile(new kotlin.Pair<>(file, document));
@@ -56,8 +59,7 @@ public final class ProblemsView implements DumbAware, ToolWindowFactory {
     }
   }
 
-  @Nullable
-  private static HighlightingPanel getSelectedHighlightingPanel(Content selectedContent) {
+  private static @Nullable HighlightingPanel getSelectedHighlightingPanel(Content selectedContent) {
     return selectedContent == null ? null : get(HighlightingPanel.class, selectedContent);
   }
 
@@ -188,8 +190,7 @@ public final class ProblemsView implements DumbAware, ToolWindowFactory {
     }));
   }
 
-  @NotNull
-  private static ToolWindowManagerListener createListener() {
+  private static @NotNull ToolWindowManagerListener createListener() {
     return new ToolWindowManagerListener() {
       private final AtomicBoolean orientation = new AtomicBoolean();
       private final AtomicBoolean visibility = new AtomicBoolean(true);

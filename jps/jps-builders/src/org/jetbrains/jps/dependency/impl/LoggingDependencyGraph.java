@@ -30,8 +30,8 @@ public final class LoggingDependencyGraph extends LoggingGraph implements Depend
   }
 
   @Override
-  public Delta createDelta(Iterable<NodeSource> sourcesToProcess, Iterable<NodeSource> deletedSources) throws IOException {
-    return getDelegate().createDelta(sourcesToProcess, deletedSources);
+  public Delta createDelta(Iterable<NodeSource> sourcesToProcess, Iterable<NodeSource> deletedSources, boolean isSourceOnly) throws IOException {
+    return getDelegate().createDelta(sourcesToProcess, deletedSources, isSourceOnly);
   }
 
   @Override
@@ -45,7 +45,7 @@ public final class LoggingDependencyGraph extends LoggingGraph implements Depend
       synchronized (this) {
         myTotalDifferentiateTime += duration;
       }
-      debug("DependencyGraph differentiate ", params.getSessionName(), " done in ", Utils.formatDuration(duration));
+      debug("DependencyGraph ", params.getSessionName(), " differentiate done in ", Utils.formatDuration(duration));
     }
   }
 
@@ -60,7 +60,7 @@ public final class LoggingDependencyGraph extends LoggingGraph implements Depend
       synchronized (this) {
         myTotalIntegrateTime += duration;
       }
-      debug("DependencyGraph integrate ", diffResult.getSessionName(), " done in ", Utils.formatDuration(duration));
+      debug("DependencyGraph ", diffResult.getSessionName(), " integrate done in ", Utils.formatDuration(duration));
     }
   }
 

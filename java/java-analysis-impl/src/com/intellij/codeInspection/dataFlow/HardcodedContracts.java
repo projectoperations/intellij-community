@@ -109,6 +109,9 @@ public final class HardcodedContracts {
               (call, cnt) -> getSubstringContracts(cnt == 2))
     .register(instanceCall(JAVA_LANG_STRING, "isEmpty").parameterCount(0),
               ContractProvider.of(SpecialField.STRING_LENGTH.getEmptyContracts()))
+    .register(instanceCall(JAVA_LANG_STRING, "isBlank").parameterCount(0),
+              ContractProvider.of(singleConditionContract(
+                ContractValue.qualifier().specialField(SpecialField.STRING_LENGTH), RelationType.EQ, ContractValue.zero(), returnTrue())))
     .register(anyOf(instanceCall(JAVA_UTIL_COLLECTION, "isEmpty").parameterCount(0),
                     instanceCall(JAVA_UTIL_MAP, "isEmpty").parameterCount(0)),
               ContractProvider.of(SpecialField.COLLECTION_SIZE.getEmptyContracts()))
@@ -258,6 +261,10 @@ public final class HardcodedContracts {
                 singleConditionContract(ContractValue.argument(0), RelationType.EQ, ContractValue.nullValue(), returnTrue()),
                 singleConditionContract(ContractValue.argument(0).specialField(SpecialField.COLLECTION_SIZE), RelationType.EQ, ContractValue.zero(), returnTrue()),
                 trivialContract(returnFalse())
+              ))
+    .register(instanceCall("java.util.concurrent.TimeUnit", "convert").parameterCount(2),
+              ContractProvider.of(
+                singleConditionContract(ContractValue.qualifier(), RelationType.EQ, ContractValue.argument(1), returnParameter(0))
               ))
     ;
 

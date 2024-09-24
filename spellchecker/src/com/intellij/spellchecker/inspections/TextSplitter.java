@@ -1,7 +1,6 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.spellchecker.inspections;
 
-import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Consumer;
@@ -21,13 +20,15 @@ public class TextSplitter extends BaseSplitter {
 
   private static final String letter = "(\\p{L}\\p{Mn}*)";
   private static final String xmlEntity = "(&.+?;)";
+  private static final String rightSingleQuotationMark = "\\u2019";
+
   // using possessive quantifiers ++ and *+ to avoid SOE on large inputs
   // see https://blog.sonarsource.com/crafting-regexes-to-avoid-stack-overflows/
   private static final Pattern EXTENDED_WORD_AND_SPECIAL = Pattern.compile(
     xmlEntity + "|" +
     "(#|0x\\d*)?" + // an optional prefix
     letter + "++" + // some letters
-    "('" + letter + ")?" + // if there's an apostrophe, it should be followed by a letter
+    "(['" + rightSingleQuotationMark + "]" + letter + ")?" + // if there's an apostrophe, it should be followed by a letter
     "(_|" + letter + ")*+" // more letters and underscores
   );
   @Override
@@ -49,7 +50,7 @@ public class TextSplitter extends BaseSplitter {
         ws.split(text, found, consumer);
       }
     }
-    catch (ProcessCanceledException ignored) {
+    catch (TooLongBombedMatchingException ignored) {
     }
   }
 

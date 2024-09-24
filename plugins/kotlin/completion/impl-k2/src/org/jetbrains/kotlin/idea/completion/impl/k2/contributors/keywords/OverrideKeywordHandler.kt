@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.completion.contributors.keywords
 
@@ -6,41 +6,43 @@ import com.intellij.codeInsight.completion.CompletionParameters
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.project.Project
+import com.intellij.psi.createSmartPointer
 import com.intellij.ui.RowIcon
-import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KtRendererAnnotationsFilter
-import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KtDeclarationRendererForSource
-import org.jetbrains.kotlin.analysis.api.symbols.KtCallableSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KtFunctionSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KtVariableSymbol
-import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KtRendererKeywordFilter
-import org.jetbrains.kotlin.analysis.api.symbols.markers.KtNamedSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithModality
-import org.jetbrains.kotlin.descriptors.Modality
+import org.jetbrains.kotlin.analysis.api.base.KaContextReceiver
+import org.jetbrains.kotlin.analysis.api.base.KaContextReceiversOwner
+import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KaRendererAnnotationsFilter
+import org.jetbrains.kotlin.analysis.api.renderer.base.contextReceivers.KaContextReceiversRenderer
+import org.jetbrains.kotlin.analysis.api.renderer.base.contextReceivers.renderers.KaContextReceiverLabelRenderer
+import org.jetbrains.kotlin.analysis.api.renderer.base.contextReceivers.renderers.KaContextReceiverListRenderer
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.bodies.KaFunctionLikeBodyRenderer
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KaDeclarationRendererForSource
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KaRendererKeywordFilter
+import org.jetbrains.kotlin.analysis.api.renderer.types.KaTypeRenderer
+import org.jetbrains.kotlin.analysis.api.symbols.*
+import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
+import org.jetbrains.kotlin.analysis.utils.printer.PrettyPrinter
 import org.jetbrains.kotlin.idea.KtIconProvider.getBaseIcon
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferencesInRange
 import org.jetbrains.kotlin.idea.completion.OverridesCompletionLookupElementDecorator
-import org.jetbrains.kotlin.idea.completion.context.FirBasicCompletionContext
-import org.jetbrains.kotlin.idea.completion.context.getOriginalDeclarationOrSelf
+import org.jetbrains.kotlin.idea.completion.impl.k2.context.FirBasicCompletionContext
+import org.jetbrains.kotlin.idea.completion.impl.k2.context.getOriginalDeclarationOrSelf
 import org.jetbrains.kotlin.idea.completion.keywords.CompletionKeywordHandler
+import org.jetbrains.kotlin.idea.completion.lookups.factories.KotlinFirLookupElementFactory
+import org.jetbrains.kotlin.idea.completion.lookups.renderVerbose
 import org.jetbrains.kotlin.idea.completion.lookups.withAllowedResolve
-import org.jetbrains.kotlin.idea.core.overrideImplement.BodyType
-import org.jetbrains.kotlin.idea.core.overrideImplement.KtClassMember
-import org.jetbrains.kotlin.idea.core.overrideImplement.KtOverrideMembersHandler
-import org.jetbrains.kotlin.idea.core.overrideImplement.MemberGenerateMode
-import org.jetbrains.kotlin.idea.core.overrideImplement.generateMember
+import org.jetbrains.kotlin.idea.core.overrideImplement.*
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
-import org.jetbrains.kotlin.psi.psiUtil.createSmartPointer
 import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
 
 internal class OverrideKeywordHandler(
     private val basicContext: FirBasicCompletionContext
-) : CompletionKeywordHandler<KtAnalysisSession>(KtTokens.OVERRIDE_KEYWORD) {
+) : CompletionKeywordHandler<KaSession>(KtTokens.OVERRIDE_KEYWORD) {
 
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun createLookups(
         parameters: CompletionParameters,
         expression: KtExpression?,
@@ -48,7 +50,7 @@ internal class OverrideKeywordHandler(
         project: Project
     ): Collection<LookupElement> = createOverrideMemberLookups(parameters, declaration = null, project) + lookup
 
-    context(KtAnalysisSession)
+    context(KaSession)
     fun createOverrideMemberLookups(
         parameters: CompletionParameters,
         declaration: KtCallableDeclaration?,
@@ -83,14 +85,14 @@ internal class OverrideKeywordHandler(
         } else allMembers.toList()
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun canCompleteDeclarationWithMember(
         declaration: KtCallableDeclaration,
-        symbolToOverride: KtCallableSymbol
+        symbolToOverride: KaCallableSymbol
     ): Boolean = when (declaration) {
-        is KtFunction -> symbolToOverride is KtFunctionSymbol
+        is KtFunction -> symbolToOverride is KaNamedFunctionSymbol
         is KtValVarKeywordOwner -> {
-            if (symbolToOverride !is KtVariableSymbol) {
+            if (symbolToOverride !is KaVariableSymbol) {
                 false
             } else {
                 // val cannot override var
@@ -101,45 +103,47 @@ internal class OverrideKeywordHandler(
         else -> false
     }
 
-    context(KtAnalysisSession)
-    @OptIn(KtAllowAnalysisOnEdt::class)
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
     private fun createLookupElementToGenerateSingleOverrideMember(
         member: KtClassMember,
         declaration: KtCallableDeclaration?,
         classOrObject: KtClassOrObject,
         isConstructorParameter: Boolean,
-        project: Project
+        project: Project,
     ): OverridesCompletionLookupElementDecorator {
         val symbolPointer = member.memberInfo.symbolPointer
         val memberSymbol = symbolPointer.restoreSymbol()
         requireNotNull(memberSymbol) { "${symbolPointer::class} can't be restored" }
-        check(memberSymbol is KtNamedSymbol)
+        check(memberSymbol is KaNamedSymbol)
         check(classOrObject !is KtEnumEntry)
 
-        val text = getSymbolTextForLookupElement(memberSymbol)
         val baseIcon = getBaseIcon(memberSymbol)
-        val isImplement = (memberSymbol as? KtSymbolWithModality)?.modality == Modality.ABSTRACT
+        val isImplement = memberSymbol.modality == KaSymbolModality.ABSTRACT
         val additionalIcon = if (isImplement) AllIcons.Gutter.ImplementingMethod else AllIcons.Gutter.OverridingMethod
         val icon = RowIcon(baseIcon, additionalIcon)
-        val isSuspendFunction = (memberSymbol as? KtFunctionSymbol)?.isSuspend == true
 
-        val containingSymbol = memberSymbol.unwrapFakeOverrides.originalContainingClassForOverride
-        val baseClassName = containingSymbol?.name?.asString()
-        val baseClassIcon = member.memberInfo.containingSymbolIcon
+        val containingSymbol = memberSymbol.fakeOverrideOriginal.containingSymbol as? KaClassSymbol
 
-        val baseLookupElement = basicContext.lookupElementFactory.createLookupElement(memberSymbol, basicContext.importStrategyDetector)
+        val baseLookupElement = KotlinFirLookupElementFactory.createLookupElement(
+            symbol = memberSymbol,
+            importStrategyDetector = basicContext.importStrategyDetector,
+        )
 
         val classOrObjectPointer = classOrObject.createSmartPointer()
         return OverridesCompletionLookupElementDecorator(
-            baseLookupElement,
-            declaration,
-            text,
-            isImplement,
-            icon,
-            baseClassName,
-            baseClassIcon,
-            isConstructorParameter,
-            isSuspendFunction,
+            lookupElement = baseLookupElement,
+            declaration = declaration,
+            text = "override " + memberSymbol.render(TextRenderer),
+            tailText = memberSymbol.contextReceivers
+                .takeUnless { it.isEmpty() }
+                ?.joinToString(prefix = " for ") { it.type.renderVerbose() }, // TODO could be a different DeclarationRenderer rendering only tail text information
+            isImplement = isImplement,
+            icon = icon,
+            baseClassName = containingSymbol?.name?.asString(),
+            baseClassIcon = member.memberInfo.containingSymbolIcon,
+            isConstructorParameter = isConstructorParameter,
+            isSuspend = (memberSymbol as? KaNamedFunctionSymbol)?.isSuspend == true,
             generateMember = {
                 generateMemberInNewAnalysisSession(classOrObjectPointer.element!!, member, project)
             },
@@ -149,17 +153,7 @@ internal class OverrideKeywordHandler(
         )
     }
 
-    context(KtAnalysisSession)
-    private fun getSymbolTextForLookupElement(memberSymbol: KtCallableSymbol): String = buildString {
-        append(KtTokens.OVERRIDE_KEYWORD.value)
-            .append(" ")
-            .append(memberSymbol.render(renderingOptionsForLookupElementRendering))
-        if (memberSymbol is KtFunctionSymbol) {
-            append(" {...}")
-        }
-    }
-
-    @OptIn(KtAllowAnalysisOnEdt::class)
+    @OptIn(KaExperimentalApi::class)
     private fun generateMemberInNewAnalysisSession(
         classOrObject: KtClassOrObject,
         member: KtClassMember,
@@ -179,17 +173,55 @@ internal class OverrideKeywordHandler(
             )
         }
     }
+}
 
-    companion object {
-        private val renderingOptionsForLookupElementRendering =
-            KtDeclarationRendererForSource.WITH_SHORT_NAMES.with {
-                annotationRenderer = annotationRenderer.with {
-                    annotationFilter = KtRendererAnnotationsFilter.NONE
-                }
-                modifiersRenderer = modifiersRenderer.with {
-                    keywordsRenderer = keywordsRenderer.with { keywordFilter = KtRendererKeywordFilter.onlyWith(KtTokens.TYPE_MODIFIER_KEYWORDS) }
+@KaExperimentalApi
+private val TextRenderer = KaDeclarationRendererForSource.WITH_SHORT_NAMES.with {
+    annotationRenderer = annotationRenderer.with {
+        annotationFilter = KaRendererAnnotationsFilter.NONE
+    }
+
+    modifiersRenderer = modifiersRenderer.with {
+        keywordsRenderer = keywordsRenderer.with {
+            keywordFilter = KaRendererKeywordFilter.onlyWith(KtTokens.TYPE_MODIFIER_KEYWORDS)
+        }
+    }
+
+    typeRenderer = typeRenderer.with {
+        contextReceiversRenderer = KaContextReceiversRenderer {
+            contextReceiverListRenderer = object : KaContextReceiverListRenderer {
+
+                override fun renderContextReceivers(
+                    analysisSession: KaSession,
+                    owner: KaContextReceiversOwner,
+                    contextReceiversRenderer: KaContextReceiversRenderer,
+                    typeRenderer: KaTypeRenderer,
+                    printer: PrettyPrinter,
+                ) {
                 }
             }
+
+            contextReceiverLabelRenderer = object : KaContextReceiverLabelRenderer {
+
+                override fun renderLabel(
+                    analysisSession: KaSession,
+                    contextReceiver: KaContextReceiver,
+                    contextReceiversRenderer: KaContextReceiversRenderer,
+                    printer: PrettyPrinter,
+                ) {
+                }
+            }
+        }
+    }
+
+    functionLikeBodyRenderer = object : KaFunctionLikeBodyRenderer {
+        override fun renderBody(
+            analysisSession: KaSession,
+            symbol: KaFunctionSymbol,
+            printer: PrettyPrinter,
+        ) = printer {
+            append(" {...}")
+        }
     }
 }
 

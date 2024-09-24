@@ -24,9 +24,13 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.LineMarkerRenderer
 import com.intellij.openapi.editor.markup.LineMarkerRendererEx
 import com.intellij.openapi.util.Disposer
+import com.intellij.ui.ExperimentalUI
+import com.intellij.ui.scale.JBUIScale
 import icons.CollaborationToolsIcons
-import kotlinx.coroutines.*
-import org.jetbrains.annotations.ApiStatus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.awt.Graphics
 import java.awt.Rectangle
 import java.awt.event.MouseEvent
@@ -36,10 +40,8 @@ import kotlin.properties.Delegates.observable
 /**
  * Draws and handles review controls in gutter
  */
-@ApiStatus.Internal
 class CodeReviewEditorGutterControlsRenderer
-private constructor(cs: CoroutineScope,
-                    private val model: CodeReviewEditorGutterControlsModel,
+private constructor(private val model: CodeReviewEditorGutterControlsModel,
                     private val editor: EditorEx)
   : LineMarkerRenderer, LineMarkerRendererEx, ActiveGutterRenderer {
 
@@ -56,25 +58,24 @@ private constructor(cs: CoroutineScope,
 
   private val hoverHandler = HoverHandler(editor)
 
-  init {
-    val areaDisposable = Disposer.newDisposable()
-    editor.gutterComponentEx.reserveLeftFreePaintersAreaWidth(areaDisposable, ICON_AREA_WIDTH)
-    editor.addEditorMouseListener(hoverHandler)
-    editor.addEditorMouseMotionListener(hoverHandler)
+  suspend fun launch(): Nothing {
+    withContext(Dispatchers.Main) {
+      val areaDisposable = Disposer.newDisposable()
+      editor.gutterComponentEx.reserveLeftFreePaintersAreaWidth(areaDisposable, ICON_AREA_WIDTH)
+      editor.addEditorMouseListener(hoverHandler)
+      editor.addEditorMouseMotionListener(hoverHandler)
 
-    cs.launchNow {
-      model.gutterControlsState.collect {
-        state = it
-      }
-    }
-    cs.launchNow {
       try {
-        awaitCancellation()
+        model.gutterControlsState.collect {
+          state = it
+        }
       }
       finally {
-        editor.removeEditorMouseListener(hoverHandler)
-        editor.removeEditorMouseMotionListener(hoverHandler)
-        Disposer.dispose(areaDisposable)
+        withContext(NonCancellable) {
+          editor.removeEditorMouseListener(hoverHandler)
+          editor.removeEditorMouseMotionListener(hoverHandler)
+          Disposer.dispose(areaDisposable)
+        }
       }
     }
   }
@@ -110,6 +111,16 @@ private constructor(cs: CoroutineScope,
     val yShift = if (lineData.hasComments) editor.lineHeight else 0
     // do not paint if there's not enough space
     if (yShift > 0 && lineData.yRangeWithInlays.last - lineData.yRangeWithInlays.first < yShift + editor.lineHeight) return
+
+    val hasCommentsInFoldedRegion = lineData.foldedRegion?.let { fRegion ->
+      val linesWithComments = state?.linesWithComments ?: return@let false
+      val (frStart, frEnd) = with(editor.document) {
+        getLineNumber(fRegion.startOffset) to getLineNumber(fRegion.endOffset)
+      }
+
+      (frStart..frEnd).any { line -> line in linesWithComments }
+    } ?: false
+    if (hasCommentsInFoldedRegion) return
 
     val rawIcon = if (lineData.columnHovered) AllIcons.General.InlineAddHover else AllIcons.General.InlineAdd
     val icon = EditorUIUtil.scaleIcon(rawIcon, editor)
@@ -244,14 +255,19 @@ private constructor(cs: CoroutineScope,
 
     private fun getIconColumnXRange(editor: EditorEx): IntRange {
       val gutter = editor.gutterComponentEx
-      val iconAreaWidth = if (editor is EditorImpl) EditorUIUtil.scaleWidth(ICON_AREA_WIDTH, editor) else ICON_AREA_WIDTH
+      val uiScaledIconAreaWidth = JBUIScale.scale(ICON_AREA_WIDTH)
+      val iconAreaWidth =
+        // Same calculation as within com.intellij.openapi.editor.impl.EditorGutterComponentImpl#getLeftFreePaintersAreaWidth
+        if (editor is EditorImpl && ExperimentalUI.isNewUI()) EditorUIUtil.scaleWidth(uiScaledIconAreaWidth, editor) + 2
+        else uiScaledIconAreaWidth
       val iconStart = if (editor.verticalScrollbarOrientation == EditorEx.VERTICAL_SCROLLBAR_RIGHT) {
         gutter.lineMarkerAreaOffset
       }
       else {
         gutter.width - gutter.lineMarkerAreaOffset - iconAreaWidth
       }
-      val iconEnd = iconStart + iconAreaWidth
+      // Correct for inclusive range with -1
+      val iconEnd = iconStart + iconAreaWidth - 1
       return iconStart..iconEnd
     }
 
@@ -297,9 +313,16 @@ private constructor(cs: CoroutineScope,
       }
     }
 
+    @Deprecated("Use a suspending function", ReplaceWith("cs.launch { render(model, editor) }"))
     fun setupIn(cs: CoroutineScope, model: CodeReviewEditorGutterControlsModel, editor: EditorEx) {
       cs.launchNow(Dispatchers.Main) {
-        val renderer = CodeReviewEditorGutterControlsRenderer(this, model, editor)
+        render(model, editor)
+      }
+    }
+
+    suspend fun render(model: CodeReviewEditorGutterControlsModel, editor: EditorEx): Nothing {
+      withContext(Dispatchers.Main) {
+        val renderer = CodeReviewEditorGutterControlsRenderer(model, editor)
         val highlighter = editor.markupModel.addRangeHighlighter(null, 0, editor.document.textLength,
                                                                  DiffDrawUtil.LST_LINE_MARKER_LAYER,
                                                                  HighlighterTargetArea.LINES_IN_RANGE).apply {
@@ -308,7 +331,7 @@ private constructor(cs: CoroutineScope,
           setLineMarkerRenderer(renderer)
         }
         try {
-          awaitCancellation()
+          renderer.launch()
         }
         finally {
           withContext(NonCancellable + ModalityState.any().asContextElement()) {

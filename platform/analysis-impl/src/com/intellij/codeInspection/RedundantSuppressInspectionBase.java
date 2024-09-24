@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection;
 
 import com.intellij.analysis.AnalysisScope;
@@ -86,7 +86,7 @@ public abstract class RedundantSuppressInspectionBase extends GlobalSimpleInspec
       }
     });
 
-    if (suppressedScopes.values().isEmpty()) return ProblemDescriptor.EMPTY_ARRAY;
+    if (suppressedScopes.isEmpty()) return ProblemDescriptor.EMPTY_ARRAY;
     // have to visit all file from scratch since inspections can be written in any pervasive way including checkFile() overriding
     Map<InspectionToolWrapper<?, ?>, String> suppressedTools = new HashMap<>();
     List<InspectionToolWrapper<?, ?>> toolWrappers = getInspectionTools(psiFile, profile);
@@ -383,6 +383,11 @@ public abstract class RedundantSuppressInspectionBase extends GlobalSimpleInspec
                  ContainerUtil.exists(suppressedPlaces, place -> mySuppressor.isSuppressionFor(element, place, suppressId));
         }
       };
+    }
+
+    @Override
+    public boolean isDumbAware() {
+      return mySuppressor.isDumbAware();
     }
   }
 }

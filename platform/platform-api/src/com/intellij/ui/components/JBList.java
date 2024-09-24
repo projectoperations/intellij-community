@@ -9,6 +9,7 @@ import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.*;
+import com.intellij.ui.dsl.listCellRenderer.KotlinUIDslRendererComponent;
 import com.intellij.ui.speedSearch.SpeedSearchSupply;
 import com.intellij.util.Function;
 import com.intellij.util.NotNullFunction;
@@ -281,6 +282,10 @@ public class JBList<E> extends JList<E> implements ComponentWithEmptyText, Compo
       c = ExpandedItemRendererComponentWrapper.unwrap(c);
     }
 
+    if (c instanceof KotlinUIDslRendererComponent uiDslRendererComponent) {
+      return uiDslRendererComponent.getCopyText();
+    }
+
     SimpleColoredComponent coloredComponent = null;
     if (c instanceof JComponent) {
       coloredComponent = UIUtil.findComponentOfType((JComponent)c, SimpleColoredComponent.class);
@@ -366,6 +371,8 @@ public class JBList<E> extends JList<E> implements ComponentWithEmptyText, Compo
     setCellRenderer(new SelectionAwareListCellRenderer<>(fun));
   }
 
+  /** @deprecated Implement {@link com.intellij.openapi.actionSystem.UiDataProvider} instead */
+  @Deprecated(forRemoval = true)
   public void setDataProvider(@NotNull DataProvider provider) {
     DataManager.registerDataProvider(this, provider);
   }

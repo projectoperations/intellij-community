@@ -322,7 +322,7 @@ public class PythonConsoleTest extends PyEnvTestCase {
         waitForOutput("Hi");
         addTextToEditor("getenv()");
         ApplicationManager.getApplication().runReadAction(() -> {
-          checkParameters(7, getConsoleFile(), "key, default=None", new String[]{"key, "});
+          checkParameters(7, getConsoleFile(), "key, default=None", new String[]{"key, "}, myFixture.getEditor());
         });
       }
     });
@@ -428,6 +428,23 @@ public class PythonConsoleTest extends PyEnvTestCase {
             assertEquals(0, caretLine);
           }
         });
+      }
+    });
+  }
+
+  @Test
+  public void testPromptsPrinting() {
+    runPythonTest(new PyConsoleTask() {
+      @Override
+      public void testing() throws Exception {
+        exec("print('>?')");
+        waitForOutput(">?");
+
+        exec("print('...')");
+        waitForOutput("...");
+
+        exec("print('>>>')");
+        waitForOutput(">>>");
       }
     });
   }

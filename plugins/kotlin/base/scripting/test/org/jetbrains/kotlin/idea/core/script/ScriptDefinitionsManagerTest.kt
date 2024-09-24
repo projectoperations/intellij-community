@@ -258,8 +258,8 @@ class ScriptDefinitionsManagerTest {
         val defaultDefinition = manager.getDefaultDefinition()
         val defaultScriptDefinition = manager.getDefaultScriptDefinition()
 
-        assertNotNull(defaultDefinition.asLegacyOrNull<BundledIdeScriptDefinition>())
-        assertInstanceOf(BundledIdeScriptDefinition::class.java, defaultScriptDefinition)
+        assertNotNull(defaultDefinition.asLegacyOrNull<LegacyBundledIdeScriptDefinition>())
+        assertInstanceOf(LegacyBundledIdeScriptDefinition::class.java, defaultScriptDefinition)
     }
 
 
@@ -324,8 +324,8 @@ private class ScriptDefinitionsManagerUnderTest(val project: Project) : ScriptDe
 
     override fun isScratchFile(script: SourceCode): Boolean = false
 
-    override fun getBundledScriptDefinitionContributor(): BundledScriptDefinitionContributor =
-        BundledScriptDefinitionContributor(project)
+    override fun getBundledScriptDefinitionContributor(): BundledScriptDefinitionSource =
+        BundledScriptDefinitionSource(project)
 
     override fun executeUnderReadLock(block: () -> Unit) = block()
 }

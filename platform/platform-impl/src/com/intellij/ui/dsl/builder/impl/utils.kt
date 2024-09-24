@@ -1,12 +1,15 @@
 // Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.dsl.builder.impl
 
+import com.intellij.BundleBase
+import com.intellij.ide.ui.laf.darcula.ui.DarculaScrollPaneBorder
 import com.intellij.internal.inspector.UiInspectorAction
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.text.TextWithMnemonic
+import com.intellij.ui.EditorTextField
 import com.intellij.ui.dsl.UiDslException
 import com.intellij.ui.dsl.builder.*
 import com.intellij.ui.dsl.builder.components.DslLabel
@@ -41,7 +44,16 @@ enum class DslComponentPropertyInternal {
    *
    * Value: Throwable
    */
-  CREATION_STACKTRACE
+  CREATION_STACKTRACE,
+
+  /**
+   * Preferred columns width for DslLabel when [MAX_LINE_LENGTH_WORD_WRAP] mode is used.
+   * A temporary workaround of IJPL-62164, will be removed later.
+   *
+   * Value: Int
+   */
+  @ApiStatus.Experimental
+  PREFERRED_COLUMNS_LABEL_WORD_WRAP
 }
 
 /**
@@ -63,7 +75,8 @@ private val ALLOWED_LABEL_COMPONENTS = listOf(
   JTable::class,
   JTextComponent::class,
   JTree::class,
-  SegmentedButtonComponent::class
+  SegmentedButtonComponent::class,
+  EditorTextField::class
 )
 
 /**
@@ -86,7 +99,8 @@ internal fun prepareVisualPaddings(component: JComponent): UnscaledGaps {
     }
 
   if (customVisualPaddings == null && component is JScrollPane) {
-    customVisualPaddings = UnscaledGaps.EMPTY
+    val visualPadding = (component.border as? DarculaScrollPaneBorder)?.getVisualPadding(component) ?: 0
+    customVisualPaddings = UnscaledGaps(visualPadding)
   }
 
   if (customVisualPaddings == null) {
@@ -135,6 +149,10 @@ internal fun labelCell(label: JLabel, cell: CellBaseImpl<*>?) {
     return
   }
 
+  if (cell.component.getClientProperty(DslComponentProperty.SKIP_LABEL_FOR_ASSIGNMENT) as Boolean? == true) {
+    return
+  }
+
   val component = getLabelComponentFor(cell.component.interactiveComponent)
   if (component == null) {
     if (mnemonicExists) {
@@ -144,6 +162,11 @@ internal fun labelCell(label: JLabel, cell: CellBaseImpl<*>?) {
   }
 
   label.labelFor = component
+}
+
+internal fun createLabel(@NlsContexts.Label text: String): JLabel {
+  // Old version supported \n, but it looks nobody needs that
+  return JLabel(BundleBase.replaceMnemonicAmpersand(text))
 }
 
 private fun getLabelComponentFor(component: JComponent): JComponent? {

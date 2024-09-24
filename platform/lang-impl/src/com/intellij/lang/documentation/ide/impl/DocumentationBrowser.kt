@@ -3,11 +3,13 @@ package com.intellij.lang.documentation.ide.impl
 
 import com.intellij.codeInsight.documentation.actions.DocumentationDownloader
 import com.intellij.codeInsight.lookup.LookupManager
+import com.intellij.lang.documentation.ide.impl.DocumentationUsageCollector.logDownloadFinished
 import com.intellij.lang.documentation.ide.ui.DocumentationUI
 import com.intellij.lang.documentation.ide.ui.UISnapshot
 import com.intellij.model.Pointer
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.OrderEntry
@@ -161,10 +163,16 @@ internal class DocumentationBrowser private constructor(
     val filePath = href.replaceFirst(DocumentationDownloader.HREF_PREFIX, "")
     val file = VirtualFileManager.getInstance().findFileByUrl(filePath)
     if (file != null) {
-      cs.launch {
-        DocumentationDownloader.EP.extensionList.find { it.canHandle(project, file) }?.download(project, file)
-        closeTrigger?.invoke()
+      val handler = DocumentationDownloader.EP.extensionList.find { it.canHandle(project, file) }
+      if (handler != null) {
+        blockingContext {
+          val callback = handler.download(project, file)
+          callback.doWhenProcessed {
+            logDownloadFinished(project, handler::class.java, callback.isDone)
+          }
+        }
       }
+      closeTrigger?.invoke()
     }
   }
 

@@ -22,7 +22,6 @@ import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.ui.EDT;
 import kotlin.Unit;
 import kotlin.coroutines.CoroutineContext;
-import kotlin.coroutines.EmptyCoroutineContext;
 import kotlinx.coroutines.Job;
 import org.jetbrains.annotations.ApiStatus.Obsolete;
 import org.jetbrains.annotations.*;
@@ -442,7 +441,7 @@ public final class ProgressRunner<R> {
     @NotNull CompletableFuture<? extends @NotNull ProgressIndicator> progressIndicatorFuture
   ) {
     CompletableFuture<R> resultFuture = new CompletableFuture<>();
-    ChildContext childContext = Propagation.createChildContext();
+    ChildContext childContext = Propagation.createChildContext("ProgressRunner: " + task);
     CoroutineContext context = childContext.getContext();
     Job job = childContext.getJob();
     if (job != null) {
@@ -460,11 +459,14 @@ public final class ProgressRunner<R> {
         return;
       }
       Runnable runnable = new ProgressRunnable<>(resultFuture, task, progressIndicator);
-      Runnable contextRunnable = context.equals(EmptyCoroutineContext.INSTANCE) ? runnable : (ContextAwareRunnable)() -> {
-        CoroutineContext effectiveContext = context.plus(asContextElement(progressIndicator.getModalityState()));
-        try (AccessToken ignored = ThreadContext.installThreadContext(effectiveContext, false)) {
-          childContext.runAsCoroutine(runnable);
-        }
+      ContextAwareRunnable contextRunnable = () -> {
+        childContext.runInChildContext(() -> {
+          CoroutineContext effectiveContext =
+            ThreadContext.currentThreadContext().plus(asContextElement(progressIndicator.getModalityState()));
+          try (AccessToken ignored = ThreadContext.installThreadContext(effectiveContext, true)) {
+            runnable.run();
+          }
+        });
       };
       switch (myThreadToUse) {
         case POOLED:

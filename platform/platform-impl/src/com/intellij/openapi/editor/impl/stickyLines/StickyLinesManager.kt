@@ -3,72 +3,142 @@ package com.intellij.openapi.editor.impl.stickyLines
 
 import com.intellij.ide.ui.UISettingsListener
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.editor.event.VisibleAreaEvent
 import com.intellij.openapi.editor.event.VisibleAreaListener
-import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.ex.MarkupModelEx
+import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineShadowPainter
+import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLinesPanel
 import com.intellij.openapi.util.Disposer
-import com.intellij.util.DocumentUtil
-import java.awt.Point
+import com.intellij.ui.ColorUtil
 import java.awt.Rectangle
 
-/**
- * Responsible for updating state of the sticky panel e.g., when the editor is scrolled or resized.
- */
 internal class StickyLinesManager(
-  private val editor: EditorEx,
-  markupModel: MarkupModelEx,
+  private val editor: Editor,
+  private val stickyModel: StickyLinesModel,
+  private val stickyPanel: StickyLinesPanel,
+  private val shadowPainter: StickyLineShadowPainter,
+  private val visualStickyLines: VisualStickyLines,
   parentDisposable: Disposable,
-) : VisibleAreaListener, Disposable, StickyLinesModel.Listener {
+) : VisibleAreaListener, StickyLinesModel.Listener, Disposable {
 
-  private val stickyModel: StickyLinesModel = StickyLinesModel.getModel(markupModel)
-  val stickyPanel: StickyLinesPanel = StickyLinesPanel(editor)
+  private var activeVisualArea: Rectangle = Rectangle()
+  private var activeVisualLine: Int = -1
+  private var activeLineHeight: Int = -1
+  private var activeIsEnabled: Boolean = false
+  private var activeLineLimit: Int = -1
 
   init {
     Disposer.register(parentDisposable, this)
     editor.scrollingModel.addVisibleAreaListener(this, this)
     stickyModel.addListener(this)
+    shadowPainter.isDarkColorScheme = isDarkColorScheme()
     editor.project!!.messageBus.connect(this).subscribe(
       UISettingsListener.TOPIC,
-      UISettingsListener { recalculateLinesAndRepaint() }
+      UISettingsListener {
+        shadowPainter.isDarkColorScheme = isDarkColorScheme()
+        recalculateAndRepaintLines()
+      }
     )
   }
 
-  private var activeVisualLine: Int = -1
-  private var activeEditorY: Int = -1
-  private var activeEditorH: Int = -1
+  fun repaintLines(startVisualLine: Int, endVisualLine: Int) {
+    stickyPanel.repaintLines(startVisualLine, endVisualLine)
+  }
+
+  fun panelHeight(): Int {
+    return visualStickyLines.height()
+  }
+
+  fun startDumb() {
+    stickyPanel.startDumb()
+  }
+
+  fun suppressHintForLine(logicalLine: Int): Boolean {
+    for (line: VisualStickyLine in visualStickyLines.lines(activeVisualArea)) {
+      val stickyVisualPos = VisualPosition(line.primaryLine(), 0)
+      val stickyLogicalLine: Int = editor.visualToLogicalPosition(stickyVisualPos).line
+      if (logicalLine == stickyLogicalLine ||
+          logicalLine == stickyLogicalLine - 1 ||
+          logicalLine == stickyLogicalLine + 1) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fun reinitSettings() {
+    val oldIsEnabled: Boolean = activeIsEnabled
+    val newIsEnabled: Boolean = editor.settings.areStickyLinesShown()
+    val oldLineLimit: Int = activeLineLimit
+    val newLineLimit: Int = editor.settings.stickyLinesLimit
+    activeIsEnabled = newIsEnabled
+    activeLineLimit = newLineLimit
+
+    if (newIsEnabled && !oldIsEnabled) {
+      recalculateAndRepaintLines(force = true)
+    } else if (!newIsEnabled && oldIsEnabled) {
+      resetLines()
+    } else if (newLineLimit != oldLineLimit) {
+      recalculateAndRepaintLines()
+    }
+  }
+
+  fun clearStickyModel() {
+    stickyModel.removeAllStickyLines(editor.project!!)
+  }
 
   override fun visibleAreaChanged(event: VisibleAreaEvent) {
     if (editor.settings.areStickyLinesShown() && isAreaChanged(event)) {
-      activeEditorY = event.newRectangle.y
-      activeEditorH = event.newRectangle.height
-      if (activeEditorY <3) {
+      activeVisualArea = event.newRectangle
+      if (activeVisualArea.y < 3) {
         // special case when the document starts with a sticky line
         // small visual jump is better than stickied line for good
-        activeVisualLine = -1
-        stickyPanel.repaintLines(activeEditorY, activeEditorH, emptyList())
-      } else if (event.oldRectangle == null || isLineChanged(event)) {
-        // recalculate sticky lines and repaint
-        stickyPanel.repaintLines(activeEditorY, activeEditorH, getStickyLines(activeEditorY))
+        resetLines()
+      } else if (event.oldRectangle == null || isLineChanged()) {
+        recalculateAndRepaintLines()
       } else if (isYChanged(event) || isSizeChanged(event)) {
-        // just repaint
-        stickyPanel.repaintLines(activeEditorY, activeEditorH)
+        repaintLines()
       }
     }
   }
 
-  override fun modelChanged() {
-    recalculateLinesAndRepaint()
+  override fun linesUpdated() {
+    recalculateAndRepaintLines()
+  }
+
+  override fun linesRemoved() {
   }
 
   override fun dispose() {
     stickyModel.removeListener(this)
   }
 
-  private fun recalculateLinesAndRepaint() {
-    if (activeVisualLine != -1 && activeEditorY != -1 && activeEditorH != -1) {
-      stickyPanel.repaintLines(activeEditorY, activeEditorH, getStickyLines(activeEditorY))
+  private fun isDarkColorScheme(): Boolean {
+    val background = editor.colorsScheme.defaultBackground
+    return ColorUtil.isDark(background)
+  }
+
+  private fun recalculateAndRepaintLines(force: Boolean = false) {
+    if (force) {
+      activeVisualArea = editor.scrollingModel.visibleArea
+      isLineChanged() // activeVisualLine updated as a side effect
     }
+    if (activeVisualLine != -1 && activeLineHeight != -1 && !isPoint(activeVisualArea)) {
+      visualStickyLines.recalculate(activeVisualArea)
+      repaintLines()
+    }
+  }
+
+  private fun resetLines() {
+    activeVisualLine = -1
+    activeLineHeight = -1
+    visualStickyLines.clear()
+    repaintLines()
+  }
+
+  private fun repaintLines() {
+    stickyPanel.repaintLines()
   }
 
   private fun isAreaChanged(event: VisibleAreaEvent): Boolean {
@@ -79,11 +149,11 @@ internal class StickyLinesManager(
            oldRectangle.width != event.newRectangle.width
   }
 
-  private fun isLineChanged(event: VisibleAreaEvent): Boolean {
-    val editorY: Int = event.newRectangle.y
-    val newVisualLine: Int = editor.yToVisualLine(activeY(editorY))
-    if (activeVisualLine != newVisualLine) {
-      activeVisualLine = newVisualLine
+  private fun isLineChanged(): Boolean {
+    val newVisualLine: Int = editor.yToVisualLine(activeVisualArea.y)
+    val newLineHeight: Int = editor.lineHeight
+    if (activeVisualLine != newVisualLine || activeLineHeight != newLineHeight) {
+      activeVisualLine = newVisualLine; activeLineHeight = newLineHeight
       return true
     }
     return false
@@ -98,37 +168,10 @@ internal class StickyLinesManager(
            event.oldRectangle.height != event.newRectangle.height
   }
 
-  private fun activeY(editorY: Int): Int {
-    return editorY + stickyPanel.height + /*border*/ 1
-  }
-
-  private fun getStickyLines(editorY: Int): List<StickyLine> {
-    val activeY: Int = activeY(editorY)
-    val activeLogicalLine: Int = editor.xyToLogicalPosition(Point(0, activeY)).line
-    if (DocumentUtil.isValidLine(activeLogicalLine, editor.document)) {
-      val activeOffset: Int = editor.document.getLineEndOffset(activeLogicalLine)
-      return collectStickyLines(activeOffset, activeLogicalLine)
-    } else {
-      activeVisualLine = -1
-      return emptyList()
-    }
-  }
-
-  private fun collectStickyLines(activeOffset: Int, activeLogicalLine: Int): List<StickyLine> {
-    val visualLinesLimit: Int = editor.settings.stickyLinesLimit
-    // The panel removes visual duplicates so extra logical lines should be collected.
-    // We could collect lines limitless here if it were efficient.
-    // The consequence of this optimization is that in the worst case (when all logical lines are the same visual one),
-    // the sticky panel will consist of only one line instead of a line limit number.
-    // This optimization should be removed if the worst case is not rare.
-    val logicalLinesLimit: Int = visualLinesLimit + 5
-    val stickyLines: MutableList<StickyLine> = ArrayList(logicalLinesLimit)
-    stickyModel.processStickyLines(activeOffset) { stickyLine ->
-      if (activeLogicalLine <= stickyLine.scopeLine()) {
-        stickyLines.add(stickyLine)
-      }
-      return@processStickyLines stickyLines.size < logicalLinesLimit
-    }
-    return stickyLines.sorted()
+  private fun isPoint(rectangle: Rectangle): Boolean {
+    return rectangle.x == 0 &&
+           rectangle.y == 0 &&
+           rectangle.height == 0 &&
+           rectangle.width == 0
   }
 }

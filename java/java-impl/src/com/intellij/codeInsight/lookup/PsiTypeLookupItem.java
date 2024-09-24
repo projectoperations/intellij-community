@@ -4,6 +4,7 @@ package com.intellij.codeInsight.lookup;
 import com.intellij.codeInsight.completion.*;
 import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil;
 import com.intellij.codeInsight.editorActions.TabOutScopesTracker;
+import com.intellij.codeInsight.lookup.impl.JavaElementLookupRenderer;
 import com.intellij.diagnostic.CoreAttachmentFactory;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -12,18 +13,17 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ClassConditionKey;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PsiClassReferenceType;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtilRt;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -47,9 +47,11 @@ public final class PsiTypeLookupItem extends LookupItem<Object> implements Typed
   private final int myBracketsCount;
   private boolean myIndicateAnonymous;
   private final InsertHandler<PsiTypeLookupItem> myImportFixer;
-  @NotNull private final PsiSubstitutor mySubstitutor;
+  private final @NotNull PsiSubstitutor mySubstitutor;
   private boolean myAddArrayInitializer;
   private String myLocationString = "";
+  private final @Nullable Icon myIcon;
+  private final boolean myStrikeout;
   private final String myForcedPresentableName;
 
   private PsiTypeLookupItem(Object o, @NotNull @NonNls String lookupString, boolean diamond, int bracketsCount, InsertHandler<PsiTypeLookupItem> fixer,
@@ -60,11 +62,22 @@ public final class PsiTypeLookupItem extends LookupItem<Object> implements Typed
     myImportFixer = fixer;
     mySubstitutor = substitutor;
     myForcedPresentableName = o instanceof PsiClass && !lookupString.equals(((PsiClass)o).getName()) ? lookupString : null;
+    myIcon = DefaultLookupItemRenderer.getRawIcon(this);
+    myStrikeout = JavaElementLookupRenderer.isToStrikeout(this);
   }
 
-  @NotNull
   @Override
-  public PsiType getType() {
+  public boolean isToStrikeout() {
+    return myStrikeout;
+  }
+
+  @Override
+  public @Nullable Icon getIcon() {
+    return myIcon;
+  }
+
+  @Override
+  public @NotNull PsiType getType() {
     Object object = getObject();
     PsiType type = object instanceof PsiType
                    ? getSubstitutor().substitute((PsiType)object)
@@ -75,8 +88,7 @@ public final class PsiTypeLookupItem extends LookupItem<Object> implements Typed
     return type;
   }
 
-  @Nullable
-  public String getForcedPresentableName() {
+  public @Nullable String getForcedPresentableName() {
     return myForcedPresentableName;
   }
 
@@ -151,8 +163,7 @@ public final class PsiTypeLookupItem extends LookupItem<Object> implements Typed
     }
   }
 
-  @NotNull
-  public String calcGenerics(@NotNull PsiElement context, InsertionContext insertionContext) {
+  public @NotNull String calcGenerics(@NotNull PsiElement context, InsertionContext insertionContext) {
     if (insertionContext.getCompletionChar() == '<') {
       return "";
     }
@@ -264,8 +275,7 @@ public final class PsiTypeLookupItem extends LookupItem<Object> implements Typed
     return diamond;
   }
 
-  @NotNull
-  private PsiSubstitutor getSubstitutor() {
+  private @NotNull PsiSubstitutor getSubstitutor() {
     return mySubstitutor;
   }
 
@@ -349,18 +359,7 @@ public final class PsiTypeLookupItem extends LookupItem<Object> implements Typed
     }
 
     // jigsaw module
-    if (PsiUtil.isAvailable(JavaFeature.MODULES, file)) {
-      final PsiJavaModule currentModule = JavaModuleGraphUtil.findDescriptorByElement(file);
-      if (currentModule != null) {
-        final PsiJavaModule targetModule = JavaModuleGraphUtil.findDescriptorByElement(aClass);
-        PsiClass finalAClass = aClass;
-        if (targetModule != null && targetModule != currentModule &&
-            !JavaModuleGraphUtil.reads(currentModule, targetModule) &&
-            ContainerUtil.and(JavaModuleSystem.EP_NAME.getExtensionList(), sys -> sys.isAccessible(finalAClass, file)) ) {
-          JavaModuleGraphUtil.addDependency(currentModule, targetModule, null);
-        }
-      }
-    }
+    JavaModuleGraphUtil.addDependency(file, aClass, null);
 
     if (!goneDeeper) {
       context.setTailOffset(newTail);

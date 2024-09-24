@@ -1,3 +1,4 @@
+// !ADD_JAVA_API
 import javaApi.Anon5;
 
 class A {

@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.base.platforms
 
 import com.intellij.openapi.components.Service
@@ -16,9 +16,9 @@ import org.jetbrains.kotlin.platform.CommonPlatforms
 import org.jetbrains.kotlin.platform.IdePlatformKind
 import org.jetbrains.kotlin.platform.impl.*
 import org.jetbrains.kotlin.platform.js.JsPlatforms
-import org.jetbrains.kotlin.platform.wasm.WasmPlatforms
 import org.jetbrains.kotlin.platform.konan.NativePlatforms
-import org.jetbrains.kotlin.serialization.deserialization.MetadataPackageFragment
+import org.jetbrains.kotlin.platform.wasm.WasmPlatforms
+import org.jetbrains.kotlin.serialization.deserialization.METADATA_FILE_EXTENSION
 import org.jetbrains.kotlin.utils.PathUtil
 import java.util.regex.Pattern
 
@@ -38,6 +38,7 @@ class IdePlatformKindProjectStructure(private val project: Project) {
     fun getLibraryVersionProvider(platformKind: IdePlatformKind): (Library) -> IdeKotlinVersion? {
         return when (platformKind) {
             is CommonIdePlatformKind -> { library ->
+                getLibraryKlibVersion(library, KOTLIN_STDLIB_COMMON_KLIB_PATTERN) ?:
                 getLibraryJarVersion(library, PathUtil.KOTLIN_STDLIB_COMMON_JAR_PATTERN)
             }
             is JvmIdePlatformKind -> { library ->
@@ -51,21 +52,28 @@ class IdePlatformKindProjectStructure(private val project: Project) {
         }
     }
 
-    private fun getLibraryJar(roots: Array<VirtualFile>, jarPattern: Pattern): VirtualFile? {
-        return roots.firstOrNull { jarPattern.matcher(it.name).matches() }
+    private fun getLibrary(roots: Array<VirtualFile>, pattern: Pattern): VirtualFile? {
+        return roots.firstOrNull { pattern.matcher(it.name).matches() }
+    }
+
+    private fun getLibraryKlibVersion(library: Library, klibPattern: Pattern): IdeKotlinVersion? {
+        val libraryKlib = getLibrary(library.getFiles(OrderRootType.CLASSES), klibPattern) ?: return null
+        return IdeKotlinVersion.fromKLibManifest(libraryKlib)
     }
 
     private fun getLibraryJarVersion(library: Library, jarPattern: Pattern): IdeKotlinVersion? {
-        val libraryJar = getLibraryJar(library.getFiles(OrderRootType.CLASSES), jarPattern) ?: return null
+        val libraryJar = getLibrary(library.getFiles(OrderRootType.CLASSES), jarPattern) ?: return null
         return IdeKotlinVersion.fromManifest(libraryJar)
     }
 
     companion object {
+        private val KOTLIN_STDLIB_COMMON_KLIB_PATTERN: Pattern = Pattern.compile("kotlin-stdlib-common.*\\.klib")
+
         @JvmStatic
         fun getInstance(project: Project): IdePlatformKindProjectStructure = project.service()
 
-        private val PLATFORM_EXTENSIONS = mapOf(
-            MetadataPackageFragment.METADATA_FILE_EXTENSION to CommonIdePlatformKind,
+        private val PLATFORM_EXTENSIONS: Map<String, IdePlatformKind> = mapOf(
+            METADATA_FILE_EXTENSION to CommonIdePlatformKind,
             "js" to JsIdePlatformKind,
             "kjsm" to JsIdePlatformKind
         )
@@ -78,7 +86,9 @@ class IdePlatformKindProjectStructure(private val project: Project) {
             return when {
                 file.isKlibLibraryRootForPlatform(CommonPlatforms.defaultCommonPlatform) -> CommonIdePlatformKind
                 file.isKlibLibraryRootForPlatform(JsPlatforms.defaultJsPlatform) -> JsIdePlatformKind
-                file.isKlibLibraryRootForPlatform(WasmPlatforms.Default) -> WasmIdePlatformKind
+                file.isKlibLibraryRootForPlatform(WasmPlatforms.wasmWasi) -> WasmWasiIdePlatformKind
+                file.isKlibLibraryRootForPlatform(WasmPlatforms.wasmJs) -> WasmJsIdePlatformKind
+                file.isKlibLibraryRootForPlatform(WasmPlatforms.unspecifiedWasmPlatform) -> WasmJsIdePlatformKind
                 file.isKlibLibraryRootForPlatform(NativePlatforms.unspecifiedNativePlatform) -> NativeIdePlatformKind
                 else -> null
             }
@@ -89,7 +99,8 @@ class IdePlatformKindProjectStructure(private val project: Project) {
                 is CommonIdePlatformKind -> KotlinCommonLibraryKind
                 is JvmIdePlatformKind -> KotlinJvmEffectiveLibraryKind
                 is JsIdePlatformKind -> KotlinJavaScriptLibraryKind
-                is WasmIdePlatformKind -> KotlinWasmLibraryKind
+                is WasmJsIdePlatformKind -> KotlinWasmJsLibraryKind
+                is WasmWasiIdePlatformKind -> KotlinWasmWasiLibraryKind
                 is NativeIdePlatformKind -> KotlinNativeLibraryKind
                 else -> error("Unsupported platform kind: $platformKind")
             }

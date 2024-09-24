@@ -5,7 +5,7 @@ import com.intellij.platform.runtime.product.ProductMode
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationFail
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationResult
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationSuccess
-import com.jetbrains.plugin.structure.base.plugin.PluginProblem
+import com.jetbrains.plugin.structure.base.problems.PluginProblem
 import com.jetbrains.plugin.structure.intellij.plugin.IdePlugin
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
@@ -13,6 +13,7 @@ import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.productInfo.CustomProperty
+import org.jetbrains.intellij.build.impl.qodana.QodanaProductProperties
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.module.JpsModule
 import java.nio.file.Path
@@ -57,9 +58,6 @@ abstract class ProductProperties {
    */
   lateinit var applicationInfoModule: String
 
-  @ApiStatus.Internal
-  var productPluginSourceModuleName: String? = null
-
   /**
    * Enables fast activation of a running IDE instance from the launcher
    * (at the moment, it is only implemented in the native Windows one).
@@ -87,13 +85,6 @@ abstract class ProductProperties {
   var inspectCommandName: String = "inspect"
 
   /**
-   * `true` if tools.jar from JDK must be added to the IDE classpath.
-   */
-  var toolsJarRequired: Boolean = false
-
-  var isAntRequired: Boolean = false
-
-  /**
    * Whether to use splash for application start-up.
    */
   var useSplash: Boolean = false
@@ -105,6 +96,16 @@ abstract class ProductProperties {
    * it unifies class-loading logic of an application and allows to avoid double-loading of bootstrap classes.
    */
   var classLoader: String? = "com.intellij.util.lang.PathClassLoader"
+
+  /**
+   * If `true`, the Class Data Sharing (CDS) feature will be enabled for the JVM and system.class.loader will be disabled.
+   *
+   * When enabled, the JVM will generate a shared archive file for the application's classes on the first startup,
+   * which can be reused in further launches.
+   *
+   * The location of the cds file is $SYSTEM/$shortProductName$Version.jsa
+   */
+  var enableCds: Boolean = false
 
   /**
    * Additional arguments which will be added to JVM command line in IDE launchers for all operating systems.
@@ -177,7 +178,7 @@ abstract class ProductProperties {
   /**
    * See [SoftwareBillOfMaterials]
    */
-  val sbomOptions = SoftwareBillOfMaterials.Options()
+  val sbomOptions: SoftwareBillOfMaterials.Options = SoftwareBillOfMaterials.Options()
 
   /**
    * If `true`, a cross-platform ZIP archive containing binaries for all OSes will be built.
@@ -186,13 +187,6 @@ abstract class ProductProperties {
    * Cross-platform distribution is required for [plugins development](https://github.com/JetBrains/gradle-intellij-plugin).
    */
   var buildCrossPlatformDistribution: Boolean = false
-
-  /**
-   * Set to `true` if the product can be started using [com.intellij.platform.runtime.loader.IntellijLoader]. 
-   * [BuildOptions.useModularLoader] will be used to determine whether the produced distribution will actually use this way.
-   */
-  @ApiStatus.Experimental
-  var supportModularLoading: Boolean = false
 
   /**
    * Specifies the main module of JetBrains Client product which distribution should be embedded into the IDE's distribution to allow 
@@ -210,12 +204,19 @@ abstract class ProductProperties {
   var embeddedJetBrainsClientProperties: (() -> ProductProperties)? = null
 
   /**
-   * Specifies the mode of this product which will be used to determine which plugin modules should be loaded at runtime by 
-   * [the modular loader][com.intellij.platform.bootstrap.ModuleBasedProductLoadingStrategy].
-   * This property makes sense only if [supportModularLoading] is set to `true`.
+   * Set to the root product module (the one containing product-modules.xml file) to enable using module-based loader for the product. 
+   * [BuildOptions.useModularLoader] will be used to determine whether the produced distribution will actually use this way.
    */
   @ApiStatus.Experimental
-  var productMode: ProductMode = ProductMode.LOCAL_IDE
+  var rootModuleForModularLoader: String? = null
+
+  /**
+   * Specifies the mode of this product which will be used to determine which plugin modules should be loaded at runtime by 
+   * [the modular loader][com.intellij.platform.bootstrap.ModuleBasedProductLoadingStrategy].
+   * This property makes sense only if [rootModuleForModularLoader] is set to a non-null value.
+   */
+  @ApiStatus.Experimental
+  var productMode: ProductMode = ProductMode.MONOLITH
 
   /**
    * Specifies name of cross-platform ZIP archive if `[buildCrossPlatformDistribution]` is set to `true`.
@@ -225,8 +226,7 @@ abstract class ProductProperties {
   }
 
   /**
-   * A config map for [org.jetbrains.intellij.build.impl.ClassFileChecker],
-   * when .class file version verification is needed.
+   * A config map for [org.jetbrains.intellij.build.impl.ClassFileChecker], when .class file version verification is necessary.
    */
   var versionCheckerConfig: Map<String, String> = java.util.Map.of()
 
@@ -354,13 +354,21 @@ abstract class ProductProperties {
    * If `true`, a distribution contains libraries and launcher script for running IDE in Remote Development mode.
    */
   @ApiStatus.Internal
-  open fun addRemoteDevelopmentLibraries(): Boolean = productLayout.bundledPluginModules.contains("intellij.remoteDevServer")
+  open suspend fun addRemoteDevelopmentLibraries(buildContext: BuildContext): Boolean {
+    return buildContext.getBundledPluginModules().contains("intellij.remoteDevServer")
+  }
 
   /**
    * Checks whether some necessary conditions specific for the product are met and report errors via [BuildContext.messages] if they aren't.
    */
   @ApiStatus.Experimental
   open fun validateLayout(platformLayout: PlatformLayout, context: BuildContext) {}
+
+  /**
+   * Copies additional localization resources to the plugin generated localization resources directory.
+   */
+  @ApiStatus.Internal
+  open suspend fun copyAdditionalLocalizationResourcesToPlugin(context: BuildContext, lang: String, targetDir: Path) {}
 
   /**
    * Build steps which are always skipped for this product.
@@ -383,8 +391,7 @@ abstract class ProductProperties {
 
   /**
    * When set to true, invokes keymap and inspections description generators during build.
-   * These generators produce artifacts utilized by documentation
-   * authoring tools and builds.
+   * These generators produce artifacts utilized by documentation authoring tools and builds.
    */
   var buildDocAuthoringAssets: Boolean = false
 
@@ -411,11 +418,23 @@ abstract class ProductProperties {
   )
 
   /**
+   * Returns IDs of flavors which the current product has. They will be added to the product-info.json file.  
+   */
+  open fun getProductFlavors(buildContext: BuildContext): List<String> = emptyList()
+
+  /**
+   * Properties required for running Qodana application with this product.
+   * Should be not null if running Qodana is possible, null otherwise.
+   */
+  var qodanaProductProperties: QodanaProductProperties? = null
+
+  /**
    * Additional validation can be performed here for [BuildOptions.VALIDATE_PLUGINS_TO_BE_PUBLISHED] step.
    * Please do not ignore validation failures here, they will fail CI builds anyway.
+   * @param pluginId may be null if missing or a plugin descriptor is malformed
    * @return list of plugin validation errors.
    */
-  open fun validatePlugin(result: PluginCreationResult<IdePlugin>, context: BuildContext): List<PluginProblem> {
+  open fun validatePlugin(pluginId: String?, result: PluginCreationResult<IdePlugin>, context: BuildContext): List<PluginProblem> {
     return when (result) {
       is PluginCreationSuccess -> result.unacceptableWarnings
       is PluginCreationFail -> result.errorsAndWarnings

@@ -1,23 +1,25 @@
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.breakpoints
 
 import com.intellij.openapi.application.readAndWriteAction
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.Attachment
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diff.impl.DiffUtil
 import com.intellij.openapi.editor.*
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.registry.RegistryValueListener
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.DocumentUtil
 import com.intellij.util.concurrency.annotations.RequiresReadLock
@@ -30,28 +32,39 @@ import com.intellij.xdebugger.XDebuggerUtil
 import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XBreakpointListener
 import com.intellij.xdebugger.breakpoints.XBreakpointProperties
-import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType
 import com.intellij.xdebugger.impl.XDebuggerUtilImpl
 import com.intellij.xdebugger.impl.XSourcePositionImpl
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.max
 
 @Service(Service.Level.PROJECT)
-internal class InlineBreakpointInlayManager(private val project: Project, private val scope: CoroutineScope) {
+internal class InlineBreakpointInlayManager(private val project: Project, parentScope: CoroutineScope) {
+  @OptIn(ExperimentalCoroutinesApi::class)
+  private val scope = parentScope.childScope("InlineBreakpoints",
+                                             if (Registry.`is`(LIMIT_REDRAW_JOBS_COUNT_KEY))
+                                                    Dispatchers.Default.limitedParallelism (1)
+                                                  else
+                                                    Dispatchers.Default)
+  private val redrawJobInternalSemaphore = Semaphore(1)
 
-  private val redrawQueue = MergingUpdateQueue(
-    "inline breakpoint inlay redraw queue",
-    300, true, null, project, null, false
+  private val redrawQueue = MergingUpdateQueue.mergingUpdateQueue(
+    name = "inline breakpoint inlay redraw queue",
+    mergingTimeSpan = 300,
+    coroutineScope = parentScope,
   ).setRestartTimerOnAdd(true)
 
-  private fun areInlineBreakpointsEnabled() = XDebuggerUtil.areInlineBreakpointsEnabled()
+  private fun areInlineBreakpointsEnabled(virtualFile: VirtualFile?) = XDebuggerUtil.areInlineBreakpointsEnabled(virtualFile)
 
-  private val SHOW_EVEN_TRIVIAL_KEY = "debugger.show.breakpoints.inline.even.trivial"
+  private fun areInlineBreakpointsEnabled(document: Document) =
+    areInlineBreakpointsEnabled(FileDocumentManager.getInstance().getFile(document))
 
-  private fun shouldAlwaysShowAllInlays() = Registry.`is`(SHOW_EVEN_TRIVIAL_KEY)
+  private fun shouldAlwaysShowAllInlays() = Registry.`is`(Companion.SHOW_EVEN_TRIVIAL_KEY)
 
   // Breakpoints are modified without borrowing the write lock,
   // so we have to manually track their modifications to prevent races
@@ -67,7 +80,7 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
         }
       }, project)
 
-      for (key in listOf(XDebuggerUtil.INLINE_BREAKPOINTS_KEY, SHOW_EVEN_TRIVIAL_KEY)) {
+      for (key in listOf(XDebuggerUtil.INLINE_BREAKPOINTS_KEY, Companion.SHOW_EVEN_TRIVIAL_KEY)) {
         Registry.get(key).addListener(object : RegistryValueListener {
           override fun afterValueChanged(value: RegistryValue) {
             reinitializeAll()
@@ -94,7 +107,7 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
    * Try to do it as soon as possible.
    */
   fun redrawLine(document: Document, line: Int) {
-    if (!areInlineBreakpointsEnabled()) return
+    if (!areInlineBreakpointsEnabled(document)) return
     scope.launch {
       redraw(document, line, null)
     }
@@ -106,17 +119,17 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
    * This request might be merged with subsequent requests for the same location.
    */
   private fun redrawLineQueued(document: Document, line: Int) {
-    if (!areInlineBreakpointsEnabled()) return
+    if (!areInlineBreakpointsEnabled(document)) return
     redrawQueue.queue(Update.create(Pair(document, line)) {
       redrawLine(document, line)
     })
   }
 
   fun redrawDocument(e: DocumentEvent) {
-    if (!XDebuggerUtil.areInlineBreakpointsEnabled()) return
     val document = e.document
     val file = FileDocumentManager.getInstance().getFile(document)
     if (file == null) return
+    if (!XDebuggerUtil.areInlineBreakpointsEnabled(file)) return
     val firstLine: Int = document.getLineNumber(e.offset)
     val lastLine: Int = document.getLineNumber(e.offset + e.newLength)
     redrawLineQueued(document, firstLine)
@@ -129,7 +142,7 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
    * Refresh all inlays in the editor.
    */
   private fun initializeInNewEditor(editor: Editor) {
-    if (!areInlineBreakpointsEnabled()) return
+    if (!areInlineBreakpointsEnabled(editor.virtualFile)) return
     if (!isSuitableEditor(editor)) return
     scope.launch {
       val document = editor.document
@@ -148,11 +161,11 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
    * Refresh inlays in all editors.
    */
   private fun reinitializeAll() {
-    val enabled = areInlineBreakpointsEnabled()
     for (editor in EditorFactory.getInstance().allEditors) {
       if (!isSuitableEditor(editor)) continue
 
       val document = editor.document
+      val enabled = areInlineBreakpointsEnabled(editor.virtualFile)
       if (enabled) {
         // We might be able to iterate all editors inside redraw,
         // but this procedure is a really cold path and doesn't worse any optimization.
@@ -191,47 +204,59 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
       return isOutdated
     }
 
+    suspend fun withSemaphorePermit(action: suspend () -> Unit) {
+      if (!Registry.`is`(LIMIT_REDRAW_JOBS_COUNT_KEY)) {
+        action()
+        return
+      }
+      redrawJobInternalSemaphore.withPermit {
+        action()
+      }
+    }
+
     if (postponeOnChanged()) return
     // Double-checked now.
 
-    readAndWriteAction {
-      if (postponeOnChanged()) return@readAndWriteAction value(Unit)
+    withSemaphorePermit {
+      readAndWriteAction {
+        if (postponeOnChanged()) return@readAndWriteAction value(Unit)
 
-      val allBreakpoints = allBreakpointsIn(document)
+        val allBreakpoints = allBreakpointsIn(document)
 
-      val inlays = mutableListOf<SingleInlayDatum>()
-      if (onlyLine != null) {
-        if (!DocumentUtil.isValidLine(onlyLine, document)) return@readAndWriteAction value(Unit)
+        val inlays = mutableListOf<SingleInlayDatum>()
+        if (onlyLine != null) {
+          if (!DocumentUtil.isValidLine(onlyLine, document)) return@readAndWriteAction value(Unit)
 
-        val breakpoints = allBreakpoints.filter { it.line == onlyLine }
-        if (!breakpoints.isEmpty()) {
-          inlays += collectInlayData(document, onlyLine, breakpoints)
+          val breakpoints = allBreakpoints.filter { it.line == onlyLine }
+          if (!breakpoints.isEmpty()) {
+            inlays += collectInlayData(document, onlyLine, breakpoints)
+          }
         }
-      }
-      else {
-        for ((line, breakpoints) in allBreakpoints.groupBy { it.line }) {
-          // We could process lines concurrently, but it doesn't seem to be really required.
-          inlays += collectInlayData(document, line, breakpoints)
+        else {
+          for ((line, breakpoints) in allBreakpoints.groupBy { it.line }) {
+            // We could process lines concurrently, but it doesn't seem to be really required.
+            inlays += collectInlayData(document, line, breakpoints)
+          }
         }
-      }
 
-      if (postponeOnChanged()) return@readAndWriteAction value(Unit)
+        if (postponeOnChanged()) return@readAndWriteAction value(Unit)
 
-      if (onlyLine != null && inlays.isEmpty() &&
-          allEditorsFor(document).all { getExistingInlays(it.inlayModel, document, onlyLine).isEmpty() }
-      ) {
-        // It's a fast path: no need to fire write action to remove inlays if there are already no inlays.
-        // It's required to prevent performance degradations due to IDEA-339224,
-        // otherwise fast insertion of twenty new lines could lead to 10 seconds of inlay recalculations.
-        return@readAndWriteAction value(Unit)
-      }
+        if (onlyLine != null && inlays.isEmpty() &&
+            allEditorsFor(document).all { getExistingInlays(it.inlayModel, document, onlyLine).isEmpty() }
+        ) {
+          // It's a fast path: no need to fire write action to remove inlays if there are already no inlays.
+          // It's required to prevent performance degradations due to IDEA-339224,
+          // otherwise fast insertion of twenty new lines could lead to 10 seconds of inlay recalculations.
+          return@readAndWriteAction value(Unit)
+        }
 
-      writeAction {
-        if (postponeOnChanged()) return@writeAction
+        writeAction {
+          if (postponeOnChanged()) return@writeAction
 
-        insertInlays(document, onlyEditor, onlyLine, inlays)
+          insertInlays(document, onlyEditor, onlyLine, inlays)
 
-        if (postponeOnChanged()) return@writeAction
+          if (postponeOnChanged()) return@writeAction
+        }
       }
     }
   }
@@ -258,28 +283,30 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
 
     val file = FileDocumentManager.getInstance().getFile(document) ?: return emptyList()
     val linePosition = XSourcePositionImpl.create(file, line)
-    val breakpointTypes = XBreakpointUtil.getAvailableLineBreakpointTypes(project, linePosition, null)
 
-    val variants =
+    val variants = try {
+      val breakpointTypes = XBreakpointUtil.getAvailableLineBreakpointTypes(project, linePosition, null)
       if (breakpointTypes.isNotEmpty()) {
         XDebuggerUtilImpl.getLineBreakpointVariantsSync(project, breakpointTypes, linePosition)
-          // No need to show "all" variant in case of the inline breakpoints approach, it's useful only for the popup based one.
-          .filter { !it.isMultiVariant }
-      }
-      else {
+          .filter { it.shouldUseAsInlineVariant() }
+      } else {
         emptyList()
       }
+    } catch (_: IndexNotReadyException) {
+      emptyList()
+    }
 
-    val codeStartOffset = DocumentUtil.getLineStartIndentedOffset(document, line)
+    // Any breakpoint offset from the interval between line start until the first non-whitespace character (code start) is normalized
+    // to the offset of that non-whitespace character.
+    // Any breakpoint offset from the lines below the current line is normalized to the end of this line to prevent inlay migration (like IDEA-348719).
+    val lineRange = DocumentUtil.getLineStartIndentedOffset(document, line)..document.getLineEndOffset(line)
+    assert(!lineRange.isEmpty())
 
     if (!shouldAlwaysShowAllInlays() &&
         breakpoints.size == 1 &&
         (variants.isEmpty() ||
          variants.size == 1 && areMatching(variants.first(), breakpoints.first()))) {
       // No need to show inline variants when there is only one breakpoint and one matching variant (or no variants at all).
-      if (variants.isEmpty()) {
-        reportBreakpointWithoutVariants(document, line, breakpoints.first())
-      }
       return emptyList()
     }
 
@@ -289,22 +316,17 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
         val matchingBreakpoints = breakpoints.filter { areMatching(variant, it) }
         if (matchingBreakpoints.isEmpty()) {
           // Easy case: just draw this inlay as a variant.
-          val offset = getBreakpointVariantRangeStartOffset(variant, codeStartOffset)
+          val offset = getBreakpointVariantRangeStartOffset(variant, lineRange)
           add(SingleInlayDatum(null, variant, offset))
         }
         else {
-          if (matchingBreakpoints.size >= 2) {
-            // We have multiple breakpoints for a single variant, bad luck.
-            // Draw them, but report an error.
-            reportSingleVariantMultipleBreakpoints(document, line, variant, matchingBreakpoints)
-          }
-          // Else we have a variant and single corresponding breakpoint.
-
+          // We might have multiple breakpoints for a single variant, bad luck. Still draw them.
+          // Otherwise, we have a variant and single corresponding breakpoint.
           for (breakpoint in matchingBreakpoints) {
             val notYetMatched = remainingBreakpoints.remove(breakpoint)
             if (notYetMatched) {
               // If breakpoint was not matched earlier, just draw this inlay as a breakpoint.
-              val offset = getBreakpointRangeStartOffset(breakpoint, codeStartOffset)
+              val offset = getBreakpointRangeStartOffset(breakpoint, lineRange)
 
               // However, if this breakpoint is the only breakpoint, and all variant highlighters are inside its range, don't draw it.
               val singleLineBreakpoint = breakpoints.size == 1 && breakpointHasTheBiggestRange(breakpoint, variants)
@@ -315,8 +337,7 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
             }
             else {
               // We have multiple variants matching a single breakpoint, bad luck.
-              // Don't draw anything new and report an error.
-              reportSingleBreakpointMultipleVariants(document, line, breakpoint, variants.filter { areMatching(it, breakpoint) })
+              // Don't draw anything new.
             }
           }
         }
@@ -324,16 +345,15 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
 
       for (breakpoint in remainingBreakpoints) {
         // We have some breakpoints without matched variants.
-        // Draw them and report an error.
-        reportBreakpointWithoutVariants(document, line, breakpoint)
-        val offset = getBreakpointRangeStartOffset(breakpoint, codeStartOffset)
+        // Draw them.
+        val offset = getBreakpointRangeStartOffset(breakpoint, lineRange)
         add(SingleInlayDatum(breakpoint, null, offset))
       }
     }
   }
 
   private fun breakpointHasTheBiggestRange(breakpoint: XLineBreakpointImpl<*>, variants: List<XLineBreakpointType<XBreakpointProperties<*>>.XLineBreakpointVariant>) : Boolean {
-    val range = getBreakpointHighlightRange(breakpoint)
+    val range = breakpoint.highlightRange
     if (range == null) {
       return true
     }
@@ -354,82 +374,20 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
     return type == variant.type && type.variantAndBreakpointMatch(b, v)
   }
 
-  private fun getBreakpointVariantRangeStartOffset(variant: XLineBreakpointType<*>.XLineBreakpointVariant, codeStartOffset: Int): Int {
+  private fun getBreakpointVariantRangeStartOffset(variant: XLineBreakpointType<*>.XLineBreakpointVariant, lineRange: IntRange): Int {
     val range = variant.highlightRange
-    return getLineRangeStartNormalized(range, codeStartOffset)
+    return getBreakpointRangeStartNormalized(range, lineRange)
   }
 
-  private fun getBreakpointRangeStartOffset(breakpoint: XLineBreakpointImpl<*>, codeStartOffset: Int): Int {
-    val range = getBreakpointHighlightRange(breakpoint)
-    return getLineRangeStartNormalized(range, codeStartOffset)
+  private fun getBreakpointRangeStartOffset(breakpoint: XLineBreakpointImpl<*>, lineRange: IntRange): Int {
+    val range = breakpoint.highlightRange
+    return getBreakpointRangeStartNormalized(range, lineRange)
   }
 
-  @Suppress("UNCHECKED_CAST") // Casts are required for gods of Kotlin-Java type inference.
-  private fun getBreakpointHighlightRange(breakpoint: XLineBreakpointImpl<*>): TextRange? {
-    val type: XLineBreakpointType<XBreakpointProperties<*>> = breakpoint.type as XLineBreakpointType<XBreakpointProperties<*>>
-    val b = breakpoint as XLineBreakpoint<XBreakpointProperties<*>>
-
-    return type.getHighlightRange(b)
-  }
-
-  private fun getLineRangeStartNormalized(range: TextRange?, codeStartOffset: Int): Int {
+  private fun getBreakpointRangeStartNormalized(breakpointRange: TextRange?, lineRange: IntRange): Int {
     // Null range represents the whole line.
-    // Any start offset from the line start until the first non-whitespace character (code start) is normalized
-    // to the offset of that non-whitespace character for ease of comparison of various ranges coming from variants and breakpoints.
-    return range?.let { max(it.startOffset, codeStartOffset) } ?: codeStartOffset
+    return breakpointRange?.startOffset?.coerceIn(lineRange) ?: lineRange.first
   }
-
-  private fun reportSingleVariantMultipleBreakpoints(document: Document, line: Int,
-                                                     variant: XLineBreakpointType<*>.XLineBreakpointVariant,
-                                                     breakpoints: List<XLineBreakpointImpl<*>>) {
-    if (true) {
-      // There are a lot of false positives, due to data races with breakpoints update, outdated state,
-      // FIXME[inline-bp]: get rid of reporting or make it more relieable
-      return
-    }
-
-    logger.error("single variant (${formatTextRangeForErrors(variant.highlightRange)}) " +
-                 "matches ${breakpoints.size} breakpoints " +
-                 "${breakpoints.map { formatTextRangeForErrors(getBreakpointHighlightRange(it)) }} " +
-                 "at line ${line + 1}",
-                 sourceCodeAttachment(document))
-  }
-
-  private fun reportSingleBreakpointMultipleVariants(document: Document, line: Int,
-                                                     breakpoint: XLineBreakpointImpl<*>,
-                                                     variants: List<XLineBreakpointType<*>.XLineBreakpointVariant>) {
-    if (true) {
-      // There are a lot of false positives, due to data races with breakpoints update, outdated state,
-      // FIXME[inline-bp]: get rid of reporting or make it more relieable
-      return
-    }
-
-    logger.error("single breakpoint (${formatTextRangeForErrors(getBreakpointHighlightRange(breakpoint))}) " +
-                 "matches ${variants.size} variants " +
-                 "${variants.map { formatTextRangeForErrors(it.highlightRange) }} " +
-                 "at line ${line + 1}",
-                 sourceCodeAttachment(document))
-  }
-
-  private fun reportBreakpointWithoutVariants(document: Document, line: Int,
-                                              breakpoint: XLineBreakpointImpl<*>) {
-    if (true) {
-      // There are a lot of false positives, due to data races with breakpoints update, outdated state,
-      // FIXME[inline-bp]: get rid of reporting or make it more relieable
-      return
-    }
-
-    logger.error("breakpoint (${formatTextRangeForErrors(getBreakpointHighlightRange(breakpoint))}) " +
-                 "matches no variants " +
-                 "at line ${line + 1}",
-                 sourceCodeAttachment(document))
-  }
-
-  private fun formatTextRangeForErrors(range: TextRange?): String =
-    range?.toString() ?: "(whole-line)"
-
-  private fun sourceCodeAttachment(document: Document): Attachment =
-    Attachment("source.txt", document.text)
 
   @RequiresWriteLock
   private fun insertInlays(document: Document,
@@ -483,10 +441,11 @@ internal class InlineBreakpointInlayManager(private val project: Project, privat
     EditorFactory.getInstance().getEditors(document, project)
 
   companion object {
-    private val logger = logger<InlineBreakpointInlayManager>()
-
     @JvmStatic
     fun getInstance(project: Project): InlineBreakpointInlayManager =
       project.service<InlineBreakpointInlayManager>()
+
+    private const val LIMIT_REDRAW_JOBS_COUNT_KEY = "debugger.limit.inline.breakpoints.jobs.count"
+    private const val SHOW_EVEN_TRIVIAL_KEY = "debugger.show.breakpoints.inline.even.trivial"
   }
 }

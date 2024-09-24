@@ -27,8 +27,10 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.progress.util.ProgressWindow;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
@@ -152,13 +154,18 @@ public class MethodBreakpoint extends BreakpointWithHighlighter<JavaMethodBreakp
     };
 
     debugProcess.getProject().getMessageBus().connect(indicator).subscribe(XBreakpointListener.TOPIC, listener);
-    ProgressManager.getInstance().executeProcessUnderProgress(
-      () -> processPreparedSubTypes(baseType,
-                                    (subType, classesByName) ->
-                                      createRequestForPreparedClassEmulated(breakpoint, debugProcess, subType, classesByName, false),
-                                    indicator),
-      indicator);
-    if (indicator.isCanceled() && !changed.get()) {
+    try {
+      ProgressManager.getInstance().executeProcessUnderProgress(
+        () -> processPreparedSubTypes(baseType,
+                                      (subType, classesByName) ->
+                                        createRequestForPreparedClassEmulated(breakpoint, debugProcess, subType, classesByName, false),
+                                      indicator),
+        indicator);
+      if (indicator.isCanceled() && !changed.get()) {
+        breakpoint.disableEmulation();
+      }
+    }
+    catch (ProcessCanceledException e) {
       breakpoint.disableEmulation();
     }
   }
@@ -350,9 +357,9 @@ public class MethodBreakpoint extends BreakpointWithHighlighter<JavaMethodBreakp
     return "";
   }
 
-  private static @Nls String getEventMessage(boolean entry, Method method, Location location, String defaultFileName) {
+  private static @Nls String getEventMessage(boolean entry, Method method, Location location, @NotNull String defaultFileName) {
     String locationQName = DebuggerUtilsEx.getLocationMethodQName(location);
-    String locationFileName = DebuggerUtilsEx.getSourceName(location, e -> defaultFileName);
+    String locationFileName = DebuggerUtilsEx.getSourceName(location, defaultFileName);
     int locationLine = location.lineNumber();
     return JavaDebuggerBundle.message(entry ? "status.method.entry.breakpoint.reached" : "status.method.exit.breakpoint.reached",
                                       method.declaringType().name() + "." + method.name() + "()",
@@ -558,9 +565,7 @@ public class MethodBreakpoint extends BreakpointWithHighlighter<JavaMethodBreakp
       List<CompletableFuture> futures = new ArrayList<>();
       AtomicInteger processed = new AtomicInteger();
       for (ReferenceType type : allTypes) {
-        if (progressIndicator.isCanceled()) {
-          return;
-        }
+        progressIndicator.checkCanceled();
         if (type.isPrepared()) {
           futures.add(DebuggerUtilsAsync.supertypes(type)
                         .thenAccept(supertypes -> supertypes.forEach(st -> inheritance.putValue(st, type)))
@@ -574,7 +579,7 @@ public class MethodBreakpoint extends BreakpointWithHighlighter<JavaMethodBreakp
                         .thenRun(() -> updateProgress(progressIndicator, processed.incrementAndGet(), allSize)));
         }
       }
-      CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+      ProgressIndicatorUtils.awaitWithCheckCanceled(CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])), progressIndicator);
       List<ReferenceType> types = StreamEx.ofTree(classType, t -> StreamEx.of(inheritance.get(t))).skip(1).toList();
 
       if (LOG.isDebugEnabled()) {
@@ -589,9 +594,7 @@ public class MethodBreakpoint extends BreakpointWithHighlighter<JavaMethodBreakp
 
       int typesSize = types.size();
       for (int i = 0; i < typesSize; i++) {
-        if (progressIndicator.isCanceled()) {
-          return;
-        }
+        progressIndicator.checkCanceled();
         consumer.accept(types.get(i), classesByName);
         updateProgress(progressIndicator, i, typesSize);
       }
@@ -702,6 +705,14 @@ public class MethodBreakpoint extends BreakpointWithHighlighter<JavaMethodBreakp
     @Override
     public String sourcePath(String stratum) throws AbsentInformationException {
       throw new AbsentInformationException();
+    }
+
+    @Override
+    public String toString() {
+      return "LocationCodeIndexOnly{" +
+             "method=" + method +
+             ", codeIndex=" + codeIndex +
+             '}';
     }
     // endregion
   }

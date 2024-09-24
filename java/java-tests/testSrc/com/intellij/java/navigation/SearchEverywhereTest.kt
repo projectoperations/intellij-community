@@ -1,9 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.navigation
 
 import com.intellij.ide.actions.searcheverywhere.*
 import com.intellij.ide.util.gotoByName.GotoActionTest
 import com.intellij.idea.IJIgnore
+import com.intellij.navigation.PsiElementNavigationItem
 import com.intellij.openapi.actionSystem.AbbreviationManager
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
@@ -15,6 +16,7 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil.waitForFuture
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase.assertEquals
 import com.intellij.util.Processor
 import org.mockito.Mockito
 import javax.swing.DefaultListCellRenderer
@@ -125,13 +127,13 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
     actions.forEach { (key, value) -> actionManager.registerAction(key, value) }
     try {
       var future = ui.findElementsForPattern("bravocharlie")
-      var matchedAction1 = GotoActionTest.createMatchedAction(project, action1, "bravocharlie")
-      var matchedAction2 = GotoActionTest.createMatchedAction(project, action2, "bravocharlie")
+      var matchedAction1 = GotoActionTest.createMatchedAction(action1, "bravocharlie")
+      var matchedAction2 = GotoActionTest.createMatchedAction(action2, "bravocharlie")
       assertEquals(listOf(class1, matchedAction1, class2, matchedAction2), waitForFuture(future, SEARCH_TIMEOUT))
 
       future = ui.findElementsForPattern("bravo charlie")
-      matchedAction1 = GotoActionTest.createMatchedAction(project, action1, "bravo charlie")
-      matchedAction2 = GotoActionTest.createMatchedAction(project, action2, "bravo charlie")
+      matchedAction1 = GotoActionTest.createMatchedAction(action1, "bravo charlie")
+      matchedAction2 = GotoActionTest.createMatchedAction(action2, "bravo charlie")
       assertEquals(listOf(matchedAction1, class1, matchedAction2, class2), waitForFuture(future, SEARCH_TIMEOUT))
     } finally {
       actions.forEach { (key, _) -> actionManager.unregisterAction(key) }
@@ -158,8 +160,8 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
     val abbreviationManager = AbbreviationManager.getInstance()
     actions.forEach { (key, value) -> actionManager.registerAction(key, value) }
     try {
-      val matchedAction1 = GotoActionTest.createMatchedAction(project, action1, "bravo")
-      val matchedAction2 = GotoActionTest.createMatchedAction(project, action2, "bravo")
+      val matchedAction1 = GotoActionTest.createMatchedAction(action1, "bravo")
+      val matchedAction2 = GotoActionTest.createMatchedAction(action2, "bravo")
 
       // filter out occasional matches in IDE actions
       val testElements = setOf(action1, action2, matchedAction1, matchedAction2, class1, class2)
@@ -187,10 +189,11 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
     try {
       abbreviationManager.register("cp", "CloseProject")
       val future = ui.findElementsForPattern("cp")
-      val firstItem = waitForFuture(future, SEARCH_TIMEOUT)[0]
-      val matchedAction = GotoActionTest.createMatchedAction(project, actionManager.getAction("CloseProject"), "cp")
+      val firstItem = waitForFuture(future, SEARCH_TIMEOUT).firstOrNull()
+      val matchedAction = GotoActionTest.createMatchedAction(actionManager.getAction("CloseProject"), "cp")
       assertEquals(matchedAction, firstItem)
-    } finally {
+    }
+    finally {
       abbreviationManager.remove("cp", "CloseProject")
     }
 
@@ -198,7 +201,7 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
       abbreviationManager.register("cp", "ScanSourceCommentsAction")
       val future = ui.findElementsForPattern("cp")
       val firstItem = waitForFuture(future, SEARCH_TIMEOUT)[0]
-      val matchedAction = GotoActionTest.createMatchedAction(project, actionManager.getAction("ScanSourceCommentsAction"), "cp")
+      val matchedAction = GotoActionTest.createMatchedAction(actionManager.getAction("ScanSourceCommentsAction"), "cp")
       assertEquals(matchedAction, firstItem)
     } finally {
       abbreviationManager.remove("cp", "ScanSourceCommentsAction")
@@ -226,14 +229,14 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
         recentFilesContributor
       ))
 
-      var future = ui.findElementsForPattern("appfile")
+      var future = ui.findPsiElementsForPattern("appfile")
       assertEquals(listOf(file2, file1, file4, file3, file6, file5), waitForFuture(future, SEARCH_TIMEOUT))
 
       myFixture.openFileInEditor(file4.originalFile.virtualFile)
       myFixture.openFileInEditor(file3.originalFile.virtualFile)
       myFixture.openFileInEditor(file5.originalFile.virtualFile)
       myFixture.openFileInEditor(wrongFile.originalFile.virtualFile)
-      future = ui.findElementsForPattern("appfile")
+      future = ui.findPsiElementsForPattern("appfile")
       assertEquals(listOf(file4, file3, file5, file2, file1, file6), waitForFuture(future, SEARCH_TIMEOUT))
     } finally {
       AdvancedSettings.setBoolean("search.everywhere.recent.at.top", savedFlag)
@@ -301,8 +304,6 @@ class SearchEverywhereTest : LightJavaCodeInsightFixtureTestCase() {
     override fun processSelectedItem(selected: Any, modifiers: Int, searchText: String): Boolean = false
 
     override fun getElementsRenderer(): ListCellRenderer<in Any> = DefaultListCellRenderer()
-
-    override fun getDataForItem(element: Any, dataId: String): Any? = null
   }
 
   private class StubAction(text: String) : AnAction(text) {

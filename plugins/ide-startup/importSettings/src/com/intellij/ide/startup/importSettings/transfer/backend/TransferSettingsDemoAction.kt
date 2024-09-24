@@ -5,7 +5,7 @@ package com.intellij.ide.startup.importSettings.transfer.backend
 
 import com.intellij.ide.startup.importSettings.DefaultTransferSettingsConfiguration
 import com.intellij.ide.startup.importSettings.controllers.TransferSettingsListener
-import com.intellij.ide.startup.importSettings.models.IdeVersion
+import com.intellij.ide.startup.importSettings.transfer.backend.models.IdeVersion
 import com.intellij.ide.startup.importSettings.models.Settings
 import com.intellij.ide.startup.importSettings.models.TransferSettingsModel
 import com.intellij.ide.startup.importSettings.providers.TransferSettingsPerformContext
@@ -15,9 +15,12 @@ import com.intellij.ide.startup.importSettings.transfer.backend.providers.vsmac.
 import com.intellij.ide.startup.importSettings.ui.TransferSettingsProgressIndicatorBase
 import com.intellij.ide.startup.importSettings.ui.TransferSettingsView
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import kotlinx.coroutines.CoroutineScope
 import javax.swing.*
 
 /**
@@ -29,9 +32,16 @@ class TransferSettingsDemoAction : DumbAwareAction() {
   }
 }
 
+@Service
+private class ScopeHolder(val scope: CoroutineScope)
+
 private class TransferSettingsDemoDialog(private val project: Project) : DialogWrapper(project) {
   private val config = DefaultTransferSettingsConfiguration(
-    TransferSettingsDataProvider(TestTransferSettingsProvider(), VSCodeTransferSettingsProvider(), VSMacTransferSettingsProvider()),
+    TransferSettingsDataProvider(
+      TestTransferSettingsProvider(),
+      VSCodeTransferSettingsProvider(service<ScopeHolder>().scope),
+      VSMacTransferSettingsProvider()
+    ),
     false)
   private val model: TransferSettingsModel = TransferSettingsModel(config, true)
   private val pnl = TransferSettingsView(config, model)

@@ -3,9 +3,14 @@
 package org.jetbrains.kotlin.idea.k2.codeInsight.postfix.test;
 
 import com.intellij.testFramework.TestDataPath;
-import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
-import org.jetbrains.kotlin.test.TestMetadata;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
 import org.jetbrains.kotlin.idea.base.test.TestRoot;
+import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
+import com.intellij.testFramework.TestIndexingModeSupporter;
+import org.jetbrains.kotlin.idea.base.test.TestIndexingMode;
+import static com.intellij.testFramework.TestIndexingModeSupporter.IndexingMode.DUMB_EMPTY_INDEX;
+import static com.intellij.testFramework.TestIndexingModeSupporter.IndexingMode.SMART;
+import org.jetbrains.kotlin.test.TestMetadata;
 import org.junit.runner.RunWith;
 
 /**
@@ -15,12 +20,20 @@ import org.junit.runner.RunWith;
 @SuppressWarnings("all")
 @TestRoot("code-insight/postfix-templates")
 @TestDataPath("$CONTENT_ROOT")
+@TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
 @RunWith(JUnit3RunnerWithInners.class)
 @TestMetadata("testData/expansion")
 public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTemplateTest {
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/arrayOf")
     public static class ArrayOf extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("boolean.kt")
         public void testBoolean() throws Exception {
             performTest();
@@ -57,9 +70,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/assert")
     public static class Assert extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("binary.kt")
         public void testBinary() throws Exception {
             performTest();
@@ -86,9 +106,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/for")
     public static class For extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("any.kt")
         public void testAny() throws Exception {
             performTest();
@@ -155,9 +182,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/fori")
     public static class Fori extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("forIndexed.kt")
         public void testForIndexed() throws Exception {
             performTest();
@@ -179,9 +213,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/forr")
     public static class Forr extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("forNumberReverse.kt")
         public void testForNumberReverse() throws Exception {
             performTest();
@@ -193,9 +234,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/if")
     public static class If extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("call.kt")
         public void testCall() throws Exception {
             performTest();
@@ -227,27 +275,48 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/iter")
     public static class Iter extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("simple.kt")
         public void testSimple() throws Exception {
             performTest();
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/itor")
     public static class Itor extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("simple.kt")
         public void testSimple() throws Exception {
             performTest();
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/listOf")
     public static class ListOf extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("classLiteral.kt")
         public void testClassLiteral() throws Exception {
             performTest();
@@ -274,25 +343,109 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/nn")
     public static class Nn extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("simple.kt")
         public void testSimple() throws Exception {
             performTest();
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/not")
     public static class Not extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("any.kt")
         public void testAny() throws Exception {
             performTest();
         }
 
-        @TestMetadata("call.kt")
-        public void testCall() throws Exception {
+        @TestMetadata("booleanLiteralFalse.kt")
+        public void testBooleanLiteralFalse() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("booleanLiteralTrue.kt")
+        public void testBooleanLiteralTrue() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsAll.kt")
+        public void testCollectionsAll() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsAll_implicitReceiver.kt")
+        public void testCollectionsAll_implicitReceiver() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsIsEmpty.kt")
+        public void testCollectionsIsEmpty() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsIsEmpty_implicitReceiver.kt")
+        public void testCollectionsIsEmpty_implicitReceiver() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsIsEmpty_implicitReceiver_listReceiver.kt")
+        public void testCollectionsIsEmpty_implicitReceiver_listReceiver() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsIsEmpty_listReceiver.kt")
+        public void testCollectionsIsEmpty_listReceiver() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsIsNotEmpty.kt")
+        public void testCollectionsIsNotEmpty() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsIsNotEmpty_implicitReceiver.kt")
+        public void testCollectionsIsNotEmpty_implicitReceiver() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsNone.kt")
+        public void testCollectionsNone() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsNone_implicitReceiver.kt")
+        public void testCollectionsNone_implicitReceiver() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("ifExpression.kt")
+        public void testIfExpression() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("isInstanceCheck.kt")
+        public void testIsInstanceCheck() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("isNotInstanceCheck.kt")
+        public void testIsNotInstanceCheck() throws Exception {
             performTest();
         }
 
@@ -311,15 +464,42 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
             performTest();
         }
 
+        @TestMetadata("operatorEQ.kt")
+        public void testOperatorEQ() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("operatorIN.kt")
+        public void testOperatorIN() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("qualifiedCall.kt")
+        public void testQualifiedCall() throws Exception {
+            performTest();
+        }
+
         @TestMetadata("simple.kt")
         public void testSimple() throws Exception {
             performTest();
         }
+
+        @TestMetadata("simpleCall.kt")
+        public void testSimpleCall() throws Exception {
+            performTest();
+        }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/null")
     public static class Null extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("notNull.kt")
         public void testNotNull() throws Exception {
             performTest();
@@ -341,12 +521,20 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/oldTestData")
     public abstract static class OldTestData extends AbstractK2PostfixTemplateTest {
+        @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/expansion/oldTestData")
         public static class Uncategorized extends AbstractK2PostfixTemplateTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
             @TestMetadata("arg.kt")
             public void testArg() throws Exception {
                 performTest();
@@ -572,6 +760,11 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
                 performTest();
             }
 
+            @TestMetadata("valInsideLambda.kt")
+            public void testValInsideLambda() throws Exception {
+                performTest();
+            }
+
             @TestMetadata("var.kt")
             public void testVar() throws Exception {
                 performTest();
@@ -618,9 +811,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
             }
         }
 
+        @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/expansion/oldTestData/wrapWithCall")
         public static class WrapWithCall extends AbstractK2PostfixTemplateTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
             @TestMetadata("arrayOfStatement.kt")
             public void testArrayOfStatement() throws Exception {
                 performTest();
@@ -643,9 +843,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/par")
     public static class Par extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("binary.kt")
         public void testBinary() throws Exception {
             performTest();
@@ -687,9 +894,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/return")
     public static class Return extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("expressionBody.kt")
         public void testExpressionBody() throws Exception {
             performTest();
@@ -721,27 +935,48 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/sequenceOf")
     public static class SequenceOf extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("test.kt")
         public void testTest() throws Exception {
             performTest();
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/setOf")
     public static class SetOf extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("simple.kt")
         public void testSimple() throws Exception {
             performTest();
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/sout")
     public static class Sout extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("number.kt")
         public void testNumber() throws Exception {
             performTest();
@@ -768,9 +1003,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/spread")
     public static class Spread extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("already.kt")
         public void testAlready() throws Exception {
             performTest();
@@ -792,9 +1034,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/try")
     public static class Try extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("javaException.kt")
         public void testJavaException() throws Exception {
             performTest();
@@ -816,11 +1065,28 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/unless")
     public static class Unless extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("call.kt")
         public void testCall() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsIsEmpty.kt")
+        public void testCollectionsIsEmpty() throws Exception {
+            performTest();
+        }
+
+        @TestMetadata("collectionsIsEmpty_listReceiver.kt")
+        public void testCollectionsIsEmpty_listReceiver() throws Exception {
             performTest();
         }
 
@@ -850,27 +1116,48 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/val")
     public static class Val extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("package.kt")
         public void testPackage() throws Exception {
             performTest();
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/var")
     public static class Var extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("package.kt")
         public void testPackage() throws Exception {
             performTest();
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/when")
     public static class When extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("nonSealed.kt")
         public void testNonSealed() throws Exception {
             performTest();
@@ -887,9 +1174,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/while")
     public static class While extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("call.kt")
         public void testCall() throws Exception {
             performTest();
@@ -921,9 +1215,16 @@ public abstract class K2PostfixTemplateTestGenerated extends AbstractK2PostfixTe
         }
     }
 
+    @TestIndexingMode({DUMB_EMPTY_INDEX, SMART})
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/expansion/with")
     public static class With extends AbstractK2PostfixTemplateTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         @TestMetadata("call.kt")
         public void testCall() throws Exception {
             performTest();

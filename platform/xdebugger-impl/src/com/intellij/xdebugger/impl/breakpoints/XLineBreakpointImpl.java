@@ -1,18 +1,21 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.breakpoints;
 
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diff.impl.DiffUtil;
-import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.LazyRangeMarkerFactory;
+import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.ex.MarkupModelEx;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.markup.*;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
@@ -21,7 +24,7 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.util.DocumentUtil;
-import com.intellij.util.SlowOperations;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.XDebuggerUtil;
@@ -42,11 +45,16 @@ import java.awt.*;
 import java.awt.dnd.DnDConstants;
 import java.awt.dnd.DragSource;
 import java.io.File;
-import java.util.*;
+import java.util.Objects;
+import java.util.concurrent.ExecutorService;
 
+@ApiStatus.Internal
 public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreakpointBase<XLineBreakpoint<P>, P, LineBreakpointState<P>>
   implements XLineBreakpoint<P> {
   private static final Logger LOG = Logger.getInstance(XLineBreakpointImpl.class);
+
+  private static final ExecutorService redrawInlaysExecutor =
+    AppExecutorUtil.createBoundedApplicationPoolExecutor("XLineBreakpointImpl Inlay Redraw", 1);
 
   @Nullable private RangeMarker myHighlighter;
   private final XLineBreakpointType<P> myType;
@@ -94,7 +102,7 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
               myHighlighter = LazyRangeMarkerFactory.getInstance(getProject()).createRangeMarker(file, getLine(), 0, true);
               callOnUpdate.run();
             }
-          });
+          }, getProject().getDisposed());
           return;
         }
         document = FileDocumentManager.getInstance().getDocument(file);
@@ -128,6 +136,7 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
         RangeHighlighter highlighter = (RangeHighlighter)myHighlighter;
         if (highlighter != null &&
             (!highlighter.isValid()
+             || range != null && !highlighter.getTextRange().equals(range) //breakpoint range marker is out-of-sync with actual breakpoint text range
              || !DocumentUtil.isValidOffset(highlighter.getStartOffset(), finalDocument)
              || !Comparing.equal(highlighter.getTextAttributes(null), attributes)
              // it seems that this check is not needed - we always update line number from the highlighter
@@ -138,14 +147,15 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
           highlighter = null;
         }
 
-        MarkupModelEx markupModel;
+        updateIcon();
+
         if (highlighter == null) {
           int line = getLine();
           if (line >= finalDocument.getLineCount()) {
             callOnUpdate.run();
             return;
           }
-          markupModel = (MarkupModelEx)DocumentMarkupModel.forDocument(finalDocument, getProject(), true);
+          MarkupModelEx markupModel = (MarkupModelEx)DocumentMarkupModel.forDocument(finalDocument, getProject(), true);
           if (range != null && !range.isEmpty()) {
             TextRange lineRange = DocumentUtil.getLineTextRange(finalDocument, line);
             if (range.intersects(lineRange)) {
@@ -170,13 +180,7 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
           redrawInlineInlays();
         }
         else {
-          markupModel = null;
-        }
-
-        updateIcon();
-
-        if (markupModel == null) {
-          markupModel = (MarkupModelEx)DocumentMarkupModel.forDocument(finalDocument, getProject(), false);
+          MarkupModelEx markupModel = (MarkupModelEx)DocumentMarkupModel.forDocument(finalDocument, getProject(), false);
           if (markupModel != null) {
             // renderersChanged false - we don't change gutter size
             MarkupEditorFilter filter = highlighter.getEditorFilter();
@@ -214,17 +218,24 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
   @Override
   public String getPresentableFilePath() {
     String url = getFileUrl();
-    if (url != null && LocalFileSystem.PROTOCOL.equals(VirtualFileManager.extractProtocol(url))) {
-      return FileUtil.toSystemDependentName(VfsUtilCore.urlToPath(url));
+    if (LocalFileSystem.PROTOCOL.equals(VirtualFileManager.extractProtocol(url))) {
+      String path = VfsUtilCore.urlToPath(url);
+
+      // Try to get the path relative to the project directory to make the result easier to read.
+      VirtualFile project = ProjectUtil.guessProjectDir(getProject());
+      String relativePath = project != null
+                            ? FileUtil.getRelativePath(project.getPath(), path, '/')
+                            : null;
+
+      String presentablePath = relativePath != null ? relativePath : path;
+      return FileUtil.toSystemDependentName(presentablePath);
     }
-    return url != null ? url : "";
+    return url;
   }
 
   @Override
   public String getShortFilePath() {
-    final String path = getPresentableFilePath();
-    if (path.isEmpty()) return "";
-    return new File(path).getName();
+    return new File(VfsUtilCore.urlToPath(getFileUrl())).getName();
   }
 
   @Nullable
@@ -272,18 +283,25 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
   }
 
   private void redrawInlineInlays(@Nullable VirtualFile file, int line) {
-    if (!XDebuggerUtil.areInlineBreakpointsEnabled()) return;
-
     if (file == null) return;
+    if (!XDebuggerUtil.areInlineBreakpointsEnabled(file)) return;
 
-    var document = FileDocumentManager.getInstance().getDocument(file);
-    if (document == null) return;
+    ReadAction.nonBlocking(() -> {
+        var document = FileDocumentManager.getInstance().getDocument(file);
+        if (document == null) return null;
 
-    if (myType instanceof XBreakpointTypeWithDocumentDelegation) {
-      document = ((XBreakpointTypeWithDocumentDelegation)myType).getDocumentForHighlighting(document);
-    }
+        if (myType instanceof XBreakpointTypeWithDocumentDelegation) {
+          document = ((XBreakpointTypeWithDocumentDelegation)myType).getDocumentForHighlighting(document);
+        }
 
-    InlineBreakpointInlayManager.getInstance(getProject()).redrawLine(document, line);
+        return document;
+      })
+      .expireWith(getProject())
+      .submit(redrawInlaysExecutor)
+      .onSuccess(document -> {
+        if (document == null) return;
+        InlineBreakpointInlayManager.getInstance(getProject()).redrawLine(document, line);
+      });
   }
 
   @Override
@@ -338,16 +356,10 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
     return false;
   }
 
-  int getOffset() {
-    return myHighlighter != null && myHighlighter.isValid() ? myHighlighter.getStartOffset() : -1;
-  }
-
   public void updatePosition() {
     if (myHighlighter != null && myHighlighter.isValid()) {
       mySourcePosition = null; // reset the source position even if the line number has not changed, as the offset may be cached inside
-      try (AccessToken ignore = SlowOperations.knownIssue("IDEA-323746, EA-674953")) {
-        setLine(myHighlighter.getDocument().getLineNumber(getOffset()), false);
-      }
+      setLine(myHighlighter.getDocument().getLineNumber(myHighlighter.getStartOffset()), false);
     }
   }
 
@@ -370,7 +382,7 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
 
   private void setLine(final int line, boolean visualLineMightBeChanged) {
     if (getLine() != line) {
-      if (visualLineMightBeChanged && !myType.changeLine(this, line, getProject())) {
+      if (visualLineMightBeChanged && !myType.lineShouldBeChanged(this, line, getProject())) {
         return;
       }
       var oldLine = getLine();

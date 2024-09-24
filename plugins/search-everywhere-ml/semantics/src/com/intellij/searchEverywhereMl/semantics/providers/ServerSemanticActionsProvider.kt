@@ -8,10 +8,12 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.platform.ml.embeddings.search.utils.ScoredText
+import com.intellij.platform.ml.embeddings.utils.ScoredText
 import com.intellij.searchEverywhereMl.semantics.settings.SearchEverywhereSemanticSettings
 import com.intellij.searchEverywhereMl.semantics.utils.RequestResult
 import com.intellij.searchEverywhereMl.semantics.utils.sendRequest
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
 
 private val LOG = logger<ServerSemanticActionsProvider>()
 
@@ -44,11 +46,11 @@ class ServerSemanticActionsProvider(
       }
     }
 
-    return modelResponse.nearestCandidates.map { ScoredText(it.actionId, it.similarityScore) }
+    return modelResponse.nearestCandidates.map { ScoredText(it.actionId, it.similarityScore.toFloat()) }
   }
 
-  override suspend fun streamSearch(pattern: String, similarityThreshold: Double?): Sequence<ScoredText> {
-    return search(pattern, similarityThreshold).asSequence()
+  override suspend fun streamSearch(pattern: String, similarityThreshold: Double?): Flow<ScoredText> {
+    return search(pattern, similarityThreshold).asFlow()
   }
 
   companion object {

@@ -9,7 +9,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
@@ -17,7 +16,6 @@ import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.*
 import com.intellij.util.TextFieldCompletionProvider
-import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PythonFileType
@@ -25,33 +23,33 @@ import com.jetbrains.python.debugger.*
 import com.jetbrains.python.debugger.array.AbstractDataViewTable
 import com.jetbrains.python.debugger.array.AsyncArrayTableModel
 import com.jetbrains.python.debugger.array.JBTableWithRowHeaders
-import com.jetbrains.python.debugger.statistics.PyDataViewerCollector
 import java.awt.BorderLayout
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.util.concurrent.CopyOnWriteArrayList
+import javax.swing.BorderFactory
 import javax.swing.JEditorPane
 import javax.swing.JPanel
 
 open class PyDataViewerPanel(@JvmField protected val project: Project, val frameAccessor: PyFrameAccessor) :
   JPanel(BorderLayout()), Disposable {
 
-  val sliceTextField = createEditorField()
+  val sliceTextField: EditorTextField = createEditorField(TextFieldCommandSource.SLICING)
 
   protected val tablePanel = JPanel(BorderLayout())
 
   protected var table: AbstractDataViewTable? = null
 
-  private var formatTextField: EditorTextField = createEditorField()
+  private var formatTextField: EditorTextField = createEditorField(TextFieldCommandSource.FORMATTING)
 
-  private var colored = PyDataView.isColoringEnabled(project)
+  private var colored: Boolean = PyDataView.isColoringEnabled(project)
 
   private val listeners = CopyOnWriteArrayList<Listener>()
 
   var originalVarName: @NlsSafe String? = null
     private set
 
-  private var modifiedVarName: String? = null
+  protected var modifiedVarName: String? = null
 
   protected var debugValue: PyDebugValue? = null
 
@@ -77,16 +75,12 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
       return table?.model as? AsyncArrayTableModel
     }
 
-  var isModified = false
-    private set
+  var isModified: Boolean = false
+    protected set
 
   private lateinit var errorLabel: Cell<JEditorPane>
 
-  protected val showFooter = AtomicBooleanProperty(true)
-
   init {
-    border = JBUI.Borders.empty(5)
-
     PyDataViewCompletionProvider().apply(sliceTextField)
 
     val panel = panel {
@@ -95,7 +89,7 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
         cell(sliceTextField).align(AlignX.FILL).resizableColumn()
         label(PyBundle.message("form.data.viewer.format"))
         cell(formatTextField)
-      }.visibleIf(showFooter)
+      }
       row { errorLabel = text("").apply { component.setForeground(JBColor.RED) } }
     }
 
@@ -159,12 +153,13 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
 
   protected open fun getOrCreateMainTable(): AbstractDataViewTable {
     val mainTable = JBTableWithRowHeaders(PyDataView.isAutoResizeEnabled(project))
+    mainTable.scrollPane.border = BorderFactory.createEmptyBorder()
     tablePanel.add(mainTable.scrollPane, BorderLayout.CENTER)
     table = mainTable
     return mainTable
   }
 
-  private fun createEditorField(): EditorTextField {
+  private fun createEditorField(commandSource: TextFieldCommandSource): EditorTextField {
     return object : EditorTextField(EditorFactory.getInstance().createDocument(""), project, PythonFileType.INSTANCE, false, true) {
       override fun createEditor(): EditorEx {
         val editor = super.createEditor()
@@ -172,7 +167,7 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
         editor.getContentComponent().addKeyListener(object : KeyAdapter() {
           override fun keyPressed(e: KeyEvent) {
             if (e.keyCode == KeyEvent.VK_ENTER) {
-              apply(sliceTextField.getText(), false)
+              apply(sliceTextField.getText(), false, commandSource)
             }
           }
         })
@@ -181,16 +176,14 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
     }
   }
 
-  fun apply(name: String?, modifier: Boolean) {
+  fun apply(name: String?, modifier: Boolean, commandSource: TextFieldCommandSource? = null) {
     ApplicationManager.getApplication().executeOnPooledThread {
       val debugValue = getDebugValue(name, true, modifier)
-      ApplicationManager.getApplication().invokeLater { debugValue?.let { apply(it, modifier) } }
+      ApplicationManager.getApplication().invokeLater { debugValue?.let { apply(it, modifier, commandSource) } }
     }
-
-    PyDataViewerCollector.slicingApplied.log()
   }
 
-  open fun apply(debugValue: PyDebugValue, modifier: Boolean) {
+  open fun apply(debugValue: PyDebugValue, modifier: Boolean, commandSource: TextFieldCommandSource? = null) {
     errorLabel.visible(false)
     val type = debugValue.type
     val strategy = DataViewStrategy.getStrategy(type)
@@ -201,7 +194,6 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
     ApplicationManager.getApplication().executeOnPooledThread {
       try {
         doStrategyInitExecution(debugValue.frameAccessor, strategy)
-
         // Currently does not support pandas dataframes.
         val arrayChunk = debugValue.frameAccessor.getArrayItems(debugValue, 0, 0, 0, 0, format)
         ApplicationManager.getApplication().invokeLater {
@@ -214,6 +206,12 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
         ApplicationManager.getApplication().invokeLater { setError(e.localizedMessage, modifier) } //NON-NLS
       }
       catch (e: PyDebuggerException) {
+        LOG.error(e)
+      }
+      catch (e: Exception) {
+        if (e.message?.let { "Numpy is not available" in it } == true) {
+          setError(PyBundle.message("debugger.data.view.numpy.is.not.available", type), modifier)
+        }
         LOG.error(e)
       }
     }
@@ -229,6 +227,7 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
     val realName = if (debugValue == null || debugValue.name == originalDebugValue.tempName) originalDebugValue.name else chunk.slicePresentation
     var shownName = realName
     if (modifier && originalVarName != shownName) {
+      @Suppress("HardCodedStringLiteral") // This is just format like %s and cannot be i18.
       shownName = String.format(MODIFIED_VARIABLE_FORMAT, originalVarName)
     }
     else {
@@ -307,7 +306,7 @@ open class PyDataViewerPanel(@JvmField protected val project: Project, val frame
     apply(sliceTextField.getText(), false)
   }
 
-  private fun setError(text: @NlsContexts.Label String, modifier: Boolean) {
+  protected fun setError(text: @NlsContexts.Label String, modifier: Boolean) {
     errorLabel.visible(true)
     errorLabel.text(if (modifier) PyBundle.message("debugger.dataviewer.modifier.error", text) else text)
     if (!modifier) {

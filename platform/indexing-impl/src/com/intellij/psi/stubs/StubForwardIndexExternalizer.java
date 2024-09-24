@@ -1,12 +1,14 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.stubs;
 
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.HashingStrategy;
 import com.intellij.util.indexing.ID;
 import com.intellij.util.io.*;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -16,13 +18,14 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.*;
 
+@Internal
 public abstract class StubForwardIndexExternalizer<StubKeySerializationState>
   implements DataExternalizer<Map<StubIndexKey<?, ?>, Map<Object, StubIdList>>> {
 
-  @ApiStatus.Internal
+  @Internal
   public static final String USE_SHAREABLE_STUBS_PROP = "idea.uses.shareable.serialized.stubs";
 
-  @ApiStatus.Internal
+  @Internal
   public static final boolean USE_SHAREABLE_STUBS = Boolean.getBoolean(USE_SHAREABLE_STUBS_PROP);
 
 
@@ -51,6 +54,7 @@ public abstract class StubForwardIndexExternalizer<StubKeySerializationState>
     HashingStrategy<K> hashingStrategy = StubIndexKeyDescriptorCache.INSTANCE.getKeyHashingStrategy(stubIndexKey);
     Map<K, StubIdList> result = CollectionFactory.createCustomHashingStrategyMap(hashingStrategy);
     while (indexDis.available() > 0) {
+      ProgressManager.checkCanceled();
       K key = keyDescriptor.read(indexDis);
       StubIdList read = StubIdExternalizer.INSTANCE.read(indexDis);
       if (requestedKey == null) {

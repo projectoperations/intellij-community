@@ -19,4 +19,6 @@ annotation object SomeMyObject
 
 actual typealias <!LINE_MARKER("descr='Has expects in common module'")!>SomeObject<!> = SomeMyObject
 
-
+actual interface <!LINE_MARKER("descr='Has expects in common module'")!>WithCompanion<!> {
+    actual companion <!LINE_MARKER("descr='Has expects in common module'")!>object<!> {}
+}

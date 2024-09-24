@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application;
 
 import com.intellij.openapi.Disposable;
@@ -16,10 +16,15 @@ import java.util.function.Supplier;
  * Provides access to the {@link Application}.
  */
 public class ApplicationManager {
+  @ApiStatus.Internal
   protected static Application ourApplication;
 
   public static Application getApplication() {
     return ourApplication;
+  }
+
+  static {
+    ApplicationStateDebugSupportKt.initApplicationStateDebugSupport();
   }
 
   @ApiStatus.Internal
@@ -40,9 +45,11 @@ public class ApplicationManager {
     setApplication(instance);
   }
 
-  public static void setApplication(@NotNull Application instance,
-                                    @NotNull Supplier<? extends FileTypeRegistry> fileTypeRegistryGetter,
-                                    @NotNull Disposable parent) {
+  public static void setApplication(
+    @NotNull Application instance,
+    @NotNull Supplier<? extends FileTypeRegistry> fileTypeRegistryGetter,
+    @NotNull Disposable parent
+  ) {
     Application old = ourApplication;
     setApplication(instance);
     Supplier<? extends FileTypeRegistry> oldFileTypeRegistry = FileTypeRegistry.setInstanceSupplier(fileTypeRegistryGetter);
@@ -58,7 +65,7 @@ public class ApplicationManager {
   private static final List<Runnable> cleaners = ContainerUtil.createLockFreeCopyOnWriteList();
 
   /**
-   * register cleaning operation to be run when the Application instance is reset, for example, in tests
+   * Registers a cleaning operation to be run when the application instance is reset (for example, in tests).
    */
   @ApiStatus.Internal
   public static void registerCleaner(Runnable cleaner) {

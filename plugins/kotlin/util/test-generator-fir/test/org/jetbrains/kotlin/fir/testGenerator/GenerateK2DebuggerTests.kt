@@ -1,12 +1,20 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.fir.testGenerator
 
+import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2CodeFragmentAutoImportTest
+import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2CodeFragmentCompletionHandlerTest
+import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2CodeFragmentCompletionTest
+import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2CodeFragmentHighlightingTest
+import org.jetbrains.kotlin.idea.compose.k2.debugger.test.cases.AbstractK2ComposeSteppingTest
+import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2MultiplatformCodeFragmentCompletionTest
 import org.jetbrains.kotlin.idea.k2.debugger.test.cases.*
 import org.jetbrains.kotlin.test.TargetBackend
 import org.jetbrains.kotlin.testGenerator.model.*
+import org.jetbrains.kotlin.testGenerator.model.GroupCategory.*
+import org.jetbrains.kotlin.testGenerator.model.Patterns.KT
 
 internal fun MutableTWorkspace.generateK2DebuggerTests() {
-    testGroup("jvm-debugger/test/k2", testDataPath = "../testData") {
+    testGroup("jvm-debugger/test/k2", testDataPath = "../testData", category = DEBUGGER) {
 
         listOf(
             AbstractK2IdeK1CodeKotlinSteppingTest::class,
@@ -26,7 +34,15 @@ internal fun MutableTWorkspace.generateK2DebuggerTests() {
         testClass<AbstractK2IdeK2CodeKotlinEvaluateExpressionTest> {
             model("evaluation/singleBreakpoint", testMethodName = "doSingleBreakpointTest", targetBackend = TargetBackend.JVM_IR_WITH_IR_EVALUATOR)
             model("evaluation/multipleBreakpoints", testMethodName = "doMultipleBreakpointsTest", targetBackend = TargetBackend.JVM_IR_WITH_IR_EVALUATOR)
-            // TODO support "evaluation/multiplatform"
+        }
+
+        testClass<AbstractK2IdeK2MultiplatformCodeKotlinEvaluateExpressionTest> {
+            model("evaluation/multiplatform", testMethodName = "doMultipleBreakpointsTest", targetBackend = TargetBackend.JVM_IR_WITH_IR_EVALUATOR)
+        }
+
+        testClass<AbstractInlineScopesAndK2IdeK2CodeEvaluateExpressionTest> {
+            model("evaluation/singleBreakpoint", testMethodName = "doSingleBreakpointTest", targetBackend = TargetBackend.JVM_IR_WITH_IR_EVALUATOR)
+            model("evaluation/multipleBreakpoints", testMethodName = "doMultipleBreakpointsTest", targetBackend = TargetBackend.JVM_IR_WITH_IR_EVALUATOR)
         }
 
         testClass<AbstractK2SelectExpressionForDebuggerTest> {
@@ -88,7 +104,7 @@ internal fun MutableTWorkspace.generateK2DebuggerTests() {
 
         listOf(AbstractK2IdeK1CodeKotlinVariablePrintingTest::class, AbstractK2IdeK2CodeKotlinVariablePrintingTest::class,).forEach {
             testClass(it) {
-                model("variables")
+                model("variables", isRecursive = false)
             }
         }
 
@@ -109,5 +125,38 @@ internal fun MutableTWorkspace.generateK2DebuggerTests() {
             model("exceptionFilter", pattern = Patterns.forRegex("""^([^.]+)$"""), isRecursive = false)
         }
 
+    }
+
+    testGroup("fir/tests", testDataPath = "../../completion/testData", category = COMPLETION) {
+        testClass<AbstractK2CodeFragmentCompletionHandlerTest> {
+            model("handlers/runtimeCast")
+        }
+
+        testClass<AbstractK2CodeFragmentCompletionTest> {
+            model("basic/codeFragments", pattern = KT)
+        }
+
+        testClass<AbstractK2MultiplatformCodeFragmentCompletionTest> {
+            model("basic/codeFragmentsMultiplatform", pattern = KT)
+        }
+    }
+
+    testGroup("fir/tests", testDataPath = "../../idea/tests/testData", category = CODE_INSIGHT) {
+        testClass<AbstractK2CodeFragmentHighlightingTest> {
+            model("checker/codeFragments", pattern = KT, isRecursive = false)
+            model("checker/codeFragments/imports", testMethodName = "doTestWithImport", pattern = KT)
+        }
+
+        testClass<AbstractK2CodeFragmentAutoImportTest> {
+            model("quickfix.special/codeFragmentAutoImport", pattern = KT, isRecursive = false)
+        }
+    }
+}
+
+internal fun MutableTWorkspace.generateK2ComposeDebuggerTests() {
+    testGroup("jvm-debugger/test/compose", testDataPath = "../testData", category = DEBUGGER) {
+        testClass<AbstractK2ComposeSteppingTest> {
+            model("stepping/compose")
+        }
     }
 }

@@ -8,6 +8,7 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.util.containers.ContainerUtil
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.idea.maven.importing.workspaceModel.StaticWorkspaceProjectImporter
 import org.jetbrains.idea.maven.importing.workspaceModel.WorkspaceProjectImporter
 import org.jetbrains.idea.maven.project.*
 import org.jetbrains.idea.maven.statistics.MavenImportCollector
@@ -22,6 +23,19 @@ interface MavenProjectImporter {
 
   companion object {
     @JvmStatic
+    fun createStaticImporter(project: Project,
+                             projectsTree: MavenProjectsTree,
+                             projectsToImportWithChanges: Map<MavenProject, MavenProjectChanges>,
+                             modelsProvider: IdeModifiableModelsProvider,
+                             importingSettings: MavenImportingSettings,
+                             parentImportingActivity: StructuredIdeActivity): MavenProjectImporter {
+
+      val importer = StaticWorkspaceProjectImporter(projectsTree, projectsToImportWithChanges,
+                                                    importingSettings, modelsProvider, project)
+      return wrapWithFUS(project, parentImportingActivity, importer)
+    }
+
+    @JvmStatic
     fun createImporter(project: Project,
                        projectsTree: MavenProjectsTree,
                        projectsToImportWithChanges: Map<MavenProject, MavenProjectChanges>,
@@ -31,6 +45,12 @@ interface MavenProjectImporter {
                        parentImportingActivity: StructuredIdeActivity): MavenProjectImporter {
       val importer = createImporter(project, projectsTree, projectsToImportWithChanges,
                                     modelsProvider, importingSettings, previewModule)
+      return wrapWithFUS(project, parentImportingActivity, importer)
+    }
+
+    private fun wrapWithFUS(project: Project,
+                            parentImportingActivity: StructuredIdeActivity,
+                            importer: MavenProjectImporter): MavenProjectImporter {
       return object : MavenProjectImporter {
         override fun importProject(): List<MavenProjectsProcessorTask> {
           val activity = MavenImportStats.startApplyingModelsActivity(project, parentImportingActivity)
@@ -93,35 +113,14 @@ interface MavenProjectImporter {
                                modelsProvider: IdeModifiableModelsProvider,
                                importingSettings: MavenImportingSettings,
                                previewModule: Module?): MavenProjectImporter {
-      if (isImportToWorkspaceModelEnabled(project)) {
-        return WorkspaceProjectImporter(projectsTree, projectsToImportWithChanges,
-                                        importingSettings, modelsProvider, project)
-      }
-
-      return MavenProjectLegacyImporter(project, projectsTree,
-                                        projectsToImportWithChanges,
-                                        modelsProvider, importingSettings,
-                                        previewModule)
+      return WorkspaceProjectImporter(projectsTree, projectsToImportWithChanges, importingSettings, modelsProvider, project)
     }
 
     @JvmStatic
     fun tryUpdateTargetFolders(project: Project) {
-      if (isImportToWorkspaceModelEnabled(project)) {
-        WorkspaceProjectImporter.updateTargetFolders(project)
-      }
-      else {
-        MavenLegacyFoldersImporter.updateProjectFolders(/* project = */ project, /* updateTargetFoldersOnly = */ true)
-      }
+      WorkspaceProjectImporter.updateTargetFolders(project)
     }
 
     private val importingInProgress = AtomicInteger()
-
-    @JvmStatic
-    fun isImportToWorkspaceModelEnabled(project: Project): Boolean {
-      val property = System.getProperty("maven.import.to.workspace.model")
-      if ("true" == property) return true
-      if ("false" == property) return false
-      return MavenProjectsManager.getInstance(project).importingSettings.isWorkspaceImportEnabled
-    }
   }
 }

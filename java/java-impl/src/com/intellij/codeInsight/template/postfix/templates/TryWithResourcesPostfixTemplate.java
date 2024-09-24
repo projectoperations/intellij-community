@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.template.postfix.templates;
 
 import com.intellij.codeInsight.ExceptionUtil;
@@ -14,10 +14,12 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.search.ProjectScope;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.refactoring.JavaRefactoringSettings;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
@@ -30,7 +32,7 @@ public class TryWithResourcesPostfixTemplate extends PostfixTemplate implements 
 
   @Override
   public boolean isApplicable(@NotNull PsiElement element, @NotNull Document copyDocument, int newOffset) {
-    if (!PsiUtil.isLanguageLevel7OrHigher(element)) return false;
+    if (!PsiUtil.isAvailable(JavaFeature.TRY_WITH_RESOURCES, element)) return false;
 
     PsiExpression initializer = JavaPostfixTemplatesUtils.getTopmostExpression(element);
 
@@ -62,8 +64,13 @@ public class TryWithResourcesPostfixTemplate extends PostfixTemplate implements 
     MacroCallNode name = new MacroCallNode(new SuggestVariableNameMacro());
 
     DumbService dumbService = DumbService.getInstance(project);
-    PsiType type = dumbService.computeWithAlternativeResolveEnabled(expression::getType);
-    template.addVariable("type", new TypeExpression(project, new PsiType[]{type}), false);
+    if (Boolean.TRUE.equals(JavaRefactoringSettings.getInstance().INTRODUCE_LOCAL_CREATE_VAR_TYPE) &&
+        PsiUtil.isAvailable(JavaFeature.LVTI, expression)) {
+      template.addVariable("type", new TextExpression(PsiKeyword.VAR), false);
+    } else {
+      PsiType type = dumbService.computeWithAlternativeResolveEnabled(expression::getType);
+      template.addVariable("type", new TypeExpression(project, new PsiType[]{type}), false);
+    }
     template.addTextSegment(" ");
     template.addVariable("name", name, name, true);
     template.addTextSegment(" = ");
@@ -85,8 +92,7 @@ public class TryWithResourcesPostfixTemplate extends PostfixTemplate implements 
     manager.startTemplate(editor, template);
   }
 
-  @NotNull
-  private static Collection<PsiClassType> getUnhandled(@NotNull PsiExpression expression) {
+  private static @NotNull Collection<PsiClassType> getUnhandled(@NotNull PsiExpression expression) {
     assert expression.getType() != null;
     return ExceptionUtil.getUnhandledCloserExceptions(expression, null, expression.getType());
   }

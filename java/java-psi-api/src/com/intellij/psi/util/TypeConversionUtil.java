@@ -637,7 +637,7 @@ public final class TypeConversionUtil {
     return isBinaryOperatorApplicable(tokenType, ltype, rtype, strict);
   }
 
-  @Contract(pure = true)
+  @Contract(pure = true, value = "_, null, _, _ -> true; _, _, null, _ -> true")
   public static boolean isBinaryOperatorApplicable(@NotNull IElementType tokenType, final PsiType ltype, final PsiType rtype, final boolean strict) {
     if (ltype == null || rtype == null) return true;
     int resultTypeRank = BOOL_RANK;
@@ -985,8 +985,7 @@ public final class TypeConversionUtil {
     PsiClass leftResultElement = leftResult.getElement();
     PsiClass rightResultElement = rightResult.getElement();
     if (leftResultElement == null || rightResultElement == null) {
-      if (leftResultElement == null && rightResultElement != null &&
-              left instanceof PsiClassType && left.equalsToText(JAVA_LANG_OBJECT)) {
+      if (left instanceof PsiClassType && left.equalsToText(JAVA_LANG_OBJECT)) {
         return true;
       }
       if (leftResultElement != rightResultElement) return false;
@@ -1527,7 +1526,12 @@ public final class TypeConversionUtil {
   public static PsiType calcTypeForBinaryExpression(PsiType lType, PsiType rType, @NotNull IElementType sign, boolean accessLType) {
     if (sign == JavaTokenType.PLUS) {
       // evaluate right argument first, since '+-/*%' is left associative and left operand tends to be bigger
-      if (rType == null) return null;
+      if (rType == null) {
+        if (accessLType) {
+          return lType != null && lType.equalsToText(JAVA_LANG_STRING) ? lType : null;
+        }
+        return NULL_TYPE;
+      }
       if (rType.equalsToText(JAVA_LANG_STRING)) {
         return rType;
       }

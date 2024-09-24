@@ -8,15 +8,19 @@ import com.intellij.psi.util.parentOfType
 import com.intellij.psi.util.parentsOfType
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.symbols.KtFunctionSymbol
-import org.jetbrains.kotlin.analysis.api.types.KtFunctionalType
+import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinCallProcessor
 import org.jetbrains.kotlin.idea.debugger.base.util.evaluate.ExecutionContext
+import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
-import org.jetbrains.kotlin.resolve.calls.checkers.COROUTINE_CONTEXT_FQ_NAME
+
+private val COROUTINE_CONTEXT_FQ_NAME =
+    StandardNames.COROUTINES_PACKAGE_FQ_NAME.child(Name.identifier("coroutineContext"))
 
 internal class KotlinSuspendFunctionWrapper(
   private val executionContext: ExecutionContext,
@@ -52,7 +56,7 @@ internal class KotlinSuspendFunctionWrapper(
     private fun isSuspendCall(element: PsiElement): Boolean {
         var result = false
         KotlinCallProcessor.process(element) { target ->
-            if (target.symbol.let { it is KtFunctionSymbol && it.isSuspend }) {
+            if (target.symbol.let { it is KaNamedFunctionSymbol && it.isSuspend }) {
                 result = true
             }
         }
@@ -78,9 +82,9 @@ internal class KotlinSuspendFunctionWrapper(
     private fun isCoroutineContextAvailable(from: PsiElement): Boolean {
         return analyze(from.parentOfType<KtElement>(withSelf = true) ?: return false) {
             from.parentsOfType<KtNamedFunction>().any {
-                (it.getSymbol() as? KtFunctionSymbol)?.isSuspend ?: false
+                (it.symbol as? KaNamedFunctionSymbol)?.isSuspend ?: false
             } || from.parentsOfType<KtLambdaExpression>().any {
-                (it.getKtType() as? KtFunctionalType)?.isSuspend ?: false
+              (it.expressionType as? KaFunctionType)?.isSuspend ?: false
             }
         }
     }

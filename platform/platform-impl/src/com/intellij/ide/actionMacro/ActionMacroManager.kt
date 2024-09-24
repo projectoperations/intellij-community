@@ -411,7 +411,7 @@ class ActionMacroManager internal constructor(private val coroutineScope: Corout
     // fix references to and icons of renamed macros in the custom actions schema
     val customActionsSchema = CustomActionsSchema.getInstance()
     for (actionUrl in customActionsSchema.getActions()) {
-      val newId = renamingMap.get(actionUrl.component)
+      val newId = renamingMap.get(actionUrl.componentId)
       if (newId != null) {
         actionUrl.component = newId
       }
@@ -452,17 +452,22 @@ class ActionMacroManager internal constructor(private val coroutineScope: Corout
     }
   }
 
-  private class InvokeMacroAction(private val macro: ActionMacro)
-    : AnAction(IdeBundle.message("action.invoke.macro.text")) {
+  private class InvokeMacroAction(private val macro: ActionMacro) : AnAction() {
+    init {
+      templatePresentation.setText(getActionName(), false)
+    }
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
+
+    private fun getActionName() =
+      macro.name?.takeIf { it.isNotEmpty() } ?: IdeBundle.message("action.invoke.macro.text")
 
     override fun actionPerformed(e: AnActionEvent) {
       IdeEventQueue.getInstance().doWhenReady(Runnable { getInstance().playMacro(macro) })
     }
 
     override fun update(e: AnActionEvent) {
-      e.presentation.setText(macro.name, false)
+      e.presentation.setText(getActionName(), false)
       e.presentation.setEnabled(!getInstance().isPlaying)
     }
   }

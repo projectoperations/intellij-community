@@ -3,24 +3,21 @@ package com.intellij.openapi.vcs.ui;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInsight.daemon.impl.TrafficLightRenderer;
+import com.intellij.codeInsight.daemon.impl.TrafficLightRendererContributor;
 import com.intellij.codeInsight.intention.IntentionManager;
 import com.intellij.codeInspection.ex.InspectionProfileWrapper;
 import com.intellij.ide.ui.UISettingsUtils;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionGroup;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.ActionToolbar;
-import com.intellij.openapi.actionSystem.DataProvider;
-import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SpellCheckingEditorCustomizationProvider;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.ex.EditorEx;
-import com.intellij.openapi.editor.ex.EditorMarkupModel;
 import com.intellij.openapi.editor.impl.EditorMarkupModelImpl;
+import com.intellij.openapi.editor.markup.AnalyzerStatus;
 import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
@@ -42,8 +39,8 @@ import com.intellij.util.ui.components.BorderLayoutPanel;
 import com.intellij.vcs.commit.CommitMessageUi;
 import com.intellij.vcs.commit.message.BodyLimitSettings;
 import com.intellij.vcs.commit.message.CommitMessageInspectionProfile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -61,7 +58,7 @@ import static com.intellij.util.ui.JBUI.Panels.simplePanel;
 import static com.intellij.vcs.commit.message.CommitMessageInspectionProfile.getBodyLimitSettings;
 import static javax.swing.BorderFactory.createEmptyBorder;
 
-public class CommitMessage extends JPanel implements Disposable, DataProvider, CommitMessageUi, CommitMessageI {
+public class CommitMessage extends JPanel implements Disposable, UiCompatibleDataProvider, CommitMessageUi, CommitMessageI {
   public static final Key<CommitMessage> DATA_KEY = Key.create("Vcs.CommitMessage.Panel");
   public static final Key<Supplier<Iterable<Change>>> CHANGES_SUPPLIER_KEY = Key.create("Vcs.CommitMessage.CompletionContext");
 
@@ -113,6 +110,8 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
     myEditorField = createCommitMessageEditor(project, runInspections);
     myEditorField.getDocument().putUserData(DATA_KEY, this);
     myEditorField.setPlaceholder(myMessagePlaceholder);
+    myEditorField.setShowPlaceholderWhenFocused(true);
+    myEditorField.getAccessibleContext().setAccessibleName(VcsBundle.message("commit.message.editor.accessible.name"));
 
     myLoadingPanel = new JBLoadingPanel(new BorderLayout(), this, 0);
     myLoadingPanel.add(myEditorField, BorderLayout.CENTER);
@@ -171,7 +170,7 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
   }
 
   @NotNull
-  private JComponent createToolbar(boolean horizontal) {
+  public JComponent createToolbar(boolean horizontal) {
     ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("CommitMessage", getToolbarActions(), horizontal);
     toolbar.setReservePlaceAutoPopupIcon(false);
     toolbar.getComponent().setBorder(createEmptyBorder());
@@ -180,18 +179,11 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
     return toolbar.getComponent();
   }
 
-  @Nullable
   @Override
-  public Object getData(@NotNull @NonNls String dataId) {
-    if (VcsDataKeys.COMMIT_MESSAGE_CONTROL.is(dataId)) {
-      return this;
-    }
-    if (VcsDataKeys.COMMIT_MESSAGE_DOCUMENT.is(dataId)) {
-      Editor editor = myEditorField.getEditor();
-      if (editor == null) return null;
-      return editor.getDocument();
-    }
-    return null;
+  public void uiDataSnapshot(@NotNull DataSink sink) {
+    Editor editor = myEditorField.getEditor();
+    sink.set(VcsDataKeys.COMMIT_MESSAGE_CONTROL, this);
+    sink.set(VcsDataKeys.COMMIT_MESSAGE_DOCUMENT, editor == null ? null : editor.getDocument());
   }
 
   public void setSeparatorText(@NotNull @NlsContexts.Separator String text) {
@@ -231,7 +223,11 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
 
   public static boolean isCommitMessage(@NotNull PsiElement element) {
     Document document = PsiDocumentManager.getInstance(element.getProject()).getDocument(element.getContainingFile());
-    return document != null && document.getUserData(DATA_KEY) != null;
+    return document != null && isCommitMessage(document);
+  }
+
+  public static boolean isCommitMessage(@NotNull Document document) {
+    return document.getUserData(DATA_KEY) != null;
   }
 
   @Nullable
@@ -327,12 +323,6 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
           new InspectionProfileWrapper(CommitMessageInspectionProfile.getInstance(myProject)));
       }
       editor.putUserData(IntentionManager.SHOW_INTENTION_OPTIONS_KEY, false);
-
-      EditorMarkupModel markupModel = (EditorMarkupModel)editor.getMarkupModel();
-      ModalityState modality = ModalityState.defaultModalityState();
-      TrafficLightRenderer.setTrafficLightOnEditor(myProject, markupModel, modality, () -> {
-        return new ConditionalTrafficLightRenderer(myProject, editor.getDocument());
-      });
     }
   }
 
@@ -349,6 +339,11 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
       }
     }
 
+    @Override
+    public @NotNull AnalyzerStatus getStatus() {
+      return super.getStatus().withNavigation(false);
+    }
+
     private boolean hasHighSeverities(int @NotNull [] errorCounts) {
       HighlightSeverity minSeverity = notNull(HighlightDisplayLevel.find("TYPO"), HighlightDisplayLevel.DO_NOT_SHOW).getSeverity();
 
@@ -358,6 +353,16 @@ public class CommitMessage extends JPanel implements Disposable, DataProvider, C
         }
       }
       return false;
+    }
+  }
+
+  @ApiStatus.Internal
+  public static class CommitMessageTrafficLightRendererContributor implements TrafficLightRendererContributor {
+    @Override
+    public @Nullable TrafficLightRenderer createRenderer(@NotNull Editor editor, @Nullable PsiFile file) {
+      Project project = editor.getProject();
+      if (project == null || !isCommitMessage(editor.getDocument())) return null;
+      return new ConditionalTrafficLightRenderer(project, editor.getDocument());
     }
   }
 }

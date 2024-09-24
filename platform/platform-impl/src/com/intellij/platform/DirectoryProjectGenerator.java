@@ -30,6 +30,9 @@ public interface DirectoryProjectGenerator<T> {
     return null;
   }
 
+  /**
+   * @deprecated unused
+   */
   // to be removed in 2017.3
   @Deprecated(forRemoval = true)
   default boolean isPrimaryGenerator() {
@@ -61,6 +64,13 @@ public interface DirectoryProjectGenerator<T> {
                        @NotNull VirtualFile baseDir,
                        @NotNull T settings,
                        @NotNull Module module);
+
+  /**
+   * Configure project when it's added to workspace as module.
+   */
+  default void configureModule(@NotNull Module module,
+                               @NotNull VirtualFile baseDir,
+                               @NotNull T settings) { }
 
   @NotNull
   ValidationResult validate(@NotNull String baseDirPath);

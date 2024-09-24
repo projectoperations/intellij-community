@@ -5,15 +5,13 @@ import com.intellij.codeInspection.CommonProblemDescriptor
 import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.codeInspection.QuickFix
 import com.intellij.lang.LangBundle
-import com.intellij.modcommand.ActionContext
-import com.intellij.modcommand.ModCommand
-import com.intellij.modcommand.ModCommandExecutor
+import com.intellij.modcommand.*
 import com.intellij.modcommand.ModCommandExecutor.BatchExecutionResult
-import com.intellij.modcommand.ModCommandQuickFix
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.ThrowableComputable
+import com.intellij.psi.PsiDocumentManager
 import java.util.concurrent.Callable
 
 open class PerformFixesTask(project: Project, descriptors: List<CommonProblemDescriptor>, quickFixClass: Class<*>?) :
@@ -22,6 +20,12 @@ open class PerformFixesTask(project: Project, descriptors: List<CommonProblemDes
   override fun <D : CommonProblemDescriptor> collectFix(fix: QuickFix<D>, descriptor: D, project: Project): BatchExecutionResult {
     if (fix is ModCommandQuickFix) {
       descriptor as ProblemDescriptor
+      val action = ModCommandService.getInstance().unwrap(fix)
+      val context = ActionContext.from(descriptor)
+      if (action != null && action.getPresentation(context) == null) {
+        return ModCommandExecutor.Result.NOTHING
+      }
+      PsiDocumentManager.getInstance(project).doPostponedOperationsAndUnblockDocument(context.file.fileDocument)
       val command = ProgressManager.getInstance().runProcessWithProgressSynchronously(
         ThrowableComputable<ModCommand, RuntimeException> {
             ReadAction.nonBlocking(Callable { fix.perform(myProject, descriptor) })

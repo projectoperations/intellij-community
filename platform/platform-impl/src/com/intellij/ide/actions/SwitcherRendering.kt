@@ -1,8 +1,9 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions
 
 import com.intellij.ide.IdeBundle.message
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl.OpenMode
 import com.intellij.openapi.keymap.KeymapUtil.getShortcutText
@@ -10,7 +11,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Iconable.ICON_FLAG_READ_STATUS
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.openapi.util.io.FileUtil.getLocationRelativeToUserHome
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.NaturalComparator
 import com.intellij.openapi.vfs.VirtualFile
@@ -21,15 +21,18 @@ import com.intellij.openapi.wm.impl.ToolWindowManagerImpl
 import com.intellij.problems.WolfTheProblemSolver
 import com.intellij.toolWindow.ToolWindowEventSource
 import com.intellij.ui.*
+import com.intellij.ui.paint.PaintUtil
 import com.intellij.ui.render.RenderingUtil
 import com.intellij.ui.speedSearch.SpeedSearchUtil.applySpeedSearchHighlighting
 import com.intellij.util.IconUtil
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.JBUI
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.Dimension
 import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.ListCellRenderer
@@ -38,10 +41,11 @@ private fun shortcutText(actionId: String) = ActionManager.getInstance().getKeyb
 
 private val mainTextComparator by lazy { Comparator.comparing(SwitcherListItem::mainText, NaturalComparator.INSTANCE) }
 
-interface SwitcherListItem {
+internal sealed interface SwitcherListItem {
   val mnemonic: String? get() = null
   val mainText: String
   val statusText: String get() = ""
+  val pathText: String get() = ""
   val shortcutText: String? get() = null
   val separatorAbove: Boolean get() = false
 
@@ -51,6 +55,7 @@ interface SwitcherListItem {
   fun prepareMainRenderer(component: SimpleColoredComponent, selected: Boolean)
   fun prepareExtraRenderer(component: SimpleColoredComponent, selected: Boolean) {
     shortcutText?.let {
+      @Suppress("HardCodedStringLiteral")
       component.append(it, when (selected) {
         true -> SimpleTextAttributes.REGULAR_ATTRIBUTES
         else -> SimpleTextAttributes.SHORTCUT_ATTRIBUTES
@@ -119,7 +124,7 @@ internal class SwitcherToolWindow(val window: ToolWindow, shortcut: Boolean) : S
   }
 }
 
-
+@Internal
 class SwitcherVirtualFile(
   val project: Project,
   val file: VirtualFile,
@@ -137,6 +142,8 @@ class SwitcherVirtualFile(
   override var mainText: String = ""
 
   override var statusText: String = ""
+  
+  override var pathText: String = ""
 
   override fun navigate(switcher: Switcher.SwitcherPanel, mode: OpenMode) {
   }
@@ -157,6 +164,18 @@ class SwitcherVirtualFile(
       else -> SimpleTextAttributes.STYLE_PLAIN or SimpleTextAttributes.STYLE_WAVED
     }
     component.append(mainText, SimpleTextAttributes(style, foreground, effectColor))
+    component.font?.let {
+      val fontMetrics = component.getFontMetrics(it)
+      val mainTextWidth = PaintUtil.getStringWidth(mainText, component.graphics, fontMetrics)
+      val shortcutTextWidth = shortcutText?.let { PaintUtil.getStringWidth(it, component.graphics, fontMetrics) } ?: 0
+      val width = component.width - mainTextWidth - shortcutTextWidth - component.iconTextGap - component.icon.iconWidth -
+                  component.insets.left - component.insets.right
+      if (width <= 0) return@let null
+      PaintUtil.cutContainerText(" $pathText", width, fontMetrics)?.let {
+        @Suppress("HardCodedStringLiteral")
+        component.append(it, SimpleTextAttributes.GRAYED_ATTRIBUTES)
+      }
+    }
   }
 
   override fun getElementBackground(row: Int) : Color? = backgroundColor
@@ -195,8 +214,11 @@ internal class SwitcherListRenderer(val switcher: Switcher.SwitcherPanel) : List
     }
     mnemonic.text = value.mnemonic ?: ""
     mnemonic.isVisible = value.mnemonic != null
-    value.prepareMainRenderer(main, selected)
     value.prepareExtraRenderer(extra, selected)
+    main.font = list.font
+    val splitIconWidth = ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.width
+    main.size = Dimension(list.width - extra.width - mnemonic.width - list.insets.left - list.insets.right - splitIconWidth, main.height)
+    value.prepareMainRenderer(main, selected)
     applySpeedSearchHighlighting(switcher, main, false, selected)
     panel.accessibleContext.accessibleName = value.mainText
     panel.accessibleContext.accessibleDescription = value.statusText

@@ -5,6 +5,7 @@ import com.intellij.application.options.PathMacrosCollector
 import com.intellij.configurationStore.schemeManager.createDir
 import com.intellij.configurationStore.schemeManager.getOrCreateChild
 import com.intellij.openapi.components.PathMacroSubstitutor
+import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.StateSplitterEx
 import com.intellij.openapi.components.TrackingPathMacroSubstitutor
 import com.intellij.openapi.components.impl.stores.ComponentStorageUtil
@@ -18,19 +19,23 @@ import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.platform.settings.SettingsController
 import com.intellij.util.LineSeparator
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.nio.file.*
+import java.util.*
 
+@ApiStatus.Internal
 open class DirectoryBasedStorage(
   private val dir: Path,
   @Suppress("DEPRECATION", "removal") private val splitter: com.intellij.openapi.components.StateSplitter,
-  private val pathMacroSubstitutor: PathMacroSubstitutor? = null
+  private val pathMacroSubstitutor: PathMacroSubstitutor? = null,
+  override val controller: SettingsController? = null,
 ) : StateStorageBase<StateMap>() {
   private var componentName: String? = null
-  @Volatile private var nameToLineSeparatorMap: Map<String, LineSeparator?> = emptyMap()
+  @Volatile private var nameToLineSeparatorMap: Map<String, LineSeparator?> = @Suppress("RemoveRedundantQualifierName") java.util.Map.of()
   @Volatile private var cachedVirtualFile: VirtualFile? = null
 
-  override val controller: SettingsController?
+  override val roamingType: RoamingType?
     get() = null
 
   public override fun loadData(): StateMap {
@@ -96,9 +101,11 @@ open class DirectoryBasedStorage(
       throw e.cause!!
     }
     catch (_: NoSuchFileException) {
+      @Suppress("RemoveRedundantQualifierName")
       return Pair(java.util.Map.of(), java.util.Map.of())
     }
     catch (_: NotDirectoryException) {
+      @Suppress("RemoveRedundantQualifierName")
       return Pair(java.util.Map.of(), java.util.Map.of())
     }
   }
@@ -158,8 +165,9 @@ open class DirectoryBasedStorage(
     cachedVirtualFile = dir
   }
 
-  override fun createSaveSessionProducer(): SaveSessionProducer? =
-    if (checkIsSavingDisabled()) null else DirectorySaveSessionProducer(storage = this, getStorageData())
+  override fun createSaveSessionProducer(): SaveSessionProducer? {
+    return if (checkIsSavingDisabled()) null else DirectorySaveSessionProducer(storage = this, originalStates = getStorageData())
+  }
 
   private class DirectorySaveSessionProducer(
     private val storage: DirectoryBasedStorage,
@@ -170,13 +178,16 @@ open class DirectoryBasedStorage(
     override val controller: SettingsController?
       get() = null
 
+    override val roamingType: RoamingType?
+      get() = null
+
     private val dirtyFileNames = HashSet<String>()
     private var isSomeFileRemoved = false
 
     override fun setSerializedState(componentName: String, element: Element?) {
       storage.componentName = componentName
 
-      @Suppress("removal") val stateAndFileNameList = if (JDOMUtil.isEmpty(element)) emptyList() else storage.splitter.splitState(element!!)
+      @Suppress("removal") val stateAndFileNameList = if (JDOMUtil.isEmpty(element)) Collections.emptyList() else storage.splitter.splitState(element!!)
       if (stateAndFileNameList.isEmpty()) {
         if (copiedStorageData != null) {
           copiedStorageData!!.clear()
@@ -233,7 +244,7 @@ open class DirectoryBasedStorage(
 
     override fun createSaveSession(): SaveSession? = if (storage.checkIsSavingDisabled() || copiedStorageData == null) null else this
 
-    override suspend fun save(events: MutableList<VFileEvent>?) = blockingContext { doSave(useVfs = false, events) }
+    override suspend fun save(events: MutableList<VFileEvent>?) = blockingContext { doSave(useVfs = false, events = events) }
 
     override fun saveBlocking() = doSave(useVfs = true, events = null)
 
@@ -277,7 +288,7 @@ open class DirectoryBasedStorage(
       val dir = if (useVfs) {
         var dir = storage.getVirtualFile()
         if (dir == null || !dir.exists()) {
-          dir = createDir(storage.dir, this)
+          dir = createDir(storage.dir, requestor = this)
           storage.cachedVirtualFile = dir
         }
         dir
@@ -297,7 +308,7 @@ open class DirectoryBasedStorage(
 
         try {
           if (useVfs) {
-            val file = dir!!.getOrCreateChild(fileName, this)
+            val file = dir!!.getOrCreateChild(requestor = this, fileName, directory = false)
             writeFile(cachedFile = null, requestor = this, file, dataWriter, getOrDetectLineSeparator(file), prependXmlProlog = false)
           }
           else {
@@ -335,10 +346,10 @@ open class DirectoryBasedStorage(
       val dir = storage.getVirtualFile()
 
       if (useVfs) {
-        val dir = storage.getVirtualFile()
         if (dir == null || !dir.exists()) {
           return
         }
+
         for (file in dir.children) {
           val fileName = file.name
           if (fileName.endsWith(ComponentStorageUtil.DEFAULT_EXT) && !copiedStorageData.containsKey(fileName)) {
@@ -355,7 +366,7 @@ open class DirectoryBasedStorage(
           if (fileName.endsWith(ComponentStorageUtil.DEFAULT_EXT) && !copiedStorageData.containsKey(fileName)) {
             Files.deleteIfExists(file)
             if (events != null) {
-              dir?.findChild(fileName)?.let { events += VFileDeleteEvent(/*requestor =*/ this, it) }
+              dir?.findChild(fileName)?.let { events.add(VFileDeleteEvent(/*requestor =*/ this, it)) }
             }
           }
         }
@@ -367,7 +378,7 @@ open class DirectoryBasedStorage(
     storageDataRef.set(newStates)
   }
 
-  override fun toString(): String = "${javaClass.simpleName}(dir=${dir}, componentName=${componentName})"
+  override fun toString(): String = "${javaClass.simpleName}(dir=$dir, componentName=$componentName)"
 }
 
 internal interface DirectoryBasedSaveSessionProducer : SaveSessionProducer {

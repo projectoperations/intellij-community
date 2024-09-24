@@ -6,8 +6,7 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.tree.TokenSet
-import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.config.AnalysisFlags
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.config.LanguageVersionSettings
@@ -19,9 +18,9 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.nj2k.symbols.JKMethodSymbol
 import org.jetbrains.kotlin.nj2k.symbols.JKSymbol
-import org.jetbrains.kotlin.nj2k.symbols.JKUnresolvedMethod
 import org.jetbrains.kotlin.nj2k.tree.*
 import org.jetbrains.kotlin.nj2k.tree.JKClass.ClassKind.INTERFACE
+import org.jetbrains.kotlin.nj2k.tree.JKLiteralExpression.LiteralType
 import org.jetbrains.kotlin.nj2k.types.JKNoType
 import org.jetbrains.kotlin.nj2k.types.JKType
 import org.jetbrains.kotlin.nj2k.types.JKTypeFactory
@@ -42,7 +41,7 @@ private val equalsOperators: TokenSet =
         KtTokens.EXCLEQ
     )
 
-context(KtAnalysisSession)
+context(KaSession)
 fun untilToExpression(
     from: JKExpression,
     to: JKExpression,
@@ -58,7 +57,7 @@ fun untilToExpression(
     )
 }
 
-context(KtAnalysisSession)
+context(KaSession)
 fun downToExpression(
     from: JKExpression,
     to: JKExpression,
@@ -80,10 +79,10 @@ fun JKExpression.parenthesize(): JKParenthesizedExpression = JKParenthesizedExpr
 
 fun JKBinaryExpression.parenthesizedWithFormatting(): JKParenthesizedExpression =
     JKParenthesizedExpression(
-        JKBinaryExpression(::left.detached(), ::right.detached(), operator).withFormattingFrom(this)
-    )
+        JKBinaryExpression(::left.detached(), ::right.detached(), operator)
+    ).withFormattingFrom(this)
 
-context(KtAnalysisSession)
+context(KaSession)
 fun rangeExpression(
     from: JKExpression,
     to: JKExpression,
@@ -114,14 +113,15 @@ fun useExpression(
     val useSymbol = symbolProvider.provideMethodSymbol("kotlin.io.use")
     val lambdaParameter = if (variableIdentifier != null) JKParameter(JKTypeElement(JKNoType), variableIdentifier) else null
     val lambda = JKLambdaExpression(body, listOfNotNull(lambdaParameter))
-    val methodCall = JKCallExpressionImpl(useSymbol, listOf(lambda).toArgumentList())
+    val methodCall = JKCallExpressionImpl(useSymbol, listOf(lambda).toArgumentList(), canMoveLambdaOutsideParentheses = true)
     return JKQualifiedExpression(receiver, methodCall)
 }
 
 fun kotlinAssert(assertion: JKExpression, message: JKExpression?, symbolProvider: JKSymbolProvider): JKCallExpressionImpl =
     JKCallExpressionImpl(
         symbolProvider.provideMethodSymbol("kotlin.assert"),
-        listOfNotNull(assertion, message).toArgumentList()
+        listOfNotNull(assertion, message).toArgumentList(),
+        canMoveLambdaOutsideParentheses = true
     )
 
 fun jvmAnnotation(name: String, symbolProvider: JKSymbolProvider): JKAnnotation =
@@ -142,22 +142,17 @@ fun throwsAnnotation(throws: List<JKType>, symbolProvider: JKSymbolProvider): JK
 fun JKAnnotationList.annotationByFqName(fqName: String): JKAnnotation? =
     annotations.firstOrNull { it.classSymbol.fqName == fqName }
 
-fun stringLiteral(content: String, typeFactory: JKTypeFactory): JKExpression {
-    val lines = content.split('\n')
-    return lines.mapIndexed { i, line ->
-        val newlineSeparator = if (i == lines.size - 1) "" else "\\n"
-        JKLiteralExpression("\"$line$newlineSeparator\"", JKLiteralExpression.LiteralType.STRING)
-    }.reduce { acc: JKExpression, literalExpression: JKLiteralExpression ->
-        JKBinaryExpression(acc, literalExpression, JKKtOperatorImpl(JKOperatorToken.PLUS, typeFactory.types.string))
-    }
+fun annotationArgumentStringLiteral(content: String): JKExpression {
+    val string = if (content.contains("\n")) "\n\"\"\"$content\"\"\"" else "\"$content\""
+    return JKLiteralExpression(string, LiteralType.STRING)
 }
 
-context(KtAnalysisSession)
+context(KaSession)
 fun JKVariable.findUsages(scope: JKTreeElement, context: NewJ2kConverterContext): List<JKFieldAccessExpression> {
     val symbol = context.symbolProvider.provideUniverseSymbol(this)
     val usages = mutableListOf<JKFieldAccessExpression>()
     val searcher = object : RecursiveConversion(context) {
-        context(KtAnalysisSession)
+        context(KaSession)
         override fun applyToElement(element: JKTreeElement): JKTreeElement {
             if (element is JKExpression) {
                 element.unboxFieldReference()?.also {
@@ -188,25 +183,15 @@ fun JKExpression.unboxFieldReference(): JKFieldAccessExpression? = when {
     else -> null
 }
 
-fun JKFieldAccessExpression.asAssignmentFromTarget(): JKKtAssignmentStatement? =
-    parent.safeAs<JKKtAssignmentStatement>()?.takeIf { it.field == this }
-
 fun JKFieldAccessExpression.isInDecrementOrIncrement(): Boolean =
     when (parent.safeAs<JKUnaryExpression>()?.operator?.token) {
         JKOperatorToken.PLUSPLUS, JKOperatorToken.MINUSMINUS -> true
         else -> false
     }
 
-context(KtAnalysisSession)
+context(KaSession)
 fun JKVariable.hasUsages(scope: JKTreeElement, context: NewJ2kConverterContext): Boolean =
     findUsages(scope, context).isNotEmpty()
-
-context(KtAnalysisSession)
-fun JKVariable.hasWritableUsages(scope: JKTreeElement, context: NewJ2kConverterContext): Boolean =
-    findUsages(scope, context).any {
-        it.asAssignmentFromTarget() != null
-                || it.isInDecrementOrIncrement()
-    }
 
 fun equalsExpression(left: JKExpression, right: JKExpression, typeFactory: JKTypeFactory) =
     JKBinaryExpression(
@@ -241,7 +226,11 @@ fun JKClass.getOrCreateCompanionObject(): JKClass =
 
 fun runExpression(body: JKStatement, symbolProvider: JKSymbolProvider): JKExpression {
     val lambda = JKLambdaExpression(body)
-    return JKCallExpressionImpl(symbolProvider.provideMethodSymbol("kotlin.run"), JKArgumentList(lambda))
+    return JKCallExpressionImpl(
+        symbolProvider.provideMethodSymbol("kotlin.run"),
+        JKArgumentList(lambda),
+        canMoveLambdaOutsideParentheses = true
+    )
 }
 
 fun assignmentStatement(target: JKVariable, expression: JKExpression, symbolProvider: JKSymbolProvider): JKKtAssignmentStatement =
@@ -326,13 +315,15 @@ fun JKExpression.qualified(qualifier: JKExpression?) =
 fun JKExpression.callOn(
     symbol: JKMethodSymbol,
     arguments: List<JKExpression> = emptyList(),
-    typeArguments: List<JKTypeElement> = emptyList()
-) = JKQualifiedExpression(
+    typeArguments: List<JKTypeElement> = emptyList(),
+    canMoveLambdaOutsideParentheses: Boolean = false
+): JKQualifiedExpression = JKQualifiedExpression(
     this,
     JKCallExpressionImpl(
         symbol,
         JKArgumentList(arguments.map { JKArgumentImpl(it) }),
-        JKTypeArgumentList(typeArguments)
+        JKTypeArgumentList(typeArguments),
+        canMoveLambdaOutsideParentheses = canMoveLambdaOutsideParentheses
     )
 )
 
@@ -348,7 +339,7 @@ val JKElement.psi: PsiElement?
 inline fun <reified Elem : PsiElement> JKElement.psi(): Elem? =
     (this as? PsiOwner)?.psi as? Elem
 
-fun JKTypeElement.present(): Boolean = type != JKNoType
+fun JKTypeElement.isPresent(): Boolean = type != JKNoType
 
 fun JKStatement.isEmpty(): Boolean = when (this) {
     is JKEmptyStatement -> true
@@ -357,7 +348,7 @@ fun JKStatement.isEmpty(): Boolean = when (this) {
     else -> false
 }
 
-fun JKInheritanceInfo.present(): Boolean =
+fun JKInheritanceInfo.isPresent(): Boolean =
     extends.isNotEmpty() || implements.isNotEmpty()
 
 fun JKInheritanceInfo.supertypeCount(): Int =
@@ -412,3 +403,38 @@ private val COMPILER_VERSION_WITH_RANGEUNTIL_SUPPORT = IdeKotlinVersion.get("1.7
 
 val JKAnnotationListOwner.hasAnnotations: Boolean
     get() = annotationList.annotations.isNotEmpty()
+
+/**
+ * For example, return false for expression like `1 + \n 2` and true for one like `5 + 3 \n -2`
+ */
+internal fun JKBinaryExpression.recursivelyContainsNewlineBeforeOperator(): Boolean {
+    fun JKExpression.recursivelyEndsWithNewline(): Boolean {
+        if (hasLineBreakAfter) return true
+        val lastChild = children.lastOrNull()?.safeAs<JKExpression>() ?: return false
+        return lastChild.recursivelyEndsWithNewline()
+    }
+
+    val operator = operator.token.text
+    if (operator == "&&" || operator == "||") {
+        // && and || actually can start on a new line in Kotlin, unlike other operators
+        return false
+    }
+
+    val left = this.left
+    val right = this.right
+    if (left.recursivelyEndsWithNewline()) {
+        return true
+    }
+    if (left is JKBinaryExpression && left.recursivelyContainsNewlineBeforeOperator()) return true
+    if (right is JKBinaryExpression && right.recursivelyContainsNewlineBeforeOperator()) return true
+    return false
+}
+
+fun JKExpression.isAtomic(): Boolean {
+    return this is JKQualifiedExpression ||
+            this is JKKtWhenExpression ||
+            this is JKCallExpression ||
+            this is JKFieldAccessExpression ||
+            this is JKLiteralExpression ||
+            this is JKParenthesizedExpression
+}

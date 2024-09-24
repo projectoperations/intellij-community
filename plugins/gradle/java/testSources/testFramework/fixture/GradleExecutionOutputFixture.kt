@@ -4,10 +4,9 @@ package org.jetbrains.plugins.gradle.testFramework.fixture
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationEvent
-import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListenerAdapter
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import com.intellij.openapi.externalSystem.model.task.event.ExternalSystemTaskExecutionEvent
 import com.intellij.openapi.externalSystem.model.task.event.TestOperationDescriptor
-import com.intellij.openapi.externalSystem.model.task.event.TestOperationDescriptorImpl
 import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -74,7 +73,7 @@ class GradleExecutionOutputFixture(
   }
 
   private fun installGradleEventsListener() {
-    val listener = object : ExternalSystemTaskNotificationListenerAdapter() {
+    val listener = object : ExternalSystemTaskNotificationListener {
 
       override fun onStart(id: ExternalSystemTaskId, workingDir: String?) {
         output = Output()
@@ -102,7 +101,7 @@ class GradleExecutionOutputFixture(
     val descriptor = executionEvent.progressEvent.descriptor as? TestOperationDescriptor ?: return null
     val className = descriptor.className ?: ""
     val methodName = descriptor.methodName?.removeSuffix("()") ?: ""
-    return TestOperationDescriptorImpl("", -1, "", className, methodName)
+    return TestOperationDescriptor("", -1, "", className, methodName)
   }
 
   private fun extractTestOperationDescriptors(text: String): List<TestOperationDescriptor> {
@@ -124,7 +123,7 @@ class GradleExecutionOutputFixture(
                        ?.let { StringUtil.substringBefore(it, "' displayName='") }
                        ?.removeSuffix("()")
                      ?: return null
-    return TestOperationDescriptorImpl("", -1, "", className, methodName)
+    return TestOperationDescriptor("", -1, "", className, methodName)
   }
 
   private class Output {

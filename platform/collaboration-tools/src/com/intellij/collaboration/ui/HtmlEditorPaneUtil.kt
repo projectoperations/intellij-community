@@ -80,6 +80,7 @@ fun JEditorPane.setHtmlBody(@Language("HTML") body: String) {
     @Suppress("HardCodedStringLiteral")
     text = "<html><body>$body</body></html>"
   }
+  // JDK bug JBR-2256 - need to force height recalculation
   setSize(Int.MAX_VALUE / 2, Int.MAX_VALUE / 2)
 }
 
@@ -161,6 +162,8 @@ private object InlineIconExtension : ExtendableHTMLViewFactory.Extension {
   }
 }
 
+// TODO - merge with FitToWidthImageViewExtension, Base64ImagesExtension and HiDpiImagesExtension,
+//        deprecate HtmlEditorPaneUtil
 private object ScalingImageExtension : ExtendableHTMLViewFactory.Extension {
   override fun invoke(elem: Element, view: View): View {
     if (view is ImageView) {

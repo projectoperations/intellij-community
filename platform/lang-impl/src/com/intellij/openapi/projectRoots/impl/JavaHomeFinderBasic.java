@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.projectRoots.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -14,6 +14,7 @@ import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,6 +27,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+@ApiStatus.Internal
 public class JavaHomeFinderBasic {
   @SuppressWarnings("NonConstantLogger") private final Logger log = Logger.getInstance(getClass());
   private final List<Supplier<? extends Set<String>>> myFinders = new ArrayList<>();
@@ -49,7 +51,7 @@ public class JavaHomeFinderBasic {
     myFinders.add(this::findJavaInstalledBySdkMan);
     myFinders.add(this::findJavaInstalledByAsdfJava);
     myFinders.add(this::findJavaInstalledByGradle);
-    myFinders.add(this::findJavaInstalledByRTX);
+    myFinders.add(this::findJavaInstalledByMise);
 
     myFinders.add(
       () -> myCheckEmbeddedJava ? scanAll(getJavaHome(), false) : Collections.emptySet()
@@ -93,8 +95,7 @@ public class JavaHomeFinderBasic {
     myFinders.add(finder);
   }
 
-  @NotNull
-  public final Set<String> findExistingJdks() {
+  public final @NotNull Set<String> findExistingJdks() {
     Set<String> result = new TreeSet<>();
 
     for (Supplier<? extends Set<String>> action : myFinders) {
@@ -159,7 +160,7 @@ public class JavaHomeFinderBasic {
     }
 
     if (myCheckUsedInstallDirs) {
-      paths.addAll(JdkInstallerStore.getInstance().listJdkInstallHomes());
+      paths.addAll(JdkInstallerStore.Companion.getInstance().listJdkInstallHomes());
     }
 
     if (myCheckConfiguredJdks) {
@@ -205,7 +206,8 @@ public class JavaHomeFinderBasic {
     try (Stream<Path> files = Files.list(folder)) {
       files.forEach(candidate -> {
         for (Path adjusted : listPossibleJdkHomesFromInstallRoot(candidate)) {
-          scanFolder(adjusted, false, result);
+          try { scanFolder(adjusted, false, result); }
+          catch (IllegalStateException ignored) {}
         }
       });
     }
@@ -213,8 +215,7 @@ public class JavaHomeFinderBasic {
     }
   }
 
-  @NotNull
-  protected List<Path> listPossibleJdkHomesFromInstallRoot(@NotNull Path path) {
+  protected @NotNull List<Path> listPossibleJdkHomesFromInstallRoot(@NotNull Path path) {
     return Collections.singletonList(path);
   }
 
@@ -228,7 +229,7 @@ public class JavaHomeFinderBasic {
   }
 
   /**
-   * Finds Java home directories installed by <a href="https://github.com/sdkman">SDKMAN</a>
+   * Finds Java home directories installed by <a href="https://github.com/sdkman">SDKMAN</a>.
    */
   private @NotNull Set<@NotNull String> findJavaInstalledBySdkMan() {
     try {
@@ -251,7 +252,10 @@ public class JavaHomeFinderBasic {
     return jdks != null && Files.isDirectory(jdks) ? scanAll(jdks, true) : Collections.emptySet();
   }
 
-  private @NotNull Set<String> findJavaInstalledByRTX() {
+  /**
+   * Finds Java home directory installed by <a href="https://mise.jdx.dev/lang/java.html">mise</a>.
+   */
+  private @NotNull Set<String> findJavaInstalledByMise() {
     Path jdks = getPathInUserHome(".local/share/mise/installs/java/");
     if (jdks == null || !Files.isDirectory(jdks)) return Collections.emptySet();
     return scanAll(jdks, true).stream()
@@ -259,8 +263,7 @@ public class JavaHomeFinderBasic {
       .collect(Collectors.toSet());
   }
 
-  @Nullable
-  private Path findSdkManCandidatesDir() {
+  private @Nullable Path findSdkManCandidatesDir() {
     // first, try the special environment variable
     String candidatesPath = mySystemInfo.getEnvironmentVariable("SDKMAN_CANDIDATES_DIR");
     if (candidatesPath != null) {
@@ -304,8 +307,8 @@ public class JavaHomeFinderBasic {
       List<Path> innerDirectories = stream.filter(d -> Files.isDirectory(d)).toList();
       for (Path innerDir : innerDirectories) {
         var home = innerDir;
+        if (!JdkUtil.checkForJdk(home)) continue;
         var releaseFile = home.resolve("release");
-        if (!safeExists(releaseFile)) continue;
 
         if (mac) {
           // Zulu JDK on macOS has a rogue layout, with which Gradle failed to operate (see the bugreport IDEA-253051),
@@ -356,7 +359,7 @@ public class JavaHomeFinderBasic {
 
 
   /**
-   * Finds Java home directories installed by <a href="https://github.com/halcyon/asdf-java">asdf-java</a>
+   * Finds Java home directories installed by <a href="https://github.com/halcyon/asdf-java">asdf-java</a>.
    */
   private @NotNull Set<String> findJavaInstalledByAsdfJava() {
     Path installsDir = findAsdfInstallsDir();
@@ -365,8 +368,7 @@ public class JavaHomeFinderBasic {
     return safeIsDirectory(javasDir) ? scanAll(javasDir, true) : Collections.emptySet();
   }
 
-  @Nullable
-  private Path findAsdfInstallsDir() {
+  private @Nullable Path findAsdfInstallsDir() {
     // try to use environment variable for custom data directory
     // https://asdf-vm.com/#/core-configuration?id=environment-variables
     String dataDir = mySystemInfo.getEnvironmentVariable("ASDF_DATA_DIR");

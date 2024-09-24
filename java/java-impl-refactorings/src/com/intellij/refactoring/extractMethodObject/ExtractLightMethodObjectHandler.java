@@ -1,11 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.refactoring.extractMethodObject;
 
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
-import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
@@ -31,17 +30,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 
 public final class ExtractLightMethodObjectHandler {
-  /**
-   * @deprecated use LightMethodObjectExtractedData.REFERENCE_METHOD instead
-   */
-  @Deprecated(forRemoval = true)
-  public static final Key<PsiMethod> REFERENCE_METHOD = LightMethodObjectExtractedData.REFERENCE_METHOD;
-  /**
-   * @deprecated use LightMethodObjectExtractedData.REFERENCED_TYPE instead
-   */
-  @Deprecated(forRemoval = true)
-  public static final Key<PsiType> REFERENCED_TYPE = LightMethodObjectExtractedData.REFERENCED_TYPE;
-
   private static final Logger LOG = Logger.getInstance(ExtractLightMethodObjectHandler.class);
 
   @Nullable
@@ -285,6 +273,7 @@ public final class ExtractLightMethodObjectHandler {
             result[0] = expression;
           }
         }
+        super.visitMethodCallExpression(expression);
       }
     });
     return result[0];

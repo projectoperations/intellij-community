@@ -4,6 +4,7 @@ package com.intellij.openapi.roots.impl;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -14,7 +15,7 @@ import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileKind;
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSet;
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetWithCustomData;
 import com.intellij.workspaceModel.core.fileIndex.impl.*;
-import com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots.SourceRootTypeRegistry;
+import com.intellij.workspaceModel.ide.legacyBridge.SourceRootTypeRegistry;
 import kotlin.Pair;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -42,6 +43,7 @@ public class ProjectFileIndexImpl extends FileIndexBase implements ProjectFileIn
       Set<VirtualFile> allRecursiveRoots = new LinkedHashSet<>();
       List<VirtualFile> allNonRecursiveRoots = new ArrayList<>();
       myWorkspaceFileIndex.visitFileSets(fileSet -> {
+        ProgressManager.checkCanceled();
         if (fileSet.getKind().isContent()) {
           VirtualFile root = fileSet.getRoot();
           if (fileSet instanceof WorkspaceFileSetImpl && !((WorkspaceFileSetImpl)fileSet).getRecursive()) {
@@ -121,7 +123,7 @@ public class ProjectFileIndexImpl extends FileIndexBase implements ProjectFileIn
       myWorkspaceFileIndex.findFileSetWithCustomData(file, true, true, false, false, false, ModuleSourceRootData.class);
     if (fileSet == null) return null;
 
-    return SourceRootTypeRegistry.getInstance().findTypeById(fileSet.getData().getRootType());
+    return SourceRootTypeRegistry.getInstance().findTypeById(fileSet.getData().getRootTypeId());
   }
 
   @Override
@@ -197,7 +199,7 @@ public class ProjectFileIndexImpl extends FileIndexBase implements ProjectFileIn
     return fileSet != null;
   }
 
-  // a slightly faster implementation then the default one
+  // a slightly faster implementation than the default one
   @Override
   public boolean isInLibrary(@NotNull VirtualFile fileOrDir) {
     WorkspaceFileSet fileSet = myWorkspaceFileIndex.findFileSet(fileOrDir, true, false, true, true, false);
@@ -241,7 +243,7 @@ public class ProjectFileIndexImpl extends FileIndexBase implements ProjectFileIn
 
   static boolean isSourceRootOfType(@Nullable WorkspaceFileSetWithCustomData<ModuleSourceRootData> fileSet, @NotNull Set<? extends JpsModuleSourceRootType<?>> rootTypes) {
     if (fileSet == null) return false;
-    JpsModuleSourceRootType<?> type = SourceRootTypeRegistry.getInstance().findTypeById(fileSet.getData().getRootType());
+    JpsModuleSourceRootType<?> type = SourceRootTypeRegistry.getInstance().findTypeById(fileSet.getData().getRootTypeId());
     return type != null && rootTypes.contains(type);
   }
 

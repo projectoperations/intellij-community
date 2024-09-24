@@ -2,19 +2,36 @@
 package org.jetbrains.kotlin.idea.base.scripting.projectStructure
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.OrderEnumerator
+import com.intellij.openapi.roots.impl.libraries.LibraryEx
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.backend.workspace.WorkspaceModel
+import com.intellij.platform.backend.workspace.toVirtualFileUrl
+import com.intellij.platform.workspace.jps.entities.LibraryDependency
+import com.intellij.platform.workspace.jps.entities.LibraryId
+import com.intellij.platform.workspace.jps.entities.ModuleEntity
+import com.intellij.platform.workspace.storage.EntityStorage
+import com.intellij.platform.workspace.storage.WorkspaceEntity
+import com.intellij.platform.workspace.storage.impl.cache.cache
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.workspaceModel.ide.impl.legacyBridge.library.ProjectLibraryTableBridgeImpl.Companion.libraryMap
+import com.intellij.workspaceModel.ide.impl.legacyBridge.module.findModule
+import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import org.jetbrains.kotlin.config.LanguageVersionSettings
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider
 import org.jetbrains.kotlin.idea.base.projectStructure.KotlinBaseProjectStructureBundle
+import org.jetbrains.kotlin.idea.base.projectStructure.KotlinResolveScopeEnlarger
 import org.jetbrains.kotlin.idea.base.projectStructure.LibraryInfoCache
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.IdeaModuleInfo
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.LanguageSettingsOwner
+import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.LibraryInfo
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.ModuleOrigin
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.SdkInfo
 import org.jetbrains.kotlin.idea.base.projectStructure.sourceModuleInfos
 import org.jetbrains.kotlin.idea.base.scripting.getLanguageVersionSettings
 import org.jetbrains.kotlin.idea.base.scripting.getPlatform
 import org.jetbrains.kotlin.idea.base.scripting.getTargetPlatformVersion
+import org.jetbrains.kotlin.idea.core.script.ScriptDependencyAware
 import org.jetbrains.kotlin.idea.core.script.dependencies.KotlinScriptSearchScope
 import org.jetbrains.kotlin.idea.core.script.dependencies.ScriptAdditionalIdeaDependenciesProvider
 import org.jetbrains.kotlin.name.Name
@@ -32,34 +49,71 @@ data class ScriptModuleInfo(
     override val moduleOrigin: ModuleOrigin
         get() = ModuleOrigin.OTHER
 
-    override val name: Name = Name.special("<script ${scriptFile.name} ${scriptDefinition.name}>")
+    override val name: Name
+        get() = Name.special("<script ${scriptFile.name} ${scriptDefinition.name}>")
 
     override val displayedName: String
         get() = KotlinBaseProjectStructureBundle.message("script.0.1", scriptFile.presentableName, scriptDefinition.name)
 
-    override val contentScope
-        get() = GlobalSearchScope.fileScope(project, scriptFile)
+    private val _contentScope: GlobalSearchScope by lazy {
+        val basicScriptScope = GlobalSearchScope.fileScope(project, scriptFile)
+
+        if (KotlinPluginModeProvider.isK1Mode()) {
+            basicScriptScope
+        } else {
+            val snapshot = WorkspaceModel.getInstance(project).currentSnapshot
+
+            scriptFile.workspaceEntities(project, snapshot).filterIsInstance<ModuleEntity>().firstOrNull()
+                ?.let<ModuleEntity, GlobalSearchScope?> {
+                    it.findModule(snapshot)?.let<ModuleBridge, GlobalSearchScope> { module ->
+                        val scope = KotlinResolveScopeEnlarger.enlargeScope(
+                            module.getModuleWithDependenciesAndLibrariesScope(false),
+                            module,
+                            isTestScope = false
+                        )
+                        basicScriptScope.union(scope)
+                    }
+                } ?: GlobalSearchScope.EMPTY_SCOPE
+        }
+    }
+
+    override val contentScope: GlobalSearchScope
+        get() = _contentScope
 
     override val moduleContentScope: GlobalSearchScope
         get() = KotlinScriptSearchScope(project, contentScope)
 
-    override fun dependencies(): List<IdeaModuleInfo> = mutableSetOf<IdeaModuleInfo>(this).apply {
-        val scriptDependentModules = ScriptAdditionalIdeaDependenciesProvider.getRelatedModules(scriptFile, project)
-        scriptDependentModules.forEach {
-            addAll(it.sourceModuleInfos)
-        }
+    private val _dependencies: List<IdeaModuleInfo> by lazy {
+        mutableSetOf<IdeaModuleInfo>(this).apply {
+            if (KotlinPluginModeProvider.isK1Mode()) {
+                val scriptDependentModules = ScriptAdditionalIdeaDependenciesProvider.getRelatedModules(scriptFile, project)
+                scriptDependentModules.forEach {
+                    addAll(it.sourceModuleInfos)
+                }
 
-        val scriptDependentLibraries = ScriptAdditionalIdeaDependenciesProvider.getRelatedLibraries(scriptFile, project)
-        val libraryInfoCache = LibraryInfoCache.getInstance(project)
-        scriptDependentLibraries.forEach {
-            addAll(libraryInfoCache[it])
-        }
+                val scriptDependentLibraries = ScriptAdditionalIdeaDependenciesProvider.getRelatedLibraries(scriptFile, project)
+                val libraryInfoCache = LibraryInfoCache.getInstance(project)
+                scriptDependentLibraries.forEach {
+                    addAll(libraryInfoCache[it])
+                }
 
-        val dependenciesInfo = ScriptDependenciesInfo.ForFile(project, scriptFile, scriptDefinition)
-        add(dependenciesInfo)
+                val dependenciesInfo = ScriptDependenciesInfo.ForFile(project, scriptFile, scriptDefinition)
+                add(dependenciesInfo)
+            } else {
+                val scriptDependentModules = ScriptAdditionalIdeaDependenciesProvider.getRelatedModules(scriptFile, project)
+                scriptDependentModules.forEach {
+                    addAll(it.sourceModuleInfos)
+                }
 
-        dependenciesInfo.sdk?.let { add(SdkInfo(project, it)) }
-    }.toList()
+                scriptFile.scriptLibraryDependencies(project).forEach(::add)
+            }
+
+            val sdk = ScriptDependencyAware.getInstance(project).getScriptSdk(scriptFile)
+            sdk?.let { add(SdkInfo(project, it)) }
+        }.toList()
+    }
+
+    override fun dependencies(): List<IdeaModuleInfo> = _dependencies
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -88,4 +142,31 @@ data class ScriptModuleInfo(
 
     override val targetPlatformVersion: TargetPlatformVersion
         get() = getTargetPlatformVersion(project, scriptFile, scriptDefinition)
+}
+
+internal fun VirtualFile.workspaceEntities(project: Project, snapshot: EntityStorage): Sequence<WorkspaceEntity> {
+    val virtualFileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
+    val virtualFileUrl = toVirtualFileUrl(virtualFileUrlManager)
+    return snapshot.getVirtualFileUrlIndex().findEntitiesByUrl(virtualFileUrl)
+}
+
+internal fun VirtualFile.scriptModuleEntity(project: Project, snapshot: EntityStorage): ModuleEntity? {
+    val virtualFileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
+    val virtualFileUrl = toVirtualFileUrl(virtualFileUrlManager)
+    return snapshot.getVirtualFileUrlIndex().findEntitiesByUrl(virtualFileUrl).firstNotNullOfOrNull { it as? ModuleEntity }
+}
+
+fun VirtualFile.scriptLibraryDependencies(project: Project): Sequence<LibraryInfo> {
+    val storage = WorkspaceModel.getInstance(project).currentSnapshot
+    val cache = LibraryInfoCache.getInstance(project)
+
+    val dependencies = scriptModuleEntity(project, storage)?.dependencies ?: emptyList()
+    return dependencies.asSequence()
+        .mapNotNull {
+            (it as? LibraryDependency)?.library?.resolve(storage)
+        }.mapNotNull {
+            storage.libraryMap.getDataByEntity(it)
+        }.flatMap {
+            cache[it]
+        }
 }

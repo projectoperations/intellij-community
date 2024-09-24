@@ -2,9 +2,12 @@
 package org.jetbrains.kotlin.tools.projectWizard.maven
 
 import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleCodeChanged
-import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleOnboardingTipsChangedEvent
+import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleCodeFinished
+import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleOnboardingTipsChanged
+import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logAddSampleOnboardingTipsFinished
 import com.intellij.ide.projectWizard.NewProjectWizardConstants.BuildSystem.MAVEN
-import com.intellij.ide.projectWizard.generators.AssetsJavaNewProjectWizardStep
+import com.intellij.ide.projectWizard.generators.AssetsNewProjectWizardStep
+import com.intellij.ide.projectWizard.generators.AssetsOnboardingTips.proposeToGenerateOnboardingTipsByDefault
 import com.intellij.ide.starters.local.StandardAssetsProvider
 import com.intellij.ide.wizard.NewProjectWizardChainStep.Companion.nextStep
 import com.intellij.ide.wizard.NewProjectWizardStep
@@ -17,7 +20,6 @@ import com.intellij.ui.UIBundle
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.whenStateChangedFromUi
-import com.intellij.util.io.createDirectories
 import org.jetbrains.idea.maven.wizards.MavenNewProjectWizardStep
 import org.jetbrains.kotlin.tools.projectWizard.BuildSystemKotlinNewProjectWizard
 import org.jetbrains.kotlin.tools.projectWizard.BuildSystemKotlinNewProjectWizard.Companion.DEFAULT_KOTLIN_VERSION
@@ -29,9 +31,9 @@ import org.jetbrains.kotlin.tools.projectWizard.BuildSystemKotlinNewProjectWizar
 import org.jetbrains.kotlin.tools.projectWizard.KotlinNewProjectWizard
 import org.jetbrains.kotlin.tools.projectWizard.KotlinNewProjectWizard.Companion.getKotlinWizardVersion
 import org.jetbrains.kotlin.tools.projectWizard.addMultiPlatformLink
-import org.jetbrains.kotlin.tools.projectWizard.wizard.AssetsKotlinNewProjectWizardStep
 import org.jetbrains.kotlin.tools.projectWizard.wizard.NewProjectWizardModuleBuilder
-import java.nio.file.Path
+import org.jetbrains.kotlin.tools.projectWizard.wizard.prepareKotlinSampleOnboardingTips
+import org.jetbrains.kotlin.tools.projectWizard.wizard.withKotlinSampleCode
 
 internal class MavenKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizard {
 
@@ -58,7 +60,7 @@ internal class MavenKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizard {
 
         override var addSampleCode by addSampleCodeProperty
 
-        override val generateOnboardingTipsProperty = propertyGraph.property(AssetsJavaNewProjectWizardStep.proposeToGenerateOnboardingTipsByDefault())
+        override val generateOnboardingTipsProperty = propertyGraph.property(proposeToGenerateOnboardingTipsByDefault())
             .bindBooleanStorage(NewProjectWizardStep.GENERATE_ONBOARDING_TIPS_NAME)
 
         override var generateOnboardingTips by generateOnboardingTipsProperty
@@ -68,6 +70,7 @@ internal class MavenKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizard {
                 checkBox(UIBundle.message("label.project.wizard.new.project.add.sample.code"))
                     .bindSelected(addSampleCodeProperty)
                     .whenStateChangedFromUi { logAddSampleCodeChanged(it) }
+                    .onApply { logAddSampleCodeFinished(addSampleCode) }
             }
         }
 
@@ -76,7 +79,8 @@ internal class MavenKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizard {
                 row {
                     checkBox(UIBundle.message("label.project.wizard.new.project.generate.onboarding.tips"))
                         .bindSelected(generateOnboardingTipsProperty)
-                        .whenStateChangedFromUi { logAddSampleOnboardingTipsChangedEvent(it) }
+                        .whenStateChangedFromUi { logAddSampleOnboardingTipsChanged(it) }
+                        .onApply { logAddSampleOnboardingTipsFinished(generateOnboardingTips) }
                 }
             }.enabledIf(addSampleCodeProperty)
         }
@@ -126,37 +130,23 @@ internal class MavenKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizard {
         }
     }
 
-    private class AssetsStep(private val parent: Step) : AssetsKotlinNewProjectWizardStep(parent) {
-
-        private fun shouldAddOnboardingTips(): Boolean = parent.addSampleCode && parent.generateOnboardingTips
-
+    private class AssetsStep(private val parent: Step) : AssetsNewProjectWizardStep(parent) {
         override fun setupAssets(project: Project) {
             if (context.isCreatingNewProject) {
                 addAssets(StandardAssetsProvider().getMavenIgnoreAssets())
             }
-            createKotlinContentRoots()
+
+            addEmptyDirectoryAsset(SRC_MAIN_KOTLIN_PATH)
+            addEmptyDirectoryAsset(SRC_MAIN_RESOURCES_PATH)
+            addEmptyDirectoryAsset(SRC_TEST_KOTLIN_PATH)
+            addEmptyDirectoryAsset(SRC_TEST_RESOURCES_PATH)
+
             if (parent.addSampleCode) {
-                withKotlinSampleCode(SRC_MAIN_KOTLIN_PATH, parent.groupId, shouldAddOnboardingTips(), shouldOpenFile = false)
+                if (parent.generateOnboardingTips) {
+                    prepareKotlinSampleOnboardingTips(project)
+                }
+                withKotlinSampleCode(SRC_MAIN_KOTLIN_PATH, parent.groupId, parent.generateOnboardingTips, shouldOpenFile = false)
             }
-        }
-
-        private fun createKotlinContentRoots() {
-            val directories = listOf(
-                "$outputDirectory/$SRC_MAIN_KOTLIN_PATH",
-                "$outputDirectory/$SRC_MAIN_RESOURCES_PATH",
-                "$outputDirectory/$SRC_TEST_KOTLIN_PATH",
-                "$outputDirectory/$SRC_TEST_RESOURCES_PATH",
-            )
-            directories.forEach {
-                Path.of(it).createDirectories()
-            }
-        }
-
-        override fun setupProject(project: Project) {
-            if (shouldAddOnboardingTips()) {
-                prepareOnboardingTips(project)
-            }
-            super.setupProject(project)
         }
     }
 }

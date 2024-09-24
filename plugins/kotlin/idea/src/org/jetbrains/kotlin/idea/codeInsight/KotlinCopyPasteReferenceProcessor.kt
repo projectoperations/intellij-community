@@ -4,6 +4,7 @@ package org.jetbrains.kotlin.idea.codeInsight
 
 import com.intellij.codeInsight.CodeInsightSettings
 import com.intellij.codeInsight.editorActions.CopyPastePostProcessor
+import com.intellij.codeInsight.editorActions.ReferenceCopyPasteProcessor
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.invokeLater
@@ -20,24 +21,27 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.*
+import com.intellij.psi.createSmartPointer
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.parents
 import com.intellij.util.concurrency.AppExecutorUtil
-import org.jetbrains.annotations.TestOnly
 import org.jetbrains.concurrency.CancellablePromise
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
 import org.jetbrains.kotlin.descriptors.PackageFragmentDescriptor
 import org.jetbrains.kotlin.idea.KotlinFileType
+import org.jetbrains.kotlin.idea.base.codeInsight.copyPaste.KotlinCopyPasteActionInfo.declarationsSuggestedToBeImported
+import org.jetbrains.kotlin.idea.base.codeInsight.copyPaste.RestoreReferencesDialog
+import org.jetbrains.kotlin.idea.base.codeInsight.copyPaste.ReviewAddedImports.reviewAddedImports
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.base.util.runReadActionInSmartMode
 import org.jetbrains.kotlin.idea.caches.resolve.allowResolveInDispatchThread
 import org.jetbrains.kotlin.idea.caches.resolve.getResolutionFacade
 import org.jetbrains.kotlin.idea.caches.resolve.resolveImportReference
-import org.jetbrains.kotlin.idea.codeInsight.ReviewAddedImports.reviewAddedImports
 import org.jetbrains.kotlin.idea.codeInsight.shorten.ShorteningRequest
 import org.jetbrains.kotlin.idea.codeInsight.shorten.modifyExistingShorteningRequests
 import org.jetbrains.kotlin.idea.codeInsight.shorten.performDelayedRefactoringRequests
@@ -71,7 +75,7 @@ import java.io.IOException
 import java.util.*
 import java.util.concurrent.Callable
 
-class KotlinCopyPasteReferenceProcessor : CopyPastePostProcessor<BasicKotlinReferenceTransferableData>() {
+class KotlinCopyPasteReferenceProcessor : CopyPastePostProcessor<BasicKotlinReferenceTransferableData>(), ReferenceCopyPasteProcessor {
 
     override fun extractTransferableData(content: Transferable): List<BasicKotlinReferenceTransferableData> {
         if (CodeInsightSettings.getInstance().ADD_IMPORTS_ON_PASTE != CodeInsightSettings.NO) {
@@ -381,7 +385,7 @@ class KotlinCopyPasteReferenceProcessor : CopyPastePostProcessor<BasicKotlinRefe
         file: KtFile,
         findReferenceProvider: (indicator: ProgressIndicator) -> List<ReferenceToRestoreData>
     ) {
-        val task = object : Task.Backgroundable(project, KotlinBundle.message("copy.paste.resolve.references"), true) {
+        val task = object : Task.Backgroundable(project, KotlinBundle.message("copy.paste.resolve.pasted.references"), true) {
             override fun run(indicator: ProgressIndicator) {
                 assert(!ApplicationManager.getApplication().isWriteAccessAllowed) {
                     "Resolving references on dispatch thread leads to live lock"
@@ -403,10 +407,10 @@ class KotlinCopyPasteReferenceProcessor : CopyPastePostProcessor<BasicKotlinRefe
     ) {
         invokeLater {
             val selectedReferencesToRestore =
-                showRestoreReferencesDialog(project, referencesPossibleToRestore)
+                showRestoreReferencesDialog(project, referencesPossibleToRestore, file)
             if (selectedReferencesToRestore.isEmpty()) return@invokeLater
 
-            project.executeWriteCommand(KotlinBundle.message("resolve.pasted.references")) {
+            project.executeWriteCommand(KotlinBundle.message("copy.paste.restore.pasted.references.capitalized")) {
                 val imported = TreeSet<String>()
                 restoreReferences(selectedReferencesToRestore, file, imported)
 
@@ -787,13 +791,16 @@ class KotlinCopyPasteReferenceProcessor : CopyPastePostProcessor<BasicKotlinRefe
             )
         }
 
-        // We adjust the generated shortening requests so that references are shortened exactly how they appear in the original code.
-        // The references to be shortened by the copy-paste processor are already bound in the same way as in the original code, so
-        // we can apply the most aggressive shortening settings.
-        file.project.modifyExistingShorteningRequests {
-            ShorteningRequest(it.pointer, it.options.enforceImportOfNestedDeclarations())
+        var defaultOptions = Options.DEFAULT
+        if (Registry.`is`("kotlin.copy.paste.allow.import.of.nested.declarations")) {
+            // We adjust the generated shortening requests so that references are shortened exactly how they appear in the original code.
+            // The references to be shortened by the copy-paste processor are already bound in the same way as in the original code, so
+            // we can apply the most aggressive shortening settings.
+            file.project.modifyExistingShorteningRequests {
+                ShorteningRequest(it.pointer, it.options.enforceImportOfNestedDeclarations())
+            }
+            defaultOptions = defaultOptions.enforceImportOfNestedDeclarations()
         }
-        val defaultOptions = Options.DEFAULT.enforceImportOfNestedDeclarations()
         performDelayedRefactoringRequests(file.project, defaultOptions)
     }
 
@@ -819,12 +826,13 @@ class KotlinCopyPasteReferenceProcessor : CopyPastePostProcessor<BasicKotlinRefe
 
     private fun showRestoreReferencesDialog(
         project: Project,
-        referencesToRestore: List<ReferenceToRestoreData>
+        referencesToRestore: List<ReferenceToRestoreData>,
+        file: KtFile,
     ): Collection<ReferenceToRestoreData> {
         val fqNames = referencesToRestore.map { it.refData.fqName }.toSortedSet()
 
         if (isUnitTestMode()) {
-            declarationsToImportSuggested = fqNames
+            file.declarationsSuggestedToBeImported = fqNames
         }
 
         val shouldShowDialog = CodeInsightSettings.getInstance().ADD_IMPORTS_ON_PASTE == CodeInsightSettings.ASK
@@ -850,9 +858,6 @@ class KotlinCopyPasteReferenceProcessor : CopyPastePostProcessor<BasicKotlinRefe
         }
 
     companion object {
-        @get:TestOnly
-        var declarationsToImportSuggested: Collection<String> = emptyList()
-
         private val LOG = Logger.getInstance(KotlinCopyPasteReferenceProcessor::class.java)
 
         private val IGNORE_REFERENCES_INSIDE: Array<Class<out KtElement>> = arrayOf(

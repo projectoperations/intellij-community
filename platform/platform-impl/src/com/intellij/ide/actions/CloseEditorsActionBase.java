@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions;
 
 import com.intellij.ide.IdeBundle;
@@ -72,11 +72,9 @@ public abstract class CloseEditorsActionBase extends AnAction implements DumbAwa
     presentation.setText(getPresentationText(inSplitter));
     Project project = event.getData(CommonDataKeys.PROJECT);
     boolean enabled = (project != null && isActionEnabled(project, event));
-    if (ActionPlaces.isPopupPlace(event.getPlace())) {
+    presentation.setEnabled(enabled);
+    if (event.isFromContextMenu()) {
       presentation.setVisible(enabled);
-    }
-    else {
-      presentation.setEnabled(enabled);
     }
   }
 
@@ -86,7 +84,7 @@ public abstract class CloseEditorsActionBase extends AnAction implements DumbAwa
   }
 
   protected boolean isActionEnabled(Project project, AnActionEvent event) {
-    return getFilesToClose(event).size() > 0;
+    return !getFilesToClose(event).isEmpty();
   }
 
   protected abstract @NlsContexts.Command String getPresentationText(boolean inSplitter);

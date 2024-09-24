@@ -11,6 +11,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.actionSystem.EditorAction
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler
 import com.intellij.openapi.editor.actionSystem.EditorWriteActionHandler
+import org.jetbrains.annotations.ApiStatus
 
 class InsertInlineCompletionAction : EditorAction(InsertInlineCompletionHandler()), HintManagerImpl.ActionToIgnore {
   class InsertInlineCompletionHandler : EditorWriteActionHandler() {
@@ -53,6 +54,7 @@ abstract class SwitchInlineCompletionVariantAction protected constructor(
   }
 }
 
+@ApiStatus.Internal
 abstract class CancellationKeyInlineCompletionHandler(val originalHandler: EditorActionHandler,
                                                       val finishType: FinishType) : EditorActionHandler() {
   public override fun doExecute(editor: Editor, caret: Caret?, dataContext: DataContext) {
@@ -81,8 +83,45 @@ abstract class CancellationKeyInlineCompletionHandler(val originalHandler: Edito
 class EscapeInlineCompletionHandler(originalHandler: EditorActionHandler) :
   CancellationKeyInlineCompletionHandler(originalHandler, FinishType.ESCAPE_PRESSED)
 
-class BackSpaceInlineCompletionHandler(originalHandler: EditorActionHandler) :
-  CancellationKeyInlineCompletionHandler(originalHandler, FinishType.BACKSPACE_PRESSED)
+class BackSpaceInlineCompletionHandler(private val originalHandler: EditorActionHandler) : EditorActionHandler() {
+
+  private fun invokeOriginalHandler(editor: Editor, caret: Caret?, dataContext: DataContext?) {
+    if (originalHandler.isEnabled(editor, caret, dataContext)) {
+      originalHandler.execute(editor, caret, dataContext)
+    }
+  }
+
+  override fun isEnabledForCaret(editor: Editor, caret: Caret, dataContext: DataContext?): Boolean {
+    return originalHandler.isEnabled(editor, caret, dataContext)
+  }
+
+  override fun doExecute(editor: Editor, caret: Caret?, dataContext: DataContext?) {
+    val handler = InlineCompletion.getHandlerOrNull(editor)
+    if (handler == null) {
+      invokeOriginalHandler(editor, caret, dataContext)
+      return
+    }
+
+    InlineCompletionSession.getOrNull(editor)?.let { session ->
+      handler.hide(session.context, FinishType.BACKSPACE_PRESSED)
+    }
+
+    val initialCaretOffset = editor.caretModel.offset
+    if (editor.caretModel.caretCount != 1 || editor.selectionModel.selectedText != null || initialCaretOffset == 0) {
+      invokeOriginalHandler(editor, caret, dataContext)
+      return
+    }
+    val initialTextLength = editor.document.textLength
+    invokeOriginalHandler(editor, caret, dataContext)
+    val finalCaretOffset = editor.caretModel.offset
+    val finalTextLength = editor.document.textLength
+    if (initialCaretOffset != finalCaretOffset + 1 || initialTextLength != finalTextLength + 1) {
+      return
+    }
+
+    handler.invokeEvent(InlineCompletionEvent.Backspace(editor))
+  }
+}
 
 class CallInlineCompletionAction : EditorAction(CallInlineCompletionHandler()), HintManagerImpl.ActionToIgnore {
   class CallInlineCompletionHandler : EditorWriteActionHandler() {
@@ -91,6 +130,45 @@ class CallInlineCompletionAction : EditorAction(CallInlineCompletionHandler()), 
 
       val listener = InlineCompletion.getHandlerOrNull(editor) ?: return
       listener.invoke(InlineCompletionEvent.DirectCall(editor, curCaret, dataContext))
+    }
+  }
+}
+
+@ApiStatus.Experimental
+@ApiStatus.Internal
+class InsertInlineCompletionWordAction : EditorAction(Handler()), HintManagerImpl.ActionToIgnore {
+  private class Handler : EditorWriteActionHandler() {
+    override fun executeWriteAction(editor: Editor, caret: Caret?, dataContext: DataContext?) {
+      // TODO call insert if possible
+      if (InlineCompletionSession.getOrNull(editor) != null) {
+        val event = InlineCompletionEvent.InsertNextWord(editor)
+        InlineCompletion.getHandlerOrNull(editor)?.invokeEvent(event)
+      }
+    }
+
+    override fun isEnabledForCaret(editor: Editor, caret: Caret, dataContext: DataContext?): Boolean {
+      return InlineCompletionContext.getOrNull(editor)?.startOffset() == caret.offset
+    }
+  }
+}
+
+@ApiStatus.Experimental
+@ApiStatus.Internal
+class InsertInlineCompletionLineAction : EditorAction(Handler()), HintManagerImpl.ActionToIgnore {
+  private class Handler : EditorWriteActionHandler() {
+    override fun executeWriteAction(editor: Editor, caret: Caret?, dataContext: DataContext?) {
+      val handler = InlineCompletion.getHandlerOrNull(editor) ?: return
+      val session = InlineCompletionSession.getOrNull(editor) ?: return
+      if (!session.context.textToInsert().any { it == '\n' }) {
+        handler.insert()
+      }
+      else {
+        handler.invokeEvent(InlineCompletionEvent.InsertNextLine(editor))
+      }
+    }
+
+    override fun isEnabledForCaret(editor: Editor, caret: Caret, dataContext: DataContext?): Boolean {
+      return InlineCompletionContext.getOrNull(editor)?.startOffset() == caret.offset
     }
   }
 }

@@ -4,9 +4,14 @@ package org.jetbrains.kotlin.j2k
 
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.editor.RangeMarker
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiRecursiveElementVisitor
+import com.intellij.psi.SmartPsiElementPointer
+import com.intellij.psi.codeStyle.CodeStyleManager
+import com.intellij.psi.createSmartPointer
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.j2k.InspectionLikeProcessingGroup.RangeFilterResult.*
 import org.jetbrains.kotlin.nj2k.NewJ2kConverterContext
 import org.jetbrains.kotlin.nj2k.runUndoTransparentActionInEdt
@@ -33,10 +38,17 @@ class InspectionLikeProcessingGroup(
                 collectAvailableActions(file, converterContext, rangeMarker)
             }
 
-            for ((processing, element, _) in elementToActions) {
+            for ((processing, pointer, _) in elementToActions) {
+                val element = runReadAction { pointer.element }
+                if (element == null) {
+                    modificationStamp = null
+                    continue
+                }
+
                 val needRun = runReadAction {
                     element.isValid && processing.isApplicableToElement(element, converterContext.converter.settings)
                 }
+
                 if (needRun) runUndoTransparentActionInEdt(inWriteAction = processing.writeActionNeeded) {
                     processing.applyToElement(element)
                 } else {
@@ -48,11 +60,33 @@ class InspectionLikeProcessingGroup(
         } while (modificationStamp != runReadAction { file.modificationStamp } && elementToActions.isNotEmpty())
     }
 
+    context(KaSession)
+    override fun computeApplier(
+        file: KtFile,
+        allFiles: List<KtFile>,
+        rangeMarker: RangeMarker?,
+        converterContext: NewJ2kConverterContext
+    ): PostProcessingApplier {
+        val processingDataList = collectAvailableActions(file, converterContext, rangeMarker)
+        return Applier(processingDataList, file.project)
+    }
+
+    private class Applier(private val processingDataList: List<ProcessingData>, private val project: Project) : PostProcessingApplier {
+        override fun apply() {
+            CodeStyleManager.getInstance(project).performActionWithFormatterDisabled {
+                for ((processing, pointer, _) in processingDataList) {
+                    val element = pointer.element ?: continue
+                    processing.applyToElement(element)
+                }
+            }
+        }
+    }
+
     private enum class RangeFilterResult { SKIP, GO_INSIDE, PROCESS }
 
     private data class ProcessingData(
         val processing: InspectionLikeProcessing,
-        val element: PsiElement,
+        val pointer: SmartPsiElementPointer<PsiElement>,
         val priority: Int
     )
 
@@ -74,7 +108,7 @@ class InspectionLikeProcessingGroup(
                 if (rangeResult == PROCESS) {
                     for (processing in processings) {
                         if (processing.isApplicableToElement(element, context.converter.settings)) {
-                            availableActions.add(ProcessingData(processing, element, priority(processing)))
+                            availableActions.add(ProcessingData(processing, element.createSmartPointer(), priority(processing)))
                         }
                     }
                 }
@@ -100,7 +134,7 @@ class InspectionLikeProcessingGroup(
 }
 
 abstract class InspectionLikeProcessing {
-    abstract fun isApplicableToElement(element: PsiElement, settings: ConverterSettings?): Boolean
+    abstract fun isApplicableToElement(element: PsiElement, settings: ConverterSettings): Boolean
 
     abstract fun applyToElement(element: PsiElement)
 
@@ -113,12 +147,12 @@ abstract class InspectionLikeProcessing {
 }
 
 abstract class InspectionLikeProcessingForElement<E : PsiElement>(private val classTag: Class<E>) : InspectionLikeProcessing() {
-    protected abstract fun isApplicableTo(element: E, settings: ConverterSettings?): Boolean
+    protected abstract fun isApplicableTo(element: E, settings: ConverterSettings): Boolean
 
     protected abstract fun apply(element: E)
 
     @Suppress("UNCHECKED_CAST")
-    final override fun isApplicableToElement(element: PsiElement, settings: ConverterSettings?): Boolean {
+    final override fun isApplicableToElement(element: PsiElement, settings: ConverterSettings): Boolean {
         if (!classTag.isInstance(element)) return false
         if (!element.isValid) return false
         @Suppress("UNCHECKED_CAST") return isApplicableTo(element as E, settings)

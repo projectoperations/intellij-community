@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.settings;
 
 import com.intellij.configurationStore.XmlSerializer;
@@ -25,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 @State(name = "DebuggerSettings", storages = @Storage("debugger.xml"), category = SettingsCategory.TOOLS)
-public class DebuggerSettings implements Cloneable, PersistentStateComponent<Element> {
+public final class DebuggerSettings implements Cloneable, PersistentStateComponent<Element> {
   private static final Logger LOG = Logger.getInstance(DebuggerSettings.class);
   public static final int SOCKET_TRANSPORT = 0;
   public static final int SHMEM_TRANSPORT = 1;
@@ -66,7 +66,6 @@ public class DebuggerSettings implements Cloneable, PersistentStateComponent<Ele
   @OptionTag("DEBUGGER_TRANSPORT")
   private int DEBUGGER_TRANSPORT;
 
-  public boolean DISABLE_JIT;
   public boolean SHOW_ALTERNATIVE_SOURCE = true;
   public volatile boolean ENABLE_MEMORY_AGENT =
     ApplicationManager.getApplication().isEAP() && !ApplicationManager.getApplication().isUnitTestMode();
@@ -80,6 +79,7 @@ public class DebuggerSettings implements Cloneable, PersistentStateComponent<Ele
   public String RUN_HOTSWAP_AFTER_COMPILE = RUN_HOTSWAP_ASK;
   public boolean COMPILE_BEFORE_HOTSWAP = true;
   public boolean HOTSWAP_HANG_WARNING_ENABLED = false;
+  public boolean HOTSWAP_SHOW_FLOATING_BUTTON = true;
 
   public volatile boolean WATCH_RETURN_VALUES = false;
   public volatile boolean AUTO_VARIABLES_MODE = false;
@@ -169,7 +169,6 @@ public class DebuggerSettings implements Cloneable, PersistentStateComponent<Ele
       TRACING_FILTERS_ENABLED == secondSettings.TRACING_FILTERS_ENABLED &&
       DEBUGGER_TRANSPORT == secondSettings.DEBUGGER_TRANSPORT &&
       StringUtil.equals(EVALUATE_FINALLY_ON_POP_FRAME, secondSettings.EVALUATE_FINALLY_ON_POP_FRAME) &&
-      DISABLE_JIT == secondSettings.DISABLE_JIT &&
       SHOW_ALTERNATIVE_SOURCE == secondSettings.SHOW_ALTERNATIVE_SOURCE &&
       KILL_PROCESS_IMMEDIATELY == secondSettings.KILL_PROCESS_IMMEDIATELY &&
       ALWAYS_DEBUG == secondSettings.ALWAYS_DEBUG &&

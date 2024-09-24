@@ -23,7 +23,6 @@
     <orderEntry type="module" module-name="intellij.jsp.spi" />
     <orderEntry type="module" module-name="intellij.java.execution" />
     <orderEntry type="module" module-name="intellij.xml.dom.impl" />
-    <orderEntry type="module" module-name="intellij.platform.vcs.impl" />
     <orderEntry type="module" module-name="intellij.platform.icons" />
     <orderEntry type="module" module-name="intellij.java.psi.impl" exported="" />
     <orderEntry type="module" module-name="intellij.java.frontback.impl" exported="" />
@@ -79,6 +78,8 @@
     <orderEntry type="module" module-name="intellij.platform.backend.workspace" exported="" />
     <orderEntry type="library" name="caffeine" level="project" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" />
+    <orderEntry type="module" module-name="intellij.platform.markdown.utils" />
+    <orderEntry type="library" name="jetbrains.markdown" level="project" />
   </component>
   <component name="copyright">
     <Base>

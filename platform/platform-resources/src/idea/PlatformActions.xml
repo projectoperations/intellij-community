@@ -1,26 +1,6 @@
-<!--
-  ~ Copyright 2000-2013 JetBrains s.r.o.
-  ~
-  ~ Licensed under the Apache License, Version 2.0 (the "License");
-  ~ you may not use this file except in compliance with the License.
-  ~ You may obtain a copy of the License at
-  ~
-  ~ http://www.apache.org/licenses/LICENSE-2.0
-  ~
-  ~ Unless required by applicable law or agreed to in writing, software
-  ~ distributed under the License is distributed on an "AS IS" BASIS,
-  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  ~ See the License for the specific language governing permissions and
-  ~ limitations under the License.
-  -->
-<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
-  <xi:include href="/META-INF/PlatformExecutionActions.xml"/>
+<idea-plugin>
   <actions>
     <action id="QuickActionPopup" class="com.intellij.ui.switcher.ShowQuickActionPopupAction"/>
-    <action id="RunConfigurationTemplatesForNewProjects"
-            class="com.intellij.execution.actions.EditRunConfigurationTemplatesForNewProjectsAction">
-      <override-text place="MainMenu"/>
-    </action>
 
     <group id="Other.KeymapGroup" searchable="false"/> <!-- grouping for Settings -> Keymap -> Others -->
     <group id="Vcs.KeymapGroup" searchable="false"/> <!-- grouping for Settings -> Keymap -> Version Control Systems -->
@@ -129,17 +109,6 @@
       <add-to-group group-id="Other.KeymapGroup"/>
     </group>
 
-    <group id="NavBarActions">
-      <action id="NavBar-selectHome" class="com.intellij.ide.navigationToolbar.NavBarActions$Home" use-shortcut-of="EditorLineStart"/>
-      <action id="NavBar-selectEnd" class="com.intellij.ide.navigationToolbar.NavBarActions$End" use-shortcut-of="EditorLineEnd"/>
-      <action id="NavBar-selectUp" class="com.intellij.ide.navigationToolbar.NavBarActions$Up" use-shortcut-of="EditorUp"/>
-      <action id="NavBar-selectDown" class="com.intellij.ide.navigationToolbar.NavBarActions$Down" use-shortcut-of="EditorDown"/>
-      <action id="NavBar-selectLeft" class="com.intellij.ide.navigationToolbar.NavBarActions$Left" use-shortcut-of="EditorLeft"/>
-      <action id="NavBar-selectRight" class="com.intellij.ide.navigationToolbar.NavBarActions$Right" use-shortcut-of="EditorRight"/>
-      <action id="NavBar-return" class="com.intellij.ide.navigationToolbar.NavBarActions$Enter" use-shortcut-of="EditorEnter"/>
-      <add-to-group group-id="Other.KeymapGroup"/>
-    </group>
-
     <group id="ScrollPaneActions">
       <action id="ScrollPane-scrollHome" class="com.intellij.ui.ScrollPaneActions$Home"/>
       <action id="ScrollPane-scrollEnd" class="com.intellij.ui.ScrollPaneActions$End"/>
@@ -190,9 +159,7 @@
     <action id="TextComponent.ClearAction" class="com.intellij.ui.ClearTextAction"/>
     <action id="QuickDocCopy" class="com.intellij.codeInsight.documentation.actions.CopyQuickDocAction"
             icon="AllIcons.Actions.Copy" use-shortcut-of="$Copy"/>
-    <action id="EditSourceInNewWindow" class="com.intellij.ide.actions.EditSourceInNewWindowAction">
-      <override-text place="EditorTabPopup"/>
-    </action>
+    <action id="EditSourceInNewWindow" class="com.intellij.ide.actions.EditSourceInNewWindowAction"/>
     <action id="OpenElementInNewWindow" class="com.intellij.ide.actions.OpenElementInNewWindowAction" />
     <action id="SearchEverywhere" class="com.intellij.ide.actions.SearchEverywhereAction" icon="AllIcons.Actions.Find"/>
     <action id="TestSearchContributors" class="com.intellij.ide.actions.searcheverywhere.setesting.TestSearchEverywhereAction" internal="true"/>
@@ -204,8 +171,6 @@
             use-shortcut-of="Find" />
 
     <action id="RunAnything" icon="AllIcons.Actions.Run_anything" class="com.intellij.ide.actions.runAnything.RunAnythingAction"/>
-    <action id="EnableNewUi" class="com.intellij.ide.actions.EnableNewUiAction" icon="AllIcons.Actions.EnableNewUi"/>
-    <action id="DisableNewUi" class="com.intellij.ide.actions.DisableNewUiAction"/>
 
     <action id="SmartSelect" class="com.intellij.ide.actions.SmartSelect" use-shortcut-of="EditorSelectWord"/>
     <action id="SmartUnSelect" class="com.intellij.ide.actions.SmartUnSelect" use-shortcut-of="EditorUnSelectWord"/>
@@ -304,6 +269,7 @@
       <action id="EditorDuplicateLines" class="com.intellij.openapi.editor.actions.DuplicateLinesAction"/>
       <action id="EditorSortLines" class="com.intellij.openapi.editor.actions.SortLinesAction"/>
       <action id="EditorReverseLines" class="com.intellij.openapi.editor.actions.ReverseLinesAction"/>
+      <action id="EditorUniqueLines" class="com.intellij.openapi.editor.actions.UniqueLinesAction"/>
       <action id="EditorToggleInsertState" class="com.intellij.openapi.editor.actions.ToggleInsertStateAction"/>
       <action id="EditorToggleColumnMode" class="com.intellij.openapi.editor.actions.ToggleColumnModeAction"/>
       <action id="EditorIncreaseFontSize" class="com.intellij.openapi.editor.actions.ChangeEditorFontSizeAction$IncreaseEditorFontSize"/>
@@ -335,6 +301,8 @@
     </group>
 
     <action id="ExpandAll" class="com.intellij.ide.actions.ExpandAllAction" icon="AllIcons.Actions.Expandall"/>
+    <action id="ExpandRecursively" class="com.intellij.ide.projectView.actions.ExpandRecursivelyAction" icon="AllIcons.Actions.Expandall" use-shortcut-of="ExpandRegion"/>
+    <action id="ProjectViewExpandAll" class="com.intellij.ide.projectView.actions.ProjectViewExpandAllAction" use-shortcut-of="ExpandAllRegions"/>
     <action id="CollapseAll" class="com.intellij.ide.actions.CollapseAllAction" icon="AllIcons.Actions.Collapseall"/>
     <action id="ExportToTextFile" class="com.intellij.ide.actions.ExportToTextFileAction" icon="AllIcons.ToolbarDecorator.Export"/>
     <action id="ExpandTreeNode" class="com.intellij.ide.actions.tree.ExpandTreeNodeAction"/>
@@ -360,13 +328,20 @@
       <action id="Diff.ShowDiff" class="com.intellij.diff.actions.ShowDiffAction"
               icon="AllIcons.Actions.Diff"/> <!-- CommonShortcuts.getDiff() -->
       <action id="Diff.ShowStandaloneDiff" class="com.intellij.diff.actions.ShowStandaloneDiffAction" icon="AllIcons.Actions.Diff"/>
-      <action id="CompareTwoFiles" class="com.intellij.diff.actions.CompareFilesAction" icon="AllIcons.Actions.Diff"/>
+      <action id="CompareTwoFiles" class="com.intellij.diff.actions.CompareFilesAction" icon="AllIcons.Actions.Diff">
+        <synonym key="action.CompareTwoFiles.synonym1"/>
+        <synonym key="action.CompareTwoFiles.synonym2"/>
+        <synonym key="action.CompareTwoFiles.synonym3"/>
+      </action>
       <action id="CompareFileWithEditor" class="com.intellij.diff.actions.CompareFileWithEditorAction"/>
       <action id="CompareClipboardWithSelection" class="com.intellij.diff.actions.CompareClipboardWithSelectionAction"
               icon="AllIcons.Actions.DiffWithClipboard"/>
       <action id="ShowBlankDiffWindow" class="com.intellij.diff.actions.ShowBlankDiffWindowAction" icon="AllIcons.Actions.Diff">
         <synonym key="action.ShowBlankDiffWindow.synonym1"/>
         <synonym key="action.ShowBlankDiffWindow.synonym2"/>
+      </action>
+      <action id="CloseDiffEditor" class="com.intellij.diff.editor.CloseDiffEditorAction">
+        <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
       </action>
 
       <separator/>
@@ -404,6 +379,9 @@
               icon="AllIcons.Diff.ApplyNotConflictsRight"/>
       <action id="Diff.MagicResolveConflicts" class="com.intellij.openapi.actionSystem.EmptyAction"
               icon="AllIcons.Diff.MagicResolveToolbar"/>
+
+      <group id="Diff.Conflicts.Additional.Actions"/>
+      <group id="Diff.Conflicts.Feedback"/>
 
       <group id="compare.contents" icon="AllIcons.Actions.Diff" popup="true" class="com.intellij.openapi.actionSystem.EmptyActionGroup">
         <action id="Diff.ComparePartial.Base.Left" class="com.intellij.openapi.actionSystem.EmptyAction"
@@ -449,6 +427,11 @@
 
     <action id="CloseGotItTooltip" class="com.intellij.openapi.actionSystem.EmptyAction"/>
     <action id="CallSaul" class="com.intellij.ide.actions.cache.CallSaulAction"/>
+
+    <group id="RevealGroup" popup="true" class="com.intellij.ide.actions.RevealGroup">
+      <action id="RevealIn" class="com.intellij.ide.actions.RevealFileAction"/>
+      <action id="OpenInAssociatedApplication" class="com.intellij.ide.actions.OpenInAssociatedApplicationAction"/>
+    </group>
 
     <group id="MainMenu">
       <group id="FileMenu" popup="true">
@@ -504,7 +487,6 @@
         </group>
         <group id="FileOtherSettingsGroup" class="com.intellij.ide.actions.SmartPopupActionGroup">
           <action id="TemplateProjectProperties" class="com.intellij.ide.actions.TemplateProjectPropertiesAction"/>
-          <reference ref="RunConfigurationTemplatesForNewProjects"/>
           <group id="FileSettingsGroup"/>
         </group>
         <separator/>
@@ -587,7 +569,6 @@
           <reference ref="EditorReverseLines"/>
           <reference ref="EditorTranspose"/>
           <separator/>
-          <reference ref="EditorIndentSelection"/>
           <reference ref="EditorUnindentSelection"/>
           <group id="ConvertIndentsGroup" popup="true">
             <action id="ConvertIndentsToSpaces" class="com.intellij.openapi.editor.actions.ConvertIndentsToSpacesAction"/>
@@ -660,7 +641,9 @@
         </group>
 
         <action id="EditSource" class="com.intellij.ide.actions.EditSourceAction" icon="AllIcons.Actions.EditSource"/>
-        <action id="OpenInRightSplit" class="com.intellij.ide.actions.OpenInRightSplitAction" icon="AllIcons.Actions.SplitVertically" />
+        <action id="OpenInRightSplit" class="com.intellij.ide.actions.OpenInRightSplitAction" icon="AllIcons.Actions.SplitVertically">
+          <add-to-group group-id="RevealGroup" anchor="first"/>
+        </action>
         <action id="ViewSource" class="com.intellij.ide.actions.ViewSourceAction"/>
         <separator/>
         <group id="ViewRecentActions">
@@ -757,7 +740,7 @@
       <group id="WindowMenu" popup="true">
         <action id="MinimizeCurrentWindow" class="com.intellij.ide.actions.MinimizeCurrentWindowAction"/>
         <action id="ZoomCurrentWindow" class="com.intellij.ide.actions.ZoomCurrentWindowAction"/>
-        <group id="LayoutsGroup" popup="true" class="com.intellij.ide.actions.LayoutsGroup">
+        <group id="LayoutsGroup" popup="true">
           <override-text place="MainMenu"/>
           <action id="RestoreFactoryDefaultLayout" class="com.intellij.ide.actions.RestoreFactoryDefaultLayoutAction" />
           <separator/>
@@ -820,7 +803,9 @@
             <synonym key="action.SplitHorizontally.synonym"/>
           </action>
           <action id="MoveTabDown" class="com.intellij.ide.actions.MoveTabDownAction"/>
-          <action id="SplitChooser" class="com.intellij.ide.actions.InteractiveSplitAction"/>
+          <action id="SplitChooser" class="com.intellij.ide.actions.InteractiveSplitAction">
+            <add-to-group group-id="RevealGroup" anchor="after" relative-to-action="OpenInRightSplit"/>
+          </action>
           <group id="SplitChooser.Actions" searchable="false" compact="true" popup="true">
             <action id="SplitChooser.NextWindow" class="com.intellij.ide.actions.InteractiveSplitAction$Key$NextWindow"/>
             <action id="SplitChooser.PreviousWindow" class="com.intellij.ide.actions.InteractiveSplitAction$Key$PreviousWindow"/>
@@ -871,6 +856,9 @@
         <action id="GotoAction" class="com.intellij.ide.actions.GotoActionAction"/>
         <separator/>
         <action id="HelpTopics" class="com.intellij.ide.actions.HelpTopicsAction" icon="AllIcons.Actions.Help"/>
+        <separator/>
+        <group id="LearnGroup"/>
+        <separator/>
         <action id="WhatsNewAction" class="com.intellij.ide.actions.WhatsNewAction"/>
         <action id="MeetNewUIAction" class="com.intellij.ide.ui.experimental.meetNewUi.MeetNewUIAction"/>
         <action id="OnlineDocAction" class="com.intellij.ide.actions.OnlineDocAction"/>
@@ -895,7 +883,7 @@
           <action id="Performance.MemTester" class="com.intellij.ide.actions.MemTestAction"/>
           <separator/>
           <action id="LogDebugConfigure" class="com.intellij.ide.actions.DebugLogConfigureAction"/>
-          <action id="CollectTroubleshootingInformation" class="com.intellij.ide.actions.CollectTroubleshootingInformationAction" internal="true"/>
+          <action id="CollectTroubleshootingInformation" class="com.intellij.troubleshooting.ui.CollectTroubleshootingInformationAction" internal="true"/>
         </group>
 
         <action id="performancePlugin.ShowMemoryDialogAction" class="com.intellij.diagnostic.ShowMemoryDialogAction"/>
@@ -940,7 +928,10 @@
     </group>
 
     <action id="RestartIde" class="com.intellij.ide.actions.RestartIdeAction"/>
-    <action id="RecoverCachesFromLog" class="com.intellij.ide.actions.cache.RecoverVfsFromLogAction"/>
+
+    <!-- VCS -->
+    <!--Should be moved to VCS module, but lang depends on this-->
+    <group id="VersionControlsGroup"/>
 
     <group id="MainToolBar">
       <reference ref="OpenFile"/>
@@ -986,7 +977,7 @@
       <reference ref="EditorToggleColumnMode"/>
       <separator/>
       <group id="EditorPopupMenu1" searchable="false">
-        <action id="FindSelectionInPath" class="com.intellij.find.actions.FindSelectionInPathAction"/>
+        <action id="FindSelectionInPath" class="com.intellij.find.actions.FindSelectionInPathAction" use-shortcut-of="FindInPath"/>
       </group>
       <separator/>
       <group id="EditorPopupMenu2" searchable="false"/>
@@ -1041,6 +1032,33 @@
       <reference ref="ReopenClosedTab"/>
     </group>
 
+    <group id="TouchBar" searchable="false">
+      <group id="TouchBarDefault">
+        <group id="TouchBarDefaultOptionalGroup" />
+        <group id="TouchBarDefault_ctrl">
+          <separator/>
+        </group>
+        <group id="TouchBarDefault_alt">
+          <separator/>
+        </group>
+        <group id="TouchBarDefault_cmd">
+          <!--Use Cmd modifier key to show Navigation buttons, Bookmark and Breakpoint toggles and to Show Usages/-->
+          <!--Cmd key is used, because it’s used in most of the action shortcuts: Back/Forward, Breakpoint and Find Usages./-->
+          <reference ref="Back"/>
+          <reference ref="Forward"/>
+          <separator text="type.large"/>
+        </group>
+        <group id="TouchBarDefault_cmd.alt">
+          <separator/>
+        </group>
+        <group id="TouchBarDefault_shift">
+          <separator/>
+        </group>
+      </group>
+
+      <add-to-group group-id="Other.KeymapGroup"/>
+    </group>
+
     <group id="WelcomeScreen.QuickStart.EmptyState">
     </group>
 
@@ -1048,6 +1066,7 @@
     </group>
 
     <group id="WelcomeScreen.QuickStart">
+      <group id="WelcomeScreen.QuickStart.Platform"/>
       <add-to-group group-id="WelcomeScreen.QuickStart.EmptyState"/>
       <add-to-group group-id="WelcomeScreen.QuickStart.ProjectsState"/>
     </group>
@@ -1066,7 +1085,6 @@
       <action id="WelcomeScreen.Plugins" class="com.intellij.ide.actions.ShowPluginManagerAction">
         <synonym key="action.WelcomeScreen.Plugins.Extensions.text"/>
       </action>
-      <reference ref="RunConfigurationTemplatesForNewProjects"/>
 
       <action id="WelcomeScreen.Configure.Import" class="com.intellij.configurationStore.ImportSettingsAction"
               icon="AllIcons.ToolbarDecorator.Import"/>
@@ -1084,17 +1102,19 @@
     </group>
 
     <group id="WelcomeScreen.Options">
+      <reference ref="WelcomeScreen.Settings"/>
+      <reference ref="CheckForUpdate"/>
       <reference ref="About"/>
       <separator/>
       <reference ref="EditCustomProperties"/>
       <reference ref="EditCustomVmOptions"/>
-      <reference ref="CreateDesktopEntry"/>
       <reference ref="CollectZippedLogs"/>
       <separator/>
-      <reference ref="CheckForUpdate"/>
+      <reference ref="CreateDesktopEntry"/>
     </group>
 
     <group id="WelcomeScreen.LearnIdeHelp">
+      <reference ref="WhatsNewAction"/>
       <reference ref="HelpTopics"/>
       <reference ref="OnlineDocAction"/>
       <reference ref="Help.JetBrainsTV"/>
@@ -1128,7 +1148,7 @@
     <group id="EditorGutterPopupMenu.Appearance" popup="true">
       <action id="EditorGutterToggleGlobalLineNumbers" class="com.intellij.openapi.editor.actions.ToggleShowLineNumbersGloballyAction"/>
       <action id="EditorGutterToggleGlobalIndentLines" class="com.intellij.openapi.editor.actions.ToggleShowIndentLinesGloballyAction"/>
-      <action id="EditorGutterToggleGlobalStickyLines" class="com.intellij.openapi.editor.impl.stickyLines.ToggleShowStickyLinesGloballyAction"/>
+      <action id="EditorGutterToggleGlobalStickyLines" class="com.intellij.openapi.editor.impl.stickyLines.actions.StickyLinesShowToggleAction"/>
     </group>
 
     <group id="EditorGutterPopupMenu">
@@ -1216,12 +1236,16 @@
 
     <group id="Internal" internal="true" popup="true" compact="true">
       <group id="Internal.Errors" popup="true">
-        <action id="DropAnError" internal="true" class="com.intellij.diagnostic.DropAnErrorAction"/>
-        <action id="DropAnErrorWithAttachments" internal="true" class="com.intellij.diagnostic.DropAnErrorWithAttachmentsAction"/>
-        <action id="DropPluginError" internal="true" class="com.intellij.diagnostic.DropPluginErrorAction"/>
-        <action id="DropAnOutOfMemoryError" internal="true" class="com.intellij.diagnostic.DropAnOutOfMemoryErrorAction"/>
+        <action id="DropAnError" internal="true" class="com.intellij.diagnostic.DropAnErrorAction"
+                text="Drop an Error" description="Hold down SHIFT for a sequence of exceptions"/>
+        <action id="DropAnErrorWithAttachments" internal="true" class="com.intellij.diagnostic.DropAnErrorWithAttachmentsAction"
+                text="Drop an Error with Attachments" description="Hold down SHIFT for multiple attachments"/>
+        <action id="DropPluginError" internal="true" class="com.intellij.diagnostic.DropPluginErrorAction"
+                text="Drop an Error in a Random Plugin" description="Hold down SHIFT for 3rd-party plugins only"/>
+        <action id="DropAnOutOfMemoryError" internal="true" class="com.intellij.diagnostic.DropAnOutOfMemoryErrorAction"
+                text="Drop an OutOfMemoryError" description="Hold down SHIFT for OOME in Metaspace"/>
       </group>
-      <action id="SimulateFreeze" class="com.intellij.diagnostic.SimulateFreeze" />
+      <action id="SimulateFreeze" internal="true" class="com.intellij.diagnostic.SimulateFreeze" text="Simulate a Freeze"/>
       <separator/>
       <action internal="true" id="ReloadProjectAction" class="com.intellij.internal.ReloadProjectAction"/>
       <group id="Internal.Trust" popup="true">
@@ -1236,6 +1260,10 @@
         <synonym text="Exit Dumb Mode"/>
         <synonym text="Enter Dumb Mode"/>
       </action>
+      <action id="ToggleIncompleteMode" internal="true" class="com.intellij.internal.ToggleIncompleteDependenciesModeAction">
+        <synonym text="Exit Incomplete Dependencies Mode"/>
+      </action>
+      <action id="TriggerProjectIndexableFilesFilterHealthCheckAction" internal="true" class="com.intellij.util.indexing.projectFilter.TriggerProjectIndexableFilesFilterHealthCheckAction"/>
       <action id="DumbModeTremble" class="com.intellij.internal.DumbModeTrembleAction">
         <synonym text="Exit Tremble Dumb Mode"/>
         <synonym text="Enter Tremble Dumb Mode"/>
@@ -1260,8 +1288,6 @@
         <action id="SetCaretVisualAttributesInternalAction" internal="true" class="com.intellij.internal.SetCaretVisualAttributesAction"/>
         <action id="EditorRenderingBenchmarkAction" internal="true"
                 class="com.intellij.internal.performance.EditorRenderingBenchmarkAction"/>
-        <action id="ActionUpdatesBenchmarkAction" internal="true"
-                class="com.intellij.internal.performance.ActionUpdatesBenchmarkAction"/>
       </group>
       <group id="Internal.UI" popup="true">
         <group id="Internal.UI.Demos" popup="true">
@@ -1326,6 +1352,7 @@
           <abbreviation value="metal"/>
         </action>
         <action id="RulerGuide" internal="true" class="com.intellij.internal.rulerguide.RulerGuideAction"/>
+        <action id="ShowHideDebugInfoInUi" internal="true" class="com.intellij.ide.actions.ShowHideDebugInfoInUiAction"/>
         <separator/>
         <action id="AddTestProcessAction" internal="true" class="com.intellij.openapi.wm.impl.status.AddTestProcessAction"/>
         <action id="AddRandomNamesTestProcessAction" internal="true" class="com.intellij.openapi.wm.impl.status.AddRandomNamesTestProcessAction"/>
@@ -1335,6 +1362,7 @@
         <action id="TestCoroutineProgress" internal="true" class="com.intellij.internal.TestCoroutineProgressAction"/>
         <separator/>
         <action id="ShowBundleLocalizationDialogAction" internal="true" class="com.intellij.openapi.wm.impl.status.ShowBundleMessagesDialogAction"/>
+        <action id="ShowCompressibleToolbarAction" internal="true" class="com.intellij.openapi.wm.impl.status.ShowCompressibleToolbarAction"/>
         <action id="TestGestureAction" class="com.intellij.openapi.keymap.impl.ui.TestGestureAction"/>
         <action id="TestDndAction" class="com.intellij.internal.validation.TestDnd"/>
         <action id="PositionTrackerTestAction" internal="true" class="com.intellij.internal.ui.PositionTrackerTestAction"/>
@@ -1450,12 +1478,6 @@
       <add-to-group group-id="Diff.KeymapGroup" relative-to-action="ShowBlankDiffWindow" anchor="after"/>
     </group>
 
-    <action id="Rerun" class="com.intellij.execution.runners.FakeRerunAction">
-      <add-to-group group-id="RunTab.TopToolbar"/>
-      <add-to-group group-id="RunTab.TopToolbar.Old"/>
-    </action>
-    <action id="RerunTests" class="com.intellij.execution.runners.RerunTestsAction"/>
-
     <action id="IncrementWindowWidth" class="com.intellij.ide.actions.WindowAction$IncrementWidth" use-shortcut-of="ResizeToolWindowRight"/>
     <action id="DecrementWindowWidth" class="com.intellij.ide.actions.WindowAction$DecrementWidth" use-shortcut-of="ResizeToolWindowLeft"/>
     <action id="IncrementWindowHeight" class="com.intellij.ide.actions.WindowAction$IncrementHeight"
@@ -1477,6 +1499,7 @@
 
     <group id="ProjectViewToolbar">
       <reference ref="SelectInProjectView"/>
+      <reference ref="ExpandRecursively"/>
       <reference ref="ExpandAll"/>
       <reference ref="CollapseAll"/>
     </group>
@@ -1599,7 +1622,9 @@
     </group>
 
     <group id="EditorStickyLinesSettings" popup="true" searchable="false">
-      <action id="EditorStickyLinesDisable" class="com.intellij.openapi.editor.impl.stickyLines.StickyLinesSettingsDisableAction"/>
+      <action id="EditorStickyConfigure" class="com.intellij.openapi.editor.impl.stickyLines.actions.StickyLinesConfigureAction"/>
+      <action id="EditorStickyLinesDisableForLang" class="com.intellij.openapi.editor.impl.stickyLines.actions.StickyLinesDisableForLangAction"/>
+      <action id="EditorStickyLinesDisable" class="com.intellij.openapi.editor.impl.stickyLines.actions.StickyLinesDisableAction"/>
     </group>
 
     <action class="com.intellij.ide.plugins.InstallFromDiskAction" id="plugin.InstallFromDiskAction"/>
@@ -1608,10 +1633,6 @@
     <group id="AnalyzeStacktraceToolbar"/>
     <group id="EditorTabActionGroup"/>
     <action class="com.intellij.ide.actions.EditSourceNotInEditorAction" id="EditSourceNotInEditor"/>
-
-<!--    <group id="RelatedFilesTabActionGroup" class="com.intellij.openapi.fileEditor.impl.tabActions.related.RelatedFilesTabActionGroup">
-      <add-to-group group-id="EditorTabActionGroup"/>
-    </group>-->
 
     <group id="ActivateToolWindowActions" searchable="false">
       <action id="ActivateFindToolWindow" class="com.intellij.find.actions.ActivateFindToolWindowAction"/>
@@ -1631,9 +1652,6 @@
       <reference id="ChangeLaf"/>
       <reference id="ChangeKeymap"/>
       <reference id="ChangeView"/>
-      <separator/>
-      <reference id="EnableNewUi"/>
-      <reference id="DisableNewUi"/>
     </group>
 
     <action id="CheckSuggestedPlugins" class="com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.CheckSuggestedPluginsAction"/>
@@ -1678,5 +1696,30 @@
               class="com.intellij.ide.actions.searcheverywhere.CloseSearchEverywherePreview"
               icon="AllIcons.Actions.CloseDarkGrey"/>
     </group>
+
+    <action id="plugins.autoupdate.repository.view" class="com.intellij.openapi.application.PluginsAutoUpdateRepositoryViewAction" internal="true"/>
+
+    <action id="ToolWindowShowNamesAction" class="com.intellij.ide.actions.ToolWindowShowNamesAction"/>
+
+    <group id="Internal.VFS" popup="true" internal="true">
+      <action id="VirtualFileInfo" internal="true" class="com.intellij.openapi.vfs.impl.local.VirtualFileInfoAction"/>
+      <separator/>
+      <action id="CheckVfsSanityInMenu" internal="true" class="com.intellij.openapi.vfs.newvfs.persistent.CheckVFSHealthAction"/>
+      <action id="MarkVfsCorrupted" internal="true" class="com.intellij.openapi.vfs.newvfs.persistent.MarkVfsCorruptedAction"/>
+      <action id="LoadAllContent" internal="true" class="com.intellij.internal.LoadAllContentsAction"/>
+      <action id="LoadAllVFSContent" internal="true" class="com.intellij.internal.LoadAllVfsStoredContentsAction"/>
+      <action id="ComputeVFStatistics" internal="true" class="com.intellij.internal.ComputeVirtualFileNameStatAction"/>
+      <action id="DumpVfsInfoForExcludedFiles" internal="true" class="com.intellij.internal.DumpVfsInfoForExcludedFilesAction"/>
+      <action id="DumpWatchedRoots" internal="true" class="com.intellij.openapi.roots.impl.DumpWatchedRootsAction"/>
+      <separator/>
+      <action internal="true" id="PruneEmptyDirectories" class="com.intellij.ide.actions.PruneEmptyDirectoriesAction"/>
+      <action internal="true" id="FixLineSeparators" class="com.intellij.ide.actions.FixLineSeparatorsAction"/>
+      <separator/>
+      <add-to-group group-id="Internal" anchor="last"/>
+    </group>
+    <action internal="true" id="ShowUsageFeatures" class ="com.intellij.usages.similarity.internal.ShowUsageFeaturesInternalAction"/>
+
+    <!-- copy of CheckVfsSanityInMenu: !internal so could be invoked via 'search everywhere' -->
+    <action id="CheckVfsSanity" class="com.intellij.openapi.vfs.newvfs.persistent.CheckVFSHealthAction"/>
   </actions>
 </idea-plugin>

@@ -2,8 +2,10 @@
 package com.intellij.openapi.ui;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.client.ClientSystemInfo;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.Weighted;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeGlassPane;
@@ -78,10 +80,10 @@ public class OnePixelDivider extends Divider {
 
   @Override
   public void removeNotify() {
-    super.removeNotify();
     if (myDisposable != null && !Disposer.isDisposed(myDisposable)) {
       Disposer.dispose(myDisposable);
     }
+    super.removeNotify();
   }
 
   protected boolean myDragging = false;
@@ -94,7 +96,7 @@ public class OnePixelDivider extends Divider {
   }
   private class MyMouseAdapter extends MouseAdapter implements Weighted {
     private boolean skipEventProcessing() {
-      if (isOneOfComponentsShowing()) {
+      if (isBothComponentsVisibleAndOneOfComponentsShowing()) {
         return false;
       }
       setDragging(false);
@@ -191,14 +193,15 @@ public class OnePixelDivider extends Divider {
     }
   }
 
-  private boolean isOneOfComponentsShowing() {
+  private boolean isBothComponentsVisibleAndOneOfComponentsShowing() {
     if (isShowing()) return true;
 
     if (mySplitter instanceof JBSplitter) {
       JComponent first = ((JBSplitter)mySplitter).getFirstComponent();
       JComponent second = ((JBSplitter)mySplitter).getSecondComponent();
-      if (first != null && first.isShowing()) return true;
-      if (second != null && second.isShowing()) return true;
+      if (first == null || second == null || !first.isVisible() || !second.isVisible()) return false;
+      if (first.isShowing()) return true;
+      if (second.isShowing()) return true;
     }
     return false;
   }
@@ -220,6 +223,10 @@ public class OnePixelDivider extends Divider {
   private void init() {
     myGlassPane = IdeGlassPaneUtil.find(this);
     myDisposable = Disposer.newDisposable();
+    Application application = ApplicationManager.getApplication();
+    if (application != null) {
+      Disposer.register(application, myDisposable);
+    }
     myGlassPane.addMouseMotionPreprocessor(myListener, myDisposable);
     myGlassPane.addMousePreprocessor(myListener, myDisposable);
   }
@@ -259,7 +266,7 @@ public class OnePixelDivider extends Divider {
     if (e.getID() == MouseEvent.MOUSE_CLICKED) {
       if (mySwitchOrientationEnabled
           && e.getClickCount() == 1
-          && SwingUtilities.isLeftMouseButton(e) && (SystemInfo.isMac ? e.isMetaDown() : e.isControlDown())) {
+          && SwingUtilities.isLeftMouseButton(e) && (ClientSystemInfo.isMac() ? e.isMetaDown() : e.isControlDown())) {
         mySplitter.setOrientation(!mySplitter.getOrientation());
       }
       if (myResizeEnabled && e.getClickCount() == 2) {

@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.conversion.copy;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -19,6 +20,12 @@ import org.junit.runner.RunWith;
 @RunWith(JUnit3RunnerWithInners.class)
 @TestMetadata("testData/copyPaste/plainTextLiteral")
 public class LiteralTextToKotlinCopyPasteTestGenerated extends AbstractLiteralTextToKotlinCopyPasteTest {
+    @java.lang.Override
+    @org.jetbrains.annotations.NotNull
+    public final KotlinPluginMode getPluginMode() {
+        return KotlinPluginMode.K1;
+    }
+
     private void runTest(String testDataFilePath) throws Exception {
         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
@@ -51,6 +58,11 @@ public class LiteralTextToKotlinCopyPasteTestGenerated extends AbstractLiteralTe
     @TestMetadata("NoSpecialCharsToSingleQuote.txt")
     public void testNoSpecialCharsToSingleQuote() throws Exception {
         runTest("testData/copyPaste/plainTextLiteral/NoSpecialCharsToSingleQuote.txt");
+    }
+
+    @TestMetadata("Stacktrace.txt")
+    public void testStacktrace() throws Exception {
+        runTest("testData/copyPaste/plainTextLiteral/Stacktrace.txt");
     }
 
     @TestMetadata("TrailingLines.txt")

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl;
 
 import com.intellij.lang.jvm.JvmClass;
@@ -7,6 +7,7 @@ import com.intellij.lang.jvm.facade.JvmFacadeImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.DumbUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootModificationTracker;
 import com.intellij.openapi.util.*;
@@ -26,6 +27,8 @@ import com.intellij.util.Processor;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ConcurrentFactoryMap;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.messages.MessageBus;
+import kotlinx.coroutines.CoroutineScope;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -47,14 +50,15 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
   private final NotNullLazyValue<JvmFacadeImpl> myJvmFacade;
   private final JvmPsiConversionHelper myConversionHelper;
 
-  public JavaPsiFacadeImpl(@NotNull Project project) {
+  public JavaPsiFacadeImpl(@NotNull Project project, @Nullable CoroutineScope coroutineScope) {
     myProject = project;
     myFileManager = JavaFileManager.getInstance(myProject);
     myConstantEvaluationHelper = new PsiConstantEvaluationHelperImpl();
     myJvmFacade = NotNullLazyValue.atomicLazy(() -> (JvmFacadeImpl)JvmFacade.getInstance(project));
     myConversionHelper = JvmPsiConversionHelper.getInstance(myProject);
 
-    project.getMessageBus().connect().subscribe(PsiModificationTracker.TOPIC, () -> {
+    MessageBus bus = project.getMessageBus();
+    (coroutineScope == null ? bus.simpleConnect() : bus.connect(coroutineScope)).subscribe(PsiModificationTracker.TOPIC, () -> {
       myClassCache.clear();
       myPackageCache.clear();
     });
@@ -62,8 +66,16 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
     DummyHolderFactory.setFactory(new JavaDummyHolderFactory());
   }
 
+  /**
+   * @deprecated Use {@link JavaPsiFacade#getInstance(Project)}
+   */
+  @Deprecated
+  public JavaPsiFacadeImpl(@NotNull Project project) {
+    this(project, null);
+  }
+
   @Override
-  public PsiClass findClass(@NotNull final String qualifiedName, @NotNull GlobalSearchScope scope) {
+  public PsiClass findClass(final @NotNull String qualifiedName, @NotNull GlobalSearchScope scope) {
     ProgressIndicatorProvider.checkCanceled(); // We hope this method is being called often enough to cancel daemon processes smoothly
 
     Map<String, Optional<PsiClass>> map = myClassCache.computeIfAbsent(scope, scope1 -> CollectionFactory.createConcurrentWeakValueMap());
@@ -79,8 +91,7 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
     return result.orElse(null);
   }
 
-  @Nullable
-  private PsiClass doFindClass(@NotNull String qualifiedName, @NotNull GlobalSearchScope scope) {
+  private @Nullable PsiClass doFindClass(@NotNull String qualifiedName, @NotNull GlobalSearchScope scope) {
     if (shouldUseSlowResolve()) {
       PsiClass[] classes = findClassesInDumbMode(qualifiedName, scope);
       if (classes.length != 0) {
@@ -127,8 +138,7 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
     return allClasses.isEmpty() ? PsiClass.EMPTY_ARRAY : allClasses.toArray(PsiClass.EMPTY_ARRAY);
   }
 
-  @NotNull
-  private List<PsiClass> findClassesWithJvmFacade(@NotNull String qualifiedName, @NotNull GlobalSearchScope scope) {
+  private @NotNull List<PsiClass> findClassesWithJvmFacade(@NotNull String qualifiedName, @NotNull GlobalSearchScope scope) {
     List<PsiClass> result = null;
 
     final List<PsiClass> ownClasses = findClassesWithoutJvmFacade(qualifiedName, scope);
@@ -150,8 +160,7 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
     return result == null ? Collections.emptyList() : result;
   }
 
-  @NotNull
-  public List<PsiClass> findClassesWithoutJvmFacade(@NotNull String qualifiedName, @NotNull GlobalSearchScope scope) {
+  public @NotNull List<PsiClass> findClassesWithoutJvmFacade(@NotNull String qualifiedName, @NotNull GlobalSearchScope scope) {
     if (shouldUseSlowResolve()) {
       return Arrays.asList(findClassesInDumbMode(qualifiedName, scope));
     }
@@ -187,8 +196,7 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
   }
 
   @Override
-  @NotNull
-  public PsiConstantEvaluationHelper getConstantEvaluationHelper() {
+  public @NotNull PsiConstantEvaluationHelper getConstantEvaluationHelper() {
     return myConstantEvaluationHelper;
   }
 
@@ -215,10 +223,21 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
     return modules.size() == 1 ? modules.iterator().next() : null;
   }
 
-  @NotNull
   @Override
-  public Collection<PsiJavaModule> findModules(@NotNull String moduleName, @NotNull GlobalSearchScope scope) {
+  public @NotNull Collection<PsiJavaModule> findModules(@NotNull String moduleName, @NotNull GlobalSearchScope scope) {
     JavaFileManager javaFileManager = JavaFileManager.getInstance(myProject);
+    //it can be called in dumb mode
+    //see com.intellij.psi.impl.JavaPlatformModuleSystem.accessibleFromLoadedModules
+    //but in this case it must not be cached!
+    if (DumbService.isDumb(myProject)) {
+      if (DumbUtil.getInstance(myProject).mayUseIndices()) {
+        return javaFileManager.findModules(moduleName, scope);
+      }
+      else {
+        //no options
+        return Collections.emptyList();
+      }
+    }
     return CachedValuesManager.getManager(myProject)
       .getCachedValue(myProject, () -> {
         Map<GlobalSearchScope, Map<String, Collection<PsiJavaModule>>> scope2ModulesMap =
@@ -233,31 +252,26 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
       .get(moduleName);
   }
 
-  @NotNull
-  private List<PsiElementFinder> filteredFinders() {
+  private @NotNull List<PsiElementFinder> filteredFinders() {
     return DumbService.getInstance(getProject()).filterByDumbAwareness(PsiElementFinder.EP.getPoint(myProject).getExtensionList());
   }
 
   @Override
-  @NotNull
-  public PsiJavaParserFacade getParserFacade() {
+  public @NotNull PsiJavaParserFacade getParserFacade() {
     return getElementFactory(); // TODO: lighter implementation which doesn't mark all the elements as generated.
   }
 
   @Override
-  @NotNull
-  public PsiResolveHelper getResolveHelper() {
+  public @NotNull PsiResolveHelper getResolveHelper() {
     return PsiResolveHelper.getInstance(myProject);
   }
 
   @Override
-  @NotNull
-  public PsiNameHelper getNameHelper() {
+  public @NotNull PsiNameHelper getNameHelper() {
     return PsiNameHelper.getInstance(myProject);
   }
 
-  @NotNull
-  public Set<String> getClassNames(@NotNull PsiPackage psiPackage, @NotNull GlobalSearchScope scope) {
+  public @NotNull Set<String> getClassNames(@NotNull PsiPackage psiPackage, @NotNull GlobalSearchScope scope) {
     Set<String> result = new HashSet<>();
     for (PsiElementFinder finder : filteredFinders()) {
       result.addAll(finder.getClassNames(psiPackage, scope));
@@ -393,8 +407,7 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
   }
 
   @Override
-  @NotNull
-  public Project getProject() {
+  public @NotNull Project getProject() {
     return myProject;
   }
 
@@ -406,8 +419,7 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
   }
 
   @Override
-  @NotNull
-  public PsiElementFactory getElementFactory() {
+  public @NotNull PsiElementFactory getElementFactory() {
     return PsiElementFactory.getInstance(myProject);
   }
 }

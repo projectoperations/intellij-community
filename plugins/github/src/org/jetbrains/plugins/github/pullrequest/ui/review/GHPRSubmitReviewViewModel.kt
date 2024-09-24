@@ -4,10 +4,12 @@ package org.jetbrains.plugins.github.pullrequest.ui.review
 import com.intellij.collaboration.ui.codereview.review.CodeReviewSubmitViewModel
 import com.intellij.collaboration.util.SingleCoroutineLauncher
 import com.intellij.platform.util.coroutines.childScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import org.jetbrains.plugins.github.api.data.GHPullRequestReviewEvent
 import org.jetbrains.plugins.github.pullrequest.data.GHPullRequestPendingReview
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRReviewDataProvider
@@ -38,7 +40,7 @@ internal class GHPRSubmitReviewViewModelImpl(parentCs: CoroutineScope,
                                              private val dataProvider: GHPRReviewDataProvider,
                                              override val viewerIsAuthor: Boolean,
                                              private val pendingReview: GHPullRequestPendingReview?,
-                                             private val onDone: () -> Unit)
+                                             private val onDone: suspend () -> Unit)
   : GHPRSubmitReviewViewModel {
   private val cs = parentCs.childScope()
 
@@ -58,12 +60,22 @@ internal class GHPRSubmitReviewViewModelImpl(parentCs: CoroutineScope,
   override fun submit(event: GHPullRequestReviewEvent) {
     val body = text.value
     taskLauncher.launch {
-      if (pendingReview != null) {
-        dataProvider.submitReview(pendingReview.id, event, body)
+      try {
+        if (pendingReview != null) {
+          dataProvider.submitReview(pendingReview.id, event, body)
+        }
+        else {
+          dataProvider.createReview(event, body)
+        }
       }
-      else {
-        dataProvider.createReview(event, body)
+      catch (ce: CancellationException) {
+        throw ce
       }
+      catch (e: Exception) {
+        _error.value = e
+        return@launch
+      }
+      _error.value = null
       text.value = ""
       onDone()
     }
@@ -79,6 +91,8 @@ internal class GHPRSubmitReviewViewModelImpl(parentCs: CoroutineScope,
   }
 
   override fun cancel() {
-    onDone()
+    cs.launch {
+      onDone()
+    }
   }
 }

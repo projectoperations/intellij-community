@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.intellij.images.editor.actions;
 
 import com.intellij.application.options.colors.ColorAndFontOptions;
@@ -120,6 +120,9 @@ public class BackgroundImageDialog extends DialogWrapper {
     });
   }
 
+  /**
+   * Called by UI Designer
+   */
   private void createUIComponents() {
     ComboBox<String> comboBox = new ComboBox<>(new CollectionComboBoxModel<>(), 100);
     myPathField = new ComboboxWithBrowseButton(comboBox);
@@ -218,7 +221,7 @@ public class BackgroundImageDialog extends DialogWrapper {
     myPathField.getComboBox().setEditable(true);
     FileChooserDescriptor descriptor = new FileChooserDescriptor(true, false, false, false, true, false)
       .withFileFilter(file -> ImageFileTypeManager.getInstance().isImage(file));
-    myPathField.addBrowseFolderListener(null, null, null, descriptor, TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT);
+    myPathField.addBrowseFolderListener(null, descriptor, TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT);
     JTextComponent textComponent = getComboEditor();
     textComponent.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
@@ -311,6 +314,8 @@ public class BackgroundImageDialog extends DialogWrapper {
       myEditorPreview.updateView();
     }
     updatePreview();
+    setOKButtonText(EDITOR.equals(myPreviewTarget) ? IdeBundle.message("set.action.editor.and.tools")
+                                                   : IdeBundle.message("set.action.empty.frame"));
   }
 
   public void setSelectedPath(@NlsSafe String path) {
@@ -361,7 +366,7 @@ public class BackgroundImageDialog extends DialogWrapper {
     String prop = getSystemProp();
     PropertiesComponent.getInstance(myProject).setValue(prop, null);
     PropertiesComponent.getInstance().setValue(prop, null);
-    repaintAllWindows();
+    resetBackgroundImagePainters();
   }
 
   @Override
@@ -381,7 +386,7 @@ public class BackgroundImageDialog extends DialogWrapper {
       PropertiesComponent.getInstance().setValue(prop, value);
     }
 
-    repaintAllWindows();
+    resetBackgroundImagePainters();
   }
 
   private void storeRecentImages() {

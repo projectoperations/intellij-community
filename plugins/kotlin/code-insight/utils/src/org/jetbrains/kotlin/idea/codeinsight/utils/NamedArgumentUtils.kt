@@ -3,10 +3,14 @@ package org.jetbrains.kotlin.idea.codeinsight.utils
 
 import com.intellij.psi.PsiComment
 import com.intellij.psi.SmartPsiElementPointer
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
-import org.jetbrains.kotlin.analysis.api.calls.KtFunctionCall
-import org.jetbrains.kotlin.analysis.api.calls.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.calls.symbol
+import com.intellij.psi.createSmartPointer
+import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.resolution.KaErrorCallInfo
+import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
+import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.psi.getCallElement
@@ -14,7 +18,6 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtCallElement
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtValueArgument
-import org.jetbrains.kotlin.psi.psiUtil.createSmartPointer
 import org.jetbrains.kotlin.psi.psiUtil.getPrevSiblingIgnoringWhitespace
 
 object NamedArgumentUtils {
@@ -40,12 +43,12 @@ object NamedArgumentUtils {
      * Associates each argument of [call] with its argument name if `argumentName = argument` is valid for all arguments. Optionally,
      * starts at [startArgument] if it's not `null`.
      */
-    context(KtAnalysisSession)
+    context(KaSession)
     fun associateArgumentNamesStartingAt(
         call: KtCallElement,
         startArgument: KtValueArgument?
     ): Map<SmartPsiElementPointer<KtValueArgument>, Name>? {
-        val resolvedCall = call.resolveCall()?.singleFunctionCallOrNull() ?: return null
+        val resolvedCall = call.resolveToCall()?.singleFunctionCallOrNull() ?: return null
         if (!resolvedCall.symbol.hasStableParameterNames) {
             return null
         }
@@ -62,16 +65,27 @@ object NamedArgumentUtils {
      * The method also works for [argument] that is [KtLambdaArgument], since
      * the argument name can be used after moving [KtLambdaArgument] inside parentheses.
      */
-    context(KtAnalysisSession)
+    context(KaSession)
     fun getStableNameFor(argument: KtValueArgument): Name? {
         val callElement: KtCallElement = getCallElement(argument) ?: return null
-        val resolvedCall = callElement.resolveCall()?.singleFunctionCallOrNull() ?: return null
+        val resolveToCall = callElement.resolveToCall()
+        //((callElement.resolveToCall() as? KaErrorCallInfo).candidateCalls[0] as KaSimpleFunctionCall).symbol.hasStableParameterNames
+        val resolvedCall =
+            resolveToCall?.singleFunctionCallOrNull() ?: (resolveToCall as? KaErrorCallInfo)?.singleCallOrNull() ?: return null
         if (!resolvedCall.symbol.hasStableParameterNames) return null
         return getNameForNameableArgument(argument, resolvedCall)
     }
 
-    private fun getNameForNameableArgument(argument: KtValueArgument, resolvedCall: KtFunctionCall<*>): Name? {
-        val valueParameterSymbol = resolvedCall.argumentMapping[argument.getArgumentExpression()]?.symbol ?: return null
+    private fun getNameForNameableArgument(argument: KtValueArgument, resolvedCall: KaFunctionCall<*>): Name? {
+        val argumentMapping = resolvedCall.argumentMapping
+        val variableSignature = argumentMapping[argument.getArgumentExpression()]
+        if (variableSignature == null) {
+            val resolvedCallSignatures = argumentMapping.values.map { it.symbol to it }.toMap()
+            val name =
+                resolvedCall.symbol.valueParameters.filter<KaValueParameterSymbol> { it !in resolvedCallSignatures }.firstOrNull()?.name
+            return name
+        }
+        val valueParameterSymbol = variableSignature.symbol
         if (valueParameterSymbol.isVararg) {
             if (argument.languageVersionSettings.supportsFeature(LanguageFeature.ProhibitAssigningSingleElementsToVarargsInNamedForm) &&
                 !argument.isSpread
@@ -85,7 +99,7 @@ object NamedArgumentUtils {
             //
             //   foo(1, 2) // Can NOT add `i = ` to either argument
             //   foo(1)    // Can change to `i = 1`
-            val varargArgumentCount = resolvedCall.argumentMapping.values.count { it.symbol == valueParameterSymbol }
+            val varargArgumentCount = argumentMapping.values.count { it.symbol == valueParameterSymbol }
             if (varargArgumentCount != 1) {
                 return null
             }

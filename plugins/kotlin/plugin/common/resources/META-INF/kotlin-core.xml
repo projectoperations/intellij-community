@@ -7,6 +7,10 @@
             interface="org.jetbrains.kotlin.idea.codeInsight.KotlinAutoImportsFilter"
             dynamic="true"/>
     <extensionPoint
+            qualifiedName="com.intellij.kotlin.autoImportCallableWeigher"
+            interface="org.jetbrains.kotlin.idea.codeinsight.api.classic.quickfixes.KotlinAutoImportCallableWeigher"
+            dynamic="true"/>
+    <extensionPoint
             qualifiedName="org.jetbrains.kotlin.pluginUpdateVerifier"
             interface="org.jetbrains.kotlin.idea.update.PluginUpdateVerifier" 
             dynamic="true"/>
@@ -51,7 +55,7 @@
             dynamic="true"/>
     <extensionPoint
             qualifiedName="org.jetbrains.kotlin.ktModuleFactory"
-            interface="org.jetbrains.kotlin.idea.base.projectStructure.KtModuleFactory"
+            interface="org.jetbrains.kotlin.idea.base.projectStructure.KaModuleFactory"
             dynamic="true"/>
     <extensionPoint
             qualifiedName="org.jetbrains.kotlin.analysis.additionalKDocResolutionProvider"
@@ -72,35 +76,44 @@
             qualifiedName="org.jetbrains.kotlin.j2kConverterExtension"
             interface="org.jetbrains.kotlin.j2k.J2kConverterExtension"
             dynamic="true"/>
+    <extensionPoint
+            qualifiedName="org.jetbrains.kotlin.j2kPreprocessorExtension"
+            interface="org.jetbrains.kotlin.j2k.J2kPreprocessorExtension"
+            dynamic="true"/>
+    <extensionPoint
+            qualifiedName="org.jetbrains.kotlin.j2kPostprocessorExtension"
+            interface="org.jetbrains.kotlin.j2k.J2kPostprocessorExtension"
+            dynamic="true"/>
+    <extensionPoint qualifiedName="org.jetbrains.kotlin.buildSystemDependencyManager"
+                    interface="org.jetbrains.kotlin.idea.configuration.KotlinBuildSystemDependencyManager"
+                    area="IDEA_PROJECT"
+                    dynamic="true"/>
+    <extensionPoint qualifiedName="org.jetbrains.kotlin.libraryVersionProvider"
+                    interface="org.jetbrains.kotlin.idea.configuration.KotlinLibraryVersionProvider"
+                    dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
     <gotoRelatedProvider implementation="org.jetbrains.kotlin.idea.goto.KotlinExpectOrActualGotoRelatedProvider"/>
 
-    <applicationService serviceInterface="org.jetbrains.kotlin.analysis.decompiler.psi.BuiltInsVirtualFileProvider"
+    <applicationService serviceInterface="org.jetbrains.kotlin.analysis.decompiler.psi.BuiltinsVirtualFileProvider"
                         serviceImplementation="org.jetbrains.kotlin.idea.base.analysis.builtins.IdeBuiltInsVirtualFileProviderImpl"/>
     
     <aboutPopupDescriptionProvider implementation="org.jetbrains.kotlin.idea.base.plugin.KotlinPluginKindAboutPopupDescriptionProvider"/>
     <aboutPopupDescriptionProvider implementation="org.jetbrains.kotlin.idea.base.plugin.KotlinAnalyzerVersionAboutPopupDescriptionProvider"/>
     <applicationService serviceImplementation="org.jetbrains.kotlin.idea.codeInsight.KotlinCodeInsightSettings"/>
     <applicationService serviceImplementation="org.jetbrains.kotlin.idea.editor.KotlinEditorOptions"/>
-    <applicationInitializedListener implementation="org.jetbrains.kotlin.idea.macros.ApplicationWideKotlinBundledPathMacroCleaner"/>
+    <applicationActivity implementation="org.jetbrains.kotlin.idea.macros.ApplicationWideKotlinBundledPathMacroCleaner"/>
 
     <projectService
-            serviceInterface="org.jetbrains.kotlin.analysis.project.structure.ProjectStructureProvider"
+            serviceInterface="org.jetbrains.kotlin.analysis.api.platform.projectStructure.KotlinProjectStructureProvider"
             serviceImplementation="org.jetbrains.kotlin.idea.base.projectStructure.ProjectStructureProviderIdeImpl"/>
-    <projectService
-            serviceInterface="org.jetbrains.kotlin.analysis.project.structure.KotlinModuleDependentsProvider"
-            serviceImplementation="org.jetbrains.kotlin.idea.base.projectStructure.IdeKotlinModuleDependentsProvider"/>
     <projectService
             serviceInterface="org.jetbrains.kotlin.idea.facet.KotlinFacetEditorProviderService"
             serviceImplementation="org.jetbrains.kotlin.idea.base.compilerPreferences.KotlinFacetEditorProviderServiceImpl"/>
     <projectService
             serviceInterface="org.jetbrains.kotlin.idea.base.projectStructure.RootKindMatcher"
             serviceImplementation="org.jetbrains.kotlin.idea.base.analysis.RootKindMatcherImpl"/>
-    <projectService
-            serviceInterface="org.jetbrains.kotlin.analysis.api.lifetime.KtLifetimeTokenProvider"
-            serviceImplementation="org.jetbrains.kotlin.analysis.api.lifetime.KtReadActionConfinementLifetimeTokenProvider"/>
 
     <applicationConfigurable
             groupId="language"
@@ -118,17 +131,6 @@
             parentId="project.propCompiler"/>
 
     <errorHandler implementation="org.jetbrains.kotlin.idea.reporter.KotlinReportSubmitter"/>
-    
-    <typeHierarchyProvider
-            language="kotlin"
-            implementationClass="org.jetbrains.kotlin.idea.hierarchy.KotlinTypeHierarchyProviderBySuperTypeCallEntry"/>
-    <typeHierarchyProvider
-            language="kotlin"
-            implementationClass="org.jetbrains.kotlin.idea.hierarchy.KotlinTypeHierarchyProvider"/>
-    <typeHierarchyProvider
-            language="JAVA"
-            order="last"
-            implementationClass="org.jetbrains.kotlin.idea.hierarchy.KotlinTypeHierarchyProviderBySuperTypeCallEntry"/>
 
     <pathMacroExpandableProtocol protocol="kotlin-js-meta"/>
 
@@ -139,6 +141,7 @@
     <postStartupActivity implementation="org.jetbrains.kotlin.idea.macros.KotlinBundledRefresher"/>
 
     <typeDeclarationProvider implementation="org.jetbrains.kotlin.idea.codeInsight.KotlinTypeDeclarationProvider"/>
+    <gotoDeclarationHandler implementation="org.jetbrains.kotlin.idea.codeInsight.KotlinGotoValVarTypeHandler"/>
     <focusModeProvider language="kotlin" implementationClass="org.jetbrains.kotlin.idea.core.KotlinFocusModeProvider" />
 
     <lang.floatingToolbarCustomizer language="kotlin" implementationClass="com.intellij.ui.codeFloatingToolbar.FloatingToolbarCustomizer$DefaultGroup"/>
@@ -188,7 +191,6 @@
     <search.topHitProvider implementation="org.jetbrains.kotlin.idea.editor.KotlinEditorOptionsTopHitProvider"/>
 
     <psi.classFileDecompiler implementation="org.jetbrains.kotlin.analysis.decompiler.psi.KotlinClassFileDecompiler"/>
-    <psi.classFileDecompiler implementation="org.jetbrains.kotlin.analysis.decompiler.js.KotlinJavaScriptMetaFileDecompiler"/>
     <psi.classFileDecompiler implementation="org.jetbrains.kotlin.analysis.decompiler.psi.KotlinBuiltInDecompiler"/>
 
     <moduleConfigurationEditorProvider implementation="org.jetbrains.kotlin.idea.roots.ui.NonJvmKotlinModuleEditorsProvider"/>
@@ -229,6 +231,18 @@
             description="Insert constructor parenthesis on class autocompletion"
             defaultValue="false"
             restartRequired="false"/>
+    <registryKey
+            key="kotlin.auto.completion.dumb.mode.use.psi.completion"
+            description="Use PSI based completion when indexing"
+            defaultValue="true"
+            restartRequired="false"/>
+    <completion.contributor
+            language="kotlin"
+            id="KotlinDumbCompletionContributor"
+            order="first, after KotlinCompletionContributor"
+            implementationClass="org.jetbrains.kotlin.idea.completion.implCommon.KotlinDumbCompletionContributor"/>
+    <codeInsight.wordCompletionFilter language="kotlin"
+                                      implementationClass="org.jetbrains.kotlin.idea.completion.implCommon.KotlinWordCompletionFilter"/>
 
     <registryKey key="kotlin.create.sealed.templates.enabled"
                  defaultValue="false"
@@ -243,7 +257,7 @@
             id="kotlinSkipAutopopupInStrings"
             order="after propertyKeys"/>
 
-    <iconMapper mappingFile="KotlinIconMappings.json"/>
+    <pluginSuggestionProvider order="first" implementation="org.jetbrains.kotlin.idea.suggestions.KotlinNotebookSuggestionProvider"/>
   </extensions>
 
   <!-- Templates -->
@@ -285,8 +299,6 @@
 
     <listener class="org.jetbrains.kotlin.idea.macros.KotlinBundledUsageDetector$ModelChangeListener"
               topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
-    <listener topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"
-              class="org.jetbrains.kotlin.idea.configuration.notifications.KotlinCodeStyleChangedFileListener"/>
   </projectListeners>
 
   <applicationListeners>
@@ -306,6 +318,7 @@
 
     <projectConfigurator implementation="org.jetbrains.kotlin.idea.configuration.KotlinJavaModuleConfigurator"/>
     <projectConfigurator implementation="org.jetbrains.kotlin.idea.configuration.KotlinJsModuleConfigurator"/>
+    <buildSystemDependencyManager implementation="org.jetbrains.kotlin.idea.configuration.JpsKotlinBuildSystemDependencyManager"/>
   </extensions>
 
   <!-- Line markers -->
@@ -426,6 +439,10 @@
     <registryKey key="kotlin.multiline.function.parameters.info"
                  description="Activates the mode of line-by-line display of the function parameters info, if there are more than three of them"
                  defaultValue="false" />
+
+    <registryKey key="kotlin.copy.paste.allow.import.of.nested.declarations"
+                 description="Allows the copy-paste processor to import nested declarations (enum values, static Java members, etc.) if they were imported in the original source."
+                 defaultValue="true" />
   </extensions>
 
   <!-- Tips and Tricks -->
@@ -478,16 +495,24 @@
             displayType="STICKY_BALLOON"
             key="kotlin.dist.downloading.failed.group.name"
     />
+    <!--suppress PluginXmlCapitalization -->
     <notificationGroup
             id="Configure Kotlin"
             displayType="STICKY_BALLOON"
             key="configure.kotlin"
             bundle="messages.KotlinProjectConfigurationBundle"
     />
+    <notificationGroup
+            id="Configure K2"
+            displayType="STICKY_BALLOON"
+            key="enable.k2"
+            bundle="messages.FeedbackBundle"
+    />
   </extensions>
 
   <!-- Declaration search and Find Usages -->
   <extensions defaultExtensionNs="com.intellij">
+    <actionConfigurationCustomizer implementation="org.jetbrains.kotlin.idea.actions.KotlinActionsManager"/>
     <searchEverywhereResultsEqualityProvider implementation="org.jetbrains.kotlin.idea.searcheverywhere.KtSearchEverywhereEqualityProvider"/>
     <referencesSearch implementation="org.jetbrains.kotlin.idea.search.ideaExtensions.KotlinReferencesSearcher"/>
     <referencesSearch implementation="org.jetbrains.kotlin.idea.search.ideaExtensions.KotlinAliasedImportedElementSearcher"/>
@@ -511,6 +536,9 @@
             implementationClass="org.jetbrains.kotlin.idea.refactoring.safeDelete.KotlinJavaSafeDeleteDelegate"/>
     <safeDelete.importSearcher implementation="org.jetbrains.kotlin.idea.refactoring.safeDelete.KotlinImportSearcher"/>
 
+    <refactoring.inlineHandler
+            language="JAVA"
+            implementationClass="org.jetbrains.kotlin.idea.refactoring.inline.KotlinToJavaInlineHandler"/>
 
     <usageToPsiElementProvider implementation="org.jetbrains.kotlin.idea.codeInsight.KotlinUsageToPsiElementProvider"/>
 
@@ -519,10 +547,22 @@
     <readWriteAccessDetector implementation="org.jetbrains.kotlin.idea.search.ideaExtensions.KotlinReadWriteAccessDetector" id="kotlin"/>
 
     <projectFileScanner implementation="org.jetbrains.kotlin.idea.base.platforms.LibraryEffectiveKindProvider$LibraryKindScanner"/>
+
+    <editorNotificationProvider implementation="org.jetbrains.kotlin.idea.inspections.JavaOutsideModuleDetector"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij.jvm">
     <declarationSearcher language="kotlin" implementationClass="org.jetbrains.kotlin.idea.jvm.KotlinDeclarationSearcher"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <intentionAction>
+      <!--TODO move to intentions-shared after NestedLambdaShadowedImplicitParameterInspection is migrated -->
+      <language>kotlin</language>
+      <className>org.jetbrains.kotlin.idea.codeInsight.intentions.fake.ReplaceItWithExplicitFunctionLiteralParamIntention</className>
+      <bundleName>messages.KotlinBundle</bundleName>
+      <categoryKey>group.names.kotlin</categoryKey>
+    </intentionAction>
   </extensions>
 
   <actions>
@@ -536,7 +576,7 @@
       <add-to-group group-id="NewGroup" anchor="before" relative-to-action="NewFromTemplate"/>
     </action>
 
-    <group id="KotlinToolsGroup" popup="true" icon="/org/jetbrains/kotlin/idea/icons/kotlin13.svg"
+    <group id="KotlinToolsGroup" popup="true" icon="org.jetbrains.kotlin.idea.KotlinIcons.SMALL_LOGO"
            class="org.jetbrains.kotlin.idea.actions.KotlinActionGroup">
       <add-to-group group-id="ToolsMenu" anchor="last"/>
     </group>

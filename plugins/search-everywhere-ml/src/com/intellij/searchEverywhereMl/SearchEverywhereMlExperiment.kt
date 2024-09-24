@@ -5,6 +5,7 @@ import com.intellij.internal.statistic.utils.StatisticsUploadAssistant
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.searchEverywhereMl.SearchEverywhereMlExperiment.Companion.VERSION
 import com.intellij.searchEverywhereMl.log.MLSE_RECORDER_ID
 import com.intellij.searchEverywhereMl.settings.SearchEverywhereMlSettings
 import com.intellij.util.MathUtil
@@ -19,7 +20,7 @@ import org.jetbrains.annotations.VisibleForTesting
  */
 class SearchEverywhereMlExperiment {
   companion object {
-    const val VERSION = 1
+    const val VERSION = 2
     const val NUMBER_OF_GROUPS = 4
   }
 
@@ -37,25 +38,25 @@ class SearchEverywhereMlExperiment {
   private val tabExperiments = hashMapOf(
     SearchEverywhereTabWithMlRanking.ACTION to Experiment(
       1 to ExperimentType.ENABLE_SEMANTIC_SEARCH,
-      2 to ExperimentType.USE_EXPERIMENTAL_MODEL,
       3 to ExperimentType.ENABLE_TYPOS,
     ),
 
     SearchEverywhereTabWithMlRanking.FILES to Experiment(
       1 to ExperimentType.ENABLE_SEMANTIC_SEARCH,
-      2 to ExperimentType.USE_EXPERIMENTAL_MODEL,
       3 to ExperimentType.NO_ML
     ),
 
     SearchEverywhereTabWithMlRanking.CLASSES to Experiment(
       1 to ExperimentType.ENABLE_SEMANTIC_SEARCH,
-      2 to ExperimentType.USE_EXPERIMENTAL_MODEL,
       3 to ExperimentType.NO_ML
+    ),
+
+    SearchEverywhereTabWithMlRanking.SYMBOLS to Experiment(
+      1 to ExperimentType.ENABLE_SEMANTIC_SEARCH,
     ),
 
     SearchEverywhereTabWithMlRanking.ALL to Experiment(
       2 to ExperimentType.USE_EXPERIMENTAL_MODEL,
-      3 to ExperimentType.NO_RECENT_FILES_PRIORITIZATION
     )
   )
 
@@ -104,8 +105,7 @@ class SearchEverywhereMlExperiment {
   internal fun getTabExperiments(): Map<SearchEverywhereTabWithMlRanking, Experiment> = tabExperiments
 
   enum class ExperimentType {
-    NO_EXPERIMENT, NO_ML, USE_EXPERIMENTAL_MODEL, NO_ML_FEATURES, ENABLE_TYPOS,
-    NO_RECENT_FILES_PRIORITIZATION, ENABLE_SEMANTIC_SEARCH
+    NO_EXPERIMENT, NO_ML, USE_EXPERIMENTAL_MODEL, NO_ML_FEATURES, ENABLE_TYPOS, ENABLE_SEMANTIC_SEARCH,
   }
 
   @VisibleForTesting

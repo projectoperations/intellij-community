@@ -1,10 +1,12 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.collaboration.ui.codereview.diff
 
+import com.intellij.collaboration.async.collectScoped
 import com.intellij.collaboration.async.launchNow
 import com.intellij.collaboration.ui.codereview.diff.model.ComputedDiffViewModel
 import com.intellij.collaboration.ui.codereview.diff.model.DiffProducersViewModel
 import com.intellij.collaboration.ui.codereview.diff.model.getSelected
+import com.intellij.diff.FrameDiffTool
 import com.intellij.diff.chains.DiffRequestProducer
 import com.intellij.diff.impl.CacheDiffRequestProcessor
 import com.intellij.diff.util.DiffUserDataKeysEx
@@ -15,9 +17,11 @@ import com.intellij.openapi.vcs.changes.actions.diff.PresentableGoToChangePopupA
 import com.intellij.openapi.vcs.changes.ui.ChangeDiffRequestChain
 import com.intellij.openapi.vcs.changes.ui.PresentableChange
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
@@ -28,37 +32,38 @@ class ComputingDiffRequestProcessor(project: Project, cs: CoroutineScope, privat
 
   init {
     cs.launchNow {
-      vm.diffVm.collectLatest {
-        val result = it.result
-        if (result == null) {
-          delay(DiffUIUtil.PROGRESS_DISPLAY_DELAY)
-          reloadRequest()
-        }
-        else {
-          result.getOrNull()?.let { vm -> installVm(vm) } ?: updateRequest()
+      withContext(Dispatchers.Main) {
+        vm.diffVm.collectScoped {
+          val result = it.result
+          if (result == null) {
+            delay(DiffUIUtil.PROGRESS_DISPLAY_DELAY)
+            reloadRequest()
+          }
+          else {
+            result.getOrNull()?.let { vm -> installProducers(vm) } ?: updateRequest()
+          }
         }
       }
     }
   }
 
-  private suspend fun installVm(vm: DiffProducersViewModel) {
-    vm.producers.collectLatest {
-      coroutineScope {
-        val producer = it.getSelected()
-        var updated = false
-        if (producer is ScrollableDiffRequestProducer) {
-          launchNow {
-            producer.scrollRequests.collect {
-              reloadRequest()
-              updated = true
-            }
+  private suspend fun installProducers(vm: DiffProducersViewModel) {
+    vm.producers.map {
+      it.getSelected()
+    }.distinctUntilChanged().collectScoped { producer ->
+      updateRequest()
+      if (producer is ScrollableDiffRequestProducer) {
+        launchNow {
+          producer.scrollRequests.collect {
+            activeViewer?.scrollTo(it)
           }
-        }
-        if (!updated) {
-          updateRequest()
         }
       }
     }
+  }
+
+  private fun FrameDiffTool.DiffViewer.scrollTo(loc: DiffLineLocation) {
+    DiffViewerScrollRequestProcessor.scroll(this, loc)
   }
 
   override fun getCurrentRequestProvider(): DiffRequestProducer? {
@@ -72,8 +77,9 @@ class ComputingDiffRequestProcessor(project: Project, cs: CoroutineScope, privat
   }
 
   override fun updateRequest(force: Boolean, useCache: Boolean, scrollToChangePolicy: DiffUserDataKeysEx.ScrollToPolicy?) {
+    // do not reload the request if the provider hasn't changed
     val producerToSet = currentRequestProvider
-    if (!force && currentProducerFromUpdate == producerToSet) return
+    if (useCache && !force && currentProducerFromUpdate == producerToSet) return
     super.updateRequest(force, useCache, scrollToChangePolicy)
     currentProducerFromUpdate = producerToSet
   }

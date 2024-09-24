@@ -12,18 +12,18 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.PsiDocCommentOwner
 import com.intellij.psi.tree.TokenSet
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
-import org.jetbrains.kotlin.analysis.api.annotations.KtAnnotationApplication
-import org.jetbrains.kotlin.analysis.api.annotations.annotations
-import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KtRendererAnnotationsFilter
-import org.jetbrains.kotlin.analysis.api.renderer.declarations.KtDeclarationRenderer
-import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KtDeclarationRendererForSource
-import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KtRendererKeywordFilter
-import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KtRendererOtherModifiersProvider
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
+import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KaRendererAnnotationsFilter
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.KaDeclarationRenderer
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KaDeclarationRendererForSource
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KaRendererKeywordFilter
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KaRendererOtherModifiersProvider
 import org.jetbrains.kotlin.analysis.api.symbols.*
-import org.jetbrains.kotlin.analysis.api.symbols.markers.KtNamedSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.pointers.KtSymbolPointer
-import org.jetbrains.kotlin.idea.base.util.names.FqNames
+import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.pointers.KaSymbolPointer
+import org.jetbrains.kotlin.idea.base.util.names.FqNames.OptInFqNames.isRequiresOptInFqName
 import org.jetbrains.kotlin.idea.core.TemplateKind
 import org.jetbrains.kotlin.idea.core.getFunctionBodyTextFromTemplate
 import org.jetbrains.kotlin.idea.j2k.IdeaDocCommentConverter
@@ -34,34 +34,33 @@ import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.findDocComment.findDocComment
 import org.jetbrains.kotlin.psi.psiUtil.hasExpectModifier
 import org.jetbrains.kotlin.renderer.render
-import org.jetbrains.kotlin.resolve.checkers.OptInNames
 import org.jetbrains.kotlin.types.Variance
 import javax.swing.Icon
 
 @ApiStatus.Internal
 data class KtClassMemberInfo internal constructor(
-    val symbolPointer: KtSymbolPointer<KtCallableSymbol>,
-    @NlsSafe val memberText: String,
+    val symbolPointer: KaSymbolPointer<KaCallableSymbol>,
+    @NlsSafe val memberText: String?,
     val memberIcon: Icon?,
     @NlsContexts.Label val containingSymbolText: String?,
     val containingSymbolIcon: Icon?,
     val isProperty: Boolean,
 ) {
     companion object {
-        context(KtAnalysisSession)
+        context(KaSession)
         fun create(
-            symbol: KtCallableSymbol,
-            memberText: @NlsSafe String,
-            memberIcon: Icon?,
-            @NlsContexts.Label containingSymbolText: String?,
-            containingSymbolIcon: Icon?,
+            symbol: KaCallableSymbol,
+            memberText: @NlsSafe String? = null,
+            memberIcon: Icon? = null,
+            @NlsContexts.Label containingSymbolText: String? = null,
+            containingSymbolIcon: Icon? = null,
         ): KtClassMemberInfo = KtClassMemberInfo(
             symbolPointer = symbol.createPointer(),
             memberText = memberText,
             memberIcon = memberIcon,
             containingSymbolText = containingSymbolText,
             containingSymbolIcon = containingSymbolIcon,
-            isProperty = symbol is KtPropertySymbol,
+            isProperty = symbol is KaPropertySymbol,
         )
     }
 }
@@ -76,14 +75,14 @@ data class KtClassMember(
     memberInfo.memberIcon,
 ), ClassMember {
     override fun getParentNodeDelegate(): MemberChooserObject? = memberInfo.containingSymbolText?.let {
-        KtClassOrObjectSymbolChooserObject(
+        KaClassOrObjectSymbolChooserObject(
             memberInfo.containingSymbolText,
             memberInfo.containingSymbolIcon
         )
     }
 }
 
-private data class KtClassOrObjectSymbolChooserObject(
+data class KaClassOrObjectSymbolChooserObject(
     @NlsContexts.Label val symbolText: String?,
     val symbolIcon: Icon?
 ) :
@@ -95,17 +94,19 @@ internal fun createKtClassMember(
     preferConstructorParameter: Boolean
 ): KtClassMember = KtClassMember(memberInfo, bodyType, preferConstructorParameter)
 
-context(KtAnalysisSession)
+context(KaSession)
+@KaExperimentalApi
 @ApiStatus.Internal
 fun generateMember(
     project: Project,
-    ktClassMember: KtClassMember,
-    symbol: KtCallableSymbol,
+    ktClassMember: KtClassMember?,
+    symbol: KaCallableSymbol,
     targetClass: KtClassOrObject?,
     copyDoc: Boolean,
     mode: MemberGenerateMode = MemberGenerateMode.OVERRIDE
 ): KtCallableDeclaration = with(ktClassMember) {
     val bodyType = when {
+        this == null -> BodyType.FromTemplate
         targetClass?.hasExpectModifier() == true -> BodyType.NoBody
         symbol.isExtension && mode == MemberGenerateMode.OVERRIDE -> BodyType.FromTemplate
         else -> bodyType
@@ -113,16 +114,16 @@ fun generateMember(
 
     val containingKtFile = targetClass?.containingKtFile
 
-    val renderer = KtDeclarationRendererForSource.WITH_QUALIFIED_NAMES.with {
+    val renderer = KaDeclarationRendererForSource.WITH_QUALIFIED_NAMES.with {
         if (mode == MemberGenerateMode.OVERRIDE) {
             annotationRenderer = annotationRenderer.with {
-                annotationFilter = KtRendererAnnotationsFilter { annotation, _ -> keepAnnotation(annotation, containingKtFile) }
+                annotationFilter = KaRendererAnnotationsFilter { annotation, _ -> keepAnnotation(annotation, containingKtFile) }
             }
         }
 
         modifiersRenderer = modifiersRenderer.with {
             keywordsRenderer = keywordsRenderer.with {
-                keywordFilter = KtRendererKeywordFilter.without(
+                keywordFilter = KaRendererKeywordFilter.without(
                     TokenSet.orSet(
                         KtTokens.VISIBILITY_MODIFIERS,
                         TokenSet.create(KtTokens.OPERATOR_KEYWORD, KtTokens.INFIX_KEYWORD, KtTokens.LATEINIT_KEYWORD),
@@ -132,22 +133,76 @@ fun generateMember(
 
             modalityProvider = modalityProvider.onlyIf { s -> s != symbol }
 
-            otherModifiersProvider = otherModifiersProvider and object : KtRendererOtherModifiersProvider {
-                context(KtAnalysisSession)
-                override fun getOtherModifiers(symbol: KtDeclarationSymbol): List<KtModifierKeywordToken> =
-                    listOf(KtTokens.OVERRIDE_KEYWORD)
-            }.onlyIf { s -> mode == MemberGenerateMode.OVERRIDE && s == symbol }
+            val containingSymbol = targetClass?.symbol as? KaClassSymbol
+            otherModifiersProvider = object : KaRendererOtherModifiersProvider {
+                //copy from KaRendererOtherModifiersProvider.ALL with `actual` and `override` specifics
+                override fun getOtherModifiers(
+                    analysisSession: KaSession,
+                    s: KaDeclarationSymbol
+                ): List<KtModifierKeywordToken> = buildList {
+                    if (mode == MemberGenerateMode.OVERRIDE && containingSymbol?.isActual == true) {
+                        //include actual modifier explicitly when containing class has modifier
+                        if (s.isActual) add(KtTokens.ACTUAL_KEYWORD)
+                    }
+
+                    if (s is KaNamedFunctionSymbol) {
+                        if (s.isExternal) add(KtTokens.EXTERNAL_KEYWORD)
+                        if (s.isOverride) add(KtTokens.OVERRIDE_KEYWORD)
+                        if (s.isInline) add(KtTokens.INLINE_KEYWORD)
+                        if (s.isInfix) add(KtTokens.INFIX_KEYWORD)
+                        if (s.isOperator) add(KtTokens.OPERATOR_KEYWORD)
+                        if (s.isSuspend) add(KtTokens.SUSPEND_KEYWORD)
+                    }
+
+                    if (s is KaPropertySymbol) {
+                        if (s.isOverride) add(KtTokens.OVERRIDE_KEYWORD)
+                    }
+
+                    if (s is KaValueParameterSymbol) {
+                        if (s.isVararg) add(KtTokens.VARARG_KEYWORD)
+                        if (s.isCrossinline) add(KtTokens.CROSSINLINE_KEYWORD)
+                        if (s.isNoinline) add(KtTokens.NOINLINE_KEYWORD)
+                    }
+
+                    if (s is KaKotlinPropertySymbol) {
+                        if (s.isConst) add(KtTokens.CONST_KEYWORD)
+                        if (s.isLateInit) add(KtTokens.LATEINIT_KEYWORD)
+                    }
+
+                    if (s is KaNamedClassSymbol) {
+                        if (s.isExternal) add(KtTokens.EXTERNAL_KEYWORD)
+                        if (s.isInline) add(KtTokens.INLINE_KEYWORD)
+                        if (s.isData) add(KtTokens.DATA_KEYWORD)
+                        if (s.isFun) add(KtTokens.FUN_KEYWORD)
+                        if (s.isInner) add(KtTokens.INNER_KEYWORD)
+                    }
+
+                    if (s is KaTypeParameterSymbol) {
+                        if (s.isReified) add(KtTokens.REIFIED_KEYWORD)
+                        when (s.variance) {
+                            Variance.INVARIANT -> {}
+                            Variance.IN_VARIANCE -> add(KtTokens.IN_KEYWORD)
+                            Variance.OUT_VARIANCE -> add(KtTokens.OUT_KEYWORD)
+                        }
+                    }
+
+                    if (s == symbol && mode == MemberGenerateMode.OVERRIDE) {
+                        //include additional override modifier
+                        add(KtTokens.OVERRIDE_KEYWORD)
+                    }
+                }
+            }
         }
     }
 
-    if (preferConstructorParameter && ktClassMember.memberInfo.isProperty) {
+    if (this != null && preferConstructorParameter && memberInfo.isProperty) {
         return generateConstructorParameter(project, symbol, renderer)
     }
 
 
     val newMember: KtCallableDeclaration = when (symbol) {
-        is KtFunctionSymbol -> generateFunction(project, symbol, renderer, bodyType)
-        is KtPropertySymbol -> generateProperty(project, symbol, renderer, bodyType)
+        is KaNamedFunctionSymbol -> generateFunction(project, symbol, renderer, bodyType)
+        is KaPropertySymbol -> generateProperty(project, symbol, renderer, bodyType)
         else -> error("Unknown member to override: $symbol")
     }
 
@@ -158,15 +213,13 @@ fun generateMember(
         }
 
         MemberGenerateMode.OVERRIDE -> {
-            // TODO: add `actual` keyword to the generated member if the target class has `actual` and the generated member corresponds to
             //  an `expect` member.
         }
     }
 
     if (copyDoc) {
-        val kDoc = when (val originalOverriddenPsi = symbol.unwrapFakeOverrides.psi) {
-            is KtDeclaration ->
-                findDocComment(originalOverriddenPsi)
+        val kDoc = when (val originalOverriddenPsi = symbol.fakeOverrideOriginal.psi) {
+            is KtDeclaration -> findDocComment(originalOverriddenPsi)
 
             is PsiDocCommentOwner -> {
                 val kDocText = originalOverriddenPsi.docComment?.let { IdeaDocCommentConverter.convertDocComment(it) }
@@ -186,40 +239,41 @@ fun generateMember(
 /**
  * Returns true if the annotation itself is marked with @RequiresOptIn (or the old @Experimental), or if an extension wants to keep it.
  */
-context(KtAnalysisSession)
-private fun keepAnnotation(annotation: KtAnnotationApplication, file: KtFile?): Boolean {
+context(KaSession)
+private fun keepAnnotation(annotation: KaAnnotation, file: KtFile?): Boolean {
     val classId = annotation.classId ?: return false
-    val symbol = getClassOrObjectSymbolByClassId(classId)
+    val symbol = findClass(classId)
 
     if (symbol != null && symbol.hasRequiresOptInAnnotation()) return true
 
     return file?.let { OverrideImplementsAnnotationsFilter.keepAnnotationOnOverrideMember(classId.asFqNameString(), it) } == true
 }
 
-context(KtAnalysisSession)
-private fun KtClassOrObjectSymbol.hasRequiresOptInAnnotation(): Boolean = annotations.any { annotation ->
-    val fqName = annotation.classId?.asSingleFqName()
-    fqName == OptInNames.REQUIRES_OPT_IN_FQ_NAME || fqName == FqNames.OptInFqNames.OLD_EXPERIMENTAL_FQ_NAME
+context(KaSession)
+private fun KaClassSymbol.hasRequiresOptInAnnotation(): Boolean = annotations.any { annotation ->
+    isRequiresOptInFqName(annotation.classId?.asSingleFqName())
 }
 
-context(KtAnalysisSession)
+context(KaSession)
+@KaExperimentalApi
 private fun generateConstructorParameter(
     project: Project,
-    symbol: KtCallableSymbol,
-    renderer: KtDeclarationRenderer,
+    symbol: KaCallableSymbol,
+    renderer: KaDeclarationRenderer,
 ): KtCallableDeclaration {
     return KtPsiFactory(project).createParameter(symbol.render(renderer))
 }
 
-context(KtAnalysisSession)
+context(KaSession)
+@KaExperimentalApi
 private fun generateFunction(
     project: Project,
-    symbol: KtFunctionSymbol,
-    renderer: KtDeclarationRenderer,
+    symbol: KaNamedFunctionSymbol,
+    renderer: KaDeclarationRenderer,
     bodyType: BodyType,
 ): KtCallableDeclaration {
     val returnType = symbol.returnType
-    val returnsUnit = returnType.isUnit
+    val returnsUnit = returnType.isUnitType
 
     val body = if (bodyType != BodyType.NoBody) {
         val delegation = generateUnsupportedOrSuperCall(project, symbol, bodyType, returnsUnit)
@@ -233,50 +287,44 @@ private fun generateFunction(
     return factory.createFunction(functionText)
 }
 
-context(KtAnalysisSession)
+context(KaSession)
+@KaExperimentalApi
 private fun generateProperty(
     project: Project,
-    symbol: KtPropertySymbol,
-    renderer: KtDeclarationRenderer,
+    symbol: KaPropertySymbol,
+    renderer: KaDeclarationRenderer,
     bodyType: BodyType,
 ): KtCallableDeclaration {
     val returnType = symbol.returnType
-    val returnsNotUnit = !returnType.isUnit
+    val returnsNotUnit = !returnType.isUnitType
 
-    val body =
-        if (bodyType != BodyType.NoBody) {
-            buildString {
-                append("\nget()")
-                append(" = ")
-                append(generateUnsupportedOrSuperCall(project, symbol, bodyType, !returnsNotUnit))
-                if (!symbol.isVal) {
-                    append("\nset(value) {}")
-                }
+    val body = if (bodyType != BodyType.NoBody) {
+        buildString {
+            append("\nget()")
+            append(" = ")
+            append(generateUnsupportedOrSuperCall(project, symbol, bodyType, !returnsNotUnit))
+            if (!symbol.isVal) {
+                append("\nset(value) {}")
             }
-        } else ""
+        }
+    } else ""
     return KtPsiFactory(project).createProperty(symbol.render(renderer) + body)
 }
 
-private fun <T> KtAnalysisSession.generateUnsupportedOrSuperCall(
-    project: Project,
-    symbol: T,
-    bodyType: BodyType,
-    canBeEmpty: Boolean = true
-): String where T : KtNamedSymbol, T : KtCallableSymbol {
+@OptIn(KaExperimentalApi::class)
+fun <T> KaSession.generateUnsupportedOrSuperCall(
+    project: Project, symbol: T, bodyType: BodyType, canBeEmpty: Boolean = true
+): String where T : KaNamedSymbol, T : KaCallableSymbol {
     when (bodyType.effectiveBodyType(canBeEmpty)) {
         BodyType.EmptyOrTemplate -> return ""
         BodyType.FromTemplate -> {
             val templateKind = when (symbol) {
-                is KtFunctionSymbol -> TemplateKind.FUNCTION
-                is KtPropertySymbol -> TemplateKind.PROPERTY_INITIALIZER
+                is KaNamedFunctionSymbol -> TemplateKind.FUNCTION
+                is KaPropertySymbol -> TemplateKind.PROPERTY_INITIALIZER
                 else -> throw IllegalArgumentException("$symbol must be either a function or a property")
             }
             return getFunctionBodyTextFromTemplate(
-                project,
-                templateKind,
-                symbol.name.asString(),
-                symbol.returnType.render(position = Variance.OUT_VARIANCE),
-                null
+                project, templateKind, symbol.name.asString(), symbol.returnType.render(position = Variance.OUT_VARIANCE), null
             )
         }
 
@@ -286,7 +334,7 @@ private fun <T> KtAnalysisSession.generateUnsupportedOrSuperCall(
             } else {
                 append("super")
                 if (bodyType == BodyType.QualifiedSuper) {
-                    val superClassFqName = symbol.originalContainingClassForOverride?.name?.render()
+                    val superClassFqName = (symbol.fakeOverrideOriginal.containingSymbol as? KaClassSymbol)?.name?.render()
                     superClassFqName?.let {
                         append("<").append(superClassFqName).append(">")
                     }
@@ -294,7 +342,7 @@ private fun <T> KtAnalysisSession.generateUnsupportedOrSuperCall(
             }
             append(".").append(symbol.name.render())
 
-            if (symbol is KtFunctionSymbol) {
+            if (symbol is KaNamedFunctionSymbol) {
                 val paramTexts = symbol.valueParameters.map {
                     val renderedName = it.name.render()
                     if (it.isVararg) "*$renderedName" else renderedName

@@ -7,9 +7,11 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vcs.Executor
 import com.intellij.openapi.vcs.Executor.overwrite
 import com.intellij.openapi.vcs.Executor.touch
+import com.intellij.openapi.vcs.VcsException
 import com.intellij.openapi.vcs.ui.CommitMessage
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.testFramework.TestLoggerFactory
 import com.intellij.util.LineSeparator
 import com.intellij.vcsUtil.VcsUtil
 import git4idea.GitBranch
@@ -280,6 +282,10 @@ class GitSingleRepoRebaseTest : GitRebaseBaseTest() {
   }
 
   fun `test local changelists are restored after successful abort`() {
+    TestLoggerFactory.enableDebugLogging(testRootDisposable,
+                                         com.intellij.openapi.vcs.impl.LineStatusTrackerManager::class.java,
+                                         com.intellij.openapi.vcs.changes.ChangeListWorker::class.java)
+
     touch("file.txt", "1\n2\n3\n4\n5\n")
     touch("file1.txt", "content")
     touch("file2.txt", "content")
@@ -309,7 +315,10 @@ class GitSingleRepoRebaseTest : GitRebaseBaseTest() {
     changeListManager.moveChangesTo(testChangelist2, changeListManager.getChange(VcsUtil.getFilePath(repo.root, "file3.txt"))!!)
 
     `do nothing on merge`()
-    dialogManager.onMessage { Messages.YES }
+    dialogManager.onMessage { message ->
+      TestCase.assertTrue(message.contains("Abort rebase in"))
+      Messages.YES
+    }
 
     ensureUpToDateAndRebaseOnMaster()
 
@@ -317,13 +326,18 @@ class GitSingleRepoRebaseTest : GitRebaseBaseTest() {
 
     GitRebaseUtils.abort(project, EmptyProgressIndicator())
 
+    updateChangeListManager()
+
     assertNoRebaseInProgress(repo)
     repo.`assert feature not rebased on master`()
+    assertSuccessfulNotification("Abort rebase succeeded")
 
     val changelists = changeListManager.changeLists
     assertEquals(3, changelists.size)
+
+    val errorMessage = changelists.joinToString(separator = "\n") { "${it.name} - ${it.changes}" }
     for (changeList in changelists) {
-      assertTrue("${changeList.name} - ${changeList.changes}", changeList.changes.size == 2)
+      assertTrue(errorMessage, changeList.changes.size == 2)
     }
   }
 
@@ -694,6 +708,29 @@ class GitSingleRepoRebaseTest : GitRebaseBaseTest() {
     checkCheckoutAndRebase {
       "Checked out feature and rebased it on master"
     }
+  }
+
+  // IJPL-156329
+  // We are not expecting "error: there was a problem with the editor ..." in "Rebase failed" pop-up
+  fun `test VcsException is handled without showing native git editor error`() {
+    build {
+      0()
+      1()
+      2()
+    }
+    refresh()
+    updateChangeListManager()
+
+    dialogManager.onDialog(GitInteractiveRebaseDialog::class.java) {
+      DialogWrapper.OK_EXIT_CODE
+    }
+
+    val errorMessage = "test exception message!!!"
+    git.setInteractiveRebaseEditor(TestGitImpl.InteractiveRebaseEditor({ throw VcsException(errorMessage) }, null))
+
+    rebaseInteractively()
+
+    assertErrorNotification("Rebase failed", errorMessage)
   }
 
   private fun checkCheckoutAndRebase(expectedNotification: () -> String) {

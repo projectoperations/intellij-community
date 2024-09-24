@@ -8,6 +8,7 @@ import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
@@ -42,43 +43,45 @@ internal abstract class UltimateInstaller(
 
   fun download(link: String, buildInfo: BuildInfo, indicator: ProgressIndicator, suggestedIde: SuggestedIde): DownloadResult {
     showHint(IdeBundle.message("plugins.advertiser.try.ultimate.download.started.balloon", suggestedIde.name))
-    val downloadPath = updateTempDirectory.resolve("${buildInfo.version}$postfix")
+    val buildNumber = buildInfo.number.asString()
+    val downloadPath = updateTempDirectory.resolve("$buildNumber$postfix")
 
     try {
       HttpRequests.request(link).saveToFile(downloadPath.toFile(), indicator)
-    } catch (e: Exception) {
+    }
+    catch (e: Exception) {
       deleteInBackground(downloadPath)
       throw e
     }
 
-    return DownloadResult(downloadPath, buildInfo.version)
+    return DownloadResult(downloadPath, buildInfo.version, suggestedIde)
   }
 
   fun install(downloadResult: DownloadResult): InstallationResult? {
     return try {
       installUltimate(downloadResult)
-    } finally {
+    }
+    finally {
       deleteInBackground(downloadResult.downloadPath)
     }
   }
 
   fun generateDownloadLink(buildInfo: BuildInfo, suggestedIde: SuggestedIde): String {
-    val version = if (Registry.`is`("ide.try.ultimate.use.eap")) {
-      buildInfo.number.components.joinToString(".")
-    }
-    else buildInfo.version
-
+    val version = if (Registry.`is`("ide.try.ultimate.use.eap")) buildInfo.number.asStringWithoutProductCodeAndSnapshot() else buildInfo.version
     return "${suggestedIde.baseDownloadUrl}-$version$postfix"
   }
 
   fun notifyAndOfferStart(installationResult: InstallationResult, suggestedIde: SuggestedIde, pluginId: PluginId?) {
+    val currentIde = ApplicationInfo.getInstance().fullApplicationName
+
     val notification = NotificationGroupManager.getInstance().getNotificationGroup("Ultimate Installed")
       .createNotification(
-        IdeBundle.message("notification.group.advertiser.try.ultimate.installed"),
+        IdeBundle.message("notification.group.advertiser.try.ultimate.installed.title", suggestedIde.name),
+        IdeBundle.message("notification.group.advertiser.try.ultimate.installed.content", currentIde),
         NotificationType.INFORMATION
       )
       .setSuggestionType(true)
-      .addAction(object : NotificationAction(IdeBundle.messagePointer("action.Anonymous.text.switch.ide", suggestedIde.name)) {
+      .addAction(object : NotificationAction(IdeBundle.messagePointer("action.Anonymous.text.start.trial")) {
         override fun actionPerformed(e: AnActionEvent, notification: com.intellij.notification.Notification) {
           scope.launch {
             val openActivity = FUSEventSource.EDITOR.logTryUltimateIdeOpened(project, pluginId)
@@ -92,7 +95,8 @@ internal abstract class UltimateInstaller(
           }
         }
       })
-
+    
+    notification.setIcon(getIcon(suggestedIde))
     notification.notify(project)
   }
 
@@ -134,6 +138,17 @@ internal fun runCommand(command: GeneralCommandLine): Boolean {
   }
 }
 
-internal data class DownloadResult(val downloadPath: Path, val buildVersion: String)
-internal data class InstallationResult(val appPath: Path)
+internal data class DownloadResult(
+  val downloadPath: Path,
+  val buildVersion: String,
+  val suggestedIde: SuggestedIde,
+)
 
+internal data class InstallationResult(
+  val appPath: Path,
+  val installationInfo: UltimateInstallationInfo
+)
+
+open class UltimateInstallationInfo(
+  val suggestedIde: SuggestedIde,
+)

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.chooser.importProgress
 
 import com.intellij.CommonBundle
@@ -12,17 +12,24 @@ import com.intellij.ide.startup.importSettings.data.DialogImportData
 import com.intellij.ide.startup.importSettings.data.ImportFromProduct
 import com.intellij.openapi.rd.createLifetime
 import com.intellij.openapi.ui.MessageDialogBuilder
+import com.intellij.openapi.util.NlsContexts.DialogTitle
 import com.intellij.platform.ide.bootstrap.StartupWizardStage
 import com.intellij.ui.components.panels.VerticalLayout
-import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import com.jetbrains.rd.util.lifetime.intersect
-import java.awt.*
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
 import javax.swing.*
 
-class ImportProgressPage(importFromProduct: DialogImportData, controller: ImportSettingsController) : OnboardingPage {
+class ImportProgressPage(
+  importFromProduct: DialogImportData,
+  controller: ImportSettingsController,
+  importTitleOverride:  @DialogTitle String?
+) : OnboardingPage {
 
   override val stage = StartupWizardStage.ImportProgressPage
 
@@ -40,13 +47,12 @@ class ImportProgressPage(importFromProduct: DialogImportData, controller: Import
 
   private val panel = JPanel(VerticalLayout(JBUI.scale(8))).apply {
     add(JPanel(VerticalLayout(JBUI.scale(8))).apply {
-      add(JLabel(ImportSettingsBundle.message("import.settings.title")).apply {
+      add(JLabel(importTitleOverride ?: ImportSettingsBundle.message("import.settings.title")).apply {
         font = JBFont.h1()
         horizontalAlignment = SwingConstants.CENTER
       })
 
       importFromProduct.message?.let {
-        @Suppress("HardCodedStringLiteral") // IDEA-255051
         add(JLabel(it).apply {
           horizontalAlignment = SwingConstants.CENTER
         })

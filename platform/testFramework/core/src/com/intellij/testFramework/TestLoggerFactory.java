@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework;
 
 import com.intellij.openapi.Disposable;
@@ -28,6 +28,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.LogRecord;
@@ -58,6 +60,10 @@ public final class TestLoggerFactory implements Logger.Factory {
 
   /** When enabled, log records with at least "FINE" level are echoed to the stdout with a timestamp relative to the test start time. */
   private static final boolean myEchoDebugToStdout = Boolean.getBoolean("idea.test.logs.echo.debug.to.stdout");
+
+  private static final AtomicInteger myRethrowErrorsNumber = new AtomicInteger(0);
+
+  private final AtomicReference<DebugArtifactPublisher> myDebugArtifactPublisher = new AtomicReference<>();
 
   private TestLoggerFactory() { }
 
@@ -90,6 +96,10 @@ public final class TestLoggerFactory implements Logger.Factory {
     }
   }
 
+  public static int getRethrowErrorNumber() {
+    return myRethrowErrorsNumber.get();
+  }
+
   public static boolean reconfigure() {
     try {
       String customConfigPath = System.getProperty(PathManager.PROPERTY_LOG_CONFIG_FILE);
@@ -110,7 +120,7 @@ public final class TestLoggerFactory implements Logger.Factory {
 
       Path logFile = logDir.resolve(LOG_FILE_NAME);
       JulLogger.clearHandlers();
-      JulLogger.configureLogFileAndConsole(logFile, false, false, true, null);
+      JulLogger.configureLogFileAndConsole(logFile, false, true, false, null);
 
       if (Files.exists(logFile) && Files.size(logFile) >= LOG_SIZE_LIMIT) {
         Files.writeString(logFile, "");
@@ -249,17 +259,16 @@ public final class TestLoggerFactory implements Logger.Factory {
   }
 
   public static void onTestStarted() {
+    myRethrowErrorsNumber.set(0);
     TestLoggerFactory factory = getTestLoggerFactory();
     if (factory != null) {
       factory.clearLogBuffer();  // clear buffer from tests which failed to report their termination properly
+      DebugArtifactPublisher publisher = factory.myDebugArtifactPublisher.getAndSet(null);
+      if (publisher != null) {
+        publisher.cleanup();
+      }
       factory.myTestStartedMillis = System.currentTimeMillis();
     }
-  }
-
-  /** @deprecated use {@link #onTestFinished(boolean, Description)} or {@link #onTestFinished(boolean, String)} instead */
-  @Deprecated(forRemoval = true)
-  public static void onTestFinished(boolean success) {
-    onTestFinished(success, "unnamed_test");
   }
 
   /** @see #onTestFinished(boolean, String) */
@@ -274,17 +283,48 @@ public final class TestLoggerFactory implements Logger.Factory {
     TestLoggerFactory factory = getTestLoggerFactory();
     if (factory != null) {
       factory.myTestStartedMillis = 0;
+      DebugArtifactPublisher publisher = factory.myDebugArtifactPublisher.getAndSet(null);
+      if (publisher != null) {
+        if (!success) {
+          publisher.publishArtifacts(testName);
+        }
+        else {
+          publisher.cleanup();
+        }
+      }
       factory.dumpLogBuffer(success, testName);
     }
   }
 
-  public static void logTestFailure(@NotNull Throwable t) {
+  public static void logTestFailure(@Nullable Throwable t) {
     TestLoggerFactory factory = getTestLoggerFactory();
     if (factory != null) {
       String comparisonFailures = dumpComparisonFailures(t);
       String message = comparisonFailures != null ? "test failed: " + comparisonFailures : "Test failed";
       factory.buffer(LogLevel.ERROR, "#TestFramework", message, t);
     }
+  }
+
+  /**
+   * Publishes {@code artifactPath} as a build artifact if the current test fails on TeamCity under 'debug-artifacts' directory.
+   * @param artifactPath path to a file or directory to be published
+   * @param artifactName meaningful name under which the artifact will be published; the name of the current test will be added as a prefix
+   *                     automatically; and if multiple artifacts with the same {@code artifactName} are added during execution of the test,
+   *                     unique suffix will also be added automatically.
+   */
+  public static void publishArtifactIfTestFails(@NotNull Path artifactPath, @NotNull String artifactName) {
+    TestLoggerFactory factory = getTestLoggerFactory();
+    if (factory != null) {
+      factory.getOrCreateDebugArtifactPublisher().storeArtifact(artifactPath, artifactName);
+    }
+  }
+
+  private DebugArtifactPublisher getOrCreateDebugArtifactPublisher() {
+    DebugArtifactPublisher publisher = myDebugArtifactPublisher.get();
+    if (publisher != null) return publisher;
+    Path storagePath = PathManager.getLogDir().resolve("debug-artifacts");
+    myDebugArtifactPublisher.compareAndSet(null, new DebugArtifactPublisher(storagePath));
+    return myDebugArtifactPublisher.get();
   }
 
   private void clearLogBuffer() {
@@ -401,6 +441,7 @@ public final class TestLoggerFactory implements Logger.Factory {
       }
 
       if (actions.contains(LoggedErrorProcessor.Action.RETHROW)) {
+        myRethrowErrorsNumber.incrementAndGet();
         throw new TestLoggerAssertionError(message, t);
       }
     }

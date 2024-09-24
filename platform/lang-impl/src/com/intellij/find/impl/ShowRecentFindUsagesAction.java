@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.find.impl;
 
@@ -18,10 +18,7 @@ import com.intellij.usages.UsageView;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 public final class ShowRecentFindUsagesAction extends AnAction implements ActionRemoteBehaviorSpecification.Frontend {
 
@@ -31,7 +28,7 @@ public final class ShowRecentFindUsagesAction extends AnAction implements Action
   }
 
   @Override
-  public void update(@NotNull final AnActionEvent e) {
+  public void update(final @NotNull AnActionEvent e) {
     Project project = e.getProject();
     e.getPresentation().setEnabled(e.getData(UsageView.USAGE_VIEW_KEY) != null &&
                                    project != null &&
@@ -43,8 +40,9 @@ public final class ShowRecentFindUsagesAction extends AnAction implements Action
   public void actionPerformed(@NotNull AnActionEvent e) {
     UsageView usageView = e.getData(UsageView.USAGE_VIEW_KEY);
     Project project = Objects.requireNonNull(e.getProject());
-    final FindUsagesManager findUsagesManager = ((FindManagerImpl)FindManager.getInstance(project)).getFindUsagesManager();
-    List<ConfigurableUsageTarget> history = new ArrayList<>(findUsagesManager.getHistory().getAll());
+    FindUsagesManager findUsagesManager = ((FindManagerImpl)FindManager.getInstance(project)).getFindUsagesManager();
+    Map<ConfigurableUsageTarget, String> historyData = findUsagesManager.getHistory().getAllHistoryData();
+    List<ConfigurableUsageTarget> history = new ArrayList<>(historyData.keySet());
 
     if (!history.isEmpty()) {
       // skip most recent find usage, it's under your nose
@@ -63,16 +61,15 @@ public final class ShowRecentFindUsagesAction extends AnAction implements Action
         }
 
         @Override
-        @NotNull
-        public String getTextFor(final ConfigurableUsageTarget data) {
+        public @NotNull String getTextFor(final ConfigurableUsageTarget data) {
           if (data == null) {
             return FindBundle.message("recent.find.usages.action.nothing");
           }
-          return data.getLongDescriptiveName();
+          return historyData.get(data);
         }
 
         @Override
-        public PopupStep onChosen(final ConfigurableUsageTarget selectedValue, final boolean finalChoice) {
+        public PopupStep<?> onChosen(final ConfigurableUsageTarget selectedValue, final boolean finalChoice) {
           return doFinalStep(() -> {
             if (selectedValue != null) {
               findUsagesManager.rerunAndRecallFromHistory(selectedValue);

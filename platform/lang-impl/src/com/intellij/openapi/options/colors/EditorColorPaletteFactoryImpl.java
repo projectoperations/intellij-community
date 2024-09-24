@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.options.colors;
 
 
@@ -18,7 +18,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-public final class EditorColorPaletteFactoryImpl extends EditorColorPaletteFactory {
+final class EditorColorPaletteFactoryImpl extends EditorColorPaletteFactory {
   
   @Override
   public EditorColorPalette getPalette(@NotNull EditorColorsScheme scheme, @Nullable Language language) {
@@ -27,7 +27,7 @@ public final class EditorColorPaletteFactoryImpl extends EditorColorPaletteFacto
 
   private static final class ColorPagesPalette extends EditorColorPalette {
 
-    @Nullable private final Language myLanguage;
+    private final @Nullable Language myLanguage;
 
     ColorPagesPalette(@NotNull EditorColorsScheme colorsScheme, @Nullable Language language) {
       super(colorsScheme);
@@ -69,8 +69,7 @@ public final class EditorColorPaletteFactoryImpl extends EditorColorPaletteFacto
       return textAttributesKeys;
     }
 
-    @Nullable
-    private static Language guessPageLanguage(@NotNull ColorSettingsPage page) {
+    private static @Nullable Language guessPageLanguage(@NotNull ColorSettingsPage page) {
       for (Language language : Language.getRegisteredLanguages()) {
         if (page instanceof RainbowColorSettingsPage && language.is(((RainbowColorSettingsPage)page).getLanguage()) ||
             page.getDisplayName().equals(language.getDisplayName())) {

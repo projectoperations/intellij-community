@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.utils.addToStdlib.safeAs
 
 @Suppress("DuplicatedCode")
 fun getNewJ2KConversions(context: NewJ2kConverterContext): List<Conversion> = listOf(
+    NullabilityConversion(context),
     ParenthesizeBitwiseOperationConversion(context),
     ParenthesizeMultilineBinaryExpressionConversion(context),
     NonCodeElementsConversion(context),
@@ -29,7 +30,7 @@ fun getNewJ2KConversions(context: NewJ2kConverterContext): List<Conversion> = li
     ConstructorConversion(context),
     MoveConstructorsAfterFieldsConversion(context),
     ImplicitInitializerConversion(context),
-    ParameterModificationInMethodCallsConversion(context),
+    ParameterModificationConversion(context),
     BlockToRunConversion(context),
     RecordClassConversion(context),
     PrimaryConstructorDetectConversion(context),
@@ -42,6 +43,7 @@ fun getNewJ2KConversions(context: NewJ2kConverterContext): List<Conversion> = li
     LabeledStatementConversion(context),
     ArrayOperationsConversion(context),
     EqualsOperatorConversion(context),
+    SimplifyNegatedBinaryExpressionConversion(context),
     TypeMappingConversion(context),
     InternalDeclarationConversion(context),
     InnerClassConversion(context),
@@ -60,6 +62,8 @@ fun getNewJ2KConversions(context: NewJ2kConverterContext): List<Conversion> = li
     RemoveRedundantQualifiersForCallsConversion(context),
     FunctionalInterfacesConversion(context),
     FilterImportsConversion(context),
+    RemoveUnnecessaryParenthesesConversion(context),
     AddElementsInfoConversion(context),
+    AddConstModifierConversion(context),
     EnumSyntheticValuesMethodConversion(context)
 )

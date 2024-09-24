@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.ui
 
+import com.intellij.idea.AppMode
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.ReportValue
 import com.intellij.openapi.util.SystemInfo
@@ -8,6 +9,7 @@ import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.util.PlatformUtils
 import com.intellij.util.xmlb.annotations.OptionTag
 import com.intellij.util.xmlb.annotations.Transient
+import org.jetbrains.annotations.ApiStatus.Internal
 import javax.swing.SwingConstants
 
 class UISettingsState : BaseState() {
@@ -40,7 +42,7 @@ class UISettingsState : BaseState() {
 
   @get:ReportValue
   @get:OptionTag("EDITOR_TAB_LIMIT")
-  var editorTabLimit: Int by property(10)
+  var editorTabLimit: Int by property(30)
 
   @get:OptionTag("REUSE_NOT_MODIFIED_TABS")
   var reuseNotModifiedTabs: Boolean by property(false)
@@ -110,6 +112,7 @@ class UISettingsState : BaseState() {
   var hideKnownExtensionInTabs: Boolean by property(false)
   var showTreeIndentGuides: Boolean by property(false)
   var compactTreeIndents: Boolean by property(false)
+  var expandNodesWithSingleClick: Boolean by property(false)
   @get:ReportValue
   @get:OptionTag("UI_DENSITY")
   var uiDensity: UIDensity by enum(UIDensity.DEFAULT)
@@ -155,6 +158,8 @@ class UISettingsState : BaseState() {
   var alphaModeRatio: Float by property(0.5f)
   @get:OptionTag("SHOW_ICONS_IN_MENUS")
   var showIconsInMenus: Boolean by property(true)
+  @get:OptionTag("KEEP_POPUPS_FOR_TOGGLES")
+  var keepPopupsForToggles: Boolean by property(true)
   // IDEADEV-33409, should be disabled by default on MacOS
   @get:OptionTag("DISABLE_MNEMONICS")
   var disableMnemonics: Boolean by property(SystemInfoRt.isMac)
@@ -191,7 +196,7 @@ class UISettingsState : BaseState() {
   var mergeMainMenuWithWindowTitle: Boolean by property(
     (SystemInfo.isWin10OrNewer || (SystemInfo.isUnix && !SystemInfo.isMac)) && SystemInfo.isJetBrainsJvm)
 
-  var animatedScrolling: Boolean by property(!SystemInfoRt.isMac || !SystemInfo.isJetBrainsJvm)
+  var animatedScrolling: Boolean by property(!AppMode.isRemoteDevHost() && (!SystemInfoRt.isMac || !SystemInfo.isJetBrainsJvm))
   var animatedScrollingDuration: Int by property(getDefaultAnimatedScrollingDuration())
 
   var animatedScrollingCurvePoints: Int by property(
@@ -212,12 +217,19 @@ class UISettingsState : BaseState() {
   var pinFindInPath: Boolean by property(false)
   @get:OptionTag("SHOW_INPLACE_COMMENTS")
   var showInplaceComments: Boolean by property(false)
+  @get:Internal
+  @set:Internal
+  @get:OptionTag("SHOW_INPLACE_COMMENTS_INTERNAL")
+  var showInplaceCommentsInternal: Boolean by property(false)
 
   @get:OptionTag("SHOW_VISUAL_FORMATTING_LAYER")
   var showVisualFormattingLayer: Boolean by property(false)
 
   @get:OptionTag("SHOW_BREAKPOINTS_OVER_LINE_NUMBERS")
   var showBreakpointsOverLineNumbers: Boolean by property(true)
+
+  @get:OptionTag("SHOW_PREVIEW_IN_SEARCH_EVERYWHERE")
+  var showPreviewInSearchEverywhere: Boolean by property(false)
 
   @Suppress("FunctionName")
   fun _incrementModificationCount(): Unit = incrementModificationCount()

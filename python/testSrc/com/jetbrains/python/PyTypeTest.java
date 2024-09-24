@@ -304,6 +304,15 @@ public class PyTypeTest extends PyTestCase {
                      expr = x""");
   }
 
+  public void testIsInstance2() {
+    doTest("str",
+           """
+             x = ""
+             if isinstance(x, (1, "")):
+                 expr = x
+             """);
+  }
+
   // PY-4383
   public void testAssertIsInstance() {
     doTest("int",
@@ -1112,6 +1121,104 @@ public class PyTypeTest extends PyTestCase {
     doTest("str",
            "xs = (2,'val')\n" +
            "(a, (_, expr)) = (1, xs) ");
+  }
+
+  // PY-38928
+  public void testIterateListOfTuples() {
+    doTest(
+      "str",
+      """
+        for ((_, expr)) in [(1, 'foo')]:
+            pass
+        """
+    );
+  }
+
+  // PY-52760
+  public void testTupleLiteralDestructuringAssignmentToDict() {
+    doTest(
+      "Dict[str, int]",
+      """
+        expr = {}
+        expr["a"], _ = (1, 2)
+        """
+    );
+  }
+
+  public void testTupleVariableDestructuringAssignmentToDict() {
+    doTest(
+      "Dict[str, int]",
+      """
+        expr = {}
+        t = 1, 2
+        expr["a"], _ = t
+        """
+    );
+  }
+
+  // PY-42664
+  public void testFunctionCallReturningTupleDestructuringAssignmentToDict() {
+    doTest(
+      "Dict[str, int]",
+      """
+        expr = {}
+        expr["a"], _ = divmod(1, 2)
+        """
+    );
+  }
+
+  // PY-42664
+  public void testGenericCollectionDestructuringAssignmentToDict() {
+    doTest(
+      "Dict[str, int]",
+      """
+        expr = {}
+        d = {1: True, 2: False}
+        _, expr["a"] = d
+        """
+    );
+  }
+
+  public void testCollectionTypeThroughSetUnpacking() {
+    doTest("List[Union[int, str]]",
+           """
+             expr = []
+             expr[0], _ = {1, "foo"}
+             """);
+  }
+
+  public void testCollectionTypeThroughHomogenousSetUnpacking() {
+    doTest("List[bool]",
+           """
+             expr = []
+             expr[0], _ = {False, True, False}
+             """);
+  }
+
+  public void testCollectionTypeThroughDictUnpacking() {
+    doTest("List[Union[int, bool]]",
+           """
+             expr = []
+             expr[0], _ = {1: "foo", True: "bar"}
+             """);
+  }
+
+  public void testCollectionTypeThroughHomogenousDictUnpacking() {
+    doTest("List[int]",
+           """
+             expr = []
+             expr[0], _ = {1: "foo", 2: "bar"}
+             """);
+  }
+
+  public void testListLiteralDestructuringAssignmentToDict() {
+    doTest(
+      "Dict[str, int]",
+      """
+        expr = {}
+        expr["a"], _ = [1, 2]
+        """
+    );
   }
 
   public void testConstructorUnification() {
@@ -3094,6 +3201,62 @@ public class PyTypeTest extends PyTestCase {
              expr, y2 = p2""");
   }
 
+  // PY-29489
+  public void testGenericIterableUnpackingNoBrackets() {
+    doTest("int",
+           """
+             _, expr, _ = [1, 2, 3]
+             """);
+  }
+
+  // PY-29489
+  public void testGenericIterableUnpackingParentheses() {
+    doTest("int",
+           """
+             (_, expr, _) = [1, 2, 3]
+             """);
+  }
+
+  // PY-29489
+  public void testGenericIterableUnpackingSquareBrackets() {
+    doTest("int",
+           """
+             [_, expr] = [1, 2, 3]
+             """);
+  }
+
+  // PY-29489
+  public void testNonGenericIterableUnpacking() {
+    doTest("str",
+           """
+             _, expr = "ab"
+             """);
+  }
+
+  public void testUnpackingToNestedTargetsInSquareBracketsInAssignments() {
+    doTest("int",
+           """
+             [_, [[expr], _]] = "foo", ((42,), "bar")
+             """);
+  }
+
+  public void testUnpackingToNestedTargetsInSquareBracketsInForLoops() {
+    doTest("str",
+           """
+             xs = [(1, ("foo",))]
+             for [_, [expr]] in xs:
+                 pass
+             """);
+  }
+
+  public void testUnpackingToNestedTargetsInSquareBracketsInComprehensions() {
+    doTest("str",
+           """
+             xs = [(1, ("foo",))]
+             ys = [expr for [_, [expr]] in xs]
+             """);
+  }
+
   // PY-4351
   public void testCollectionsNTInheritorUnpacking() {
     // Seems that this case won't be supported because
@@ -4532,6 +4695,11 @@ public class PyTypeTest extends PyTestCase {
 
              c = User1(10)
              expr = c.get()""");
+  }
+
+  // PY-28076
+  public void testAssignmentParens() {
+    doTest("int", "((expr)) = 42");
   }
 
   private static List<TypeEvalContext> getTypeEvalContexts(@NotNull PyExpression element) {

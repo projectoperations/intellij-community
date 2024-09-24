@@ -45,8 +45,8 @@ import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.IdeFrameDecorator
-import com.intellij.openapi.wm.impl.IdeRootPane
 import com.intellij.openapi.wm.impl.MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
 import com.intellij.openapi.wm.impl.isMergeMainMenuWithWindowTitleOverridden
 import com.intellij.toolWindow.ResizeStripeManager
 import com.intellij.ui.*
@@ -59,8 +59,10 @@ import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.ui.layout.and
 import com.intellij.ui.layout.not
 import com.intellij.ui.scale.JBUIScale
+import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.JBFont
+import com.intellij.util.ui.RestartDialogImpl
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
@@ -70,6 +72,7 @@ import java.awt.Window
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import javax.swing.*
+import javax.swing.event.ListDataEvent
 import javax.swing.event.ListDataListener
 
 private val settings: UISettings
@@ -116,6 +119,9 @@ private val cdUseCompactTreeIndents
   get() = CheckboxDescriptor(message("checkbox.compact.tree.indents"), settings::compactTreeIndents, groupName = uiOptionGroupName)
 private val cdShowTreeIndents
   get() = CheckboxDescriptor(message("checkbox.show.tree.indent.guides"), settings::showTreeIndentGuides, groupName = uiOptionGroupName)
+private val cdExpandNodesWithSingleClick
+  get() = CheckboxDescriptor(message("checkbox.expand.node.with.single.click"), settings::expandNodesWithSingleClick,
+                             comment = message("checkbox.expand.node.with.single.click.comment"), groupName = uiOptionGroupName)
 private val cdDnDWithAlt
   get() = CheckboxDescriptor(message("dnd.with.alt.pressed.only"), settings::dndWithPressedAltOnly, groupName = uiOptionGroupName)
 private val cdSeparateMainMenu
@@ -132,6 +138,8 @@ private val cdFullPathsInTitleBar
   get() = CheckboxDescriptor(message("checkbox.full.paths.in.window.header"), settings::fullPathsInWindowHeader)
 private val cdShowMenuIcons
   get() = CheckboxDescriptor(message("checkbox.show.icons.in.menu.items"), settings::showIconsInMenus, groupName = windowOptionGroupName)
+private val cdKeepPopupsForToggles
+  get() = CheckboxDescriptor(message("checkbox.keep.popups.for.toggles"), settings::keepPopupsForToggles, groupName = uiOptionGroupName)
 private val cdDifferentiateProjects
   get() = CheckboxDescriptor(message("checkbox.use.solution.colors.in.main.toolbar"), settings::differentiateProjects,
                              message("text.use.solution.colors.in.main.toolbar"), groupName = uiOptionGroupName)
@@ -139,7 +147,6 @@ private val cdDifferentiateProjects
 internal fun getAppearanceOptionDescriptors(): Sequence<OptionDescription> {
   return sequenceOf(
     cdShowToolWindowBars,
-    cdShowToolWindowNames,
     cdShowToolWindowNumbers,
     cdEnableMenuMnemonics,
     cdEnableControlsMnemonics,
@@ -152,7 +159,8 @@ internal fun getAppearanceOptionDescriptors(): Sequence<OptionDescription> {
     cdDnDWithAlt,
     cdFullPathsInTitleBar,
     cdSeparateMainMenu.takeUnless { SystemInfo.isMac },
-    cdDifferentiateProjects
+    cdDifferentiateProjects,
+    cdShowMenuIcons
   ).filterNotNull().map(CheckboxDescriptor::asUiOptionDescriptor)
 }
 
@@ -178,7 +186,7 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
 
       panel {
         row(message("combobox.look.and.feel")) {
-          val lafComboBoxModelWrapper = LafComboBoxModelWrapper(lafManager.lafComboBoxModel)
+          val lafComboBoxModelWrapper = LafComboBoxModelWrapper { lafManager.lafComboBoxModel }
           val theme = comboBox(lafComboBoxModelWrapper)
             .bindItem(lafProperty)
             .accessibleName(message("combobox.look.and.feel"))
@@ -193,7 +201,7 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
             .gap(RightGap.SMALL)
 
           theme.enabledIf(syncThemeAndEditorSchemePredicate.not())
-          cell(lafManager.settingsToolbar)
+          cell(lafManager.createSettingsToolbar())
             .visible(lafManager.autodetectSupported)
         }
       }
@@ -217,6 +225,12 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
           }.onReset {
             colorAndFontsOptions.reset()
           }.enabledIf(syncThemeAndEditorSchemePredicate.not())
+
+          syncThemeAndEditorSchemePredicate.addListener { isSyncOn ->
+            if (isSyncOn) {
+              colorAndFontsOptions.reset()
+            }
+          }
         }
 
         disposable?.whenDisposed {
@@ -367,12 +381,34 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
         }
       }
 
-      group(message("group.ui.options")) {
+      groupRowsRange(message("group.ui.options")) {
         val leftColumnControls = sequence<Row.() -> Unit> {
-          yield { checkBox(cdShowTreeIndents) }
-          yield { checkBox(cdUseCompactTreeIndents) }
-          yield { checkBox(cdEnableMenuMnemonics) }
-          yield { checkBox(cdEnableControlsMnemonics) }
+          if (ExperimentalUI.isNewUI()) {
+            yield {
+              checkBox(message("checkbox.compact.mode"))
+                .bindSelected(UISettings.getInstance()::compactMode)
+                .comment(message("checkbox.compact.mode.description"))
+                .onApply {
+                  LafManager.getInstance().applyDensity()
+                }
+            }
+          }
+          yield { checkBox(cdFullPathsInTitleBar) }
+          if (!ExperimentalUI.isNewUI()) {
+            yield { checkBox(cdDnDWithAlt) }
+            yield {
+              checkBox(cdSmoothScrolling)
+                .gap(RightGap.SMALL)
+              contextHelp(message("checkbox.smooth.scrolling.description"))
+            }
+          }
+          if (ProjectWindowCustomizerService.getInstance().isAvailable()) {
+            yield {
+              checkBox(cdDifferentiateProjects)
+                .enabledIf(AtomicBooleanProperty(ExperimentalUI.isNewUI()))
+                .comment(cdDifferentiateProjects.comment, 30)
+            }
+          }
           if (!SystemInfo.isMac && ExperimentalUI.isNewUI()) {
             yield {
               checkBox(cdSeparateMainMenu).apply {
@@ -390,13 +426,19 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
           }
         }
         val rightColumnControls = sequence<Row.() -> Unit> {
-          yield {
-            checkBox(cdSmoothScrolling)
-              .gap(RightGap.SMALL)
-            contextHelp(message("checkbox.smooth.scrolling.description"))
+          if (ExperimentalUI.isNewUI()) {
+            yield { checkBox(cdDnDWithAlt) }
+            yield {
+              checkBox(cdSmoothScrolling)
+                .gap(RightGap.SMALL)
+              contextHelp(message("checkbox.smooth.scrolling.description"))
+            }
           }
-          yield { checkBox(cdDnDWithAlt) }
-          if (SystemInfoRt.isWindows && IdeFrameDecorator.isCustomDecorationAvailable || IdeRootPane.hideNativeLinuxTitleAvailable) {
+          yield { checkBox(cdEnableControlsMnemonics) }
+          yield { checkBox(cdEnableMenuMnemonics) }
+          yield { checkBox(cdShowMenuIcons) }
+          yield { checkBox(cdKeepPopupsForToggles) }
+          if (SystemInfoRt.isWindows && IdeFrameDecorator.isCustomDecorationAvailable || CustomWindowHeaderUtil.hideNativeLinuxTitleAvailable) {
             yield {
               val checkBox = checkBox(cdMergeMainMenuWithWindowTitle)
                 .gap(RightGap.SMALL)
@@ -404,7 +446,7 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
                 checkBox.enabled(false)
                 contextHelp(message("option.is.overridden.by.jvm.property", MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY))
               }
-              if (SystemInfo.isUnix && !SystemInfo.isMac && !IdeRootPane.hideNativeLinuxTitleSupported) {
+              if (SystemInfo.isUnix && !SystemInfo.isMac && !CustomWindowHeaderUtil.hideNativeLinuxTitleSupported) {
                 checkBox.enabled(false)
                 checkBox.comment(message("checkbox.merge.main.menu.with.window.not.supported.comment"), 30)
               }
@@ -413,26 +455,41 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
               }
             }
           }
-          yield { checkBox(cdFullPathsInTitleBar) }
-          yield { checkBox(cdShowMenuIcons) }
-          if (ProjectWindowCustomizerService.getInstance().isAvailable()) {
-            yield {
-              checkBox(cdDifferentiateProjects)
-                .enabledIf(AtomicBooleanProperty(ExperimentalUI.isNewUI()))
-                .comment(cdDifferentiateProjects.comment, 30)
-            }
-          }
         }
 
         // Since some of the columns have variable number of items, enumerate them in a loop, while moving orphaned items from the right
         // column to the left one:
         val leftIt = leftColumnControls.iterator()
         val rightIt = rightColumnControls.iterator()
-        while (leftIt.hasNext() || rightIt.hasNext()) {
-          when {
-            leftIt.hasNext() && rightIt.hasNext() -> twoColumnsRow(leftIt.next(), rightIt.next())
-            leftIt.hasNext() -> twoColumnsRow(leftIt.next())
-            rightIt.hasNext() -> twoColumnsRow(rightIt.next()) // move from right to left
+
+        if (ExperimentalUI.isNewUI()) {
+          twoColumnsRow(
+            {
+              panel {
+                while (leftIt.hasNext()) {
+                  row {
+                    leftIt.next().invoke(this)
+                  }
+                }
+              }
+            },
+            {
+              panel {
+                while (rightIt.hasNext()) {
+                  row {
+                    rightIt.next().invoke(this)
+                  }
+                }
+              }
+            })
+        }
+        else {
+          while (leftIt.hasNext() || rightIt.hasNext()) {
+            when {
+              leftIt.hasNext() && rightIt.hasNext() -> twoColumnsRow(leftIt.next(), rightIt.next())
+              leftIt.hasNext() -> twoColumnsRow(leftIt.next())
+              rightIt.hasNext() -> twoColumnsRow(rightIt.next()) // move from right to left
+            }
           }
         }
 
@@ -442,6 +499,94 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
             button(message("background.image.button"), backgroundImageAction)
               .enabled(ProjectManager.getInstance().openProjects.isNotEmpty())
           }
+        }
+      }
+
+      groupRowsRange(message("group.trees")) {
+        twoColumnsRow(
+          { checkBox(cdShowTreeIndents) },
+          { checkBox(cdUseCompactTreeIndents) },
+        )
+        twoColumnsRow(
+          { checkBox(cdExpandNodesWithSingleClick).visible(Tree.isExpandWithSingleClickSettingEnabled()) },
+        )
+      }
+
+      groupRowsRange(message("group.window.options")) {
+        twoColumnsRow(
+          { checkBox(cdShowToolWindowBars) },
+          { checkBox(cdLeftToolWindowLayout) },
+        )
+        if (ExperimentalUI.isNewUI()) {
+          if (ResizeStripeManager.enabled()) {
+            twoColumnsRow(
+              {
+                checkBox(cdShowToolWindowNames).gap(RightGap.SMALL).onApply {
+                  ResizeStripeManager.applyShowNames()
+                }
+              },
+              { checkBox(cdRightToolWindowLayout) },
+            )
+            twoColumnsRow(
+              {
+                checkBox(cdWidescreenToolWindowLayout)
+                  .gap(RightGap.SMALL)
+                contextHelp(message("checkbox.widescreen.tool.window.layout.description"))
+              },
+              { checkBox(cdRememberSizeForEachToolWindowNewUI) },
+            )
+          }
+          else {
+            twoColumnsRow(
+              {
+                checkBox(cdWidescreenToolWindowLayout)
+                  .gap(RightGap.SMALL)
+                contextHelp(message("checkbox.widescreen.tool.window.layout.description"))
+              },
+              { checkBox(cdRightToolWindowLayout) },
+            )
+            twoColumnsRow(
+              { checkBox(cdRememberSizeForEachToolWindowNewUI) },
+            )
+          }
+        }
+        else {
+          twoColumnsRow(
+            {
+              checkBox(cdWidescreenToolWindowLayout)
+                .gap(RightGap.SMALL)
+              contextHelp(message("checkbox.widescreen.tool.window.layout.description"))
+            },
+            { checkBox(cdRightToolWindowLayout) },
+          )
+          twoColumnsRow(
+            { checkBox(cdShowToolWindowNumbers) },
+            { checkBox(cdRememberSizeForEachToolWindowOldUI) },
+          )
+        }
+      }
+
+      group(message("group.presentation.mode")) {
+        row(message("presentation.mode.ide.scale")) {
+          comboBox(IdeScaleTransformer.Settings.createPresentationModeScaleComboboxModel(), textListCellRenderer { it })
+            .bindItem({ settings.presentationModeIdeScale.percentStringValue }, { })
+            .applyToComponent {
+              isEditable = true
+            }
+            .validationOnInput {
+              IdeScaleTransformer.Settings.validatePercentScaleInput(this, it, true)
+            }
+            .onChanged {
+              if (IdeScaleTransformer.Settings.validatePercentScaleInput(it.item, true) != null) return@onChanged
+
+              IdeScaleTransformer.Settings.scaleFromPercentStringValue(it.item, true)?.let { scale ->
+                logIdeZoomChanged(scale, true)
+                settings.presentationModeIdeScale = scale
+                if (settings.presentationMode) {
+                  settings.fireUISettingsChanged()
+                }
+              }
+            }
         }
       }
 
@@ -508,74 +653,25 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
           }
         )
       }
-
-      groupRowsRange(message("group.window.options")) {
-        twoColumnsRow(
-          { checkBox(cdShowToolWindowBars) },
-          {
-            checkBox(cdWidescreenToolWindowLayout)
-              .gap(RightGap.SMALL)
-            contextHelp(message("checkbox.widescreen.tool.window.layout.description"))
-          }
-        )
-        if (ExperimentalUI.isNewUI()) {
-          twoColumnsRow(
-            {
-              checkBox(cdShowToolWindowNames).onApply {
-                ResizeStripeManager.applyShowNames()
-              }
-            },
-            { checkBox(cdLeftToolWindowLayout) }
-          )
-          twoColumnsRow(
-            { checkBox(cdRememberSizeForEachToolWindowNewUI) },
-            { checkBox(cdRightToolWindowLayout) }
-          )
-        }
-        else {
-          twoColumnsRow(
-            { checkBox(cdLeftToolWindowLayout) },
-            { checkBox(cdRememberSizeForEachToolWindowOldUI) }
-          )
-          twoColumnsRow(
-            { checkBox(cdRightToolWindowLayout) },
-            { checkBox(cdShowToolWindowNumbers) }
-          )
-        }
-      }
-
-      group(message("group.presentation.mode")) {
-        row(message("presentation.mode.ide.scale")) {
-          comboBox(IdeScaleTransformer.Settings.createPresentationModeScaleComboboxModel(), textListCellRenderer { it })
-            .bindItem({ settings.presentationModeIdeScale.percentStringValue }, { })
-            .applyToComponent {
-              isEditable = true
-            }
-            .validationOnInput {
-              IdeScaleTransformer.Settings.validatePercentScaleInput(this, it, true)
-            }
-            .onChanged {
-              if (IdeScaleTransformer.Settings.validatePercentScaleInput(it.item, true) != null) return@onChanged
-
-              IdeScaleTransformer.Settings.scaleFromPercentStringValue(it.item, true)?.let { scale ->
-                logIdeZoomChanged(scale, true)
-                settings.presentationModeIdeScale = scale
-                if (settings.presentationMode) {
-                  settings.fireUISettingsChanged()
-                }
-              }
-            }
-        }
-      }
     }
   }
 
   override fun apply() {
+    val oldIsSupportScreenReaders = generalSettings.isSupportScreenReaders
+    val oldSeparateMainMenu = settings.separateMainMenu
+    val oldMergeMainMenuWithWindowTitle = settings.mergeMainMenuWithWindowTitle
+
     val uiSettingsChanged = isModified
     super.apply()
     if (uiSettingsChanged) {
       UISettings.getInstance().fireUISettingsChanged()
       EditorFactory.getInstance().refreshAllEditors()
+    }
+
+    if (oldIsSupportScreenReaders != generalSettings.isSupportScreenReaders ||
+        (!SystemInfo.isWindows && oldSeparateMainMenu != settings.separateMainMenu) ||
+        oldMergeMainMenuWithWindowTitle != settings.mergeMainMenuWithWindowTitle) {
+      RestartDialogImpl.showRestartRequired()
     }
   }
 }
@@ -657,10 +753,41 @@ private fun logIdeZoomChanged(value: Float, isPresentation: Boolean) {
 }
 
 @Internal
-class LafComboBoxModelWrapper(private val lafComboBoxModel: CollectionComboBoxModel<LafReference>): ComboBoxModel<LafReference> {
+class LafComboBoxModelWrapper(private val lafComboBoxModelProvider: () -> CollectionComboBoxModel<LafReference>): ComboBoxModel<LafReference> {
+  private var lafComboBoxModel: CollectionComboBoxModel<LafReference> = lafComboBoxModelProvider()
   private val moreAction = LafReference(name = message("link.get.more.themes"), themeId = "")
   private val additionalItems = listOf(moreAction)
-  var comboBoxComponent: JComponent? = null
+  var comboBoxComponent: ComboBox<LafReference>? = null
+  private val listDataListener = object : ListDataListener {
+    override fun intervalAdded(e: ListDataEvent?) {
+      recreateModelIfNeeded()
+    }
+
+    override fun intervalRemoved(e: ListDataEvent?) {
+      recreateModelIfNeeded()
+    }
+
+    override fun contentsChanged(e: ListDataEvent?) {
+      recreateModelIfNeeded()
+    }
+  }
+
+  init {
+    lafComboBoxModel.addListDataListener(listDataListener)
+  }
+
+  private fun recreateModelIfNeeded() {
+    if (lafComboBoxModel === lafComboBoxModelProvider()) return
+    val comboBoxComponent = comboBoxComponent ?: return
+
+    lafComboBoxModel.removeListDataListener(comboBoxComponent)
+    lafComboBoxModel.removeListDataListener(listDataListener)
+
+    lafComboBoxModel = lafComboBoxModelProvider()
+
+    comboBoxComponent.model = this
+    lafComboBoxModel.addListDataListener(listDataListener)
+  }
 
   override fun getSize(): Int = lafComboBoxModel.size.let { if (it > 0) it + additionalItems.size else it }
 

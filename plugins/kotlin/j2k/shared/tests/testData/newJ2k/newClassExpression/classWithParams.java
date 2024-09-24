@@ -1,4 +1,3 @@
-//class
 class Foo {
     Foo(int a, int b) {
     }

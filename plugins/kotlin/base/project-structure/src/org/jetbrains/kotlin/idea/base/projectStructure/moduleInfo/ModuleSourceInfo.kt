@@ -4,15 +4,14 @@ package org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.ModificationTracker
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.serviceContainer.AlreadyDisposedException
-import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analyzer.ModuleSourceInfoBase
 import org.jetbrains.kotlin.analyzer.TrackableModuleInfo
 import org.jetbrains.kotlin.idea.base.facet.platform.platform
 import org.jetbrains.kotlin.idea.base.projectStructure.KotlinModificationTrackerProvider
 import org.jetbrains.kotlin.idea.base.projectStructure.compositeAnalysis.findAnalyzerServices
 import org.jetbrains.kotlin.platform.TargetPlatform
-import org.jetbrains.kotlin.platform.compat.toOldPlatform
 import org.jetbrains.kotlin.resolve.PlatformDependentAnalyzerServices
 import org.jetbrains.kotlin.idea.caches.project.ModuleSourceInfo as OldModuleSourceInfo
 
@@ -21,7 +20,7 @@ interface ModuleSourceInfo : OldModuleSourceInfo, IdeaModuleInfo, TrackableModul
 
     override val expectedBy: List<ModuleSourceInfo>
 
-    override val displayedName get() = module.name
+    override val displayedName: @NlsSafe String get() = module.name
 
     override val moduleOrigin: ModuleOrigin
         get() = ModuleOrigin.MODULE

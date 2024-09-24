@@ -10,6 +10,7 @@ class TableCommandType:
     DF_INFO = "DF_INFO"
     SLICE = "SLICE"
     DESCRIBE = "DF_DESCRIBE"
+    VISUALIZATION_DATA = "VISUALIZATION_DATA"
 
 
 def is_error_on_eval(val):
@@ -22,8 +23,9 @@ def is_error_on_eval(val):
     return is_exception_on_eval
 
 
-def exec_table_command(init_command, command_type, start_index, end_index, f_globals, f_locals):
-    # type: (str, str, [int, None], [int, None], dict, dict) -> (bool, str)
+def exec_table_command(init_command, command_type, start_index, end_index, format, f_globals,
+                       f_locals):
+    # type: (str, str, [int, None], [int, None], [str, None], dict, dict) -> (bool, str)
     table = pydevd_vars.eval_in_context(init_command, f_globals, f_locals)
     is_exception_on_eval = is_error_on_eval(table)
     if is_exception_on_eval:
@@ -45,15 +47,13 @@ def exec_table_command(init_command, command_type, start_index, end_index, f_glo
 
     elif command_type == TableCommandType.DESCRIBE:
         res.append(table_provider.get_column_descriptions(table))
-        res.append(NEXT_VALUE_SEPARATOR)
-        res.append(table_provider.get_value_counts(table))
-        res.append(NEXT_VALUE_SEPARATOR)
+
+    elif command_type == TableCommandType.VISUALIZATION_DATA:
         res.append(table_provider.get_value_occurrences_count(table))
         res.append(NEXT_VALUE_SEPARATOR)
 
-
     elif command_type == TableCommandType.SLICE:
-        res.append(table_provider.get_data(table, start_index, end_index))
+        res.append(table_provider.get_data(table, start_index, end_index, format))
 
     return True, ''.join(res)
 
@@ -66,14 +66,30 @@ def __get_table_provider(output):
     table_provider = None
     type_qualified_name = '{}.{}'.format(output_type.__module__, output_type.__name__)
     if type_qualified_name in ['pandas.core.frame.DataFrame',
-                               'pandas.core.series.Series']:
+                               'pandas.core.series.Series',
+                               'geopandas.geoseries.GeoSeries',
+                               'geopandas.geodataframe.GeoDataFrame',
+                               'pandera.typing.pandas.DataFrame']:
         import _pydevd_bundle.tables.pydevd_pandas as table_provider
     # dict is needed for sort commands
-    elif type_qualified_name in ['numpy.ndarray', 'builtins.dict']:
+    elif type_qualified_name == 'builtins.dict':
+        table_type = '{}.{}'.format(type(output['data']).__module__, type(output['data']).__name__)
+        if table_type in ['tensorflow.python.framework.sparse_tensor.SparseTensor', 'torch.Tensor']:
+            import _pydevd_bundle.tables.pydevd_numpy_based as table_provider
+        else:
+            import _pydevd_bundle.tables.pydevd_numpy as table_provider
+    elif type_qualified_name == 'numpy.ndarray':
         import _pydevd_bundle.tables.pydevd_numpy as table_provider
+    elif type_qualified_name in ['tensorflow.python.framework.ops.EagerTensor',
+                                 'tensorflow.python.ops.resource_variable_ops.ResourceVariable',
+                                 'tensorflow.python.framework.sparse_tensor.SparseTensor',
+                                 'torch.Tensor']:
+        import _pydevd_bundle.tables.pydevd_numpy_based as table_provider
     elif type_qualified_name.startswith('polars') and (
             type_qualified_name.endswith('DataFrame')
             or type_qualified_name.endswith('Series')):
         import _pydevd_bundle.tables.pydevd_polars as table_provider
+    elif type_qualified_name == 'datasets.arrow_dataset.Dataset':
+        import _pydevd_bundle.tables.pydevd_dataset as table_provider
 
     return table_provider

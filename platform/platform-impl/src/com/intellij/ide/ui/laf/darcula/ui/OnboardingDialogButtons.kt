@@ -1,11 +1,14 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.ui.laf.darcula.ui
 
+import com.intellij.openapi.wm.impl.IdeBackgroundUtil
 import com.intellij.ui.JBColor
+import com.intellij.util.ui.JBDimension
+import com.intellij.util.ui.JBSwingUtilities
 import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.Nls
 import java.awt.Color
-import java.awt.Dimension
+import java.awt.Graphics
 import java.awt.event.ActionEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -29,6 +32,7 @@ object OnboardingDialogButtons {
     val btn = JButton()
 
     btn.putClientProperty("ActionToolbar.smallVariant", true)
+    btn.putClientProperty(DarculaButtonUI.AVOID_EXTENDING_BORDER_GRAPHICS, true)
     btn.setHorizontalTextPosition(SwingConstants.LEFT)
     btn.setContentAreaFilled(false)
     btn.setForeground(JBUI.CurrentTheme.Link.Foreground.ENABLED)
@@ -40,7 +44,7 @@ object OnboardingDialogButtons {
 
   fun createHoveredLinkButton(): JButton {
     val btn = createLinkButton()
-    btn.preferredSize = Dimension(280, 40)
+    btn.preferredSize = JBDimension(280, 40)
     btn.isBorderPainted = true
     btn.putClientProperty("JButton.backgroundColor", JBUI.CurrentTheme.ActionButton.hoverBackground())
     btn.putClientProperty("JButton.borderColor", Color(0, true))
@@ -84,27 +88,46 @@ object OnboardingDialogButtons {
   fun createMainButton(@Nls text: String, icon: Icon?, onClick: Runnable? = null): JButton {
     return createButton(true, text, icon, onClick)
   }
+
+  @JvmStatic
+  fun createMainButton(action: Action): JButton {
+    return createButton(true, action)
+  }
+
   @JvmStatic
   fun createButton(@Nls text: String, icon: Icon?, onClick: Runnable? = null): JButton {
     return createButton(false, text, icon, onClick)
   }
 
-  private fun createButton(isDefault: Boolean, @Nls text: String, icon: Icon?, onClick: Runnable? = null): JButton {
+  @JvmStatic
+  fun createButton(action: Action): JButton {
+    return createButton(false, action)
+  }
+
+  private fun createButton(isDefault: Boolean, action: Action): JButton {
     val btn = createButton(isDefault)
-    onClick?.let {runnable ->
-      btn.action = object : AbstractAction(text, icon) {
-        override fun actionPerformed(e: ActionEvent) {
-          runnable.run()
-        }
-      }
-    }
+    btn.action = action
     return btn
   }
 
+  private fun createButton(isDefault: Boolean, @Nls text: String, icon: Icon?, onClick: Runnable? = null): JButton {
+    return createButton(isDefault, object : AbstractAction(text, icon) {
+      override fun actionPerformed(e: ActionEvent) {
+        onClick?.run()
+      }
+    })
+  }
+
   fun createButton(isDefault: Boolean): JButton {
-    val btn = JButton()
+    val btn = object: JButton() {
+      override fun getComponentGraphics(g: Graphics?): Graphics {
+        return JBSwingUtilities.runGlobalCGTransform(this, super.getComponentGraphics(g))
+      }
+    }
     btn.putClientProperty("ActionToolbar.smallVariant", true)
     btn.putClientProperty(DarculaButtonUI.DEFAULT_STYLE_KEY, isDefault)
+    btn.putClientProperty(DarculaButtonUI.AVOID_EXTENDING_BORDER_GRAPHICS, true)
+    btn.putClientProperty(IdeBackgroundUtil.NO_BACKGROUND, isDefault)
     val listener: MouseAdapter = object : MouseAdapter() {
       override fun mouseEntered(e: MouseEvent) {
         btn.putClientProperty("JButton.borderColor",

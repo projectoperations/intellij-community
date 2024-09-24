@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application
 
 import com.intellij.diagnostic.PluginException
@@ -12,12 +12,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.asDeferred
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
-import java.util.*
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Future
 
 class JBProtocolCommandResult(
-  @DialogMessage val dialogMessage: String?,
+  val dialogMessage: @DialogMessage String?,
   val focusIdeWindow: Boolean = true
 )
 
@@ -29,13 +28,16 @@ abstract class JBProtocolCommand(private val command: String) {
     private val EP_NAME = ExtensionPointName<JBProtocolCommand>("com.intellij.jbProtocolCommand")
 
     @ApiStatus.Internal
-    suspend fun execute(query: String): @DialogMessage CliResult {
+    suspend fun execute(query: String): CliResult {
       val decoder = QueryStringDecoder(query)
       val parts = decoder.path().split('/').dropLastWhile { it.isEmpty() }
       require(parts.size >= 2) { query }  // expected: at least a platform prefix and a command name
       val commandName = parts[1]
       val command = EP_NAME.lazySequence().find { it.command == commandName }
-      return if (command != null) {
+      if (command == null) {
+        return CliResult(0, IdeBundle.message("jb.protocol.unknown.command", commandName))
+      }
+      else {
         val target = if (parts.size > 2) parts[2] else null
         val parameters = LinkedHashMap<String, String>()
         for ((key, list) in decoder.parameters()) {
@@ -43,21 +45,17 @@ abstract class JBProtocolCommand(private val command: String) {
         }
         val fragmentStart = query.lastIndexOf('#')
         val fragment = if (fragmentStart > 0) query.substring(fragmentStart + 1) else null
-        command.executeAndGetResult(target, parameters, fragment)?.let {
+        return command.executeAndGetResult(target, parameters, fragment)?.let {
           CliResult(if (!it.focusIdeWindow) ProtocolHandler.PLEASE_DO_NOT_FOCUS else 0, it.dialogMessage)
         } ?: CliResult(0, null)
-      }
-      else {
-        CliResult(0, IdeBundle.message("jb.protocol.unknown.command", commandName))
       }
     }
   }
 
   @Suppress("unused")
-  @Deprecated("please implement {@link #perform(String, Map, String)} instead", ReplaceWith("perform(String, Map, String)"))
-  open fun perform(target: String?, parameters: Map<String, String?>) {
+  @Deprecated("please implement `perform(String, Map, String)`} instead", ReplaceWith("perform(String, Map, String)"))
+  open fun perform(target: String?, parameters: Map<String, String?>): Unit =
     throw PluginException.createByClass(UnsupportedOperationException(), javaClass)
-  }
 
   /**
    * The method should return a future with the command execution result - `null` when successful,
@@ -65,20 +63,22 @@ abstract class JBProtocolCommand(private val command: String) {
    *
    * @see .parameter
    */
-  open fun perform(target: String?, parameters: Map<String, String>, fragment: String?): Future<String?> {
+  open fun perform(target: String?, parameters: Map<String, String>, fragment: String?): Future<@DialogMessage String?> {
+    PluginException.reportDeprecatedDefault(javaClass, "perform(String, Map)", "Implement perform(String, Map, String) instead.")
     @Suppress("DEPRECATION")
     perform(target, mapOf(FRAGMENT_PARAM_NAME to fragment))
     return CompletableFuture.completedFuture(null)
   }
 
-  protected open suspend fun execute(target: String?, parameters: Map<String, String>, fragment: String?): String? {
-    val result = withContext(Dispatchers.EDT) { perform(target, parameters, fragment) }
-    return if (result is CompletableFuture) result.asDeferred().await() else withContext(Dispatchers.IO) { result.get() }
-  }
+  protected open suspend fun execute(target: String?, parameters: Map<String, String>, fragment: String?): @DialogMessage String? =
+    when (val result = withContext(Dispatchers.EDT) { perform(target, parameters, fragment) }) {
+      is CompletableFuture -> result.asDeferred().await()
+      else -> withContext(Dispatchers.IO) { result.get() }
+    }
 
-  protected open suspend fun executeAndGetResult(target: String?, parameters: Map<String, String>, fragment: String?): JBProtocolCommandResult? {
-    return JBProtocolCommandResult(execute(target, parameters, fragment))
-  }
+  @Suppress("HardCodedStringLiteral")
+  protected open suspend fun executeAndGetResult(target: String?, parameters: Map<String, String>, fragment: String?): JBProtocolCommandResult? =
+    JBProtocolCommandResult(execute(target, parameters, fragment))
 
   protected fun parameter(parameters: Map<String, String>, name: String): String {
     val value = parameters[name]

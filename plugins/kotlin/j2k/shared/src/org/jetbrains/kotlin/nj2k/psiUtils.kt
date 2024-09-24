@@ -17,8 +17,7 @@ import org.jetbrains.kotlin.j2k.ReferenceSearcher
 import org.jetbrains.kotlin.j2k.isNullLiteral
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.nj2k.tree.*
-import org.jetbrains.kotlin.psi.KtDeclaration
-import org.jetbrains.kotlin.psi.KtObjectDeclaration
+import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import org.jetbrains.kotlin.psi.psiUtil.parentsWithSelf
@@ -49,22 +48,49 @@ fun canKeepEqEq(left: PsiExpression, right: PsiExpression?): Boolean {
 fun PsiMember.visibility(
     referenceSearcher: ReferenceSearcher,
     assignNonCodeElements: ((JKFormattingOwner, PsiElement) -> Unit)?
-): JKVisibilityModifierElement =
-    modifierList?.children?.mapNotNull { child ->
+): JKVisibilityModifierElement {
+    val visibilityFromModifier = modifierList?.children?.mapNotNull { child ->
         if (child !is PsiKeyword) return@mapNotNull null
-        when (child.text) {
-            PsiModifier.PACKAGE_LOCAL -> Visibility.INTERNAL
-            PsiModifier.PRIVATE -> Visibility.PRIVATE
-            PsiModifier.PROTECTED -> handleProtectedVisibility(referenceSearcher)
-            PsiModifier.PUBLIC -> Visibility.PUBLIC
-
-            else -> null
-        }?.let {
+        child.text.toKotlinVisibility(psiMember = this@visibility, referenceSearcher)?.let {
             JKVisibilityModifierElement(it)
         }?.also { modifier ->
             assignNonCodeElements?.also { it(modifier, child) }
         }
-    }?.firstOrNull() ?: JKVisibilityModifierElement(Visibility.INTERNAL)
+    }?.firstOrNull()
+
+    return when {
+        visibilityFromModifier != null -> visibilityFromModifier
+        containingClass?.isInterface == true -> JKVisibilityModifierElement(Visibility.PUBLIC)
+        else -> JKVisibilityModifierElement(Visibility.INTERNAL)
+    }
+}
+
+private fun String.toKotlinVisibility(psiMember: PsiMember, referenceSearcher: ReferenceSearcher): Visibility? = when (this) {
+    PsiModifier.PACKAGE_LOCAL -> Visibility.INTERNAL
+    PsiModifier.PRIVATE -> Visibility.PRIVATE
+    PsiModifier.PROTECTED -> handleProtectedVisibility(psiMember, referenceSearcher)
+    PsiModifier.PUBLIC -> Visibility.PUBLIC
+    else -> null
+}
+
+// Returns the visibility of an overridden method to determine the proper visibility of an overriding method.
+// The overridden method may be a regular or compiled Java/Kotlin method.
+internal fun PsiMethod.overriddenMethodVisibility(referenceSearcher: ReferenceSearcher): JKVisibilityModifierElement {
+    // In some implementations (ex. compiled Java/Kotlin classes), modifierList.children() returns null.
+    // However, modifierList.text still contains the modifiers as a string.
+    val modifiers = modifierList.text?.split(" ").orEmpty()
+    val visibilityFromModifier = modifiers.firstNotNullOfOrNull { modifier ->
+        modifier.toKotlinVisibility(psiMember = this@overriddenMethodVisibility, referenceSearcher)
+    }
+
+    val visibility = when {
+        visibilityFromModifier != null -> visibilityFromModifier
+        containingClass?.isInterface == true -> Visibility.PUBLIC
+        else -> Visibility.INTERNAL
+    }
+
+    return JKVisibilityModifierElement(visibility)
+}
 
 fun PsiMember.modality(assignNonCodeElements: ((JKFormattingOwner, PsiElement) -> Unit)?): JKModalityModifierElement {
     val modalityFromModifier = modifierList?.children?.mapNotNull { child ->
@@ -95,12 +121,12 @@ fun JvmClassKind.toJk(): JKClass.ClassKind = when (this) {
     JvmClassKind.ENUM -> JKClass.ClassKind.ENUM
 }
 
-private fun PsiMember.handleProtectedVisibility(referenceSearcher: ReferenceSearcher): Visibility {
-    val originalClass = containingClass ?: return Visibility.PROTECTED
+private fun handleProtectedVisibility(psiMember: PsiMember, referenceSearcher: ReferenceSearcher): Visibility {
+    val originalClass = psiMember.containingClass ?: return Visibility.PROTECTED
     // Search for usages only in Java because java-protected member cannot be used in Kotlin from same package
-    val usages = referenceSearcher.findUsagesForExternalCodeProcessing(this, searchJava = true, searchKotlin = false)
+    val usages = referenceSearcher.findUsagesForExternalCodeProcessing(psiMember, searchJava = true, searchKotlin = false)
 
-    return if (usages.any { !allowProtected(it.element, this, originalClass) })
+    return if (usages.any { !allowProtected(it.element, psiMember, originalClass) })
         Visibility.PUBLIC
     else Visibility.PROTECTED
 }
@@ -185,4 +211,13 @@ fun PsiElement.isInSingleLine(): Boolean {
         child = child.nextSibling
     }
     return true
+}
+
+fun PsiElement.getExplicitLabelComment(): PsiComment? {
+    val comment = prevSibling?.safeAs<PsiComment>()
+    if (comment?.text?.asExplicitLabel() != null) return comment
+    if (parent is KtValueArgument || parent is KtBinaryExpression || parent is KtContainerNode) {
+        return parent.getExplicitLabelComment()
+    }
+    return null
 }

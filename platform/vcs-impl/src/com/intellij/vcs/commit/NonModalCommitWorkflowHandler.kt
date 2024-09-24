@@ -5,11 +5,12 @@ import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
 import com.intellij.notification.SingletonNotificationManager
-import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -21,7 +22,8 @@ import com.intellij.openapi.project.DumbService.Companion.isDumb
 import com.intellij.openapi.project.DumbService.DumbModeListener
 import com.intellij.openapi.roots.ex.ProjectRootManagerEx
 import com.intellij.openapi.util.NlsContexts
-import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.text.HtmlBuilder
+import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.util.text.StringUtil.capitalize
 import com.intellij.openapi.util.text.StringUtil.toLowerCase
 import com.intellij.openapi.vcs.*
@@ -66,7 +68,7 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
     updateDefaultCommitActionName()
   }
 
-  private val checkinErrorNotifications = SingletonNotificationManager(VcsNotifier.IMPORTANT_ERROR_NOTIFICATION.displayId,
+  private val checkinErrorNotifications = SingletonNotificationManager(VcsNotifier.importantNotification().displayId,
                                                                        NotificationType.ERROR)
 
   private val postCommitChecksHandler: PostCommitChecksHandler get() = PostCommitChecksHandler.getInstance(project)
@@ -139,14 +141,16 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
   override fun isExecutorEnabled(executor: CommitExecutor): Boolean = super.isExecutorEnabled(executor) && isReady()
 
   private fun createPrimaryCommitActions(): List<AnAction> {
-    val group = ActionManager.getInstance().getAction(VcsActions.PRIMARY_COMMIT_EXECUTORS_GROUP) as ActionGroup
-    return group.getChildren(null).toList()
+    val actionManager = ActionManager.getInstance()
+    val group = actionManager.getAction(VcsActions.PRIMARY_COMMIT_EXECUTORS_GROUP) as DefaultActionGroup
+    return group.getChildren(actionManager).toList()
   }
 
   private fun createCommitExecutorActions(): List<AnAction> {
-    val group = ActionManager.getInstance().getAction(VcsActions.COMMIT_EXECUTORS_GROUP) as ActionGroup
+    val actionManager = ActionManager.getInstance()
+    val group = actionManager.getAction(VcsActions.COMMIT_EXECUTORS_GROUP) as DefaultActionGroup
     val executors = workflow.commitExecutors.filter { it.useDefaultAction() }
-    return group.getChildren(null).toList() +
+    return group.getChildren(actionManager).toList() +
            executors.map { DefaultCommitExecutorAction(it) }
   }
 
@@ -243,7 +247,7 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
       val commitAnywayActionText = getCommitActionTextForNotification(executor, true)
       val title = message("commit.checks.failed.notification.title", commitActionText)
       val description = getCommitCheckFailureDescription(failures)
-      checkinErrorNotifications.notify(title, description, project) {
+      checkinErrorNotifications.notify(title, description.toString(), project) {
         it.setDisplayId(VcsNotificationIdsHolder.COMMIT_CHECKS_FAILED)
         it.addAction(
           NotificationAction.createExpiring(commitAnywayActionText) { _, _ ->
@@ -260,15 +264,16 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
       val commitActionText = getCommitActionTextForNotification(null, false)
       val title = message("commit.checks.failed.notification.title", commitActionText)
       val description = getCommitCheckFailureDescription(failures)
-      checkinErrorNotifications.notify(title, description, project) {
+      checkinErrorNotifications.notify(title, description.toString(), project) {
         it.setDisplayId(VcsNotificationIdsHolder.COMMIT_CHECKS_ONLY_FAILED)
         appendShowDetailsNotificationActions(it, failures)
       }
     }
   }
 
-  private fun getCommitCheckFailureDescription(failures: List<CommitCheckFailure>): @NlsContexts.NotificationContent String {
-    return failures.filterIsInstance<CommitCheckFailure.WithDescription>().joinToString("<br>") { it.text }
+  private fun getCommitCheckFailureDescription(failures: List<CommitCheckFailure>): @NlsContexts.NotificationContent HtmlBuilder {
+    return HtmlBuilder().appendWithSeparators(HtmlChunk.br(),
+                                              failures.filterIsInstance<CommitCheckFailure.WithDescription>().map { it.text })
   }
 
   private fun appendShowDetailsNotificationActions(notification: Notification, failures: List<CommitCheckFailure>) {
@@ -361,7 +366,7 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
 
       if (!skipPostCommitChecks) {
         if (postCommitChecks.isNotEmpty()) {
-          if (Registry.`is`("vcs.non.modal.post.commit.checks") &&
+          if (VcsConfiguration.getInstance(project).NON_MODAL_COMMIT_POSTPONE_SLOW_CHECKS &&
               commitInfo.executor?.requiresSyncCommitChecks() != true &&
               postCommitChecksHandler.canHandle(commitInfo)) {
             pendingPostCommitChecks = PendingPostCommitChecks(commitInfo.asStaticInfo(), postCommitChecks)
@@ -377,9 +382,10 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
 
       return null // checks passed
     }
-    catch (ce: CancellationException) {
+    catch (e: CancellationException) {
+      LOG.debug("runNonModalBeforeCommitChecks was cancelled")
       // Do not report error on cancellation
-      throw ce
+      throw e
     }
     catch (e: Throwable) {
       LOG.error(Throwable(e))
@@ -417,7 +423,10 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
         }
       }
 
-      FileDocumentManager.getInstance().saveAllDocuments()
+      //readaction is not enough
+      writeIntentReadAction {
+        FileDocumentManager.getInstance().saveAllDocuments()
+      }
       return@underChangelist null
     }
   }
@@ -429,7 +438,7 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
           AbstractCommitWorkflow.runCommitCheck(project, commitCheck, commitInfo)
         } ?: continue
 
-        val solution = problem.showModalSolution(project, commitInfo)
+        val solution = writeIntentReadAction { problem.showModalSolution(project, commitInfo) }
         if (solution == CheckinHandler.ReturnResult.COMMIT) continue
 
         reportCommitCheckFailure(problem)
@@ -453,12 +462,13 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
   private fun reportCommitCheckFailure(problem: CommitProblem) {
     val checkFailure = when (problem) {
       is UnknownCommitProblem -> CommitCheckFailure.Unknown
-      is CommitProblemWithDetails -> CommitCheckFailure.WithDetails(problem.text, problem.showDetailsLink,
+      is CommitProblemWithDetails -> CommitCheckFailure.WithDetails(HtmlChunk.text(problem.text),
+                                                                    problem.showDetailsLink,
                                                                     problem.showDetailsAction) { place ->
         CommitSessionCollector.getInstance(project).logCommitProblemViewed(problem, place)
         problem.showDetails(project)
       }
-      else -> CommitCheckFailure.WithDescription(problem.text)
+      else -> CommitCheckFailure.WithDescription(HtmlChunk.text(problem.text))
     }
     ui.commitProgressUi.addCommitCheckFailure(checkFailure)
   }

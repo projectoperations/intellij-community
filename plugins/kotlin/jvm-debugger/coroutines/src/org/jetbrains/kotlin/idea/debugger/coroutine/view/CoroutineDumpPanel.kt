@@ -44,8 +44,7 @@ class CoroutineDumpPanel(
     consoleView: ConsoleView,
     toolbarActions: DefaultActionGroup,
     val dump: List<CompleteCoroutineInfoData>
-) :
-    JPanel(BorderLayout()), DataProvider {
+) : JPanel(BorderLayout()), UiDataProvider {
     private var exporterToTextFile: ExporterToTextFile
     private var mergedDump = ArrayList<CompleteCoroutineInfoData>()
     val filterField = SearchTextField()
@@ -174,7 +173,9 @@ class CoroutineDumpPanel(
         }
     }
 
-    override fun getData(dataId: String): Any? = if (PlatformDataKeys.EXPORTER_TO_TEXT_FILE.`is`(dataId)) exporterToTextFile else null
+    override fun uiDataSnapshot(sink: DataSink) {
+        sink[PlatformDataKeys.EXPORTER_TO_TEXT_FILE] = exporterToTextFile
+    }
 
     private fun getAttributes(infoData: CompleteCoroutineInfoData): SimpleTextAttributes {
         return when {
@@ -190,7 +191,7 @@ class CoroutineDumpPanel(
         override fun customizeCellRenderer(list: JList<*>, value: Any, index: Int, selected: Boolean, hasFocus: Boolean) {
             val infoData = value as CompleteCoroutineInfoData
             val state = infoData.descriptor
-            icon = fromState(state.state)
+            icon = fromState(state.state, false)
             val attrs = getAttributes(infoData)
             append(state.name + " (", attrs)
             var detail: String? = state.state.name

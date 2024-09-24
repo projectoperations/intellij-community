@@ -1,4 +1,3 @@
-// TODO investigate why extension methods are unresolved in this test (imports are not added)
 public class J {
     void foo(double x, double y, float f) {
         Math.abs(x);

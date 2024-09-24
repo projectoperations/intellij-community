@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.runToolbar
 
 import com.intellij.execution.ExecutorActionStatus
@@ -8,11 +8,12 @@ import com.intellij.execution.runToolbar.RTBarAction
 import com.intellij.execution.runToolbar.RunToolbarMainSlotState
 import com.intellij.execution.runToolbar.RunToolbarProcess
 import com.intellij.execution.runToolbar.mainState
-import com.intellij.execution.ui.RunWidgetResumeManager
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification
 import com.intellij.openapi.actionSystem.remoting.ActionRemotePermissionRequirements
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.xdebugger.impl.DebuggerSupport
 import com.intellij.xdebugger.impl.actions.DebuggerActionHandler
 import com.intellij.xdebugger.impl.actions.XDebuggerActionBase
@@ -62,50 +63,21 @@ open class RunToolbarResumeAction : RunToolbarXDebuggerAction() {
   }
 }
 
-class InlineXDebuggerResumeAction(configurationSettings: RunnerAndConfigurationSettings) : XDebuggerResumeAction() {
+private class InlineXDebuggerResumeAction(configurationSettings: RunnerAndConfigurationSettings) : XDebuggerResumeAction() {
   private val inlineHandler = InlineXDebuggerResumeHandler(configurationSettings)
   override fun getResumeHandler(): InlineXDebuggerResumeHandler {
     return inlineHandler
   }
 }
 
-class CurrentSessionXDebuggerResumeAction : XDebuggerResumeAction() {
-  private val currentSessionHandler = CurrentSessionXDebuggerResumeHandler()
-  override fun getResumeHandler(): CurrentSessionXDebuggerResumeHandler {
-    return currentSessionHandler
-  }
-
-  override fun update(event: AnActionEvent) {
-    event.project?.let {
-      if(!RunWidgetResumeManager.getInstance(it).isFirstVersionAvailable()) {
-        event.presentation.isEnabledAndVisible = false
-        return
-      }
-    }
-    super.update(event)
-  }
-}
-
-open class ConfigurationXDebuggerResumeAction : XDebuggerResumeAction() {
+private class ConfigurationXDebuggerResumeAction : XDebuggerResumeAction(), ActionRemoteBehaviorSpecification.Duplicated {
   private val handler = XDebuggerResumeHandler()
   override fun getResumeHandler(): XDebuggerResumeHandler {
     return handler
   }
-
-  override fun update(event: AnActionEvent) {
-    event.project?.let {
-      if(!RunWidgetResumeManager.getInstance(it).isSecondVersionAvailable()) {
-        event.presentation.isEnabledAndVisible = false
-        return
-      }
-    }
-    super.update(event)
-  }
 }
 
-
-abstract class XDebuggerResumeAction : XDebuggerActionBase(false),
-                                       ActionRemotePermissionRequirements.RunAccess {
+internal abstract class XDebuggerResumeAction : XDebuggerActionBase(false), ActionRemotePermissionRequirements.RunAccess {
   override fun getActionUpdateThread(): ActionUpdateThread {
     return ActionUpdateThread.BGT
   }
@@ -119,8 +91,15 @@ abstract class XDebuggerResumeAction : XDebuggerActionBase(false),
   override fun update(event: AnActionEvent) {
     super.update(event)
 
-    val state = getResumeHandler().getState(event)
-    updatePresentation(event.presentation, state)
+    val resumeHandler = getResumeHandler()
+    val state = resumeHandler.getState(event)
+    val conf = event.project?.let {
+      if (resumeHandler is XDebuggerResumeHandler) {
+        resumeHandler.getConfiguration(it)?.configuration?.name
+      } else null
+    }
+
+    updatePresentation(event.presentation, state, conf)
     event.presentation.isEnabled = state != null
 
     event.presentation.putClientProperty(ExecutorActionStatus.KEY, ExecutorActionStatus.NORMAL)
@@ -130,21 +109,21 @@ abstract class XDebuggerResumeAction : XDebuggerActionBase(false),
     updatePresentation(templatePresentation, CurrentSessionXDebuggerResumeHandler.State.PAUSE)
   }
 
-  private fun updatePresentation(presentation: Presentation, state: CurrentSessionXDebuggerResumeHandler.State?) {
+  private fun updatePresentation(presentation: Presentation, state: CurrentSessionXDebuggerResumeHandler.State?, config: @NlsSafe String? = null ) {
     when(state) {
       CurrentSessionXDebuggerResumeHandler.State.RESUME -> {
         presentation.icon = AllIcons.Actions.Resume
-        presentation.text = IdeBundle.message("comment.text.resume")
+        presentation.text = config?.let{IdeBundle.message("description.text.resume", it)} ?: IdeBundle.message("comment.text.resume")
       }
       else -> {
         presentation.icon = AllIcons.Actions.Pause
-        presentation.text = IdeBundle.message("comment.text.pause")
+        presentation.text = config?.let{IdeBundle.message("description.text.pause", it)} ?: IdeBundle.message("comment.text.pause")
       }
     }
   }
 }
 
-class XDebuggerInlineResumeCreator : InlineResumeCreator {
+private class XDebuggerInlineResumeCreator : InlineResumeCreator {
   override fun getInlineResumeCreator(settings: RunnerAndConfigurationSettings, isWidget: Boolean): AnAction {
     return InlineXDebuggerResumeAction(settings)
   }

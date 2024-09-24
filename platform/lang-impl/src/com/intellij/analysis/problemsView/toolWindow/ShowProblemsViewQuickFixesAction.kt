@@ -1,7 +1,8 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.analysis.problemsView.toolWindow
 
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass
+import com.intellij.codeInsight.intention.IntentionSource
 import com.intellij.codeInsight.intention.impl.CachedIntentions
 import com.intellij.codeInsight.intention.impl.IntentionActionWithTextCaching
 import com.intellij.codeInsight.intention.impl.IntentionListStep
@@ -56,11 +57,16 @@ internal class ShowProblemsViewQuickFixesAction : AnAction() {
   private fun getEditor(psi: PsiFile, showEditor: Boolean): Editor? {
     val file = psi.virtualFile ?: return null
     val document = PsiDocumentManager.getInstance(psi.project).getDocument(psi) ?: return null
-    val editors = ClientEditorManager.getCurrentInstance().editors(document, psi.project).filter { !it.isViewer }
-    val editor = editors.findFirst().orElse(null) ?: return null
-    if (!showEditor || UIUtil.isShowing(editor.component)) return editor
+    val editor = ClientEditorManager.getCurrentInstance().editors(document, psi.project).firstOrNull { !it.isViewer } ?: return null
+    if (!showEditor || UIUtil.isShowing(editor.component)) {
+      return editor
+    }
+
     val manager = FileEditorManager.getInstance(psi.project) ?: return null
-    if (manager.allEditors.none { isAncestor(it.component, editor.component) }) return null
+    if (manager.allEditors.none { isAncestor(it.component, editor.component) }) {
+      return null
+    }
+
     manager.openFile(file, false, true)
     return if (UIUtil.isShowing(editor.component)) editor else null
   }
@@ -82,7 +88,6 @@ internal class ShowProblemsViewQuickFixesAction : AnAction() {
     }
   }
 
-
   private fun isEnabled(event: AnActionEvent, problem: HighlightingProblem): Boolean {
     return getCachedIntentions(event, problem, false) != null
   }
@@ -90,9 +95,10 @@ internal class ShowProblemsViewQuickFixesAction : AnAction() {
   private fun actionPerformed(event: AnActionEvent, problem: HighlightingProblem) {
     val intentions = getCachedIntentions(event, problem, true) ?: return
     val editor: Editor = intentions.editor ?: return
+
     if (intentions.offset >= 0) editor.caretModel.moveToOffset(intentions.offset.coerceAtMost(editor.document.textLength))
     show(event, JBPopupFactory.getInstance().createListPopup(
-      object : IntentionListStep(null, editor, intentions.file, intentions.file.project, intentions) {
+      object : IntentionListStep(null, editor, intentions.file, intentions.file.project, intentions, IntentionSource.PROBLEMS_VIEW) {
         override fun chooseActionAndInvoke(cachedAction: IntentionActionWithTextCaching, file: PsiFile, project: Project, editor: Editor?) {
           editor?.contentComponent?.requestFocus()
           // hack until doWhenFocusSettlesDown will work as expected

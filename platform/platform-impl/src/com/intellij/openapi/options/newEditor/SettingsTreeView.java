@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.icons.AllIcons;
@@ -407,12 +407,10 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
     if (object instanceof TreePath path) {
       object = path.getLastPathComponent();
     }
-    if (object instanceof DefaultMutableTreeNode) {
-      DefaultMutableTreeNode node = (DefaultMutableTreeNode)object;
+    if (object instanceof DefaultMutableTreeNode node) {
       object = node.getUserObject();
     }
-    if (object instanceof FilteringTreeStructure.FilteringNode) {
-      FilteringTreeStructure.FilteringNode node = (FilteringTreeStructure.FilteringNode)object;
+    if (object instanceof FilteringTreeStructure.FilteringNode node) {
       object = node.getDelegate();
     }
     return object instanceof MyNode
@@ -462,7 +460,7 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
   }
 
   private @NotNull Promise<? super Object> fireSelected(Configurable configurable) {
-    return myFilter.myContext.fireSelected(configurable, this);
+    return myFilter.context.fireSelected(configurable, this);
   }
 
   @Override
@@ -566,7 +564,7 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
       SimpleNode[] result = new SimpleNode[configurables.length];
       for (int i = 0; i < configurables.length; i++) {
         result[i] = new MyNode(this, configurables[i], myLevel + 1);
-        myFilter.myContext.registerKid(myConfigurable, configurables[i]);
+        myFilter.context.registerKid(myConfigurable, configurables[i]);
       }
       return result;
     }
@@ -639,10 +637,10 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
       myTextLabel.setForeground(selected ? UIUtil.getTreeSelectionForeground(true) : UIUtil.getTreeForeground());
       if (!selected && node != null) {
         Configurable configurable = node.myConfigurable;
-        if (myFilter.myContext.getErrors().containsKey(configurable)) {
+        if (myFilter.context.getErrors().containsKey(configurable)) {
           myTextLabel.setForeground(WRONG_CONTENT);
         }
-        else if (myFilter.myContext.getModified().contains(configurable)) {
+        else if (myFilter.context.getModified().contains(configurable)) {
           myTextLabel.setForeground(MODIFIED_CONTENT);
         }
       }

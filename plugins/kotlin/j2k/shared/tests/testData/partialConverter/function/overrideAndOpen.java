@@ -1,6 +1,5 @@
-//file
 class A {
-  void foo() {}
+    void foo() {}
 }
 
 class B extends A {

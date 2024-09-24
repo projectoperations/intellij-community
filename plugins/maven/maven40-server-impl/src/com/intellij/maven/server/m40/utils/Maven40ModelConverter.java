@@ -7,7 +7,6 @@ import org.apache.maven.artifact.handler.ArtifactHandler;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.artifact.repository.ArtifactRepositoryPolicy;
 import org.apache.maven.model.*;
-import org.apache.maven.model.Repository;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.jdom.Element;
 import org.jdom.IllegalNameException;
@@ -23,7 +22,7 @@ import java.util.*;
 public class Maven40ModelConverter {
   @NotNull
   public static MavenModel convertModel(Model model) {
-    if(model.getBuild() == null) {
+    if (model.getBuild() == null) {
       model.setBuild(new Build());
     }
     Build build = model.getBuild();
@@ -73,7 +72,7 @@ public class Maven40ModelConverter {
     return result;
   }
 
-  private static MavenPlugin convertPlugin(Plugin plugin) {
+  public static MavenPlugin convertPlugin(Plugin plugin) {
     List<MavenPlugin.Execution> executions = new ArrayList<>(plugin.getExecutions().size());
     for (PluginExecution each : plugin.getExecutions()) {
       executions.add(convertExecution(each));
@@ -94,7 +93,8 @@ public class Maven40ModelConverter {
   }
 
   public static MavenPlugin.Execution convertExecution(PluginExecution execution) {
-    return new MavenPlugin.Execution(execution.getId(), execution.getPhase(), execution.getGoals(), convertConfiguration(execution.getConfiguration()));
+    return new MavenPlugin.Execution(execution.getId(), execution.getPhase(), execution.getGoals(),
+                                     convertConfiguration(execution.getConfiguration()));
   }
 
   private static Element convertConfiguration(Object config) {
@@ -202,7 +202,7 @@ public class Maven40ModelConverter {
   }
 
 
-  private static MavenRemoteRepository.Policy convertPolicy(RepositoryPolicy policy) {
+  public static MavenRemoteRepository.Policy convertPolicy(RepositoryPolicy policy) {
     return policy != null
            ? new MavenRemoteRepository.Policy(policy.isEnabled(), policy.getUpdatePolicy(), policy.getChecksumPolicy())
            : null;
@@ -434,7 +434,7 @@ public class Maven40ModelConverter {
     return result;
   }
 
-  public static Repository toNativeRepository(MavenRemoteRepository r) {
+  public static Repository toNativeRepository(MavenRemoteRepository r, boolean forceResolveSnapshots) {
     Repository result = new Repository();
     result.setId(r.getId());
     result.setName(r.getName());
@@ -442,7 +442,16 @@ public class Maven40ModelConverter {
     result.setLayout(r.getLayout() == null ? "default" : r.getLayout());
 
     if (r.getReleasesPolicy() != null) result.setReleases(toNativePolicy(r.getReleasesPolicy()));
-    if (r.getSnapshotsPolicy() != null) result.setSnapshots(toNativePolicy(r.getSnapshotsPolicy()));
+
+    if (forceResolveSnapshots) {
+      RepositoryPolicy policy = new RepositoryPolicy();
+      policy.setEnabled(true);
+      policy.setUpdatePolicy("allways");
+      result.setSnapshots(policy);
+    }
+    else {
+      if (r.getSnapshotsPolicy() != null) result.setSnapshots(toNativePolicy(r.getSnapshotsPolicy()));
+    }
 
     return result;
   }
@@ -495,6 +504,5 @@ public class Maven40ModelConverter {
                              artifact.isResolved(),
                              false /*artifact instanceof CustomMaven3Artifact && ((CustomMaven3Artifact)artifact).isStub()*/);
   }
-
 }
 

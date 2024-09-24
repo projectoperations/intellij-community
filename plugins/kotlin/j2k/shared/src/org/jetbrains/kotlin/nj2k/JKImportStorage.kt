@@ -3,26 +3,22 @@
 package org.jetbrains.kotlin.nj2k
 
 import com.intellij.psi.CommonClassNames
-import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
+import org.jetbrains.kotlin.idea.base.utils.fqname.isImported
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.load.java.NULLABILITY_ANNOTATIONS
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
+import org.jetbrains.kotlin.resolve.ImportPath
 import org.jetbrains.kotlin.resolve.calls.util.getCalleeExpressionIfAny
 import org.jetbrains.kotlin.resolve.jvm.platform.JvmPlatformAnalyzerServices
 
 class JKImportStorage(languageSettings: LanguageVersionSettings) {
     private val imports = mutableSetOf<FqName>()
 
-    private val defaultImports: Set<FqName> =
-        JvmPlatformAnalyzerServices.getDefaultImports(
-            languageSettings,
-            includeLowPriorityImports = true
-        ).mapNotNull { import ->
-            if (import.isAllUnder) null else import.fqName
-        }.toSet()
+    private val defaultImports: Set<ImportPath> =
+        JvmPlatformAnalyzerServices.getDefaultImports(languageSettings, includeLowPriorityImports = true).toSet()
 
     fun addImport(import: FqName) {
         if (isImportNeeded(import, allowSingleIdentifierImport = false)) {
@@ -37,9 +33,11 @@ class JKImportStorage(languageSettings: LanguageVersionSettings) {
     fun getImports(): Set<FqName> = imports
 
     private fun isImportNeeded(fqName: FqName, allowSingleIdentifierImport: Boolean = false): Boolean {
-        if (!allowSingleIdentifierImport && fqName.asString().count { it == '.' } < 1) return false
+        val fqNameString = fqName.asString()
+        if (!allowSingleIdentifierImport && fqNameString.count { it == '.' } < 1) return false
         if (fqName in NULLABILITY_ANNOTATIONS) return false
-        if (fqName in defaultImports) return false
+        if (defaultImports.any { fqName.isImported(it) }) return false
+        if (PLATFORM_CLASSES_MAPPED_TO_KOTLIN.any { it.matches(fqNameString) }) return false
         return true
     }
 
@@ -47,7 +45,14 @@ class JKImportStorage(languageSettings: LanguageVersionSettings) {
         isImportNeeded(FqName(fqName), allowSingleIdentifierImport)
 
     companion object {
+        internal val PLATFORM_CLASSES_MAPPED_TO_KOTLIN: Set<Regex> = setOf(
+            Regex("kotlin\\.jvm\\.functions\\.Function[0-9]"),
+            Regex("java\\.util\\.((Set)|(Collection)|(List)|(Map)|(Iterator))"),
+            Regex("java\\.lang\\.((Throwable)|(Cloneable)|(Integer)|(String)|(Comparable)|(Object)|(CharSequence))")
+        )
+
         private val JAVA_TYPE_WRAPPERS_WHICH_HAVE_CONFLICTS_WITH_KOTLIN_ONES = setOf(
+            FqName(CommonClassNames.JAVA_LANG_BOOLEAN),
             FqName(CommonClassNames.JAVA_LANG_BYTE),
             FqName(CommonClassNames.JAVA_LANG_SHORT),
             FqName(CommonClassNames.JAVA_LANG_LONG),

@@ -1,7 +1,6 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
-import com.intellij.UtilBundle;
 import com.intellij.analysis.problemsView.toolWindow.ProblemsView;
 import com.intellij.codeInsight.daemon.DaemonBundle;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -45,6 +44,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.SlowOperations;
+import com.intellij.util.UtilBundle;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.storage.HeavyProcessLatch;
 import com.intellij.util.ui.GridBag;
@@ -53,6 +53,8 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMaps;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import kotlin.Lazy;
+import kotlin.LazyKt;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -65,6 +67,7 @@ import java.util.*;
 import java.util.function.Supplier;
 
 public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
+  private static final Logger LOG = Logger.getInstance(TrafficLightRenderer.class);
   private final @NotNull Project myProject;
   private final @NotNull Document myDocument;
   private final DaemonCodeAnalyzerImpl myDaemonCodeAnalyzer;
@@ -77,6 +80,9 @@ public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
   private final Map<Language, FileHighlightingSetting> myFileHighlightingSettings; // each root language -> its highlighting level
   private volatile long myHighlightingSettingsModificationCount;
 
+  /**
+   * Prefer using {@link TrafficLightRendererContributor} instead
+   */
   public static void setTrafficLightOnEditor(@NotNull Project project,
                                              @NotNull EditorMarkupModel editorMarkupModel,
                                              @NotNull ModalityState modalityState,
@@ -88,6 +94,8 @@ public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
       ApplicationManager.getApplication().invokeLater(() -> {
         Editor editor = editorMarkupModel.getEditor();
         if (project.isDisposed() || editor.isDisposed()) {
+          LOG.debug("Traffic light won't be set to editor: project dispose ", project.isDisposed(),
+                    " , editor dispose " + editor.isDisposed());
           Disposer.dispose(tlRenderer); // would be registered in setErrorStripeRenderer() below
           return;
         }
@@ -346,12 +354,13 @@ public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
       return new AnalyzerStatus(AllIcons.General.InspectionsPowerSaveMode,
                                 InspectionsBundle.message("code.analysis.is.disabled.in.power.save.mode"),
                                 "",
-                                myUIController);
+                                myUIController).withState(InspectionsState.DISABLED);
     }
     DaemonCodeAnalyzerStatus status = getDaemonCodeAnalyzerStatus(mySeverityRegistrar);
 
     String title;
     String details;
+    InspectionsState state;
     boolean isDumb = DumbService.isDumb(myProject);
 
     List<SeverityStatusItem> statusItems = new ArrayList<>();
@@ -379,26 +388,33 @@ public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
       if (isDumb) {
         title = DaemonBundle.message("shallow.analysis.completed");
         details = DaemonBundle.message("shallow.analysis.completed.details");
+        state = InspectionsState.SHALLOW_ANALYSIS_COMPLETE;
       }
       else if (myFileHighlightingSettings.containsValue(FileHighlightingSetting.ESSENTIAL)) {
         title = DaemonBundle.message("essential.analysis.completed");
         details = DaemonBundle.message("essential.analysis.completed.details");
+        state = InspectionsState.ESSENTIAL_ANALYSIS_COMPLETE;
       }
       else {
         title = statusItems.isEmpty() ? DaemonBundle.message("no.errors.or.warnings.found") : "";
         details = "";
+        state = InspectionsState.NO_PROBLEMS_FOUND;
       }
     }
     else {
       title = DaemonBundle.message("performing.code.analysis");
       details = "";
+      state = InspectionsState.PERFORMING_CODE_ANALYSIS;
     }
 
     if (!statusItems.isEmpty()) {
       AnalyzerStatus result = new AnalyzerStatus(statusItems.get(0).getIcon(), title, "", myUIController).
-        withNavigation().
-        withExpandedStatus(ContainerUtil.map(statusItems, i ->
-          new StatusItem(Integer.toString(i.getProblemCount()), i.getIcon(), i.getCountMessage())));
+        withNavigation(true).
+        withState(state).
+        withExpandedStatus(ContainerUtil.map(statusItems, i -> {
+          TrafficLightStatusItemMetadata metadata = new TrafficLightStatusItemMetadata(i.getProblemCount(), i.getSeverity());
+          return new StatusItem(Integer.toString(i.getProblemCount()), i.getIcon(), i.getCountMessage(), metadata);
+        }));
 
       return status.errorAnalyzingFinished ? result :
              result.withAnalyzingType(AnalyzingType.PARTIAL).
@@ -407,12 +423,13 @@ public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
     if (StringUtil.isNotEmpty(status.reasonWhyDisabled)) {
       return new AnalyzerStatus(AllIcons.General.InspectionsTrafficOff,
                                 DaemonBundle.message("no.analysis.performed"),
-                                status.reasonWhyDisabled, myUIController).withTextStatus(DaemonBundle.message("iw.status.off"));
+                                status.reasonWhyDisabled, myUIController).withTextStatus(DaemonBundle.message("iw.status.off")).withState(InspectionsState.OFF);
     }
     if (StringUtil.isNotEmpty(status.reasonWhySuspended)) {
       return new AnalyzerStatus(AllIcons.General.InspectionsPause,
                                 DaemonBundle.message("analysis.suspended"),
                                 status.reasonWhySuspended, myUIController).
+        withState(InspectionsState.PAUSED).
         withTextStatus(status.heavyProcessType != null ? status.heavyProcessType.toString() : DaemonBundle.message("iw.status.paused")).
         withAnalyzingType(AnalyzingType.SUSPENDED);
     }
@@ -423,12 +440,14 @@ public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
       return isDumb ?
         new AnalyzerStatus(AllIcons.General.InspectionsPause, title, details, myUIController).
           withTextStatus(UtilBundle.message("heavyProcess.type.indexing")).
+          withState(InspectionsState.INDEXING).
           withAnalyzingType(AnalyzingType.SUSPENDED) :
         new AnalyzerStatus(inspectionsCompletedIcon, title, details, myUIController);
     }
 
     return new AnalyzerStatus(AllIcons.General.InspectionsEye, DaemonBundle.message("no.errors.or.warnings.found"), details, myUIController).
       withTextStatus(DaemonBundle.message("iw.status.analyzing")).
+      withState(InspectionsState.ANALYZING).
       withAnalyzingType(AnalyzingType.EMPTY).
       withPasses(ContainerUtil.map(status.passes, pass -> new PassWrapper(pass.getPresentableName(), toPercent(pass.getProgress(), pass.isFinished()))));
   }
@@ -566,22 +585,18 @@ public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
   }
 
   protected class DefaultUIController extends AbstractUIController {
-    private final List<AnAction> myMenuActions = initActions();
-
-    private @NotNull List<AnAction> initActions() {
-        List<AnAction> result = new ArrayList<>();
-        result.add(new ConfigureInspectionsAction());
-        result.add(DaemonEditorPopup.createGotoGroup());
-
-        result.add(Separator.create());
-        result.add(new ShowImportTooltipAction());
-
-        return result;
-    }
+    private final Lazy<List<AnAction>> myMenuActions = LazyKt.lazy(() -> { // only create actions when daemon widget used
+      List<AnAction> result = new ArrayList<>();
+      result.add(ActionManager.getInstance().getAction("ConfigureInspectionsAction"));
+      result.add(DaemonEditorPopup.createGotoGroup());
+      result.add(Separator.create());
+      result.add(new ShowImportTooltipAction());
+      return result;
+    });
 
     @Override
     public @NotNull List<AnAction> getActions() {
-      return myMenuActions;
+      return myMenuActions.getValue();
     }
 
     @Override
@@ -605,7 +620,6 @@ public class TrafficLightRenderer implements ErrorStripeRenderer, Disposable {
       public @NotNull ActionUpdateThread getActionUpdateThread() {
         return ActionUpdateThread.EDT;
       }
-
 
       @Override
       public void setSelected(@NotNull AnActionEvent e, boolean state) {

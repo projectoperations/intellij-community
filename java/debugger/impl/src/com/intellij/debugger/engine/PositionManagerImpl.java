@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.engine;
 
 import com.intellij.debugger.MultiRequestPositionManager;
@@ -28,11 +28,14 @@ import com.intellij.psi.impl.compiled.ClsClassImpl;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.concurrency.annotations.RequiresReadLock;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xdebugger.XDebuggerUtil;
-import com.siyeh.ig.psiutils.ClassUtils;
-import com.sun.jdi.*;
+import com.sun.jdi.AbsentInformationException;
+import com.sun.jdi.Location;
+import com.sun.jdi.Method;
+import com.sun.jdi.ReferenceType;
 import com.sun.jdi.request.ClassPrepareRequest;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
@@ -202,7 +205,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
         if (0 <= bytecodeOffs && bytecodeOffs < bytecodes.length - 1) {
           int opcode = bytecodes[bytecodeOffs] & 0xFF;
           if (Opcodes.IRETURN <= opcode && opcode <= Opcodes.RETURN) {
-            return SourcePosition.createFromOffset(file, ret.getTextOffset());
+            return ReadAction.compute(() -> SourcePosition.createFromOffset(file, ret.getTextOffset()));
           }
         }
       }
@@ -231,7 +234,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     }
 
     private PsiElement remapElement(PsiElement element) {
-      String name = JVMNameUtil.getClassVMName(ClassUtils.getContainingClass(element));
+      String name = JVMNameUtil.getClassVMName(PsiUtil.getContainingClass(element));
       if (name != null && !name.equals(myExpectedClassName)) {
         return null;
       }
@@ -306,7 +309,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     Set<PsiClass> res = new HashSet<>();
     if (document != null) {
       XDebuggerUtil.getInstance().iterateLine(file.getProject(), document, lineNumber, element -> {
-        PsiClass aClass = ClassUtils.getContainingClass(element);
+        PsiClass aClass = PsiUtil.getContainingClass(element);
         if (aClass != null) {
           res.add(aClass);
         }
@@ -480,13 +483,13 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
 
   private static Pair<PsiClass, Integer> getTopOrStaticEnclosingClass(PsiClass aClass) {
     int depth = 0;
-    PsiClass enclosing = ClassUtils.getContainingClass(aClass);
+    PsiClass enclosing = PsiUtil.getContainingClass(aClass);
     while (enclosing != null) {
       depth++;
       if (enclosing.hasModifierProperty(PsiModifier.STATIC)) {
         break;
       }
-      PsiClass next = ClassUtils.getContainingClass(enclosing);
+      PsiClass next = PsiUtil.getContainingClass(enclosing);
       if (next == null) {
         break;
       }
@@ -552,7 +555,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
           // list.add(new Runnable(){......
           // First offsets belong to parent class, and offsets inside te substring "new Runnable(){" belong to anonymous runnable.
           if (!classToFind.isValid()) {
-            return null;
+            return Collections.emptySet();
           }
           return getLineClasses(position.getFile(), finalRangeEnd);
         });

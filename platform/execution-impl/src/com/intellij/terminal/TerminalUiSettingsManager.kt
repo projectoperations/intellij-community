@@ -32,9 +32,9 @@ class TerminalUiSettingsManager internal constructor() : PersistentStateComponen
     connection.subscribe(UISettingsListener.TOPIC, UISettingsListener {
       resetFontSize() // Enter/Exit Presentation Mode
     })
-    connection.subscribe(EditorColorsManager.TOPIC, EditorColorsListener { scheme ->
+    connection.subscribe(EditorColorsManager.TOPIC, EditorColorsListener { _ ->
       // ANSI colors changed, Console Font changed
-      editorColorsScheme = scheme ?: EditorColorsManager.getInstance().globalScheme
+      editorColorsScheme = EditorColorsManager.getInstance().globalScheme
       cachedColorPalette = null
       resetFontSize()
     })
@@ -131,6 +131,7 @@ class TerminalUiSettingsManager internal constructor() : PersistentStateComponen
     fun getInstance(): TerminalUiSettingsManager = service()
   }
 
+  /** [org.jetbrains.plugins.terminal.fus.TerminalSettingsStateCollector.GROUP] must be updated if any new value added or renamed. */
   enum class CursorShape(val text: @Nls String) {
     BLOCK(IdeBundle.message("terminal.cursor.shape.block.name")),
     UNDERLINE(IdeBundle.message("terminal.cursor.shape.underline.name")),

@@ -10,7 +10,11 @@ import org.jetbrains.kotlin.idea.base.util.asKotlinLogger
 import org.jetbrains.kotlin.konan.file.File
 import org.jetbrains.kotlin.library.*
 import org.jetbrains.kotlin.library.metadata.KlibMetadataVersion
+import org.jetbrains.kotlin.library.metadata.isCInteropLibrary
+import org.jetbrains.kotlin.library.metadata.isCommonizedCInteropLibrary
 import org.jetbrains.kotlin.library.metadata.metadataVersion
+import org.jetbrains.kotlin.library.resolveSingleFileKlib
+import org.jetbrains.kotlin.library.uniqueName
 import org.jetbrains.kotlin.platform.TargetPlatform
 
 /**
@@ -18,7 +22,6 @@ import org.jetbrains.kotlin.platform.TargetPlatform
  */
 sealed class KlibCompatibilityInfo(val isCompatible: Boolean) {
     object Compatible : KlibCompatibilityInfo(true)
-    object Pre14Layout : KlibCompatibilityInfo(false)
     class IncompatibleMetadata(val isOlder: Boolean) : KlibCompatibilityInfo(false)
 }
 
@@ -32,25 +35,21 @@ abstract class AbstractKlibLibraryInfo internal constructor(project: Project, li
 
     val compatibilityInfo: KlibCompatibilityInfo by lazy { resolvedKotlinLibrary.compatibilityInfo }
 
-    final override fun getLibraryRoots() = listOf(libraryRoot)
+    final override fun getLibraryRoots(): List<String> = listOf(libraryRoot)
 
     abstract override val platform: TargetPlatform // must override
 
     val uniqueName: String? by lazy { resolvedKotlinLibrary.safeRead(null) { uniqueName } }
 
-    val isInterop: Boolean by lazy { resolvedKotlinLibrary.safeRead(false) { isInterop } }
+    val isInterop: Boolean by lazy { resolvedKotlinLibrary.isCInteropLibrary() || resolvedKotlinLibrary.isCommonizedCInteropLibrary() }
 
     companion object {
-        private val LOG = Logger.getInstance(AbstractKlibLibraryInfo::class.java).asKotlinLogger()
+        private val LOG: org.jetbrains.kotlin.util.Logger = Logger.getInstance(AbstractKlibLibraryInfo::class.java).asKotlinLogger()
     }
 }
 
 val KotlinLibrary.compatibilityInfo: KlibCompatibilityInfo
     get() {
-        val hasPre14Manifest = safeRead(false) { has_pre_1_4_manifest }
-        if (hasPre14Manifest)
-            return KlibCompatibilityInfo.Pre14Layout
-
         val metadataVersion = safeRead(null) { metadataVersion }
         return when {
             metadataVersion == null -> {
@@ -58,7 +57,7 @@ val KotlinLibrary.compatibilityInfo: KlibCompatibilityInfo
                 KlibCompatibilityInfo.IncompatibleMetadata(true)
             }
 
-            !metadataVersion.isCompatible() -> {
+            !metadataVersion.isCompatibleWithCurrentCompilerVersion() -> {
                 val isOlder = metadataVersion.isAtLeast(KlibMetadataVersion.INSTANCE)
                 KlibCompatibilityInfo.IncompatibleMetadata(!isOlder)
             }

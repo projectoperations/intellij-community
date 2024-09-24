@@ -3,10 +3,8 @@ package com.intellij.openapi.updateSettings.impl.upgradeToUltimate.installation.
 
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.updateSettings.impl.upgradeToUltimate.installation.install.DownloadResult
-import com.intellij.openapi.updateSettings.impl.upgradeToUltimate.installation.install.InstallationResult
-import com.intellij.openapi.updateSettings.impl.upgradeToUltimate.installation.install.UltimateInstaller
-import com.intellij.openapi.updateSettings.impl.upgradeToUltimate.installation.install.runCommand
+import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.SuggestedIde
+import com.intellij.openapi.updateSettings.impl.upgradeToUltimate.installation.install.*
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.util.SystemProperties.getUserHome
 import com.intellij.util.system.CpuArch
@@ -31,7 +29,7 @@ internal class MacOsInstaller(scope: CoroutineScope, project: Project) : Ultimat
       if (!runCommand(command)) return null
 
       val app = mountDir.listDirectoryEntries().firstOrNull { entry -> entry.pathString.endsWith(".app") } ?: return null
-      copyApp(app)
+      copyApp(app, downloadResult.suggestedIde)
     } finally {
       runDetach(mountDir.pathString)
       deleteInBackground(mountDir)
@@ -39,11 +37,11 @@ internal class MacOsInstaller(scope: CoroutineScope, project: Project) : Ultimat
   }
 
   @OptIn(ExperimentalPathApi::class)
-  private fun copyApp(appPath: Path): InstallationResult? {
+  private fun copyApp(appPath: Path, suggestedIde: SuggestedIde): InstallationResult? {
     return try {
       val newAppPath = getUltimateInstallationDirectory()?.resolve(appPath.fileName) ?: return null
       appPath.copyToRecursively(newAppPath, followLinks = true, overwrite = true)
-      InstallationResult(newAppPath)
+      InstallationResult(newAppPath, UltimateInstallationInfo(suggestedIde))
     } catch (e: Exception) {
       deleteInBackground(appPath)
       throw e

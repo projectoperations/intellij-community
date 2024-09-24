@@ -6,7 +6,7 @@ import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.search.GlobalSearchScope
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
 import org.jetbrains.kotlin.j2k.Nullability.NotNull
 import org.jetbrains.kotlin.nj2k.NewJ2kConverterContext
@@ -16,13 +16,14 @@ import org.jetbrains.kotlin.nj2k.tree.*
 import org.jetbrains.kotlin.nj2k.tree.Modality.FINAL
 import org.jetbrains.kotlin.nj2k.tree.Modality.OPEN
 import org.jetbrains.kotlin.nj2k.tree.OtherModifier.OVERRIDE
+import org.jetbrains.kotlin.nj2k.tree.Visibility.PROTECTED
 import org.jetbrains.kotlin.nj2k.types.JKClassType
 import org.jetbrains.kotlin.nj2k.types.JKJavaVoidType
 import org.jetbrains.kotlin.nj2k.types.fqName
 import org.jetbrains.kotlin.nj2k.types.updateNullability
 
 class JavaStandardMethodsConversion(context: NewJ2kConverterContext) : RecursiveConversion(context) {
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun applyToElement(element: JKTreeElement): JKTreeElement {
         if (element is JKClass) {
             element.classBody.declarations.forEach {
@@ -52,9 +53,25 @@ class JavaStandardMethodsConversion(context: NewJ2kConverterContext) : Recursive
     }
 
     private fun JKMethod.fixFinalize() {
-        if (hasOtherModifier(OVERRIDE)) {
-            modality = if (parentOfType<JKClass>()?.modality == OPEN) OPEN else FINAL
-            otherModifierElements -= otherModifierElements.first { it.otherModifier == OVERRIDE }
+        if (!hasOtherModifier(OVERRIDE)) return
+
+        val superMethods = psi<PsiMethod>()?.findSuperMethods() ?: return
+        val overridesBuiltInFinalize = superMethods.any { it.containingClass?.kotlinFqName?.asString() == "java.lang.Object" }
+        if (!overridesBuiltInFinalize) {
+            // Here we consider only methods that override the java.lang.Object's 'finalize' directly.
+            // The overrides of _overrides_ of java.lang.Object's 'finalize' are considered regular methods
+            // that don't need any special handling.
+            return
+        }
+
+        modality = if (parentOfType<JKClass>()?.modality == OPEN) OPEN else FINAL
+
+        // In Kotlin, 'finalize' is not technically an override, so the 'override' modifier should be removed.
+        // Also, 'protected' visibility should not be considered redundant and should be preserved.
+        otherModifierElements -= otherModifierElements.first { it.otherModifier == OVERRIDE }
+
+        if (visibility == PROTECTED) {
+            hasRedundantVisibility = false
         }
     }
 

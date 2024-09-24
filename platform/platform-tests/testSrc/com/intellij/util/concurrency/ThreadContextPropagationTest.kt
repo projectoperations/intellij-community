@@ -13,9 +13,8 @@ import com.intellij.testFramework.junit5.SystemProperty
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.getValue
 import com.intellij.util.setValue
-import com.intellij.util.ui.update.MergingUpdateQueue
-import com.intellij.util.ui.update.Update
 import kotlinx.coroutines.*
+import org.jetbrains.concurrency.AsyncPromise
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
@@ -27,14 +26,19 @@ import org.junit.jupiter.api.extension.ReflectiveInvocationContext
 import java.lang.Runnable
 import java.lang.reflect.Method
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.Result
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 @TestApplication
 @ExtendWith(ThreadContextPropagationTest.Enabler::class)
+@ExtendWith(ImplicitBlockingContextTest.Enabler::class)
 class ThreadContextPropagationTest {
 
   class Enabler : InvocationInterceptor {
@@ -136,7 +140,7 @@ class ThreadContextPropagationTest {
     val element = TestElement("element")
     withContext(element) {
       suspendCancellableCoroutine { continuation ->
-        blockingContext(continuation.context) {                            // install context in calling thread
+        installThreadContext(continuation.context).use {                       // install context in calling thread
           submit {                                                         // switch to another thread
             val result: Result<Unit> = runCatching {
               assertSame(element, currentThreadContext()[TestElementKey])  // the same element must be present in another thread context
@@ -280,7 +284,7 @@ class ThreadContextPropagationTest {
   fun `EDT dispatcher does not capture thread context`(): Unit = timeoutRunBlocking {
     blockingContext {
       launch(Dispatchers.EDT) {
-        assertNull(currentThreadContextOrNull())
+        assertNull(currentThreadOverriddenContextOrNull())
       }
     }
   }
@@ -318,29 +322,22 @@ class ThreadContextPropagationTest {
     finished.await()
   }
 
-  @Test
-  fun `merging update queue`() = timeoutRunBlocking {
-    val queue = MergingUpdateQueue("test", 100, true, null)
-    val semaphore = Semaphore(2)
-    val element = TestElement("e1")
-    val element2 = TestElement2("e2")
-    withContext(element) {
-      blockingContext {
-        queue.queue(Update.create("id") {
-          assertEquals(element, currentThreadContext()[TestElementKey])
-          semaphore.up()
-        })
-      }
-      withContext(element2) {
-        blockingContext {
-          queue.queue(Update.create("id") {
-            // no eating occurs since the contexts are different
-            assertEquals(element2, currentThreadContext()[TestElement2Key])
-            semaphore.up()
-          })
-        }
-      }
-    }
-    semaphore.timeoutWaitUp()
+  class MyIjElement(val eventTracker: AtomicBoolean) : IntelliJContextElement, AbstractCoroutineContextElement(MyIjElement) {
+    companion object Key : CoroutineContext.Key<MyIjElement>
+
+    override fun produceChildElement(parentContext: CoroutineContext, isStructured: Boolean): IntelliJContextElement = this
+    override fun afterChildCompleted(context: CoroutineContext) = eventTracker.set(true)
   }
+
+  @Test
+  fun `propagation with Asyncthen`(): Unit = timeoutRunBlocking {
+    val tracker = AtomicBoolean(false)
+    withContext(MyIjElement(tracker)) {
+      val promise = AsyncPromise<Int>()
+      promise.then { }
+      promise.setResult(1)
+    }
+    assertTrue(tracker.get())
+  }
+
 }

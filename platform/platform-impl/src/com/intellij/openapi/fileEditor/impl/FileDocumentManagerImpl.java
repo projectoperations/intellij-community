@@ -1,10 +1,11 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileEditor.impl;
 
 import com.intellij.CommonBundle;
 import com.intellij.application.options.CodeStyle;
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.concurrency.ConcurrentCollectionFactory;
+import com.intellij.concurrency.ThreadContext;
 import com.intellij.ide.plugins.DynamicPluginListener;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.openapi.Disposable;
@@ -22,6 +23,7 @@ import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.editor.impl.EditorFactoryImpl;
 import com.intellij.openapi.editor.impl.TrailingSpacesStripper;
 import com.intellij.openapi.fileEditor.*;
+import com.intellij.openapi.fileEditor.impl.converter.FileTextConverter;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorImpl;
 import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers;
 import com.intellij.openapi.fileTypes.FileType;
@@ -99,9 +101,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
     @Override
     public void documentChanged(@NotNull DocumentEvent e) {
       Document document = e.getDocument();
-      if (!ApplicationManager.getApplication().hasWriteAction(ExternalChangeAction.ExternalDocumentChange.class)) {
-        myUnsavedDocuments.add(document);
-      }
+      markDocumentUnsaved(document);
       Runnable currentCommand = CommandProcessor.getInstance().getCurrentCommand();
       Project project = currentCommand == null ? null : CommandProcessor.getInstance().getCurrentCommandProject();
       VirtualFile virtualFile = getFile(document);
@@ -207,6 +207,13 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
       if (totalSize > FileUtilRt.LARGE_FOR_CONTENT_LOADING) return true;
     }
     return false;
+  }
+
+  @ApiStatus.Internal
+  public void markDocumentUnsaved(Document document) {
+    if (!ApplicationManager.getApplication().hasWriteAction(ExternalChangeAction.ExternalDocumentChange.class)) {
+      myUnsavedDocuments.add(document);
+    }
   }
 
   @Override
@@ -425,6 +432,10 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
 
       String text = document.getText();
       String lineSeparator = getLineSeparator(document, file);
+
+      //Some files have document.text different from file representation
+      text = FileTextConverter.convertToSaveDocumentTextToFile(text, file);
+
       if (!lineSeparator.equals("\n")) {
         text = StringUtil.convertLineSeparators(text, lineSeparator);
       }
@@ -441,7 +452,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
   private static void updateModifiedProperty(@NotNull VirtualFile file) {
     for (Project project : ProjectManager.getInstance().getOpenProjects()) {
       FileEditorManager fileEditorManager = FileEditorManager.getInstance(project);
-      for (FileEditor editor : fileEditorManager.getAllEditors(file)) {
+      for (FileEditor editor : fileEditorManager.getAllEditorList(file)) {
         if (editor instanceof TextEditorImpl) {
           ((TextEditorImpl)editor).updateModifiedProperty();
         }
@@ -706,7 +717,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
 
   @Override
   public void reloadFromDisk(@NotNull Document document, @Nullable Project project) {
-    try (AccessToken ignored = ClientId.withClientId(ClientId.getLocalId())) {
+    try (AccessToken ignored = ThreadContext.resetThreadContext()) {
       ThreadingAssertions.assertEventDispatchThread();
 
       VirtualFile file = getFile(document);

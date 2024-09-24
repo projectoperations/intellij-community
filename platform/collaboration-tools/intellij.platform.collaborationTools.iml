@@ -24,12 +24,11 @@
     <orderEntry type="library" scope="TEST" name="JUnit4" level="project" />
     <orderEntry type="module" module-name="intellij.platform.credentialStore.ui" />
     <orderEntry type="module" module-name="intellij.platform.testFramework" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="mockito" level="project" />
-    <orderEntry type="library" scope="TEST" name="mockito.kotlin" level="project" />
     <orderEntry type="module" module-name="intellij.platform.vcs.impl" />
     <orderEntry type="module" module-name="intellij.platform.ide.util.io" />
     <orderEntry type="module" module-name="intellij.platform.vcs.log" />
     <orderEntry type="library" name="caffeine" level="project" />
+    <orderEntry type="module" module-name="intellij.platform.collaborationTools.auth.base" />
     <orderEntry type="module" module-name="intellij.platform.collaborationTools.auth" />
     <orderEntry type="library" name="kotlinx-coroutines-core" level="project" />
     <orderEntry type="library" name="jetbrains.markdown" level="project" />
@@ -37,5 +36,8 @@
     <orderEntry type="library" scope="TEST" name="kotlinx-coroutines-test" level="project" />
     <orderEntry type="module" module-name="intellij.platform.vcs.dvcs.impl" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines" />
+    <orderEntry type="library" scope="TEST" name="io.mockk" level="project" />
+    <orderEntry type="library" scope="TEST" name="io.mockk.jvm" level="project" />
+    <orderEntry type="module" module-name="intellij.platform.credentialStore.impl" />
   </component>
 </module>

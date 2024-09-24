@@ -7,6 +7,7 @@ import com.intellij.openapi.externalSystem.model.task.*;
 import com.intellij.openapi.externalSystem.service.project.ExternalSystemProjectResolver;
 import com.intellij.openapi.externalSystem.service.remote.*;
 import com.intellij.openapi.externalSystem.task.ExternalSystemTaskManager;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -17,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 
+@ApiStatus.Internal
 public abstract class AbstractExternalSystemFacadeImpl<S extends ExternalSystemExecutionSettings> extends RemoteServer
   implements RemoteExternalSystemFacade<S>
 {
@@ -25,8 +27,7 @@ public abstract class AbstractExternalSystemFacadeImpl<S extends ExternalSystemE
 
   private final AtomicReference<S> mySettings              = new AtomicReference<>();
   private final AtomicReference<ExternalSystemTaskNotificationListener> myNotificationListener =
-    new AtomicReference<>(new ExternalSystemTaskNotificationListenerAdapter() {
-    });
+    new AtomicReference<>(ExternalSystemTaskNotificationListener.NULL_OBJECT);
 
   private final @NotNull RemoteExternalSystemProjectResolverImpl<S> myProjectResolver;
   private final @NotNull RemoteExternalSystemTaskManagerImpl<S>     myTaskManager;

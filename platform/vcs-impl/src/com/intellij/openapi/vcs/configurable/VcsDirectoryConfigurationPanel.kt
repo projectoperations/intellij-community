@@ -1,7 +1,9 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs.configurable
 
+import com.intellij.icons.AllIcons
 import com.intellij.ide.impl.isTrusted
+import com.intellij.ide.util.treeView.FileNameComparator
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.progress.ProgressIndicator
@@ -36,12 +38,10 @@ import java.awt.Component
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.io.File
-import java.util.*
-import javax.swing.JComponent
-import javax.swing.JPanel
-import javax.swing.JTable
+import javax.swing.*
 import javax.swing.table.TableCellEditor
 import javax.swing.table.TableCellRenderer
+import kotlin.Throws
 
 class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), Disposable {
   private val POSTPONE_MAPPINGS_LOADING_PANEL = ProgressIndicatorWithDelayedPresentation.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS
@@ -50,6 +50,7 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
 
   private val vcsManager: ProjectLevelVcsManager = ProjectLevelVcsManager.getInstance(project)
   private val vcsConfiguration: VcsConfiguration = VcsConfiguration.getInstance(project)
+  private val sharedProjectSettings: VcsSharedProjectSettings = VcsSharedProjectSettings.getInstance(project)
 
   private val allSupportedVcss: List<AbstractVcs> = vcsManager.allSupportedVcss.asList()
   private val vcsRootCheckers: Map<String, VcsRootChecker> =
@@ -61,6 +62,8 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
   private val directoryRenderer: MyDirectoryRenderer
 
   private val vcsComboBox: ComboBox<AbstractVcs?>
+
+  private val detectVcsMappingsCheckBox: JCheckBox
 
   private val scopeFilterConfigurable: VcsUpdateInfoScopeFilterConfigurable
 
@@ -140,6 +143,8 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
     // don't start loading automatically
     tableLoadingPanel = JBLoadingPanel(BorderLayout(), this, POSTPONE_MAPPINGS_LOADING_PANEL * 2)
 
+    detectVcsMappingsCheckBox = JCheckBox(VcsBundle.message("directory.mapping.checkbox.detect.vcs.mappings.automatically"))
+
     layout = BorderLayout()
     add(createMainComponent())
 
@@ -150,7 +155,7 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
 
     initializeModel()
 
-    vcsComboBox = buildVcsesComboBox(allSupportedVcss)
+    vcsComboBox = buildVcsesComboBox(project, allSupportedVcss)
     vcsComboBox.addItemListener {
       if (mappingTable.isEditing) {
         mappingTable.stopEditing()
@@ -174,6 +179,8 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
     val items = mutableListOf<RecordInfo>()
     items.addAll(vcsManager.directoryMappings.map { createRegisteredInfo(it) })
     setDisplayedMappings(items)
+
+    detectVcsMappingsCheckBox.isSelected = sharedProjectSettings.isDetectVcsMappingsAutomatically
 
     scheduleUnregisteredRootsLoading()
   }
@@ -302,6 +309,14 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
     panel.add(tableLoadingPanel, gb.nextLine().next().fillCell().weighty(1.0))
 
     panel.add(createProjectMappingDescription(), gb.nextLine().next())
+
+    val detectVcsMappingsHintLabel = JLabel(AllIcons.General.ContextHelp).apply {
+      border = JBUI.Borders.emptyLeft(4)
+      toolTipText = VcsBundle.message("directory.mapping.checkbox.detect.vcs.mappings.automatically.hint")
+    }
+    panel.add(JBUI.Panels.simplePanel(detectVcsMappingsCheckBox).addToRight(detectVcsMappingsHintLabel),
+              gb.nextLine().next().fillCellNone().anchor(GridBagConstraints.WEST))
+
     if (!AbstractCommonUpdateAction.showsCustomNotification(vcsManager.allActiveVcss.asList())) {
       panel.add(scopeFilterConfigurable.createComponent(), gb.nextLine().next())
     }
@@ -382,6 +397,7 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
     adjustIgnoredRootsSettings()
     vcsManager.directoryMappings = getModelMappings()
     scopeFilterConfigurable.apply()
+    sharedProjectSettings.isDetectVcsMappingsAutomatically = detectVcsMappingsCheckBox.isSelected
     initializeModel()
   }
 
@@ -396,7 +412,8 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
 
   fun isModified(): Boolean {
     if (scopeFilterConfigurable.isModified) return true
-    return getModelMappings() != vcsManager.directoryMappings
+    return getModelMappings() != vcsManager.directoryMappings ||
+           detectVcsMappingsCheckBox.isSelected != sharedProjectSettings.isDetectVcsMappingsAutomatically
   }
 
   private fun getModelMappings(): List<VcsDirectoryMapping> {
@@ -470,11 +487,11 @@ class VcsDirectoryConfigurationPanel(private val project: Project) : JPanel(), D
     @JvmStatic
     fun buildVcsesComboBox(project: Project): ComboBox<AbstractVcs?> {
       val allVcses = ProjectLevelVcsManager.getInstance(project).allSupportedVcss
-      return buildVcsesComboBox(allVcses.asList())
+      return buildVcsesComboBox(project, allVcses.asList())
     }
 
-    private fun buildVcsesComboBox(allVcses: List<AbstractVcs>): ComboBox<AbstractVcs?> {
-      val comboBox = ComboBox((allVcses + null).toTypedArray())
+    private fun buildVcsesComboBox(project: Project, allVcses: List<AbstractVcs>): ComboBox<AbstractVcs?> {
+      val comboBox = ComboBox((allVcses + null).sortedWith(SuggestedVcsComparator.create(project)).toTypedArray())
       comboBox.renderer = SimpleListCellRenderer.create(VcsBundle.message("none.vcs.presentation")) { obj: AbstractVcs? -> obj?.displayName }
       return comboBox
     }
@@ -539,7 +556,7 @@ private val RECORD_INFO_COMPARATOR: Comparator<RecordInfo> = compareBy<RecordInf
     is RecordInfo.UnregisteredHeader -> 2
     is RecordInfo.UnregisteredMapping -> 3
   }
-}.thenBy { info -> (info as? RecordInfo.MappingInfo)?.mapping?.directory }
+}.thenBy(FileNameComparator.getInstance()) { info -> (info as? RecordInfo.MappingInfo)?.mapping?.directory }
 
 private sealed interface RecordInfo {
   sealed class MappingInfo : RecordInfo {

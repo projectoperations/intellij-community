@@ -17,7 +17,7 @@ class ExampleClassWithNoTypos<T> {
     private String name;
 
     /**
-     * Creates an empty group.
+     * Creates an empty group. It's a <b>react</b> method.
      *
      * @param name The name of the group. And another sentence.
      */
@@ -44,6 +44,11 @@ class ExampleClassWithNoTypos<T> {
 
     /** Currently active change list. */
     class ActiveChangeList {}
+
+    /**
+     * The finally block always executes when the try block exits.
+     */
+    void finallyBlockTest() {}
 }
 
 /**
@@ -55,10 +60,15 @@ class ExampleClassWithNoTypos<T> {
  */
 class ExampleClassWithTypos<T> {
 
+   /**
+   * There can be many mistakes here. It <GRAMMAR_ERROR descr="IT_VBZ">add</GRAMMAR_ERROR><br>
+    *
+    * <b>It <GRAMMAR_ERROR descr="IT_VBZ">add</GRAMMAR_ERROR></b>
+   */
     private String name;
 
     /**
-     * Creates an empty group.
+     * Creates an empty group. It's a <GRAMMAR_ERROR descr="A_GOOGLE">react</GRAMMAR_ERROR> method.
      *
      * @param name the <GRAMMAR_ERROR descr="COMMA_WHICH">name which</GRAMMAR_ERROR> group
      */

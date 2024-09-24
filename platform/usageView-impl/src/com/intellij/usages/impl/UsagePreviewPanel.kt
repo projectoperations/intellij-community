@@ -10,18 +10,19 @@ import com.intellij.find.findUsages.similarity.MostCommonUsagePatternsComponent.
 import com.intellij.ide.IdeTooltipManager
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.actionSystem.CommonDataKeys
-import com.intellij.openapi.actionSystem.DataProvider
-import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
-import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.asContextElement
-import com.intellij.openapi.application.readAction
+import com.intellij.openapi.actionSystem.DataSink
+import com.intellij.openapi.actionSystem.UiCompatibleDataProvider
+import com.intellij.openapi.application.*
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.*
 import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.event.VisibleAreaEvent
 import com.intellij.openapi.editor.event.VisibleAreaListener
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.util.EditorUtil
+import com.intellij.openapi.editor.highlighter.EditorHighlighter
+import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
+import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
@@ -35,7 +36,6 @@ import com.intellij.openapi.util.*
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiDocumentManager
@@ -52,6 +52,8 @@ import com.intellij.usages.UsageContextPanel
 import com.intellij.usages.UsageView
 import com.intellij.usages.UsageViewPresentation
 import com.intellij.usages.similarity.clustering.ClusteringSearchSession
+import com.intellij.util.SlowOperations
+import com.intellij.util.concurrency.NonUrgentExecutor
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -66,8 +68,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Contract
-import org.jetbrains.annotations.NonNls
 import java.awt.BorderLayout
 import java.awt.Font
 import java.awt.Graphics
@@ -76,6 +78,7 @@ import java.awt.event.HierarchyEvent
 import java.awt.event.HierarchyListener
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
+import java.util.concurrent.Callable
 import java.util.regex.Pattern
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -84,7 +87,7 @@ import kotlin.Pair
 open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
                                                        presentation: UsageViewPresentation,
                                                        private val myIsEditor: Boolean = false)
-  : UsageContextPanelBase(project, presentation), DataProvider {
+  : UsageContextPanelBase(presentation), UiCompatibleDataProvider {
 
   private var myEditor: Editor? = null
   private var myLineHeight = 0
@@ -99,23 +102,22 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
   private val cs = UsageViewCoroutineScopeProvider.getInstance(project).coroutineScope.childScope()
   private var myShowTooltipBalloon = Registry.`is`("ide.find.show.tooltip.in.preview")
 
-  override fun getData(dataId: @NonNls String): Any? {
-    if (myEditor == null) return null
-    if (CommonDataKeys.EDITOR.`is`(dataId)) {
-      return myEditor
+  override fun uiDataSnapshot(sink: DataSink) {
+    val editor = myEditor ?: return
+    sink[CommonDataKeys.EDITOR] = editor
+    val position = editor.caretModel.logicalPosition
+    val project = editor.project ?: return
+    sink.lazy(CommonDataKeys.NAVIGATABLE_ARRAY) {
+      val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return@lazy null
+      arrayOf<Navigatable>(OpenFileDescriptor(project, file, position.line, position.column))
     }
-    if (PlatformCoreDataKeys.BGT_DATA_PROVIDER.`is`(dataId)) {
-      val file = FileDocumentManager.getInstance().getFile(myEditor!!.document) ?: return null
-      val position = myEditor!!.caretModel.logicalPosition
-      return DataProvider { slowId: String -> getSlowData(slowId, myProject, file, position) }
-    }
-    return null
-  }
-  
-  fun setShowTooltipBalloon(showTooltipBalloon: Boolean) {
-    myShowTooltipBalloon = showTooltipBalloon;
   }
 
+  fun setShowTooltipBalloon(showTooltipBalloon: Boolean) {
+    myShowTooltipBalloon = showTooltipBalloon
+  }
+
+  @Internal
   class Provider : UsageContextPanel.Provider {
     override fun create(usageView: UsageView): UsageContextPanel {
       return UsagePreviewPanel((usageView as UsageViewImpl).project, usageView.getPresentation(), true)
@@ -134,34 +136,43 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
     val pair: Pair<PsiFile, Document> = readAction {
       val psiElement = infos[0].element ?: return@readAction null
       var psiFile = psiElement.containingFile ?: return@readAction null
-      val host = InjectedLanguageManager.getInstance(myProject).getInjectionHost(psiFile)
+      val project = psiFile.project
+      val host = InjectedLanguageManager.getInstance(project).getInjectionHost(psiFile)
       if (host != null) {
         psiFile = host.containingFile ?: return@readAction null
       }
-      val document = PsiDocumentManager.getInstance(psiFile.project).getDocument(psiFile) ?: return@readAction null
+      val document = PsiDocumentManager.getInstance(project).getDocument(psiFile) ?: return@readAction null
       psiFile to document
     } ?: return
 
     withContext(Dispatchers.EDT) {
       val (psiFile, document) = pair
+      val project = psiFile.project
 
       if (myEditor == null || document !== myEditor!!.document) {
         releaseEditor()
         removeAll()
         if (isDisposed) return@withContext
-        myEditor = createEditor(psiFile, document)
-        lineHeight = myEditor!!.lineHeight
-        myEditor!!.setBorder(if (myIsEditor) null else JBEmptyBorder(0, UIUtil.LARGE_VGAP, 0, 0))
-        add(myEditor!!.component, BorderLayout.CENTER)
+        //maybe readaction
+        writeIntentReadAction {
+          myEditor = createEditor(psiFile, document)
+          lineHeight = myEditor!!.lineHeight
+          myEditor!!.setBorder(if (myIsEditor) null else JBEmptyBorder(0, UIUtil.LARGE_VGAP, 0, 0))
+          add(myEditor!!.component, BorderLayout.CENTER)
+        }
         invalidate()
         validate()
       }
 
-      PsiDocumentManager.getInstance(myProject).performForCommittedDocument(document, Runnable {
+      PsiDocumentManager.getInstance(project).performForCommittedDocument(document, Runnable {
         if (infos != myCachedSelectedUsageInfos // avoid moving viewport
             || !UsageViewPresentation.arePatternsEqual(myCachedSearchPattern, myPresentation.searchPattern)
             || myCachedReplaceString != myPresentation.replaceString || myCachedCaseSensitive != myPresentation.isCaseSensitive) {
-          highlight(infos, myEditor!!, myProject, myShowTooltipBalloon, HighlighterLayer.ADDITIONAL_SYNTAX)
+          SlowOperations.knownIssue("IJPL-162820").use {
+            ReadAction.run<RuntimeException> {
+              highlight(infos, myEditor!!, project, myShowTooltipBalloon, HighlighterLayer.ADDITIONAL_SYNTAX)
+            }
+          }
           myCachedSelectedUsageInfos = infos
           myCachedSearchPattern = myPresentation.searchPattern
           myCachedCaseSensitive = myPresentation.isCaseSensitive
@@ -197,7 +208,27 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
       LOG.debug("Creating preview for " + psiFile.virtualFile)
     }
     val project = psiFile.project
-    val editor = EditorFactory.getInstance().createEditor(document, project, psiFile.virtualFile, !myIsEditor, EditorKind.PREVIEW)
+    val editor = if (myIsEditor) {
+      EditorFactory.getInstance().createEditor(document, project, EditorKind.PREVIEW)
+    }
+    else {
+      EditorFactory.getInstance().createViewer(document, project, EditorKind.PREVIEW)
+    }
+    if (editor is EditorEx) {
+      val disposable = (editor as? EditorImpl)?.disposable ?: project
+      ReadAction
+        .nonBlocking(
+          Callable {
+            EditorHighlighterFactory.getInstance().createEditorHighlighter(project, psiFile.virtualFile).also {
+              it.setText(editor.document.immutableCharSequence)
+            }
+          })
+        .finishOnUiThread(ModalityState.any()) { result: EditorHighlighter? ->
+          if (result != null) editor.setHighlighter(result)
+        }
+        .expireWith(disposable)
+        .submit(NonUrgentExecutor.getInstance())
+    }
     customizeEditorSettings(editor.settings)
     editor.putUserData(PREVIEW_EDITOR_FLAG, this)
 
@@ -219,10 +250,11 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
   override fun dispose() {
     isDisposed = true
     cs.cancel("dispose")
+    val project = myEditor?.project
     releaseEditor()
     disposeAndRemoveSimilarUsagesToolbar()
     for (editor in EditorFactory.getInstance().allEditors) {
-      if (editor.project === myProject && editor.getUserData(PREVIEW_EDITOR_FLAG) === this) {
+      if (editor.project === project && editor.getUserData(PREVIEW_EDITOR_FLAG) === this) {
         LOG.error("Editor was not released:$editor")
       }
     }
@@ -383,18 +415,10 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
     }
   }
 
+  @Internal
   companion object {
     const val LINE_HEIGHT_PROPERTY = "UsageViewPanel.lineHeightProperty"
     private val LOG = Logger.getInstance(UsagePreviewPanel::class.java)
-    private fun getSlowData(dataId: String,
-                            project: Project,
-                            file: VirtualFile,
-                            position: LogicalPosition): Any? {
-      return if (CommonDataKeys.NAVIGATABLE_ARRAY.`is`(dataId)) {
-        arrayOf<Navigatable>(OpenFileDescriptor(project, file, position.line, position.column))
-      }
-      else null
-    }
 
     private val IN_PREVIEW_USAGE_FLAG = Key.create<Boolean>("IN_PREVIEW_USAGE_FLAG")
 
@@ -449,10 +473,10 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
           editor.caretModel.moveToOffset(rangeToHighlight.endOffset)
         }
         if (infos.size == 1 && infoRange != null) {
-          var balloonText : String? = null
+          var balloonText: String? = null
           if (findModel != null) {
             val replacementText =
-              FindManager.getInstance(project).getStringToReplace(editor.document.getText(rangeToHighlight), findModel, 
+              FindManager.getInstance(project).getStringToReplace(editor.document.getText(rangeToHighlight), findModel,
                                                                   rangeToHighlight.startOffset, editor.document.text) ?: return
             val previewText = createPreviewHtml(replacementText)
             if (previewText != findModel.stringToReplace || Registry.`is`("ide.find.show.replacement.hint.for.simple.regexp")) {
@@ -534,6 +558,7 @@ open class UsagePreviewPanel @JvmOverloads constructor(project: Project,
     }
 
     val PREVIEW_EDITOR_FLAG = Key.create<UsagePreviewPanel>("PREVIEW_EDITOR_FLAG")
+
     @Contract("null -> !null")
     private fun cannotPreviewMessage(infos: List<UsageInfo>?): @NlsContexts.StatusText String? {
       if (infos == null) {

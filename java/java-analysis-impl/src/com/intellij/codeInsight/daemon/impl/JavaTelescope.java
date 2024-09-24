@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.concurrency.JobLauncher;
@@ -9,7 +9,9 @@ import com.intellij.openapi.options.advanced.AdvancedSettings;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.SearchScope;
@@ -18,6 +20,7 @@ import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -39,7 +42,7 @@ final class JavaTelescope {
     }
   }
 
-  static @Nls UsagesHint usagesHint(@NotNull PsiMember member, @NotNull PsiFile file) {
+  static @Nullable UsagesHint usagesHint(@NotNull PsiMember member, @NotNull PsiFile file) {
     int totalUsageCount = UsagesCountManager.getInstance(member.getProject()).countMemberUsages(file, member);
     if (totalUsageCount == TOO_MANY_USAGES) return null;
     if (totalUsageCount < AdvancedSettings.getInt("code.vision.java.minimal.usages")) return null;
@@ -50,22 +53,44 @@ final class JavaTelescope {
     Project project = file.getProject();
     ProgressIndicator progress = ObjectUtils.notNull(ProgressIndicatorProvider.getGlobalProgressIndicator(), /*todo remove*/new EmptyProgressIndicator());
     AtomicInteger totalUsageCount = new AtomicInteger();
-    JobLauncher.getInstance().invokeConcurrentlyUnderProgress(members, progress, member -> {
-      int count = usagesCount(project, file, member, scope, progress);
-      int newCount = totalUsageCount.updateAndGet(old -> count == TOO_MANY_USAGES ? TOO_MANY_USAGES : old + count);
-      return newCount != TOO_MANY_USAGES;
-    });
+
+    if (Registry.is("java.telescope.usages.single.threaded", true)) {
+      ProgressManager.getInstance().runProcess(() -> {
+        for (PsiMember member : members) {
+          if (!countUsagesForMember(file, scope, member, project, totalUsageCount)) break;
+        }
+      }, progress);
+    } else {
+      JobLauncher.getInstance().invokeConcurrentlyUnderProgress(members, progress, member -> {
+        return countUsagesForMember(file, scope, member, project, totalUsageCount);
+      });
+    }
+
     return totalUsageCount.get();
   }
+
+  /**
+   * Counts usages for the provided {@code member} and returns {@code true} if consecutive members should be processed.
+   */
+  private static boolean countUsagesForMember(@NotNull PsiFile file,
+                                              SearchScope scope,
+                                              PsiMember member,
+                                              Project project,
+                                              AtomicInteger totalUsageCount) {
+    int count = usagesCount(project, file, member, scope);
+    int newCount = totalUsageCount.updateAndGet(old -> count == TOO_MANY_USAGES ? TOO_MANY_USAGES : old + count);
+    if (newCount == TOO_MANY_USAGES) return false;
+    return true;
+  }
+
 
   private static int usagesCount(@NotNull Project project,
                                  @NotNull PsiFile containingFile,
                                  @NotNull final PsiMember member,
-                                 @NotNull SearchScope scope,
-                                 @NotNull ProgressIndicator progress) {
+                                 @NotNull SearchScope scope) {
     SearchScope searchScope = getSearchScope(project, member, scope);
     AtomicInteger count = new AtomicInteger();
-    boolean ok = UnusedSymbolUtil.processUsages(project, containingFile, searchScope, member, progress, null, info -> {
+    boolean ok = UnusedSymbolUtil.processUsages(project, containingFile, searchScope, member, null, info -> {
       PsiFile psiFile = info.getFile();
       if (psiFile == null) {
         return true;

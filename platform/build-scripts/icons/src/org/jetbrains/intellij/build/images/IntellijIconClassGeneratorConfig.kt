@@ -26,6 +26,9 @@ class IntellijIconClassGeneratorConfig : IconClasses() {
         packageName = "com.intellij.lang.css",
         iconDirectory = "icons/css",
       )
+      "intellij.platform.split" -> IntellijIconClassGeneratorModuleConfig(
+        packageName = "com.jetbrains.rd.platform.codeWithMe.icons",
+      )
       "intellij.properties.psi" -> IntellijIconClassGeneratorModuleConfig(
         className = "PropertiesIcons",
         packageName = "com.intellij.lang.properties",
@@ -61,15 +64,9 @@ class IntellijIconClassGeneratorConfig : IconClasses() {
         iconDirectory = "icons/com/jetbrains/pythonCore",
       )
 
-      "intellij.gnuGetText"-> IntellijIconClassGeneratorModuleConfig(
-        className = "LocalizationIcons",
-        packageName = "com.jetbrains.localization.lcons",
-        iconDirectory = "icons/com/jetbrains/localization",
-      )
-
-      "intellij.jupyter.core"-> IntellijIconClassGeneratorModuleConfig(
+      "intellij.notebooks.jupyter.core"-> IntellijIconClassGeneratorModuleConfig(
         className = "JupyterCoreIcons",
-        packageName = "com.intellij.jupyter.core.icons",
+        packageName = "com.intellij.notebooks.jupyter.core.icons",
         iconDirectory = "icons/org.jetbrains.plugins.notebooks.jupyter",
       )
 
@@ -105,8 +102,8 @@ class IntellijIconClassGeneratorConfig : IconClasses() {
                                                                              packageName = "com.jetbrains.bigdatatools.common")
       "intellij.swagger.core" -> IntellijIconClassGeneratorModuleConfig(className = "SwaggerCoreIcons",
                                                                         packageName = "com.intellij.swagger.core")
-      "intellij.ml.llm" -> IntellijIconClassGeneratorModuleConfig(className = "MLLlmIcons", packageName = "com.intellij.ml.llm")
-      "intellij.ml.llm.core" -> IntellijIconClassGeneratorModuleConfig(className = "MLLlmCoreIcons", packageName = "com.intellij.ml.llm.core")
+      "intellij.ml.llm.core" -> IntellijIconClassGeneratorModuleConfig(className = "MLLlmIcons", packageName = "com.intellij.ml.llm.core")
+      "intellij.llmInstaller" -> IntellijIconClassGeneratorModuleConfig(className = "LLMIcons", packageName = "com.intellij.llmInstaller")
 
       "intellij.dts" -> IntellijIconClassGeneratorModuleConfig(className = "DtsIcons", packageName = "com.intellij.dts")
 
@@ -137,6 +134,11 @@ class IntellijIconClassGeneratorConfig : IconClasses() {
         packageName = "com.intellij.jpa.jpb.model"
       )
 
+      "intellij.android.ml-api" -> IntellijIconClassGeneratorModuleConfig(
+        className = "AndroidAIPluginIcons",
+        packageName = "com.android.tools.idea.studiobot.icons",
+        iconDirectory = "icons"
+      )
       else -> super.getConfigForModule(moduleName)
     }
   }

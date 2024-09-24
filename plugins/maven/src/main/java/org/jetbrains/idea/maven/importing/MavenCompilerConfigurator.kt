@@ -92,7 +92,7 @@ class MavenCompilerConfigurator : MavenImporter("org.apache.maven.plugins", "mav
     }
     configureModules(context.project, data, ideCompilerConfiguration, defaultCompilerExtension)
 
-    MavenProjectImporterBase.removeOutdatedCompilerConfigSettings(context.project)
+    MavenProjectImporterUtil.removeOutdatedCompilerConfigSettings(context.project)
   }
 
   override fun preProcess(module: Module,
@@ -247,6 +247,7 @@ class MavenCompilerConfigurator : MavenImporter("org.apache.maven.plugins", "mav
       targetLevel = level.toJavaVersion().toString()
     }
 
+    MavenLog.LOG.debug("Setting bytecode target level $targetLevel in module ${module.name}")
     ideCompilerConfiguration.setBytecodeTargetLevel(module, targetLevel)
   }
 

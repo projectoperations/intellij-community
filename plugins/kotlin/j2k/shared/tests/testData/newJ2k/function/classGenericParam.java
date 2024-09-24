@@ -1,2 +1,2 @@
 //method
-T getT() {}
+T t() {}

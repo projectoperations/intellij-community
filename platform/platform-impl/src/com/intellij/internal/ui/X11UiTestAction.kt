@@ -5,20 +5,33 @@ package com.intellij.internal.ui
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.observable.util.whenDisposed
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.IdeFrameImpl
+import com.intellij.openapi.wm.impl.WindowButtonsConfiguration
 import com.intellij.openapi.wm.impl.X11UiUtil
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.RowLayout
 import com.intellij.ui.dsl.builder.panel
-import com.intellij.util.Alarm
+import com.intellij.ui.dsl.builder.selected
+import com.intellij.util.concurrency.ThreadingAssertions
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.StartupUiUtil
+import kotlinx.coroutines.*
 import java.awt.Frame
 import javax.swing.JComponent
 import javax.swing.JLabel
+import kotlin.reflect.KCallable
+import kotlin.reflect.KFunction0
 import kotlin.reflect.KProperty0
+import kotlin.time.Duration.Companion.milliseconds
 
 internal class X11UiTestAction : DumbAwareAction() {
 
@@ -33,32 +46,55 @@ internal class X11UiTestAction : DumbAwareAction() {
   }
 }
 
-private const val UPDATE_INTERVAL = 500
+private val UPDATE_INTERVAL = 500.milliseconds
 
 private class FullScreenTestDialog(val project: Project?, dialogTitle: String) :
   DialogWrapper(project, null, true, IdeModalityType.MODELESS, false) {
 
-  private val alarm = Alarm(disposable)
-  private lateinit var update: Runnable
   private lateinit var lbIsInFullScreenMode: JLabel
   private lateinit var lbIsMaximizedVert: JLabel
   private lateinit var lbIsMaximizedHorz: JLabel
   private lateinit var lbIdeFrameInFullScreen: JLabel
   private lateinit var lbFrameExtendedState: JLabel
+  private var scope = GlobalScope.childScope("X11UiTestAction")
 
   init {
     title = dialogTitle
+    disposable.whenDisposed { scope.cancel() }
     init()
   }
 
   override fun createCenterPanel(): JComponent {
-    update = Runnable {
-      timerUpdate()
-      alarm.addRequest(update, UPDATE_INTERVAL)
+    scope.launch(Dispatchers.EDT) {
+      while (isActive) {
+        delay(UPDATE_INTERVAL)
+        timerUpdate()
+      }
     }
-    alarm.addRequest(update, UPDATE_INTERVAL)
 
     return panel {
+      group("SystemInfo") {
+        properties(listOf(
+          SystemInfo::isLinux,
+          SystemInfo::isFreeBSD,
+          SystemInfo::isSolaris,
+          SystemInfo::isUnix,
+          SystemInfo::isChromeOS))
+        properties(listOf(
+          SystemInfo::isWayland,
+          SystemInfo::isGNOME,
+          SystemInfo::isKDE,
+          SystemInfo::isXfce,
+          SystemInfo::isI3))
+      }
+
+      group("StartupUiUtil") {
+        properties(listOf(
+          StartupUiUtil::isWaylandToolkit,
+          StartupUiUtil::isXToolkit,
+        ))
+      }
+
       group("X11UiUtil Values") {
         row("isInitialized:") {
           label(X11UiUtil.isInitialized().toString())
@@ -136,11 +172,61 @@ private class FullScreenTestDialog(val project: Project?, dialogTitle: String) :
           label(System.getenv("XDG_CURRENT_DESKTOP") ?: "")
             .comment("Used XDG_CURRENT_DESKTOP env variable")
         }
+        row("Theme:") {
+          val label = label("").component
+          scope.launch {
+            val theme = X11UiUtil.getTheme()
+            withContext(Dispatchers.EDT) {
+              label.text = theme
+            }
+          }
+        }
+        row("Icon theme:") {
+          val label = label("").component
+          scope.launch {
+            val theme = X11UiUtil.getIconTheme()
+            withContext(Dispatchers.EDT) {
+              label.text = theme
+            }
+          }
+        }
+        row("Window buttons layout:") {
+          val state = WindowButtonsConfiguration.getInstance()?.state
+          val text = if (state == null) "Cannot parse" else "rightPosition = ${state.rightPosition}, buttons = ${state.buttons}"
+          val label = label(text)
+            .comment("")
+          scope.launch {
+            val config = X11UiUtil.getWindowButtonsConfig()
+            withContext(Dispatchers.EDT) {
+              label.comment?.text = "Parsed from gsettings value: $config"
+            }
+          }
+          WindowButtonsConfiguration.getInstance()?.state?.let {
+          }
+        }
       }
     }
   }
 
+  private fun Panel.properties(properties: List<KCallable<Boolean>>) {
+    row {
+      for (property in properties) {
+        val value = when (property) {
+          is KProperty0 -> property.get()
+          is KFunction0 -> property.invoke()
+          else -> throw IllegalArgumentException("Unknown property type: $property")
+        }
+        checkBox(property.name)
+          .selected(value)
+          .enabled(false)
+      }
+    }.layout(RowLayout.PARENT_GRID)
+  }
+
+  @RequiresEdt
   private fun timerUpdate() {
+    ThreadingAssertions.assertEventDispatchThread()
+
     val frame = getFrame()
     lbIsInFullScreenMode.text = if (frame == null) "IdeFrame not found" else X11UiUtil.isInFullScreenMode(frame).toString()
     lbIsMaximizedVert.text = if (frame == null) "IdeFrame not found" else X11UiUtil.isMaximizedVert(frame).toString()

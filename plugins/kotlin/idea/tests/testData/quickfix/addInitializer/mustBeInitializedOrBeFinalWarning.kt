@@ -2,7 +2,7 @@
 // ERROR: Val cannot be reassigned
 // COMPILER_ARGUMENTS: -XXLanguage:-ProhibitOpenValDeferredInitialization
 open class Foo {
-    <caret>open val foo: Int
+    open <caret>val foo: Int
         get() = field
 
     init {
@@ -11,4 +11,4 @@ open class Foo {
 }
 
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.InitializePropertyQuickFixFactory$AddInitializerFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.fixes.InitializePropertyQuickFixFactories$addInitializerApplicator$1
+// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.InitializePropertyQuickFixFactories$InitializePropertyModCommandAction

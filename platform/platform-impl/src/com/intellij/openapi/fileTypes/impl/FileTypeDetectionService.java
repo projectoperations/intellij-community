@@ -104,7 +104,7 @@ final class FileTypeDetectionService implements Disposable {
     if (!Objects.equals(prevDetectors, getDetectorListString())) {
       onDetectorListChange();
     }
-    reDetectExecutor = AppJavaExecutorUtil.createSingleTaskApplicationPoolExecutor("FileTypeManager Redetect", coroutineScope);
+    reDetectExecutor = AppJavaExecutorUtil.createBoundedTaskExecutor("FileTypeManager Redetect", coroutineScope);
   }
 
   @Nullable AsyncFileListener.ChangeApplier prepareChange(@NotNull List<? extends @NotNull VFileEvent> events) {
@@ -398,7 +398,7 @@ final class FileTypeDetectionService implements Disposable {
   }
 
   private void awakeReDetectExecutor() {
-    reDetectExecutor.schedule(() -> {
+    reDetectExecutor.execute(() -> {
       List<VirtualFile> files = new ArrayList<>(CHUNK_SIZE);
       synchronized (filesToRedetect) {
         for (int i = 0; i < CHUNK_SIZE; i++) {
@@ -571,8 +571,8 @@ final class FileTypeDetectionService implements Disposable {
         }
 
         if (detected == null && !StringUtil.isEmpty(text)) {
-          FileTypeManagerImpl.FileTypeWithDescriptor ftd = myFileTypeManager.myPatternsTable.findAssociatedFileTypeByHashBang(text);
-          detected = ftd == null ? null : ftd.fileType;
+          FileTypeManagerImpl.FileTypeWithDescriptor ftd = myFileTypeManager.patternsTable.findAssociatedFileTypeByHashBang(text);
+          detected = ftd == null ? null : ftd.fileType();
         }
         if (detected == null) {
           detected = StringUtil.isEmpty(text) ? (bytes.getLength() == 0 ? DetectedByContentFileType.INSTANCE : UnknownFileType.INSTANCE): PlainTextFileType.INSTANCE;

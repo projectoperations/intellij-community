@@ -9,6 +9,7 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.showOkNoDialog
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.psi.createSmartPointer
 import org.jetbrains.kotlin.descriptors.CallableMemberDescriptor
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
@@ -22,6 +23,7 @@ import org.jetbrains.kotlin.idea.base.util.module
 import org.jetbrains.kotlin.idea.caches.resolve.resolveToDescriptorIfAny
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.quickfixes.KotlinQuickFixAction
 import org.jetbrains.kotlin.idea.codeinsight.utils.getExpressionShortText
+import org.jetbrains.kotlin.idea.core.expectActual.ExpectActualGenerationUtils
 import org.jetbrains.kotlin.idea.core.overrideImplement.makeActual
 import org.jetbrains.kotlin.idea.core.overrideImplement.makeNotActual
 import org.jetbrains.kotlin.idea.core.toDescriptor
@@ -32,7 +34,6 @@ import org.jetbrains.kotlin.idea.util.application.isUnitTestMode
 import org.jetbrains.kotlin.idea.util.liftToExpected
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
-import org.jetbrains.kotlin.psi.psiUtil.createSmartPointer
 import org.jetbrains.kotlin.psi.psiUtil.getSuperNames
 import org.jetbrains.kotlin.psi.psiUtil.hasActualModifier
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
@@ -58,7 +59,10 @@ sealed class CreateExpectedFix<D : KtNamedDeclaration>(
         val targetExpectedClass = targetExpectedClassPointer?.element
         val expectedFile = targetExpectedClass?.containingKtFile ?: getOrCreateImplementationFile() ?: return
         val declaration = element ?: return
-        generateExpectOrActualInFile(project, editor, originalFile = file, targetFile = expectedFile, targetClass = targetExpectedClass, declaration, module, generateIt)
+        generateExpectOrActualInFile(
+            project, editor, originalFile = file, targetFile = expectedFile, targetClass = targetExpectedClass,
+            declaration, module, generateIt
+        )
     }
 
     private fun findExistingFileToCreateDeclaration(
@@ -102,9 +106,11 @@ sealed class CreateExpectedFix<D : KtNamedDeclaration>(
                 is KtClassOrObject -> expectedModules.map {
                     CreateExpectedClassFix(actualDeclaration, expectedContainingClass, it)
                 }
+
                 is KtProperty, is KtParameter, is KtFunction -> expectedModules.map {
                     CreateExpectedCallableMemberFix(actualDeclaration as KtCallableDeclaration, expectedContainingClass, it)
                 }
+
                 else -> emptyList()
             }
         }
@@ -164,7 +170,7 @@ class CreateExpectedClassFix(
         repairActualModifiers(originalElements + klass, resultDeclarations.toSet())
     }
 
-    generateClassOrObject(project, true, element, checker)
+    ExpectActualGenerationUtils.generateClassOrObject(project, this@block, true, element, checker)
 })
 
 private fun showUnknownTypeInDeclarationDialog(
@@ -291,7 +297,7 @@ class CreateExpectedCallableMemberFix(
     val descriptor = element.toDescriptor() as? CallableMemberDescriptor
     checker.existingTypeNames = targetExpectedClass?.getSuperNames()?.toSet().orEmpty()
     descriptor?.let {
-        generateCallable(
+        ExpectActualGenerationUtils.generateCallable(
             project,
             true,
             element,

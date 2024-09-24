@@ -7,8 +7,8 @@ import org.jdom.Element
 import org.jdom.Namespace
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.impl.BuildUtils
+import org.jetbrains.intellij.build.impl.SnapshotBuildNumber
 import org.jetbrains.intellij.build.impl.logging.reportBuildProblem
-import org.jetbrains.intellij.build.impl.readSnapshotBuildNumber
 import org.jetbrains.jps.model.JpsProject
 import java.nio.file.Files
 import java.nio.file.Path
@@ -71,8 +71,12 @@ internal class ApplicationInfoPropertiesImpl(
     microVersion = applicationInfoOverrides?.microVersion ?: versionTag.getAttributeValue("micro") ?: "0"
     patchVersion = applicationInfoOverrides?.patchVersion ?: versionTag.getAttributeValue("patch") ?: "0"
     fullVersionFormat = applicationInfoOverrides?.fullVersionFormat ?: versionTag.getAttributeValue("full") ?: "{0}.{1}"
-    isEAP = (applicationInfoOverrides?.eap ?: System.getProperty(BuildOptions.INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_IS_EAP) ?: versionTag.getAttributeValue("eap")).toBoolean()
-    versionSuffix = (applicationInfoOverrides?.versionSuffix ?: System.getProperty(BuildOptions.INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_SUFFIX) ?: versionTag.getAttributeValue("suffix")) ?: (if (isEAP) "EAP" else null)
+    isEAP = (System.getProperty(BuildOptions.INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_IS_EAP)
+             ?: applicationInfoOverrides?.eap
+             ?: versionTag.getAttributeValue("eap")).toBoolean()
+    versionSuffix = (System.getProperty(BuildOptions.INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_SUFFIX)
+                     ?: applicationInfoOverrides?.versionSuffix
+                     ?: versionTag.getAttributeValue("suffix")) ?: (if (isEAP) "EAP" else null)
     minorVersionMainPart = minorVersion.takeWhile { it != '.' }
     val namesTag = root.getChild("names")!!
     shortProductName = namesTag.getAttributeValue("product")!!
@@ -92,9 +96,9 @@ internal class ApplicationInfoPropertiesImpl(
     }
     this.productCode = productCode!!
     this.majorReleaseDate = run {
-      val majorReleaseDate = applicationInfoOverrides?.majorReleaseDate
-                             ?: System.getProperty(BuildOptions.INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_MAJOR_RELEASE_DATE)
-                             ?: buildTag.getAttributeValue("majorReleaseDate")
+      val majorReleaseDate = (System.getProperty(BuildOptions.INTELLIJ_BUILD_OVERRIDE_APPLICATION_VERSION_MAJOR_RELEASE_DATE)
+                             ?: applicationInfoOverrides?.majorReleaseDate
+                             ?: buildTag.getAttributeValue("majorReleaseDate"))?.takeIf { it.isNotEmpty() }
       when {
         isEAP -> {
           val buildDate = Instant.ofEpochSecond(buildOptions.buildDateInSeconds)
@@ -134,7 +138,7 @@ internal class ApplicationInfoPropertiesImpl(
 
 internal fun computeAppInfoXml(context: BuildContext, appInfo: ApplicationInfoProperties): String {
   val appInfoXmlPath = findApplicationInfoInSources(context.project, context.productProperties)
-  val snapshotBuildNumber = readSnapshotBuildNumber(context.paths.communityHomeDirRoot).takeWhile { it != '.' }
+  val snapshotBuildNumber = SnapshotBuildNumber.VALUE.takeWhile { it != '.' }
   check("${appInfo.majorVersion}${appInfo.minorVersion}".removePrefix("20").take(snapshotBuildNumber.count()) == snapshotBuildNumber) {
     "'major=${appInfo.majorVersion}' and 'minor=${appInfo.minorVersion}' attributes of '$appInfoXmlPath' don't match snapshot build number '$snapshotBuildNumber'"
   }
@@ -187,17 +191,6 @@ private fun withAppInfoOverride(originalPatchedAppInfo: String,
   @Suppress("HttpUrlsUsage")
   val namespace = Namespace.getNamespace("http://jetbrains.org/intellij/schema/application-info")
 
-  if (isEapOverride != null || suffixOverride != null) {
-    val version = element.getChildren("version", namespace).singleOrNull()
-                  ?: error("Could not find child element 'version' under root of '$appInfoXmlPath'")
-    isEapOverride?.let { version.setAttribute("eap", it) }
-    suffixOverride?.let { version.setAttribute("suffix", it) }
-  }
-
-  if (appInfoOverride == null) {
-    return JDOMUtil.write(element)
-  }
-
   fun replaceAttribute(element: Element, tag: String, override: String?) {
     if (override != null) {
       element.setAttribute(tag, override)
@@ -207,28 +200,37 @@ private fun withAppInfoOverride(originalPatchedAppInfo: String,
     }
   }
 
-  val names = element.getChildren("names", namespace).singleOrNull()
-              ?: error("Could not find or more than one child element 'names' under root of '$appInfoXmlPath'")
+  if (appInfoOverride != null) {
+    val names = element.getChildren("names", namespace).singleOrNull()
+                ?: error("Could not find or more than one child element 'names' under root of '$appInfoXmlPath'")
 
-  val version = element.getChildren("version", namespace).singleOrNull()
-                ?: error("Could not find or more than one child element 'version' under root of '$appInfoXmlPath'")
+    val version = element.getChildren("version", namespace).singleOrNull()
+                  ?: error("Could not find or more than one child element 'version' under root of '$appInfoXmlPath'")
 
-  val build = element.getChildren("build", namespace).singleOrNull()
-              ?: error("Could not find or more than one child element 'build' under root of '$appInfoXmlPath'")
+    val build = element.getChildren("build", namespace).singleOrNull()
+                ?: error("Could not find or more than one child element 'build' under root of '$appInfoXmlPath'")
 
-  names.setAttribute("fullname", appInfoOverride.fullProductName)
-  replaceAttribute(names, "edition", appInfoOverride.editionName)
-  replaceAttribute(names, "motto", appInfoOverride.motto)
+    names.setAttribute("fullname", appInfoOverride.fullProductName)
+    replaceAttribute(names, "edition", appInfoOverride.editionName)
+    replaceAttribute(names, "motto", appInfoOverride.motto)
 
-  replaceAttribute(version, "eap", appInfoOverride.eap)
-  replaceAttribute(version, "major", appInfoOverride.majorVersion)
-  replaceAttribute(version, "minor", appInfoOverride.minorVersion)
-  replaceAttribute(version, "micro", appInfoOverride.microVersion)
-  replaceAttribute(version, "patch", appInfoOverride.patchVersion)
-  replaceAttribute(version, "full", appInfoOverride.fullVersionFormat)
-  replaceAttribute(version, "suffix", appInfoOverride.versionSuffix)
+    replaceAttribute(version, "eap", appInfoOverride.eap)
+    replaceAttribute(version, "major", appInfoOverride.majorVersion)
+    replaceAttribute(version, "minor", appInfoOverride.minorVersion)
+    replaceAttribute(version, "micro", appInfoOverride.microVersion)
+    replaceAttribute(version, "patch", appInfoOverride.patchVersion)
+    replaceAttribute(version, "full", appInfoOverride.fullVersionFormat)
+    replaceAttribute(version, "suffix", appInfoOverride.versionSuffix)
 
-  replaceAttribute(build, "majorReleaseDate", appInfoOverride.majorReleaseDate)
+    replaceAttribute(build, "majorReleaseDate", appInfoOverride.majorReleaseDate)
+  }
+
+  if (isEapOverride != null || suffixOverride != null) {
+    val version = element.getChildren("version", namespace).singleOrNull()
+                  ?: error("Could not find child element 'version' under root of '$appInfoXmlPath'")
+    replaceAttribute(version, "eap", isEapOverride)
+    replaceAttribute(version, "suffix", suffixOverride)
+  }
 
   return JDOMUtil.write(element)
 }

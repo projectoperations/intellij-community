@@ -6,6 +6,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.ui.components.fields.ExtendableTextField;
+import com.intellij.ui.speedSearch.SpeedSearchSupply;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -19,6 +20,7 @@ import javax.swing.text.DefaultEditorKit;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.im.InputMethodRequests;
 
 /**
  * Due to many bugs and "features" of the default {@link JComboBox} we provide our own "patch".
@@ -39,6 +41,10 @@ public class ComboBox<E> extends ComboBoxWithWidePopup<E> implements AWTEventLis
   }
 
   public static final String TABLE_CELL_EDITOR_PROPERTY = "tableCellEditor";
+
+  public static final String IS_TABLE_CELL_EDITOR_PROPERTY = "JComboBox.isTableCellEditor";
+  public static final String IS_BORDERLESS_PROPERTY = "JComboBox.isBorderless";
+  public static final String IS_EMBEDDED_PROPERTY = "JComboBox.isEmbedded";
 
   private int myMinimumAndPreferredWidth;
   private boolean myUsePreferredSizeAsMinimum = true;
@@ -132,7 +138,7 @@ public class ComboBox<E> extends ComboBoxWithWidePopup<E> implements AWTEventLis
 
   public static void registerTableCellEditor(@NotNull JComboBox<?> comboBox, @NotNull TableCellEditor cellEditor) {
     comboBox.putClientProperty(TABLE_CELL_EDITOR_PROPERTY, cellEditor);
-    comboBox.putClientProperty("JComboBox.isTableCellEditor", Boolean.TRUE);
+    comboBox.putClientProperty(IS_TABLE_CELL_EDITOR_PROPERTY, Boolean.TRUE);
   }
 
   public void registerTableCellEditor(@NotNull TableCellEditor cellEditor) {
@@ -190,7 +196,7 @@ public class ComboBox<E> extends ComboBoxWithWidePopup<E> implements AWTEventLis
     super.addNotify();
 
     if (getParent() instanceof JTable) {
-      putClientProperty("JComboBox.isTableCellEditor", Boolean.TRUE);
+      putClientProperty(IS_TABLE_CELL_EDITOR_PROPERTY, Boolean.TRUE);
     }
 
     Toolkit.getDefaultToolkit().addAWTEventListener(this, AWTEvent.WINDOW_EVENT_MASK);
@@ -372,6 +378,16 @@ public class ComboBox<E> extends ComboBoxWithWidePopup<E> implements AWTEventLis
       if (myDelegate != null) {
         myDelegate.setItem(obj);
       }
+    }
+  }
+
+  @Override
+  public InputMethodRequests getInputMethodRequests() {
+    SpeedSearchSupply supply = SpeedSearchSupply.getSupply(this, true);
+    if (supply == null) {
+      return null;
+    } else {
+      return supply.getInputMethodRequests();
     }
   }
 }

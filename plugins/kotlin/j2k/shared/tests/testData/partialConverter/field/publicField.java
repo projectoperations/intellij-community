@@ -1,3 +1,3 @@
 class C {
-public Foo <caret>f;
+    public String <caret>f;
 }

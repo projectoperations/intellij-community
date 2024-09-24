@@ -893,6 +893,11 @@ public class PythonParsingTest extends ParsingTestCase {
     doTest(LanguageLevel.PYTHON36);
   }
 
+  // PY-64304 EA-247016 
+  public void testVariableAnnotationRecoveryAwaitExpressionAsTarget() {
+    doTest(LanguageLevel.PYTHON36);
+  }
+
   // PY-20770
   public void testAsyncComprehensions() {
     doTest(LanguageLevel.PYTHON36);
@@ -1303,6 +1308,11 @@ public class PythonParsingTest extends ParsingTestCase {
     doTest(LanguageLevel.PYTHON312);
   }
 
+  // PY-71002
+  public void testTypeParameterListInTypeAliasStatementRecoveryNotClosedRightBracketAfterDefault() {
+    doTest(LanguageLevel.PYTHON313);
+  }
+
   public void testTypeParameterListInTypeAliasStatementRecoveryUnexpectedSymbolAfterComma() {
     doTest(LanguageLevel.PYTHON312);
   }
@@ -1319,10 +1329,45 @@ public class PythonParsingTest extends ParsingTestCase {
     doTest(LanguageLevel.PYTHON312);
   }
 
+  // PY-71002
+  public void testTypeVarTypeParameterDefaultInClassDeclaration() {
+    doTest(LanguageLevel.PYTHON313);
+  }
+
+  // PY-71002
+  public void testTypeVarTypeParameterDefaultInTypeAliasStatement() {
+    doTest(LanguageLevel.PYTHON313);
+  }
+
+  // PY-71002
+  public void testParamSpecTypeParameterDefaultInClassDeclaration() {
+    doTest(LanguageLevel.PYTHON313);
+  }
+
+  // PY-71002
+  public void testTypeVarTupleTypeParameterDefaultInClassDeclaration() {
+    doTest(LanguageLevel.PYTHON313);
+  }
+
+  // PY-71002
+  public void testTypeVarTypeParameterWithDefaultAndBoundInClassDeclaration() {
+    doTest(LanguageLevel.PYTHON313);
+  }
+
+  // PY-71002
+  public void testTypeVarTypeParameterDefaultMissingExpression() {
+    doTest(LanguageLevel.PYTHON313);
+  }
+
+  // PY-71002
+  public void testTypeVarTypeParameterWithBoundAndDefaultMissingExpression() {
+    doTest(LanguageLevel.PYTHON313);
+  }
+
   public void testTypeKeywordAsIdentifier() {
     doTest(LanguageLevel.PYTHON312);
   }
-  
+
   public void doTest() {
     doTest(LanguageLevel.PYTHON26);
   }

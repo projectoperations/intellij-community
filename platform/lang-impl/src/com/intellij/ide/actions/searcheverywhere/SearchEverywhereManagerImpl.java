@@ -1,11 +1,13 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions.searcheverywhere;
 
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.ide.actions.BigPopupUI;
 import com.intellij.ide.actions.OpenInRightSplitAction;
+import com.intellij.ide.actions.searcheverywhere.statistics.SearchFieldStatisticsCollector;
 import com.intellij.ide.lightEdit.LightEdit;
 import com.intellij.ide.lightEdit.LightEditCompatible;
+import com.intellij.internal.statistic.utils.StartMoment;
 import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
@@ -41,7 +43,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collector;
 
 import static com.intellij.ide.actions.SearchEverywhereAction.SEARCH_EVERYWHERE_POPUP;
-import static com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector.DIALOG_CLOSED;
+import static com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector.*;
 
 public final class SearchEverywhereManagerImpl implements SearchEverywhereManager {
   public static final String ALL_CONTRIBUTORS_GROUP_ID = "SearchEverywhereContributor.All";
@@ -83,7 +85,7 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
     List<SearchEverywhereContributor<?>> contributors = createContributors(initEvent, project);
     SearchEverywhereContributorValidationRule.updateContributorsMap(contributors);
     SearchEverywhereSpellingCorrector spellingCorrector = SearchEverywhereSpellingCorrector.getInstance(project);
-    mySearchEverywhereUI = createView(myProject, contributors, spellingCorrector);
+    mySearchEverywhereUI = createView(myProject, contributors, spellingCorrector, SearchFieldStatisticsCollector.getStartMoment(initEvent));
     contributors.forEach(c -> Disposer.register(mySearchEverywhereUI, c));
     mySearchEverywhereUI.switchToTab(tabID);
 
@@ -239,9 +241,8 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
     return mySearchEverywhereUI != null && myBalloon != null && !myBalloon.isDisposed();
   }
 
-  @NotNull
   @Override
-  public String getSelectedTabID() {
+  public @NotNull String getSelectedTabID() {
     checkIsShown();
     return mySearchEverywhereUI.getSelectedTabID();
   }
@@ -270,11 +271,12 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
   }
 
   private SearchEverywhereUI createView(Project project, List<SearchEverywhereContributor<?>> contributors,
-                                        @Nullable SearchEverywhereSpellingCorrector spellingCorrector) {
+                                        @Nullable SearchEverywhereSpellingCorrector spellingCorrector,
+                                        @Nullable StartMoment startMoment) {
     if (LightEdit.owns(project)) {
       contributors = ContainerUtil.filter(contributors, (contributor) -> contributor instanceof LightEditCompatible);
     }
-    SearchEverywhereUI view = new SearchEverywhereUI(project, contributors, myTabsShortcutsMap::get, spellingCorrector);
+    SearchEverywhereUI view = new SearchEverywhereUI(project, contributors, myTabsShortcutsMap::get, spellingCorrector, startMoment);
 
     view.setSearchFinishedHandler(() -> {
       if (isShown()) {
@@ -339,8 +341,7 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
     myPrevSelections.put(mySearchEverywhereUI.getSelectedTabID(), mySearchEverywhereUI.getSelectionIdentity());
   }
 
-  @Nullable
-  public Object getPrevSelection(String contributorID) {
+  public @Nullable Object getPrevSelection(String contributorID) {
     return myPrevSelections.remove(contributorID);
   }
 
@@ -389,6 +390,7 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
     addShortcut(res, "ActionSearchEverywhereContributor", "GotoAction");
     addShortcut(res, "DbSETablesContributor", "GotoDatabaseObject");
     addShortcut(res, "TextSearchContributor", "TextSearchAction");
+    addShortcut(res, "UrlSearchEverywhereContributor", "GotoUrlAction");
 
     return res;
   }
@@ -400,7 +402,7 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
 
   private static final class SearchHistoryList {
 
-    private final static int HISTORY_LIMIT = 50;
+    private static final int HISTORY_LIMIT = 50;
 
     private record HistoryItem(String searchText, String contributorID) {
     }
@@ -440,15 +442,14 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
       }
     }
 
-    @NotNull
-    private List<String> filteredHistory(Predicate<? super HistoryItem> predicate) {
+    private @NotNull List<String> filteredHistory(Predicate<? super HistoryItem> predicate) {
       return historyList.stream()
         .filter(predicate)
         .map(item -> item.searchText())
         .collect(distinctCollector);
     }
 
-    private final static Collector<String, List<String>, List<String>> distinctCollector = Collector.of(
+    private static final Collector<String, List<String>, List<String>> distinctCollector = Collector.of(
       () -> new ArrayList<>(),
       (lst, str) -> {
         lst.remove(str);

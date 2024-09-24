@@ -40,13 +40,14 @@ class MavenJDOMUtilTest : MavenTestCase() {
 
   private suspend fun readValue(xml: String, valuePath: String): String? {
     val f = createProjectSubFile("foo.xml", xml)
+    refreshFiles(listOf(f))
 
     val el = MavenJDOMUtil.read(f, object : MavenJDOMUtil.ErrorHandler {
       override fun onReadError(e: IOException?) {
         throw RuntimeException(e)
       }
 
-      override fun onSyntaxError() {
+      override fun onSyntaxError(message: String, startOffset: Int, endOffset: Int) {
         fail("syntax error")
       }
     })

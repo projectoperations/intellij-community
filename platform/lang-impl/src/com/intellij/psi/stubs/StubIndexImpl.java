@@ -39,6 +39,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@ApiStatus.Internal
 public final class StubIndexImpl extends StubIndexEx {
   static final Logger LOG = Logger.getInstance(StubIndexImpl.class);
 
@@ -78,8 +79,8 @@ public final class StubIndexImpl extends StubIndexEx {
   private AsyncState getAsyncState() {
     AsyncState state = myState; // memory barrier
     if (state == null) {
-      if (myStateFuture == null) {
-        ((FileBasedIndexImpl)FileBasedIndex.getInstance()).waitUntilIndicesAreInitialized();
+      if (myStateFuture == null && FileBasedIndex.getInstance() instanceof FileBasedIndexEx index) {
+        index.waitUntilIndicesAreInitialized();
       }
       if (ProgressManager.getInstance().isInNonCancelableSection()) {
         try {

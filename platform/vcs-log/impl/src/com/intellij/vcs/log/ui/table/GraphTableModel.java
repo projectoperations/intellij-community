@@ -10,6 +10,7 @@ import com.intellij.vcs.log.*;
 import com.intellij.vcs.log.data.LoadingDetails;
 import com.intellij.vcs.log.data.RefsModel;
 import com.intellij.vcs.log.data.VcsLogData;
+import com.intellij.vcs.log.graph.RowInfo;
 import com.intellij.vcs.log.impl.VcsLogUiProperties;
 import com.intellij.vcs.log.ui.table.column.VcsLogColumn;
 import com.intellij.vcs.log.ui.table.column.VcsLogColumnManager;
@@ -19,6 +20,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.table.AbstractTableModel;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -107,7 +109,11 @@ public final class GraphTableModel extends AbstractTableModel implements VcsLogC
 
   @Override
   public int getId(int row) {
-    return myVisiblePack.getVisibleGraph().getRowInfo(row).getCommit();
+    return getRowInfo(row).getCommit();
+  }
+
+  public @NotNull RowInfo<Integer> getRowInfo(int row) {
+    return myVisiblePack.getVisibleGraph().getRowInfo(row);
   }
 
   public @Nullable VirtualFile getRootAtRow(int row) {
@@ -115,7 +121,15 @@ public final class GraphTableModel extends AbstractTableModel implements VcsLogC
   }
 
   public @NotNull List<VcsRef> getRefsAtRow(int row) {
-    return ((RefsModel)myVisiblePack.getRefs()).refsToCommit(getId(row));
+    if (myVisiblePack.getRefs() instanceof RefsModel refsModel) {
+      VirtualFile root = myVisiblePack.getRoot(row);
+      int id = getId(row);
+      if (root != null) {
+        return refsModel.refsToCommit(root, id);
+      }
+      return refsModel.refsToCommit(id);
+    }
+    return Collections.emptyList();
   }
 
   public @NotNull List<VcsRef> getBranchesAtRow(int row) {

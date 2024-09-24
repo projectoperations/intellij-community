@@ -15,6 +15,7 @@ import com.intellij.ui.scale.ScaleType
 import com.intellij.ui.scale.isHiDPIEnabledAndApplicable
 import com.intellij.util.JBHiDPIScaledImage
 import com.intellij.util.concurrency.Semaphore
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.ScheduledForRemoval
 import org.jetbrains.annotations.TestOnly
@@ -55,22 +56,6 @@ object StartupUiUtil {
   @ScheduledForRemoval
   fun isUnderIntelliJLaF(): Boolean {
     return !isDarkTheme
-  }
-
-  @JvmStatic
-  @Deprecated("Starts from NewUI default mac theme lost meaning. If you want to something based on theme please check current theme id.",
-              ReplaceWith("false"))
-  @ScheduledForRemoval
-  fun isUnderDefaultMacTheme(): Boolean {
-    return false
-  }
-
-  @JvmStatic
-  @Deprecated("Starts from NewUI default win10 theme lost meaning. If you want to something based on theme please check current theme id.",
-              ReplaceWith("false"))
-  @ScheduledForRemoval
-  fun isUnderWin10LookAndFeel(): Boolean {
-    return false
   }
 
   @JvmStatic
@@ -178,8 +163,15 @@ object StartupUiUtil {
   @JvmStatic
   fun isDialogFont(font: Font): Boolean = Font.DIALOG == font.getFamily(Locale.US)
 
+  @Deprecated("Use lambda-friendly overload instead", ReplaceWith("addAwtListener(mask, parent, listener)"))
   @JvmStatic
   fun addAwtListener(listener: AWTEventListener, mask: Long, parent: Disposable) {
+    Toolkit.getDefaultToolkit().addAWTEventListener(listener, mask)
+    Disposer.register(parent) { Toolkit.getDefaultToolkit().removeAWTEventListener(listener) }
+  }
+
+  @JvmStatic
+  fun addAwtListener(mask: Long, parent: Disposable, listener: AWTEventListener) {
     Toolkit.getDefaultToolkit().addAWTEventListener(listener, mask)
     Disposer.register(parent) { Toolkit.getDefaultToolkit().removeAWTEventListener(listener) }
   }
@@ -195,6 +187,13 @@ object StartupUiUtil {
     return SystemInfoRt.isUnix
            && !SystemInfoRt.isMac
            &&  "sun.awt.X11.XToolkit" == Toolkit.getDefaultToolkit().javaClass.name
+  }
+
+  @ApiStatus.Internal
+  @JvmStatic
+  fun isLWCToolkit(): Boolean {
+    return SystemInfoRt.isMac
+           && "sun.lwawt.macosx.LWCToolkit" == Toolkit.getDefaultToolkit().javaClass.name
   }
 
   /**

@@ -21,6 +21,9 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.Processor;
 import com.intellij.util.SystemProperties;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.ApiStatus.Internal;
+import org.jetbrains.annotations.ApiStatus.NonExtendable;
+import org.jetbrains.annotations.ApiStatus.OverrideOnly;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,7 +33,13 @@ import java.util.*;
  * @see FileBasedIndexExtension
  * @author dmitrylomov
  */
+@NonExtendable
 public abstract class FileBasedIndex {
+  /**
+   * Don't wrap this method in one [smart] read action because on large projects it will either cause a freeze
+   * without a proper indicator or ProgressManager.checkCanceled() or will be constantly interrupted by write action and restarted.
+   * Consider using it without a read action if you don't require a consistent snapshot.
+   */
   public abstract void iterateIndexableFiles(@NotNull ContentIterator processor, @NotNull Project project, @Nullable ProgressIndicator indicator);
 
   /**
@@ -43,9 +52,11 @@ public abstract class FileBasedIndex {
    * @return the file which the current thread is writing evaluated values of indexes right now,
    * or {@code null} if current thread isn't writing index values.
    */
+  @Internal
   @Nullable
   public abstract IndexWritingFile getFileWritingCurrentlyIndexes();
 
+  @Internal
   public static class IndexWritingFile {
     public final int fileId;
 
@@ -54,12 +65,12 @@ public abstract class FileBasedIndex {
     }
   }
 
-  @ApiStatus.Internal
+  @Internal
   public void registerProjectFileSets(@NotNull Project project) {
     throw new UnsupportedOperationException();
   }
 
-  @ApiStatus.Internal
+  @Internal
   public void onProjectClosing(@NotNull Project project) {
     throw new UnsupportedOperationException();
   }
@@ -67,13 +78,13 @@ public abstract class FileBasedIndex {
   /**
    * Should be called only in dumb mode and only in a read action
    */
-  @ApiStatus.Internal
+  @Internal
   @Nullable
   public DumbModeAccessType getCurrentDumbModeAccessType() {
     throw new UnsupportedOperationException();
   }
 
-  @ApiStatus.Internal
+  @Internal
   public <T> @NotNull Processor<? super T> inheritCurrentDumbAccessType(@NotNull Processor<? super T> processor) {
     return processor;
   }
@@ -130,11 +141,11 @@ public abstract class FileBasedIndex {
    * @return {@code false} if ValueProcessor.process() returned {@code false}; {@code true} otherwise or if ValueProcessor was not called at all
    */
   public <K, V> boolean processValues(@NotNull ID<K, V> indexId,
-                                               @NotNull K dataKey,
-                                               @Nullable VirtualFile inFile,
-                                               @NotNull ValueProcessor<? super V> processor,
-                                               @NotNull GlobalSearchScope filter,
-                                               @Nullable IdFilter idFilter) {
+                                      @NotNull K dataKey,
+                                      @Nullable VirtualFile inFile,
+                                      @NotNull ValueProcessor<? super V> processor,
+                                      @NotNull GlobalSearchScope filter,
+                                      @Nullable IdFilter idFilter) {
     return processValues(indexId, dataKey, inFile, processor, filter);
   }
 
@@ -178,7 +189,7 @@ public abstract class FileBasedIndex {
    * DO NOT CALL DIRECTLY IN CLIENT CODE
    * The method is internal to indexing engine end is called internally. The method is public due to implementation details
    */
-  @ApiStatus.Internal
+  @Internal
   public abstract <K> void ensureUpToDate(@NotNull ID<K, ?> indexId, @Nullable Project project, @Nullable GlobalSearchScope filter);
 
   /**
@@ -204,7 +215,7 @@ public abstract class FileBasedIndex {
   /**
    * Executes command and allow its to have an index access in dumb mode.
    * Inside the command it's safe to call index related stuff and
-   * {@link com.intellij.openapi.project.IndexNotReadyException} are not expected to be happen here.
+   * {@link com.intellij.openapi.project.IndexNotReadyException} is not expected to happen here.
    *
    * <p> Please use {@link DumbModeAccessType#ignoreDumbMode(Runnable)} or {@link DumbModeAccessType#ignoreDumbMode(ThrowableComputable)}
    * since they produce less boilerplate code.
@@ -282,7 +293,7 @@ public abstract class FileBasedIndex {
   }
 
   @ApiStatus.Experimental
-  public static class AllKeysQuery<K, V> {
+  public static final class AllKeysQuery<K, V> {
     @NotNull
     private final ID<K, V> indexId;
     @NotNull
@@ -348,6 +359,7 @@ public abstract class FileBasedIndex {
    * And the only use case is to optimize indexed file count when the corresponding indexer is relatively slow.
    */
   @ApiStatus.Experimental
+  @OverrideOnly
   public interface ProjectSpecificInputFilter extends InputFilter {
     @Override
     default boolean acceptInput(@NotNull VirtualFile file) {
@@ -361,35 +373,39 @@ public abstract class FileBasedIndex {
   /**
    * @see DefaultFileTypeSpecificInputFilter
    */
+  @OverrideOnly
   public interface FileTypeSpecificInputFilter extends InputFilter {
     void registerFileTypesUsedForIndexing(@NotNull Consumer<? super FileType> fileTypeSink);
   }
 
-  @ApiStatus.Internal
+  @Internal
   public static final boolean ourSnapshotMappingsEnabled = SystemProperties.getBooleanProperty("idea.index.snapshot.mappings.enabled", false);
 
-  @ApiStatus.Internal
+  /**
+   * @deprecated Is always true
+   */
+  @Deprecated(forRemoval = true)
+  @Internal
   public static boolean isIndexAccessDuringDumbModeEnabled() {
-    return !ourDisableIndexAccessDuringDumbMode;
+    return true;
   }
-  private static final boolean ourDisableIndexAccessDuringDumbMode = Boolean.getBoolean("idea.disable.index.access.during.dumb.mode");
 
-  @ApiStatus.Internal
+  @Internal
   public static final boolean USE_IN_MEMORY_INDEX = Boolean.getBoolean("idea.use.in.memory.file.based.index");
 
-  @ApiStatus.Internal
+  @Internal
   public static final boolean IGNORE_PLAIN_TEXT_FILES = Boolean.getBoolean("idea.ignore.plain.text.indexing");
 
-  @ApiStatus.Internal
+  @Internal
   public static boolean isCompositeIndexer(@NotNull DataIndexer<?, ?, ?> indexer) {
     return indexer instanceof CompositeDataIndexer && !USE_IN_MEMORY_INDEX;
   }
 
-  @ApiStatus.Internal
+  @Internal
   public void loadIndexes() {
   }
 
-  @ApiStatus.Internal
+  @Internal
   public static class RebuildRequestedByUserAction extends Throwable {
     private final @Nullable PluginId myRequestorPluginId;
 

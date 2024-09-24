@@ -22,10 +22,11 @@ import org.jetbrains.annotations.Nullable;
  * Project generation settings selected on the first page of the new project dialog.
  *
  * @author catherine
+ * @deprecated Use {@link com.jetbrains.python.newProjectWizard}
  */
+@Deprecated
 public class PyNewProjectSettings {
   private Sdk mySdk;
-  private boolean myInstallFramework;
   /**
    * Path on remote server for remote project
    */
@@ -42,14 +43,6 @@ public class PyNewProjectSettings {
 
   public final void setSdk(@Nullable final Sdk sdk) {
     mySdk = sdk;
-  }
-
-  public void setInstallFramework(final boolean installFramework) {
-    myInstallFramework = installFramework;
-  }
-
-  public boolean installFramework() {
-    return myInstallFramework;
   }
 
   public final void setRemotePath(@Nullable final String remotePath) {

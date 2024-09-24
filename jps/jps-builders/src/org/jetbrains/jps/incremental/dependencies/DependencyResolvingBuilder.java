@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.incremental.dependencies;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -17,6 +17,7 @@ import com.intellij.util.containers.FileCollectionFactory;
 import com.intellij.util.containers.SmartHashSet;
 import org.eclipse.aether.repository.RemoteRepository;
 import org.eclipse.aether.transfer.TransferCancelledException;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -72,6 +73,7 @@ import java.util.zip.ZipFile;
  * so this builder does nothing in normal cases. However, it's needed when the build process is started in standalone mode (not from IDE) or
  * if build is triggered before IDE downloads all required dependencies.
  */
+@ApiStatus.Internal
 public final class DependencyResolvingBuilder extends ModuleLevelBuilder {
   private static final Logger LOG = Logger.getInstance(DependencyResolvingBuilder.class);
   private static final String MAVEN_REPOSITORY_PATH_VAR = "MAVEN_REPOSITORY";
@@ -674,6 +676,7 @@ public final class DependencyResolvingBuilder extends ModuleLevelBuilder {
     return result;
   }
 
+  @ApiStatus.Internal
   public static synchronized ArtifactRepositoryManager getRepositoryManager(final CompileContext context) {
     try {
       return getRepositoryManager(context, null);

@@ -5,8 +5,6 @@ package com.jetbrains.jsonSchema.impl;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intellij.json.JsonBundle;
-import com.intellij.notification.NotificationGroup;
-import com.intellij.notification.NotificationGroupManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NlsContexts.DialogMessage;
@@ -40,12 +38,15 @@ import java.util.stream.Collectors;
 
 import static com.jetbrains.jsonSchema.impl.light.SchemaKeywordsKt.*;
 
+/**
+ * @deprecated This class will be removed in the future. The main purpose of it is to read json schema file, that can currently be achieved
+ * via `com.jetbrains.jsonSchema.impl.light.nodes.JsonSchemaObjectStorage#getOrComputeSchemaRootObject` call. Other utility methods will stay as is,
+ * because they have different semantics.
+ */
 @Deprecated
 public final class JsonSchemaReader {
   private static final int MAX_SCHEMA_LENGTH = FileUtilRt.LARGE_FOR_CONTENT_LOADING;
   private static final ObjectMapper jsonObjectMapper = new ObjectMapper(new JsonFactory());
-  public static final Logger LOG = Logger.getInstance(JsonSchemaReader.class);
-  public static final NotificationGroup ERRORS_NOTIFICATION = NotificationGroupManager.getInstance().getNotificationGroup("JSON Schema");
 
   private final Map<String, JsonSchemaObjectImpl> myIds = new HashMap<>();
   private final ArrayDeque<Pair<JsonSchemaObjectImpl, JsonValueAdapter>> myQueue;
@@ -90,7 +91,7 @@ public final class JsonSchemaReader {
     }
     catch (Exception e) {
       final String message = JsonBundle.message("schema.reader.file.not.found.or.error", fileName, e.getMessage());
-      LOG.info(message);
+      Logger.getInstance(JsonSchemaReader.class).info(message);
       return message;
     }
     return null;
@@ -103,10 +104,13 @@ public final class JsonSchemaReader {
     return schemaObject;
   }
 
+  public static @Nullable JsonSchemaObject getOrComputeSchemaObjectForSchemaFile(@NotNull VirtualFile schemaFile, @NotNull Project project) {
+    return JsonSchemaObjectStorage.getInstance(project).getOrComputeSchemaRootObject(schemaFile);
+  }
+
   public @Nullable JsonSchemaObject read(@NotNull PsiFile file) {
     if (Registry.is("json.schema.object.v2")) {
-      return JsonSchemaObjectStorage.getInstance(file.getProject())
-        .getOrComputeSchemaRootObject(file.getOriginalFile().getVirtualFile());
+      return getOrComputeSchemaObjectForSchemaFile(file.getOriginalFile().getVirtualFile(), file.getProject());
     }
 
     JsonLikePsiWalker walker = JsonLikePsiWalker.getWalker(file, JsonSchemaObjectReadingUtils.NULL_OBJ);
@@ -189,6 +193,8 @@ public final class JsonSchemaReader {
                     (element, object, queue, virtualFile) -> readInjectionMetadata(element, object));
     READERS_MAP.put(X_INTELLIJ_ENUM_METADATA,
                     (element, object, queue, virtualFile) -> readEnumMetadata(element, object));
+    READERS_MAP.put(X_INTELLIJ_METADATA,
+                    (element, object, queue, virtualFile) -> readCustomMetadata(element, object));
     READERS_MAP.put(X_INTELLIJ_CASE_INSENSITIVE, (element, object, queue, virtualFile) -> {
       if (element.isBooleanLiteral()) object.setForceCaseInsensitive(getBoolean(element));
     });
@@ -253,6 +259,29 @@ public final class JsonSchemaReader {
     READERS_MAP.put("else", createFromObject("else", (object, schema) -> object.setElse(schema)));
     READERS_MAP.put("instanceof", ((element, object, queue, virtualFile) -> object.setShouldValidateAgainstJSType(true)));
     READERS_MAP.put("typeof", ((element, object, queue, virtualFile) -> object.setShouldValidateAgainstJSType(true)));
+  }
+
+  private static void readCustomMetadata(JsonValueAdapter element, JsonSchemaObjectImpl object) {
+    if (!(element instanceof JsonObjectValueAdapter)) return;
+    List<JsonSchemaMetadataEntry> filters = new ArrayList<>();
+    for (JsonPropertyAdapter adapter : ((JsonObjectValueAdapter)element).getPropertyList()) {
+      String name = adapter.getName();
+      if (name == null) continue;
+      Collection<JsonValueAdapter> values = adapter.getValues();
+      if (values.size() != 1) continue;
+      JsonValueAdapter valueAdapter = values.iterator().next();
+      if (valueAdapter.isStringLiteral()) {
+        filters.add(new JsonSchemaMetadataEntry(name, Collections.singletonList(getString(valueAdapter))));
+      }
+      else if (valueAdapter.isArray()) {
+        filters.add(new JsonSchemaMetadataEntry(name,
+                                                Objects.requireNonNull(valueAdapter.getAsArray()).getElements().stream()
+          .filter(v -> v.isStringLiteral())
+          .map(v -> getString(v))
+          .toList()));
+      }
+    }
+    object.setMetadata(filters);
   }
 
   private static void readEnumMetadata(JsonValueAdapter element, JsonSchemaObjectImpl object) {

@@ -10,7 +10,6 @@ import com.intellij.codeInsight.lookup.Lookup;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.codeWithMe.ClientId;
-import com.intellij.icons.AllIcons;
 import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.actions.BaseNavigateToSourceAction;
@@ -50,6 +49,7 @@ import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.FileStatusManager;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.psi.*;
@@ -79,11 +79,13 @@ import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
-import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.*;
 import org.jetbrains.concurrency.CancellablePromise;
 import org.jetbrains.concurrency.Promises;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Element;
+import org.jsoup.nodes.TextNode;
 
 import javax.swing.*;
 import java.awt.*;
@@ -103,7 +105,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Pattern;
 
 import static com.intellij.lang.documentation.DocumentationMarkup.*;
 
@@ -195,9 +196,8 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     return true;
   }
 
-  @NotNull
   @Override
-  protected AnAction createRestorePopupAction() {
+  protected @NotNull AnAction createRestorePopupAction() {
     myRestorePopupAction = super.createRestorePopupAction();
     return myRestorePopupAction;
   }
@@ -467,34 +467,6 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     showJavaDocInfo(element, original, null);
   }
 
-  /**
-   * Asks to show quick doc for the target element.
-   *
-   * @param editor             editor with an element for which quick do should be shown
-   * @param element            target element which documentation should be shown
-   * @param original           element that was used as a quick doc anchor. Example: consider a code like {@code Runnable task;}.
-   *                           A user wants to see javadoc for the {@code Runnable}, so, original element is a class name from the variable
-   *                           declaration but {@code 'element'} argument is a {@code Runnable} descriptor
-   * @param closeCallback      callback to be notified on target hint close (if any)
-   * @param documentation      precalculated documentation
-   * @param closeOnSneeze      flag that defines whether quick doc control should be as non-obtrusive as possible. E.g. there are at least
-   *                           two possible situations - the quick doc is shown automatically on mouse over element; the quick doc is shown
-   *                           on explicit action call (Ctrl+Q). We want to close the doc on, say, editor viewport position change
-   *                           at the first situation but don't want to do that at the second
-   * @param useStoredPopupSize whether popup size previously set by user (via mouse-dragging) should be used, or default one should be used
-   */
-  public void showJavaDocInfo(@NotNull Editor editor,
-                              @NotNull PsiElement element,
-                              @NotNull PsiElement original,
-                              @Nullable Runnable closeCallback,
-                              @Nullable @Nls String documentation,
-                              boolean closeOnSneeze,
-                              boolean useStoredPopupSize) {
-    myEditor = editor;
-    myCloseOnSneeze = closeOnSneeze;
-    showJavaDocInfo(element, original, false, closeCallback, documentation, useStoredPopupSize);
-  }
-
   public void showJavaDocInfo(@NotNull PsiElement element,
                               PsiElement original,
                               @Nullable Runnable closeCallback) {
@@ -512,15 +484,6 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
                               PsiElement original,
                               boolean requestFocus,
                               @Nullable Runnable closeCallback) {
-    showJavaDocInfo(element, original, requestFocus, closeCallback, null, true);
-  }
-
-  public void showJavaDocInfo(@NotNull Editor editor,
-                              @NotNull PsiElement element,
-                              PsiElement original,
-                              boolean requestFocus,
-                              @Nullable Runnable closeCallback) {
-    myEditor = editor;
     showJavaDocInfo(element, original, requestFocus, closeCallback, null, true);
   }
 
@@ -934,13 +897,11 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     return Pair.create(element, originalElement);
   }
 
-  @Nullable
-  public PsiElement findTargetElement(@NotNull Editor editor, @Nullable PsiFile file, PsiElement contextElement) {
+  public @Nullable PsiElement findTargetElement(@NotNull Editor editor, @Nullable PsiFile file, PsiElement contextElement) {
     return findTargetElement(editor, editor.getCaretModel().getOffset(), file, contextElement);
   }
 
-  @Nullable
-  public PsiElement findTargetElement(Editor editor, int offset, @Nullable PsiFile file, PsiElement contextElement) {
+  public @Nullable PsiElement findTargetElement(Editor editor, int offset, @Nullable PsiFile file, PsiElement contextElement) {
     try {
       return findTargetElementUnsafe(editor, offset, file, contextElement);
     }
@@ -953,8 +914,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
   /**
    * in case index is not ready will throw IndexNotReadyException
    */
-  @Nullable
-  private PsiElement findTargetElementUnsafe(Editor editor, int offset, @Nullable PsiFile file, PsiElement contextElement) {
+  private @Nullable PsiElement findTargetElementUnsafe(Editor editor, int offset, @Nullable PsiFile file, PsiElement contextElement) {
     if (LookupManager.getInstance(myProject).getActiveLookup() != null) {
       return assertSameProject(getElementFromLookup(editor, file));
     }
@@ -1039,8 +999,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     element.putUserData(IS_FROM_LOOKUP, value ? true : null);
   }
 
-  @Nullable
-  public PsiElement getElementFromLookup(Editor editor, @Nullable PsiFile file) {
+  public @Nullable PsiElement getElementFromLookup(Editor editor, @Nullable PsiFile file) {
     Lookup activeLookup = LookupManager.getInstance(myProject).getActiveLookup();
 
     if (activeLookup != null) {
@@ -1083,8 +1042,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     return new MyCollector(myProject, element, originalElement, null, onHover, false).getDocumentation();
   }
 
-  @Nullable
-  public JBPopup getDocInfoHint() {
+  public @Nullable JBPopup getDocInfoHint() {
     if (myDocInfoHintRef == null) return null;
     JBPopup hint = myDocInfoHintRef.get();
     if (hint == null || !hint.isVisible() && !ApplicationManager.getApplication().isUnitTestMode()) {
@@ -1234,13 +1192,11 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     return callback;
   }
 
-  @NotNull
-  public static DocumentationProvider getProviderFromElement(PsiElement element) {
+  public static @NotNull DocumentationProvider getProviderFromElement(PsiElement element) {
     return getProviderFromElement(element, null);
   }
 
-  @NotNull
-  public static DocumentationProvider getProviderFromElement(@Nullable PsiElement element, @Nullable PsiElement originalElement) {
+  public static @NotNull DocumentationProvider getProviderFromElement(@Nullable PsiElement element, @Nullable PsiElement originalElement) {
     if (element != null && !element.isValid()) {
       element = null;
     }
@@ -1287,8 +1243,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     return CompositeDocumentationProvider.wrapProviders(result);
   }
 
-  @Nullable
-  public static PsiElement getOriginalElement(PsiElement element) {
+  public static @Nullable PsiElement getOriginalElement(PsiElement element) {
     SmartPsiElementPointer<?> originalElementPointer = element != null ? element.getUserData(ORIGINAL_ELEMENT_KEY) : null;
     return originalElementPointer != null ? originalElementPointer.getElement() : null;
   }
@@ -1497,7 +1452,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
   }
 
   public static void createHyperlink(StringBuilder buffer, String refText, String label, boolean plainLink) {
-    DocumentationManagerUtil.createHyperlink(buffer, refText, label, plainLink, false);
+    DocumentationManagerUtil.createHyperlink(buffer, refText, label, plainLink);
   }
 
   @Override
@@ -1589,8 +1544,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     return myEditor;
   }
 
-  @NotNull
-  private ActionCallback createActionCallback() {
+  private @NotNull ActionCallback createActionCallback() {
     ActionCallback callback = new ActionCallback();
     myLastAction = callback;
     return callback;
@@ -1646,8 +1600,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
       this.onAutoUpdate = onAutoUpdate;
     }
 
-    @Nullable
-    public PsiElement getElement(boolean wait) {
+    public @Nullable PsiElement getElement(boolean wait) {
       try {
         return wait ? myElementFuture.get() : myElementFuture.getNow(null);
       }
@@ -1657,8 +1610,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
       }
     }
 
-    @Nullable
-    abstract @Nls String getDocumentation() throws Exception;
+    abstract @Nullable @Nls String getDocumentation() throws Exception;
   }
 
   private static final class MyCollector extends DocumentationCollector {
@@ -1699,8 +1651,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     }
 
     @Override
-    @Nullable
-    public @Nls String getDocumentation() {
+    public @Nullable @Nls String getDocumentation() {
       PsiElement element = getElement(true);
       if (element == null) {
         return null;
@@ -1734,15 +1685,14 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
       return ReadAction.nonBlocking(() -> doGetDocumentation(element)).executeSynchronously();
     }
 
-    @Nullable
-    private @Nls String doGetDocumentation(@NotNull PsiElement element) {
+    private @Nullable @Nls String doGetDocumentation(@NotNull PsiElement element) {
       if (!element.isValid()) return null;
       SmartPsiElementPointer<?> originalPointer = element.getUserData(ORIGINAL_ELEMENT_KEY);
       PsiElement originalPsi = originalPointer != null ? originalPointer.getElement() : null;
       @Nls String doc = onHover ? provider.generateHoverDoc(element, originalPsi)
                                 : provider.generateDoc(element, originalPsi);
-      if (element instanceof PsiFile) {
-        @Nls String fileDoc = generateFileDoc((PsiFile)element, doc == null);
+      if (element instanceof PsiFileSystemItem) {
+        @Nls String fileDoc = generateFileDoc((PsiFileSystemItem)element, doc == null);
         if (fileDoc != null) {
           return doc == null ? fileDoc : doc + fileDoc;
         }
@@ -1752,8 +1702,22 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
   }
 
   @Internal
-  public static @Nls @Nullable String generateFileDoc(@NotNull PsiFile psiFile, boolean withUrl) {
-    VirtualFile file = PsiUtilCore.getVirtualFile(psiFile);
+  public static @Nls @Nullable String generateFileDoc(@NotNull PsiFileSystemItem psiFile, boolean withUrl) {
+    VirtualFile fileOrArchiveRoot = PsiUtilCore.getVirtualFile(psiFile);
+    VirtualFile file;
+    if (psiFile instanceof PsiDirectory) {
+      if (fileOrArchiveRoot != null && fileOrArchiveRoot.getFileSystem() instanceof ArchiveFileSystem fileSystem
+          && fileOrArchiveRoot.equals(fileSystem.getRootByEntry(fileOrArchiveRoot))) {
+        file = fileSystem.getLocalByEntry(fileOrArchiveRoot);
+      }
+      else {
+        //we don't show meaningful information for real directories
+        return null;
+      }
+    }
+    else {
+      file = fileOrArchiveRoot;
+    }
     File ioFile = file == null || !file.isInLocalFileSystem() ? null : VfsUtilCore.virtualToIoFile(file);
     BasicFileAttributes attr = null;
     try {
@@ -1767,7 +1731,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
     @Nls String languageName = type.isBinary() ? "" : psiFile.getLanguage().getDisplayName();
     var content = List.of(
       getVcsStatus(psiFile.getProject(), file),
-      getScope(psiFile.getProject(), file),
+      getScope(psiFile.getProject(), fileOrArchiveRoot),
       HtmlChunk.p().children(
         GRAYED_ELEMENT.addText(CodeInsightBundle.message("documentation.file.size.label")),
         HtmlChunk.nbsp(),
@@ -1906,23 +1870,9 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
                                      @Nullable String downloadDocumentationActionLink) {
     text = StringUtil.replaceIgnoreCase(text, "</html>", "");
     text = StringUtil.replaceIgnoreCase(text, "</body>", "");
-    text = replaceIgnoreQuotesType(text, SECTIONS_START + SECTIONS_END, "");
-    text = replaceIgnoreQuotesType(text, SECTIONS_START + "<p>" + SECTIONS_END, ""); //NON-NLS
 
-    int definitionPos = indexOfIgnoreQuotesType(text, "class='" + CLASS_DEFINITION + "'");
-    int contentPos = indexOfIgnoreQuotesType(text, "class='" + CLASS_CONTENT + "'");
-    int sectionsPos = indexOfIgnoreQuotesType(text, "class='" + CLASS_SECTIONS + "'");
-    int bottomPos = indexOfIgnoreQuotesType(
-      text.substring(StreamEx.of(definitionPos, contentPos, sectionsPos).filter(it -> it >= 0).max(Integer::compareTo).orElse(0)),
-      "class='" + CLASS_BOTTOM);
-
-    boolean hasDefinition = definitionPos >= 0;
-    boolean hasContent = contentPos >= 0;
-    boolean hasSections = sectionsPos >= 0;
-    boolean hasDownloadsSection = downloadDocumentationActionLink != null;
-    boolean hasBottom = bottomPos >= 0 || location != null || links != null;
-
-    if (!hasContent && !hasDefinition && !hasSections) {
+    var document = Jsoup.parse(text);
+    if (document.select("." + CLASS_DEFINITION + ", ." + CLASS_CONTENT + ", ." + CLASS_SECTIONS).isEmpty()) {
       int bodyStart = findContentStart(text);
       if (bodyStart > 0) {
         text = text.substring(0, bodyStart) +
@@ -1933,85 +1883,53 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
       else {
         text = CONTENT_START + text + CONTENT_END;
       }
-      hasContent = true;
-    }
-    else if (hasContent) {
-      // Ensure content starts with <p> for proper padding
-      int nextChar = text.indexOf(">", contentPos) + 1;
-      if (nextChar > 0) {
-        while (nextChar < text.length() && Character.isWhitespace(text.charAt(nextChar))) {
-          nextChar++;
-        }
-        //noinspection HardCodedStringLiteral
-        if (!text.startsWith("<p", nextChar) && !text.startsWith("<div", nextChar)) {
-          //noinspection HardCodedStringLiteral
-          text = text.substring(0, nextChar) + "<p>" + text.substring(nextChar);
-        }
-      }
+      // reparse the document
+      document = Jsoup.parse(text);
     }
 
-    if (hasDefinition && (hasContent || hasSections || hasDownloadsSection || hasBottom)) {
-      text = replaceIgnoreQuotesType(text, "class='" + CLASS_DEFINITION + "'",
-                                     "class='" + CLASS_DEFINITION_SEPARATED + "'");
-    }
+    DocumentationHtmlUtil.removeEmptySections$intellij_platform_lang_impl(document);
 
     if (downloadDocumentationActionLink != null) {
-      text += HtmlChunk.div()
-        .children(
-          HtmlChunk.icon("AllIcons.Plugins.Downloads", AllIcons.Plugins.Downloads),
-          HtmlChunk.nbsp(),
-          HtmlChunk.link(downloadDocumentationActionLink, CodeInsightBundle.message("documentation.download.button.label"))
-        )
-        .setClass(CLASS_DOWNLOAD_DOCUMENTATION);
+      document.body().appendChild(
+        new Element("div")
+          .addClass(CLASS_DOWNLOAD_DOCUMENTATION)
+          .appendChildren(Arrays.asList(
+            new Element("icon").attr("src", "AllIcons.Plugins.Downloads"),
+            new TextNode(" "),
+            new Element("a").attr("href", downloadDocumentationActionLink)
+              .text(CodeInsightBundle.message("documentation.download.button.label"))
+          )));
     }
     if (location != null) {
-      text += getBottom().child(location);
+      document.body().append(getBottom().child(location).toString());
     }
     if (links != null) {
-      text += getBottom().child(links);
+      document.body().append(getBottom().child(links).toString());
     }
-    //workaround for Swing html renderer not removing empty paragraphs before non-inline tags
-    text = PARAGRAPH_BEFORE_NON_INLINE_TAG_PATTERN.matcher(text).replaceAll("$1");
-    text = addExternalLinksIcon(text);
-    //convert <blockquote><pre> and <pre><code> into code blocks
-    text = BLOCKQUOTE_PRE_CODE_OPEN_PATTERN.matcher(text).replaceAll(QuickDocHighlightingHelper.CODE_BLOCK_PREFIX);
-    text = BLOCKQUOTE_PRE_CODE_CLOSE_PATTERN.matcher(text).replaceAll(QuickDocHighlightingHelper.CODE_BLOCK_SUFFIX);
-    text = DocumentationHtmlUtil.addWordBreaks(text);
-    return text;
-  }
 
-  private static final Pattern PARAGRAPH_BEFORE_NON_INLINE_TAG_PATTERN = Pattern.compile("<p>\\s*(<(?:[uo]l|h\\d|p|tr|td))");
-  private static final Pattern BLOCKQUOTE_PRE_CODE_OPEN_PATTERN =
-    Pattern.compile("<blockquote>[\\s\\n\\r]*<pre>|<pre><code>", Pattern.MULTILINE);
-  private static final Pattern BLOCKQUOTE_PRE_CODE_CLOSE_PATTERN =
-    Pattern.compile("</pre>[\\s\\n\\r]*</blockquote>|</code></pre>", Pattern.MULTILINE);
-
-  private static int indexOfIgnoreQuotesType(@NotNull String text, @NotNull String substring) {
-    return StreamEx.of(
-        text.indexOf(substring),
-        text.indexOf(substring.replace("\"", "'")),
-        text.indexOf(substring.replace("'", "\""))
-      ).filter(it -> it >= 0)
-      .min(Integer::compareTo)
-      .orElse(-1);
-  }
-
-  private static @NlsSafe @NotNull String replaceIgnoreQuotesType(@NotNull String text,
-                                                                  @NotNull String oldString,
-                                                                  @NotNull String newString) {
-    String replaced;
-    if (!text.contains(oldString)) {
-      if (oldString.contains("\"")) {
-        replaced = oldString.replace("\"", "'");
+    document.select("." + CLASS_DEFINITION + ", ." + CLASS_CONTENT + ", ." + CLASS_SECTIONS).forEach(
+      div -> {
+        var nextSibling = div.nextElementSibling();
+        if (nextSibling == null) {
+          return;
+        }
+        if (nextSibling.hasClass(CLASS_DEFINITION)
+            || (nextSibling.hasClass(CLASS_CONTENT) && !div.hasClass(CLASS_SECTIONS))
+            || (div.hasClass(CLASS_DEFINITION)
+                && (
+                  nextSibling.hasClass(CLASS_SECTIONS)
+                  || nextSibling.hasClass(CLASS_BOTTOM)
+                  || nextSibling.hasClass(CLASS_DOWNLOAD_DOCUMENTATION)
+                ))) {
+          div.after(new Element("hr"));
+        }
       }
-      else {
-        replaced = oldString.replace("'", "\"");
-      }
-    }
-    else {
-      replaced = oldString;
-    }
-    return StringUtil.replaceIgnoreCase(text, replaced, newString);
+    );
+    DocumentationHtmlUtil.addParagraphsIfNeeded$intellij_platform_lang_impl(
+      document, "." + CLASS_CONTENT + ", table." + CLASS_SECTIONS + " td[valign=top]");
+    DocumentationHtmlUtil.addExternalLinkIcons$intellij_platform_lang_impl(document);
+    document.outputSettings().prettyPrint(false);
+    return document.html();
   }
 
   @RequiresReadLock
@@ -2124,13 +2042,5 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
 
   private static @NotNull HtmlChunk.Element getBottom() {
     return HtmlChunk.div().setClass(CLASS_BOTTOM);
-  }
-
-  private static final Pattern EXTERNAL_LINK_PATTERN = Pattern.compile("(<a\\s*href=[\"']http[^>]*>)([^>]*)(</a>)");
-  private static final @NlsSafe String EXTERNAL_LINK_REPLACEMENT = "$1$2<icon src='AllIcons.Ide.External_link_arrow'>$3";
-
-  @Contract(pure = true)
-  public static String addExternalLinksIcon(String text) {
-    return EXTERNAL_LINK_PATTERN.matcher(text).replaceAll(EXTERNAL_LINK_REPLACEMENT);
   }
 }

@@ -7,10 +7,12 @@ import com.intellij.ide.impl.ProjectUtilCore
 import com.intellij.internal.statistic.eventLog.getUiEventLogger
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.MnemonicHelper
+import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.CommonShortcuts
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.*
 import com.intellij.openapi.components.service
+import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.help.HelpManager
 import com.intellij.openapi.progress.blockingContext
@@ -116,6 +118,7 @@ class WelcomeFrame : JFrame(), IdeFrame, AccessibleContextAccessor, DisposableWi
                 return
               }
             }
+            frame.dispose()
             ApplicationManager.getApplication().exit()
           }
           else {
@@ -153,6 +156,11 @@ class WelcomeFrame : JFrame(), IdeFrame, AccessibleContextAccessor, DisposableWi
     internal fun prepareToShow(): (() -> Unit)? {
       if (instance != null) {
         return null
+      }
+
+      // ActionManager is used on Welcome Frame, but should be initialized in a pooled thread and not in EDT.
+      service<CoreUiCoroutineScopeHolder>().coroutineScope.launch {
+        serviceAsync<ActionManager>()
       }
 
       return task@{
@@ -194,8 +202,8 @@ class WelcomeFrame : JFrame(), IdeFrame, AccessibleContextAccessor, DisposableWi
 
       val show = prepareToShow() ?: return
       service<CoreUiCoroutineScopeHolder>().coroutineScope.launch(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
+        val windowManager = serviceAsync<WindowManager>() as? WindowManagerImpl ?: return@launch
         blockingContext {
-          val windowManager = WindowManager.getInstance() as WindowManagerImpl
           windowManager.disposeRootFrame()
           if (windowManager.projectFrameHelpers.isEmpty()) {
             show()

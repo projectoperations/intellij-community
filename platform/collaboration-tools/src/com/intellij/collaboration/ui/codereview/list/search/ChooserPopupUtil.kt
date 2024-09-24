@@ -7,10 +7,7 @@ import com.intellij.collaboration.ui.codereview.details.SelectableWrapper
 import com.intellij.collaboration.ui.codereview.list.error.ErrorStatusPresenter
 import com.intellij.collaboration.ui.util.name
 import com.intellij.collaboration.ui.util.popup.*
-import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.openapi.ui.popup.JBPopupListener
-import com.intellij.openapi.ui.popup.LightweightWindowEvent
-import com.intellij.openapi.ui.popup.PopupChooserBuilder
+import com.intellij.openapi.ui.popup.*
 import com.intellij.openapi.ui.popup.util.PopupUtil
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.platform.util.coroutines.childScope
@@ -24,34 +21,51 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import org.jetbrains.annotations.ApiStatus
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JList
+import javax.swing.JScrollPane
 import javax.swing.ListCellRenderer
 import javax.swing.ListSelectionModel
 
 object ChooserPopupUtil {
 
   @JvmOverloads
-  suspend fun <T> showChooserPopup(point: RelativePoint,
-                                   items: List<T>,
-                                   presenter: (T) -> PopupItemPresentation,
-                                   popupConfig: PopupConfig = PopupConfig.DEFAULT): T? =
-    showChooserPopup(point, items, { presenter(it).shortText }, SimplePopupItemRenderer.create(presenter), popupConfig)
+  suspend fun <T> showChooserPopup(
+    point: RelativePoint,
+    items: List<T>,
+    presenter: (T) -> PopupItemPresentation,
+    popupConfig: PopupConfig = PopupConfig.DEFAULT,
+  ): T? =
+    showChooserPopup(
+      point = point,
+      items = items,
+      filteringMapper = { presenter(it).shortText },
+      renderer = SimplePopupItemRenderer.create(presenter),
+      popupConfig = popupConfig,
+    )
 
   @JvmOverloads
-  suspend fun <T> showChooserPopup(point: RelativePoint,
-                                   items: List<T>,
-                                   filteringMapper: (T) -> String,
-                                   renderer: ListCellRenderer<T>,
-                                   popupConfig: PopupConfig = PopupConfig.DEFAULT): T? {
+  suspend fun <T> showChooserPopup(
+    point: RelativePoint,
+    items: List<T>,
+    filteringMapper: (T) -> String,
+    renderer: ListCellRenderer<T>,
+    popupConfig: PopupConfig = PopupConfig.DEFAULT,
+  ): T? {
     val listModel = CollectionListModel(items)
     val list = createList(listModel, renderer)
 
     @Suppress("UNCHECKED_CAST")
-    val popup = JBPopupFactory.getInstance().createListPopupBuilder(list)
-      .setFilteringEnabled { filteringMapper(it as T) }
-      .configure(popupConfig)
+    val popup = PopupChooserBuilder(list)
+      .apply {
+        setFilteringEnabled { filteringMapper(it as T) }
+        configure(popupConfig)
+      }
       .createPopup()
 
     CollaborationToolsPopupUtil.configureSearchField(popup, popupConfig)
@@ -60,25 +74,37 @@ object ChooserPopupUtil {
     return popup.showAndAwaitSubmission(list, point, popupConfig.showDirection)
   }
 
-  @JvmOverloads
-  suspend fun <T : Any> showAsyncChooserPopup(point: RelativePoint,
-                                              itemsLoader: Flow<Result<List<T>>>,
-                                              presenter: (T) -> PopupItemPresentation,
-                                              popupConfig: PopupConfig = PopupConfig.DEFAULT): T? =
-    showAsyncChooserPopup(point, itemsLoader, { presenter(it).shortText }, SimplePopupItemRenderer.create(presenter), popupConfig)
+  // Async choosers:
 
   @JvmOverloads
-  suspend fun <T : Any> showAsyncChooserPopup(point: RelativePoint,
-                                              itemsLoader: Flow<Result<List<T>>>,
-                                              filteringMapper: (T) -> String,
-                                              renderer: ListCellRenderer<T>,
-                                              popupConfig: PopupConfig = PopupConfig.DEFAULT): T? = coroutineScope {
+  suspend fun <T : Any> showAsyncChooserPopup(
+    point: RelativePoint,
+    itemsLoader: Flow<Result<List<T>>>,
+    presenter: (T) -> PopupItemPresentation,
+    popupConfig: PopupConfig = PopupConfig.DEFAULT,
+  ): T? =
+    showAsyncChooserPopup(
+      point = point,
+      itemsLoader = itemsLoader,
+      filteringMapper = { presenter(it).shortText },
+      renderer = SimplePopupItemRenderer.create(presenter),
+      popupConfig = popupConfig,
+    )
+
+  @JvmOverloads
+  suspend fun <T : Any> showAsyncChooserPopup(
+    point: RelativePoint,
+    itemsLoader: Flow<Result<List<T>>>,
+    filteringMapper: (T) -> String,
+    renderer: ListCellRenderer<T>,
+    popupConfig: PopupConfig = PopupConfig.DEFAULT,
+  ): T? = coroutineScope {
     val listModel = CollectionListModel<T>()
     val list = createList(listModel, renderer)
     val loadingListener = ListLoadingListener(this, itemsLoader, list, listModel, popupConfig.errorPresenter)
 
     @Suppress("UNCHECKED_CAST")
-    val popup = JBPopupFactory.getInstance().createListPopupBuilder(list)
+    val popup = PopupChooserBuilder(list)
       .setFilteringEnabled { filteringMapper(it as T) }
       .addListener(loadingListener)
       .configure(popupConfig)
@@ -91,19 +117,55 @@ object ChooserPopupUtil {
   }
 
   @JvmOverloads
+  suspend fun <T : Any> showAsyncChooserPopup(
+    point: RelativePoint,
+    presenter: (T) -> PopupItemPresentation,
+    popupConfig: PopupConfig = PopupConfig.DEFAULT,
+    renderer: ListCellRenderer<T> = SimplePopupItemRenderer.create(presenter),
+    configure: CoroutineScope.(JBPopup, JBList<T>, CollectionListModel<T>, JScrollPane) -> Unit,
+  ): T? = coroutineScope {
+    val listModel = CollectionListModel<T>()
+    val list = createList(listModel, renderer)
+    fun filteringMapper(item: T) = presenter(item).shortText
+
+    @Suppress("UNCHECKED_CAST")
+    val popupBuilder = PopupChooserBuilder(list)
+      .setFilteringEnabled { filteringMapper(it as T) }
+      .configure(popupConfig)
+    val popup = popupBuilder.createPopup()
+
+    configure(popup, list, listModel, popupBuilder.scrollPane)
+
+    CollaborationToolsPopupUtil.configureSearchField(popup, popupConfig)
+
+    PopupUtil.setPopupToggleComponent(popup, point.component)
+    popup.showAndAwaitSubmission(list, point, popupConfig.showDirection)
+  }
+
+  // Multiple options:
+
+  @ApiStatus.Internal
+  @JvmOverloads
   suspend fun <T : Any> showAsyncMultipleChooserPopup(
     point: RelativePoint,
-    itemsLoader: Flow<Result<List<T>>>,
+    loadedBatchesFlow: Flow<Result<List<T>>>,
     presenter: (T) -> PopupItemPresentation,
     isOriginallySelected: (T) -> Boolean,
-    popupConfig: PopupConfig = PopupConfig.DEFAULT
+    popupConfig: PopupConfig = PopupConfig.DEFAULT,
   ): List<T> = coroutineScope {
     val listModel = CollectionListModel<SelectableWrapper<T>>()
     val list = createSelectableList(listModel, SimpleSelectablePopupItemRenderer.create { item ->
       SelectablePopupItemPresentation.fromPresenter(presenter, item)
     })
-    val loadingListener = SelectableListLoadingListener(
-      this, itemsLoader, list, listModel, isOriginallySelected, popupConfig.errorPresenter
+    val selectableBatchesFlow = loadedBatchesFlow.map { result ->
+      result.map { list ->
+        list.map {
+          SelectableWrapper(it, isOriginallySelected(it))
+        }
+      }
+    }
+    val loadingListener = ListLoadingListener(
+      this, selectableBatchesFlow, list, listModel, popupConfig.errorPresenter
     )
 
     @Suppress("UNCHECKED_CAST")
@@ -132,7 +194,7 @@ object ChooserPopupUtil {
 
   private fun <T> createSelectableList(
     listModel: CollectionListModel<SelectableWrapper<T>>,
-    renderer: ListCellRenderer<SelectableWrapper<T>>
+    renderer: ListCellRenderer<SelectableWrapper<T>>,
   ): JBList<SelectableWrapper<T>> = JBList(listModel).apply {
     visibleRowCount = 7
     selectionMode = ListSelectionModel.SINGLE_SELECTION
@@ -142,6 +204,13 @@ object ChooserPopupUtil {
       override fun mouseReleased(e: MouseEvent) {
         if (UIUtil.isActionClick(e, MouseEvent.MOUSE_RELEASED) && !UIUtil.isSelectionButtonDown(e) && !e.isConsumed)
           toggleSelection()
+      }
+    })
+    addKeyListener(object : KeyAdapter() {
+      override fun keyPressed(e: KeyEvent?) {
+        if (e != null && e.keyCode == KeyEvent.VK_ENTER) {
+          toggleSelection()
+        }
       }
     })
   }
@@ -174,7 +243,7 @@ data class PopupConfig(
   val isMovable: Boolean = true,
   val isResizable: Boolean = true,
   val showDirection: ShowDirection = ShowDirection.BELOW,
-  val errorPresenter: ErrorStatusPresenter.Text<Throwable>? = null
+  val errorPresenter: ErrorStatusPresenter.Text<Throwable>? = null,
 ) {
   companion object {
     val DEFAULT = PopupConfig()
@@ -186,45 +255,39 @@ enum class ShowDirection {
   BELOW
 }
 
-private abstract class AbstractListLoadingListener<T>(
+private class ListLoadingListener<T>(
   private val parentScope: CoroutineScope,
   private val itemsFlow: Flow<Result<List<T>>>,
-  private val list: JBList<*>,
+  private val list: JBList<T>,
+  private val listModel: CollectionListModel<T>,
+  private val errorPresenter: ErrorStatusPresenter.Text<Throwable>?,
 ) : JBPopupListener {
   private var cs: CoroutineScope? = null
-
-  abstract fun onSuccess(items: List<T>)
-  abstract fun onFailure(exception: Throwable)
 
   override fun beforeShown(event: LightweightWindowEvent) {
     val cs = parentScope.childScope()
     this.cs = cs
 
     cs.launchNow {
-      itemsFlow.collect { resultedItems ->
-        list.emptyText.clear()
-        resultedItems.fold(
-          onSuccess = { items -> onSuccess(items) },
-          onFailure = { exception -> onFailure(exception) }
-        )
+      list.setPaintBusy(true)
+      list.emptyText.clear()
+      try {
+        itemsFlow.collect { resultedItems ->
+          resultedItems.fold(
+            onSuccess = { items -> onSuccess(items) },
+            onFailure = { exception ->
+              showErrorOnPopupFailure(exception, errorPresenter, list)
+            }
+          )
+        }
+      }
+      finally {
+        list.setPaintBusy(false)
       }
     }
   }
 
-  override fun onClosed(event: LightweightWindowEvent) {
-    cs?.cancel()
-    cs = null
-  }
-}
-
-private class ListLoadingListener<T : Any>(
-  private val parentScope: CoroutineScope,
-  private val itemsFlow: Flow<Result<List<T>>>,
-  private val list: JBList<*>,
-  private val listModel: CollectionListModel<T>,
-  private val errorPresenter: ErrorStatusPresenter.Text<Throwable>?
-) : AbstractListLoadingListener<T>(parentScope, itemsFlow, list) {
-  override fun onSuccess(items: List<T>) {
+  private fun onSuccess(items: List<T>) {
     val selected = list.selectedIndex
     if (items.size > listModel.size) {
       val newList = items.subList(listModel.size, items.size)
@@ -235,30 +298,9 @@ private class ListLoadingListener<T : Any>(
     }
   }
 
-  override fun onFailure(exception: Throwable) {
-    showErrorOnPopupFailure(exception, errorPresenter, list)
-  }
-}
-
-private class SelectableListLoadingListener<T : Any>(
-  private val parentScope: CoroutineScope,
-  private val itemsFlow: Flow<Result<List<T>>>,
-  private val list: JBList<*>,
-  private val listModel: CollectionListModel<SelectableWrapper<T>>,
-  private val isOriginallySelected: (T) -> Boolean,
-  private val errorPresenter: ErrorStatusPresenter.Text<Throwable>?
-) : AbstractListLoadingListener<T>(parentScope, itemsFlow, list) {
-  override fun onSuccess(items: List<T>) {
-    val newList = items.map { item -> SelectableWrapper(item, isOriginallySelected(item)) }
-    listModel.replaceAll(newList)
-
-    if (list.selectedIndex == -1) {
-      list.selectedIndex = 0
-    }
-  }
-
-  override fun onFailure(exception: Throwable) {
-    showErrorOnPopupFailure(exception, errorPresenter, list)
+  override fun onClosed(event: LightweightWindowEvent) {
+    cs?.cancel()
+    cs = null
   }
 }
 

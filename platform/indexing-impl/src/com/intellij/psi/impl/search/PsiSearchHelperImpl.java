@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.search;
 
 import com.intellij.concurrency.AsyncFuture;
@@ -6,6 +6,8 @@ import com.intellij.concurrency.AsyncUtil;
 import com.intellij.concurrency.JobLauncher;
 import com.intellij.concurrency.SensitiveProgressWrapper;
 import com.intellij.find.ngrams.TrigramIndex;
+import com.intellij.notebook.editor.BackFileViewProvider;
+import com.intellij.notebook.editor.BackedVirtualFile;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationListener;
 import com.intellij.openapi.application.ApplicationManager;
@@ -17,7 +19,6 @@ import com.intellij.openapi.application.ex.ApplicationUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.progress.*;
-import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.openapi.progress.util.ProgressWrapper;
 import com.intellij.openapi.progress.util.TooManyUsagesStatus;
 import com.intellij.openapi.project.DumbService;
@@ -29,6 +30,7 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.TrigramBuilder;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.platform.indexing.BinaryFileSourceProvider;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.psi.impl.cache.CacheManager;
@@ -44,6 +46,7 @@ import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.DumbModeAccessType;
 import com.intellij.util.indexing.FileBasedIndex;
+import com.intellij.util.indexing.FileBasedIndex.AllKeysQuery;
 import com.intellij.util.indexing.IndexingBundle;
 import com.intellij.util.text.StringSearcher;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -303,6 +306,13 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
                                                          @NotNull GlobalSearchScope scope,
                                                          @Nullable PsiFile fileToIgnoreOccurrencesIn,
                                                          @Nullable ProgressIndicator progress) {
+    return isCheapEnoughToSearch(name, scope, fileToIgnoreOccurrencesIn);
+  }
+
+  @Override
+  public @NotNull SearchCostResult isCheapEnoughToSearch(@NotNull String name,
+                                                         @NotNull GlobalSearchScope scope,
+                                                         @Nullable PsiFile fileToIgnoreOccurrencesIn) {
     if (!ReadAction.compute(() -> scope.getUnloadedModulesBelongingToScope().isEmpty())) {
       return SearchCostResult.TOO_MANY_OCCURRENCES;
     }
@@ -321,7 +331,20 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
         ProgressManager.checkCanceled();
         if (Comparing.equal(file, virtualFileToIgnoreOccurrencesIn)) return true;
         int currentFilesCount = filesCount.incrementAndGet();
-        long accumulatedFileSizeToProcess = filesSizeToProcess.addAndGet(file.isDirectory() ? 0 : file.getLength());
+
+        //noinspection deprecation
+        VirtualFile frontFile = file.getUserData(BackFileViewProvider.FRONT_FILE_KEY);
+        file = frontFile != null ? frontFile : file;
+
+        assert file != null;
+        long fileLength = file.isDirectory() ? 0 : file.getLength();
+        //Backed files can have different front file and back file size.
+        // For instance, notebook can be 1mb but there jsut 2 short lines inside where we will search.
+        //noinspection deprecation
+        Float ratio = file.getCopyableUserData(BackFileViewProvider.FRONT_FILE_SIZE_RATIO_KEY);
+        long estimatedLength = ratio != null ? Math.round(fileLength * ratio) : fileLength;
+
+        long accumulatedFileSizeToProcess = filesSizeToProcess.addAndGet(estimatedLength);
         return currentFilesCount < maxFilesToProcess && accumulatedFileSizeToProcess < maxFilesSizeToProcess;
       }
     };
@@ -348,7 +371,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     try {
       progress.setText(IndexingBundle.message("psi.scanning.files.progress"));
 
-      Processor<PsiElement> localProcessor = localProcessor(searcher, processor);
+      Processor<CandidateFileInfo> localProcessor = localProcessor(searcher, processor);
 
       // Lists of files to search in this order.
       // First, there are lists with higher probability of hits (e.g., files with `containerName` or files near the target)
@@ -427,6 +450,9 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
   }
 
   /**
+   * NOTE: candidateFile and file might be actually two different files (e.g., we may find a class file in java, but the PsiFile
+   * will be from the mirror source class)
+   *
    * @param files to scan for references in this pass.
    * @param totalSize the number of files to scan in both passes. Can be different from {@code files.size()} in case of
    *                  two-pass scan, where we first scan files containing container name and then all the rest files.
@@ -437,7 +463,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
                                       int totalSize,
                                       int alreadyProcessedFiles,
                                       @NotNull ProgressIndicator progress,
-                                      @NotNull Processor<? super PsiFile> localProcessor) {
+                                      @NotNull Processor<CandidateFileInfo> localProcessor) {
     return myManager.runInBatchFilesMode(() -> {
       AtomicInteger counter = new AtomicInteger(alreadyProcessedFiles);
       AtomicBoolean stopped = new AtomicBoolean(false);
@@ -466,6 +492,15 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     });
   }
 
+  /**
+   * NOTE: candidateFile and file might be actually two different files (e.g. we may find class file in java, but the PsiFile
+   * will be from mirror source class)
+   */
+  record CandidateFileInfo(
+    VirtualFile candidateFile,
+    PsiFile file
+  ) { }
+
   // Tries to run {@code localProcessor} for each file in {@code files} concurrently on ForkJoinPool.
   // When encounters write action request, stops all threads, waits for write action to finish and re-starts all threads again,
   // trying to finish the unprocessed files (i.e. those for which {@code localProcessor} hasn't been called yet).
@@ -476,9 +511,10 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
                                                                      @NotNull AtomicBoolean stopped,
                                                                      @NotNull Processor<? super VirtualFile> localProcessor) {
     ApplicationEx app = (ApplicationEx)ApplicationManager.getApplication();
-    if (!app.isDispatchThread()) {
-      CoreProgressManager.assertUnderProgress(progress);
-    }
+    // doesn't work with coroutine based progress
+    // if (!app.isDispatchThread()) {
+    //  CoreProgressManager.assertUnderProgress(progress);
+    //}
     List<VirtualFile> processedFiles = Collections.synchronizedList(new ArrayList<>(files.size()));
     while (true) {
       ProgressManager.checkCanceled();
@@ -568,7 +604,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
 
   private void processVirtualFile(@NotNull VirtualFile vfile,
                                   @NotNull AtomicBoolean stopped,
-                                  @NotNull Processor<? super PsiFile> localProcessor) throws ApplicationUtil.CannotRunReadActionException {
+                                  @NotNull Processor<CandidateFileInfo> localProcessor) throws ApplicationUtil.CannotRunReadActionException {
     // try to pre-cache virtual file content outside read action to avoid stalling EDT
     if (!vfile.isDirectory() && !vfile.getFileType().isBinary()) {
       try {
@@ -579,6 +615,20 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     }
     if (!ApplicationManagerEx.getApplicationEx().tryRunReadAction(() -> {
       PsiFile file = vfile.isValid() ? myManager.findFile(vfile) : null;
+
+      //noinspection deprecation
+      if (file != null && file.getViewProvider() instanceof BackFileViewProvider) {
+        //noinspection deprecation
+        file = ((BackFileViewProvider)file.getViewProvider()).getFrontPsiFile();
+      }
+
+      if (file instanceof PsiBinaryFile binaryFile) {
+        PsiFile originalFile = findOriginalFile(binaryFile);
+        if (originalFile != null) {
+          file = originalFile;
+        }
+      }
+
       if (file != null && !(file instanceof PsiBinaryFile)) {
         Project project = myManager.getProject();
         if (project.isDisposed()) throw new ProcessCanceledException();
@@ -598,7 +648,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
             continue;
           }
 
-          if (!localProcessor.process(psiRoot)) {
+          if (!localProcessor.process(new CandidateFileInfo(vfile, psiRoot))) {
             stopped.set(true);
             break;
           }
@@ -607,6 +657,16 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     })) {
       throw ApplicationUtil.CannotRunReadActionException.create();
     }
+  }
+
+  @Nullable
+  private static PsiFile findOriginalFile(@NotNull PsiBinaryFile file) {
+    List<BinaryFileSourceProvider> providers = BinaryFileSourceProvider.EP.getExtensionList();
+    for (BinaryFileSourceProvider provider : providers) {
+      PsiFile originalFile = provider.findSourceFile(file);
+      if (originalFile != null) return originalFile;
+    }
+    return null;
   }
 
   private void getFilesWithText(@NotNull GlobalSearchScope scope,
@@ -764,7 +824,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
       Map<TextIndexQuery, Collection<RequestWithProcessor>> globals = new HashMap<>();
       List<Computable<Boolean>> customs = new ArrayList<>();
       Set<RequestWithProcessor> locals = new LinkedHashSet<>();
-      Map<RequestWithProcessor, Processor<? super PsiElement>> localProcessors = new HashMap<>();
+      Map<RequestWithProcessor, Processor<CandidateFileInfo>> localProcessors = new HashMap<>();
       distributePrimitives(collectors, locals, globals, customs, localProcessors);
       if (!processGlobalRequestsOptimized(globals, progress, localProcessors)) {
         return false;
@@ -805,10 +865,11 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     CHANGED,
   }
 
-  static @NotNull Processor<PsiElement> localProcessor(@NotNull StringSearcher searcher, @NotNull BulkOccurrenceProcessor processor) {
+  static @NotNull Processor<CandidateFileInfo> localProcessor(@NotNull StringSearcher searcher, @NotNull BulkOccurrenceProcessor processor) {
     return new ReadActionProcessor<>() {
       @Override
-      public boolean processInReadAction(PsiElement scopeElement) {
+      public boolean processInReadAction(CandidateFileInfo candidateFileInfo) {
+        PsiElement scopeElement = candidateFileInfo.file();
         if (scopeElement instanceof PsiCompiledElement) {
           // can't scan text of the element
           return true;
@@ -827,7 +888,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
 
   private boolean processGlobalRequestsOptimized(@NotNull Map<TextIndexQuery, Collection<RequestWithProcessor>> singles,
                                                  @NotNull ProgressIndicator progress,
-                                                 @NotNull Map<RequestWithProcessor, Processor<? super PsiElement>> localProcessors) {
+                                                 @NotNull Map<RequestWithProcessor, Processor<CandidateFileInfo>> localProcessors) {
     if (singles.isEmpty()) {
       return true;
     }
@@ -845,7 +906,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
 
   <T extends WordRequestInfo> boolean processGlobalRequests(@NotNull Map<TextIndexQuery, Collection<T>> singles,
                                                             @NotNull ProgressIndicator progress,
-                                                            @NotNull Map<T, Processor<? super PsiElement>> localProcessors) {
+                                                            @NotNull Map<T, Processor<CandidateFileInfo>> localProcessors) {
     progress.pushState();
     progress.setText(IndexingBundle.message("psi.scanning.files.progress"));
     boolean result;
@@ -897,19 +958,22 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     return result;
   }
 
-  private <T> boolean processCandidates(@NotNull Map<T, Processor<? super PsiElement>> localProcessors,
+  private <T> boolean processCandidates(@NotNull Map<T, Processor<CandidateFileInfo>> localProcessors,
                                         @NotNull Map<VirtualFile, Collection<T>> candidateFiles,
                                         @NotNull ProgressIndicator progress,
                                         int totalSize,
                                         int alreadyProcessedFiles) {
     List<VirtualFile> files = new ArrayList<>(candidateFiles.keySet());
 
-    return processPsiFileRoots(files, totalSize, alreadyProcessedFiles, progress, psiRoot -> {
-      VirtualFile vfile = psiRoot.getVirtualFile();
+    return processPsiFileRoots(files, totalSize, alreadyProcessedFiles, progress, candidateInfo -> {
+      VirtualFile vfile = candidateInfo.candidateFile();
+      if (vfile instanceof BackedVirtualFile) {
+        vfile = ((BackedVirtualFile)vfile).getOriginFile();
+      }
       for (T singleRequest : candidateFiles.get(vfile)) {
         ProgressManager.checkCanceled();
-        Processor<? super PsiElement> localProcessor = localProcessors.get(singleRequest);
-        if (!localProcessor.process(psiRoot)) {
+        Processor<CandidateFileInfo> localProcessor = localProcessors.get(singleRequest);
+        if (!localProcessor.process(candidateInfo)) {
           return false;
         }
       }
@@ -1026,9 +1090,6 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
       @Override
       public boolean execute(@NotNull PsiElement scope, int @NotNull [] offsetsInScope, @NotNull StringSearcher searcher) {
         ProgressManager.checkCanceled();
-        if (wrapped instanceof RequestResultProcessor.BulkResultProcessor) {
-          return ((RequestResultProcessor.BulkResultProcessor)wrapped).processTextOccurrences(scope, offsetsInScope, consumer);
-        }
 
         return LowLevelSearchUtil.processElementsAtOffsets(scope, searcher, !ignoreInjectedPsi,
                                                            getOrCreateIndicator(), offsetsInScope,
@@ -1058,7 +1119,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
                                            @NotNull Set<RequestWithProcessor> locals,
                                            @NotNull Map<TextIndexQuery, Collection<RequestWithProcessor>> globals,
                                            @NotNull List<? super Computable<Boolean>> customs,
-                                           @NotNull Map<RequestWithProcessor, Processor<? super PsiElement>> localProcessors) {
+                                           @NotNull Map<RequestWithProcessor, Processor<CandidateFileInfo>> localProcessors) {
     for (Map.Entry<SearchRequestCollector, Processor<? super PsiReference>> entry : collectors.entrySet()) {
       ProgressManager.checkCanceled();
       Processor<? super PsiReference> processor = entry.getValue();
@@ -1088,9 +1149,9 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
         StringSearcher searcher = new StringSearcher(primitive.word, primitive.caseSensitive, true, false);
         BulkOccurrenceProcessor adapted = adaptProcessor(primitive, singleRequest.refProcessor);
 
-        Processor<PsiElement> localProcessor = localProcessor(searcher, adapted);
+        Processor<CandidateFileInfo> localProcessor = localProcessor(searcher, adapted);
 
-        Processor<? super PsiElement> old = localProcessors.put(singleRequest, localProcessor);
+        Processor<CandidateFileInfo> old = localProcessors.put(singleRequest, localProcessor);
         assert old == null : old + ";" + localProcessor +"; singleRequest="+singleRequest;
       }
     }
@@ -1177,49 +1238,54 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
                                                        @NotNull GlobalSearchScope scope,
                                                        @NotNull Processor<? super VirtualFile> processor,
                                                        TextIndexQuery @NotNull ... textIndexQueries) {
-    if (ContainerUtil.find(textIndexQueries, query -> !query.isEmpty()) == null) return true;
+    if (ContainerUtil.all(textIndexQueries, query -> query.isEmpty())) return true;
 
     if (LOG.isTraceEnabled()) {
       List<String> words = ContainerUtil.map(textIndexQueries, q -> StringUtil.join(q.getInitialWords(), " "));
       LOG.trace("searching for words " + words + " in " + scope);
     }
 
-    if (FileBasedIndex.isIndexAccessDuringDumbModeEnabled()) {
-      if (ApplicationManager.getApplication().isReadAccessAllowed() &&
-          (!DumbService.isDumb(project) ||
-          FileBasedIndex.getInstance().getCurrentDumbModeAccessType() != null)) {
-        return computeQueries(scope, processor, textIndexQueries);
-      }
-
-      return ReadAction.compute(() -> DumbModeAccessType.RAW_INDEX_DATA_ACCEPTABLE.ignoreDumbMode(() -> computeQueries(scope, processor, textIndexQueries)));
+    if (ApplicationManager.getApplication().isReadAccessAllowed() &&
+        (!DumbService.isDumb(project) ||
+         FileBasedIndex.getInstance().getCurrentDumbModeAccessType() != null)) {
+      return computeQueries(scope, processor, textIndexQueries);
     }
-    return DumbService.getInstance(project).runReadActionInSmartMode(() -> computeQueries(scope, processor, textIndexQueries));
+
+    return ReadAction.compute(() -> DumbModeAccessType.RAW_INDEX_DATA_ACCEPTABLE.ignoreDumbMode(() -> computeQueries(scope, processor, textIndexQueries)));
   }
 
   private static boolean computeQueries(@NotNull GlobalSearchScope scope,
                                         @NotNull Processor<? super VirtualFile> processor,
                                         @NotNull TextIndexQuery @NotNull [] textIndexQueries) {
-    Collection<FileBasedIndex.AllKeysQuery<?, ?>> queries = ContainerUtil.concat(textIndexQueries, q -> q.toFileBasedIndexQueries());
+    Collection<AllKeysQuery<?, ?>> queries = ContainerUtil.concat(textIndexQueries, q -> q.toFileBasedIndexQueries());
     return FileBasedIndex.getInstance().processFilesContainingAllKeys(queries, scope, processor);
   }
 
   @ApiStatus.Internal
   public static final class TextIndexQuery {
+    /** Initial search terms, before conversion into idIndexEntries/trigrams */
+    private final @NotNull Collection<String> myInitialWords;
+
+    //Alternative lookup variants: idEntries and trigrams are generated from myInitialWords, and represent 2 different ways
+    // to lookup the words -- via IdIndex and Trigram.Index accordingly
     private final @NotNull Set<IdIndexEntry> myIdIndexEntries;
     private final @NotNull Set<Integer> myTrigrams;
+
+    /** {@link UsageSearchContext search context} as a bitmask (makes sense only for IdIndex lookup) */
     private final @Nullable Short myContext;
-    private final boolean myUseOnlyWeakHashToSearch;
-    private final @NotNull Collection<String> myInitialWords;
+
+    /** true == 'use IdIndex only' -- which is the default option anyway */
+    private final boolean myUseOnlyWordHashToSearch;
 
     private TextIndexQuery(@NotNull Set<IdIndexEntry> idIndexEntries,
                            @NotNull Set<Integer> trigrams,
                            @Nullable Short context,
-                           boolean useOnlyWeakHashToSearch,
+                           boolean useOnlyWordHashToSearch,
                            @NotNull Collection<String> initialWords) {
       myIdIndexEntries = idIndexEntries;
       myTrigrams = trigrams;
       myContext = context;
-      myUseOnlyWeakHashToSearch = useOnlyWeakHashToSearch;
+      myUseOnlyWordHashToSearch = useOnlyWordHashToSearch;
       myInitialWords = initialWords;
     }
 
@@ -1237,6 +1303,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
       if (o == null || getClass() != o.getClass()) return false;
       TextIndexQuery query = (TextIndexQuery)o;
       return myIdIndexEntries.equals(query.myIdIndexEntries) &&
+             //TODO RC: why myUseOnlyWeakHashToSearch is not included (same question for hashCode)?
              myTrigrams.equals(query.myTrigrams) &&
              Objects.equals(myContext, query.myContext);
     }
@@ -1246,31 +1313,30 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
       return Objects.hash(myIdIndexEntries, myTrigrams, myContext);
     }
 
-    public @NotNull List<FileBasedIndex.AllKeysQuery<?, ?>> toFileBasedIndexQueries() {
+    public @NotNull List<AllKeysQuery<?, ?>> toFileBasedIndexQueries() {
       Condition<Integer> contextCondition = myContext == null ? null : matchContextCondition(myContext);
 
-      FileBasedIndex.AllKeysQuery<IdIndexEntry, Integer> idIndexQuery =
-        new FileBasedIndex.AllKeysQuery<>(IdIndex.NAME, myIdIndexEntries, contextCondition);
+      var idIndexQuery = new AllKeysQuery<>(IdIndex.NAME, myIdIndexEntries, contextCondition);
 
-      if (myUseOnlyWeakHashToSearch || myTrigrams.isEmpty()) {
+      if (myUseOnlyWordHashToSearch || myTrigrams.isEmpty()) {
         // short words don't produce trigrams
         return Collections.singletonList(idIndexQuery);
       }
 
+      //Currently useStrongerHash is true => we are always using IdIndex:
       if (IdIndexEntry.useStrongerHash()) {
         return Collections.singletonList(idIndexQuery);
       }
 
-      FileBasedIndex.AllKeysQuery<Integer, Void> trigramIndexQuery =
-        new FileBasedIndex.AllKeysQuery<>(TrigramIndex.INDEX_ID, myTrigrams, null);
+      var trigramIndexQuery = new AllKeysQuery<>(TrigramIndex.INDEX_ID, myTrigrams, null);
       return Arrays.asList(idIndexQuery, trigramIndexQuery);
     }
 
     private static @NotNull TextIndexQuery fromWord(@NotNull String word,
                                                     boolean caseSensitively,
-                                                    boolean useOnlyWeakHashToSearch,
+                                                    boolean useOnlyWordHashToSearch,
                                                     @Nullable Short context) {
-      return fromWords(Collections.singleton(word), caseSensitively, useOnlyWeakHashToSearch, context);
+      return fromWords(Collections.singleton(word), caseSensitively, useOnlyWordHashToSearch, context);
     }
 
     public static @NotNull TextIndexQuery fromWord(@NotNull String word, boolean caseSensitively, @Nullable Short context) {
@@ -1279,10 +1345,11 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
 
     public static @NotNull TextIndexQuery fromWords(@NotNull Collection<String> words,
                                                     boolean caseSensitively,
-                                                    boolean useOnlyWeakHashToSearch, @Nullable Short context) {
+                                                    boolean useOnlyWordHashToSearch,
+                                                    @Nullable Short context) {
       Set<IdIndexEntry> keys = CollectionFactory.createSmallMemoryFootprintSet(ContainerUtil.flatMap(words, w -> getWordEntries(w, caseSensitively)));
       IntSet trigrams;
-      if (!useOnlyWeakHashToSearch) {
+      if (!useOnlyWordHashToSearch) {
         trigrams = new IntOpenHashSet();
         for (String word : words) {
           trigrams.addAll(TrigramBuilder.getTrigrams(word));
@@ -1292,7 +1359,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
         trigrams = IntSets.EMPTY_SET;
       }
 
-      return new TextIndexQuery(keys, trigrams, context, useOnlyWeakHashToSearch, words);
+      return new TextIndexQuery(keys, trigrams, context, useOnlyWordHashToSearch, words);
     }
 
     private static @NotNull List<IdIndexEntry> getWordEntries(@NotNull String name, boolean caseSensitively) {

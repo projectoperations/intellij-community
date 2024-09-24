@@ -13,6 +13,7 @@ import com.intellij.debugger.jdi.*;
 import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.ui.impl.watch.*;
+import com.intellij.debugger.ui.tree.ExtraDebugNodesProvider;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -108,7 +109,13 @@ public class JavaStackFrame extends XStackFrame implements JVMStackFrameInfoProv
   @Override
   public void computeChildren(@NotNull final XCompositeNode node) {
     if (node.isObsolete()) return;
-    myDebugProcess.getManagerThread().schedule(new DebuggerContextCommandImpl(myDebugProcess.getDebuggerContext(), myDescriptor.getFrameProxy().threadProxy()) {
+    ThreadReferenceProxyImpl thread = myDescriptor.getFrameProxy().threadProxy();
+    DebuggerContextUtil.scheduleWithCorrectPausedDebuggerContext(myDebugProcess, thread, myDescriptor.getFrameProxy(),
+                                                                 c -> scheduleComputeChildrenTask(node, c, thread));
+  }
+
+  private void scheduleComputeChildrenTask(@NotNull XCompositeNode node, DebuggerContextImpl context, ThreadReferenceProxyImpl thread) {
+    myDebugProcess.getManagerThread().schedule(new DebuggerContextCommandImpl(context, thread) {
       @Override
       public Priority getPriority() {
         return Priority.NORMAL;
@@ -137,12 +144,16 @@ public class JavaStackFrame extends XStackFrame implements JVMStackFrameInfoProv
       context = myDebugProcess.getDebuggerContext();
     }
     if (context.getFrameProxy() != getStackFrameProxy()) {
+      SuspendManager suspendManager = myDebugProcess.getSuspendManager();
+      ThreadReferenceProxyImpl thread = getStackFrameProxy().threadProxy();
+      SuspendContextImpl pausedSuspendingContext = SuspendManagerUtil.getPausedSuspendingContext(suspendManager, thread);
       SuspendContextImpl threadSuspendContext =
-        SuspendManagerUtil.findContextByThread(myDebugProcess.getSuspendManager(), getStackFrameProxy().threadProxy());
+        pausedSuspendingContext != null ? pausedSuspendingContext : SuspendManagerUtil.findContextByThread(suspendManager, thread);
+
       context = DebuggerContextImpl.createDebuggerContext(
         myDebugProcess.mySession,
         threadSuspendContext,
-        getStackFrameProxy().threadProxy(),
+        thread,
         getStackFrameProxy());
       context.setPositionCache(myDescriptor.getSourcePosition());
       context.initCaches();
@@ -242,6 +253,7 @@ public class JavaStackFrame extends XStackFrame implements JVMStackFrameInfoProv
       catch (EvaluateException e) {
         node.setErrorMessage(e.getMessage());
       }
+      DebuggerUtilsImpl.forEachSafe(ExtraDebugNodesProvider.getProviders(), p -> p.addExtraNodes(evaluationContext, children));
     }
     catch (InvalidStackFrameException e) {
       LOG.info(e);
@@ -261,7 +273,7 @@ public class JavaStackFrame extends XStackFrame implements JVMStackFrameInfoProv
 
   // copied from FrameVariablesTree
   private void buildVariables(DebuggerContextImpl debuggerContext,
-                              final EvaluationContextImpl evaluationContext,
+                              @NotNull final EvaluationContextImpl evaluationContext,
                               @NotNull DebugProcessImpl debugProcess,
                               XValueChildrenList children,
                               ObjectReference thisObjectReference,
@@ -270,7 +282,7 @@ public class JavaStackFrame extends XStackFrame implements JVMStackFrameInfoProv
     int positionOfLocalVariablesAsFields = children.size();
     final List<FieldDescriptorImpl> outerLocalVariablesAsFields = new SmartList<>();
     if (NodeRendererSettings.getInstance().getClassRenderer().SHOW_VAL_FIELDS_AS_LOCAL_VARIABLES) {
-      if (thisObjectReference != null && debugProcess.getVirtualMachineProxy().canGetSyntheticAttribute()) {
+      if (thisObjectReference != null && evaluationContext.getSuspendContext().getVirtualMachineProxy().canGetSyntheticAttribute()) {
         final ReferenceType thisRefType = thisObjectReference.referenceType();
         if (thisRefType instanceof ClassType && location != null
             && thisRefType.equals(location.declaringType()) && thisRefType.name().contains("$")) { // makes sense for nested classes only
@@ -286,9 +298,6 @@ public class JavaStackFrame extends XStackFrame implements JVMStackFrameInfoProv
     }
 
     boolean myAutoWatchMode = DebuggerSettings.getInstance().AUTO_VARIABLES_MODE;
-    if (evaluationContext == null) {
-      return;
-    }
 
     try {
       if (!XDebuggerSettingsManager.getInstance().getDataViewSettings().isAutoExpressions() && !myAutoWatchMode) {

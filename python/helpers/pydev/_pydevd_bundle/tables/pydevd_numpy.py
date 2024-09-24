@@ -1,5 +1,6 @@
 #  Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 import numpy as np
+import io
 
 TABLE_TYPE_NEXT_VALUE_SEPARATOR = '__pydev_table_column_type_val__'
 MAX_COLWIDTH = 100000
@@ -10,7 +11,10 @@ NP_ROWS_TYPE = "int64"
 is_pd = False
 try:
     import pandas as pd
-
+    version = pd.__version__
+    majorVersion = int(version[0])
+    pd.set_option('display.max_colwidth', None)
+    is_pd = majorVersion>=1
     is_pd = True
 except:
     pass
@@ -23,45 +27,65 @@ def get_type(arr):
 
 def get_shape(arr):
     # type: (np.ndarray) -> str
-    return str(arr.shape[0])
+    if arr.ndim == 1:
+        return str((arr.shape[0], 1))
+    else:
+        return str((arr.shape[0], arr.shape[1]))
 
 
 def get_head(arr):
     # type: (np.ndarray) -> str
-    return repr(_create_table(arr).head().to_html(notebook=True, max_cols=None))
+    return "None"
 
 
 def get_column_types(arr):
     # type: (np.ndarray) -> str
-    table = _create_table(arr)
+    table = _create_table(arr[:1])
     cols_types = [str(t) for t in table.dtypes] if is_pd else table.get_cols_types()
 
     return NP_ROWS_TYPE + TABLE_TYPE_NEXT_VALUE_SEPARATOR + \
         TABLE_TYPE_NEXT_VALUE_SEPARATOR.join(cols_types)
 
 
-def get_data(arr, start_index=None, end_index=None):
+def get_data(arr, start_index=None, end_index=None, format=None, conv_mode=False):
     # type: (Union[np.ndarray, dict], int, int) -> str
-    def convert_data_to_html(data, max_cols):
-        return repr(_create_table(data, start_index, end_index).to_html(notebook=True, max_cols=max_cols))
+    def convert_data_to_html(data):
+        return repr(_create_table(data, start_index, end_index, format).to_html(notebook=True))
 
-    return _compute_data(arr, convert_data_to_html)
+    def convert_data_to_csv(data):
+        return repr(_create_table(data, start_index, end_index, format).to_csv())
+
+    if conv_mode:
+        computed_data = _compute_data(arr, convert_data_to_csv, format, conv_mode)
+    else:
+        computed_data = _compute_data(arr, convert_data_to_html, format, conv_mode)
+    return computed_data
 
 
-def display_data(arr, start_index=None, end_index=None):
+def display_data_html(arr, start_index=None, end_index=None):
     # type: (np.ndarray, int, int) -> None
-    def ipython_display(data, max_cols):
+    def ipython_display(data):
         from IPython.display import display, HTML
-        display(HTML(_create_table(data, start_index, end_index).to_html(notebook=True, max_cols=max_cols)))
+        display(HTML(_create_table(data, start_index, end_index).to_html(notebook=True)))
+
+    _compute_data(arr, ipython_display)
+
+
+def display_data_csv(arr, start_index=None, end_index=None):
+    # type: (np.ndarray, int, int) -> None
+    def ipython_display(data):
+        from IPython.display import display
+        display(_create_table(data, start_index, end_index).to_csv())
 
     _compute_data(arr, ipython_display)
 
 
 class _NpTable:
-    def __init__(self, np_array):
+    def __init__(self, np_array, format=None):
         self.array = np_array
         self.type = self.get_array_type()
         self.indexes = None
+        self.format = format
 
     def get_array_type(self):
         col_type = self.array.dtype
@@ -94,7 +118,7 @@ class _NpTable:
 
         return _NpTable(self.array[:5]).sort()
 
-    def to_html(self, notebook, max_cols):
+    def to_html(self, notebook):
         html = ['<table class="dataframe">\n']
 
         # columns names
@@ -106,7 +130,7 @@ class _NpTable:
                     '</thead>\n')
 
         # tbody
-        html += self._collect_values(max_cols)
+        html += self._collect_values(None)
 
         html.append('</table>\n')
 
@@ -128,15 +152,31 @@ class _NpTable:
             html.append('<tr>\n')
             html.append('<th>{}</th>\n'.format(int(self.indexes[row_num])))
             if self.type == ONE_DIM:
-                html.append('<td>{}</td>\n'.format(self.array[row_num]))
+                if self.format is not None:
+                    value = self.format % self.array[row_num]
+                else:
+                    value = self.array[row_num]
+                html.append('<td>{}</td>\n'.format(value))
             else:
                 cols = len(self.array[0])
                 max_cols = cols if max_cols is None else min(max_cols, cols)
                 for col_num in range(max_cols):
-                    html.append('<td>{}</td>\n'.format(self.array[row_num][col_num]))
+                    if self.format is not None:
+                        value = self.format % self.array[row_num][col_num]
+                    else:
+                        value = self.array[row_num][col_num]
+                    html.append('<td>{}</td>\n'.format(value))
             html.append('</tr>\n')
         html.append('</tbody>\n')
         return html
+
+
+    def to_csv(self):
+        csv_stream = io.StringIO()
+        np.savetxt(csv_stream, self.array, delimiter=',')
+        csv_string = csv_stream.getvalue()
+        return csv_string
+
 
     def slice(self, start_index=None, end_index=None):
         if end_index is not None and start_index is not None:
@@ -210,7 +250,7 @@ def _sort_df(dataframe, sort_keys):
     return dataframe.sort_values(by=sort_by, ascending=orders)
 
 
-def _create_table(command, start_index=None, end_index=None):
+def _create_table(command, start_index=None, end_index=None, format=None):
     sort_keys = None
 
     if type(command) is dict:
@@ -225,49 +265,77 @@ def _create_table(command, start_index=None, end_index=None):
             return sorting_arr.iloc[start_index:end_index]
         return sorting_arr
 
-    return _NpTable(np_array).sort(sort_keys).slice(start_index, end_index)
+    return _NpTable(np_array, format=format).sort(sort_keys).slice(start_index, end_index)
 
 
-def _compute_data(arr, fun):
+def _compute_data(arr, fun, format=None, conv_mode=False):
     is_sort_command = type(arr) is dict
     data = arr['data'] if is_sort_command else arr
 
-    jb_max_cols, jb_max_colwidth = None, None
+    jb_max_cols, jb_max_colwidth, jb_max_rows, jb_float_options = None, None, None, None
     if is_pd:
-        jb_max_cols, jb_max_colwidth = _set_pd_options()
+        jb_max_cols, jb_max_colwidth, jb_max_rows, jb_float_options = _set_pd_options(format)
 
     if is_sort_command:
         arr['data'] = data
         data = arr
 
-    data = fun(data, None)
+    data = fun(data)
 
     if is_pd:
-        _reset_pd_options(jb_max_cols, jb_max_colwidth)
+        _reset_pd_options(jb_max_cols, jb_max_colwidth, jb_max_rows, jb_float_options)
 
     return data
 
 
 def __get_tables_display_options():
-    # type: () -> Tuple[None, Union[int, None]]
+    # type: () -> Tuple[None, Union[int, None], None]
     import sys
     if sys.version_info < (3, 0):
-        return None, MAX_COLWIDTH
-    return None, None
+        return None, MAX_COLWIDTH, None
+    try:
+        import pandas as pd
+        if int(pd.__version__.split('.')[0]) < 1:
+            return None, MAX_COLWIDTH_PYTHON_2, None
+    except ImportError:
+        pass
+    return None, None, None
 
 
-def _set_pd_options():
-    max_cols, max_colwidth = __get_tables_display_options()
+def _set_pd_options(format):
+    max_cols, max_colwidth, max_rows = __get_tables_display_options()
+    _jb_float_options = None
 
     _jb_max_cols = pd.get_option('display.max_columns')
     _jb_max_colwidth = pd.get_option('display.max_colwidth')
+    _jb_max_rows = pd.get_option('display.max_rows')
+    if format is not None:
+        _jb_float_options = pd.get_option('display.float_format')
 
     pd.set_option('display.max_columns', max_cols)
+    pd.set_option('display.max_rows', max_rows)
     pd.set_option('display.max_colwidth', max_colwidth)
+    format_function = _define_format_function(format)
+    if format_function is not None:
+        pd.set_option('display.float_format', format_function)
 
-    return _jb_max_cols, _jb_max_colwidth
+    return _jb_max_cols, _jb_max_colwidth, _jb_max_rows, _jb_float_options
 
 
-def _reset_pd_options(max_cols, max_colwidth):
+def _reset_pd_options(max_cols, max_colwidth, max_rows, float_format):
     pd.set_option('display.max_columns', max_cols)
     pd.set_option('display.max_colwidth', max_colwidth)
+    pd.set_option('display.max_rows', max_rows)
+    if float_format is not None:
+        pd.set_option('display.float_format', float_format)
+
+
+def _define_format_function(format):
+    # type: (Union[None, str]) -> Union[Callable, None]
+    if format is None or format == 'null':
+        return None
+
+    if format.startswith("%"):
+        return lambda x: format % x
+    else:
+        return None

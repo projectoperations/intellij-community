@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui.dsl.builder.impl
 
 import com.intellij.BundleBase
@@ -21,12 +21,12 @@ import com.intellij.ui.dsl.UiDslException
 import com.intellij.ui.dsl.builder.*
 import com.intellij.ui.dsl.builder.components.DslLabel
 import com.intellij.ui.dsl.builder.components.DslLabelType
-import com.intellij.ui.dsl.builder.components.TabbedPaneHeader
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.ui.dsl.gridLayout.UnscaledGapsY
 import com.intellij.ui.dsl.gridLayout.VerticalGaps
 import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.util.Function
+import com.intellij.util.IconUtil
 import com.intellij.util.MathUtil
 import com.intellij.util.ui.*
 import org.jetbrains.annotations.ApiStatus
@@ -234,14 +234,6 @@ internal open class RowImpl(private val dialogPanelConfig: DialogPanelConfig,
     return result
   }
 
-  override fun tabbedPaneHeader(items: Collection<String>): Cell<JBTabbedPane> {
-    val tabbedPaneHeader = TabbedPaneHeader()
-    for (item in items) {
-      tabbedPaneHeader.add(item, JPanel())
-    }
-    return cell(tabbedPaneHeader)
-  }
-
   override fun slider(min: Int, max: Int, minorTickSpacing: Int, majorTickSpacing: Int): Cell<JSlider> {
     val slider = JSlider()
     UIUtil.setSliderIsFilled(slider, true)
@@ -292,7 +284,9 @@ internal open class RowImpl(private val dialogPanelConfig: DialogPanelConfig,
   }
 
   override fun icon(icon: Icon): CellImpl<JLabel> {
-    return cell(JBLabel(icon))
+    val label = JBLabel(icon)
+    label.disabledIcon = IconUtil.desaturate(icon)
+    return cell(label)
   }
 
   override fun contextHelp(description: String, title: String?): CellImpl<JLabel> {
@@ -307,11 +301,12 @@ internal open class RowImpl(private val dialogPanelConfig: DialogPanelConfig,
     return result
   }
 
-  override fun textFieldWithBrowseButton(browseDialogTitle: String?,
-                                         project: Project?,
-                                         fileChooserDescriptor: FileChooserDescriptor,
-                                         fileChosen: ((chosenFile: VirtualFile) -> String)?): Cell<TextFieldWithBrowseButton> {
-    val result = cell(textFieldWithBrowseButton(project, browseDialogTitle, fileChooserDescriptor, fileChosen)).applyToComponent {
+  override fun textFieldWithBrowseButton(
+    fileChooserDescriptor: FileChooserDescriptor,
+    project: Project?,
+    fileChosen: ((chosenFile: VirtualFile) -> String)?
+  ): Cell<TextFieldWithBrowseButton> {
+    val result = cell(com.intellij.ui.components.textFieldWithBrowseButton(project, fileChooserDescriptor, fileChosen)).applyToComponent {
       isOpaque = false
       textField.isOpaque = false
     }

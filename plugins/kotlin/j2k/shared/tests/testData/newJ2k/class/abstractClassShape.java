@@ -1,12 +1,11 @@
-//class
 abstract class Shape {
 	public String color;
 	public Shape() {
 	}
-	public void setColor(String c) {
+	public void sColor(String c) {
 		color = c;
 	}
-	public String getColor() {
+	public String gColor() {
 		return color;
 	}
 	public abstract double area();

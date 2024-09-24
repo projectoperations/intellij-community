@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.idea.search.KotlinSearchUsagesSupport.SearchUtils.is
 import org.jetbrains.kotlin.idea.search.KotlinSearchUsagesSupport.SearchUtils.isExtensionOfDeclarationClassUsage
 import org.jetbrains.kotlin.idea.search.KotlinSearchUsagesSupport.SearchUtils.isInvokeOfCompanionObject
 import org.jetbrains.kotlin.idea.search.KotlinSearchUsagesSupport.SearchUtils.isUsageInContainingDeclaration
+import org.jetbrains.kotlin.idea.search.KotlinSearchUsagesSupport.SearchUtils.isUsageOfActual
 import org.jetbrains.kotlin.psi.KtDestructuringDeclaration
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
@@ -55,7 +56,13 @@ class KotlinRequestResultProcessor(
         if (resolve()?.unwrapped == element.originalElement) {
             return true
         }
+
         if (originalElement is KtNamedDeclaration) {
+            if (options.searchForExpectedUsages && isUsageOfActual(originalElement)
+            ) {
+                return true
+            }
+
             if (isInvokeOfCompanionObject(originalElement)) {
                 return true
             }

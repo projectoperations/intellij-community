@@ -25,11 +25,10 @@ import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy
 import com.intellij.openapi.wm.ex.IdeFrameEx
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.*
+import com.intellij.openapi.wm.impl.RootPaneUtil
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomFrameDialogContent
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomHeader
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
-import com.intellij.platform.ide.menu.GlobalMenuLinux
-import com.intellij.platform.ide.menu.LinuxIdeMenuBar.Companion.doBindAppMenuOfParent
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.*
 import com.intellij.ui.mac.screenmenu.Menu
@@ -37,7 +36,6 @@ import com.intellij.ui.mac.touchbar.TouchbarSupport
 import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.*
-import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Obsolete
 import org.jetbrains.annotations.NonNls
 import java.awt.*
@@ -90,11 +88,6 @@ open class FrameWrapper @JvmOverloads constructor(private val project: Project?,
 
   @Obsolete
   protected fun getStatusBar(): StatusBar? = statusBar
-
-  @Deprecated("Pass project to constructor")
-  @ApiStatus.ScheduledForRemoval
-  fun setProject(@Suppress("UNUSED_PARAMETER") project: Project) {
-  }
 
   open fun show() {
     show(true)
@@ -168,12 +161,6 @@ open class FrameWrapper @JvmOverloads constructor(private val project: Project?,
     else {
       // unwrap the image before setting as frame's icon
       frame.iconImages = images.map { ImageUtil.toBufferedImage(it) }
-    }
-
-    if (SystemInfoRt.isLinux && frame is JFrame && GlobalMenuLinux.isAvailable()) {
-      WindowManager.getInstance().getFrame(project)?.let { parentFrame ->
-        doBindAppMenuOfParent(frame, parentFrame)
-      }
     }
   }
 
@@ -340,9 +327,9 @@ private class MyJFrame(private var owner: FrameWrapper, private val parent: IdeF
     FrameState.setFrameStateListener(this)
     glassPane = IdeGlassPaneImpl(rootPane = getRootPane(), installPainters = true)
     if (SystemInfoRt.isMac && !Menu.isJbScreenMenuEnabled()) {
-      jMenuBar = createMenuBar(coroutineScope = service<CoreUiCoroutineScopeHolder>().coroutineScope.childScope(),
-                               frame = this,
-                               customMenuGroup = null)
+      jMenuBar = RootPaneUtil.createMenuBar(coroutineScope = service<CoreUiCoroutineScopeHolder>().coroutineScope.childScope(),
+                                            frame = this,
+                                            customMenuGroup = null)
     }
     MouseGestureManager.getInstance().add(this)
     focusTraversalPolicy = IdeFocusTraversalPolicy()

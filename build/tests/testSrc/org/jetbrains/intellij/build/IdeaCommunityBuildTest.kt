@@ -3,8 +3,8 @@ package org.jetbrains.intellij.build
 
 import com.intellij.openapi.application.PathManager
 import com.intellij.platform.buildScripts.testFramework.createBuildOptionsForTest
+import com.intellij.platform.buildScripts.testFramework.runEssentialPluginsTest
 import com.intellij.platform.buildScripts.testFramework.runTestBuild
-import com.intellij.platform.buildScripts.testFramework.spanName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
@@ -18,8 +18,8 @@ class IdeaCommunityBuildTest {
     val homePath = PathManager.getHomeDirFor(javaClass)!!
     val productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot)
     runTestBuild(
-      homePath = homePath,
-      traceSpanName = testInfo.spanName,
+      homeDir = homePath,
+      testInfo = testInfo,
       productProperties = productProperties,
     ) {
       it.classOutDir = System.getProperty(BuildOptions.PROJECT_CLASSES_OUTPUT_DIRECTORY_PROPERTY) ?: "$homePath/out/classes"
@@ -30,17 +30,26 @@ class IdeaCommunityBuildTest {
   fun jpsStandalone(testInfo: TestInfo) {
     val homePath = PathManager.getHomeDirFor(javaClass)!!
     runBlocking(Dispatchers.Default) {
-      val productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot)
-      val options = createBuildOptionsForTest(productProperties = productProperties, skipDependencySetup = true)
-      val context = BuildContextImpl.createContext(
-        projectHome = homePath,
-        productProperties = productProperties,
-        setupTracer = false,
-        options = options,
-      )
-      runTestBuild(context = context, traceSpanName = testInfo.spanName) {
-        buildCommunityStandaloneJpsBuilder(targetDir = context.paths.artifactDir.resolve("jps"), context = context)
+      runTestBuild(testInfo, context = {
+        val productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot)
+        val options = createBuildOptionsForTest(productProperties = productProperties, homeDir = homePath, skipDependencySetup = true, testInfo)
+        BuildContextImpl.createContext(
+          projectHome = homePath,
+          productProperties = productProperties,
+          setupTracer = false,
+          options = options,
+        )
+      }) {
+        buildCommunityStandaloneJpsBuilder(targetDir = it.paths.artifactDir.resolve("jps"), context = it)
       }
     }
+  }
+
+  @Test
+  fun `essential plugins depend only on essential plugins`() {
+    val homePath = PathManager.getHomeDirFor(javaClass)!!
+    runEssentialPluginsTest(homePath = homePath,
+                            productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot),
+                            buildTools = ProprietaryBuildTools.DUMMY)
   }
 }

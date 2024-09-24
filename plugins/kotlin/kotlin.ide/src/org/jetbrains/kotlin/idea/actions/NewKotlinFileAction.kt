@@ -2,7 +2,11 @@
 
 package org.jetbrains.kotlin.idea.actions
 
-import com.intellij.ide.actions.*
+import com.intellij.ide.actions.CreateFileFromTemplateAction
+import com.intellij.ide.actions.CreateFileFromTemplateAction.moveCaretAfterNameIdentifier
+import com.intellij.ide.actions.CreateFileFromTemplateDialog
+import com.intellij.ide.actions.CreateTemplateInPackageAction
+import com.intellij.ide.actions.JavaCreateTemplateInPackageAction
 import com.intellij.ide.fileTemplates.FileTemplate
 import com.intellij.ide.fileTemplates.FileTemplateManager
 import com.intellij.ide.fileTemplates.actions.AttributesDefaults
@@ -15,8 +19,8 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.module.ModuleUtil
 import com.intellij.openapi.module.ModuleUtilCore
+import com.intellij.openapi.progress.Cancellation
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
@@ -36,10 +40,7 @@ import org.jetbrains.kotlin.idea.base.projectStructure.NewKotlinFileHook
 import org.jetbrains.kotlin.idea.base.projectStructure.RootKindFilter
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.projectStructure.matches
-import org.jetbrains.kotlin.idea.base.projectStructure.toModuleGroup
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
-import org.jetbrains.kotlin.idea.configuration.ConfigureKotlinStatus
-import org.jetbrains.kotlin.idea.configuration.KotlinProjectConfigurator
 import org.jetbrains.kotlin.idea.statistics.KotlinCreateFileFUSCollector
 import org.jetbrains.kotlin.idea.statistics.KotlinJ2KOnboardingFUSCollector
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -91,7 +92,6 @@ internal class NewKotlinFileAction : AbstractNewKotlinFileAction(), DumbAware {
         builder
             .addKind(KotlinFileTemplate.Annotation)
             .addKind(KotlinFileTemplate.Script)
-            .addKind(KotlinFileTemplate.Worksheet)
             .addKind(KotlinFileTemplate.Object)
 
         builder.setValidator(NewKotlinFileNameValidator)
@@ -131,7 +131,7 @@ internal abstract class AbstractNewKotlinFileAction : CreateFileFromTemplateActi
                         return
                     }
                 }
-                CreateFromTemplateAction.moveCaretAfterNameIdentifier(ktClass)
+                moveCaretAfterNameIdentifier(ktClass)
             } else {
                 val editor = createdElement.editor() ?: return
                 val lineCount = editor.document.lineCount
@@ -142,19 +142,10 @@ internal abstract class AbstractNewKotlinFileAction : CreateFileFromTemplateActi
         }
     }
 
-    override fun startInWriteAction() = false
+    override fun startInWriteAction(): Boolean = false
 
-    override fun createFileFromTemplate(name: String, template: FileTemplate, dir: PsiDirectory): PsiFile? {
-        val targetTemplate = if (KotlinFileTemplate.Worksheet.fileName != template.name) {
-            template
-        } else {
-            object : FileTemplate by template {
-                override fun getExtension(): String = KOTLIN_WORKSHEET_EXTENSION
-            }
-        }
-
-        return createFileFromTemplateWithStat(name, targetTemplate, dir)
-    }
+    override fun createFileFromTemplate(name: String, template: FileTemplate, dir: PsiDirectory): PsiFile? =
+        createFileFromTemplateWithStat(name, template, dir)
 }
 
 @ApiStatus.Internal
@@ -283,18 +274,6 @@ fun createKotlinFileFromTemplate(name: String, template: FileTemplate, dir: PsiD
             }
         }
         JavaCreateTemplateInPackageAction.setupJdk(adjustedDir, psiFile)
-        val module = ModuleUtil.findModuleForFile(psiFile) ?: return@computeWithAlternativeResolveEnabled psiFile
-
-        // Old JPS configurator logic
-        // TODO: Unify with other auto-configuration logic in NewKotlinFileConfigurationHook
-        val configurator = KotlinProjectConfigurator.EP_NAME.extensions.firstOrNull()
-        if (configurator != null) {
-            DumbService.getInstance(module.project).runWhenSmart {
-                if (configurator.getStatus(module.toModuleGroup()) == ConfigureKotlinStatus.CAN_BE_CONFIGURED) {
-                    configurator.configure(module.project, emptyList())
-                }
-            }
-        }
         psiFile
     }
 }
@@ -304,7 +283,11 @@ internal fun CreateFileFromTemplateDialog.Builder.addKind(t: KotlinFileTemplate)
 
 internal enum class KotlinFileTemplate(@NlsContexts.ListItem val title: String, val icon: Icon, val fileName: String) {
     Class(KotlinBundle.message("action.new.file.dialog.class.title"), KotlinIcons.CLASS, "Kotlin Class"),
-    File(KotlinBundle.message("action.new.file.dialog.file.title"), KotlinFileType.INSTANCE.icon, "Kotlin File"),
+    File(
+        KotlinBundle.message("action.new.file.dialog.file.title"),
+        Cancellation.forceNonCancellableSectionInClassInitializer { KotlinFileType.INSTANCE.icon },
+        "Kotlin File"
+    ),
     Interface(KotlinBundle.message("action.new.file.dialog.interface.title"), KotlinIcons.INTERFACE, "Kotlin Interface"),
     SealedInterface(KotlinBundle.message("action.new.file.dialog.sealed.interface.title"), KotlinIcons.INTERFACE, "Kotlin Sealed Interface"),
     DataClass(KotlinBundle.message("action.new.file.dialog.data.class.title"), KotlinIcons.CLASS, "Kotlin Data Class"),
@@ -312,6 +295,5 @@ internal enum class KotlinFileTemplate(@NlsContexts.ListItem val title: String, 
     SealedClass(KotlinBundle.message("action.new.file.dialog.sealed.class.title"), KotlinIcons.CLASS, "Kotlin Sealed Class"),
     Annotation(KotlinBundle.message("action.new.file.dialog.annotation.title"), KotlinIcons.ANNOTATION, "Kotlin Annotation"),
     Script(KotlinBundle.message("action.new.script.name"), KotlinIcons.SCRIPT, "Kotlin Script"),
-    Worksheet(KotlinBundle.message("action.new.worksheet.name"), KotlinIcons.SCRIPT, "Kotlin Worksheet"),
     Object(KotlinBundle.message("action.new.file.dialog.object.title"), KotlinIcons.OBJECT, "Kotlin Object")
 }

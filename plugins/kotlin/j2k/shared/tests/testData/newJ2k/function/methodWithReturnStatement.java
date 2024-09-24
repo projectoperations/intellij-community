@@ -1,2 +1,2 @@
 //method
-boolean isTrue() { return true; }
+boolean bool() { return true; }

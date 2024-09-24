@@ -2,9 +2,10 @@
 package com.intellij.codeInsight.hints.declarative.impl
 
 import com.intellij.codeInsight.hints.declarative.InlayActionHandler
-import com.intellij.codeInsight.hints.presentation.InlayTextMetricsStorage
+import com.intellij.codeInsight.hints.presentation.InlayTextMetrics
 import com.intellij.ide.ui.AntialiasingType
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.paint.EffectPainter
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -20,7 +21,7 @@ sealed class InlayPresentationEntry(
 ) {
   abstract fun render(
     graphics: Graphics2D,
-    fontMetricsStorage: InlayTextMetricsStorage,
+    metrics: InlayTextMetrics,
     attributes: TextAttributes,
     isDisabled: Boolean,
     yOffset: Int,
@@ -28,11 +29,11 @@ sealed class InlayPresentationEntry(
     editor: Editor
   )
 
-  abstract fun computeWidth(fontMetricsStorage: InlayTextMetricsStorage): Int
+  abstract fun computeWidth(metrics: InlayTextMetrics): Int
 
-  abstract fun computeHeight(fontMetricsStorage: InlayTextMetricsStorage): Int
+  abstract fun computeHeight(metrics: InlayTextMetrics): Int
 
-  abstract fun handleClick(editor: Editor, list: InlayPresentationList, controlDown: Boolean)
+  abstract fun handleClick(e: EditorMouseEvent, list: InlayPresentationList, controlDown: Boolean)
 
   var isHoveredWithCtrl: Boolean = false
 }
@@ -44,7 +45,8 @@ class TextInlayPresentationEntry(
   clickArea: InlayMouseArea?
 ) : InlayPresentationEntry(clickArea) {
 
-  override fun handleClick(editor: Editor, list: InlayPresentationList, controlDown: Boolean) {
+  override fun handleClick(e: EditorMouseEvent, list: InlayPresentationList, controlDown: Boolean) {
+    val editor = e.editor
     val project = editor.project
     if (clickArea != null && project != null) {
       val actionData = clickArea.actionData
@@ -53,7 +55,7 @@ class TextInlayPresentationEntry(
         val handler = InlayActionHandler.getActionHandler(handlerId)
         if (handler != null) {
           InlayActionHandlerUsagesCollector.clickHandled(handlerId, handler.javaClass)
-          handler.handleClick(editor, actionData.payload)
+          handler.handleClick(e, actionData.payload)
         }
       }
     }
@@ -63,29 +65,29 @@ class TextInlayPresentationEntry(
   }
 
   override fun render(graphics: Graphics2D,
-                      fontMetricsStorage: InlayTextMetricsStorage,
+                      metrics: InlayTextMetrics,
                       attributes: TextAttributes,
                       isDisabled: Boolean,
                       yOffset: Int,
                       rectHeight: Int,
                       editor: Editor) {
-    val metrics = fontMetricsStorage.getFontMetrics(small = false)
     val savedHint = graphics.getRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING)
     val savedColor = graphics.color
     try {
       val foreground = attributes.foregroundColor
       if (foreground != null) {
-        val width = computeWidth(fontMetricsStorage)
-        val height = computeHeight(fontMetricsStorage)
+        val width = computeWidth(metrics)
+        val height = computeHeight(metrics)
         val font = metrics.font
         graphics.font = font
         graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, AntialiasingType.getKeyForCurrentScope(false))
         graphics.color = foreground
-        graphics.drawString(text, 0, max(editor.ascent, (rectHeight + metrics.ascent - metrics.descent) / 2) - 1)
+        val baseline = max(editor.ascent, (rectHeight + metrics.ascent - metrics.descent) / 2) - 1
+        graphics.drawString(text, 0, baseline)
         val effectColor = attributes.effectColor ?: foreground
         if (isDisabled) {
           graphics.color = effectColor
-          EffectPainter.STRIKE_THROUGH.paint(graphics, 0, metrics.fontBaseline + yOffset, width, height, font)
+          EffectPainter.STRIKE_THROUGH.paint(graphics, 0, baseline + yOffset, width, height, font)
         }
       }
     }
@@ -95,13 +97,9 @@ class TextInlayPresentationEntry(
     }
   }
 
-  override fun computeWidth(fontMetricsStorage: InlayTextMetricsStorage): Int {
-    return fontMetricsStorage.getFontMetrics(small = false).getStringWidth(text)
-  }
+  override fun computeWidth(metrics: InlayTextMetrics): Int = metrics.getStringWidth(text)
 
-  override fun computeHeight(fontMetricsStorage: InlayTextMetricsStorage): Int {
-    return fontMetricsStorage.getFontMetrics(small = false).fontHeight
-  }
+  override fun computeHeight(metrics: InlayTextMetrics): Int = metrics.fontHeight
 
   override fun equals(other: Any?): Boolean {
     if (this === other) return true

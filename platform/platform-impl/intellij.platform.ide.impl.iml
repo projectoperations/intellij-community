@@ -9,8 +9,8 @@
         <compilerArguments>
           <stringArguments>
             <stringArg name="jvmTarget" arg="17" />
-            <stringArg name="apiVersion" arg="1.9" />
-            <stringArg name="languageVersion" arg="1.9" />
+            <stringArg name="apiVersion" arg="2.0" />
+            <stringArg name="languageVersion" arg="2.0" />
           </stringArguments>
           <arrayArguments>
             <arrayArg name="pluginClasspaths">
@@ -33,9 +33,7 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="intellij.platform.ide" exported="" />
-    <orderEntry type="library" name="commons-codec" level="project" />
     <orderEntry type="library" name="OroMatcher" level="project" />
-    <orderEntry type="library" name="CGLIB" level="project" />
     <orderEntry type="module" module-name="intellij.platform.lang" />
     <orderEntry type="library" name="jna" level="project" />
     <orderEntry type="library" name="winp" level="project" />
@@ -53,7 +51,6 @@
     <orderEntry type="library" name="gson" level="project" />
     <orderEntry type="library" name="http-client" level="project" />
     <orderEntry type="module" module-name="intellij.platform.diff" />
-    <orderEntry type="module" module-name="intellij.platform.builtInServer.impl" scope="RUNTIME" />
     <orderEntry type="library" name="imgscalr" level="project" />
     <orderEntry type="module" module-name="intellij.platform.builtInServer" />
     <orderEntry type="library" exported="" name="kotlin-stdlib" level="project" />
@@ -61,23 +58,17 @@
     <orderEntry type="library" scope="RUNTIME" name="slf4j-jdk14" level="project" />
     <orderEntry type="module" module-name="intellij.platform.configurationStore.impl" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.credentialStore.ui" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.platform.dependenciesToolwindow" scope="RUNTIME" />
     <orderEntry type="library" name="StreamEx" level="project" />
     <orderEntry type="library" name="kotlinx-coroutines-core" level="project" />
     <orderEntry type="library" name="netty-codec-http" level="project" />
     <orderEntry type="library" name="jackson" level="project" />
     <orderEntry type="library" name="Java Compatibility" level="project" />
-    <orderEntry type="library" scope="RUNTIME" name="javax.activation" level="project" />
-    <orderEntry type="library" scope="RUNTIME" name="jaxb-api" level="project" />
-    <orderEntry type="library" scope="RUNTIME" name="jaxb-runtime" level="project" />
-    <orderEntry type="library" scope="RUNTIME" name="javax.annotation-api" level="project" />
     <orderEntry type="library" name="kotlin-reflect" level="project" />
     <orderEntry type="module" module-name="intellij.platform.objectSerializer" scope="RUNTIME" />
     <orderEntry type="library" name="jackson-databind" level="project" />
     <orderEntry type="module" module-name="intellij.platform.util.ui" exported="" />
     <orderEntry type="module" module-name="intellij.platform.ide.util.io.impl" />
     <orderEntry type="module" module-name="intellij.platform.util" />
-    <orderEntry type="module" module-name="intellij.platform.externalSystem.impl" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.instanceContainer" />
     <orderEntry type="module" module-name="intellij.platform.serviceContainer" />
     <orderEntry type="library" name="jcef" level="project" />
@@ -105,11 +96,7 @@
     <orderEntry type="library" name="icu4j" level="project" />
     <orderEntry type="module" module-name="intellij.platform.util.xmlDom" />
     <orderEntry type="module" module-name="intellij.platform.ide.core.impl" exported="" />
-    <orderEntry type="library" scope="RUNTIME" name="netty-handler-proxy" level="project" />
-    <orderEntry type="library" scope="RUNTIME" name="rhino" level="project" />
     <orderEntry type="module" module-name="intellij.platform.ide.util.netty" />
-    <orderEntry type="module" module-name="intellij.remoteDev.util" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.platform.feedback" scope="RUNTIME" />
     <orderEntry type="library" name="aalto-xml" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="jgoodies-common" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="jgoodies-forms" level="project" />
@@ -123,7 +110,6 @@
     <orderEntry type="library" name="opentelemetry-semconv" level="project" />
     <orderEntry type="module" module-name="intellij.platform.diagnostic.telemetry" />
     <orderEntry type="library" name="opentelemetry-extension-kotlin" level="project" />
-    <orderEntry type="module" module-name="intellij.platform.tips" scope="RUNTIME" />
     <orderEntry type="library" name="HdrHistogram" level="project" />
     <orderEntry type="module" module-name="intellij.platform.codeStyle.impl" />
     <orderEntry type="module" module-name="intellij.platform.util.text.matching" />
@@ -143,5 +129,19 @@
     <orderEntry type="library" name="jetbrains.intellij.deps.rwmutex.idea" level="project" />
     <orderEntry type="module" module-name="intellij.platform.bootstrap.coroutine" />
     <orderEntry type="library" name="lz4-java" level="project" />
+    <orderEntry type="module" module-name="intellij.platform.ml" />
+    <orderEntry type="library" name="kotlinx-collections-immutable" level="project" />
+    <orderEntry type="module" module-name="intellij.platform.util.io.storages" />
+    <orderEntry type="module" module-name="intellij.platform.core.nio.fs" />
+    <orderEntry type="module" module-name="intellij.platform.ijent.community.impl" />
+    <orderEntry type="module" module-name="intellij.platform.ijent.community.buildConstants" />
+    <orderEntry type="module" module-name="intellij.platform.kernel" />
+    <orderEntry type="module" module-name="intellij.platform.ide.progress" />
+    <orderEntry type="library" name="googlecode.plist.dd" level="project" />
+    <orderEntry type="module" module-name="intellij.platform.project" />
+    <orderEntry type="module" module-name="intellij.platform.jbr" />
+    <orderEntry type="module" module-name="intellij.platform.ui.jcef" />
+    <orderEntry type="module" module-name="fleet.util.core" />
+    <orderEntry type="module" module-name="intellij.platform.eel.provider" />
   </component>
 </module>

@@ -111,8 +111,9 @@ class LoggingSimilarMessageInspection : AbstractBaseUastLocalInspectionTool() {
               val parts = it.parts ?: return@groupBy ""
               if (parts.isEmpty()) return@groupBy ""
               val part0 = if (firstIsTaken) parts[0] else parts.last()
-              if (!part0.isConstant || part0.text == null || part0.text.length < minLength) return@groupBy ""
-              part0.text.substring(0, minLength)
+              val text = part0.text
+              if (!part0.isConstant || text == null || text.length < minLength) return@groupBy ""
+              text.substring(0, minLength)
             }
             .values
             .toSet()
@@ -122,7 +123,8 @@ class LoggingSimilarMessageInspection : AbstractBaseUastLocalInspectionTool() {
           val alreadyHasWarning = mutableSetOf<Int>()
           for (firstIndex in 0..currentGroup.lastIndex) {
             for (secondIndex in firstIndex + 1..currentGroup.lastIndex) {
-              if (similar(currentGroup[firstIndex].parts, currentGroup[secondIndex].parts, myMinTextLength)) {
+              if (similar(currentGroup[firstIndex].parts, currentGroup[secondIndex].parts, myMinTextLength) &&
+                !sequenceOfCalls(currentGroup[firstIndex].call, currentGroup[secondIndex].call)) {
                 if (alreadyHasWarning.add(firstIndex)) {
                   registerProblem(holder, currentGroup[firstIndex].call, currentGroup[secondIndex].call)
                 }
@@ -136,6 +138,24 @@ class LoggingSimilarMessageInspection : AbstractBaseUastLocalInspectionTool() {
       }
 
       return super.visitFile(node)
+    }
+
+    private fun sequenceOfCalls(call1: UCallExpression, call2: UCallExpression): Boolean {
+      val commonParent = PsiTreeUtil.findCommonParent(call1.sourcePsiElement, call2.sourcePsiElement)?.toUElement()
+      if (commonParent is UBlockExpression || commonParent is UMethod) {
+        val uastParent1 = call1.uastParent?.uastParent
+        val uastParent2 = call2.uastParent?.uastParent
+        if (uastParent1 == commonParent ||
+            (uastParent1?.uastParent is UIfExpression && uastParent1.uastParent?.uastParent == commonParent) ||
+            (uastParent1 is UIfExpression && uastParent1.uastParent == commonParent) ||
+            uastParent2 == commonParent ||
+            (uastParent2?.uastParent is UIfExpression && uastParent2.uastParent?.uastParent == commonParent) ||
+            (uastParent2 is UIfExpression && uastParent2.uastParent == commonParent)
+        ) {
+          return true
+        }
+      }
+      return false
     }
 
     private fun collectCalls(file: UFile): Set<UCallExpression> {
@@ -234,8 +254,9 @@ private fun List<LoggingStringPartEvaluator.PartHolder>?.splitWithPlaceholders()
   if (this == null) return null
   val result = mutableListOf<LoggingStringPartEvaluator.PartHolder>()
   for (partHolder in this) {
-    if (partHolder.isConstant && partHolder.text != null) {
-      val withoutPlaceholders = partHolder.text.split("{}")
+    val text = partHolder.text
+    if (partHolder.isConstant && text != null) {
+      val withoutPlaceholders = text.split("{}")
       for ((index, clearPart) in withoutPlaceholders.withIndex()) {
         result.add(LoggingStringPartEvaluator.PartHolder(clearPart, true))
         if (index != withoutPlaceholders.lastIndex) {
@@ -323,6 +344,12 @@ private fun similar(first: List<LoggingStringPartEvaluator.PartHolder>?,
 
   val secondFirstIsText = firstIsText(second)
   val secondLastIsText = lastIsText(second)
+
+  if (first.size == 1 && second.size == 1 &&
+      firstFirstIsText && secondFirstIsText &&
+      first[0].text != second[0].text) {
+    return false
+  }
 
   if (firstFirstIsText != secondFirstIsText) return false
   if (firstLastIsText != secondLastIsText) return false

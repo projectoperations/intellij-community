@@ -8,7 +8,11 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.psi.codeStyle.CodeStyleScheme
 import kotlinx.coroutines.CoroutineScope
 
-@State(name = "ReaderModeSettings", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)])
+class ReaderModeDefaultsOverrideImpl : ReaderModeDefaultsOverride {
+  override val showWarningsDefault = false
+}
+
+@State(name = "ReaderModeSettings", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)], perClient = true)
 class ReaderModeSettingsImpl(override val coroutineScope: CoroutineScope) : PersistentStateComponentWithModificationTracker<ReaderModeSettingsImpl.State>,
                                                                             ReaderModeSettings {
   private var state = State()
@@ -26,7 +30,7 @@ class ReaderModeSettingsImpl(override val coroutineScope: CoroutineScope) : Pers
     @get:ReportValue var increaseLineSpacing: Boolean by property(false)
     @get:ReportValue var showRenderedDocs: Boolean by property(true)
     @get:ReportValue var showInlayHints: Boolean by property(true)
-    @get:ReportValue var showWarnings: Boolean by property(false)
+    @get:ReportValue var showWarnings: Boolean by property(ReaderModeDefaultsOverride.getInstance().showWarningsDefault)
     @get:ReportValue var enabled: Boolean by property(Experiments.getInstance().isFeatureEnabled("editor.reader.mode"))
 
     var mode: ReaderMode = ReaderMode.LIBRARIES_AND_READ_ONLY
@@ -99,6 +103,10 @@ class ReaderModeSettingsImpl(override val coroutineScope: CoroutineScope) : Pers
     }
 
   override fun getState(): State = state
+
+  override fun noStateLoaded() {
+    loadState(State())
+  }
 
   override fun loadState(state: State) {
     this.state = state

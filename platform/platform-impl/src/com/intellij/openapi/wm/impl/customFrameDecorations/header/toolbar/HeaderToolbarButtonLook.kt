@@ -5,13 +5,9 @@ import com.intellij.ide.ProjectWindowCustomizerService
 import com.intellij.openapi.actionSystem.ActionButtonComponent
 import com.intellij.openapi.actionSystem.impl.IdeaActionButtonLook
 import com.intellij.openapi.util.ScalableIcon
-import com.intellij.openapi.wm.impl.headertoolbar.adjustIconForHeader
 import com.intellij.openapi.wm.impl.headertoolbar.isDarkHeader
 import com.intellij.ui.JBColor
-import com.intellij.ui.icons.CachedImageIcon
-import com.intellij.ui.icons.RgbImageFilterSupplier
-import com.intellij.ui.icons.getDisabledIcon
-import com.intellij.ui.icons.loadIconCustomVersionOrScale
+import com.intellij.ui.icons.*
 import com.intellij.util.ui.GrayFilter
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBValue
@@ -86,11 +82,20 @@ open class HeaderToolbarButtonLook(
 
   private fun scaleAndAdjustIcon(icon: Icon): Icon {
     val iconSize = iconSize()
+
+    if (icon is ReplaceableIcon) {
+      val replacer = object: IconReplacer {
+        override fun replaceIcon(icon: Icon): Icon {
+          return scaleAndAdjustIcon(icon)
+        }
+      }
+      return icon.replaceBy(replacer)
+    }
+
     if (icon is CachedImageIcon) {
       return loadIconCustomVersionOrScale(icon = icon, size = iconSize, isDark = isDarkHeader().takeIf { it })
     }
-    else {
-      return adjustIconForHeader(if (icon is ScalableIcon) loadIconCustomVersionOrScale(icon = icon, size = iconSize) else icon)
-    }
+
+    return if (icon is ScalableIcon) loadIconCustomVersionOrScale(icon = icon, size = iconSize) else icon
   }
 }

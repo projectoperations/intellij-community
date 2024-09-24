@@ -52,13 +52,31 @@ abstract class JKVisitorWithCommentsPrinting : JKVisitor() {
 
     open fun visitLocalVariableRaw(localVariable: JKLocalVariable) = visitVariableRaw(localVariable)
 
-    override fun visitForLoopVariable(forLoopVariable: JKForLoopVariable) {
-        printLeftNonCodeElements(forLoopVariable)
-        visitForLoopVariableRaw(forLoopVariable)
-        printRightNonCodeElements(forLoopVariable)
+    override fun visitForLoopParameter(forLoopParameter: JKForLoopParameter) {
+        printLeftNonCodeElements(forLoopParameter)
+        visitForLoopParameterRaw(forLoopParameter)
+        printRightNonCodeElements(forLoopParameter)
     }
 
-    open fun visitForLoopVariableRaw(forLoopVariable: JKForLoopVariable) = visitVariableRaw(forLoopVariable)
+    open fun visitForLoopParameterRaw(forLoopParameter: JKForLoopParameter) = visitParameterRaw(forLoopParameter)
+
+    override fun visitDestructuringDeclaration(destructuringDeclaration: JKKtDestructuringDeclaration) {
+        printLeftNonCodeElements(destructuringDeclaration)
+        visitDestructuringDeclarationRaw(destructuringDeclaration)
+        printRightNonCodeElements(destructuringDeclaration)
+    }
+
+    open fun visitDestructuringDeclarationRaw(destructuringDeclaration: JKKtDestructuringDeclaration) =
+        visitVariableRaw(destructuringDeclaration)
+
+    override fun visitDestructuringDeclarationEntry(destructuringDeclarationEntry: JKKtDestructuringDeclarationEntry) {
+        printLeftNonCodeElements(destructuringDeclarationEntry)
+        visitDestructuringDeclarationEntryRaw(destructuringDeclarationEntry)
+        printRightNonCodeElements(destructuringDeclarationEntry)
+    }
+
+    open fun visitDestructuringDeclarationEntryRaw(destructuringDeclarationEntry: JKKtDestructuringDeclarationEntry) =
+        visitVariableRaw(destructuringDeclarationEntry)
 
     override fun visitParameter(parameter: JKParameter) {
         printLeftNonCodeElements(parameter)
@@ -471,6 +489,14 @@ abstract class JKVisitorWithCommentsPrinting : JKVisitor() {
 
     open fun visitQualifiedExpressionRaw(qualifiedExpression: JKQualifiedExpression) = visitExpressionRaw(qualifiedExpression)
 
+    override fun visitArrayAccessExpression(arrayAccessExpression: JKArrayAccessExpression) {
+        printLeftNonCodeElements(arrayAccessExpression)
+        visitArrayAccessExpressionRaw(arrayAccessExpression)
+        printRightNonCodeElements(arrayAccessExpression)
+    }
+
+    open fun visitArrayAccessExpressionRaw(arrayAccessExpression: JKArrayAccessExpression) = visitExpressionRaw(arrayAccessExpression)
+
     override fun visitParenthesizedExpression(parenthesizedExpression: JKParenthesizedExpression) {
         printLeftNonCodeElements(parenthesizedExpression)
         visitParenthesizedExpressionRaw(parenthesizedExpression)
@@ -593,6 +619,15 @@ abstract class JKVisitorWithCommentsPrinting : JKVisitor() {
     }
 
     open fun visitMethodAccessExpressionRaw(methodAccessExpression: JKMethodAccessExpression) = visitExpressionRaw(methodAccessExpression)
+
+    override fun visitTypeQualifierExpression(typeQualifierExpression: JKTypeQualifierExpression) {
+        printLeftNonCodeElements(typeQualifierExpression)
+        visitTypeQualifierExpressionRaw(typeQualifierExpression)
+        printRightNonCodeElements(typeQualifierExpression)
+    }
+
+    open fun visitTypeQualifierExpressionRaw(typeQualifierExpression: JKTypeQualifierExpression) =
+        visitExpressionRaw(typeQualifierExpression)
 
     override fun visitClassAccessExpression(classAccessExpression: JKClassAccessExpression) {
         printLeftNonCodeElements(classAccessExpression)

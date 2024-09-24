@@ -7,8 +7,6 @@ import com.intellij.history.integration.ui.actions.LocalHistoryGroup
 import com.intellij.history.integration.ui.actions.ShowHistoryAction
 import com.intellij.icons.AllIcons
 import com.intellij.idea.ActionsBundle
-import com.intellij.openapi.actionSystem.CommonDataKeys
-import com.intellij.openapi.actionSystem.DataProvider
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.actionSystem.impl.ActionMenu
 import com.intellij.openapi.actionSystem.impl.ActionMenuItem
@@ -17,6 +15,7 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.editor.EditorModificationUtil
 import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.editor.ex.EditorEx
@@ -27,17 +26,10 @@ import com.intellij.openapi.progress.runBackgroundableTask
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.Balloon
-import com.intellij.openapi.util.io.FileUtil
-import com.intellij.ui.components.JBLoadingPanel
-import com.intellij.ui.components.JBLoadingPanelListener
-import com.intellij.ui.table.JBTable
-import com.intellij.ui.tabs.impl.SingleHeightTabs
+import com.intellij.platform.lvcs.impl.ui.ActivityList
 import com.intellij.util.DocumentUtil
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
-import com.intellij.util.ui.UIUtil
-import org.assertj.swing.core.MouseButton
-import org.assertj.swing.data.TableCell
-import org.assertj.swing.fixture.JTableFixture
+import org.assertj.swing.fixture.JListFixture
 import org.jetbrains.annotations.Nls
 import training.FeaturesTrainerIcons
 import training.dsl.*
@@ -55,13 +47,13 @@ import training.util.LessonEndInfo
 import java.awt.Component
 import java.awt.Point
 import java.awt.Rectangle
-import java.util.concurrent.CompletableFuture
-import javax.swing.JFrame
 
-class LocalHistoryLesson(private val helpUrl: String = "local-history.html")
-  : KLesson("CodeAssistance.LocalHistory", LessonsBundle.message("local.history.lesson.name")) {
+class LocalHistoryLesson(
+  override val sampleFilePath: String? = null,
+  override val lessonType: LessonType = LessonType.SCRATCH,
+  private val helpUrl: String = "local-history.html",
+) : KLesson("CodeAssistance.LocalHistory", LessonsBundle.message("local.history.lesson.name")) {
   override val languageId = "yaml"
-  override val lessonType = LessonType.SCRATCH
   override val properties = LessonProperties(availableSince = "212.5284")
 
   private val lineToDelete = 14
@@ -191,14 +183,11 @@ class LocalHistoryLesson(private val helpUrl: String = "local-history.html")
       }
     }
 
-    var revisionsTable: JBTable? = null
+    var revisionsList: ActivityList? = null
     task {
-      triggerAndBorderHighlight().componentPart { ui: JBTable ->
-        if (checkInsideLocalHistoryFrame(ui)) {
-          revisionsTable = ui
-          ui.getCellRect(revisionInd, 0, false)
-        }
-        else null
+      triggerAndBorderHighlight().componentPart { ui: ActivityList ->
+        revisionsList = ui
+        ui.getCellBounds(revisionInd, revisionInd)
       }
     }
 
@@ -206,31 +195,14 @@ class LocalHistoryLesson(private val helpUrl: String = "local-history.html")
     task {
       selectRevisionTaskId = taskId
       text(LessonsBundle.message("local.history.select.revision", strong(localHistoryActionText), strong(localHistoryActionText)))
-      val step = CompletableFuture<Boolean>()
-      addStep(step)
-      triggerUI { clearPreviousHighlights = false }.component l@{ ui: JBLoadingPanel ->
-        if (!checkInsideLocalHistoryFrame(ui)) return@l false
-        ui.addListener(object : JBLoadingPanelListener {
-          override fun onLoadingStart() {
-            // do nothing
-          }
-
-          override fun onLoadingFinish() {
-            val revisions = revisionsTable ?: return
-            if (revisions.selectionModel.selectedIndices.let { it.size == 1 && it[0] == revisionInd }) {
-              ui.removeListener(this)
-              step.complete(true)
-            }
-          }
-        })
-        true
+      stateCheck {
+        revisionsList?.selectionModel?.selectedIndices?.let { it.size == 1 && it[0] == revisionInd } == true
       }
       restoreByUi(invokeMenuTaskId, delayMillis = defaultRestoreDelay)
       test {
         ideFrame {
-          Thread.sleep(1000)
-          val table = revisionsTable ?: error("revisionsTable is not initialized")
-          JTableFixture(robot(), table).click(TableCell.row(revisionInd).column(0), MouseButton.LEFT_BUTTON)
+          val list = revisionsList ?: error("revisionsTable is not initialized")
+          JListFixture(robot(), list).clickItem(revisionInd)
         }
       }
     }
@@ -248,7 +220,7 @@ class LocalHistoryLesson(private val helpUrl: String = "local-history.html")
       }
       restoreByUi(invokeMenuTaskId)
       restoreState(selectRevisionTaskId) l@{
-        val revisions = revisionsTable ?: return@l false
+        val revisions = revisionsList ?: return@l false
         revisions.selectionModel.selectedIndices.let { it.size != 1 || it[0] != revisionInd }
       }
       test {
@@ -262,11 +234,10 @@ class LocalHistoryLesson(private val helpUrl: String = "local-history.html")
 
     task {
       before { LearningUiHighlightingManager.clearHighlights() }
-      text(LessonsBundle.message("local.history.close.window", action("EditorEscape")))
+      text(LessonsBundle.message("local.history.close.window", action("EditorEscape")),
+           LearningBalloonConfig(Balloon.Position.atLeft, width = 0, duplicateMessage = true))
       stateCheck {
-        val focusedEditor = focusOwner as? EditorComponentImpl
-        // check that it is editor from main IDE frame
-        focusedEditor != null && UIUtil.getParentOfType(SingleHeightTabs::class.java, focusedEditor) != null
+        isMainEditorComponent(focusOwner)
       }
       test {
         invokeActionViaShortcut("ESCAPE")
@@ -283,8 +254,8 @@ class LocalHistoryLesson(private val helpUrl: String = "local-history.html")
   override fun onLessonEnd(project: Project, lessonEndInfo: LessonEndInfo) {
     if (!lessonEndInfo.lessonPassed) return
     ApplicationManager.getApplication().executeOnPooledThread {
-      val editorComponent = LearningUiUtil.findComponentOrNull(project, EditorComponentImpl::class.java) { editor ->
-        UIUtil.getParentOfType(SingleHeightTabs::class.java, editor) != null
+      val editorComponent = LearningUiUtil.findComponentOrNull(project, EditorComponentImpl::class.java) { component ->
+        isMainEditorComponent(component)
       } ?: error("Failed to find editor component")
       invokeLater {
         val lines = textToDelete.lines()
@@ -308,7 +279,7 @@ class LocalHistoryLesson(private val helpUrl: String = "local-history.html")
   }
 
   private fun findDiffGutterRect(ui: EditorGutterComponentEx): Rectangle? {
-    val editor = CommonDataKeys.EDITOR.getData(ui as DataProvider) ?: return null
+    val editor = ui.editor
     val offset = editor.document.charsSequence.indexOf(textToDelete)
     return if (offset != -1) {
       val lineIndex = editor.document.getLineNumber(offset)
@@ -320,9 +291,8 @@ class LocalHistoryLesson(private val helpUrl: String = "local-history.html")
     else null
   }
 
-  private fun TaskRuntimeContext.checkInsideLocalHistoryFrame(component: Component): Boolean {
-    val frame = UIUtil.getParentOfType(JFrame::class.java, component)
-    return frame?.title == FileUtil.toSystemDependentName(virtualFile.path)
+  private fun isMainEditorComponent(component: Component?): Boolean {
+    return component is EditorComponentImpl && component.editor.editorKind == EditorKind.MAIN_EDITOR
   }
 
   // If message is null it will remove the existing hint and allow file modification

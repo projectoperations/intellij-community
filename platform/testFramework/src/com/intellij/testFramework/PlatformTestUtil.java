@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework;
 
 import com.intellij.concurrency.ThreadContext;
@@ -59,9 +59,9 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileFilter;
 import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
+import com.intellij.platform.testFramework.core.FileComparisonFailedError;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.reference.impl.PsiMultiReference;
-import com.intellij.rt.execution.junit.FileComparisonFailure;
 import com.intellij.testFramework.common.TestApplicationKt;
 import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy;
 import com.intellij.ui.ClientProperty;
@@ -421,7 +421,7 @@ public final class PlatformTestUtil {
     AtomicBoolean pooledRunnableInvoked = new AtomicBoolean();
     AtomicBoolean alarmInvoked1 = new AtomicBoolean();
     AtomicBoolean alarmInvoked2 = new AtomicBoolean();
-    Alarm alarm = new Alarm();
+    Alarm alarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, tempDisposable);
     Alarm pooledAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, tempDisposable);
     ModalityState initialModality = ModalityState.current();
 
@@ -496,7 +496,7 @@ public final class PlatformTestUtil {
   public static void dispatchAllEventsInIdeEventQueue() {
     assertEventQueueDispatchThread();
     while (true) {
-      try (AccessToken ignored = ThreadContext.resetThreadContext()) {
+      try {
         if (dispatchNextEventIfAny() == null) break;
       }
       catch (InterruptedException e) {
@@ -509,13 +509,15 @@ public final class PlatformTestUtil {
    * Dispatch one pending event (if any) in the {@link IdeEventQueue}. Should only be invoked from EDT.
    */
   public static AWTEvent dispatchNextEventIfAny() throws InterruptedException {
-    assertEventQueueDispatchThread();
-    IdeEventQueue eventQueue = IdeEventQueue.getInstance();
-    AWTEvent event = eventQueue.peekEvent();
-    if (event == null) return null;
-    AWTEvent event1 = eventQueue.getNextEvent();
-    eventQueue.dispatchEvent(event1);
-    return event1;
+    try (AccessToken ignored = ThreadContext.resetThreadContext()) {
+      assertEventQueueDispatchThread();
+      IdeEventQueue eventQueue = IdeEventQueue.getInstance();
+      AWTEvent event = eventQueue.peekEvent();
+      if (event == null) return null;
+      AWTEvent event1 = eventQueue.getNextEvent();
+      eventQueue.dispatchEvent(event1);
+      return event1;
+    }
   }
 
   public static @NotNull StringBuilder print(@NotNull AbstractTreeStructure structure,
@@ -640,13 +642,16 @@ public final class PlatformTestUtil {
 
   /**
    * Init a performance test.<br/>
-   * E.g: {@code newPerformanceTest("calculating pi", () -> { CODE_TO_BE_MEASURED_IS_HERE }).start();}
-   * @see PerformanceTestInfo#start()
+   * E.g: {@code newBenchmark("calculating pi", () -> { CODE_TO_BE_MEASURED_IS_HERE }).start();}
+   * If you need to customize published metrics, use
+   * {@code com.intellij.tools.ide.metrics.benchmark.Benchmark#newBenchmark} and
+   * method {@code PerformanceTestInfoImpl#withMetricsCollector}.
+   * @see BenchmarkTestInfo#start()
    */
   // to warn about not calling .assertTiming() in the end
   @Contract(pure = true)
-  public static @NotNull PerformanceTestInfo newPerformanceTest(@NonNls @NotNull String launchName, @NotNull ThrowableRunnable<?> test) {
-    return newPerformanceTestWithVariableInputSize(launchName, 1, () -> {
+  public static @NotNull BenchmarkTestInfo newBenchmark(@NonNls @NotNull String launchName, @NotNull ThrowableRunnable<?> test) {
+    return newBenchmarkWithVariableInputSize(launchName, 1, () -> {
       test.run();
       return 1;
     });
@@ -659,14 +664,14 @@ public final class PlatformTestUtil {
    * @param expectedInputSize specifies size of the input,
    * @param test returns actual size of the input. It is supposed that the execution time is lineally proportionally dependent on the input size.
    *
-   * @see PerformanceTestInfo#start()
+   * @see BenchmarkTestInfo#start()
    * </p>
    */
   @Contract(pure = true)
-  public static @NotNull PerformanceTestInfo newPerformanceTestWithVariableInputSize(@NonNls @NotNull String launchName,
-                                                                                     int expectedInputSize,
-                                                                                     @NotNull ThrowableComputable<Integer, ?> test) {
-    return new PerformanceTestInfo(test, expectedInputSize, launchName);
+  public static @NotNull BenchmarkTestInfo newBenchmarkWithVariableInputSize(@NonNls @NotNull String launchName,
+                                                                             int expectedInputSize,
+                                                                             @NotNull ThrowableComputable<Integer, ?> test) {
+    return BenchmarkTestInfoLoader.Companion.getInstance().initialize(test, expectedInputSize, launchName);
   }
 
   public static void assertPathsEqual(@Nullable String expected, @Nullable String actual) {
@@ -703,7 +708,7 @@ public final class PlatformTestUtil {
     OpenProjectTaskBuilderKt.saveProject(project, isForceSavingAllSettings);
   }
 
-  static void waitForAllBackgroundActivityToCalmDown() {
+  public static void waitForAllBackgroundActivityToCalmDown() {
     for (int i = 0; i < 50; i++) {
       CpuUsageData data = CpuUsageData.measureCpuUsage(() -> TimeoutUtil.sleep(100));
       if (!data.hasAnyActivityBesides(Thread.currentThread())) {
@@ -812,8 +817,8 @@ public final class PlatformTestUtil {
         assertArrayEquals(fileExpected.getPath(), fileExpected.contentsToByteArray(), fileActual.contentsToByteArray());
       }
       else if (!StringUtil.equals(expected, actual)) {
-        throw new FileComparisonFailure("Text mismatch in the file " + fileExpected.getName(), expected, actual,
-                                        fileActual.getUserData(VfsTestUtil.TEST_DATA_FILE_PATH));
+        throw new FileComparisonFailedError("Text mismatch in the file " + fileExpected.getName(), expected, actual,
+                                            fileActual.getUserData(VfsTestUtil.TEST_DATA_FILE_PATH));
       }
     }
   }
@@ -1147,7 +1152,7 @@ public final class PlatformTestUtil {
     boolean[] failure = {false};
     ProgramRunnerUtil.executeConfigurationAsync(executionEnvironment, false, false, new ProgramRunner.Callback() {
       @Override
-      public void processNotStarted() {
+      public void processNotStarted(@Nullable Throwable error) {
         failure[0] = true;
       }
 

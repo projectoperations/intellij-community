@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs;
 
 import com.intellij.codeInsight.daemon.impl.FileStatusMap;
@@ -62,6 +62,9 @@ final class RefreshSessionImpl extends RefreshSession {
     TransactionGuard.getInstance().assertWriteSafeContext(myModality);
     var app = ApplicationManager.getApplication();
     myStartTrace = app.isUnitTestMode() && (async || !app.isDispatchThread()) ? new Throwable() : null;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("RefreshSessionImpl created. Trace.", new Throwable());
+    }
   }
 
   RefreshSessionImpl(List<VirtualFile> files) {
@@ -120,6 +123,10 @@ final class RefreshSessionImpl extends RefreshSession {
     myLaunched = true;
     mySemaphore.down();
     ((RefreshQueueImpl)RefreshQueue.getInstance()).execute(this);
+  }
+
+  boolean isEventSession() {
+    return myWorkQueue.isEmpty() && !myEvents.isEmpty();
   }
 
   Collection<VFileEvent> scan(long timeInQueue) {

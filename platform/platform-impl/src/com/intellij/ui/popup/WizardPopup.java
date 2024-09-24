@@ -3,6 +3,7 @@ package com.intellij.ui.popup;
 
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
@@ -124,7 +125,7 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
     for (Object item : itemsSource.getValues()) {
       if (item instanceof ShortcutProvider itemShortcut) {
         var shortcut = itemShortcut.getShortcut();
-        if (shortcut != null) {
+        if (shortcut != null && shortcut.hasShortcuts()) {
           var action = new ActionShortcutDelegate(item, shortcut);
           action.registerCustomShortcutSet(component, this);
         }
@@ -378,7 +379,7 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   }
 
   public final boolean dispatch(KeyEvent event) {
-    if (anyModalWindowsKeepPopupOpen()) {
+    if (anyModalWindowsAbovePopup()) {
       return false; // Popups should not process key events if there's a modal dialog on top of them.
     }
     if (event.getID() == KeyEvent.KEY_PRESSED) {
@@ -412,7 +413,9 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
     if (myInputMap.get(stroke) != null) {
       final Action action = myActionMap.get(myInputMap.get(stroke));
       if (action != null && action.isEnabled()) {
-        action.actionPerformed(new ActionEvent(getContent(), event.getID(), "", event.getWhen(), event.getModifiers()));
+        WriteIntentReadAction.run(
+          (Runnable)() -> action.actionPerformed(new ActionEvent(getContent(), event.getID(), "", event.getWhen(), event.getModifiers()))
+        );
         event.consume();
         return true;
       }
@@ -506,7 +509,7 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   }
 
   @Override
-  public final void setFinalRunnable(Runnable runnable) {
+  public final void setFinalRunnable(@Nullable Runnable runnable) {
     if (getParent() == null) {
       super.setFinalRunnable(runnable);
     } else {

@@ -23,11 +23,13 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.wsl.WSLDistribution;
 import com.intellij.execution.wsl.WslDistributionManager;
 import com.intellij.execution.wsl.WslPath;
+import com.intellij.execution.wsl.WslProxy;
 import com.intellij.ide.IdleTracker;
 import com.intellij.ide.PowerSaveMode;
 import com.intellij.ide.actions.RevealFileAction;
 import com.intellij.ide.file.BatchFileChangeListener;
 import com.intellij.ide.impl.TrustedProjects;
+import com.intellij.l10n.LocalizationUtil;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
@@ -40,6 +42,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
 import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl;
@@ -74,7 +77,8 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
-import com.intellij.openapi.wm.IdeFrame;
+import com.intellij.platform.backend.workspace.GlobalWorkspaceModelCache;
+import com.intellij.platform.backend.workspace.WorkspaceModelCache;
 import com.intellij.serviceContainer.AlreadyDisposedException;
 import com.intellij.ui.ComponentUtil;
 import com.intellij.util.*;
@@ -88,6 +92,7 @@ import com.intellij.util.io.BaseOutputReader;
 import com.intellij.util.io.storage.HeavyProcessLatch;
 import com.intellij.util.lang.JavaVersion;
 import com.intellij.util.messages.MessageBusConnection;
+import com.intellij.util.messages.SimpleMessageBusConnection;
 import com.intellij.util.net.NetUtils;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
@@ -142,11 +147,12 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import static com.intellij.ide.impl.ProjectUtil.getProjectForComponent;
 import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage.ParametersMessage.TargetTypeBuildScope;
 
 public final class BuildManager implements Disposable {
   public static final Key<Boolean> ALLOW_AUTOMAKE = Key.create("_allow_automake_when_process_is_active_");
-  private static final Key<Integer> COMPILER_PROCESS_DEBUG_PORT = Key.create("_compiler_process_debug_port_");
+  private static final Key<String> COMPILER_PROCESS_DEBUG_HOST_PORT = Key.create("_compiler_process_debug_host_port_");
   private static final Key<CharSequence> STDERR_OUTPUT = Key.create("_process_launch_errors_");
   private static final SimpleDateFormat USAGE_STAMP_DATE_FORMAT = new SimpleDateFormat("dd.MM.yyyy");
 
@@ -168,6 +174,8 @@ public final class BuildManager implements Disposable {
     s -> !(s.contains(IDEA_PROJECT_DIR_PATTERN) || s.endsWith(IWS_EXTENSION) || s.endsWith(IPR_EXTENSION)) :
     s -> !(Strings.endsWithIgnoreCase(s, IWS_EXTENSION) || Strings.endsWithIgnoreCase(s, IPR_EXTENSION) || StringUtil.containsIgnoreCase(s, IDEA_PROJECT_DIR_PATTERN));
 
+  private static final String JPS_USE_EXPERIMENTAL_STORAGE = "jps.use.experimental.storage";
+
   private final String myFallbackSdkHome;
   private final String myFallbackSdkVersion;
 
@@ -181,51 +189,9 @@ public final class BuildManager implements Disposable {
   private final Map<String, ProjectData> myProjectDataMap = Collections.synchronizedMap(new HashMap<>());
   private final AtomicInteger mySuspendBackgroundTasksCounter = new AtomicInteger(0);
 
-  private final BuildManagerPeriodicTask myAutoMakeTask = new BuildManagerPeriodicTask() {
-    @Override
-    protected int getDelay() {
-      return Registry.intValue("compiler.automake.trigger.delay");
-    }
+  private final BuildManagerPeriodicTask myAutoMakeTask;
 
-    @Override
-    protected void runTask() {
-      runAutoMake();
-    }
-
-    @Override
-    protected boolean shouldPostpone() {
-      // Heuristics for automake postpone decision:
-      // 1. There are unsaved documents OR
-      // 2. The IDE is not idle: the last activity happened less than 3 seconds ago (registry-configurable)
-      if (FileDocumentManager.getInstance().getUnsavedDocuments().length > 0) {
-        return true;
-      }
-      final long threshold = Registry.intValue("compiler.automake.postpone.when.idle.less.than", 3000); // todo: UI option instead of registry?
-      final long idleSinceLastActivity = ApplicationManager.getApplication().getIdleTime();
-      return idleSinceLastActivity < threshold;
-    }
-  };
-
-  private final BuildManagerPeriodicTask myDocumentSaveTask = new BuildManagerPeriodicTask() {
-    @Override
-    protected int getDelay() {
-      return Registry.intValue("compiler.document.save.trigger.delay");
-    }
-
-    @Override
-    public void runTask() {
-      if (shouldSaveDocuments()) {
-        ApplicationManager.getApplication().invokeAndWait(
-          () -> ((FileDocumentManagerImpl)FileDocumentManager.getInstance()).saveAllDocuments(false)
-        );
-      }
-    }
-
-    private static boolean shouldSaveDocuments() {
-      final Project contextProject = getCurrentContextProject();
-      return contextProject != null && canStartAutoMake(contextProject);
-    }
-  };
+  private final BuildManagerPeriodicTask myDocumentSaveTask;
 
   private final Runnable myGCTask = () -> {
     // todo: make customizable in UI?
@@ -285,13 +251,59 @@ public final class BuildManager implements Disposable {
   }
 
   private final List<ListeningConnection> myListeningConnections = new ArrayList<>();
+  private final Map<String, WslProxy> myWslProxyCache = new HashMap<>();
 
   private final @NotNull Charset mySystemCharset = CharsetToolkit.getDefaultSystemCharset();
   private volatile boolean myBuildProcessDebuggingEnabled;
 
   public BuildManager(@NotNull CoroutineScope coroutineScope) {
-    myRequestsProcessor = AppJavaExecutorUtil.createSingleTaskApplicationPoolExecutor("BuildManager RequestProcessor Pool", coroutineScope);
-    myAutomakeTrigger = AppJavaExecutorUtil.createSingleTaskApplicationPoolExecutor("BuildManager Auto-Make Trigger", coroutineScope);
+    myRequestsProcessor = AppJavaExecutorUtil.createBoundedTaskExecutor("BuildManager RequestProcessor Pool", coroutineScope);
+    myAutomakeTrigger = AppJavaExecutorUtil.createBoundedTaskExecutor("BuildManager Auto-Make Trigger", coroutineScope);
+
+    myAutoMakeTask = new BuildManagerPeriodicTask(coroutineScope) {
+      @Override
+      protected int getDelay() {
+        return Registry.intValue("compiler.automake.trigger.delay");
+      }
+
+      @Override
+      protected void runTask() {
+        runAutoMake();
+      }
+
+      @Override
+      protected boolean shouldPostpone() {
+        // Heuristics for automake postpone decision:
+        // 1. There are unsaved documents OR
+        // 2. The IDE is not idle: the last activity happened less than 3 seconds ago (registry-configurable)
+        if (FileDocumentManager.getInstance().getUnsavedDocuments().length > 0) {
+          return true;
+        }
+        final long threshold = Registry.intValue("compiler.automake.postpone.when.idle.less.than", 3000); // todo: UI option instead of registry?
+        final long idleSinceLastActivity = ApplicationManager.getApplication().getIdleTime();
+        return idleSinceLastActivity < threshold;
+      }
+    };
+    myDocumentSaveTask = new BuildManagerPeriodicTask(coroutineScope) {
+      @Override
+      protected int getDelay() {
+        return Registry.intValue("compiler.document.save.trigger.delay");
+      }
+
+      @Override
+      public void runTask() {
+        if (shouldSaveDocuments()) {
+          ApplicationManager.getApplication().invokeAndWait(
+            () -> ((FileDocumentManagerImpl)FileDocumentManager.getInstance()).saveAllDocuments(false)
+          );
+        }
+      }
+
+      private static boolean shouldSaveDocuments() {
+        final Project contextProject = getCurrentContextProject();
+        return contextProject != null && canStartAutoMake(contextProject);
+      }
+    };
 
     final Application application = ApplicationManager.getApplication();
     IS_UNIT_TEST_MODE = application.isUnitTestMode();
@@ -308,7 +320,7 @@ public final class BuildManager implements Disposable {
       myFallbackSdkVersion = fallbackSdkVersion;
     }
 
-    MessageBusConnection connection = application.getMessageBus().connect(this);
+    SimpleMessageBusConnection connection = application.getMessageBus().connect(coroutineScope);
     connection.subscribe(ProjectCloseListener.TOPIC, new ProjectWatcher());
     connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
@@ -317,7 +329,7 @@ public final class BuildManager implements Disposable {
           synchronized (myUnprocessedEvents) {
             myUnprocessedEvents.addAll(events);
           }
-          myAutomakeTrigger.schedule(() -> {
+          myAutomakeTrigger.execute(() -> {
             if (!application.isDisposed()) {
               ReadAction.run(()-> {
                 if (application.isDisposed()) {
@@ -404,7 +416,10 @@ public final class BuildManager implements Disposable {
       });
     }
 
-    ShutDownTracker.getInstance().registerShutdownTask(this::stopListening);
+    ShutDownTracker.getInstance().registerShutdownTask(() -> {
+      stopListening();
+      clearWslProxyCache();
+    });
 
     if (!IS_UNIT_TEST_MODE) {
       ScheduledFuture<?> future = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(() -> runCommand(myGCTask), 3, 180, TimeUnit.MINUTES);
@@ -515,7 +530,7 @@ public final class BuildManager implements Disposable {
   }
 
   public void runCommand(@NotNull Runnable command) {
-    myRequestsProcessor.schedule(command);
+    myRequestsProcessor.execute(command);
   }
 
   private void doNotify(final Supplier<Collection<? extends File>> pathsProvider, final boolean notifyDeletion) {
@@ -571,8 +586,10 @@ public final class BuildManager implements Disposable {
   private static @NotNull Function<String, String> wslPathMapper(@Nullable WSLDistribution distribution) {
     return distribution == null?
       Function.identity() :
-      // interned paths collapse repeated slashes so \\wsl$ ends up /wsl$
-      path -> path.startsWith("/wsl$")? distribution.getWslPath("/" + path) : path;
+      path -> {
+        WslPath wslPath = WslPath.parseWindowsUncPath(path);
+        return wslPath != null && wslPath.getDistribution().getId().equalsIgnoreCase(distribution.getId())? wslPath.getLinuxPath() : path;
+      };
   }
 
   private static Function<String, String> wslPathMapper(@NotNull String projectPath) {
@@ -584,7 +601,7 @@ public final class BuildManager implements Disposable {
         if (myImpl != null) {
           return myImpl.apply(path);
         }
-        if (path.startsWith("/wsl$")) {
+        if (WslPath.isWslUncPath(path)) {
           Project project = findProjectByProjectPath(projectPath);
           myImpl = wslPathMapper(project != null ? findWSLDistribution(project) : null);
           return myImpl.apply(path);
@@ -712,10 +729,8 @@ public final class BuildManager implements Disposable {
       final TaskFuture<?> future = scheduleBuild(
         project, false, true, false, scopes, Collections.emptyList(), Collections.singletonMap(BuildParametersKeys.IS_AUTOMAKE, "true"), handler
       );
-      if (future != null) {
-        myAutomakeFutures.put(future, project);
-        futures.add(new Pair<>(future, handler));
-      }
+      myAutomakeFutures.put(future, project);
+      futures.add(new Pair<>(future, handler));
     }
     boolean needAdditionalBuild = false;
     for (Pair<TaskFuture<?>, AutoMakeMessageHandler> pair : futures) {
@@ -766,11 +781,7 @@ public final class BuildManager implements Disposable {
       if (window == null) {
         window = ComponentUtil.getActiveWindow();
       }
-
-      Component component = ComponentUtil.findUltimateParent(window);
-      if (component instanceof IdeFrame) {
-        project = ((IdeFrame)component).getProject();
-      }
+      project = getProjectForComponent(window);
     }
 
     return isValidProject(project)? project : null;
@@ -858,7 +869,7 @@ public final class BuildManager implements Disposable {
     return result != null && !result.first.isDone()? result : null;
   }
 
-  public @Nullable TaskFuture<?> scheduleBuild(
+  public @NotNull TaskFuture<?> scheduleBuild(
     final Project project, final boolean isRebuild, final boolean isMake,
     final boolean onlyCheckUpToDate, final List<TargetTypeBuildScope> scopes,
     final Collection<String> paths,
@@ -869,15 +880,6 @@ public final class BuildManager implements Disposable {
     final boolean isAutomake = messageHandler instanceof AutoMakeMessageHandler;
     final WSLDistribution wslDistribution = findWSLDistribution(project);
     final BuilderMessageHandler handler = new NotifyingMessageHandler(project, messageHandler, wslDistribution != null ? wslDistribution::getWindowsPath : null, isAutomake);
-    try {
-      ensureListening(wslDistribution != null ? wslDistribution.getHostIpAddress() : InetAddress.getLoopbackAddress());
-    }
-    catch (Exception e) {
-      final UUID sessionId = UUID.randomUUID(); // the actual session did not start; use random UUID
-      handler.handleFailure(sessionId, CmdlineProtoUtil.createFailure(e.getMessage(), null));
-      handler.sessionTerminated(sessionId);
-      return null;
-    }
     Function<String, String> pathMapper = wslDistribution != null ? wslDistribution::getWslPath : Function.identity();
 
     final DelegateFuture _future = new DelegateFuture();
@@ -997,14 +999,14 @@ public final class BuildManager implements Disposable {
                 processHandler.startNotify();
               }
 
-              Integer debugPort = processHandler.getUserData(COMPILER_PROCESS_DEBUG_PORT);
+              @NlsSafe String debugPort = processHandler.getUserData(COMPILER_PROCESS_DEBUG_HOST_PORT);
               if (debugPort != null) {
                 messageHandler.handleCompileMessage(
                   sessionId, CmdlineProtoUtil.createCompileProgressMessageResponse("Build: waiting for debugger connection on port " + debugPort //NON-NLS
                 ).getCompileMessage());
                 // additional support for debugger auto-attach feature
                 //noinspection UseOfSystemOutOrSystemErr
-                System.out.println("Build: Listening for transport dt_socket at address: " + debugPort.intValue()); //NON-NLS
+                System.out.println("Build: Listening for transport dt_socket at address: " + debugPort); //NON-NLS
               }
 
               while (!processHandler.waitFor()) {
@@ -1124,9 +1126,30 @@ public final class BuildManager implements Disposable {
     return startListening(inetAddress);
   }
 
+  private synchronized int getWslPort(WSLDistribution dist, int localPort) {
+    return myWslProxyCache.computeIfAbsent(dist.getId() + ":" + localPort, key -> new WslProxy(dist, localPort)).getWslIngressPort();
+  }
+
+  private synchronized void cleanWslProxies(WSLDistribution dist) {
+    String idPrefix = dist.getId() + ":";
+    List<String> keys = new SmartList<>();
+    for (String key : myWslProxyCache.keySet()) {
+      if (key.startsWith(idPrefix)) {
+        keys.add(key);
+      }
+    }
+    for (String key : keys) {
+      WslProxy proxy = myWslProxyCache.remove(key);
+      if (proxy != null) {
+        Disposer.dispose(proxy);
+      }
+    }
+  }
+
   @Override
   public void dispose() {
     stopListening();
+    clearWslProxyCache();
     myAutomakeTrigger.cancel();
     myRequestsProcessor.cancel();
   }
@@ -1307,15 +1330,22 @@ public final class BuildManager implements Disposable {
       }
 
       vmExecutablePath = projectJdkType.getVMExecutablePath(projectJdk);
+      project.getService(BuildManagerVersionChecker.class).checkArch(projectJdk.getHomePath());
     }
     else {
       sdkName = forcedCompiledJdkHome;
       compilerPath = new File(forcedCompiledJdkHome, "lib/tools.jar").getAbsolutePath();
       vmExecutablePath = new File(forcedCompiledJdkHome, "bin/java").getAbsolutePath();
+      project.getService(BuildManagerVersionChecker.class).checkArch(forcedCompiledJdkHome);
     }
 
     final CompilerConfiguration projectConfig = CompilerConfiguration.getInstance(project);
     final CompilerWorkspaceConfiguration config = CompilerWorkspaceConfiguration.getInstance(project);
+
+    InetAddress listenAddress = InetAddress.getLoopbackAddress();
+    int listenPort = ensureListening(listenAddress);
+    String buildProcessConnectHost = listenAddress.getHostAddress();
+    int buildProcessConnectPort = listenPort;
 
     BuildCommandLineBuilder cmdLine;
     WslPath wslPath = WslPath.parseWindowsUncPath(vmExecutablePath);
@@ -1325,6 +1355,8 @@ public final class BuildManager implements Disposable {
         throw new ExecutionException(JavaCompilerBundle.message("build.process.wsl.distribution.dont.match", sdkName + " (WSL " + sdkDistribution.getPresentableName() + ")", MINIMUM_REQUIRED_JPS_BUILD_JAVA_VERSION));
       }
       cmdLine = new WslBuildCommandLineBuilder(project, sdkDistribution, wslPath.getLinuxPath(), progressIndicator);
+      buildProcessConnectHost = "127.0.0.1"; // WslProxy listen address on linux side
+      buildProcessConnectPort = getWslPort(sdkDistribution, listenPort);
     }
     else {
       if (projectWslDistribution != null) {
@@ -1332,7 +1364,6 @@ public final class BuildManager implements Disposable {
       }
       cmdLine = new LocalBuildCommandLineBuilder(vmExecutablePath);
     }
-    int listenPort = ensureListening(cmdLine.getListenAddress());
 
     boolean profileWithYourKit = false;
     boolean isAgentpathSet = false;
@@ -1376,15 +1407,33 @@ public final class BuildManager implements Disposable {
     }
 
     cmdLine.addParameter("-Djava.awt.headless=true");
+    if (Boolean.getBoolean(JPS_USE_EXPERIMENTAL_STORAGE)) {
+      cmdLine.addParameter("-D" + JPS_USE_EXPERIMENTAL_STORAGE + "=true");
+    }
 
     String jnaBootLibraryPath = System.getProperty("jna.boot.library.path");
-    if (jnaBootLibraryPath != null) {
+    if (jnaBootLibraryPath != null && wslPath == null) {
       //noinspection SpellCheckingInspection
       cmdLine.addParameter("-Djna.boot.library.path=" + jnaBootLibraryPath);
       //noinspection SpellCheckingInspection
       cmdLine.addParameter("-Djna.nosys=true");
       //noinspection SpellCheckingInspection
       cmdLine.addParameter("-Djna.noclasspath=true");
+    }
+    if (Registry.is("jps.build.use.workspace.model")) {
+      cmdLine.addParameter("-Dintellij.jps.use.workspace.model=true");
+      WorkspaceModelCache cache = WorkspaceModelCache.getInstance(project);
+      GlobalWorkspaceModelCache globalCache = GlobalWorkspaceModelCache.getInstance();
+      if (cache != null && globalCache != null) {
+        //todo ensure that caches are up-to-date or use a different way to pass serialized workspace model to the build process
+        cmdLine.addParameter("-Djps.workspace.storage.project.cache.path=" + cache.getCacheFile());
+        cmdLine.addParameter("-Djps.workspace.storage.global.cache.path=" + globalCache.getCacheFile());
+        cmdLine.addParameter("-Djps.workspace.storage.relative.paths.in.cache=" + Registry.is("ide.workspace.model.store.relative.paths.in.cache", false));
+      }
+      else {
+        LOG.info("Workspace model caches aren't available and won't be used in the build process");
+      }
+      cmdLine.addParameter("--add-opens=java.base/java.util=ALL-UNNAMED");//used by com.esotericsoftware.kryo.kryo5.serializers.CachedFields.addField
     }
 
     if (sdkVersion != null) {
@@ -1475,28 +1524,33 @@ public final class BuildManager implements Disposable {
     }
 
     // debugging
-    int debugPort = -1;
+    String debugPort = null;
     if (myBuildProcessDebuggingEnabled) {
-      debugPort = Registry.intValue("compiler.process.debug.port");
-      if (debugPort <= 0) {
+      debugPort = StringUtil.nullize(Registry.stringValue("compiler.process.debug.port"));
+      if (debugPort == null) {
         try {
-          debugPort = NetUtils.findAvailableSocketPort();
+          debugPort = String.valueOf(NetUtils.findAvailableSocketPort());
         }
         catch (IOException e) {
           throw new ExecutionException(JavaCompilerBundle.message("build.process.no.free.debug.port"), e);
         }
       }
-      if (debugPort > 0) {
-        cmdLine.addParameter("-XX:+HeapDumpOnOutOfMemoryError");
-        cmdLine.addParameter("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugPort);
-      }
+      cmdLine.addParameter("-XX:+HeapDumpOnOutOfMemoryError");
+      // Both formats "<host>:<port>" and "<port>" are accepted.
+      // https://docs.oracle.com/en/java/javase/11/docs/specs/jpda/conninv.html#socket-transport
+      cmdLine.addParameter("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugPort);
     }
 
     // portable caches
-    if (Registry.is("compiler.process.use.portable.caches") &&
+    if (RegistryManager.getInstance().is("compiler.process.use.portable.caches") &&
         CompilerCacheConfigurator.isServerUrlConfigured(project) &&
         CompilerCacheStartupActivity.isLineEndingsConfiguredCorrectly()) {
       cmdLine.addParameter("-D" + ProjectStamps.PORTABLE_CACHES_PROPERTY + "=true");
+    }
+
+    // DepGraph-based IC implementation
+    if (AdvancedSettings.getBoolean("compiler.unified.ic.implementation")) {
+      cmdLine.addParameter("-D" + GlobalOptions.DEPENDENCY_GRAPH_ENABLED + "=true");
     }
 
     // Java compiler's VM should use the same default locale that IDEA uses in order for javac to print messages in 'correct' language
@@ -1508,7 +1562,7 @@ public final class BuildManager implements Disposable {
         cmdLine.addParameter("-D" + name + '=' + value);
       }
     }
-    final DynamicBundle.LanguageBundleEP languageBundle = DynamicBundle.findLanguageBundle();
+    final DynamicBundle.LanguageBundleEP languageBundle = LocalizationUtil.INSTANCE.findLanguageBundle();
     if (languageBundle != null) {
       final PluginDescriptor pluginDescriptor = languageBundle.pluginDescriptor;
       final ClassLoader loader = pluginDescriptor == null ? null : pluginDescriptor.getClassLoader();
@@ -1606,8 +1660,8 @@ public final class BuildManager implements Disposable {
     }
 
     cmdLine.addParameter(BuildMain.class.getName());
-    cmdLine.addParameter(cmdLine.getHostIp());
-    cmdLine.addParameter(Integer.toString(listenPort));
+    cmdLine.addParameter(buildProcessConnectHost);
+    cmdLine.addParameter(Integer.toString(buildProcessConnectPort));
     cmdLine.addParameter(sessionId.toString());
 
     cmdLine.addParameter(cmdLine.getWorkingDirectory());
@@ -1652,8 +1706,8 @@ public final class BuildManager implements Disposable {
         }
       }
     });
-    if (debugPort > 0) {
-      processHandler.putUserData(COMPILER_PROCESS_DEBUG_PORT, debugPort);
+    if (debugPort != null) {
+      processHandler.putUserData(COMPILER_PROCESS_DEBUG_HOST_PORT, debugPort);
     }
 
     if (SystemInfo.isWindows && lowPriority) {
@@ -1776,11 +1830,22 @@ public final class BuildManager implements Disposable {
     return null;
   }
 
-  private void stopListening() {
+  private synchronized void stopListening() {
     for (ListeningConnection connection : myListeningConnections) {
       connection.myChannelRegistrar.close();
     }
     myListeningConnections.clear();
+  }
+
+  private synchronized void clearWslProxyCache() {
+    for (WslProxy proxy : myWslProxyCache.values()) {
+      try {
+        Disposer.dispose(proxy);
+      }
+      catch (Throwable ignored) {
+      }
+    }
+    myWslProxyCache.clear();
   }
 
   private int startListening(InetAddress address) {
@@ -1819,9 +1884,9 @@ public final class BuildManager implements Disposable {
   }
 
   private abstract class BuildManagerPeriodicTask implements Runnable {
-    private final Alarm myAlarm;
+    private final Alarm alarm;
     private final AtomicBoolean myInProgress = new AtomicBoolean(false);
-    private final Runnable myTaskRunnable = () -> {
+    private final Runnable taskRunnable = () -> {
       try {
         runTask();
       }
@@ -1830,8 +1895,11 @@ public final class BuildManager implements Disposable {
       }
     };
 
-    BuildManagerPeriodicTask() {
-      myAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, BuildManager.this);
+    private final @NotNull CoroutineScope coroutineScope;
+
+    BuildManagerPeriodicTask(@NotNull CoroutineScope coroutineScope) {
+      this.coroutineScope = coroutineScope;
+      alarm = new Alarm(coroutineScope, Alarm.ThreadToUse.POOLED_THREAD);
     }
 
     final void schedule() {
@@ -1840,11 +1908,11 @@ public final class BuildManager implements Disposable {
 
     private void schedule(boolean increasedDelay) {
       cancelPendingExecution();
-      myAlarm.addRequest(this, Math.max(100, increasedDelay ? 10 * getDelay() : getDelay()));
+      alarm.addRequest(this, Math.max(100, increasedDelay ? 10 * getDelay() : getDelay()));
     }
 
     void cancelPendingExecution() {
-      myAlarm.cancelAllRequests();
+      alarm.cancelAllRequests();
     }
 
     protected boolean shouldPostpone() {
@@ -1860,7 +1928,7 @@ public final class BuildManager implements Disposable {
       final boolean shouldPostponeAllTasks = HeavyProcessLatch.INSTANCE.isRunning() || mySuspendBackgroundTasksCounter.get() > 0;
       if (!shouldPostponeAllTasks && !shouldPostpone() && !myInProgress.getAndSet(true)) {
         try {
-          AppJavaExecutorUtil.executeOnPooledIoThread(myTaskRunnable);
+          AppJavaExecutorUtil.executeOnPooledIoThread(coroutineScope, taskRunnable);
         }
         catch (CancellationException ignored) {
           // we were shut down
@@ -1998,13 +2066,15 @@ public final class BuildManager implements Disposable {
     }
   }
 
-  static final class BuildManagerStartupActivity implements StartupActivity.DumbAware {
+  static final class BuildManagerStartupActivity implements StartupActivity, DumbAware {
+    BuildManagerStartupActivity() {
+      if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
+        throw ExtensionNotApplicableException.create();
+      }
+    }
+
     @Override
     public void runActivity(@NotNull Project project) {
-      if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
-        return;
-      }
-
       MessageBusConnection connection = project.getMessageBus().connect();
       connection.subscribe(ExecutionManager.EXECUTION_TOPIC, new ExecutionListener() {
         @Override
@@ -2185,6 +2255,10 @@ public final class BuildManager implements Disposable {
           }
         }
       });
+      WSLDistribution wslDistr = findWSLDistribution(project);
+      if (wslDistr != null) {
+        cleanWslProxies(wslDistr);
+      }
     }
 
     @Override
@@ -2272,9 +2346,9 @@ public final class BuildManager implements Disposable {
   }
 
   private abstract static class InternedPath {
-    private static final LoadingCache<String, String> nameCache = Caffeine.newBuilder().maximumSize(1024).build(key -> key);
+    private static final LoadingCache<String, String> ourNameCache = Caffeine.newBuilder().maximumSize(2048).build(key -> key);
 
-    protected final String[] path;
+    protected final String[] myPath;
 
     /**
      * @param path assuming a system-independent path with forward slashes
@@ -2283,9 +2357,9 @@ public final class BuildManager implements Disposable {
       List<String> list = new ArrayList<>();
       StringTokenizer tokenizer = new StringTokenizer(path, "/", false);
       while (tokenizer.hasMoreTokens()) {
-        list.add(nameCache.get(tokenizer.nextToken()));
+        list.add(ourNameCache.get(tokenizer.nextToken()));
       }
-      this.path = list.toArray(String[]::new);
+      myPath = list.toArray(String[]::new);
     }
 
     public abstract String getValue();
@@ -2297,38 +2371,47 @@ public final class BuildManager implements Disposable {
 
       InternedPath path = (InternedPath)o;
 
-      return Arrays.equals(this.path, path.path);
+      return Arrays.equals(this.myPath, path.myPath);
     }
 
     @Override
     public int hashCode() {
-      return Arrays.hashCode(path);
+      return Arrays.hashCode(myPath);
     }
 
     public static void clearCache() {
-      nameCache.invalidateAll();
+      ourNameCache.invalidateAll();
     }
 
     public static InternedPath create(String path) {
-      return path.startsWith("/")? new XInternedPath(path) : new WinInternedPath(path);
+      return path.startsWith("//")? new WinInternedPath(path.substring(2), true) : path.startsWith("/")? new XInternedPath(path) : new WinInternedPath(path, false);
     }
   }
 
   private static final class WinInternedPath extends InternedPath {
-    private WinInternedPath(String path) {
+    private final boolean myIsUNC;
+
+    private WinInternedPath(String path, boolean isUNC) {
       super(path);
+      myIsUNC = isUNC;
     }
 
     @Override
     public String getValue() {
-      if (path.length == 1) {
-        String name = path[0];
+      if (myPath.length == 0) {
+        return myIsUNC? "//" : "";
+      }
+      if (myPath.length == 1) {
+        String name = myPath[0];
         // handle the case of a Windows volume name
-        return name.length() == 2 && name.endsWith(":")? name + "/" : name;
+        return name.length() == 2 && name.endsWith(":")? name + "/" : myIsUNC? "//" + name : name;
       }
 
       final StringBuilder buf = new StringBuilder();
-      for (CharSequence element : path) {
+      if (myIsUNC) {
+        buf.append("/");
+      }
+      for (CharSequence element : myPath) {
         if (!buf.isEmpty()) {
           buf.append("/");
         }
@@ -2345,9 +2428,9 @@ public final class BuildManager implements Disposable {
 
     @Override
     public String getValue() {
-      if (path.length > 0) {
+      if (myPath.length > 0) {
         final StringBuilder buf = new StringBuilder();
-        for (CharSequence element : path) {
+        for (CharSequence element : myPath) {
           buf.append('/').append(element);
         }
         return buf.toString();

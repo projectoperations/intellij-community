@@ -1,12 +1,12 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.inline.completion.session
 
 import com.intellij.codeInsight.inline.completion.DefaultInlineCompletionOvertyper
+import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
 import com.intellij.codeInsight.inline.completion.InlineCompletionOvertyper
 import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionSuggestionUpdateManager
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVariant
-import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.concurrency.annotations.RequiresEdt
 
 internal abstract class InlineCompletionSessionManager {
@@ -20,7 +20,7 @@ internal abstract class InlineCompletionSessionManager {
    * @see updateSession
    */
   @RequiresEdt
-  protected abstract fun onUpdate(session: InlineCompletionSession, result: UpdateSessionResult)
+  protected abstract fun onUpdate(session: InlineCompletionSession, event: InlineCompletionEvent?, result: UpdateSessionResult)
 
   @RequiresEdt
   fun sessionCreated(newSession: InlineCompletionSession) {
@@ -39,7 +39,7 @@ internal abstract class InlineCompletionSessionManager {
    */
   @RequiresEdt
   fun invalidate() {
-    currentSession?.let { session -> onUpdate(session, UpdateSessionResult.Invalidated) }
+    currentSession?.let { session -> onUpdate(session, event = null, UpdateSessionResult.Invalidated) }
   }
 
   /**
@@ -55,23 +55,24 @@ internal abstract class InlineCompletionSessionManager {
    * @see InlineCompletionOvertyper
    */
   @RequiresEdt
-  @RequiresBlockingContext
   fun updateSession(request: InlineCompletionRequest): Boolean {
     val session = currentSession
     if (session == null) {
       return false
     }
     if (session.provider.restartOn(request.event)) {
-      invalidate(session)
+      invalidate(session, request.event)
       return false
     }
 
     val result = updateSession(session, request)
-    onUpdate(session, result)
+    onUpdate(session, request.event, result)
     return result != UpdateSessionResult.Invalidated
   }
 
-  private fun invalidate(session: InlineCompletionSession) = onUpdate(session, UpdateSessionResult.Invalidated)
+  private fun invalidate(session: InlineCompletionSession, event: InlineCompletionEvent) {
+    onUpdate(session, event, UpdateSessionResult.Invalidated)
+  }
 
   private fun updateSession(session: InlineCompletionSession, request: InlineCompletionRequest): UpdateSessionResult {
     session.context.expectedStartOffset = request.endOffset
@@ -86,7 +87,7 @@ internal abstract class InlineCompletionSessionManager {
   private fun updateSession(
     session: InlineCompletionSession,
     suggestionUpdateManager: InlineCompletionSuggestionUpdateManager,
-    request: InlineCompletionRequest
+    request: InlineCompletionRequest,
   ): UpdateSessionResult {
     val event = request.event
 
@@ -97,7 +98,7 @@ internal abstract class InlineCompletionSessionManager {
       }
     }
 
-    val success = session.update { variant -> suggestionUpdateManager.update(event, variant) }
+    val success = session.update(event) { variant -> suggestionUpdateManager.update(event, variant) }
     if (!success) {
       return UpdateSessionResult.Invalidated
     }

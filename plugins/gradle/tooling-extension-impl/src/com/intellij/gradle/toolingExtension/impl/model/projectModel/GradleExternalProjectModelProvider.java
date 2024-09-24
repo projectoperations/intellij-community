@@ -4,12 +4,13 @@ package com.intellij.gradle.toolingExtension.impl.model.projectModel;
 import com.intellij.gradle.toolingExtension.impl.util.GradleModelProviderUtil;
 import com.intellij.gradle.toolingExtension.modelAction.GradleModelFetchPhase;
 import org.gradle.tooling.BuildController;
-import org.gradle.tooling.model.gradle.BasicGradleProject;
 import org.gradle.tooling.model.gradle.GradleBuild;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.gradle.model.ExternalProject;
 import org.jetbrains.plugins.gradle.model.ProjectImportModelProvider;
+
+import java.util.Collection;
 
 @ApiStatus.Internal
 public class GradleExternalProjectModelProvider implements ProjectImportModelProvider {
@@ -22,18 +23,11 @@ public class GradleExternalProjectModelProvider implements ProjectImportModelPro
   }
 
   @Override
-  public void populateBuildModels(
+  public void populateModels(
     @NotNull BuildController controller,
-    @NotNull GradleBuild buildModel,
+    @NotNull Collection<? extends GradleBuild> buildModels,
     @NotNull GradleModelConsumer modelConsumer
   ) {
-    GradleModelProviderUtil.buildModelsBackwardRecursively(controller, buildModel, ExternalProject.class, new GradleModelConsumer() {
-      @Override
-      public void consumeProjectModel(@NotNull BasicGradleProject projectModel, @NotNull Object object, @NotNull Class<?> clazz) {
-        if (projectModel == buildModel.getRootProject()) {
-          modelConsumer.consumeBuildModel(buildModel, object, clazz);
-        }
-      }
-    });
+    GradleModelProviderUtil.buildModels(controller, buildModels, ExternalProject.class, modelConsumer);
   }
 }

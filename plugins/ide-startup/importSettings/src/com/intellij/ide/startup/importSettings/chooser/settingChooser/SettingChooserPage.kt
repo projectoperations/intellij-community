@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.chooser.settingChooser
 
 import com.intellij.CommonBundle
@@ -8,6 +8,7 @@ import com.intellij.ide.startup.importSettings.chooser.ui.OnboardingPage
 import com.intellij.ide.startup.importSettings.chooser.ui.ScrollSnapToFocused
 import com.intellij.ide.startup.importSettings.chooser.ui.WizardPagePane
 import com.intellij.ide.startup.importSettings.data.*
+import com.intellij.ide.startup.importSettings.statistics.ImportSettingsEventsCollector
 import com.intellij.openapi.application.ApplicationBundle
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.util.SystemInfo
@@ -30,7 +31,7 @@ abstract class SettingChooserPage(private val provider: ActionsDataProvider<*>,
                                   controller: ImportSettingsController) : OnboardingPage {
   companion object {
     fun createPage(provider: ActionsDataProvider<*>,
-                   product: SettingsContributor,
+                   product: Product,
                    controller: ImportSettingsController): OnboardingPage {
       if (provider is SyncActionsDataProvider && provider.productService.baseProduct(product.id)) {
         return SyncSettingChooserPage(provider, product, controller)
@@ -43,6 +44,7 @@ abstract class SettingChooserPage(private val provider: ActionsDataProvider<*>,
   protected val settingPanes = mutableListOf<BaseSettingPane>()
 
   protected val backAction = controller.createButton(ImportSettingsBundle.message("import.settings.back")) {
+    ImportSettingsEventsCollector.configurePageBack()
     controller.goToProductChooserPage()
   }
 
@@ -79,7 +81,6 @@ abstract class SettingChooserPage(private val provider: ActionsDataProvider<*>,
 
             provider.getComment(product)?.let { addTxt ->
               row {
-                @Suppress("HardCodedStringLiteral") // IDEA-255051
                 comment(addTxt).customize(
                   UnscaledGaps(top = 3))
               }
@@ -97,7 +98,7 @@ abstract class SettingChooserPage(private val provider: ActionsDataProvider<*>,
     val listPane = JPanel(VerticalLayout(0)).apply {
       isOpaque = false
       productService.getSettings(product.id).forEach {
-        val st = createSettingPane(it, configurable, { changeHandler() }, this@SettingChooserPage)
+        val st = createSettingPane(it, it.isConfigurable && configurable, { changeHandler() }, this@SettingChooserPage)
         settingPanes.add(st)
         add(st.component())
       }
@@ -131,19 +132,34 @@ abstract class SettingChooserPage(private val provider: ActionsDataProvider<*>,
     }
 }
 
-class ConfigurableSettingChooserPage<T : BaseService>(val provider: ActionsDataProvider<T>,
-                                                      product: SettingsContributor,
-                                                      controller: ImportSettingsController) : SettingChooserPage(provider, product,
-                                                                                                                 controller) {
+class ConfigurableSettingChooserPage<T : BaseService>(
+  val provider: ActionsDataProvider<T>,
+  product: Product,
+  controller: ImportSettingsController
+) : SettingChooserPage(provider, product,
+                       controller) {
 
   override val stage = StartupWizardStage.SettingsToImportPage
 
-  private val importButton = controller.createDefaultButton(ImportSettingsBundle.message("import.settings.ok")) {
+  private val importButton = controller.createDefaultButton(
+    if (controller.canShowFeaturedPluginsPage(product.origin)) {
+      ImportSettingsBundle.message("import.next")
+    }
+    else {
+      ImportSettingsBundle.message("import.settings.ok")
+    }
+  ) {
     val productService = provider.productService
     val dataForSaves = prepareDataForSave()
-    val importSettings = productService.importSettings(product.id, dataForSaves)
-
-    controller.goToImportPage(importSettings)
+    ImportSettingsEventsCollector.configurePageImportSettingsClicked()
+    if (controller.canShowFeaturedPluginsPage(product.origin)
+        && controller.shouldShowFeaturedPluginsPage(product.id, dataForSaves, productService)) {
+      controller.goToFeaturedPluginsPage(provider, productService, product, dataForSaves)
+    } else {
+      val dataToApply = DataToApply(dataForSaves, emptyList())
+      val importSettings = productService.importSettings(product.id, dataToApply)
+      controller.goToProgressPage(importSettings, dataToApply)
+    }
   }
 
   override val buttons: List<JButton>
@@ -189,10 +205,10 @@ class SyncSettingChooserPage(val provider: SyncActionsDataProvider,
 
   private val importOnceButton = controller.createButton(ImportSettingsBundle.message("import.settings.sync.import.once")) {
     val syncSettings = provider.productService.importSyncSettings()
-    controller.goToImportPage(syncSettings)
+    controller.goToProgressPage(syncSettings, DataToApply(emptyList(), emptyList()))
   }
   private val syncButton = controller.createDefaultButton(ImportSettingsBundle.message("import.settings.sync.ok")) {
-    controller.goToImportPage(provider.productService.syncSettings())
+    controller.goToProgressPage(provider.productService.syncSettings(), DataToApply(emptyList(), emptyList()))
   }
 
   override val buttons: List<JButton>

@@ -11,8 +11,8 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.psi.PsiManager
-import com.intellij.rt.execution.junit.FileComparisonData
 import com.intellij.testFramework.ExpectedHighlightingData
 import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
@@ -34,12 +34,11 @@ import java.io.File
 @RunWith(JUnit3RunnerWithInners::class)
 @TestMetadata("testData/highlighter/compiled")
 class CompiledFilesHighlightingTest: KotlinLightCodeInsightFixtureTestCase() {
-    @TestMetadata("kotlin/collections/GroupingKt.kotlin_metadata")
+    @TestMetadata("default/linkdata/package_kotlin.collections/26_collections.knm")
     fun testKotlinCollectionsGroupingKtKotlinMetadata() {
         doTestWithLibraryFile(
             TestKotlinArtifacts.kotlinStdlibCommon,
-            FileHighlightingSetting.SKIP_INSPECTION,
-            expectedDuplicatedHighlighting = true
+            FileHighlightingSetting.SKIP_INSPECTION
         )
     }
 
@@ -47,8 +46,7 @@ class CompiledFilesHighlightingTest: KotlinLightCodeInsightFixtureTestCase() {
     fun testKotlinTimeTimeSourceClass() {
         doTestWithLibraryFile(
             TestKotlinArtifacts.kotlinStdlib,
-            FileHighlightingSetting.SKIP_INSPECTION,
-            expectedDuplicatedHighlighting = true
+            FileHighlightingSetting.SKIP_INSPECTION
         )
     }
 
@@ -56,8 +54,7 @@ class CompiledFilesHighlightingTest: KotlinLightCodeInsightFixtureTestCase() {
     fun testKotlinNativeLinkdataPackageKotlinIO0ioKnm() {
         doTestWithLibraryFile(
             TestKotlinArtifacts.kotlinStdlibNative,
-            FileHighlightingSetting.SKIP_INSPECTION,
-            expectedDuplicatedHighlighting = true
+            FileHighlightingSetting.SKIP_INSPECTION
         )
     }
 
@@ -85,8 +82,9 @@ class CompiledFilesHighlightingTest: KotlinLightCodeInsightFixtureTestCase() {
         expectedDuplicatedHighlighting: Boolean = false,
         openFileAction: (VirtualFile) -> VirtualFile = { it }
     ) {
+        val libraryExtension = libraryFile.extension
         val libraryVirtualFile =
-            if (libraryFile.extension == "jar") {
+            if (libraryExtension == "jar" || libraryExtension == "klib") {
                 StandardFileSystems.jar().findFileByPath(libraryFile.absolutePath + URLUtil.JAR_SEPARATOR)
             } else {
                 VirtualFileManager.getInstance().findFileByNioPath(libraryFile.toPath())
@@ -133,13 +131,11 @@ class CompiledFilesHighlightingTest: KotlinLightCodeInsightFixtureTestCase() {
                     check()
                 }
             }
-        } catch (e: AssertionError) {
-            if (e is FileComparisonData) {
-                val highlights =
-                    DaemonCodeAnalyzerImpl.getHighlights(myFixture.getDocument(myFixture.getFile()), null, myFixture.getProject())
-                val text = myFixture.getFile().getText()
-                println(TagsTestDataUtil.insertInfoTags(highlights, text))
-            }
+        } catch (e: FileComparisonFailedError) {
+            val highlights =
+                DaemonCodeAnalyzerImpl.getHighlights(myFixture.getDocument(myFixture.getFile()), null, myFixture.getProject())
+            val text = myFixture.getFile().getText()
+            println(TagsTestDataUtil.insertInfoTags(highlights, text))
             throw e
         }
     }

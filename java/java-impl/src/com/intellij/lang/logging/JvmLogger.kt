@@ -81,6 +81,11 @@ interface JvmLogger {
    */
   fun createLogger(project: Project, clazz: PsiClass): PsiElement?
 
+  /**
+   * @return the name of the log field for the class, or null if it is impossible to define
+   */
+  fun getLogFieldName(clazz: PsiClass): String?
+
   companion object {
     private val EP_NAME = ExtensionPointName<JvmLogger>("com.intellij.jvm.logging")
 
@@ -130,8 +135,9 @@ interface JvmLogger {
      * @param element the [PsiElement] from which to retrieve the nested classes
      * @return [Sequence] of [PsiClass] representing the nested classes
      */
-    fun getAllNestedClasses(element: PsiElement): Sequence<PsiClass> = element.parentsOfType(PsiClass::class.java, true)
+    fun getAllNamedContainingClasses(element: PsiElement): List<PsiClass> = element.parentsOfType(PsiClass::class.java, true)
       .filter { clazz -> clazz !is PsiAnonymousClass && clazz !is PsiImplicitClass }
+      .toList()
 
     /**
      * Retrieves the possible places for inserting a logger element based on the given [element] and [loggerList].
@@ -139,10 +145,10 @@ interface JvmLogger {
      * @param element the PsiElement indicating the current position for inserting a logger
      * @param loggerList the list of JvmLogger objects representing the available loggers
      * @return a list of PsiClass objects representing the possible places for inserting a logger, in reversed order
+     * @see isOnlyOnStartup
      */
-    fun getPossiblePlacesForLogger(element: PsiElement, loggerList: List<JvmLogger>): List<PsiClass> = getAllNestedClasses(element)
+    fun getPossiblePlacesForLogger(element: PsiElement, loggerList: List<JvmLogger>): List<PsiClass> = getAllNamedContainingClasses(element)
       .filter { clazz -> isPossibleToPlaceLogger(clazz, loggerList) }
-      .toList()
       .reversed()
 
     private fun isPossibleToPlaceLogger(psiClass: PsiClass, loggerList: List<JvmLogger>): Boolean = loggerList.all {

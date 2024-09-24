@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework;
 
 import com.intellij.application.options.CodeStyle;
@@ -167,6 +167,9 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
 
     if (ourProject != null) {
       closeAndDeleteProject();
+    }
+    if (ourSourceRoot != null) {
+      ourSourceRoot = null;
     }
     ApplicationManager.getApplication().runWriteAction(() -> cleanPersistedVFSContent());
 
@@ -401,6 +404,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
       },
       () -> {
         if (myThreadTracker != null) {
+          VfsTestUtil.waitForFileWatcher();
           myThreadTracker.checkLeak();
         }
       },
@@ -456,14 +460,6 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
         }
       }
     });
-  }
-
-  /**
-   * @deprecated moved to {@link TestApplicationKt#clearEncodingManagerDocumentQueue(Application)}
-   */
-  @Deprecated(forRemoval = true)
-  public static void clearEncodingManagerDocumentQueue() {
-    TestApplicationKt.clearEncodingManagerDocumentQueue(ApplicationManager.getApplication());
   }
 
   public static void clearUncommittedDocuments(@NotNull Project project) {
@@ -641,7 +637,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
     private @Nullable Sdk mySdk;
     private @NotNull Map<OrderRootType, List<String>> mySdkRoots;
 
-    SimpleLightProjectDescriptor(@NotNull String moduleTypeId, @Nullable Sdk sdk) {
+    protected SimpleLightProjectDescriptor(@NotNull String moduleTypeId, @Nullable Sdk sdk) {
       myModuleTypeId = moduleTypeId;
       mySdk = sdk;
       mySdkRoots = new HashMap<>();

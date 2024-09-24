@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.ide.fileTemplates.ui;
 
@@ -10,6 +10,7 @@ import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.FileTemplateParseException;
 import com.intellij.ide.fileTemplates.FileTemplateUtil;
 import com.intellij.ide.fileTemplates.actions.AttributesDefaults;
+import com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsageCounterCollector;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -19,9 +20,11 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.util.ui.JBInsets;
 import org.apache.velocity.runtime.parser.ParseException;
 import org.jetbrains.annotations.NonNls;
@@ -34,19 +37,19 @@ import java.util.Properties;
 
 public class CreateFromTemplateDialog extends DialogWrapper {
   private static final Logger LOG = Logger.getInstance(CreateFromTemplateDialog.class);
-  @NotNull private final PsiDirectory myDirectory;
-  @NotNull private final Project myProject;
+  private final @NotNull PsiDirectory myDirectory;
+  private final @NotNull Project myProject;
   private PsiElement myCreatedElement;
   private final CreateFromTemplatePanel myAttrPanel;
   private final JComponent myAttrComponent;
-  @NotNull private final FileTemplate myTemplate;
+  private final @NotNull FileTemplate myTemplate;
   private final Properties myDefaultProperties;
 
   public CreateFromTemplateDialog(@NotNull Project project,
                                   @NotNull PsiDirectory directory,
                                   @NotNull FileTemplate template,
-                                  @Nullable final AttributesDefaults attributesDefaults,
-                                  @Nullable final Properties defaultProperties) {
+                                  final @Nullable AttributesDefaults attributesDefaults,
+                                  final @Nullable Properties defaultProperties) {
     super(project, true);
     myDirectory = directory;
     myProject = project;
@@ -144,6 +147,12 @@ public class CreateFromTemplateDialog extends DialogWrapper {
       }
 
       myCreatedElement = createFile(mainFileName, myTemplate, properties);
+
+      PsiFile psiFile = myCreatedElement.getContainingFile();
+      VirtualFile virtualFile = psiFile.getVirtualFile();
+      if (virtualFile != null) {
+        FileTypeUsageCounterCollector.logCreated(myProject, virtualFile, myTemplate);
+      }
     }
     catch (Exception e) {
       showErrorDialog(e);
@@ -174,8 +183,7 @@ public class CreateFromTemplateDialog extends DialogWrapper {
     return FileTemplateUtil.findHandler(myTemplate).getErrorMessage();
   }
 
-  @Nullable
-  private @NlsContexts.DialogMessage String filterMessage(@NlsContexts.DialogMessage String message){
+  private @Nullable @NlsContexts.DialogMessage String filterMessage(@NlsContexts.DialogMessage String message){
     if (message == null) {
       message = IdeBundle.message("dialog.message.unknown.error");
     }

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.engine.evaluation;
 
 import com.intellij.debugger.EvaluatingComputable;
@@ -7,23 +7,26 @@ import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
 import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.sun.jdi.ClassLoaderReference;
 import com.sun.jdi.ObjectReference;
 import com.sun.jdi.Value;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public final class EvaluationContextImpl implements EvaluationContext {
-  private static final Logger LOG = Logger.getInstance(EvaluationContextImpl.class);
-
   private final DebuggerComputableValue myThisObject;
-  private final SuspendContextImpl mySuspendContext;
+  private final @NotNull SuspendContextImpl mySuspendContext;
   private final StackFrameProxyImpl myFrameProxy;
   private boolean myAutoLoadClasses = true;
   private ClassLoaderReference myClassLoader;
+  private @Nullable ThreadReferenceProxyImpl myThreadForEvaluation = null;
+
+  private @Nullable ThreadReferenceProxyImpl myPreferableThread = null;
 
   private EvaluationContextImpl(@NotNull SuspendContextImpl suspendContext,
                                 @Nullable StackFrameProxyImpl frameProxy,
@@ -109,6 +112,33 @@ public final class EvaluationContextImpl implements EvaluationContext {
     myAutoLoadClasses = autoLoadClasses;
   }
 
+  @ApiStatus.Internal
+  public @Nullable ThreadReferenceProxyImpl getThreadForEvaluation() {
+    return myThreadForEvaluation;
+  }
+
+  @ApiStatus.Internal
+  public void setThreadForEvaluation(@Nullable ThreadReferenceProxyImpl threadForEvaluation) {
+    if (threadForEvaluation != null) {
+      assert myThreadForEvaluation == null;
+      assert !mySuspendContext.isEvaluating();
+      assert !threadForEvaluation.isEvaluating();
+      threadForEvaluation.setEvaluating(true);
+      mySuspendContext.setIsEvaluating(this);
+    }
+    else {
+      assert myThreadForEvaluation != null;
+      assert myThreadForEvaluation.isEvaluating();
+      assert mySuspendContext.getEvaluationContext() == this;
+      mySuspendContext.setIsEvaluating(null);
+      myThreadForEvaluation.setEvaluating(false);
+    }
+    myThreadForEvaluation = threadForEvaluation;
+    if (threadForEvaluation != null && myFrameProxy != null) {
+      myPreferableThread = myFrameProxy.threadProxy();
+    }
+  }
+
   public EvaluationContextImpl withAutoLoadClasses(boolean autoLoadClasses) {
     if (myAutoLoadClasses == autoLoadClasses) {
       return this;
@@ -127,13 +157,24 @@ public final class EvaluationContextImpl implements EvaluationContext {
 
   @Override
   public <T extends Value> T computeAndKeep(@NotNull ThrowableComputable<T, EvaluateException> computable) throws EvaluateException {
-    return DebuggerUtils.processCollectibleValue(computable, value -> {
+    return DebuggerUtils.getInstance().processCollectibleValue(computable, value -> {
       keep(value);
       return value;
-    });
+    }, getDebugProcess().getVirtualMachineProxy());
   }
 
   public boolean isEvaluationPossible() {
     return getSuspendContext().getDebugProcess().isEvaluationPossible(getSuspendContext());
+  }
+
+  @Contract(pure = true)
+  @Override
+  public @NotNull String toString() {
+    if (myPreferableThread == myThreadForEvaluation) {
+      return "Evaluating on " + myPreferableThread + " for " + mySuspendContext;
+    }
+    else {
+      return "Evaluating requested on " + myPreferableThread + ", started on " + myThreadForEvaluation + " for " + mySuspendContext;
+    }
   }
 }

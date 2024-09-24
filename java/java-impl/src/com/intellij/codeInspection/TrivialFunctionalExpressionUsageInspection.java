@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection;
 
 import com.intellij.codeInsight.BlockUtils;
@@ -7,7 +7,6 @@ import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.MethodSignatureUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
@@ -29,9 +28,8 @@ import java.util.List;
 import java.util.function.Predicate;
 
 public final class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJavaLocalInspectionTool {
-  @NotNull
   @Override
-  public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
+  public @NotNull PsiElementVisitor buildVisitor(final @NotNull ProblemsHolder holder, boolean isOnTheFly) {
     return new JavaElementVisitor() {
 
       @Override
@@ -84,8 +82,7 @@ public final class TrivialFunctionalExpressionUsageInspection extends AbstractBa
     }
   }
 
-  @Nullable
-  private static Problem doCheckLambda(@NotNull PsiLambdaExpression expression) {
+  private static @Nullable Problem doCheckLambda(@NotNull PsiLambdaExpression expression) {
     final PsiElement body = expression.getBody();
     if (body == null) return null;
 
@@ -96,11 +93,13 @@ public final class TrivialFunctionalExpressionUsageInspection extends AbstractBa
         return callParent instanceof PsiStatement || callParent instanceof PsiLocalVariable || expression.isValueCompatible();
       }
 
+      if (callParent instanceof PsiReturnStatement) {
+        return true;
+      }
+      
       PsiStatement[] statements = ((PsiCodeBlock)body).getStatements();
       if (statements.length == 1) {
-        return callParent instanceof PsiStatement
-               || callParent instanceof PsiLocalVariable
-               || statements[0] instanceof PsiReturnStatement && expression.isValueCompatible();
+        return statements[0] instanceof PsiReturnStatement && expression.isValueCompatible();
       }
 
       final PsiReturnStatement[] returnStatements = PsiUtil.findReturnStatements((PsiCodeBlock)body);
@@ -292,23 +291,17 @@ public final class TrivialFunctionalExpressionUsageInspection extends AbstractBa
     for (int i = 0; i < parameters.length; i++) {
       final PsiParameter parameter = parameters[i];
       final PsiExpression initializer = args[i];
-      for (PsiReference reference : ReferencesSearch.search(parameter)) {
-        final PsiElement referenceElement = reference.getElement();
-        if (referenceElement instanceof PsiJavaCodeReferenceElement) {
-          ct.markUnchanged(initializer);
-          CommonJavaInlineUtil.getInstance()
-            .inlineVariable(parameter, initializer, (PsiJavaCodeReferenceElement)referenceElement, null);
-        }
+      for (PsiReferenceExpression referenceElement : VariableAccessUtils.getVariableReferences(parameter)) {
+        ct.markUnchanged(initializer);
+        CommonJavaInlineUtil.getInstance().inlineVariable(parameter, initializer, referenceElement, null);
       }
     }
   }
 
   private static class ReplaceWithLambdaBodyFix extends ReplaceFix {
 
-    @Nls
-    @NotNull
     @Override
-    public String getFamilyName() {
+    public @Nls @NotNull String getFamilyName() {
       return InspectionGadgetsBundle.message("replace.with.lambda.body.fix.family.name");
     }
 
@@ -324,10 +317,8 @@ public final class TrivialFunctionalExpressionUsageInspection extends AbstractBa
   }
 
   private static class ReplaceWithMethodReferenceFix extends ReplaceFix {
-    @Nls
-    @NotNull
     @Override
-    public String getFamilyName() {
+    public @Nls @NotNull String getFamilyName() {
       return InspectionGadgetsBundle.message("replace.with.method.reference.fix.family.name");
     }
 
@@ -348,10 +339,8 @@ public final class TrivialFunctionalExpressionUsageInspection extends AbstractBa
 
   private static class ReplaceAnonymousWithLambdaBodyFix extends ReplaceFix {
 
-    @Nls
-    @NotNull
     @Override
-    public String getFamilyName() {
+    public @Nls @NotNull String getFamilyName() {
       return InspectionGadgetsBundle.message("replace.anonymous.with.lambda.body.fix.family.name");
     }
 
@@ -367,11 +356,9 @@ public final class TrivialFunctionalExpressionUsageInspection extends AbstractBa
     }
   }
 
-  private static abstract class ReplaceFix extends PsiUpdateModCommandQuickFix {
-    @Nls
-    @NotNull
+  private abstract static class ReplaceFix extends PsiUpdateModCommandQuickFix {
     @Override
-    public String getName() {
+    public @Nls @NotNull String getName() {
       return getFamilyName();
     }
 

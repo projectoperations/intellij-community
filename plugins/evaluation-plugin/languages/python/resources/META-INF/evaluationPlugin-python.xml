@@ -5,5 +5,8 @@
     <lineCompletionVisitorFactory implementation="com.intellij.cce.visitor.PythonLineCompletionVisitorFactory"/>
     <setupSdkStep implementation="com.intellij.cce.evaluation.SetupPythonInterpreterStep"/>
     <completionEvaluationVisitor implementation="com.intellij.cce.visitor.PythonCompletionContextEvaluationVisitor"/>
+    <completionEvaluationVisitor implementation="com.intellij.cce.visitor.PythonDocGenerationVisitor"/>
+    <completionEvaluationVisitor implementation="com.intellij.cce.visitor.PythonCodeGenerationVisitor"/>
+    <completionEvaluationVisitor implementation="com.intellij.cce.visitor.PythonRenameVisitor"/>
   </extensions>
 </idea-plugin>

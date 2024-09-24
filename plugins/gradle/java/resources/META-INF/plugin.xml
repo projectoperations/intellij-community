@@ -41,6 +41,9 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
+
+    <syncContributor implementation="org.jetbrains.plugins.gradle.service.syncContributor.GradleSourceRootSyncContributor"/>
+
     <projectResolve implementation="org.jetbrains.plugins.gradle.service.project.JavaGradleProjectResolver"/>
     <projectResolve implementation="org.jetbrains.plugins.gradle.service.project.MavenRepositoriesProjectResolver"/>
     <projectResolve implementation="org.jetbrains.plugins.gradle.service.project.JarTaskManifestResolver"/>
@@ -70,10 +73,9 @@
 
     <compiler.updateResourcesBuildContributor
         implementation="org.jetbrains.plugins.gradle.execution.build.GradleUpdateResourcesBuildContributor"/>
-    <projectService serviceImplementation="org.jetbrains.plugins.gradle.config.GradleResourceCompilerConfigurationGenerator"/>
     <compiler.task execute="BEFORE" implementation="org.jetbrains.plugins.gradle.config.GradleResourceConfigurationGeneratorCompileTask"/>
 
-    <attachSourcesProvider implementation="org.jetbrains.plugins.gradle.util.GradleAttachSourcesProvider"/>
+    <attachSourcesProvider implementation="org.jetbrains.plugins.gradle.action.GradleAttachSourcesProvider"/>
     <projectImportProvider implementation="org.jetbrains.plugins.gradle.service.project.wizard.JavaGradleProjectImportProvider"/>
 
     <defender.config implementation="org.jetbrains.plugins.gradle.util.GradleWindowsDefenderCheckerExt"/>
@@ -104,7 +106,6 @@
 
     <starter.moduleImporter implementation="org.jetbrains.plugins.gradle.starters.GradleStarterModuleImporter"/>
 
-    <statistics.counterUsagesCollector implementationClass="org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleNewProjectWizardCollector"/>
     <statistics.validation.customValidationRule implementation="org.jetbrains.plugins.gradle.service.project.wizard.statistics.GradleVersionValidationRule"/>
 
     <dependencyCollector kind="java" implementation="org.jetbrains.plugins.gradle.service.project.GradleDependencyCollector"/>

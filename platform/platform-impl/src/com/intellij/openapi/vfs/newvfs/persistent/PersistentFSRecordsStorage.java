@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.util.io.CleanableStorage;
@@ -8,14 +8,14 @@ import org.jetbrains.annotations.NotNull;
 import java.io.IOException;
 
 @ApiStatus.Internal
-public interface PersistentFSRecordsStorage extends CleanableStorage {
+public interface PersistentFSRecordsStorage extends IPersistentFSRecordsStorage, CleanableStorage, AutoCloseable {
   int NULL_ID = FSRecords.NULL_FILE_ID;
   int MIN_VALID_ID = NULL_ID + 1;
 
   /**
    * @return id of newly allocated record
    */
-  int allocateRecord();
+  int allocateRecord() throws IOException;
 
   void setAttributeRecordId(int fileId, int recordId) throws IOException;
 
@@ -55,32 +55,16 @@ public interface PersistentFSRecordsStorage extends CleanableStorage {
 
   int getModCount(int fileId) throws IOException;
 
-  //TODO RC: why we need this method? Record modification is detected by actual modification -- there
+  //TODO RC: do we need this method? Record modification is tracked by storage, by actual modification -- there
   //         are (seems to) no way to modify record bypassing it.
-  //         We use the method to mark file record modified there something derived is modified -- e.g.
-  //         children attribute or content. This looks suspicious to me: why we need to update _file_
-  //         record version in those cases?
   void markRecordAsModified(int fileId) throws IOException;
 
   int getContentRecordId(int fileId) throws IOException;
 
   boolean setContentRecordId(int fileId, int recordId) throws IOException;
 
-  @PersistentFS.Attributes int getFlags(int fileId) throws IOException;
-
-  /**
-   * Fills all record fields in one shot.
-   * Fields modifications are not atomic: method should be used in absence of concurrent modification, e.g.
-   * on startup, or for filling new, just allocated record, while fileId just allocated is not yet published
-   * for other threads to access.
-   */
-  void fillRecord(int fileId,
-                  long timestamp,
-                  long length,
-                  int flags,
-                  int nameId,
-                  int parentId,
-                  boolean overwriteAttrRef) throws IOException;
+  @PersistentFS.Attributes
+  int getFlags(int fileId) throws IOException;
 
   /**
    * @throws IndexOutOfBoundsException if fileId is outside of range (0..max] of the fileIds allocated so far
@@ -91,9 +75,13 @@ public interface PersistentFSRecordsStorage extends CleanableStorage {
 
   long getTimestamp() throws IOException;
 
-  void setConnectionStatus(int code) throws IOException;
-
-  int getConnectionStatus() throws IOException;
+  /**
+   * @return true if storage was closed properly (i.e. by {@link #close()} in a last session, or false if last session was
+   * finished without calling {@link #close()} -- storage content may be inconsistent or corrupted.
+   * The property describes events in a _previous_ session, so it is immutable during current session: changes to storage
+   * doesn't affect this property's value
+   */
+  boolean wasClosedProperly() throws IOException;
 
   int getErrorsAccumulated() throws IOException;
 
@@ -105,20 +93,27 @@ public interface PersistentFSRecordsStorage extends CleanableStorage {
 
   int getGlobalModCount();
 
+  @Override
   int recordsCount();
 
   /** @return max fileId already allocated by this storage */
   int maxAllocatedID();
 
+  /** @return true if fileId is valid for the storage -- points to valid record */
+  boolean isValidFileId(int fileId);
+
+  @Override
   boolean isDirty();
 
 
   // TODO add a synchronization or requirement to be called on the loading
   @SuppressWarnings("UnusedReturnValue")
-  boolean processAllRecords(@NotNull PersistentFSRecordsStorage.FsRecordProcessor processor) throws IOException;
+  boolean processAllRecords(@NotNull FsRecordProcessor processor) throws IOException;
 
+  @Override
   void force() throws IOException;
 
+  @Override
   void close() throws IOException;
 
   /** Close the storage and remove all its data files */

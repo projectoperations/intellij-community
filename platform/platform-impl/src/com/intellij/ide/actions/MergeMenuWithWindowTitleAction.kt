@@ -8,14 +8,14 @@ import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.ui.MessageConstants
-import com.intellij.openapi.wm.impl.IdeRootPane
-import com.intellij.util.ui.RestartDialog
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
+import com.intellij.util.ui.RestartDialogImpl
 
 class MergeMenuWithWindowTitleAction : ToggleAction(), DumbAware {
 
   override fun update(e: AnActionEvent) {
     super.update(e)
-    e.presentation.isEnabledAndVisible = IdeRootPane.hideNativeLinuxTitleAvailable && IdeRootPane.hideNativeLinuxTitleSupported
+    e.presentation.isEnabledAndVisible = CustomWindowHeaderUtil.hideNativeLinuxTitleAvailable && CustomWindowHeaderUtil.hideNativeLinuxTitleSupported
   }
 
   override fun isSelected(e: AnActionEvent): Boolean {
@@ -26,11 +26,7 @@ class MergeMenuWithWindowTitleAction : ToggleAction(), DumbAware {
   }
 
   override fun actionPerformed(e: AnActionEvent) {
-    val restartDialog = RestartDialog().apply {
-      showCancelButton = true
-      launchRestart = false
-    }
-    val result = restartDialog.show()
+    val result = RestartDialogImpl.showRestartRequired(showCancelButton = true, launchRestart = false)
     if (result == MessageConstants.CANCEL) {
       return
     }

@@ -6,6 +6,9 @@ import com.intellij.ide.impl.DataManagerImpl;
 import com.intellij.internal.inspector.PropertyBean;
 import com.intellij.internal.inspector.UiInspectorAction;
 import com.intellij.internal.inspector.UiInspectorUtil;
+import com.intellij.openapi.actionSystem.DataProvider;
+import com.intellij.openapi.actionSystem.UiDataProvider;
+import com.intellij.internal.inspector.accessibilityAudit.*;
 import com.intellij.openapi.ui.DialogPanel;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Pair;
@@ -16,6 +19,7 @@ import com.intellij.ui.speedSearch.SpeedSearchUtil;
 import com.intellij.util.IconUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.PlatformColors;
 import com.intellij.util.ui.UIUtil;
@@ -150,6 +154,7 @@ public abstract class HierarchyTree extends JTree implements TreeSelectionListen
     private final Accessible myAccessible;
     private final String myName;
     private final boolean isAccessibleNode;
+    private final AccessibilityAuditManager accessibilityAudit;
 
     String myText;
 
@@ -185,6 +190,12 @@ public abstract class HierarchyTree extends JTree implements TreeSelectionListen
       return node;
     }
 
+    public void runAccessibilityTests(@NotNull AccessibleContext ac) { accessibilityAudit.runAccessibilityTests(ac); }
+
+    public void clearAccessibilityTestsResult() { accessibilityAudit.clearAccessibilityTestsResult(); }
+
+    public AccessibilityTestResult getAccessibilityTestResult() { return accessibilityAudit.getAccessibilityTestResult(); }
+
     private ComponentNode(@Nullable Component component,
                           @Nullable Accessible accessible,
                           @NotNull String name,
@@ -194,6 +205,7 @@ public abstract class HierarchyTree extends JTree implements TreeSelectionListen
       myAccessible = accessible;
       myName = name;
       isAccessibleNode = isAccessibleComponent;
+      accessibilityAudit = new AccessibilityAuditManager();
     }
 
     private static List<TreeNode> prepareAccessibleChildren(@Nullable Accessible a) {
@@ -262,6 +274,7 @@ public abstract class HierarchyTree extends JTree implements TreeSelectionListen
 
   private static final class ComponentTreeCellRenderer extends ColoredTreeCellRenderer {
     private final Component myInitialSelection;
+    private final List<IconWithErrorCount> accessibilityAuditIcons = new ArrayList<>();
 
     ComponentTreeCellRenderer(Component initialSelection) {
       myInitialSelection = initialSelection;
@@ -280,6 +293,9 @@ public abstract class HierarchyTree extends JTree implements TreeSelectionListen
       Color foreground = UIUtil.getTreeForeground(selected, hasFocus);
       Color background = selected ? UIUtil.getTreeSelectionBackground(hasFocus) : null;
       boolean isRenderer = false;
+
+      accessibilityAuditIcons.clear();
+
       if (value instanceof ComponentNode componentNode) {
         isRenderer = componentNode.getUserObject() instanceof List<?>;
         Component component = componentNode.getComponent();
@@ -337,15 +353,41 @@ public abstract class HierarchyTree extends JTree implements TreeSelectionListen
           if (component.isDoubleBuffered()) {
             append(", double-buffered", SimpleTextAttributes.GRAYED_ATTRIBUTES);
           }
-          if (DataManagerImpl.getDataProviderEx(component) != null) {
+          if (component instanceof UiDataProvider) {
+            append(", ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
+            append("ui-data-provider", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+          }
+          else if (component instanceof DataProvider) {
             append(", ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
             append("data-provider", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
           }
+          else if (DataManagerImpl.getDataProviderEx(component) != null) {
+            append(", ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
+            append("with data-provider", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+          }
+
           componentNode.setText(toString());
           setIcon(Icons.findIconFor(component));
         }
         else {
           append(componentNode.myName);
+        }
+
+        AccessibilityTestResult accessibilityResult = componentNode.getAccessibilityTestResult();
+        AccessibilityAuditManager accessibilityAudit = componentNode.accessibilityAudit;
+
+        if (accessibilityAudit.isRunning()) {
+          int fontHeight = getFontMetrics(getFont()).getHeight();
+
+          if (AccessibilityTestResult.FAIL.equals(accessibilityResult)) {
+            accessibilityAuditIcons.add(new IconWithErrorCount(
+              IconUtil.scale(AllIcons.General.Warning, this, fontHeight / (float) AllIcons.General.Warning.getIconHeight()
+              ), 1));
+          } else {
+            accessibilityAuditIcons.add(new IconWithErrorCount(
+              IconUtil.scale(AllIcons.General.GreenCheckmark, this, fontHeight / (float) AllIcons.General.GreenCheckmark.getIconHeight()),
+              0));
+          }
         }
       }
       if (isRenderer) {
@@ -355,6 +397,63 @@ public abstract class HierarchyTree extends JTree implements TreeSelectionListen
       setBackground(background);
 
       SpeedSearchUtil.applySpeedSearchHighlighting(tree, this, false, selected);
+    }
+
+    @Override
+    public void paint(Graphics g) {
+      super.paint(g);
+
+      if (accessibilityAuditIcons.isEmpty()) {
+        return;
+      }
+
+      GraphicsUtil.setupAntialiasing(g);
+
+      int componentHeight = getSize().height;
+      int iconX = getPreferredSize().width;
+      int iconSpacing = getIconTextGap() * 2;
+
+      FontMetrics fontMetrics = g.getFontMetrics();
+      int textHeight = fontMetrics.getHeight();
+
+      g.setColor(UIUtil.getTreeForeground());
+
+      for (IconWithErrorCount entry : accessibilityAuditIcons) {
+        Icon icon = entry.getIcon();
+        int errorCount = entry.getErrorCount();
+        int iconHeight = icon.getIconHeight();
+        int iconY = (componentHeight - iconHeight) / 2;
+
+        icon.paintIcon(this, g, iconX, iconY);
+
+        if (errorCount != 0) {
+          int textX = iconX + icon.getIconWidth() + iconSpacing;
+          int textY = (componentHeight - textHeight) / 2 + fontMetrics.getAscent();
+          g.drawString(String.valueOf(errorCount), textX, textY);
+
+          iconX = textX + fontMetrics.stringWidth(String.valueOf(errorCount)) + iconSpacing;
+        } else {
+          iconX += icon.getIconWidth() + iconSpacing;
+        }
+      }
+    }
+  }
+
+  private static class IconWithErrorCount {
+    private final Icon icon;
+    private final int errorCount;
+
+    private IconWithErrorCount(Icon icon, int errorCount) {
+      this.icon = icon;
+      this.errorCount = errorCount;
+    }
+
+    public Icon getIcon() {
+      return icon;
+    }
+
+    public int getErrorCount() {
+      return errorCount;
     }
   }
 

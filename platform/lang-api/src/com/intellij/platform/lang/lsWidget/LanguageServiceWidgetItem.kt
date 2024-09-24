@@ -5,41 +5,31 @@ import com.intellij.icons.AllIcons
 import com.intellij.lang.LangBundle
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.options.Configurable
-import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.NlsActions
-import com.intellij.openapi.util.NlsContexts
+import com.intellij.platform.lang.lsWidget.internal.LanguageServiceWidgetActionsService
+import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.LayeredIcon.Companion.layeredIcon
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
 import javax.swing.Icon
 
 @ApiStatus.Experimental
 abstract class LanguageServiceWidgetItem {
   /**
-   * The default label for the status bar widget is the generic one: "Language Services".
-   *
-   * But if
-   * - this [LanguageServiceWidgetItem] is the only one in the `For Current File` popup section
-   *   (only for this item the [widgetActionLocation] value is [LanguageServicePopupSection.ForCurrentFile])
-   * - and the [statusBarText] value is not `null`
-   *
-   * then the service-specific text will be shown in the status bar.
-   *
-   * If this item is not the only one in the `For Current File` popup section,
-   * or it is not in the `For Current File` popup section at all,
-   * then the [statusBarText] value is ignored.
+   * An icon to show in the status bar (size: 16x16).
+   * The Platform will colorize the icon to be status-bar-friendly in the current UI theme.
+   * The Platform will add an error mark to the icon if [isError] is `true`.
    */
-  open val statusBarText: @NlsContexts.StatusBarText String? = null
+  abstract val statusBarIcon: Icon
 
   /**
-   * A tooltip for the status bar widget label.
-   * Used only if this item appears to be the only one in the `For Current File` popup section.
-   * Otherwise, it's ignored.
-   * @see statusBarText
+   * A tooltip for the status bar widget icon.
    */
-  open val statusBarTooltip: @NlsContexts.Tooltip String? = null
+  abstract val statusBarTooltip: @Nls String
 
   /**
    * If `true` then the Platform will add the error mark to the icon in the status bar,
@@ -49,13 +39,29 @@ abstract class LanguageServiceWidgetItem {
 
   abstract val widgetActionLocation: LanguageServicePopupSection
 
-  fun createWidgetAction(): AnAction =
-    createWidgetMainAction().apply {
-      if (isError) {
-        templatePresentation.icon = layeredIcon(arrayOf(templatePresentation.icon, AllIcons.Nodes.ErrorMark))
+  fun createWidgetAction(): AnAction {
+    val mainAction = createWidgetMainAction()
+    if (isError) {
+      mainAction.templatePresentation.icon = mainAction.templatePresentation.icon?.let {
+        layeredIcon(arrayOf(it, AllIcons.Nodes.ErrorMark))
       }
-      templatePresentation.putClientProperty(ActionUtil.INLINE_ACTIONS, createWidgetInlineActions())
     }
+
+    if (ExperimentalUI.isNewUI()) {
+      mainAction.templatePresentation.putClientProperty(ActionUtil.INLINE_ACTIONS, createWidgetInlineActions())
+      return mainAction
+    }
+    else {
+      return DefaultActionGroup(createWidgetInlineActions()).apply {
+        templatePresentation.text = mainAction.templatePresentation.text
+        templatePresentation.icon = mainAction.templatePresentation.icon
+        templatePresentation.description = mainAction.templatePresentation.description
+        templatePresentation.isPopupGroup = true
+        templatePresentation.isHideGroupIfEmpty = false
+        templatePresentation.isDisableGroupIfEmpty = false
+      }
+    }
+  }
 
   protected abstract fun createWidgetMainAction(): AnAction
 
@@ -77,6 +83,7 @@ class OpenSettingsAction(
 ) : AnAction(text, null, icon), DumbAware {
 
   override fun actionPerformed(e: AnActionEvent) {
-    e.project?.let { ShowSettingsUtil.getInstance().showSettingsDialog(e.project, settingsPageClass) }
+    val project = e.project ?: return
+    LanguageServiceWidgetActionsService.getInstance().openWidgetItemRelatedSettings(project, settingsPageClass)
   }
 }

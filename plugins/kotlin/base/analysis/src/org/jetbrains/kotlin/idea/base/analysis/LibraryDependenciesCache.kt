@@ -28,13 +28,10 @@ import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.LibraryInfo
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.SdkInfo
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.allSdks
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.checkValidity
-import org.jetbrains.kotlin.idea.base.util.caching.ModuleEntityChangeListener
-import org.jetbrains.kotlin.idea.base.util.caching.SdkEntityChangeListener
-import org.jetbrains.kotlin.idea.base.util.caching.SynchronizedFineGrainedEntityCache
-import org.jetbrains.kotlin.idea.base.util.caching.findSdkBridge
-import org.jetbrains.kotlin.idea.base.util.caching.getChanges
+import org.jetbrains.kotlin.idea.base.util.caching.*
 import org.jetbrains.kotlin.idea.caches.project.*
 import org.jetbrains.kotlin.idea.configuration.isMavenized
+import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.platform.jvm.isJvm
 import org.jetbrains.kotlin.utils.addIfNotNull
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
@@ -176,6 +173,13 @@ class LibraryDependenciesCacheImpl(private val project: Project) : LibraryDepend
         }
 
         val filteredLibraries = filterForBuiltins(libraryInfo, libraryDependencyCandidatesAndSdkInfos.libraryDependencyCandidates)
+
+        libraryDependencyCandidatesAndSdkInfos.sdkInfos.takeIf { it.isEmpty() }?.apply {
+            val scriptConfigurationManager = ScriptConfigurationManager.getInstance(project)
+            scriptConfigurationManager.getScriptDependingOn(libraryInfo.getLibraryRoots())
+                ?.let { script -> scriptConfigurationManager.getScriptSdk(script) }
+                ?.let { sdk -> add(SdkInfo(project, sdk)) }
+        }
 
         return LibraryDependencyCandidatesAndSdkInfos(filteredLibraries, libraryDependencyCandidatesAndSdkInfos.sdkInfos)
     }

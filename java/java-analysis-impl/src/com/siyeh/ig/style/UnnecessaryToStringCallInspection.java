@@ -1,15 +1,15 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.siyeh.ig.style;
 
 import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.LocalQuickFix;
-import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.codeInspection.dataFlow.NullabilityUtil;
 import com.intellij.codeInspection.options.OptPane;
 import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.modcommand.ModPsiUpdater;
+import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -45,7 +45,6 @@ public final class UnnecessaryToStringCallInspection extends BaseInspection impl
   }
 
   @Override
-  @Nullable
   protected LocalQuickFix buildFix(Object... infos) {
     final String text = (String)infos[0];
     return new UnnecessaryToStringCallFix(text);
@@ -62,7 +61,7 @@ public final class UnnecessaryToStringCallInspection extends BaseInspection impl
     @NotNull
     public String getName() {
       if (replacementText == null) {
-        return InspectionGadgetsBundle.message("inspection.redundant.string.remove.fix.name", "toString");
+        return InspectionGadgetsBundle.message("inspection.remove.redundant.call.fix.name", "toString");
       }
       return CommonQuickFixBundle.message("fix.replace.with.x", replacementText);
     }
@@ -119,12 +118,16 @@ public final class UnnecessaryToStringCallInspection extends BaseInspection impl
     @NonNls final String referenceName = methodExpression.getReferenceName();
     if (!"toString".equals(referenceName) || !call.getArgumentList().isEmpty()) return false;
     final PsiExpression qualifier = ExpressionUtils.getEffectiveQualifier(methodExpression);
-    if (qualifier == null || qualifier.getType() instanceof PsiArrayType) {
+    if (qualifier == null) {
+      return false;
+    }
+    PsiType type = qualifier.getType();
+    if (type instanceof PsiArrayType) {
       // do not warn on nonsensical code
       return false;
     }
     if (qualifier instanceof PsiSuperExpression) return false;
     final boolean throwable = TypeUtils.expressionHasTypeOrSubtype(qualifier, CommonClassNames.JAVA_LANG_THROWABLE);
-    return !ExpressionUtils.isConversionToStringNecessary(call, throwable);
+    return !ExpressionUtils.isConversionToStringNecessary(call, throwable, type);
   }
 }

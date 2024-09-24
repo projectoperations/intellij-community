@@ -1,11 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.event.*;
 import com.intellij.openapi.editor.ex.EditorEx;
@@ -17,6 +16,7 @@ import com.intellij.ui.components.JBScrollPane;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,7 +38,9 @@ public final class EditorEmbeddedComponentManager {
     return ourInstance;
   }
 
-  public @Nullable Inlay<?> addComponent(@NotNull EditorEx editor, @NotNull JComponent component, @NotNull Properties properties) {
+  public @Nullable Inlay<?> addComponent(@NotNull EditorEx editor,
+                                         @NotNull JComponent component,
+                                         @NotNull Properties properties) {
     ThreadingAssertions.assertEventDispatchThread();
 
     ComponentInlays inlays = getComponentInlaysFor(editor);
@@ -48,7 +50,9 @@ public final class EditorEmbeddedComponentManager {
   }
 
   private static @NotNull ComponentInlays getComponentInlaysFor(@NotNull EditorEx editor) {
-    if (!COMPONENT_INLAYS_KEY.isIn(editor)) COMPONENT_INLAYS_KEY.set(editor, new ComponentInlays(editor));
+    if (!COMPONENT_INLAYS_KEY.isIn(editor)) {
+      COMPONENT_INLAYS_KEY.set(editor, new ComponentInlays(editor));
+    }
     return COMPONENT_INLAYS_KEY.get(editor);
   }
 
@@ -96,18 +100,33 @@ public final class EditorEmbeddedComponentManager {
     final int priority;
     final int offset;
 
-    public Properties(@NotNull ResizePolicy resizePolicy, @Nullable RendererFactory rendererFactory,
-                      boolean relatesToPrecedingText, boolean showAbove, int priority, int offset) {
+    public Properties(@NotNull ResizePolicy resizePolicy,
+                      @Nullable RendererFactory rendererFactory,
+                      boolean relatesToPrecedingText,
+                      boolean showAbove,
+                      int priority,
+                      int offset) {
       this(resizePolicy, rendererFactory, relatesToPrecedingText, showAbove, false, false, priority, offset);
     }
 
-    public Properties(@NotNull ResizePolicy resizePolicy, @Nullable RendererFactory rendererFactory,
-                      boolean relatesToPrecedingText, boolean showAbove, boolean showWhenFolded, int priority, int offset) {
+    public Properties(@NotNull ResizePolicy resizePolicy,
+                      @Nullable RendererFactory rendererFactory,
+                      boolean relatesToPrecedingText,
+                      boolean showAbove,
+                      boolean showWhenFolded,
+                      int priority,
+                      int offset) {
       this(resizePolicy, rendererFactory, relatesToPrecedingText, showAbove, false, false, priority, offset);
     }
 
-    public Properties(@NotNull ResizePolicy resizePolicy, @Nullable RendererFactory rendererFactory,
-                      boolean relatesToPrecedingText, boolean showAbove, boolean showWhenFolded, boolean fullWidth, int priority, int offset) {
+    public Properties(@NotNull ResizePolicy resizePolicy,
+                      @Nullable RendererFactory rendererFactory,
+                      boolean relatesToPrecedingText,
+                      boolean showAbove,
+                      boolean showWhenFolded,
+                      boolean fullWidth,
+                      int priority,
+                      int offset) {
       this.resizePolicy = resizePolicy;
       this.rendererFactory = rendererFactory;
       this.relatesToPrecedingText = relatesToPrecedingText;
@@ -254,6 +273,7 @@ public final class EditorEmbeddedComponentManager {
     }
   }
 
+  @ApiStatus.Internal
   public static final class FullEditorWidthRenderer extends MyRenderer {
 
     FullEditorWidthRenderer(@NotNull JComponent component,
@@ -271,7 +291,6 @@ public final class EditorEmbeddedComponentManager {
   }
 
   private static final class ComponentInlays implements Disposable {
-    private static final Logger LOG = Logger.getInstance(ComponentInlays.class);
     private final EditorEx myEditor;
     private final ResizeListener myResizeListener;
 
@@ -283,8 +302,15 @@ public final class EditorEmbeddedComponentManager {
 
 
     @Nullable
-    Inlay<MyRenderer> add(@NotNull JComponent component, @NotNull ResizePolicy policy, @Nullable Properties.RendererFactory rendererFactory,
-                          boolean relatesToPrecedingText, boolean showAbove, boolean showWhenFolded, boolean fullWidth, int priority, int offset) {
+    Inlay<MyRenderer> add(@NotNull JComponent component,
+                          @NotNull ResizePolicy policy,
+                          @Nullable Properties.RendererFactory rendererFactory,
+                          boolean relatesToPrecedingText,
+                          boolean showAbove,
+                          boolean showWhenFolded,
+                          boolean fullWidth,
+                          int priority,
+                          int offset) {
       if (myEditor.isDisposed()) return null;
 
 
@@ -308,7 +334,7 @@ public final class EditorEmbeddedComponentManager {
         }
       });
 
-      renderer.addMouseWheelListener(myEditor.getContentComponent()::dispatchEvent);
+     // renderer.addMouseWheelListener(myEditor.getContentComponent()::dispatchEvent);
 
       renderer.setInlay(inlay);
       myEditor.getContentComponent().add(renderer);
@@ -323,7 +349,9 @@ public final class EditorEmbeddedComponentManager {
       });
 
       // If validation is postponed, visual artifacts can appear while typing text.
-      renderer.validate();
+      if (!myEditor.getInlayModel().isInBatchMode()) {
+        renderer.validate();
+      }
 
       return inlay;
     }
@@ -374,8 +402,7 @@ public final class EditorEmbeddedComponentManager {
       myEditor.getInlayModel().addListener(new InlayModel.SimpleAdapter() {
         @Override
         public void onUpdated(@NotNull Inlay<?> inlay, int changeFlags) {
-          if ((changeFlags & InlayModel.ChangeFlags.HEIGHT_CHANGED) != 0 && inlay.getRenderer() instanceof MyRenderer) {
-            JComponent component = (JComponent)inlay.getRenderer();
+          if ((changeFlags & InlayModel.ChangeFlags.HEIGHT_CHANGED) != 0 && inlay.getRenderer() instanceof MyRenderer component) {
             // This method can be called while validating the same component. Prevent resetting parent validation flags.
             if (component.isValid()) {
               component.revalidate();
@@ -544,7 +571,7 @@ public final class EditorEmbeddedComponentManager {
         }));
       }
 
-      private boolean isNearTo(int value, int coordinate) {
+      private static boolean isNearTo(int value, int coordinate) {
         return isInside(value, coordinate, coordinate);
       }
 

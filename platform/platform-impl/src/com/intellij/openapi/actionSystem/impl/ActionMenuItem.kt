@@ -44,8 +44,9 @@ internal fun isEnterKeyStroke(keyStroke: KeyStroke): Boolean {
 }
 
 class ActionMenuItem internal constructor(action: AnAction,
-                                          @JvmField val place: String,
                                           private val context: DataContext,
+                                          @JvmField val place: String,
+                                          private val uiKind: ActionUiKind.Popup,
                                           private val enableMnemonics: Boolean,
                                           private val insideCheckedGroup: Boolean,
                                           private val useDarkIcons: Boolean) : JBCheckBoxMenuItem() {
@@ -62,7 +63,7 @@ class ActionMenuItem internal constructor(action: AnAction,
   @NlsSafe
   private var description: String? = null
   private var isToggled = false
-  var isKeepMenuOpen: Boolean = false
+  var keepPopupOnPerform: KeepPopupOnPerform = KeepPopupOnPerform.Never
     private set
   val secondaryIcon: Icon?
     get() = if (UISettings.getInstance().showIconsInMenus) presentation.getClientProperty(ActionMenu.SECONDARY_ICON) else null
@@ -80,7 +81,7 @@ class ActionMenuItem internal constructor(action: AnAction,
           screenMenuItemPeer.setState(isToggled)
         }
         SwingUtilities.invokeLater(Runnable {
-          if (actionRef.getAction().isEnabledInModalContext || this.context.getData(PlatformCoreDataKeys.IS_MODAL_CONTEXT) != true) {
+          if (presentation.isEnabledInModalContext || this.context.getData(PlatformCoreDataKeys.IS_MODAL_CONTEXT) != true) {
             (TransactionGuard.getInstance() as TransactionGuardImpl).performUserActivity(
               Runnable { performAction(0) })
           }
@@ -125,7 +126,9 @@ class ActionMenuItem internal constructor(action: AnAction,
     displayedMnemonicIndex = presentation.getDisplayedMnemonicIndex()
     updateIcon(presentation)
     description = presentation.description
-    isKeepMenuOpen = isKeepMenuOpen || presentation.isMultiChoice || actionRef.getAction() is KeepingPopupOpenAction
+    keepPopupOnPerform =
+      if (actionRef.getAction() is KeepingPopupOpenAction) KeepPopupOnPerform.Always
+      else presentation.keepPopupOnPerform
     if (screenMenuItemPeer != null) {
       screenMenuItemPeer.setLabel(text, accelerator)
       screenMenuItemPeer.setEnabled(isEnabled)
@@ -194,7 +197,10 @@ class ActionMenuItem internal constructor(action: AnAction,
       if (ActionPlaces.MAIN_MENU == place && SystemInfo.isMacSystemMenu) {
         state = isToggled
         screenMenuItemPeer?.setState(isToggled)
-        setIcon(wrapNullIcon(icon)!!)
+      }
+      val adjustedIcon = adjustIcon(presentation.icon)
+      if (adjustedIcon != null) {
+        setIcon(adjustedIcon)
       }
       else if (isToggled) {
         setToggledIcon()
@@ -207,7 +213,7 @@ class ActionMenuItem internal constructor(action: AnAction,
     }
     else if (UISettings.getInstance().showIconsInMenus) {
       var icon = presentation.icon
-      if (isToggleable && isToggled) {
+      if (isToggleable && isToggled && icon != null) {
         icon = PoppedIcon(icon, 16, 16)
       }
       var disabled = presentation.disabledIcon
@@ -218,21 +224,20 @@ class ActionMenuItem internal constructor(action: AnAction,
       if (selected == null) {
         selected = icon
       }
-      setIcon(wrapNullIcon(if (presentation.isEnabled) icon else disabled))
-      setSelectedIcon(wrapNullIcon(selected))
-      setDisabledIcon(wrapNullIcon(disabled))
+      setIcon(adjustIcon(if (presentation.isEnabled) icon else disabled))
+      setSelectedIcon(adjustIcon(selected))
+      setDisabledIcon(adjustIcon(disabled))
     }
   }
 
-  private fun wrapNullIcon(icon: Icon?): Icon? {
+  private fun adjustIcon(icon: Icon?): Icon? {
     val isMainMenu = ActionPlaces.MAIN_MENU == place
-    if (isMainMenu && isShowNoIcons(actionRef.getAction())) {
-      return null
+    return when {
+      isMainMenu && isShowNoIcons(actionRef.getAction()) -> null
+      !isAligned || !isAlignedInGroup -> return icon
+      isMainMenu && icon == null && SystemInfo.isMacSystemMenu -> EMPTY_MENU_ACTION_ICON
+      else -> icon
     }
-    if (!isAligned || !isAlignedInGroup) {
-      return icon
-    }
-    return if (icon == null && SystemInfo.isMacSystemMenu && ActionPlaces.MAIN_MENU == place) EMPTY_MENU_ACTION_ICON else icon
   }
 
   override fun setIcon(icon: Icon?) {
@@ -261,10 +266,9 @@ class ActionMenuItem internal constructor(action: AnAction,
       val action = actionRef.getAction()
       val currentEvent = IdeEventQueue.getInstance().trueCurrentEvent
       val event = AnActionEvent(
-        currentEvent as? InputEvent, context, place,
-        presentation.clone(),
-        ActionManager.getInstance(),
-        modifiers, true, false)
+        context, presentation.clone(), place, uiKind,
+        currentEvent as? InputEvent, modifiers,
+        ActionManager.getInstance())
       if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
         ActionUtil.performActionDumbAwareWithCallbacks(action, event)
       }

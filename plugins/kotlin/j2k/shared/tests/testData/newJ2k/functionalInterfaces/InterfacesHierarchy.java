@@ -1,4 +1,4 @@
-// RUNTIME_WITH_FULL_JDK
+// IGNORE_K2
 
 // we intentionally do not convert interface to Kotlin fun interface
 // if it inherits from some other interface, because it is hard to deal

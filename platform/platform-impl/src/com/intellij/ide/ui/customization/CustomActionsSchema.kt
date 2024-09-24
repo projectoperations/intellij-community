@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment")
 
 package com.intellij.ide.ui.customization
@@ -21,11 +21,9 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.NaturalComparator
 import com.intellij.openapi.wm.ex.WindowManagerEx
-import com.intellij.serviceContainer.NonInjectable
 import com.intellij.ui.ExperimentalUI
 import com.intellij.util.IconUtil
 import com.intellij.util.SmartList
-import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.containers.with
 import com.intellij.util.ui.EmptyIcon
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +41,7 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.Icon
 import javax.swing.tree.DefaultMutableTreeNode
+import kotlin.Throws
 
 private val LOG = logger<CustomActionsSchema>()
 
@@ -66,7 +65,9 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
    *  * path to the SVG or PNG file of the icon
    *  * URL of the SVG or PNG icon
    */
-  private val iconCustomizations = HashMap<String, String?>()
+  // do not use Map.of - value is nullable
+  @Volatile
+  private var iconCustomizations: Map<String, String?> = Collections.emptyMap()
   private val lock = Any()
 
   // ordered map, do not use hash map
@@ -74,15 +75,12 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
   private var idToName: LinkedHashMap<String, String>
 
   @Volatile
-  private var idToActionGroup = java.util.Map.of<String, ActionGroup>()
+  private var idToActionGroup: Map<String, ActionGroup> = java.util.Map.of()
   private val extGroupIds = HashSet<String>()
   private val actions = ArrayList<ActionUrl>()
   private var isFirstLoadState = true
   var modificationStamp: Int = 0
     private set
-
-  @NonInjectable
-  constructor() : this(null)
 
   init {
     val idToName = LinkedHashMap<String, String>()
@@ -132,7 +130,6 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
     }
 
     @JvmStatic
-    @RequiresBlockingContext
     fun getInstance(): CustomActionsSchema = service<CustomActionsSchema>()
 
     suspend fun getInstanceAsync(): CustomActionsSchema = serviceAsync<CustomActionsSchema>()
@@ -176,7 +173,7 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
       idToActionGroup = java.util.Map.of()
       actions.clear()
       val ids = java.util.List.copyOf(iconCustomizations.keys)
-      iconCustomizations.clear()
+      val iconCustomizations = HashMap<String, String?>()
       for (actionUrl in result.actions) {
         addAction(actionUrl.copy())
       }
@@ -185,6 +182,7 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
       for (id in ids) {
         iconCustomizations.putIfAbsent(id, null)
       }
+      this.iconCustomizations = Collections.unmodifiableMap(iconCustomizations)
     }
   }
 
@@ -198,7 +196,7 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
       return true
     }
     for (i in getActions().indices) {
-      if (getActions()[i] != storedActions[i]) {
+      if (getActions().get(i) != storedActions.get(i)) {
         return true
       }
     }
@@ -211,7 +209,6 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
     synchronized(lock) {
       idToActionGroup = java.util.Map.of()
       actions.clear()
-      iconCustomizations.clear()
       var schElement = element
       val activeName = element.getAttributeValue(ACTIVE)
       if (activeName != null) {
@@ -224,6 +221,7 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
           }
         }
       }
+
       for (groupElement in schElement.getChildren(GROUP)) {
         val url = ActionUrl()
         url.readExternal(groupElement)
@@ -235,19 +233,25 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
         LOG.error(IdeBundle.message("custom.option.testmode", actions.toString()))
       }
 
+      val iconCustomizations = HashMap<String, String?>()
       for (action in element.getChildren(ELEMENT_ACTION)) {
         val actionId = action.getAttributeValue(ATTRIBUTE_ID) ?: continue
         iconCustomizations.put(actionId, action.getAttributeValue(ATTRIBUTE_ICON))
       }
+
       reload = !isFirstLoadState
       if (isFirstLoadState) {
         isFirstLoadState = false
       }
+
+      this.iconCustomizations = Collections.unmodifiableMap(iconCustomizations)
     }
     coroutineScope?.launch {
-      serviceAsync<ActionManager>()
-      withContext(Dispatchers.EDT) {
-        initActionIcons(updateView = reload)
+      if (!iconCustomizations.isEmpty()) {
+        val actionManager = serviceAsync<ActionManager>()
+        withContext(Dispatchers.EDT) {
+          applyIconCustomization(actionManager)
+        }
       }
       if (reload) {
         withContext(Dispatchers.EDT) {
@@ -272,7 +276,6 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
     return element
   }
 
-  @RequiresBlockingContext
   fun getCorrectedAction(id: String): AnAction? {
     val name = idToName.get(id) ?: return ActionManager.getInstance().getAction(id)
     return getCorrectedAction(id, name)
@@ -400,11 +403,11 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
   }
 
   fun removeIconCustomization(actionId: String) {
-    iconCustomizations.put(actionId, null)
+    iconCustomizations = iconCustomizations.with(actionId, null)
   }
 
   fun addIconCustomization(actionId: String, iconPath: String?) {
-    iconCustomizations.put(actionId, if (iconPath == null) null else FileUtil.toSystemIndependentName(iconPath))
+    iconCustomizations = iconCustomizations.with(actionId, if (iconPath == null) null else FileUtil.toSystemIndependentName(iconPath))
   }
 
   fun getIconPath(actionId: String): String = iconCustomizations.get(actionId) ?: ""
@@ -428,19 +431,22 @@ class CustomActionsSchema(private val coroutineScope: CoroutineScope?) : Persist
   @JvmOverloads
   fun initActionIcons(updateView: Boolean = true) {
     if (!iconCustomizations.isEmpty()) {
-      val actionManager = ActionManager.getInstance()
-      for (actionId in iconCustomizations.keys) {
-        val action = actionManager.getActionOrStub(actionId)
-        if (action == null || action is ActionStub) {
-          continue
-        }
-
-        initActionIcon(anAction = action, actionId = actionId, actionManager = actionManager)
-        PresentationFactory.updatePresentation(action)
-      }
+      applyIconCustomization(ActionManager.getInstance())
     }
     if (updateView) {
       WindowManagerEx.getInstanceEx().getFrameHelper(null)?.updateView()
+    }
+  }
+
+  private fun applyIconCustomization(actionManager: ActionManager) {
+    for (actionId in iconCustomizations.keys) {
+      val action = actionManager.getActionOrStub(actionId)
+      if (action == null || action is ActionStub) {
+        continue
+      }
+
+      initActionIcon(anAction = action, actionId = actionId, actionManager = actionManager)
+      PresentationFactory.updatePresentation(action)
     }
   }
 

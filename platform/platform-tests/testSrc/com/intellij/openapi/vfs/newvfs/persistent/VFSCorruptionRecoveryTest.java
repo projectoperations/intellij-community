@@ -1,11 +1,12 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.newvfs.FileAttribute;
-import com.intellij.openapi.vfs.newvfs.persistent.dev.blobstorage.StreamlinedBlobStorageHelper;
+import com.intellij.platform.util.io.storages.blobstorage.StreamlinedBlobStorageHelper;
 import com.intellij.openapi.vfs.newvfs.persistent.recovery.ContentStoragesRecoverer;
 import com.intellij.openapi.vfs.newvfs.persistent.recovery.NotClosedProperlyRecoverer;
+import com.intellij.platform.util.io.storages.StorageTestingUtils;
 import com.intellij.testFramework.TemporaryDirectory;
 import org.jetbrains.annotations.NotNull;
 import org.junit.After;
@@ -187,8 +188,6 @@ public class VFSCorruptionRecoveryTest {
         PersistentFSConnector.tryInit(
           cachesDir,
           FSRecordsImpl.currentImplementationVersion(),
-          false,
-          Collections.emptyList(),
           Collections.emptyList()
         );
         filesNotLeadingToVFSRebuild.add(fileToDelete.getFileName().toString());
@@ -291,11 +290,9 @@ public class VFSCorruptionRecoveryTest {
       PersistentFSConnection connection = PersistentFSConnector.tryInit(
         cachesDir,
         FSRecordsImpl.currentImplementationVersion(),
-        false,
-        Collections.emptyList(),
         Collections.emptyList()
       );
-      PersistentFSConnector.disconnect(connection);
+      connection.close();
       fail("VFS wasn't closed properly, no recoverers -> VFS init must fail");
     }
     catch (VFSInitException ex) {
@@ -318,11 +315,9 @@ public class VFSCorruptionRecoveryTest {
     PersistentFSConnection connection = PersistentFSConnector.tryInit(
       cachesDir,
       FSRecordsImpl.currentImplementationVersion(),
-      false,
-      Collections.emptyList(),
       Collections.singletonList(new NotClosedProperlyRecoverer())
     );
-    PersistentFSConnector.disconnect(connection);
+    connection.close();
   }
 
 
@@ -352,8 +347,6 @@ public class VFSCorruptionRecoveryTest {
       PersistentFSConnection connection = PersistentFSConnector.tryInit(
         cachesDir,
         FSRecordsImpl.currentImplementationVersion(),
-        false,
-        Collections.emptyList(),
         List.of(new ContentStoragesRecoverer())
       );
       connection.close();
@@ -385,8 +378,6 @@ public class VFSCorruptionRecoveryTest {
       PersistentFSConnection connection = PersistentFSConnector.tryInit(
         cachesDir,
         FSRecordsImpl.currentImplementationVersion(),
-        false,
-        Collections.emptyList(),
         List.of(new ContentStoragesRecoverer())
       );
       try {
@@ -450,7 +441,7 @@ public class VFSCorruptionRecoveryTest {
     try (SeekableByteChannel channel = Files.newByteChannel(recordsPath, WRITE)) {
       ByteBuffer oneFieldBuffer = ByteBuffer.allocate(Integer.BYTES)
         .order(ByteOrder.nativeOrder());
-      oneFieldBuffer.putInt(PersistentFSHeaders.CONNECTED_MAGIC)
+      oneFieldBuffer.putInt(PersistentFSHeaders.IN_USE_STAMP)
         .clear();
 
       channel.position(HEADER_CONNECTION_STATUS_OFFSET);

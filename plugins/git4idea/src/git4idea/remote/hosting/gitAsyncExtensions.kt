@@ -6,21 +6,15 @@ import com.intellij.collaboration.util.ComputedResult
 import com.intellij.dvcs.repo.VcsRepositoryManager
 import com.intellij.dvcs.repo.VcsRepositoryMappingListener
 import com.intellij.openapi.components.serviceAsync
-import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.Project
 import git4idea.GitRemoteBranch
 import git4idea.branch.GitBranchSyncStatus
-import git4idea.commands.Git
-import git4idea.commands.GitCommand
-import git4idea.commands.GitLineHandler
 import git4idea.remote.GitRemoteUrlCoordinates
 import git4idea.repo.GitRepoInfo
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryChangeListener
 import git4idea.repo.GitRepositoryManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 
@@ -108,17 +102,9 @@ private suspend fun checkSyncState(repository: GitRepository, currentRev: String
   val headSha = commits.last()
   if (currentRev == headSha) return GitBranchSyncStatus.SYNCED
   if (commits.contains(currentRev)) return GitBranchSyncStatus(true, false)
-  if (testCurrentBranchContains(repository, headSha)) return GitBranchSyncStatus(false, true)
+  if (GitCodeReviewUtils.testIsAncestor(repository, headSha, "HEAD")) return GitBranchSyncStatus(false, true)
   return GitBranchSyncStatus(true, true)
 }
-
-private suspend fun testCurrentBranchContains(repository: GitRepository, sha: String): Boolean =
-  coroutineToIndicator {
-    val h = GitLineHandler(repository.project, repository.root, GitCommand.MERGE_BASE)
-    h.setSilent(true)
-    h.addParameters("--is-ancestor", sha, "HEAD")
-    Git.getInstance().runCommand(h).success()
-  }
 
 fun <S : ServerPath, M : HostedGitRepositoryMapping> GitRemotesFlow.mapToServers(serversState: Flow<Set<S>>,
                                                                                  mapper: (S, GitRemoteUrlCoordinates) -> M?)
@@ -156,3 +142,30 @@ fun <S : ServerPath> GitRemotesFlow.discoverServers(knownServersFlow: Flow<Set<S
       }
   }
 }
+
+@OptIn(ExperimentalCoroutinesApi::class)
+fun GitRepository.isInCurrentHistory(rev: Flow<String>, ifEqualReturn: Boolean? = null): Flow<Boolean?> {
+  val repository = this
+  val currentRevFlow = repository.infoFlow().map { it.currentRevision }
+
+  /*
+   * Request for the sync state between current local branch and some other branch state.
+   * Can't just do combineTransform bc it will not cancel previous computation
+   */
+  return currentRevFlow.combine(rev) { currentRev, targetRev ->
+    currentRev to targetRev
+  }.distinctUntilChanged().transformLatest { (currentRev, targetRev) ->
+    when (currentRev) {
+      null -> emit(null) // does not make sense to update on a no-revision head
+      targetRev -> emit(ifEqualReturn)
+      else -> supervisorScope {
+        emit(null)
+        val res = runCatching {
+          GitCodeReviewUtils.testIsAncestor(repository, targetRev, currentRev)
+        }
+        emit(res.getOrNull() ?: false)
+      }
+    }
+  }
+}
+

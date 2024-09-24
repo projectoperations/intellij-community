@@ -12,7 +12,6 @@ import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileCustomDataConsumer
 import com.intellij.openapi.vfs.VirtualFileCustomDataProvider
-import com.intellij.psi.PsiManager
 import com.intellij.util.LineSeparator
 import com.intellij.util.messages.impl.subscribeAsFlow
 import kotlinx.coroutines.CancellationException
@@ -63,7 +62,12 @@ abstract class CodeStyleSettingsCustomDataSynchronizer<T : CustomCodeStyleSettin
 
       try {
         common.writeExternal(commonSettingsElement, provider)
-        custom.writeExternal(customSettingsElement, provider.createCustomSettings(CodeStyleSettings.getDefaults()))
+        val customSettingsInstance = provider.createCustomSettings(CodeStyleSettings.getDefaults())
+        if (customSettingsInstance != null) {
+          custom.writeExternal(customSettingsElement, customSettingsInstance)
+        } else {
+          LOG.warn("Unable to create custom settings instance for ${language.id}, provider.id=$id. Custom Settings will not be written")
+        }
       }
       catch (e: Exception) {
         if (e is CancellationException) throw e
@@ -103,7 +107,12 @@ abstract class CodeStyleSettingsCustomDataSynchronizer<T : CustomCodeStyleSettin
 
     try {
       common.applyFromExternal(commonSettingsElement, provider.defaultCommonSettings)
-      custom.applyFromExternal(customSettingsElement, provider.createCustomSettings(CodeStyleSettings.getDefaults()))
+      val customSettingsInstance = provider.createCustomSettings(CodeStyleSettings.getDefaults())
+      if (customSettingsInstance != null) {
+        custom.applyFromExternal(customSettingsElement, customSettingsInstance)
+      } else {
+        LOG.warn("Unable to create custom settings instance for ${language.id}, provider.id=$id. Custom Settings will not be applied")
+      }
 
       CodeStyleSettingsManager.getInstance(project).fireCodeStyleSettingsChanged(virtualFile)
     }
@@ -124,8 +133,8 @@ abstract class CodeStyleSettingsCustomDataSynchronizer<T : CustomCodeStyleSettin
   private suspend fun getActiveCodeStyleSettings(project: Project,
                                                  virtualFile: VirtualFile): Pair<CommonCodeStyleSettings, T>? {
     return readAction {
-      val psiFile = PsiManager.getInstance(project).findFile(virtualFile) ?: run {
-        LOG.trace { "Cannot find PSI file for ${virtualFile.path}. provider.id=$id" }
+      val psiFile = VirtualFileCustomDataProvider.getPsiFileSafe(virtualFile, project) ?: run {
+        LOG.trace { "Cannot get PSI file for ${virtualFile.path}. provider.id=$id" }
         return@readAction null
       }
       val common = CodeStyle.getSettings(psiFile).getCommonSettings(language)

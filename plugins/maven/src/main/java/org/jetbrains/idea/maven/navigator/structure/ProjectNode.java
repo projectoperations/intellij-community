@@ -92,13 +92,13 @@ class ProjectNode extends ProjectsGroupNode implements MavenProjectNode {
   }
 
   void updateProject() {
-    setErrorLevel(
-      myMavenProject.getCacheProblems().isEmpty() ? MavenProjectsStructure.ErrorLevel.NONE : MavenProjectsStructure.ErrorLevel.ERROR);
+    var level = myMavenProject.getProblems().isEmpty() ? MavenProjectsStructure.ErrorLevel.NONE : MavenProjectsStructure.ErrorLevel.ERROR;
+    setErrorLevel(level);
     myLifecycleNode.updateGoalsList();
     myPluginsNode.updatePlugins(myMavenProject);
 
     if (isRoot()) {
-      myRepositoriesNode.updateRepositories(myMavenProject);
+      myRepositoriesNode.updateRepositories(myProject);
     }
 
     if (myMavenProjectsStructure.getDisplayMode() == MavenProjectsStructure.MavenStructureDisplayMode.SHOW_ALL) {
@@ -190,7 +190,7 @@ class ProjectNode extends ProjectsGroupNode implements MavenProjectNode {
   }
 
   private void appendProblems(StringBuilder desc) {
-    List<MavenProjectProblem> problems = myMavenProject.getCacheProblems();
+    List<MavenProjectProblem> problems = myMavenProject.getProblems();
     if (problems.isEmpty()) return;
 
     desc.append("<tr>" +
@@ -261,6 +261,12 @@ class ProjectNode extends ProjectsGroupNode implements MavenProjectNode {
   @TestOnly
   public PluginsNode getPluginsNode() {
     return myPluginsNode;
+  }
+
+  @TestOnly
+  @SuppressWarnings("unchecked")
+  public List<RepositoryNode> getListOfRepositoryNodes() {
+    return (List<RepositoryNode>)(List<?>)myRepositoriesNode.doGetChildren();
   }
 
   @Override

@@ -1,4 +1,5 @@
-//file
+// KTIJ-29632
+
 package org.test;
 
 class OuterClass {

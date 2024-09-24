@@ -32,7 +32,7 @@ public interface RangeHighlighter extends RangeMarker {
 
   /**
    * Returns the value indicating whether the highlighter affects a range of text or a sequence of
-   * of entire lines in the specified range.
+   * entire lines in the specified range.
    *
    * @return the highlighter target area.
    */
@@ -50,7 +50,7 @@ public interface RangeHighlighter extends RangeMarker {
   /**
    * Sets the text attributes key used for highlighting.
    * Having a key is preferred over raw attributes which makes it impossible to update it on a {@link EditorColorsScheme} changes
-   * @param textAttributesKey a attributes key.
+   * @param textAttributesKey a text attributes key.
    */
   void setTextAttributesKey(@NotNull TextAttributesKey textAttributesKey);
 
@@ -120,14 +120,6 @@ public interface RangeHighlighter extends RangeMarker {
   void setGutterIconRenderer(@Nullable GutterIconRenderer renderer);
 
   /**
-   * @deprecated Use the overload with {@link EditorColorsScheme}
-   */
-  @Deprecated(forRemoval = true)
-  default @Nullable Color getErrorStripeMarkColor() {
-    return getErrorStripeMarkColor(null);
-  }
-
-  /**
    * Returns the color of the marker drawn in the error stripe in the area covered by the highlighter.
    *
    * @return the error stripe marker color, or {@code null} if the highlighter does not add any
@@ -147,6 +139,10 @@ public interface RangeHighlighter extends RangeMarker {
   /**
    * Returns the object whose {@code toString()} method is called to get the text of the tooltip
    * for the error stripe marker added by the highlighter.
+   * <p/>
+   *
+   * But if {@code com.intellij.codeInsight.daemon.impl.HighlightInfo} is returned,
+   * then {@code com.intellij.codeInsight.daemon.impl.HighlightInfo#getToolTip} is used instead.
    *
    * @return the error stripe tooltip objects, or {@code null} if the highlighter does not add any error
    * stripe markers or the marker has no tooltip.

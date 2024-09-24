@@ -4,17 +4,17 @@ package org.jetbrains.uast.kotlin
 
 import com.intellij.lang.jvm.JvmModifier
 import com.intellij.psi.*
+import com.intellij.psi.impl.source.PsiClassReferenceType
 import com.intellij.psi.util.PropertyUtilBase
 import com.intellij.psi.util.PsiTypesUtil
+import com.intellij.psi.util.PsiUtil
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.name.SpecialNames
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getCallNameExpression
 import org.jetbrains.kotlin.util.OperatorNameConventions
 import org.jetbrains.uast.*
-import org.jetbrains.uast.internal.acceptList
 import org.jetbrains.uast.kotlin.internal.TypedResolveResult
-import org.jetbrains.uast.visitor.UastVisitor
 
 @ApiStatus.Internal
 class KotlinUFunctionCallExpression(
@@ -51,12 +51,20 @@ class KotlinUFunctionCallExpression(
             return methodNamePart as String?
         }
 
-    override val classReference: UReferenceExpression
+    override val classReference: UReferenceExpression?
         get() {
             if (classReferencePart == UNINITIALIZED_UAST_PART) {
-                classReferencePart = KotlinClassViaConstructorUSimpleReferenceExpression(sourcePsi, methodName.orAnonymous("class"), this)
+                val resolvedClass = baseResolveProviderService.resolveToClassIfConstructorCall(sourcePsi, this)
+                classReferencePart = if (resolvedClass != null) {
+                    KotlinClassViaConstructorUSimpleReferenceExpression(
+                        sourcePsi.calleeExpression,
+                        resolvedClass.name.orAnonymous("class"),
+                        resolvedClass,
+                        this
+                    )
+                } else null
             }
-            return classReferencePart as UReferenceExpression
+            return classReferencePart as UReferenceExpression?
         }
 
     override val methodIdentifier: UIdentifier?
@@ -137,7 +145,41 @@ class KotlinUFunctionCallExpression(
     }
 
     override fun getExpressionType(): PsiType? {
+        // KTIJ-17870: One-off handling for instantiation of local classes
+        if (classReference != null) {
+            // [classReference] is created only if this call expression is resolved to constructor.
+            // Its [resolve] will return the stored [PsiClass], hence no cost at all.
+            val resolvedClass = classReference!!.resolve() as PsiClass
+            if (
+                // local/anonymous class from Java source
+                PsiUtil.isLocalClass(resolvedClass) ||
+                // everything else
+                resolvedClass.isLocal()
+            ) {
+                val referenceType = super<KotlinUElementWithType>.getExpressionType()
+                when (referenceType) {
+                    is PsiClassReferenceType -> {
+                        // K2: returns [PsiClassReferenceType], which is correct yet not good for type resolution.
+                        // Instead, we create a new instance of [PsiClassReferenceType]
+                        // whose [resolve] is just overridden to return `resolvedClass`.
+                        return object : PsiClassReferenceType(referenceType.reference, referenceType.languageLevel) {
+                            override fun resolve(): PsiClass? {
+                                return resolvedClass
+                            }
+                        }
+                    }
+                    else -> {
+                        // K1: intentionally drop the type conversion of local/anonymous class (KT-15483)
+                        // This will be a thin wrapper, [PsiImmediateClassType]
+                        // whose [resolve] is already overridden to return the given `resolvedClass`.
+                        return PsiTypesUtil.getClassType(resolvedClass)
+                    }
+                }
+            }
+        }
+        // Regular [getExpressionType] that goes through resolve service.
         super<KotlinUElementWithType>.getExpressionType()?.let { return it }
+        // One more chance: multi-resolution
         for (resolveResult in multiResolve()) {
             val psiMethod = resolveResult.element
             when {
@@ -266,16 +308,6 @@ class KotlinUFunctionCallExpression(
 
     override fun resolve(): PsiMethod? =
         baseResolveProviderService.resolveCall(sourcePsi)
-
-    override fun accept(visitor: UastVisitor) {
-        if (visitor.visitCallExpression(this)) return
-        uAnnotations.acceptList(visitor)
-        methodIdentifier?.accept(visitor)
-        classReference.accept(visitor)
-        valueArguments.acceptList(visitor)
-
-        visitor.afterVisitCallExpression(this)
-    }
 
     override fun convertParent(): UElement? = super.convertParent().let { result ->
         when (result) {

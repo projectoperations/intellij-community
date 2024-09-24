@@ -16,17 +16,16 @@
 package org.jetbrains.idea.maven.dom
 
 import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCase
-import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import kotlinx.coroutines.runBlocking
-import org.junit.Assume
 import org.junit.Test
 import java.io.File
 
 class MavenPropertyResolverTest : MavenMultiVersionImportingTestCase() {
-  override fun runInDispatchThread() = true
   @Test
   fun testResolvingProjectAttributes() = runBlocking {
     importProjectAsync("""
@@ -154,7 +153,6 @@ class MavenPropertyResolverTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDoNotGoIntoInfiniteRecursion() = runBlocking {
-    Assume.assumeTrue(isWorkspaceImport)
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -283,19 +281,18 @@ class MavenPropertyResolverTest : MavenMultiVersionImportingTestCase() {
                     <version>1</version>
                     """.trimIndent())
 
-    val doc = FileDocumentManager.getInstance().getDocument(projectPom)
-    WriteCommandAction.runWriteCommandAction(null) {
+    val doc = readAction { FileDocumentManager.getInstance().getDocument(projectPom) }
+    writeAction {
       doc!!.setText(createPomXml("""
-                                                                                    <groupId>test</groupId>
-                                                                                    <artifactId>project</artifactId>
-                                                                                    <version>2</version>
-                                                                                    <properties>
-                                                                                      <uncomitted>value</uncomitted>
-                                                                                    </properties>
-                                                                                    """.trimIndent()))
+          <groupId>test</groupId>
+          <artifactId>project</artifactId>
+          <version>2</version>
+          <properties>
+            <uncomitted>value</uncomitted>
+          </properties>
+          """.trimIndent()))
+      PsiDocumentManager.getInstance(project).commitDocument(doc)
     }
-
-    PsiDocumentManager.getInstance(project).commitDocument(doc!!)
 
     assertEquals("value", resolve("\${uncomitted}", projectPom))
   }
@@ -331,8 +328,8 @@ class MavenPropertyResolverTest : MavenMultiVersionImportingTestCase() {
     assertEquals("parent-id", resolve("\${parent.artifactId}", file))
   }
 
-  private fun resolve(text: String, f: VirtualFile): String {
-    return MavenPropertyResolver.resolve(text, MavenDomUtil.getMavenDomProjectModel(project, f))
+  private suspend fun resolve(text: String, f: VirtualFile): String {
+    return readAction { MavenPropertyResolver.resolve(text, MavenDomUtil.getMavenDomProjectModel(project, f)) }
   }
 }
 

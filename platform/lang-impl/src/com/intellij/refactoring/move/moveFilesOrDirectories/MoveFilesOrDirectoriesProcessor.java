@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.refactoring.move.moveFilesOrDirectories;
 
 import com.intellij.ide.util.EditorHelper;
@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.paths.PsiDynaReference;
+import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
@@ -37,6 +38,10 @@ import java.io.IOException;
 import java.lang.ref.Reference;
 import java.util.*;
 
+/**
+ * Refactoring processor for moving files or sets of files.
+ * Uses {@link MoveFileHandler} to run language-specific logic.
+ */
 public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
   private static final Logger LOG = Logger.getInstance(MoveFilesOrDirectoriesProcessor.class);
 
@@ -47,7 +52,7 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
   private final PsiDirectory myNewParent;
   private final MoveCallback myMoveCallback;
   private NonCodeUsageInfo[] myNonCodeUsages;
-  private final Map<PsiFile, List<UsageInfo>> myFoundUsages = new HashMap<>();
+  protected final Map<PsiFile, List<UsageInfo>> myFoundUsages = new HashMap<>();
 
   public MoveFilesOrDirectoriesProcessor(@NotNull Project project,
                                          PsiElement @NotNull [] elements,
@@ -77,8 +82,7 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
   }
 
   @Override
-  @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
+  protected @NotNull UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
     return new MoveFilesOrDirectoriesViewDescriptor(myElementsToMove, myNewParent);
   }
 
@@ -132,6 +136,9 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
   @Override
   protected void performRefactoring(UsageInfo @NotNull [] _usages) {
     try {
+      ProgressIndicator progressIndicator = ProgressManager.getInstance().getProgressIndicator();
+      progressIndicator.setIndeterminate(myElementsToMove.length <= 1); // only show progress when moving multiple elements
+      progressIndicator.setFraction(0.0);
       List<PsiElement> toChange = new ArrayList<>();
       Collections.addAll(toChange, myElementsToMove);
 
@@ -170,13 +177,16 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
       List<SmartPsiElementPointer<PsiFile>> movedFiles = new ArrayList<>();
       for (int i = 0; i < myElementsToMove.length; i++) {
         PsiElement element = toChange.get(i);
-        if (element instanceof PsiDirectory) {
-          MoveFilesOrDirectoriesUtil.doMoveDirectory((PsiDirectory)element, newParent);
-          for (PsiElement psiElement : element.getChildren()) {
+        progressIndicator.setFraction((double)i / myElementsToMove.length);
+        if (element instanceof PsiDirectory directory) {
+          progressIndicator.setText2(directory.getVirtualFile().getPresentableUrl());
+          MoveFilesOrDirectoriesUtil.doMoveDirectory(directory, newParent);
+          for (PsiElement psiElement : directory.getChildren()) {
             processDirectoryFiles(movedFiles, oldToNewMap, psiElement);
           }
         }
         else if (element instanceof PsiFile movedFile) {
+          progressIndicator.setText2(movedFile.getVirtualFile().getPresentableUrl());
           MoveFileHandler.forElement(movedFile).prepareMovedFile(movedFile, newParent, oldToNewMap);
 
           PsiFile moving = newParent.findFile(movedFile.getName());
@@ -200,6 +210,8 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
           });
         }
       }
+      progressIndicator.setText2("");
+      progressIndicator.setFraction(1.0);
       // sort by offset descending to process correctly several usages in one PsiElement [IDEADEV-33013]
       UsageInfo[] usages = codeUsages.toArray(UsageInfo.EMPTY_ARRAY);
       CommonRefactoringUtil.sortDepthFirstRightLeftOrder(usages);
@@ -218,6 +230,12 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
       retargetUsages(usages, oldToNewMap);
 
       for (Map.Entry<PsiFile, List<UsageInfo>> entry : myFoundUsages.entrySet()) {
+        // Before retargeting sort usages by start offset to get consistent results
+        ContainerUtil.sort(entry.getValue(), Comparator.comparingInt(o -> {
+          PsiElement element = o.getElement();
+          if (element == null) return -1;
+          return element.getTextRange().getStartOffset();
+        }));
         MoveFileHandler.forElement(entry.getKey()).retargetUsages(entry.getValue(), oldToNewMap);
       }
 
@@ -263,23 +281,20 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
     }
   }
 
-  @Nullable
   @Override
-  protected String getRefactoringId() {
+  protected @Nullable String getRefactoringId() {
     return "refactoring.move";
   }
 
-  @Nullable
   @Override
-  protected RefactoringEventData getBeforeData() {
+  protected @Nullable RefactoringEventData getBeforeData() {
     RefactoringEventData data = new RefactoringEventData();
     data.addElements(myElementsToMove);
     return data;
   }
 
-  @Nullable
   @Override
-  protected RefactoringEventData getAfterData(UsageInfo @NotNull [] usages) {
+  protected @Nullable RefactoringEventData getAfterData(UsageInfo @NotNull [] usages) {
     RefactoringEventData data = new RefactoringEventData();
     data.addElement(myNewParent);
     return data;
@@ -332,9 +347,8 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
     }
   }
 
-  @NotNull
   @Override
-  protected String getCommandName() {
+  protected @NotNull String getCommandName() {
     return RefactoringBundle.message("move.title");
   }
 

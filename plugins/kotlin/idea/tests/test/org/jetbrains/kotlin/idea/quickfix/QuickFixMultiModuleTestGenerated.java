@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.quickfix;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -22,6 +23,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/accessibilityChecker")
     public static class AccessibilityChecker extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -120,6 +127,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/actualAnnotationsNotMatchExpect")
     public static class ActualAnnotationsNotMatchExpect extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -253,6 +266,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/addDependency")
     public static class AddDependency extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -260,6 +279,11 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
         @TestMetadata("class")
         public void testClass() throws Exception {
             runTest("testData/multiModuleQuickFix/addDependency/class/");
+        }
+
+        @TestMetadata("import")
+        public void testImport() throws Exception {
+            runTest("testData/multiModuleQuickFix/addDependency/import/");
         }
 
         @TestMetadata("topLevelFunction")
@@ -286,6 +310,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/addMissingActualMembers")
     public static class AddMissingActualMembers extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -362,36 +392,43 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
-    @TestMetadata("testData/multiModuleQuickFix/addThrowAnnotation")
-    public static class AddThrowAnnotation extends AbstractQuickFixMultiModuleTest {
+    @TestMetadata("testData/multiModuleQuickFix/addThrowsAnnotation")
+    public static class AddThrowsAnnotation extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
         @TestMetadata("common")
         public void testCommon() throws Exception {
-            runTest("testData/multiModuleQuickFix/addThrowAnnotation/common/");
+            runTest("testData/multiModuleQuickFix/addThrowsAnnotation/common/");
         }
 
         @TestMetadata("js")
         public void testJs() throws Exception {
-            runTest("testData/multiModuleQuickFix/addThrowAnnotation/js/");
+            runTest("testData/multiModuleQuickFix/addThrowsAnnotation/js/");
         }
 
         @TestMetadata("jvm")
         public void testJvm() throws Exception {
-            runTest("testData/multiModuleQuickFix/addThrowAnnotation/jvm/");
-        }
-
-        @TestMetadata("jvmWithoutStdlib")
-        public void testJvmWithoutStdlib() throws Exception {
-            runTest("testData/multiModuleQuickFix/addThrowAnnotation/jvmWithoutStdlib/");
+            runTest("testData/multiModuleQuickFix/addThrowsAnnotation/jvm/");
         }
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/canSealedSubClassBeObject")
     public static class CanSealedSubClassBeObject extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -425,6 +462,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/changeModifier")
     public static class ChangeModifier extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -443,6 +486,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/changeSignature")
     public static class ChangeSignature extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -491,6 +540,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/createActual")
     public static class CreateActual extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -595,6 +650,11 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
             runTest("testData/multiModuleQuickFix/createActual/function/");
         }
 
+        @TestMetadata("functionK2")
+        public void testFunctionK2() throws Exception {
+            runTest("testData/multiModuleQuickFix/createActual/functionK2/");
+        }
+
         @TestMetadata("functionSameFile")
         public void testFunctionSameFile() throws Exception {
             runTest("testData/multiModuleQuickFix/createActual/functionSameFile/");
@@ -643,6 +703,11 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
         @TestMetadata("property")
         public void testProperty() throws Exception {
             runTest("testData/multiModuleQuickFix/createActual/property/");
+        }
+
+        @TestMetadata("propertyK2")
+        public void testPropertyK2() throws Exception {
+            runTest("testData/multiModuleQuickFix/createActual/propertyK2/");
         }
 
         @TestMetadata("sealed")
@@ -694,6 +759,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/createActualExplicitApi")
     public static class CreateActualExplicitApi extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -712,6 +783,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/createExpect")
     public static class CreateExpect extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1010,6 +1087,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/fixNativeThrowsErrors")
     public static class FixNativeThrowsErrors extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1048,6 +1131,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/functionTypeReceiverToParameter")
     public static class FunctionTypeReceiverToParameter extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1106,6 +1195,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/initializeProperty")
     public static class InitializeProperty extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1134,6 +1229,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/inlineToValue")
     public static class InlineToValue extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1162,6 +1263,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/makeOverridenMemberOpen")
     public static class MakeOverridenMemberOpen extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1190,6 +1297,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/other")
     public static class Other extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1312,26 +1425,6 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
         @TestMetadata("createVarInExpectClass")
         public void testCreateVarInExpectClass() throws Exception {
             runTest("testData/multiModuleQuickFix/other/createVarInExpectClass/");
-        }
-
-        @TestMetadata("deprecatedHeader")
-        public void testDeprecatedHeader() throws Exception {
-            runTest("testData/multiModuleQuickFix/other/deprecatedHeader/");
-        }
-
-        @TestMetadata("deprecatedHeaderImpl")
-        public void testDeprecatedHeaderImpl() throws Exception {
-            runTest("testData/multiModuleQuickFix/other/deprecatedHeaderImpl/");
-        }
-
-        @TestMetadata("deprecatedImpl")
-        public void testDeprecatedImpl() throws Exception {
-            runTest("testData/multiModuleQuickFix/other/deprecatedImpl/");
-        }
-
-        @TestMetadata("deprecatedImplHeader")
-        public void testDeprecatedImplHeader() throws Exception {
-            runTest("testData/multiModuleQuickFix/other/deprecatedImplHeader/");
         }
 
         @TestMetadata("functionTypeParameterToReceiverByHeader")
@@ -1509,16 +1602,6 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
             runTest("testData/multiModuleQuickFix/other/notMakeAbstractFromActual/");
         }
 
-        @TestMetadata("orderHeader")
-        public void testOrderHeader() throws Exception {
-            runTest("testData/multiModuleQuickFix/other/orderHeader/");
-        }
-
-        @TestMetadata("orderImpl")
-        public void testOrderImpl() throws Exception {
-            runTest("testData/multiModuleQuickFix/other/orderImpl/");
-        }
-
         @TestMetadata("safeDeleteForbiddenFromActual")
         public void testSafeDeleteForbiddenFromActual() throws Exception {
             runTest("testData/multiModuleQuickFix/other/safeDeleteForbiddenFromActual/");
@@ -1538,6 +1621,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/packageDirectoryMismatch")
     public static class PackageDirectoryMismatch extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -1561,6 +1650,12 @@ public abstract class QuickFixMultiModuleTestGenerated extends AbstractQuickFixM
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("testData/multiModuleQuickFix/redundantNullableReturnType")
     public static class RedundantNullableReturnType extends AbstractQuickFixMultiModuleTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }

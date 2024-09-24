@@ -1,3 +1,4 @@
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.cce.actions
 
 import com.github.ajalt.clikt.parameters.arguments.argument
@@ -12,7 +13,7 @@ import com.intellij.cce.evaluable.StrategySerializer
 import com.intellij.cce.evaluable.common.getEditorSafe
 import com.intellij.cce.evaluable.completion.BaseCompletionActionsInvoker
 import com.intellij.cce.evaluation.*
-import com.intellij.cce.evaluation.step.ActionsGenerationStep
+import com.intellij.cce.evaluation.step.SetupStatsCollectorStep
 import com.intellij.cce.filter.EvaluationFilter
 import com.intellij.cce.filter.EvaluationFilterReader
 import com.intellij.cce.interpreter.FeatureInvoker
@@ -36,13 +37,13 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.SyntaxTraverser
-import com.intellij.refactoring.suggested.endOffset
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.psi.util.endOffset
+import com.intellij.psi.util.startOffset
 import java.lang.reflect.Type
 import java.nio.file.Paths
 import java.util.*
 
-internal class ContextCollectionEvaluationCommand: CompletionEvaluationStarter.EvaluationCommand(
+internal class ContextCollectionEvaluationCommand : CompletionEvaluationStarter.EvaluationCommand(
   name = "context",
   help = "Runs evaluation and collects completion contexts"
 ) {
@@ -54,46 +55,54 @@ internal class ContextCollectionEvaluationCommand: CompletionEvaluationStarter.E
   override fun run() {
     val feature = EvaluableFeature.forFeature(featureName) ?: error("There is no support for the $featureName")
     val config = loadConfig(Paths.get(configPath), feature.getStrategySerializer())
-    val workspace = EvaluationWorkspace.create(config)
+    val workspace = EvaluationWorkspace.create(config, SetupStatsCollectorStep.statsCollectorLogsDirectory)
     val evaluationRootInfo = EvaluationRootInfo(true)
-    loadAndApply(config.projectPath) { project ->
-      val stepFactory = object: StepFactory by BackgroundStepFactory(
-        feature = feature,
-        config = config,
-        project = project,
-        inputWorkspacePaths = null,
-        evaluationRootInfo = evaluationRootInfo
+    feature.prepareEnvironment(config).use { environment ->
+      val dataset = environment.dataset
+
+      check(dataset is ProjectActionsDataset)
+
+      val actions = dataset.config
+      val newDataset = object : ProjectActionsDataset(
+        config.strategy,
+        actions,
+        config.interpret.filesLimit,
+        config.interpret.sessionsLimit,
+        evaluationRootInfo,
+        dataset.project,
+        dataset.processor,
+        feature.name,
       ) {
-        override fun generateActionsStep(): EvaluationStep {
-          return object: ActionsGenerationStep(
-            config = config,
-            language = config.language,
-            evaluationRootInfo = evaluationRootInfo,
-            project = project,
-            processor = feature.getGenerateActionsProcessor(config.strategy),
-            featureName = feature.name
-          ) {
-            override fun runInBackground(workspace: EvaluationWorkspace, progress: Progress): EvaluationWorkspace {
-              val files = runReadAction {
-                FilesHelper.getFilesOfLanguage(project, config.actions.evaluationRoots, config.actions.ignoreFileNames, language)
-              }.sortedBy { it.name }
-              val strategy = config.strategy as CompletionContextCollectionStrategy
-              val sampled = files.shuffled(Random(strategy.samplingSeed)).take(strategy.samplesCount).sortedBy { it.name }
-              generateActions(workspace, language, sampled, evaluationRootInfo, filesLimit = null, progress)
-              return workspace
-            }
-          }
+        override fun prepare(datasetContext: DatasetContext, progress: Progress) {
+          val files = runReadAction {
+            FilesHelper.getFilesOfLanguage(project, actions.evaluationRoots, actions.ignoreFileNames, actions.language)
+          }.sortedBy { it.name }
+          val strategy = config.strategy as CompletionContextCollectionStrategy
+          val sampled = files.shuffled(Random(strategy.samplingSeed)).take(strategy.samplesCount).sortedBy { it.name }
+          generateActions(datasetContext, actions.language, sampled, evaluationRootInfo, progress)
         }
       }
-      val process = EvaluationProcess.build(
-        init = {
-          shouldGenerateActions = true
-          shouldInterpretActions = true
-          shouldGenerateReports = false
-          shouldReorderElements = config.reorder.useReordering
-        },
-        stepFactory = stepFactory
+
+      val newEnvironment = object : EvaluationEnvironment by environment {
+        override val dataset: EvaluationDataset = newDataset
+      }
+
+      val datasetContext = DatasetContext(workspace, workspace, null)
+
+      val stepFactory = BackgroundStepFactory(
+        feature = feature,
+        environment = environment,
+        config = config,
+        inputWorkspacePaths = null,
+        datasetContext = datasetContext
       )
+
+      val process = EvaluationProcess.build(newEnvironment, stepFactory) {
+        shouldGenerateActions = true
+        shouldInterpretActions = true
+        shouldGenerateReports = false
+        shouldReorderElements = config.reorder.useReordering
+      }
       process.start(workspace)
     }
   }
@@ -112,13 +121,13 @@ internal data class CompletionContextCollectionStrategy(
   val samplesCount: Int,
   val samplingSeed: Long,
   override val filters: Map<String, EvaluationFilter>
-): EvaluationStrategy
+) : EvaluationStrategy
 
 private class ContextCollectionActionsInvoker(
   project: Project,
   language: Language,
   private val strategy: CompletionContextCollectionStrategy
-): BaseCompletionActionsInvoker(project, language) {
+) : BaseCompletionActionsInvoker(project, language) {
   override fun callFeature(expectedText: String, offset: Int, properties: TokenProperties): Session {
     val editor = runReadAction {
       getEditorSafe(project)
@@ -137,66 +146,74 @@ private class ContextCollectionActionsInvoker(
   }
 }
 
-private class ContextCollectionMultiLineProcessor(private val strategy: CompletionContextCollectionStrategy): GenerateActionsProcessor() {
+private class ContextCollectionMultiLineProcessor(private val strategy: CompletionContextCollectionStrategy) : GenerateActionsProcessor() {
   override fun process(code: CodeFragment) {
-    runReadAction {
-      check(code is CodeFragmentWithPsi)
-      val file = code.psi.dereference() as? PsiFile ?: return@runReadAction
-      val project = file.project
-      val document = PsiDocumentManager.getInstance(project).getDocument(file)
-      checkNotNull(document) { "There should've been a document instance for $file (${file.virtualFile})" }
-      when (strategy.splitStrategy) {
-        ContextSplitStrategy.LineMiddle, ContextSplitStrategy.LineBeginning -> {
-          val lines = 0 until document.lineCount
-          val sampled = lines.sampled(seed = strategy.samplingSeed, count = strategy.samplesCount)
-          for (line in sampled) {
-            val startOffset = document.getLineStartOffset(line)
-            val endOffset = document.getLineEndOffset(line)
-            val splitOffset = when (strategy.splitStrategy) {
-              ContextSplitStrategy.LineMiddle -> startOffset + (endOffset - startOffset) / 2
-              ContextSplitStrategy.LineBeginning -> startOffset
-              else -> error("")
+    actions {
+      runReadAction {
+        check(code is CodeFragmentWithPsi)
+        val file = code.psi.dereference() as? PsiFile ?: return@runReadAction
+        val project = file.project
+        val document = PsiDocumentManager.getInstance(project).getDocument(file)
+        checkNotNull(document) { "There should've been a document instance for $file (${file.virtualFile})" }
+        when (strategy.splitStrategy) {
+          ContextSplitStrategy.LineMiddle, ContextSplitStrategy.LineBeginning -> {
+            val lines = 0 until document.lineCount
+            val sampled = lines.sampled(seed = strategy.samplingSeed, count = strategy.samplesCount)
+            for (line in sampled) {
+              val startOffset = document.getLineStartOffset(line)
+              val endOffset = document.getLineEndOffset(line)
+              val splitOffset = when (strategy.splitStrategy) {
+                ContextSplitStrategy.LineMiddle -> startOffset + (endOffset - startOffset) / 2
+                ContextSplitStrategy.LineBeginning -> startOffset
+                else -> error("")
+              }
+              session {
+                createActions(
+                  document = document,
+                  startOffset = startOffset,
+                  endOffset = endOffset,
+                  splitOffset = splitOffset
+                )
+              }
             }
-            createActions(
-              document = document,
-              startOffset = startOffset,
-              endOffset = endOffset,
-              splitOffset = splitOffset
-            )
           }
-        }
-        ContextSplitStrategy.TokenMiddle -> {
-          val elements = SyntaxTraverser.psiTraverser(file).toList()
-          val sampled = elements.sampled(seed = strategy.samplingSeed, count = strategy.samplesCount)
-          for (element in sampled) {
-            val startOffset = element.startOffset
-            val endOffset = element.endOffset
-            val splitOffset = startOffset + (endOffset - startOffset) / 2
-            createActions(
-              document = document,
-              startOffset = startOffset,
-              endOffset = endOffset,
-              splitOffset = splitOffset
-            )
+          ContextSplitStrategy.TokenMiddle -> {
+            val elements = SyntaxTraverser.psiTraverser(file).toList()
+            val sampled = elements.sampled(seed = strategy.samplingSeed, count = strategy.samplesCount)
+            for (element in sampled) {
+              val startOffset = element.startOffset
+              val endOffset = element.endOffset
+              val splitOffset = startOffset + (endOffset - startOffset) / 2
+              session {
+                createActions(
+                  document = document,
+                  startOffset = startOffset,
+                  endOffset = endOffset,
+                  splitOffset = splitOffset
+                )
+              }
+            }
           }
-        }
-        ContextSplitStrategy.BlockBeginning -> {
-          val elements = code.getChildren().filterIsInstance<CodeTokenWithPsi>().mapNotNull { it.psi.dereference() }
-          val sampled = elements.sampled(seed = strategy.samplingSeed, count = strategy.samplesCount)
-          for (element in sampled) {
-            createActions(
-              document = document,
-              startOffset = element.startOffset,
-              endOffset = element.endOffset,
-              splitOffset = element.startOffset
-            )
+          ContextSplitStrategy.BlockBeginning -> {
+            val elements = code.getChildren().filterIsInstance<CodeTokenWithPsi>().mapNotNull { it.psi.dereference() }
+            val sampled = elements.sampled(seed = strategy.samplingSeed, count = strategy.samplesCount)
+            for (element in sampled) {
+              session {
+                createActions(
+                  document = document,
+                  startOffset = element.startOffset,
+                  endOffset = element.endOffset,
+                  splitOffset = element.startOffset
+                )
+              }
+            }
           }
         }
       }
     }
   }
 
-  private fun <Element: Comparable<Element>> Iterable<Element>.sampled(seed: Long, count: Int): List<Element> {
+  private fun <Element : Comparable<Element>> Iterable<Element>.sampled(seed: Long, count: Int): List<Element> {
     return shuffled(Random(seed)).take(count).sorted()
   }
 
@@ -205,7 +222,7 @@ private class ContextCollectionMultiLineProcessor(private val strategy: Completi
     return shuffled(Random(seed)).take(count).sortedBy { it.startOffset }
   }
 
-  private fun createActions(document: Document, startOffset: Int, endOffset: Int, splitOffset: Int) {
+  private fun ActionsBuilder.SessionBuilder.createActions(document: Document, startOffset: Int, endOffset: Int, splitOffset: Int) {
     val textAfterPrefix = document.text.substring(splitOffset)
     val localMiddleEndOffset = findLessIndent(textAfterPrefix, index = 10)
     val middleText = textAfterPrefix.substring(0, localMiddleEndOffset)
@@ -232,15 +249,15 @@ private class ContextCollectionMultiLineProcessor(private val strategy: Completi
     return text.length
   }
 
-  private fun addDefaultActions(offset: Int, endOffset: Int, expectedText: String) {
-    addAction(MoveCaret(offset))
-    addAction(DeleteRange(offset, endOffset))
-    addAction(CallFeature(expectedText, offset, TokenProperties.UNKNOWN))
-    addAction(PrintText(expectedText))
+  private fun ActionsBuilder.SessionBuilder.addDefaultActions(offset: Int, endOffset: Int, expectedText: String) {
+    moveCaret(offset)
+    deleteRange(offset, endOffset)
+    callFeature(expectedText, offset, TokenProperties.UNKNOWN)
+    printText(expectedText)
   }
 }
 
-private class ContextCollectionStrategySerializer: StrategySerializer<CompletionContextCollectionStrategy> {
+private class ContextCollectionStrategySerializer : StrategySerializer<CompletionContextCollectionStrategy> {
   override fun serialize(source: CompletionContextCollectionStrategy, typeOfSrc: Type, context: JsonSerializationContext): JsonObject {
     return JsonObject().apply {
       addProperty("suggestionsProvider", source.suggestionsProvider)
@@ -264,8 +281,8 @@ private class ContextCollectionStrategySerializer: StrategySerializer<Completion
   }
 }
 
-internal class ContextCollectionFeature: EvaluableFeatureBase<CompletionContextCollectionStrategy>("completion-context") {
-  override fun getGenerateActionsProcessor(strategy: CompletionContextCollectionStrategy): GenerateActionsProcessor {
+internal class ContextCollectionFeature : EvaluableFeatureBase<CompletionContextCollectionStrategy>("completion-context") {
+  override fun getGenerateActionsProcessor(strategy: CompletionContextCollectionStrategy, project: Project): GenerateActionsProcessor {
     return ContextCollectionMultiLineProcessor(strategy)
   }
 

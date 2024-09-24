@@ -28,6 +28,7 @@ import com.intellij.util.graph.OutboundSemiGraph;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.io.IOException;
 import java.util.HashSet;
@@ -37,8 +38,7 @@ import java.util.Set;
 
 public final class DebugUtil {
   private static final Logger LOG = Logger.getInstance(DebugUtil.class);
-
-  @SuppressWarnings("StaticNonFinalField") public static boolean CHECK;
+  @SuppressWarnings("StaticNonFinalField") private static boolean CHECK;
   public static final boolean DO_EXPENSIVE_CHECKS;
 
   static {
@@ -523,13 +523,13 @@ public final class DebugUtil {
   }
 
   /**
-   * Any PSI/AST elements invalidated inside the give action will contain a debug trace identifying this transaction,
+   * Any PSI/AST elements invalidated inside the given action will contain a debug trace identifying this transaction,
    * and so will {@link PsiInvalidElementAccessException} thrown when accessing such invalid elements.
-   * This should help finding out why a specific PSI element has become invalid.
+   * This should help find out why a specific PSI element has become invalid.
    *
    * @param trace The debug trace that the invalidated elements should be identified by. May be null, then current stack trace is used.
    */
-  public static <T extends Throwable> void performPsiModification(String trace, @NotNull ThrowableRunnable<T> runnable) throws T {
+  public static <T extends Throwable> void performPsiModification(@Nullable String trace, @NotNull ThrowableRunnable<T> runnable) throws T {
     beginPsiModification(trace);
     try {
       runnable.run();
@@ -542,7 +542,7 @@ public final class DebugUtil {
   /**
    * @see #performPsiModification(String, ThrowableRunnable)
    */
-  public static <T, E extends Throwable> T performPsiModification(String trace, @NotNull ThrowableComputable<T, E> runnable) throws E {
+  public static <T, E extends Throwable> T performPsiModification(@Nullable String trace, @NotNull ThrowableComputable<T, E> runnable) throws E {
     beginPsiModification(trace);
     try {
       return runnable.compute();
@@ -689,6 +689,29 @@ public final class DebugUtil {
       .replace(".impl.", ".i.")
       .replace(".source.", ".s.")
       .replace(".lang.", ".l.");
+  }
+
+  @TestOnly
+  public static void runWithCheckInternalInvariantsEnabled(@NotNull ThrowableRunnable<?> runnable) throws Throwable {
+    boolean oldDebugUtilCheck = DebugUtil.CHECK;
+    DebugUtil.CHECK = true;
+    try {
+      runnable.run();
+    }
+    finally {
+      DebugUtil.CHECK = oldDebugUtilCheck;
+    }
+  }
+  @TestOnly
+  public static void runWithCheckInternalInvariantsDisabled(@NotNull ThrowableRunnable<?> runnable) throws Throwable {
+    boolean oldDebugUtilCheck = DebugUtil.CHECK;
+    DebugUtil.CHECK = false;
+    try {
+      runnable.run();
+    }
+    finally {
+      DebugUtil.CHECK = oldDebugUtilCheck;
+    }
   }
 
   //<editor-fold desc="Deprecated stuff">

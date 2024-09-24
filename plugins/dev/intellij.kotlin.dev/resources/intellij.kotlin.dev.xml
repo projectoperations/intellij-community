@@ -1,6 +1,7 @@
 <idea-plugin package="org.jetbrains.idea.dev.kotlin">
 
   <dependencies>
+    <module name="intellij.dev.psiViewer"/>
     <module name="intellij.dev.codeInsight"/>
     <plugin id="org.jetbrains.kotlin"/>
   </dependencies>

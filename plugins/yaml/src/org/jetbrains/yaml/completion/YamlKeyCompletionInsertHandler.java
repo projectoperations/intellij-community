@@ -1,9 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.yaml.completion;
 
 import com.intellij.codeInsight.completion.InsertHandler;
 import com.intellij.codeInsight.completion.InsertionContext;
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.lang.ASTNode;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -12,23 +13,20 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.impl.source.tree.LeafPsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.yaml.YAMLBundle;
-import org.jetbrains.yaml.YAMLElementGenerator;
-import org.jetbrains.yaml.YAMLTokenTypes;
-import org.jetbrains.yaml.YAMLUtil;
+import org.jetbrains.yaml.*;
 import org.jetbrains.yaml.psi.*;
 
 import java.util.List;
 
 public abstract class YamlKeyCompletionInsertHandler<T extends LookupElement> implements InsertHandler<T> {
 
-  @NotNull
-  protected abstract YAMLKeyValue createNewEntry(@NotNull YAMLDocument document, T item,
-                                                 @Nullable YAMLKeyValue parent);
+  protected abstract @NotNull YAMLKeyValue createNewEntry(@NotNull YAMLDocument document, T item,
+                                                          @Nullable YAMLKeyValue parent);
 
   @Override
   public void handleInsert(@NotNull InsertionContext context, @NotNull T item) {
@@ -82,8 +80,7 @@ public abstract class YamlKeyCompletionInsertHandler<T extends LookupElement> im
     }
   }
 
-  @Nullable
-  protected YAMLValue deleteLookupTextAndRetrieveOldValue(InsertionContext context, @NotNull PsiElement elementAtCaret) {
+  protected @Nullable YAMLValue deleteLookupTextAndRetrieveOldValue(InsertionContext context, @NotNull PsiElement elementAtCaret) {
     final YAMLValue oldValue;
     if (elementAtCaret.getNode().getElementType() != YAMLTokenTypes.SCALAR_KEY) {
       deleteLookupPlain(context);
@@ -116,21 +113,51 @@ public abstract class YamlKeyCompletionInsertHandler<T extends LookupElement> im
     context.setTailOffset(keyValue.getTextRange().getEndOffset());
     WriteCommandAction.runWriteCommandAction(context.getProject(),
                                              YAMLBundle.message("YamlKeyCompletionInsertHandler.remove.key"),
-                                             null,
-                                             () -> {
-                                               PsiElement parent = keyValue.getParent();
-                                               boolean delete = parent.getNode().getChildren(null).length == 1;
-                                               if (parent instanceof YAMLMapping parentMapping) {
-                                                 parentMapping.deleteKeyValue(keyValue);
-                                               }
-                                               else {
-                                                 YAMLUtil.deleteSurroundingWhitespace(keyValue);
-                                                 keyValue.delete();
-                                               }
-                                               if (delete) {
-                                                 parent.delete();
-                                               }
-                                             });
+                                             null, () -> {
+        PsiElement parent = keyValue.getParent();
+        PsiElement substitute = null;
+        if (parent instanceof YAMLMapping parentMapping) {
+          parentMapping.deleteKeyValue(keyValue);
+          ASTNode[] children = parent.getNode().getChildren(null);
+          if (children.length == 1 && children[0] instanceof LeafPsiElement) {
+            substitute = children[0].getPsi();
+          }
+          else if (children.length != 0 &&
+                   ContainerUtil.find(children, node -> node.getElementType() == YAMLElementTypes.KEY_VALUE_PAIR) == null) {
+            List<ASTNode> notSpaces =
+              ContainerUtil.filter(children, child -> !YAMLElementTypes.SPACE_ELEMENTS.contains(child.getElementType()));
+            if (notSpaces.size() == 1) {
+              substitute = notSpaces.get(0).getPsi();
+            }
+            else {
+              String valueText = parent.getText();
+              YAMLFile file = YAMLElementGenerator.getInstance(parent.getProject())
+                .createDummyYamlWithText(valueText);
+              substitute = file.getDocuments().get(0).getTopLevelValue();
+              if (substitute == null) {
+                PsiElement grandParent = parent.getParent();
+                PsiElement copy = parent.copy();
+                ASTNode[] copies = copy.getNode().getChildren(null);
+                PsiElement anchor = parent.replace(copies[0].getPsi());
+                for (int i = 1; i < copies.length; i++) {
+                  anchor = grandParent.addAfter(copies[i].getPsi(), anchor);
+                }
+                return;
+              }
+            }
+          }
+        }
+        else {
+          YAMLUtil.deleteSurroundingWhitespace(keyValue);
+          keyValue.delete();
+        }
+        if (parent.getNode().getChildren(null).length == 0) {
+          parent.delete();
+        }
+        else if (substitute != null) {
+          parent.replace(substitute);
+        }
+      });
     return oldValue;
   }
 

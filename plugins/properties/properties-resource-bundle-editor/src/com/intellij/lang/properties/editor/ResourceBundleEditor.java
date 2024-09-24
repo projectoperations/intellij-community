@@ -637,7 +637,7 @@ public final class ResourceBundleEditor extends UserDataHolderBase implements Do
     final ResourceBundleFileStructureViewElement root =
       (ResourceBundleFileStructureViewElement)myStructureViewComponent.getTreeModel().getRoot();
     final Set<String> propertyKeys = ResourceBundleFileStructureViewElement.getPropertiesMap(myResourceBundle, root.isShowOnlyIncomplete()).keySet();
-    final boolean isAlphaSorted = myStructureViewComponent.isActionActive(Sorter.ALPHA_SORTER_ID);
+    final boolean isAlphaSorted = myStructureViewComponent.isActionActive(Sorter.getAlphaSorterId());
     List<String> keysOrder = isAlphaSorted ? ContainerUtil.sorted(propertyKeys) : new ArrayList<>(propertyKeys);
 
     final String currentKey = selectedProperty.getKey();
@@ -663,14 +663,6 @@ public final class ResourceBundleEditor extends UserDataHolderBase implements Do
 
   public StructureViewComponent getStructureViewComponent() {
     return myStructureViewComponent;
-  }
-
-  private Object getData(@NotNull String dataId) {
-    if (SelectInContext.DATA_KEY.is(dataId)) {
-      VirtualFile file = getSelectedPropertiesFile();
-      return file == null ? null : new FileSelectInContext(myProject, file);
-    }
-    return null;
   }
 
   private VirtualFile getSelectedPropertiesFile() {
@@ -863,16 +855,17 @@ public final class ResourceBundleEditor extends UserDataHolderBase implements Do
     });
   }
 
-  private final class DataProviderPanel extends JPanel implements DataProvider {
+  private final class DataProviderPanel extends JPanel implements UiDataProvider {
     private DataProviderPanel(final JPanel panel) {
       super(new BorderLayout());
       add(panel, BorderLayout.CENTER);
     }
 
     @Override
-    @Nullable
-    public Object getData(@NotNull String dataId) {
-      return ResourceBundleEditor.this.getData(dataId);
+    public void uiDataSnapshot(@NotNull DataSink sink) {
+      VirtualFile file = getSelectedPropertiesFile();
+      sink.set(SelectInContext.DATA_KEY,
+               file == null ? null : new FileSelectInContext(myProject, file));
     }
   }
 

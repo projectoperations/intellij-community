@@ -34,11 +34,13 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.ui.components.panels.VerticalLayout
+import com.intellij.util.SingleAlarm
 import com.intellij.util.ui.HtmlPanel
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI.Borders.empty
 import com.intellij.util.ui.NamedColorUtil
 import com.intellij.util.ui.StartupUiUtil
+import com.intellij.util.ui.accessibility.AccessibleAnnouncerUtil
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
@@ -83,6 +85,8 @@ open class CommitProgressPanel : CommitProgressUi, InclusionListener, DocumentLi
 
   private val failuresPanel = FailuresPanel()
   private val label = JBLabel().apply { isVisible = false }
+
+  private var announceCommitErrorAlarm: SingleAlarm? = null
 
   override var isEmptyMessage by stateFlag()
   override var isEmptyChanges by stateFlag()
@@ -229,7 +233,23 @@ open class CommitProgressPanel : CommitProgressUi, InclusionListener, DocumentLi
     val error = buildErrorText()
 
     when {
-      error != null -> label.setError(error)
+      error != null -> {
+        label.setError(error)
+        if (AccessibleAnnouncerUtil.isAnnouncingAvailable()) {
+          // Announce the error with a delay because after the commit button is pressed, it will get disabled during commit checks,
+          // which will transfer the focus to the next component. Therefore, if we send the announcement immediately,
+          // it may get interrupted to read the newly focused component.
+          if (announceCommitErrorAlarm == null) {
+            announceCommitErrorAlarm =
+              SingleAlarm.singleEdtAlarm(
+                task = { AccessibleAnnouncerUtil.announce(label, label.text, false) },
+                delay = 500,
+                parentDisposable = this,
+              )
+          }
+          announceCommitErrorAlarm?.cancelAndRequest()
+        }
+      }
       isDumbMode -> label.setWarning(message("label.commit.checks.not.available.during.indexing"))
       else -> label.isVisible = false
     }
@@ -293,9 +313,9 @@ open class CommitProgressPanel : CommitProgressUi, InclusionListener, DocumentLi
 sealed class CommitCheckFailure {
   object Unknown : CommitCheckFailure()
 
-  open class WithDescription(val text: @NlsContexts.NotificationContent String) : CommitCheckFailure()
+  open class WithDescription(val text: @NlsContexts.NotificationContent HtmlChunk) : CommitCheckFailure()
 
-  class WithDetails(text: @NlsContexts.NotificationContent String,
+  class WithDetails(text: @NlsContexts.NotificationContent HtmlChunk,
                     val viewDetailsLinkText: @NlsContexts.NotificationContent String?,
                     val viewDetailsActionText: @NlsContexts.NotificationContent String,
                     val viewDetails: (place: CommitProblemPlace) -> Unit) : WithDescription(text)
@@ -371,14 +391,14 @@ private class FailuresDescriptionPanel : HtmlPanel() {
       when (val failure = it.value) {
         is CommitCheckFailure.WithDetails -> {
           if (failure.viewDetailsLinkText != null) {
-            HtmlChunk.text(failure.text).plus(HtmlChunk.nbsp())
+            failure.text.plus(HtmlChunk.nbsp())
               .plus(HtmlChunk.link(it.key.toString(), failure.viewDetailsLinkText))
           }
           else {
             HtmlChunk.link(it.key.toString(), failure.text)
           }
         }
-        is CommitCheckFailure.WithDescription -> HtmlChunk.text(failure.text)
+        is CommitCheckFailure.WithDescription -> failure.text
         else -> null
       }
     }

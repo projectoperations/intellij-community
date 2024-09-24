@@ -5,8 +5,8 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.UnfairTextRange;
-import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.UsefulTestCase;
+import com.intellij.tools.ide.metrics.benchmark.Benchmark;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.concurrency.AppExecutorUtil;
@@ -16,7 +16,9 @@ import org.junit.Assert;
 
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
+import java.util.stream.IntStream;
 
 public class ContainerUtilTest extends TestCase {
   private static final Logger LOG = Logger.getInstance(ContainerUtilTest.class);
@@ -57,6 +59,7 @@ public class ContainerUtilTest extends TestCase {
     assertEquals(4, (int)l.get(3));
 
     try {
+      //noinspection ResultOfMethodCallIgnored
       l.get(-1);
       fail();
     }
@@ -64,6 +67,7 @@ public class ContainerUtilTest extends TestCase {
     }
 
     try {
+      //noinspection ResultOfMethodCallIgnored
       l.get(4);
       fail();
     }
@@ -82,6 +86,7 @@ public class ContainerUtilTest extends TestCase {
 
     try {
       a1.clear();
+      //noinspection ResultOfMethodCallIgnored
       l.get(3);
       fail();
     }
@@ -173,7 +178,7 @@ public class ContainerUtilTest extends TestCase {
     List<Object> list = ContainerUtil.createLockFreeCopyOnWriteList();
     int count = 15000;
     List<Integer> ints = IntStreamEx.range(0, count).boxed().toList();
-    PlatformTestUtil.newPerformanceTest("COWList add", () -> {
+    Benchmark.newBenchmark("COWList add", () -> {
       for (int it = 0; it < 10; it++) {
         list.clear();
         for (int i = 0; i < count; i++) {
@@ -241,6 +246,13 @@ public class ContainerUtilTest extends TestCase {
     }
     catch (NoSuchElementException ignore) {
     }
+  }
+
+  public void testLockFreeCOWReplaceAll_Stress() {
+    int N = 500 * ForkJoinPool.getCommonPoolParallelism();
+    List<Integer> list = ContainerUtil.createLockFreeCopyOnWriteList(IntStream.range(0, N).mapToObj(__->0).toList());
+    list.stream().parallel().forEach(__->list.replaceAll(i-> i + 1));
+    assertEquals(N*N, list.stream().mapToInt(i -> i).sum());
   }
 
   public void testLockFreeListStreamMustNotCMEOnParallelModifications() throws Exception {
@@ -351,5 +363,28 @@ public class ContainerUtilTest extends TestCase {
   public void testFlatMap() {
     List<Integer> list = ContainerUtil.flatMap(List.of(0, 1), i->List.of(i,i));
     assertEquals(List.of(0,0,1,1), list);
+  }
+  public void testCOWRemoveIf() {
+    {
+      List<String> list = ContainerUtil.createLockFreeCopyOnWriteList(Arrays.asList("a", "b"));
+      assertTrue(list.removeIf(e -> e.length() == 1));
+      assertReallyEmpty(list);
+    }
+
+    {
+      List<String> list = ContainerUtil.createLockFreeCopyOnWriteList(Arrays.asList("a", "bb"));
+      assertTrue(list.removeIf(e -> e.length() == 1));
+      assertEquals("bb", UsefulTestCase.assertOneElement(list));
+    }
+    {
+      List<String> list = ContainerUtil.createLockFreeCopyOnWriteList(Arrays.asList("aa", "b"));
+      assertTrue(list.removeIf(e -> e.length() == 1));
+      assertEquals("aa", UsefulTestCase.assertOneElement(list));
+    }
+    {
+      List<String> list = ContainerUtil.createLockFreeCopyOnWriteList(Arrays.asList("aa", "bb"));
+      assertFalse(list.removeIf(e -> e.length() == 1));
+      assertEquals(2, list.size());
+    }
   }
 }

@@ -4,6 +4,7 @@ package com.intellij.dvcs.ui;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbAwareAction;
@@ -20,7 +21,6 @@ import com.intellij.openapi.vcs.ui.FlatSpeedSearchPopup;
 import com.intellij.openapi.vcs.ui.PopupListElementRendererWithIcon;
 import com.intellij.ui.*;
 import com.intellij.ui.components.panels.OpaquePanel;
-import com.intellij.ui.popup.KeepingPopupOpenAction;
 import com.intellij.ui.popup.WizardPopup;
 import com.intellij.ui.popup.list.ListPopupImpl;
 import com.intellij.ui.popup.list.ListPopupModel;
@@ -64,13 +64,13 @@ public final class BranchActionGroupPopup extends FlatSpeedSearchPopup {
 
   public BranchActionGroupPopup(@Nullable @NlsContexts.PopupTitle String title,
                                 @NotNull Project project,
-                                @NotNull Condition<? super AnAction> preselectActionCondition,
+                                @NotNull Condition<? super AnAction> preselectCondition,
                                 @NotNull ActionGroup actions,
                                 @Nullable String dimensionKey,
                                 @NotNull DataContext dataContext) {
     super(title,
           ActionGroupUtil.forceRecursiveUpdateInBackground(createBranchSpeedSearchActionGroup(actions)),
-          dataContext, ActionPlaces.getPopupPlace(BRANCH_POPUP), preselectActionCondition, true);
+          dataContext, ActionPlaces.getPopupPlace(BRANCH_POPUP), preselectCondition, true);
     getTitle().setBackground(JBColor.PanelBackground);
     myProject = project;
     myKey = buildDimensionKey(dimensionKey);
@@ -428,7 +428,7 @@ public final class BranchActionGroupPopup extends FlatSpeedSearchPopup {
     }
   }
 
-  private static class MoreAction extends DumbAwareAction implements KeepingPopupOpenAction {
+  private static class MoreAction extends DumbAwareAction {
 
     @NotNull private final Project myProject;
     @Nullable private final @NonNls String mySettingName;
@@ -443,6 +443,7 @@ public final class BranchActionGroupPopup extends FlatSpeedSearchPopup {
                boolean defaultExpandValue,
                boolean hasFavorites) {
       super();
+      getTemplatePresentation().setKeepPopupOnPerform(KeepPopupOnPerform.Always);
       myProject = project;
       mySettingName = settingName;
       myDefaultExpandValue = defaultExpandValue;
@@ -499,14 +500,13 @@ public final class BranchActionGroupPopup extends FlatSpeedSearchPopup {
     boolean shouldBeShown();
   }
 
-  private static final class HideableActionGroup extends ActionGroupWrapper implements MoreHideableActionGroup,
-                                                                                       DumbAware,
-                                                                                       AlwaysVisibleActionGroup {
+  private static final class HideableActionGroup extends ActionGroupWrapper implements MoreHideableActionGroup, DumbAware {
     @NotNull private final MoreAction myMoreAction;
 
     private HideableActionGroup(@NotNull ActionGroup actionGroup, @NotNull MoreAction moreAction) {
       super(actionGroup);
       myMoreAction = moreAction;
+      getTemplatePresentation().putClientProperty(ActionUtil.ALWAYS_VISIBLE_GROUP, true);
     }
 
     @Override

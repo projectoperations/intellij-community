@@ -1,22 +1,30 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.patch.tool
 
+import com.intellij.diff.DiffContext
 import com.intellij.diff.editor.DiffEditorViewerFileEditor
 import com.intellij.diff.requests.DiffRequest
 import com.intellij.diff.requests.ErrorDiffRequest
 import com.intellij.diff.requests.MessageDiffRequest
-import com.intellij.diff.tools.combined.*
+import com.intellij.diff.tools.combined.CombinedBlockProducer
+import com.intellij.diff.tools.combined.CombinedDiffComponentProcessor
+import com.intellij.diff.tools.combined.CombinedDiffManager
+import com.intellij.diff.tools.combined.CombinedDiffRegistry
+import com.intellij.diff.util.DiffUserDataKeysEx
+import com.intellij.diff.util.DiffUtil
 import com.intellij.ide.structureView.StructureViewBuilder
 import com.intellij.openapi.ListSelection
+import com.intellij.openapi.diff.DiffBundle
 import com.intellij.openapi.diff.impl.patch.*
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorModificationUtil
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
-import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.fileEditor.FileEditor
-import com.intellij.openapi.fileEditor.FileEditorPolicy
-import com.intellij.openapi.fileEditor.FileEditorProvider
+import com.intellij.openapi.fileEditor.*
 import com.intellij.openapi.fileEditor.ex.StructureViewFileEditorProvider
+import com.intellij.openapi.fileEditor.impl.JComponentFileEditor
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.DumbAware
@@ -26,39 +34,62 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vcs.FilePath
 import com.intellij.openapi.vcs.FileStatus
 import com.intellij.openapi.vcs.VcsBundle
-import com.intellij.openapi.vcs.changes.actions.diff.CombinedDiffPreviewModel.Companion.prepareCombinedDiffModelRequestsFromProducers
+import com.intellij.openapi.vcs.changes.actions.diff.prepareCombinedBlocksFromProducers
 import com.intellij.openapi.vcs.changes.patch.PatchFileType
 import com.intellij.openapi.vcs.changes.ui.ChangeDiffRequestChain
 import com.intellij.openapi.vcs.changes.ui.MutableDiffRequestChainProcessor
+import com.intellij.openapi.vcs.history.DiffTitleFilePathCustomizer.getTitleCustomizers
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.SingleRootFileViewProvider
+import com.intellij.util.ui.update.MergingUpdateQueue
+import com.intellij.util.ui.update.Update
+import com.intellij.util.ui.update.queueTracked
 import com.intellij.vcsUtil.VcsUtil
+import kotlinx.coroutines.Runnable
 import org.jetbrains.annotations.Nls
-import java.util.*
+import javax.swing.event.HyperlinkEvent
 
 internal class DiffPatchFileEditorProvider : FileEditorProvider, StructureViewFileEditorProvider, DumbAware {
+  /**
+   * See [com.intellij.openapi.fileEditor.impl.text.TextEditorProvider.accept]
+   */
   override fun accept(project: Project, file: VirtualFile): Boolean {
     if (!Registry.`is`("enable.patch.file.diff.viewer")) return false
-    return PatchFileType.isPatchFile(file) && FileDocumentManager.getInstance().getDocument(file) != null
+    return PatchFileType.isPatchFile(file) &&
+           TextEditorProvider.isTextFile(file) &&
+           !SingleRootFileViewProvider.isTooLargeForContentLoading(file)
   }
 
   override fun createEditor(project: Project, file: VirtualFile): FileEditor {
-    val document = FileDocumentManager.getInstance().getDocument(file)!!
+    val document = FileDocumentManager.getInstance().getDocument(file)
+    if (document == null) {
+      val label = DiffUtil.createMessagePanel(VcsBundle.message("patch.parse.no.document.error"))
+      return JComponentFileEditor(file, label, DiffBundle.message("diff.file.editor.name"))
+    }
 
     if (CombinedDiffRegistry.isEnabled()) {
       val processor = CombinedDiffManager.getInstance(project).createProcessor()
+      processor.context.putUserData(DiffUserDataKeysEx.PATCH_FILE_PREVIEW_MODIFICATION_SWITCH,
+                                    Runnable { switchToEditableView(project, file) })
       processor.setBlocks(buildCombinedDiffModel(document))
 
       val editor = DiffEditorViewerFileEditor(file, processor)
-      document.addDocumentListener(CombinedViewerPatchChangeListener(processor), editor)
+
+      val updateQueue = MergingUpdateQueue("DiffPatchFileEditorProvider", 300, true, editor.component, editor)
+      document.addDocumentListener(CombinedViewerPatchChangeListener(processor, updateQueue), editor)
 
       return editor
     }
     else {
-      val chain = PatchDiffRequestChain(document)
-      val processor = MutableDiffRequestChainProcessor(project, chain)
+      val processor = MutableDiffRequestChainProcessor(project, null)
+      processor.context.putUserData(DiffUserDataKeysEx.PATCH_FILE_PREVIEW_MODIFICATION_SWITCH,
+                                    Runnable { switchToEditableView(project, file) })
+      processor.chain = PatchDiffRequestChain(document)
 
       val editor = DiffEditorViewerFileEditor(file, processor)
-      document.addDocumentListener(RequestProcessorPatchChangeListener(processor), editor)
+
+      val updateQueue = MergingUpdateQueue("DiffPatchFileEditorProvider", 300, true, editor.component, editor)
+      document.addDocumentListener(RequestProcessorPatchChangeListener(processor, updateQueue), editor)
 
       return editor
     }
@@ -77,9 +108,13 @@ internal class DiffPatchFileEditorProvider : FileEditorProvider, StructureViewFi
   }
 }
 
+private fun switchToEditableView(project: Project, file: VirtualFile) {
+  FileEditorManager.getInstance(project).openTextEditor(OpenFileDescriptor(project, file), true)
+}
+
 private fun buildCombinedDiffModel(document: Document): List<CombinedBlockProducer> {
   val producers = createDiffRequestProducers(document)
-  val diffModel = prepareCombinedDiffModelRequestsFromProducers(producers)
+  val diffModel = prepareCombinedBlocksFromProducers(producers)
   return diffModel
 }
 
@@ -96,15 +131,25 @@ private fun createDiffRequestProducers(document: Document): List<ChangeDiffReque
   }
 }
 
-private class CombinedViewerPatchChangeListener(val processor: CombinedDiffComponentProcessor) : DocumentListener {
+private class CombinedViewerPatchChangeListener(
+  val processor: CombinedDiffComponentProcessor,
+  val queue: MergingUpdateQueue,
+) : DocumentListener {
   override fun documentChanged(event: DocumentEvent) {
-    processor.setBlocks(buildCombinedDiffModel(event.document))
+    queue.queueTracked(Update.create(this) {
+      processor.setBlocks(buildCombinedDiffModel(event.document))
+    })
   }
 }
 
-private class RequestProcessorPatchChangeListener(val processor: MutableDiffRequestChainProcessor) : DocumentListener {
+private class RequestProcessorPatchChangeListener(
+  val processor: MutableDiffRequestChainProcessor,
+  val queue: MergingUpdateQueue,
+) : DocumentListener {
   override fun documentChanged(event: DocumentEvent) {
-    processor.chain = PatchDiffRequestChain(event.document)
+    queue.queueTracked(Update.create(this) {
+      processor.chain = PatchDiffRequestChain(event.document)
+    })
   }
 }
 
@@ -128,7 +173,10 @@ private class PatchDiffRequestProducer(private val patch: FilePatch) : ChangeDif
   @Throws(ProcessCanceledException::class)
   override fun process(context: UserDataHolder, indicator: ProgressIndicator): DiffRequest {
     if (patch is TextFilePatch) {
-      return PatchDiffRequest(patch, null, patch.beforeName, patch.afterName)
+      val patchDiffRequest = PatchDiffRequest(patch, null, patch.beforeName, patch.afterName)
+      return DiffUtil.addTitleCustomizers(
+        patchDiffRequest, getTitleCustomizers(patchDiffRequest.patch.beforeName, patchDiffRequest.patch.afterName)
+      )
     }
     if (patch is BinaryFilePatch) {
       return MessageDiffRequest(VcsBundle.message("patch.is.binary.text"))
@@ -146,5 +194,16 @@ private class ErrorDiffRequestProducer(private val file: VirtualFile,
   @Throws(ProcessCanceledException::class)
   override fun process(context: UserDataHolder, indicator: ProgressIndicator): DiffRequest {
     return ErrorDiffRequest(message)
+  }
+}
+
+internal fun listenTypingAttempts(diffContext: DiffContext, editor: Editor) {
+  val onTypingSwitch = diffContext.getUserData(DiffUserDataKeysEx.PATCH_FILE_PREVIEW_MODIFICATION_SWITCH)
+  if (onTypingSwitch != null) {
+    EditorModificationUtil.setReadOnlyHint(editor, DiffBundle.message("patch.editing.viewer.hint.enable.editing.text"), { e ->
+      if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) {
+        onTypingSwitch.run()
+      }
+    })
   }
 }

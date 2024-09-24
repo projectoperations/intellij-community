@@ -40,6 +40,15 @@ import java.util.function.Supplier;
 
 public final class TerminalNewPredefinedSessionAction extends DumbAwareAction {
 
+  private static final List<String> UNIX_BINARIES_DIRECTORIES = List.of(
+    "/bin",
+    "/usr/bin",
+    "/usr/local/bin",
+    "/opt/homebrew/bin"
+  );
+
+  private static final List<String> UNIX_SHELL_NAMES = List.of("bash", "zsh", "fish", "pwsh");
+
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     Project project = e.getProject();
@@ -103,14 +112,25 @@ public final class TerminalNewPredefinedSessionAction extends DumbAwareAction {
   private static @NotNull List<OpenShellAction> detectShells() {
     List<OpenShellAction> actions = new ArrayList<>();
     if (SystemInfo.isUnix) {
-      ContainerUtil.addIfNotNull(actions, create("/bin/bash", List.of(), "bash"));
-      if (Files.exists(Path.of("/usr/local/bin/zsh"))) {
-        ContainerUtil.addIfNotNull(actions, create("/usr/local/bin/zsh", List.of(), "zsh"));
+      // Iterate over all combinations of path+shell to find executables.
+      for (String unixShellName : UNIX_SHELL_NAMES) {
+        List<String> validExecutablesDirectories = new ArrayList<>();
+        for (String executablesDirectory : UNIX_BINARIES_DIRECTORIES) {
+          var shellPath = executablesDirectory + "/" + unixShellName;
+          if (Files.exists(Path.of(shellPath))) {
+            validExecutablesDirectories.add(executablesDirectory);
+          }
+        }
+        if (validExecutablesDirectories.size() > 1) {
+          for (String executablesDirectory : validExecutablesDirectories) {
+            // i.e. /bin/zsh -> zsh (/bin)
+            ContainerUtil.addIfNotNull(actions, create(executablesDirectory + "/" + unixShellName, List.of(), unixShellName + " (" + executablesDirectory + ")"));
+          }
+        } else if (validExecutablesDirectories.size() == 1) {
+          // If only 1 shell of type fount - then there is no need to specify path.
+          ContainerUtil.addIfNotNull(actions, create(validExecutablesDirectories.get(0) + "/" + unixShellName, List.of(), unixShellName));
+        }
       }
-      else {
-        ContainerUtil.addIfNotNull(actions, create("/usr/bin/zsh", List.of(), "zsh"));
-      }
-      ContainerUtil.addIfNotNull(actions, create("/usr/bin/fish", List.of(), "fish"));
     }
     else if (SystemInfo.isWindows) {
       File powershell = PathEnvironmentVariableUtil.findInPath("powershell.exe");
@@ -125,8 +145,10 @@ public final class TerminalNewPredefinedSessionAction extends DumbAwareAction {
       if (pwsh != null && StringUtil.startsWithIgnoreCase(pwsh.getAbsolutePath(), "C:\\Program Files\\PowerShell\\")) {
         ContainerUtil.addIfNotNull(actions, create(pwsh.getAbsolutePath(), List.of(), "PowerShell"));
       }
-      File gitBash = new File("C:\\Program Files\\Git\\bin\\bash.exe");
-      if (gitBash.isFile()) {
+      File gitBashGlobal = new File("C:\\Program Files\\Git\\bin\\bash.exe");
+      File gitBashLocal = new File(System.getenv("LocalAppData") + "\\Programs\\Git\\bin\\bash.exe");
+      File gitBash = gitBashLocal.isFile() ? gitBashLocal : (gitBashGlobal.isFile() ? gitBashGlobal : null);
+      if (gitBash != null) {
         ContainerUtil.addIfNotNull(actions, create(gitBash.getAbsolutePath(), List.of(), "Git Bash"));
       }
       String cmderRoot = EnvironmentUtil.getValue("CMDER_ROOT");

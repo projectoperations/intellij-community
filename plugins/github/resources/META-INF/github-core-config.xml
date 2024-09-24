@@ -6,6 +6,15 @@
 
   <resource-bundle>messages.GithubBundle</resource-bundle>
 
+  <extensionPoints>
+    <extensionPoint qualifiedName="intellij.vcs.github.titleAndDescriptionGenerator"
+                    interface="org.jetbrains.plugins.github.pullrequest.ui.toolwindow.create.GHPRTitleAndDescriptionGeneratorExtension"
+                    dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.vcs.github.gistContentsCollector"
+                    interface="org.jetbrains.plugins.github.GithubGistContentsCollector"
+                    dynamic="true"/>
+  </extensionPoints>
+
   <extensions defaultExtensionNs="com.intellij">
     <httpRequestHandler implementation="org.jetbrains.plugins.github.authentication.GHOAuthCallbackHandler"/>
 
@@ -47,17 +56,28 @@
                 factoryClass="org.jetbrains.plugins.github.pullrequest.ui.toolwindow.GHPRToolWindowFactory"/>
 
     <fileIconProvider implementation="org.jetbrains.plugins.github.extensions.GithubYamlIconProvider"/>
+    <fileTypeUsageSchemaDescriptor schema="github"
+                                   implementationClass="org.jetbrains.plugins.github.extensions.GithubFileTypeSchemaProvider"/>
 
     <registryKey defaultValue="true" description="Applying suggested changes" key="github.suggested.changes.apply"/>
 
     <registryKey defaultValue="14" description="Clear 'last seen state' after this many days" key="github.clear.last.seen.state.days"/>
+    <registryKey defaultValue="5000"
+                 description="Milliseconds margin used when comparing known last seen date with last updated at date for PRs"
+                 key="github.last.seen.state.margin.millis"/>
 
-    <iconMapper mappingFile="GithubIconMappings.json"/>
+    <vcs.github.gistContentsCollector
+      implementation="org.jetbrains.plugins.github.DefaultGithubGistContentsCollector"
+      id="default"
+      order="last"/>
   </extensions>
 
   <extensions defaultExtensionNs="Git4Idea">
-    <GitHttpAuthDataProvider implementation="org.jetbrains.plugins.github.extensions.GHSilentHttpAuthDataProvider"/>
-    <GitHttpAuthDataProvider implementation="org.jetbrains.plugins.github.extensions.GHComHttpAuthDataProvider"/>
+    <GitHttpAuthDataProvider id="GitHub.Silent"
+                             implementation="org.jetbrains.plugins.github.extensions.GHSilentHttpAuthDataProvider"
+                             order="before GitHub"/>
+    <GitHttpAuthDataProvider id="GitHub"
+                             implementation="org.jetbrains.plugins.github.extensions.GHComHttpAuthDataProvider"/>
     <gitRepositoryHostingService implementation="org.jetbrains.plugins.github.extensions.GHRepositoryHostingService"/>
     <gitProtectedBranchProvider implementation="org.jetbrains.plugins.github.util.GithubProtectedBranchProvider"/>
     <gitFetchHandler implementation="org.jetbrains.plugins.github.extensions.GHProtectedBranchRulesLoader"/>
@@ -102,7 +122,7 @@
             use-shortcut-of="Refresh"/>
     <action id="Github.PullRequest.Timeline.Show"
             class="org.jetbrains.plugins.github.pullrequest.action.GHPROpenPullRequestTimelineAction"/>
-    <action id="Github.Create.Gist" class="org.jetbrains.plugins.github.GithubCreateGistAction">
+    <action id="Github.Create.Gist" class="org.jetbrains.plugins.github.GithubCreateGistAction" icon="AllIcons.Vcs.Vendors.Github">
       <add-to-group group-id="EditorPopupMenu"/>
       <add-to-group group-id="ProjectViewPopupMenu"/>
       <add-to-group group-id="EditorTabPopupMenu"/>
@@ -181,16 +201,6 @@
             class="org.jetbrains.plugins.github.api.GHRequestExecutorBreaker$Action"
             text="Break GitHub API Requests"/>
 
-    <action id="Github.PullRequest.Diff.Comment.Create"
-            class="org.jetbrains.plugins.github.pullrequest.comment.action.GHPRReviewEditorCreateCommentAction">
-      <keyboard-shortcut first-keystroke="control shift X" keymap="$default"/>
-      <keyboard-shortcut first-keystroke="control shift X" keymap="Eclipse" remove="true"/>
-      <keyboard-shortcut first-keystroke="control shift X" keymap="Eclipse (Mac OS X)" remove="true"/>
-      <keyboard-shortcut first-keystroke="meta shift X" keymap="Eclipse (Mac OS X)" remove="true"/>
-      <keyboard-shortcut first-keystroke="control shift X" keymap="Emacs" remove="true"/>
-      <add-to-group group-id="Diff.EditorPopupMenu"/>
-    </action>
-
     <group id="Github.PullRequest.Diff.Thread.View.Options"
            class="org.jetbrains.plugins.github.pullrequest.comment.action.GHPRDiffReviewThreadsToggleAction"
            icon="AllIcons.Actions.Show"
@@ -216,5 +226,7 @@
       </action>
       <add-to-group group-id="Git.Experimental.Branch.Popup.Actions"/>
     </group>
+
+    <group id="GitHub.Pull.Request.Create.Title.Actions"/>
   </actions>
 </idea-plugin>

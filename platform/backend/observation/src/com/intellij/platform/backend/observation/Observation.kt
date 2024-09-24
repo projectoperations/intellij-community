@@ -2,29 +2,36 @@
 package com.intellij.platform.backend.observation
 
 import com.intellij.openapi.project.Project
+import com.intellij.platform.backend.observation.Observation.awaitConfiguration
+import kotlinx.coroutines.flow.StateFlow
+import org.jetbrains.annotations.ApiStatus
 
 object Observation {
 
   /**
+   * A flow that represents a state of configuration processes in a project.
+   * Configuration process is a generic name for indexing, build system import, VFS refresh, or similar CPU-heavy activity
+   * that change the readiness of the project.
+   *
+   * It is discouraged to perform project modification in collectors of this flow,
+   * since project modifications should be *covered* by the tracking machinery, which is the core principle behind this flow.
+   *
+   * The values in the flow may "blink", in the sense that every VFS refresh may trigger the change of states in the flow.
+   * One is advised to use [kotlinx.coroutines.flow.debounce] or similar operations to obtain proper granularity.
+   *
+   * @return a state flow containing `true` if the configuration process is currently running,
+   * or `false` otherwise.
+   */
+  fun configurationFlow(project: Project): StateFlow<Boolean> = PlatformActivityTrackerService.getInstance(project).configurationFlow
+
+  /**
    * Suspends until configuration processes in the IDE are completed.
    * The awaited configuration processes are those that use [ActivityTracker] or [ActivityKey]
+   *
+   * @return `true`, if some non-trivial activity was happening during the execution of this method.
+   *         `false`, otherwise
    */
-  suspend fun awaitConfiguration(project: Project, messageCallback: ((String) -> Unit)? = null) {
-    // we perform several phases of awaiting here,
-    // because we need to be prepared for idempotent side effects from trackers
-    while (true) {
-      val wasModified = awaitConfigurationPhase(project, messageCallback)
-      if (wasModified) {
-        messageCallback?.invoke("Configuration phase is completed. Initiating another phase to cover possible side effects...") // NON-NLS
-      }
-      else {
-        messageCallback?.invoke("All configuration phases are completed.") // NON-NLS
-        break
-      }
-    }
-  }
-
-  private suspend fun awaitConfigurationPhase(project: Project, messageCallback: ((String) -> Unit)?): Boolean {
+  suspend fun awaitConfiguration(project: Project, messageCallback: ((String) -> Unit)? = null): Boolean {
     var isModificationOccurred = false
     val extensionTrackers = collectTrackersFromExtensions(project)
     outer@ while (true) {
@@ -47,6 +54,16 @@ object Observation {
     return isModificationOccurred
   }
 
+  /**
+   * Used for debugging purposes.
+   * Returns stacktraces of the computations that are currently awaited by [awaitConfiguration]
+   * This method affects only those computations that use [ActivityKey], whereas [ActivityTracker] is out of reach for the platform.
+   */
+  @ApiStatus.Internal
+  fun dumpAwaitedActivitiesToString(): String {
+    return dumpObservedComputationsToString()
+  }
+
   private interface GenericActivityTracker {
     val name: String
     suspend fun isInProgress(): Boolean
@@ -65,7 +82,7 @@ object Observation {
   }
 
   private suspend fun collectTrackersFromExtensions(project: Project): List<GenericActivityTracker> {
-    return ActivityTracker.EP_NAME.extensionList.map {
+    return EP_NAME.extensionList.map {
       object : GenericActivityTracker {
         override val name: String = it.presentableName
         override suspend fun isInProgress(): Boolean = it.isInProgress(project)

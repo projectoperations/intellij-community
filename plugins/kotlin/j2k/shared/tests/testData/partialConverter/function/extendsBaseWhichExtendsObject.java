@@ -1,5 +1,3 @@
-//file
-
 class Test extends Base {
   @Override
   public int hashCode() {

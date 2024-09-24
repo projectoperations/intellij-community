@@ -54,7 +54,8 @@ interface GradleBuildScriptBuilder<BSB : GradleBuildScriptBuilder<BSB>> : Gradle
   fun applyPlugin(plugin: String): BSB
   fun applyPluginFrom(path: String): BSB
 
-  fun withPlugin(id: String, version: String? = null): BSB
+  fun withPlugin(id: String) = withPlugin(id, null)
+  fun withPlugin(id: String, version: String?): BSB
 
   fun withJavaPlugin(): BSB
   fun withJavaLibraryPlugin(): BSB
@@ -68,6 +69,7 @@ interface GradleBuildScriptBuilder<BSB : GradleBuildScriptBuilder<BSB>> : Gradle
   fun withKotlinJsPlugin(): BSB
   fun withKotlinMultiplatformPlugin(): BSB
   fun withKotlinJvmToolchain(jvmTarget: Int): BSB
+  fun withKotlinDsl(): BSB
   fun withGroovyPlugin(): BSB
   fun withGroovyPlugin(version: String): BSB
   fun withApplicationPlugin(
@@ -88,12 +90,15 @@ interface GradleBuildScriptBuilder<BSB : GradleBuildScriptBuilder<BSB>> : Gradle
   fun project(name: String): Expression
   fun project(name: String, configuration: String): Expression
 
+  fun ScriptTreeBuilder.mavenRepository(url: String): ScriptTreeBuilder
+  fun ScriptTreeBuilder.mavenCentral(): ScriptTreeBuilder
+
   companion object {
 
     @JvmStatic
     fun create(gradleVersion: GradleVersion, useKotlinDsl: Boolean): GradleBuildScriptBuilder<*> {
       return when (useKotlinDsl) {
-        true -> KotlinDslGradleBuildScriptBuilder(gradleVersion)
+        true -> KotlinDslGradleBuildScriptBuilder.Impl(gradleVersion)
         else -> GroovyDslGradleBuildScriptBuilder.Impl(gradleVersion)
       }
     }

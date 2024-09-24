@@ -1,9 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.mergerequest.data
 
-import com.intellij.collaboration.async.mapDataToModel
-import com.intellij.collaboration.async.mapState
-import com.intellij.collaboration.async.stateInNow
+import com.intellij.collaboration.async.*
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.platform.util.coroutines.childScope
 import kotlinx.coroutines.*
@@ -28,7 +26,7 @@ interface GitLabDiscussion {
   val canAddDraftNotes: Boolean
 
   val canResolve: Boolean
-  val canAddNotes: Flow<Boolean>
+  val canAddNotes: StateFlow<Boolean>
   val resolved: StateFlow<Boolean>
 
   suspend fun changeResolvedState()
@@ -53,8 +51,8 @@ class LoadedGitLabDiscussion(
   glMetadata: GitLabServerMetadata?,
   private val glProject: GitLabProjectCoordinates,
   private val currentUser: GitLabUserDTO,
-  private val eventSink: suspend (GitLabDiscussionEvent) -> Unit,
-  private val draftNotesEventSink: suspend (GitLabNoteEvent<GitLabMergeRequestDraftNoteRestDTO>) -> Unit,
+  private val eventSink: suspend (Change<GitLabDiscussionDTO>) -> Unit,
+  private val draftNotesEventSink: suspend (Change<GitLabMergeRequestDraftNoteRestDTO>) -> Unit,
   private val mr: GitLabMergeRequest,
   discussionData: GitLabDiscussionDTO,
   draftNotes: Flow<List<GitLabMergeRequestDraftNote>>
@@ -90,7 +88,7 @@ class LoadedGitLabDiscussion(
           }
 
           if (notesData.isEmpty()) {
-            eventSink(GitLabDiscussionEvent.Deleted(discussionData.id))
+            eventSink(Deleted { it.id == discussionData.id })
             return@collectLatest
           }
 
@@ -111,7 +109,9 @@ class LoadedGitLabDiscussion(
         notes + draftNotes
       }.stateInNow(cs, emptyList())
 
-  override val canAddNotes: Flow<Boolean> = draftNotes.map { it.isEmpty() && mr.details.value.userPermissions.createNote }
+  override val canAddNotes: StateFlow<Boolean> = draftNotes
+    .map { it.isEmpty() && mr.details.value.userPermissions.createNote }
+    .stateIn(cs, SharingStarted.Lazily, false)
   override val canAddDraftNotes: Boolean =
     mr.details.value.userPermissions.createNote &&
     (glMetadata?.let { GitLabVersion(16, 3) <= it.version } ?: false)
@@ -130,6 +130,9 @@ class LoadedGitLabDiscussion(
           api.graphQL.changeMergeRequestDiscussionResolve(id.gid, !resolved).getResultOrThrow()
         }
         noteEvents.emit(GitLabNoteEvent.Changed(result.notes))
+        if (mr.details.value.targetProject.onlyAllowMergeIfAllDiscussionsAreResolved) {
+          mr.refreshData()
+        }
       }
     }
   }
@@ -152,7 +155,7 @@ class LoadedGitLabDiscussion(
         api.rest.addDraftReplyNote(glProject, mr.iid, id.guessRestId(), body).body()
       }?.also {
         withContext(NonCancellable) {
-          draftNotesEventSink(GitLabNoteEvent.Added(it))
+          draftNotesEventSink(AddedLast(it))
         }
       }
     }

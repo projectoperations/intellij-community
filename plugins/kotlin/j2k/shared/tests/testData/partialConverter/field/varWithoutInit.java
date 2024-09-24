@@ -1,3 +1,3 @@
 class <caret>C {
-Foo f;
+    String f;
 }

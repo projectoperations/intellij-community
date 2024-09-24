@@ -3,9 +3,10 @@ package com.intellij.ide.startup.importSettings.fus
 
 import com.intellij.ide.startup.importSettings.*
 import com.intellij.ide.startup.importSettings.models.FailedIdeVersion
-import com.intellij.ide.startup.importSettings.models.IdeVersion
 import com.intellij.ide.startup.importSettings.models.PatchedKeymap
 import com.intellij.ide.startup.importSettings.models.Settings
+import com.intellij.ide.startup.importSettings.statistics.ImportSettingsEventsCollector
+import com.intellij.ide.startup.importSettings.transfer.backend.models.IdeVersion
 import com.intellij.ide.startup.importSettings.transfer.backend.providers.vswin.mappings.VisualStudioPluginsMapping
 import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.events.EventFields
@@ -157,6 +158,7 @@ object TransferSettingsCollector : CounterUsagesCollector() {
         .forEach { (id, version), instances ->
           instancesOfIdeFound.log(id, version, instances.size)
         }
+      ImportSettingsEventsCollector.externalIdes(versions.map { it.transferableId })
     }
   }
 
@@ -194,11 +196,11 @@ object TransferSettingsCollector : CounterUsagesCollector() {
 
 class KnownPluginValidationRule : LocalFileCustomValidationRule(
   "known_plugin_id",
-  object : AllowedItemsResourceWeakRefStorage(KnownPluginValidationRule::class.java, "pluginData/known-plugins.txt") {
+  object : AllowedItemsResourceWeakRefStorage(KnownPluginValidationRule::class.java, "/pluginData/known-plugins.txt") {
 
     override fun createValue(value: String): String? = value.nullize(true)?.trim()?.lowercase()
     override fun readItems(): Set<String?> {
-      return super.readItems() + VisualStudioPluginsMapping.RESHARPER
+      return super.readItems() + VisualStudioPluginsMapping.RESHARPER.lowercase()
     }
   }
 )

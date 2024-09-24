@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.application.ReadAction;
@@ -22,10 +22,7 @@ import com.intellij.util.containers.FactoryMap;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.vcsUtil.VcsUtil;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Should work under lock of {@link ChangeListManagerImpl#myDataLock}.
  */
+@ApiStatus.Internal
 public final class ChangeListWorker {
   private final static Logger LOG = Logger.getInstance(ChangeListWorker.class);
   @NotNull private final Project myProject;
@@ -322,6 +320,9 @@ public final class ChangeListWorker {
         PartialChangeTracker tracker = getChangeTrackerFor(change);
         if (tracker != null && tracker.getAffectedChangeListsIds().contains(data.id)) {
           changes.add(change);
+        }
+        else if (LOG.isDebugEnabled()) {
+          LOG.debug("Neither change list nor tracker found for the change: " + change);
         }
       }
     }
@@ -615,6 +616,12 @@ public final class ChangeListWorker {
     if (!removed.isEmpty() || !added.isEmpty()) {
       // We can't take CLM.LOCK here, so LocalChangeList will be created in delayed notificator itself
       myDelayedNotificator.changeListsForFileChanged(path, removed, added);
+    }
+
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(String.format("[notifyChangelistsChanged] path: %s, old lists: %s, new lists: %s", path,
+                              beforeChangeListsIds, afterChangeListsIds),
+                LOG.isTraceEnabled() ? new Throwable() : null);
     }
   }
 
@@ -1251,7 +1258,7 @@ public final class ChangeListWorker {
       for (ChangeListWorker.ListData list : myWorker.myLists) {
         Set<Change> changesBeforeUpdate = myChangesBeforeUpdateMap.get(list.id);
         if (changesBeforeUpdate.contains(change)) {
-          LOG.debug("[addChangeToCorrespondingList] matched by change: ", list.name);
+          LOG.debug("[addChangeToCorrespondingList] matched by change: ", list.id);
           return list;
         }
       }
@@ -1260,7 +1267,7 @@ public final class ChangeListWorker {
       if (listId != null) {
         ListData list = myWorker.getDataById(listId);
         if (list != null) {
-          LOG.debug("[addChangeToCorrespondingList] matched by paths: ", list.name);
+          LOG.debug("[addChangeToCorrespondingList] matched by paths: ", list.id);
           return list;
         }
       }
@@ -1271,7 +1278,7 @@ public final class ChangeListWorker {
       if (assignedChangeListId != null) {
         ListData list = myWorker.getDataById(assignedChangeListId);
         if (list != null) {
-          LOG.debug("[addChangeToCorrespondingList] added to list from assigner: ", list.name);
+          LOG.debug("[addChangeToCorrespondingList] added to list from assigner: ", list.id);
           return list;
         }
         else {
@@ -1285,7 +1292,7 @@ public final class ChangeListWorker {
         return null;
       }
 
-      LOG.debug("[addChangeToCorrespondingList] added to default list");
+      LOG.debug("[addChangeToCorrespondingList] added to default list " + myWorker.myDefault.id);
       return myWorker.myDefault;
     }
 

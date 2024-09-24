@@ -3,6 +3,7 @@ package org.jetbrains.kotlin.idea.base.plugin.artifacts
 
 import com.intellij.openapi.application.PathManager
 import com.intellij.platform.testFramework.io.ExternalResourcesChecker
+import org.jetbrains.kotlin.idea.artifacts.KotlinNativeHostSupportDetector
 import org.jetbrains.kotlin.idea.artifacts.KotlinNativePrebuiltDownloader.downloadFile
 import org.jetbrains.kotlin.idea.artifacts.KotlinNativePrebuiltDownloader.unpackPrebuildArchive
 import org.jetbrains.kotlin.idea.artifacts.KotlinNativeVersion
@@ -10,19 +11,22 @@ import org.jetbrains.kotlin.idea.artifacts.NATIVE_PREBUILT_DEV_CDN_URL
 import org.jetbrains.kotlin.idea.artifacts.NATIVE_PREBUILT_RELEASE_CDN_URL
 import org.jetbrains.kotlin.idea.compiler.configuration.KotlinArtifactsDownloader
 import org.jetbrains.kotlin.idea.compiler.configuration.KotlinMavenUtils
-import org.jetbrains.kotlin.konan.target.Architecture
+import org.jetbrains.kotlin.konan.file.unzipTo
 import org.jetbrains.kotlin.konan.target.HostManager
-import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.jetbrains.kotlin.konan.target.TargetSupportException
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.util.zip.Deflater
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 object TestKotlinArtifacts {
     private val kotlinCLibrariesVersion by lazy {
-        val libraryNameToGetVersionFrom = "kotlinc_high_level_api.xml"
-        KotlinMavenUtils.findLibraryVersion(libraryNameToGetVersionFrom)
+        val libraryNameToGetVersionFrom = "kotlinc_analysis_api.xml"
+        val findLibraryVersion = KotlinMavenUtils.findLibraryVersion(libraryNameToGetVersionFrom)
+        findLibraryVersion
     }
 
     private fun getLibraryFile(groupId: String, artifactId: String, libraryFileName: String): File {
@@ -59,15 +63,40 @@ object TestKotlinArtifacts {
     @JvmStatic val kotlinScriptingCompilerImpl: File by lazy { getJar("kotlin-scripting-compiler-impl") }
     @JvmStatic val kotlinScriptingJvm: File by lazy { getJar("kotlin-scripting-jvm") }
     @JvmStatic val kotlinStdlib: File by lazy { getJar("kotlin-stdlib") }
-    @JvmStatic val kotlinStdlibCommon: File by lazy { getJar("kotlin-stdlib-common") }
+    @JvmStatic val kotlinStdlibCommon: File by lazy {
+
+        val baseDir = File(PathManager.getCommunityHomePath()).resolve("out")
+        if (!baseDir.exists()) {
+            baseDir.mkdirs()
+        }
+
+        val artefactName = "kotlin-stdlib-common"
+        val libFile = baseDir.resolve("$artefactName.klib")
+
+        if (!libFile.exists()) {
+            val archiveFile = baseDir.resolve(artefactName)
+            val archiveFilePath = archiveFile.toPath()
+            archiveFile.deleteRecursively()
+            val stdlibAllJar = downloadOrReportUnavailability("kotlin-stdlib", kotlinCLibrariesVersion, suffix = "-all.jar")
+            stdlibAllJar.toPath().unzipTo(archiveFilePath)
+
+            val unpackedCommonMain = archiveFilePath.resolve("commonMain").toFile()
+            unpackedCommonMain.compressDirectoryToZip(libFile)
+        }
+
+        libFile
+    }
     @JvmStatic val kotlinStdlibCommonSources: File by lazy { getSourcesJar("kotlin-stdlib-common") }
     @JvmStatic val kotlinStdlibJdk7: File by lazy { getJar("kotlin-stdlib-jdk7") }
     @JvmStatic val kotlinStdlibJdk7Sources: File by lazy { getSourcesJar("kotlin-stdlib-jdk7") }
     @JvmStatic val kotlinStdlibJdk8: File by lazy { getJar("kotlin-stdlib-jdk8") }
     @JvmStatic val kotlinStdlibJdk8Sources: File by lazy { getSourcesJar("kotlin-stdlib-jdk8") }
     @JvmStatic val kotlinStdlibJs: File by lazy { getKlib("kotlin-stdlib-js") }
+    // The latest published kotlin-stdlib-js with both .knm and .kjsm roots
+    @JvmStatic val kotlinStdlibJsLegacyJar: File by lazy { downloadOrReportUnavailability("kotlin-stdlib-js", "1.9.22") }
     @JvmStatic val kotlinDomApiCompat: File by lazy { getKlib("kotlin-dom-api-compat") }
     @JvmStatic val kotlinStdlibWasmJs: File by lazy { getKlib("kotlin-stdlib-wasm-js") }
+    @JvmStatic val kotlinStdlibWasmWasi: File by lazy { getKlib("kotlin-stdlib-wasm-wasi") }
     @JvmStatic val kotlinStdlibSources: File by lazy { getSourcesJar("kotlin-stdlib") }
     @JvmStatic val kotlinTest: File by lazy { getJar("kotlin-test") }
     @JvmStatic val kotlinTestJs: File by lazy { getKlib("kotlin-test-js") }
@@ -80,6 +109,9 @@ object TestKotlinArtifacts {
     @JvmStatic val jetbrainsAnnotations: File by lazy { getLibraryFile("org.jetbrains", "annotations", "jetbrains_annotations.xml") }
     @JvmStatic val jsr305: File by lazy { getLibraryFile("com.google.code.findbugs", "jsr305", "jsr305.xml") }
     @JvmStatic val junit3: File by lazy { getLibraryFile("junit", "junit", "JUnit3.xml") }
+    @JvmStatic val kotlinxCoroutines: File by lazy {
+        PathManager.getJarForClass(TestKotlinArtifacts::class.java.classLoader.loadClass("kotlinx.coroutines.CoroutineScope"))!!.toFile()
+    }
 
     /**
      * @throws org.jetbrains.kotlin.konan.target.TargetSupportException on access from an inappropriate host.
@@ -130,12 +162,12 @@ object TestKotlinArtifacts {
     }
 
     @Throws(TargetSupportException::class)
-    private fun getNativeLib(
+    fun getNativeLib(
         version: String = KotlinNativeVersion.resolvedKotlinNativeVersion,
         platform: String = HostManager.platformName(),
         library: String
     ): File {
-        if (!isNativeHostSupported())
+        if (!KotlinNativeHostSupportDetector.isNativeHostSupported() && platform == HostManager.platformName())
             throw TargetSupportException("kotlin-native-prebuilt can't be downloaded as it doesn't exist for the host: ${platform}")
 
         val baseDir = File(PathManager.getCommunityHomePath()).resolve("out")
@@ -161,30 +193,34 @@ object TestKotlinArtifacts {
             throw IOException("Library doesn't exist: $libPath")
     }
 
-    private fun isNativeHostSupported(): Boolean {
-        val currentHost = HostManager.host
-        if (currentHost !in supportedNativeHosts) return false
-        // Because of the workaround in org.jetbrains.kotlin.konan.target.HostManager,
-        // returned host architecture can be incorrect and should be checked separately.
-        // E.g., on Linux ARM64 hosts HostManager.host currently falls back to Linux X64.
-        if (currentHost.architecture != expectedArchitectureByHostArchString[HostManager.hostArchOrNull()]) return false
-        return true
+    private fun File.compressDirectoryToZip(targetZipFile: File) {
+        targetZipFile.parentFile.mkdirs()
+        targetZipFile.createNewFile()
+
+        val sourceFolder = this
+
+        ZipOutputStream(targetZipFile.outputStream().buffered()).use { zip ->
+            zip.setLevel(Deflater.NO_COMPRESSION)
+            sourceFolder
+                .walkTopDown()
+                .filter { file -> !file.isDirectory }
+                .forEach { file ->
+                    val suffix = if (file.isDirectory) "/" else ""
+                    val entry = ZipEntry(file.relativeTo(sourceFolder).invariantSeparatorsPath + suffix)
+                    zip.putNextEntry(entry)
+                    if (!file.isDirectory) {
+                        file.inputStream().buffered().use { it.copyTo(zip) }
+                    }
+                    zip.closeEntry()
+                }
+            zip.flush()
+        }
     }
 }
 
-// Set of hosts for which K/N prebuilt can be downloaded
-private val supportedNativeHosts: Set<KonanTarget> = setOf(
-    KonanTarget.MACOS_X64,
-    KonanTarget.MACOS_ARM64,
-    KonanTarget.LINUX_X64,
-    KonanTarget.MINGW_X64,
-)
-
-private val expectedArchitectureByHostArchString: Map<String, Architecture> = mapOf(
-    "x86_64" to Architecture.X64,
-    "aarch64" to Architecture.ARM64,
-)
-
+/**
+ * See [org.jetbrains.kotlin.idea.test.ExpectedPluginModeProvider.setUpWithKotlinPlugin] where we unwrap the exception if it happens during class initialization
+ */
 @JvmOverloads
 fun downloadOrReportUnavailability(artifactId: String, version: String, suffix: String = ".jar"): File =
     KotlinArtifactsDownloader.downloadArtifactForIdeFromSources(artifactId, version, suffix)

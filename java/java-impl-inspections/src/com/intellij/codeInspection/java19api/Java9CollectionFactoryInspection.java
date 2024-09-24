@@ -6,6 +6,7 @@ import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.RemoveRedundantTypeArgumentsUtil;
+import com.intellij.codeInspection.dataFlow.DfaPsiUtil;
 import com.intellij.codeInspection.dataFlow.NullabilityUtil;
 import com.intellij.codeInspection.options.OptPane;
 import com.intellij.codeInspection.util.IntentionName;
@@ -146,7 +147,18 @@ public final class Java9CollectionFactoryInspection extends AbstractBaseJavaLoca
       listDefinition = PsiUtil.skipParenthesizedExprDown(listDefinition);
       if(listDefinition instanceof PsiMethodCallExpression call) {
         if (ARRAYS_AS_LIST.test(call)) {
-          return new PrepopulatedCollectionModel(Arrays.asList(call.getArgumentList().getExpressions()), Collections.emptyList(), "List");
+          PsiExpression[] expressions = call.getArgumentList().getExpressions();
+          if (!MethodCallUtils.isVarArgCall(call) && expressions.length == 1) {
+            PsiExpression arg = PsiUtil.skipParenthesizedExprDown(expressions[0]);
+            PsiVariable variable = ExpressionUtils.resolveVariable(arg);
+            if (variable != null) {
+              PsiExpression[] elements = ExpressionUtils.getConstantArrayElements(variable);
+              if (elements != null && ContainerUtil.all(elements, Objects::nonNull)) {
+                expressions = elements;
+              }
+            }
+          }
+          return new PrepopulatedCollectionModel(Arrays.asList(expressions), Collections.emptyList(), "List");
         }
         return fromCollect(call, "List", COLLECTORS_TO_LIST);
       }
@@ -191,6 +203,11 @@ public final class Java9CollectionFactoryInspection extends AbstractBaseJavaLoca
               PsiType sourceType = arg.getType();
               PsiType targetType = newExpression.getType();
               if (targetType != null && sourceType != null && sourceType.isAssignableFrom(targetType)) {
+                PsiType keyType = PsiUtil.substituteTypeParameter(sourceType, JAVA_UTIL_MAP, 0, false);
+                PsiType valueType = PsiUtil.substituteTypeParameter(sourceType, JAVA_UTIL_MAP, 1, false);
+                if (DfaPsiUtil.getTypeNullability(keyType) == Nullability.NULLABLE || DfaPsiUtil.getTypeNullability(valueType) == Nullability.NULLABLE) {
+                  return null;
+                }
                 return new PrepopulatedCollectionModel(Collections.singletonList(arg), Collections.emptyList(), "Map", true);
               }
             }
@@ -284,6 +301,10 @@ public final class Java9CollectionFactoryInspection extends AbstractBaseJavaLoca
         if (arg != null &&
             PsiUtil.getLanguageLevel(arg).isAtLeast(LanguageLevel.JDK_10) &&
             InheritanceUtil.isInheritor(arg.getType(), JAVA_UTIL_COLLECTION)) {
+          PsiType elementType = PsiUtil.substituteTypeParameter(arg.getType(), JAVA_UTIL_COLLECTION, 0, false);
+          if (DfaPsiUtil.getTypeNullability(elementType) == Nullability.NULLABLE) {
+            return null;
+          }
           return new PrepopulatedCollectionModel(Collections.singletonList(arg), Collections.emptyList(), type, true);
         }
       }

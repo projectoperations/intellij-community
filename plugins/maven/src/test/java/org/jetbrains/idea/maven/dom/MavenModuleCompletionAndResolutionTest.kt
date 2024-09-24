@@ -15,14 +15,13 @@
  */
 package org.jetbrains.idea.maven.dom
 
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.psi.PsiDocumentManager
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
-  override fun runInDispatchThread() = true
   @Test
   fun testCompleteFromAllAvailableModules() = runBlocking {
     createProjectPom("""
@@ -181,7 +180,7 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
 
     importProjectAsync()
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -192,9 +191,10 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </modules>
                        """.trimIndent())
 
-    assertResolved(projectPom, findPsiFile(m1), "m1")
+    val psiFile1 = findPsiFile(m1)
+    assertResolved(projectPom, psiFile1, "m1")
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -205,9 +205,10 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </modules>
                        """.trimIndent())
 
-    assertResolved(projectPom, findPsiFile(m2), "m2")
+    val psiFile2 =  findPsiFile(m2)
+    assertResolved(projectPom, psiFile2, "m2")
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -241,7 +242,7 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
 
     importProjectAsync()
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -251,9 +252,10 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </modules>
                        """.trimIndent())
 
-    assertResolved(projectPom, findPsiFile(m), "./m")
+    val psiFile1 = findPsiFile(m)
+    assertResolved(projectPom, psiFile1, "./m")
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -263,7 +265,8 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </modules>
                        """.trimIndent())
 
-    assertResolved(projectPom, findPsiFile(m), ".\\m")
+    val psiFile2 = findPsiFile(m)
+    assertResolved(projectPom, psiFile2, ".\\m")
   }
 
   @Test
@@ -290,7 +293,7 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
 
     importProjectAsync()
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -303,9 +306,10 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </modules>
                        """.trimIndent())
 
-    assertResolved(projectPom, findPsiFile(m), "subDir/m")
+    val psiFile = findPsiFile(m)
+    assertResolved(projectPom, psiFile, "subDir/m")
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -318,7 +322,8 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </modules>
                        """.trimIndent())
 
-    assertResolved(projectPom, findTag(projectPom, "project.properties.dirName"))
+    val tag = findTag(projectPom, "project.properties.dirName")
+    assertResolved(projectPom, tag)
   }
 
   @Test
@@ -687,7 +692,8 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
           <module>../ppp/new<caret>Module</module>
         </modules>
         """.trimIndent()))
-    PsiDocumentManager.getInstance(project).commitAllDocuments()
+
+    //PsiDocumentManager.getInstance(project).commitAllDocuments()
     val i = getIntentionAtCaret(parentPom, createModuleWithParentIntention)
     assertNotNull(i)
     fixture.launchAction(i!!)
@@ -773,16 +779,16 @@ class MavenModuleCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
     assertNull(getIntentionAtCaret(createModuleIntention))
   }
 
-  private fun assertCreateModuleFixResult(relativePath: String, expectedText: String) {
+  private suspend fun assertCreateModuleFixResult(relativePath: String, expectedText: String) {
     val pom = projectRoot.findFileByRelativePath(relativePath)
     assertNotNull(pom)
 
-    val doc = FileDocumentManager.getInstance().getDocument(pom!!)
-
-    val selectedEditor = FileEditorManager.getInstance(project).getSelectedTextEditor()
-    assertEquals(doc, selectedEditor!!.getDocument())
-
-    assertEquals(expectedText, doc!!.text)
+    readAction {
+      val doc = FileDocumentManager.getInstance().getDocument(pom!!)
+      val selectedEditor = FileEditorManager.getInstance(project).getSelectedTextEditor()
+      assertEquals(doc, selectedEditor!!.getDocument())
+      assertEquals(expectedText, doc!!.text)
+    }
   }
 
   companion object {

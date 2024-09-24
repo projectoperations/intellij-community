@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.refactoring.rename;
 
 import com.intellij.openapi.actionSystem.*;
@@ -178,7 +178,7 @@ public class AutomaticRenamingDialog extends DialogWrapper {
       if (index != -1) {
         PsiNamedElement element = myRenames[index];
         UsageInfo usageInfo = new UsageInfo(element);
-        myUsagePreviewPanel.updateLayout(Collections.singletonList(usageInfo));
+        myUsagePreviewPanel.updateLayout(myProject, Collections.singletonList(usageInfo));
         final PsiFile containingFile = element.getContainingFile();
         if (containingFile != null) {
           final VirtualFile virtualFile = containingFile.getVirtualFile();
@@ -188,13 +188,13 @@ public class AutomaticRenamingDialog extends DialogWrapper {
         }
       }
       else {
-        myUsagePreviewPanel.updateLayout(null);
+        myUsagePreviewPanel.updateLayout(myProject, null);
       }
     };
     myTable.getSelectionModel().addListSelectionListener(myListSelectionListener);
 
     myPanelForPreview.add(myUsagePreviewPanel, BorderLayout.CENTER);
-    myUsagePreviewPanel.updateLayout(null);
+    myUsagePreviewPanel.updateLayout(myProject, null);
     myPanelForPreview.add(myUsageFileLabel, BorderLayout.NORTH);
     double top = mySplitPane.getTopComponent().getPreferredSize().getHeight();
     double bottom = mySplitPane.getBottomComponent().getPreferredSize().getHeight();
@@ -394,9 +394,8 @@ public class AutomaticRenamingDialog extends DialogWrapper {
           return checkInput(inputString);
         }
 
-        @Nullable
         @Override
-        public String getErrorText(@NlsSafe String inputString) {
+        public @Nullable String getErrorText(@NlsSafe String inputString) {
           final int selectedRow = myTable.getSelectedRow();
           if (!isValidName(inputString, selectedRow)) {
             return RefactoringBundle.message("text.identifier.invalid", inputString);

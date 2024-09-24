@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing;
 
 import com.intellij.openapi.extensions.ExtensionPointListener;
@@ -21,8 +21,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 final class CustomEntitiesCausingReindexTracker {
-  @NotNull
-  private Set<Class<? extends WorkspaceEntity>> customEntitiesToRescan;
+  private @NotNull Set<Class<? extends WorkspaceEntity>> customEntitiesToRescan;
 
   CustomEntitiesCausingReindexTracker() {
     ExtensionPointListener<?> listener =
@@ -89,6 +88,24 @@ final class CustomEntitiesCausingReindexTracker {
     if (newEntity instanceof ModuleEntity newModuleEntity && oldEntity instanceof ModuleEntity oldModuleEntity) {
       boolean haveSameDependencies = newModuleEntity.getDependencies().equals(oldModuleEntity.getDependencies());
       return !haveSameDependencies;
+    }
+
+    // Only url and exclude patterns affect indexing of `ContentRootEntity`. Changes of parent or children
+    //   should not be considered as a reason for the rootsChanged event.
+    if (newEntity instanceof ContentRootEntity newContentRootEntity && oldEntity instanceof ContentRootEntity oldContentRootEntity) {
+      return !newContentRootEntity.getUrl().equals(oldContentRootEntity.getUrl()) ||
+             !newContentRootEntity.getExcludedPatterns().equals(oldContentRootEntity.getExcludedPatterns());
+    }
+
+    // The rootsChanged is not thrown if the order of root groups has changed. Root group - group of roots collected by type.
+    //   rootsChanged is still thrown if the order of roots inside one group changes.
+    if (newEntity instanceof LibraryEntity newLibraryEntity && oldEntity instanceof LibraryEntity oldLibraryEntity) {
+      if (newLibraryEntity.getTableId().equals(oldLibraryEntity.getTableId()) &&
+          newLibraryEntity.getRoots().size() == oldLibraryEntity.getRoots().size() &&
+          newLibraryEntity.getRoots().stream().collect(Collectors.groupingBy(o -> o.getType()))
+            .equals(oldLibraryEntity.getRoots().stream().collect(Collectors.groupingBy(o -> o.getType())))) {
+        return false;
+      }
     }
 
     WorkspaceEntity entity = newEntity != null ? newEntity : oldEntity;

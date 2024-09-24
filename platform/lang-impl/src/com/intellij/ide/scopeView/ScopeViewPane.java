@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.scopeView;
 
 import com.intellij.icons.AllIcons;
@@ -11,6 +11,7 @@ import com.intellij.ide.projectView.impl.*;
 import com.intellij.ide.ui.customization.CustomizationUtil;
 import com.intellij.ide.util.treeView.TreeState;
 import com.intellij.openapi.actionSystem.ActionPlaces;
+import com.intellij.openapi.actionSystem.DataSink;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
@@ -58,7 +59,7 @@ import static com.intellij.util.ArrayUtilRt.EMPTY_STRING_ARRAY;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 public final class ScopeViewPane extends AbstractProjectViewPane {
-  @NonNls public static final String ID = "Scope";
+  public static final @NonNls String ID = "Scope";
   private static final Logger LOG = Logger.getInstance(ScopeViewPane.class);
   private final IdeView myIdeView = new IdeViewForProjectViewPane(() -> this);
   private final NamedScopesHolder myDependencyValidationManager;
@@ -135,9 +136,8 @@ public final class ScopeViewPane extends AbstractProjectViewPane {
     super.dispose();
   }
 
-  @NotNull
   @Override
-  public String getId() {
+  public @NotNull String getId() {
     return ID;
   }
 
@@ -146,15 +146,13 @@ public final class ScopeViewPane extends AbstractProjectViewPane {
     return 4;
   }
 
-  @NotNull
   @Override
-  public String getTitle() {
+  public @NotNull String getTitle() {
     return IdeBundle.message("scope.view.title");
   }
 
-  @NotNull
   @Override
-  public Icon getIcon() {
+  public @NotNull Icon getIcon() {
     return AllIcons.Ide.LocalScope;
   }
 
@@ -163,9 +161,8 @@ public final class ScopeViewPane extends AbstractProjectViewPane {
     return true;
   }
 
-  @NotNull
   @Override
-  public JComponent createComponent() {
+  public @NotNull JComponent createComponent() {
     ScopeViewTreeModel myTreeModel;
     if (this.myTreeModel.get() == null) {
       myTreeModel = new ScopeViewTreeModel(myProject, new ProjectViewSettings.Delegate(myProject, ID));
@@ -228,9 +225,8 @@ public final class ScopeViewPane extends AbstractProjectViewPane {
     return ActionCallback.DONE;
   }
 
-  @NotNull
   @Override
-  public SelectInTarget createSelectInTarget() {
+  public @NotNull SelectInTarget createSelectInTarget() {
     return new ScopePaneSelectInTarget(myProject);
   }
 
@@ -363,9 +359,8 @@ public final class ScopeViewPane extends AbstractProjectViewPane {
     return true;
   }
 
-  @NotNull
   @Override
-  public ActionCallback getReady(@NotNull Object requestor) {
+  public @NotNull ActionCallback getReady(@NotNull Object requestor) {
     /*
     final ActionCallback callback = myViewPanel.getActionCallback();
     return callback == null ? ActionCallback.DONE : callback;
@@ -389,23 +384,20 @@ public final class ScopeViewPane extends AbstractProjectViewPane {
     return ArrayUtilRt.toStringArray(map.keySet());
   }
 
-  @NotNull
   @Override
-  public String getPresentableSubIdName(@NotNull String subId) {
+  public @NotNull String getPresentableSubIdName(@NotNull String subId) {
     NamedScopeFilter filter = getFilter(subId);
     return filter == null ? getTitle() : filter.getScope().getPresentableName();
   }
 
-  @NotNull
   @Override
-  public Icon getPresentableSubIdIcon(@NotNull String subId) {
+  public @NotNull Icon getPresentableSubIdIcon(@NotNull String subId) {
     NamedScopeFilter filter = getFilter(subId);
     return filter != null ? filter.getScope().getIcon() : getIcon();
   }
 
-  @Nullable
   @Override
-  public Object getValueFromNode(@Nullable Object node) {
+  public @Nullable Object getValueFromNode(@Nullable Object node) {
     var model = myTreeModel.get();
     if (model == null) {
       // not initialized yet
@@ -415,16 +407,9 @@ public final class ScopeViewPane extends AbstractProjectViewPane {
   }
 
   @Override
-  public Object getData(@NotNull String dataId) {
-    Object data = super.getData(dataId);
-    if (data != null) {
-      return data;
-    }
-    //TODO:myViewPanel == null ? null : myViewPanel.getData(dataId);
-    if (LangDataKeys.IDE_VIEW.is(dataId)) {
-      return myIdeView;
-    }
-    return null;
+  public void uiDataSnapshot(@NotNull DataSink sink) {
+    super.uiDataSnapshot(sink);
+    sink.set(LangDataKeys.IDE_VIEW, myIdeView);
   }
 
   public void updateSelectedScope() {
@@ -436,24 +421,21 @@ public final class ScopeViewPane extends AbstractProjectViewPane {
     model.setFilter(getFilter(getSubId()));
   }
 
-  @Nullable
-  public NamedScope getSelectedScope() {
+  public @Nullable NamedScope getSelectedScope() {
     NamedScopeFilter filter = getFilter(getSubId());
     return filter == null ? null : filter.getScope();
   }
 
   @CalledInAny
-  @NotNull
   @ApiStatus.Internal
-  public Iterable<NamedScopeFilter> getFilters() {
+  public @NotNull Iterable<NamedScopeFilter> getFilters() {
     Map<String, NamedScopeFilter> map = myFilters.get();
     return map == null ? Collections.emptyList() : map.values();
   }
 
   @CalledInAny
-  @Nullable
   @ApiStatus.Internal
-  public NamedScopeFilter getCurrentFilter() {
+  public @Nullable NamedScopeFilter getCurrentFilter() {
     var model = myTreeModel.get();
     return model == null ? null : model.getFilter();
   }

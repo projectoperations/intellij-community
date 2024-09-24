@@ -1,17 +1,25 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.tools.projectWizard.compatibility
 
+import org.apache.velocity.VelocityContext
+import org.apache.velocity.app.VelocityEngine
+import org.apache.velocity.runtime.RuntimeConstants
+import org.apache.velocity.runtime.resource.loader.ClasspathResourceLoader
 import org.jetbrains.plugins.gradle.jvmcompat.IdeVersionedDataParser
 import org.jetbrains.plugins.gradle.jvmcompat.IdeVersionedDataState
 import org.jetbrains.plugins.gradle.jvmcompat.readAppVersion
+import java.io.StringWriter
 import java.nio.charset.Charset
 import java.nio.file.Paths
+import java.time.LocalDate
+
 
 class WizardDefaultDataGeneratorSettings<T : IdeVersionedDataState>(
     val jsonPath: String,
     val ktFileName: String,
     val parser: IdeVersionedDataParser<T>,
-    val generator: (T).() -> String
+    val templatePath: String,
+    val contextProvider: (T).(context: VelocityContext) -> Unit
 ) {
     companion object {
         fun getGenerators() = listOf(
@@ -19,20 +27,30 @@ class WizardDefaultDataGeneratorSettings<T : IdeVersionedDataState>(
                 jsonPath = "/compatibility/dependencies.json",
                 ktFileName = "DependencyDefaultData.kt",
                 parser = DependencyVersionParser,
-                generator = DependencyVersionState::generateDefaultData
+                templatePath = "compatibility/templates/KotlinDependencyDefaultData.kt.vm",
+                contextProvider = DependencyVersionState::provideDefaultDataContext
             ),
             WizardDefaultDataGeneratorSettings(
                 jsonPath = "/compatibility/kotlin_gradle_compatibility.json",
                 ktFileName = "KotlinGradleCompatibilityDefaultData.kt",
                 parser = KotlinGradleCompatibilityParser,
-                generator = KotlinGradleCompatibilityState::generateDefaultData
+                templatePath = "compatibility/templates/KotlinGradleCompatibilityDefaultData.kt.vm",
+                contextProvider = KotlinGradleCompatibilityState::provideDefaultDataContext
             ),
             WizardDefaultDataGeneratorSettings(
                 jsonPath = "/compatibility/wizard_versions.json",
                 ktFileName = "KotlinWizardVersionDefaultData.kt",
                 parser = KotlinWizardVersionParser,
-                generator = KotlinWizardVersionState::generateDefaultData
-            )
+                templatePath = "compatibility/templates/KotlinWizardVersionDefaultData.kt.vm",
+                contextProvider = KotlinWizardVersionState::provideDefaultDataContext
+            ),
+            WizardDefaultDataGeneratorSettings(
+                jsonPath = "/compatibility/kotlin_libraries.json",
+                ktFileName = "KotlinLibrariesDefaultData.kt",
+                parser = KotlinLibrariesCompatibilityParser,
+                templatePath = "compatibility/templates/KotlinLibrariesDefaultData.kt.vm",
+                contextProvider = KotlinLibrariesCompatibilityState::provideDefaultDataContext
+            ),
         )
     }
 
@@ -42,7 +60,20 @@ class WizardDefaultDataGeneratorSettings<T : IdeVersionedDataState>(
             .toString(Charset.forName("utf8"))
         val parsedData = parser.parseVersionedJson(jsonData, applicationVersion)!!
 
-        return generator(parsedData)
+        val velocityEngine = VelocityEngine()
+        velocityEngine.setProperty(RuntimeConstants.RESOURCE_LOADERS, "classpath");
+        velocityEngine.setProperty("resource.loader.classpath.class", ClasspathResourceLoader::class.java.name)
+        velocityEngine.init()
+
+        val template = velocityEngine.getTemplate(templatePath)
+        val context = VelocityContext()
+
+        context.put("YEAR", LocalDate.now().year)
+        contextProvider(parsedData, context)
+        val writer = StringWriter()
+        template.merge(context, writer)
+
+        return writer.toString()
     }
 }
 
@@ -55,7 +86,8 @@ internal fun main(args: Array<String>) {
 
     WizardDefaultDataGeneratorSettings.getGenerators().forEach { settings ->
         val generatedData = settings.generateDefaultData(applicationVersion)
-        val outputFile = generatedFolder.resolve(settings.ktFileName)
-        outputFile.toFile().writeText(generatedData, Charsets.UTF_8)
+        val outputFile = generatedFolder.resolve(settings.ktFileName).toFile()
+        outputFile.parentFile.mkdirs()
+        outputFile.writeText(generatedData, Charsets.UTF_8)
     }
 }

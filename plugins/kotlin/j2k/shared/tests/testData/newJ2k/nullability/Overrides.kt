@@ -27,7 +27,7 @@ internal class C : Base(), I {
         return ""
     }
 
-    override fun bar(s: String?): String? {
+    override fun bar(s: String?): String {
         return ""
     }
 
@@ -35,7 +35,7 @@ internal class C : Base(), I {
         return ""
     }
 
-    override fun nya(s: String?): String? {
+    override fun nya(s: String?): String {
         return ""
     }
 }

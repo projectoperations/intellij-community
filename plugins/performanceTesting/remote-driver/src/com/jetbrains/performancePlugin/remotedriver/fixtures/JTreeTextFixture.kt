@@ -1,19 +1,30 @@
 package com.jetbrains.performancePlugin.remotedriver.fixtures
 
+import com.intellij.driver.model.TreePath
 import com.intellij.driver.model.TreePathToRow
 import com.intellij.driver.model.TreePathToRowList
 import com.intellij.util.ui.tree.TreeUtil
-import com.jetbrains.performancePlugin.remotedriver.dataextractor.JTreeTextCellReader
+import com.jetbrains.performancePlugin.remotedriver.dataextractor.TextCellRendererReader
 import com.jetbrains.performancePlugin.remotedriver.dataextractor.computeOnEdt
 import org.assertj.swing.core.Robot
+import org.assertj.swing.driver.BasicJTreeCellReader
 import org.assertj.swing.fixture.JTreeFixture
+import java.awt.Point
 import javax.swing.JTree
 
-class JTreeTextFixture(robot: Robot, private val component: JTree) : JTreeFixture(robot, component) {
-  private val cellReader = JTreeTextCellReader()
+open class JTreeTextFixture(robot: Robot, private val component: JTree) : JTreeFixture(robot, component) {
+  private val cellReader = BasicJTreeCellReader(TextCellRendererReader())
 
   init {
     replaceCellReader(cellReader)
+  }
+
+  fun getRowPoint(row: Int): Point = computeOnEdt {
+    require(row in 0 until component.rowCount) {
+      "The given row $row should be between 0 and ${component.rowCount - 1}"
+    }
+    component.scrollRowToVisible(row)
+    component.getRowBounds(row).location
   }
 
   fun collectExpandedPaths(): TreePathToRowList {
@@ -34,5 +45,22 @@ class JTreeTextFixture(robot: Robot, private val component: JTree) : JTreeFixtur
       result.add(TreePathToRow(path.filterNotNull().filter { it.isNotEmpty() }, index))
     }
     return result
+  }
+
+  fun collectSelectedPaths(): List<TreePath> {
+    return computeOnEdt {
+      component.selectionPaths
+    }?.map { path ->
+      path.path.map { computeOnEdt { cellReader.valueAt(component, it) } ?: "" }.run {
+        if (component.isRootVisible) subList(1, size)
+        else this
+      }
+    }?.map(::TreePath) ?: emptyList()
+  }
+
+  fun expandAll(timeoutMs: Int) {
+    computeOnEdt {
+      TreeUtil.promiseExpandAll(component).blockingGet(timeoutMs)
+    }
   }
 }

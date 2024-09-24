@@ -1,2 +1,2 @@
 //method
-boolean isTrue<caret>() { return true; }
+boolean bool<caret>() { return true; }

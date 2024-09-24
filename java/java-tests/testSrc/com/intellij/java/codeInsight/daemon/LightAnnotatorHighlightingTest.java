@@ -144,8 +144,13 @@ public class LightAnnotatorHighlightingTest extends LightDaemonAnalyzerTestCase 
     CodeInsightTestFixtureImpl.ensureIndexesUpToDate(getProject());
     TextEditor textEditor = TextEditorProvider.getInstance().getTextEditor(getEditor());
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
-    ((DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(getProject()))
-      .runPasses(getFile(), getEditor().getDocument(), textEditor, ArrayUtilRt.EMPTY_INT_ARRAY, false, null);
+    try {
+      ((DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(getProject()))
+        .runPasses(getFile(), getEditor().getDocument(), textEditor, ArrayUtilRt.EMPTY_INT_ARRAY, false, null);
+    }
+    catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   public static class MyCrazyAnnotator extends DaemonAnnotatorsRespondToChangesTest.MyRecordingAnnotator {
@@ -549,7 +554,7 @@ public class LightAnnotatorHighlightingTest extends LightDaemonAnalyzerTestCase 
   }
 
   /**
-   * Checks that the Platform doesn't add useless "Inspection 'Annotator' options" quick fix. see https://youtrack.jetbrains.com/issue/WEB-55217
+   * Checks that the Platform doesn't add useless "Inspection 'Annotator' options" quick fix. see <a href="https://youtrack.jetbrains.com/issue/WEB-55217"/>
    */
   public void testNoFixesOrOptionsMustBeShownWhenAnnotatorProvidedQuickFixWhichIsDisabled() {
     GlobalInspectionTool tool = new HighlightVisitorBasedInspection().setRunAnnotators(true);

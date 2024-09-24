@@ -2,7 +2,6 @@
 package com.intellij;
 
 import com.intellij.idea.ExcludeFromTestDiscovery;
-import com.intellij.idea.HardwareAgentRequired;
 import com.intellij.idea.IJIgnore;
 import com.intellij.idea.IgnoreJUnit3;
 import com.intellij.nastradamus.NastradamusClient;
@@ -371,9 +370,6 @@ public class TestCaseLoader {
 
     if (checkForExclusion) {
       if (shouldExcludeTestClass(moduleName, testCaseClass)) return false;
-
-      boolean isHardwareAgentRequired = getAnnotationInHierarchy(testCaseClass, HardwareAgentRequired.class) != null;
-      if (isHardwareAgentRequired != HARDWARE_AGENT_REQUIRED) return false;
     }
 
     if (TestCase.class.isAssignableFrom(testCaseClass) || TestSuite.class.isAssignableFrom(testCaseClass)) {
@@ -620,12 +616,24 @@ public class TestCaseLoader {
     if (myGetClassesCalled) {
       throw new IllegalStateException("Cannot fill more classes after 'getClasses' was already called");
     }
+    final String relevantJarsRoot = System.getProperty("intellij.test.jars.location");
+    boolean noRelevantJarsRoot = StringUtil.isEmptyOrSpaces(relevantJarsRoot);
     long t = System.nanoTime();
 
     for (Path classesRoot : classesRoots) {
+      String fileName = classesRoot.getFileName().toString();
+      String moduleName = fileName;
+      if (fileName.endsWith(".jar")) {
+        if (noRelevantJarsRoot || !classesRoot.startsWith(relevantJarsRoot)) {
+          continue;
+        } else {
+          // .../idea-compile-parts-v2/test/intellij.java.compiler.tests/$sha256.jar
+          moduleName = classesRoot.getParent().getFileName().toString();
+        }
+      }
       int count = getClassesCount();
       ClassFinder classFinder = new ClassFinder(classesRoot, rootPackage, INCLUDE_UNCONVENTIONALLY_NAMED_TESTS);
-      loadTestCases(classesRoot.getFileName().toString(), classFinder.getClasses(), warmUpPhase);
+      loadTestCases(moduleName, classFinder.getClasses(), warmUpPhase);
       count = getClassesCount() - count;
       if (count > 0) {
         System.out.println("Loaded " + count + " classes from class root " + classesRoot);

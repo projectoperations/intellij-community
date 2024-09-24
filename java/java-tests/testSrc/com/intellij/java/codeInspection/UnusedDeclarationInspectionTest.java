@@ -1,7 +1,8 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInspection;
 
 import com.intellij.codeInspection.ex.EntryPointsManagerBase;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.testFramework.IdeaTestUtil;
 
@@ -77,6 +78,10 @@ public class UnusedDeclarationInspectionTest extends AbstractUnusedDeclarationTe
 
   public void testChainOfSuppressions() {
     doTest5();
+  }
+
+  public void testSuppressionIsNotAnEntryPoint() {
+    doTest();
   }
 
   public void testSuppressByNoinspectionTag() {
@@ -167,14 +172,6 @@ public class UnusedDeclarationInspectionTest extends AbstractUnusedDeclarationTe
     doTest();
   }
 
-  public void testMockedMockitoField() {
-    doTest();
-  }
-
-  public void testMockedEasyMockField() {
-    doTest();
-  }
-
   public void testConstructorCalls() {
     doTest();
   }
@@ -192,6 +189,10 @@ public class UnusedDeclarationInspectionTest extends AbstractUnusedDeclarationTe
   }
 
   public void testEnumValues() {
+    doTest();
+  }
+  
+  public void testEnumValueOf() {
     doTest();
   }
 
@@ -275,10 +276,20 @@ public class UnusedDeclarationInspectionTest extends AbstractUnusedDeclarationTe
     doTest();
   }
 
+  public void testUtilityClass() {
+    doTest();
+  }
+
   public void testJunitMethodSource() {doTest();}
 
   public void testImplicitClass() {
     IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_21_PREVIEW, () -> {
+      doTest();
+    });
+  }
+
+  public void testBrokenClassToImplicitClass() {
+    IdeaTestUtil.withLevel(getModule(), JavaFeature.IMPLICIT_CLASSES.getMinimumLevel(), () -> {
       doTest();
     });
   }

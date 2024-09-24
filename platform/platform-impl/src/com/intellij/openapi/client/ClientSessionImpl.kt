@@ -2,11 +2,11 @@
 package com.intellij.openapi.client
 
 import com.intellij.codeWithMe.ClientId
-import com.intellij.codeWithMe.asContextElement2
+import com.intellij.codeWithMe.asContextElement
 import com.intellij.ide.plugins.ContainerDescriptor
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
 import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.ide.users.LocalUserSettings
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.components.ComponentConfig
@@ -24,6 +24,7 @@ import com.intellij.serviceContainer.ComponentManagerImpl
 import com.intellij.serviceContainer.PrecomputedExtensionModel
 import com.intellij.serviceContainer.executeRegisterTaskForOldContent
 import com.intellij.serviceContainer.findConstructorOrNull
+import com.intellij.util.SystemProperties
 import com.intellij.util.messages.MessageBus
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.*
@@ -44,7 +45,7 @@ abstract class ClientSessionImpl(
 ) : ComponentManagerImpl(
   parent = null,
   parentScope = GlobalScope,
-  additionalContext = clientId.asContextElement2(),
+  additionalContext = clientId.asContextElement(),
 ), ClientSession {
   final override val isLightServiceSupported: Boolean = false
   final override val isMessageBusSupported: Boolean = false
@@ -78,7 +79,7 @@ abstract class ClientSessionImpl(
   }
 
   final override suspend fun preloadService(service: ServiceDescriptor, serviceInterface: String) {
-    return ClientId.withClientId(clientId) {
+    return withContext(clientId.asContextElement()) {
       super.preloadService(service, serviceInterface)
     }
   }
@@ -114,14 +115,15 @@ abstract class ClientSessionImpl(
   fun <T : Any> doGetService(serviceClass: Class<T>, createIfNeeded: Boolean, fallbackToShared: Boolean): T? {
     if (!fallbackToShared && !hasComponent(serviceClass)) return null
 
-    val clientService = ClientId.withClientId(clientId) {
+    val clientService = ClientId.withExplicitClientId(clientId) {
       super.doGetService(serviceClass = serviceClass, createIfNeeded = createIfNeeded)
     }
     if (clientService != null || !fallbackToShared) {
       return clientService
     }
 
-    if (createIfNeeded && !type.isLocal) {
+    // frontend service as well as a local one should be redirected to a shared in the case when fallbackToShared == true
+    if (createIfNeeded && !type.isLocal && !type.isFrontend) {
       val sessionsManager = sharedComponentManager.getService(ClientSessionsManager::class.java)
       val localSession = sessionsManager?.getSession(ClientId.localId) as? ClientSessionImpl
 
@@ -132,8 +134,8 @@ abstract class ClientSessionImpl(
       }
     }
 
-    ClientId.withClientId(ClientId.localId) {
-      return if (createIfNeeded) {
+    return ClientId.withExplicitClientId(ClientId.localId) {
+      return@withExplicitClientId if (createIfNeeded) {
         sharedComponentManager.getService(serviceClass)
       }
       else {
@@ -246,7 +248,8 @@ open class ClientProjectSessionImpl(
 @ApiStatus.Internal
 open class LocalAppSessionImpl(application: ApplicationImpl) : ClientAppSessionImpl(ClientId.localId, ClientType.LOCAL, application) {
   override val name: String
-    get() = LocalUserSettings.userName
+    // see `com.intellij.remoteDev.util.LocalUserSettings`
+    get() = PropertiesComponent.getInstance().getValue("local.user.name", SystemProperties.getUserName())
 }
 
 @ApiStatus.Experimental

@@ -5,6 +5,7 @@ import com.intellij.lang.Language;
 import com.intellij.lang.LanguageParserDefinitions;
 import com.intellij.lang.ParserDefinition;
 import com.intellij.lexer.Lexer;
+import com.intellij.notebook.editor.BackFileViewProvider;
 import com.intellij.openapi.application.QueryExecutorBase;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.SyntaxHighlighter;
@@ -29,6 +30,7 @@ import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.text.CharSequenceSubSequence;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -36,6 +38,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 
+@Internal
 public class IndexPatternSearcher extends QueryExecutorBase<IndexPatternOccurrence, IndexPatternSearch.SearchParameters> {
   private static final String WHITESPACE = " \t";
 
@@ -62,10 +65,23 @@ public class IndexPatternSearcher extends QueryExecutorBase<IndexPatternOccurren
     }
   }
 
-  protected static void executeImpl(IndexPatternSearch.SearchParameters queryParameters, Processor<? super IndexPatternOccurrence> consumer) {
+  protected static void executeImpl(IndexPatternSearch.SearchParameters queryParameters,
+                                    Processor<? super IndexPatternOccurrence> consumer) {
     final IndexPatternProvider patternProvider = queryParameters.getPatternProvider();
-    final PsiFile file = queryParameters.getFile();
-    final CharSequence chars = file.getViewProvider().getContents();
+    PsiFile file = queryParameters.getFile();
+
+
+    final CharSequence chars;
+    FileViewProvider viewProvider = file.getViewProvider();
+    if (viewProvider instanceof BackFileViewProvider) {
+      file = ((BackFileViewProvider)viewProvider).getFrontPsiFile();
+      if (file == null) {
+        return;
+      }
+      viewProvider = file.getViewProvider();
+    }
+
+    chars = viewProvider.getContents();
     boolean multiLine = queryParameters.isMultiLine();
     List<CommentRange> commentRanges = findCommentTokenRanges(file, chars, queryParameters.getRange(), multiLine);
     IntList occurrences = new IntArrayList(1);
@@ -99,7 +115,7 @@ public class IndexPatternSearcher extends QueryExecutorBase<IndexPatternOccurren
         return findComments(lexer, chars, range, COMMENT_TOKENS, null, multiLine);
       }
       else {
-        return Collections.singletonList(new CommentRange(0, file.getTextLength()));
+        return Collections.singletonList(new CommentRange(0, chars.length()));
       }
     }
     else {

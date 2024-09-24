@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightInfoHolder;
@@ -8,6 +8,7 @@ import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.components.ComponentManagerEx;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
@@ -35,6 +36,8 @@ import com.intellij.psi.PsiTreeChangeEvent;
 import com.intellij.util.Processor;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.containers.ContainerUtil;
+import kotlinx.coroutines.CoroutineScope;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -43,7 +46,9 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
+@ApiStatus.Internal
 public final class WolfTheProblemSolverImpl extends WolfTheProblemSolver implements Disposable {
   private final Map<VirtualFile, ProblemFileInfo> myProblems = new ConcurrentHashMap<>();
   private final Map<VirtualFile, Set<Object>> myProblemsFromExternalSources = new ConcurrentHashMap<>();
@@ -52,9 +57,9 @@ public final class WolfTheProblemSolverImpl extends WolfTheProblemSolver impleme
   private final Project myProject;
   private final WolfListeners myWolfListeners;
 
-  private WolfTheProblemSolverImpl(@NotNull Project project) {
+  private WolfTheProblemSolverImpl(@NotNull Project project, @NotNull CoroutineScope coroutineScope) {
     myProject = project;
-    myWolfListeners = new WolfListeners(project, this);
+    myWolfListeners = new WolfListeners(project, this, coroutineScope);
   }
 
   @Override
@@ -134,39 +139,40 @@ public final class WolfTheProblemSolverImpl extends WolfTheProblemSolver impleme
   }
 
   // returns true if the car has been cleaned
-  private boolean orderVincentToCleanTheCar(@NotNull VirtualFile file, @NotNull ProgressIndicator progressIndicator) throws ProcessCanceledException {
-    if (!isToBeHighlighted(file)) {
-      clearProblems(file);
+  private boolean orderVincentToCleanTheCar(@NotNull VirtualFile virtualFile, @NotNull ProgressIndicator progressIndicator) throws ProcessCanceledException {
+    if (!isToBeHighlighted(virtualFile)) {
+      clearProblems(virtualFile);
       return true; // the file is going to be red waved no more
     }
-    if (hasSyntaxErrors(file)) {
+    if (hasSyntaxErrors(virtualFile)) {
       // optimization: it's no use anyway to try to clean the file with syntax errors, only changing the file itself can help
       return false;
     }
     if (myProject.isDisposed()) return false;
-    if (willBeHighlightedAnyway(file)) return false;
-    PsiFile psiFile = PsiManager.getInstance(myProject).findFile(file);
+    if (willBeHighlightedAnyway(virtualFile)) return false;
+    PsiFile psiFile = PsiManager.getInstance(myProject).findFile(virtualFile);
     if (psiFile == null) return false;
-    Document document = FileDocumentManager.getInstance().getDocument(file);
+    Document document = FileDocumentManager.getInstance().getDocument(virtualFile);
     if (document == null) return false;
 
     AtomicReference<HighlightInfo> error = new AtomicReference<>();
     boolean hasErrorElement = false;
     try {
       ProperTextRange visibleRange = new ProperTextRange(0, document.getTextLength());
-      HighlightingSessionImpl.getOrCreateHighlightingSession(psiFile, (DaemonProgressIndicator)progressIndicator, visibleRange);
+      HighlightingSessionImpl.getOrCreateHighlightingSession(psiFile, (DaemonProgressIndicator)progressIndicator, visibleRange,
+                                                             TextRange.EMPTY_RANGE);
       GeneralHighlightingPass pass = new NasueousGeneralHighlightingPass(psiFile, document, visibleRange, error);
       pass.collectInformation(progressIndicator);
       hasErrorElement = pass.myHasErrorElement;
     }
     catch (ProcessCanceledException e) {
       if (error.get() != null) {
-        ProblemImpl problem = new ProblemImpl(file, error.get(), hasErrorElement);
-        reportProblems(file, Collections.singleton(problem));
+        ProblemImpl problem = new ProblemImpl(virtualFile, error.get(), hasErrorElement);
+        reportProblems(virtualFile, Collections.singleton(problem));
       }
       return false;
     }
-    clearProblems(file);
+    clearProblems(virtualFile);
     return true;
   }
 
@@ -390,49 +396,23 @@ public final class WolfTheProblemSolverImpl extends WolfTheProblemSolver impleme
     return new TextRange(offset, offset);
   }
 
-  public boolean processProblemFiles(@NotNull Processor<? super VirtualFile> processor) {
-    return ContainerUtil.process(myProblems.keySet(), processor);
-  }
-  public boolean processProblemFilesFromExternalSources(@NotNull Processor<? super VirtualFile> processor) {
-    return ContainerUtil.process(myProblemsFromExternalSources.keySet(), processor);
+  public void consumeProblemFiles(@NotNull Consumer<? super VirtualFile> consumer) {
+    myProblems.keySet().forEach(consumer);
   }
 
-  @TestOnly
-  public static @NotNull WolfTheProblemSolver createTestInstance(@NotNull Project project){
-    assert ApplicationManager.getApplication().isUnitTestMode();
-    return new WolfTheProblemSolverImpl(project);
+  public void consumeProblemFilesFromExternalSources(@NotNull Consumer<? super VirtualFile> consumer) {
+    myProblemsFromExternalSources.keySet().forEach(consumer);
   }
+
   @TestOnly
   void waitForFilesQueuedForInvalidationAreProcessed() {
     myWolfListeners.waitForFilesQueuedForInvalidationAreProcessed();
   }
-
-  /**
-   * GHP, which throws as soon as it found an error in the file
-   */
-  private static final class NasueousGeneralHighlightingPass extends GeneralHighlightingPass {
-    private final @NotNull AtomicReference<? super HighlightInfo> myError;
-
-    NasueousGeneralHighlightingPass(@NotNull PsiFile psiFile,
-                                    @NotNull Document document,
-                                    @NotNull ProperTextRange visibleRange,
-                                    @NotNull AtomicReference<? super HighlightInfo> error) {
-      super(psiFile, document, 0, document.getTextLength(), false, visibleRange, null, HighlightInfoProcessor.getEmpty());
-      myError = error;
-    }
-
-    @Override
-    protected @NotNull HighlightInfoHolder createInfoHolder(@NotNull PsiFile file) {
-      return new HighlightInfoHolder(file) {
-        @Override
-        public boolean add(@Nullable HighlightInfo info) {
-          if (info != null && info.getSeverity() == HighlightSeverity.ERROR) {
-            myError.set(info);
-            throw new ProcessCanceledException();
-          }
-          return super.add(info);
-        }
-      };
-    }
+  @TestOnly
+  public static @NotNull WolfTheProblemSolver createTestInstance(@NotNull Project project) {
+    assert ApplicationManager.getApplication().isUnitTestMode();
+    //noinspection UsagesOfObsoleteApi
+    return new WolfTheProblemSolverImpl(project, ((ComponentManagerEx)project).getCoroutineScope());
   }
+
 }

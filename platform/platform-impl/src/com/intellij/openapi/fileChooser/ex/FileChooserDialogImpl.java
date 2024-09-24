@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileChooser.ex;
 
 import com.intellij.icons.AllIcons;
@@ -16,6 +16,7 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.fileChooser.*;
 import com.intellij.openapi.fileChooser.ex.FileLookup.LookupFile;
 import com.intellij.openapi.fileChooser.impl.FileChooserFactoryImpl;
+import com.intellij.openapi.fileChooser.impl.FileChooserUsageCollector;
 import com.intellij.openapi.fileChooser.impl.FileChooserUtil;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.Project;
@@ -124,19 +125,18 @@ public class FileChooserDialogImpl extends DialogWrapper implements FileChooserD
 
     show();
 
+    FileChooserUsageCollector.log(this, myChooserDescriptor, myChosenFiles);
     return myChosenFiles;
-  }
-
-  @Override
-  public VirtualFile @NotNull [] choose(final @Nullable VirtualFile toSelect, final @Nullable Project project) {
-    return toSelect == null ? choose(project) : choose(project, toSelect);
   }
 
   @Override
   public void choose(@Nullable VirtualFile toSelect, @NotNull Consumer<? super List<VirtualFile>> callback) {
     init();
     restoreSelection(toSelect);
+
     show();
+
+    FileChooserUsageCollector.log(this, myChooserDescriptor, myChosenFiles);
     if (myChosenFiles.length > 0) {
       callback.consume(Arrays.asList(myChosenFiles));
     }
@@ -470,7 +470,7 @@ public class FileChooserDialogImpl extends DialogWrapper implements FileChooserD
     }
   }
 
-  protected final class MyPanel extends JPanel implements DataProvider {
+  protected final class MyPanel extends JPanel implements UiDataProvider {
     final PasteProvider myPasteProvider = new PasteProvider() {
       @Override
       public @NotNull ActionUpdateThread getActionUpdateThread() {
@@ -515,17 +515,11 @@ public class FileChooserDialogImpl extends DialogWrapper implements FileChooserD
     }
 
     @Override
-    public Object getData(@NotNull String dataId) {
-      if (FileSystemTree.DATA_KEY.is(dataId)) {
-        return myFileSystemTree;
-      }
-      if (CommonDataKeys.VIRTUAL_FILE_ARRAY.is(dataId)) {
-        return myFileSystemTree == null ? null : myFileSystemTree.getSelectedFiles();
-      }
-      if (PlatformDataKeys.PASTE_PROVIDER.is(dataId)) {
-        return myPasteProvider;
-      }
-      return myChooserDescriptor.getUserData(dataId);
+    public void uiDataSnapshot(@NotNull DataSink sink) {
+      sink.set(FileSystemTree.DATA_KEY, myFileSystemTree);
+      sink.set(CommonDataKeys.VIRTUAL_FILE_ARRAY, myFileSystemTree == null ? null : myFileSystemTree.getSelectedFiles());
+      sink.set(PlatformDataKeys.PASTE_PROVIDER, myPasteProvider);
+      DataSink.uiDataSnapshot(sink, dataId -> myChooserDescriptor.getUserData(dataId));
     }
   }
 

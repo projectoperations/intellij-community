@@ -3,13 +3,12 @@
 package org.jetbrains.kotlin.j2k.postProcessings
 
 import com.intellij.psi.search.searches.ReferencesSearch
-import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.annotations.annotationClassIds
-import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.symbols.KtPropertySymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KtVariableSymbol
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
 import org.jetbrains.kotlin.idea.references.readWriteAccess
 import org.jetbrains.kotlin.j2k.ConverterSettings
@@ -37,8 +36,8 @@ class VarToValProcessing : InspectionLikeProcessingForElement<KtProperty>(KtProp
         )
     }
 
-    @OptIn(KtAllowAnalysisOnEdt::class)
-    override fun isApplicableTo(element: KtProperty, settings: ConverterSettings?): Boolean {
+    @OptIn(KaAllowAnalysisOnEdt::class)
+    override fun isApplicableTo(element: KtProperty, settings: ConverterSettings): Boolean {
         if (!element.isVar) return false
 
         return when {
@@ -55,14 +54,14 @@ class VarToValProcessing : InspectionLikeProcessingForElement<KtProperty>(KtProp
         }
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun isApplicableToByAnalyze(element: KtProperty): Boolean {
-        val symbol = element.getVariableSymbol() as? KtPropertySymbol ?: return false
+        val symbol = element.symbol as? KaPropertySymbol ?: return false
 
-        val overriddenSymbols = symbol.getAllOverriddenSymbols()
-        if (overriddenSymbols.any { (it as? KtVariableSymbol)?.isVal == false }) return false
+        val overriddenSymbols = symbol.allOverriddenSymbols
+        if (overriddenSymbols.any { (it as? KaVariableSymbol)?.isVal == false }) return false
 
-        val annotationClassIds = symbol.backingFieldSymbol?.annotationClassIds.orEmpty()
+        val annotationClassIds = symbol.backingFieldSymbol?.annotations?.classIds.orEmpty()
         if (annotationClassIds.any { JPA_COLUMN_ANNOTATIONS.contains(it) }) return false
 
         return !element.hasWriteUsages(isLocal = false)

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.util.gotoByName;
 
 import com.intellij.lang.Language;
@@ -18,12 +18,12 @@ import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.indexing.DumbModeAccessType;
-import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.indexing.FindSymbolParameters;
 import com.intellij.util.indexing.IdFilter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Set;
 import java.util.regex.Matcher;
 
 public class DefaultClassNavigationContributor implements ChooseByNameContributorEx, GotoClassContributor, PossiblyDumbAware {
@@ -52,28 +52,33 @@ public class DefaultClassNavigationContributor implements ChooseByNameContributo
   public void processNames(@NotNull Processor<? super String> processor, @NotNull GlobalSearchScope scope, @Nullable IdFilter filter) {
     Project project = scope.getProject();
     DumbModeAccessType.RAW_INDEX_DATA_ACCEPTABLE.ignoreDumbMode(() -> {
-      PsiShortNamesCache.getInstance(project).processAllClassNames(processor, scope, filter);
+      getPsiShortNamesCache(project).processAllClassNames(processor, scope, filter);
     });
   }
 
   @Override
   public void processElementsWithName(@NotNull String name,
-                                      @NotNull final Processor<? super NavigationItem> processor,
-                                      @NotNull final FindSymbolParameters parameters) {
+                                      final @NotNull Processor<? super NavigationItem> processor,
+                                      final @NotNull FindSymbolParameters parameters) {
     DumbModeAccessType.RELIABLE_DATA_ONLY.ignoreDumbMode(() -> {
       DefaultClassProcessor defaultClassProcessor = new DefaultClassProcessor(processor, parameters, false);
-      PsiShortNamesCache.getInstance(parameters.getProject())
+      getPsiShortNamesCache(parameters.getProject())
         .processClassesWithName(name, defaultClassProcessor, parameters.getSearchScope(), parameters.getIdFilter());
     });
   }
 
+  private static PsiShortNamesCache getPsiShortNamesCache(@NotNull Project project) {
+    Set<Language> withoutLanguages = IgnoreLanguageInDefaultProvider.getIgnoredLanguages();
+    return PsiShortNamesCache.getInstance(project).withoutLanguages(withoutLanguages);
+  }
+
   public static class DefaultClassProcessor implements Processor<PsiClass> {
-    private @NotNull final Processor<? super NavigationItem> processor;
-    private @Nullable final MinusculeMatcher innerClassMatcher;
+    private final @NotNull Processor<? super NavigationItem> processor;
+    private final @Nullable MinusculeMatcher innerClassMatcher;
     private final boolean allowNonPhysicalClasses;
     private final boolean isAnnotation;
 
-    DefaultClassProcessor(@NotNull final Processor<? super NavigationItem> processor, @NotNull final FindSymbolParameters parameters,
+    DefaultClassProcessor(final @NotNull Processor<? super NavigationItem> processor, final @NotNull FindSymbolParameters parameters,
                           boolean allowNonPhysicalClasses) {
       this.processor = processor;
       this.innerClassMatcher = getInnerClassMatcher(parameters);
@@ -95,8 +100,7 @@ public class DefaultClassNavigationContributor implements ChooseByNameContributo
       return processor.process(aClass);
     }
 
-    @Nullable
-    private static MinusculeMatcher getInnerClassMatcher(@NotNull FindSymbolParameters parameters) {
+    private static @Nullable MinusculeMatcher getInnerClassMatcher(@NotNull FindSymbolParameters parameters) {
       String namePattern = StringUtil.getShortName(parameters.getCompletePattern());
       boolean hasDollar = namePattern.contains("$");
       if (hasDollar) {
@@ -110,14 +114,13 @@ public class DefaultClassNavigationContributor implements ChooseByNameContributo
     }
   }
 
-  @Nullable
   @Override
-  public Language getElementLanguage() {
+  public @Nullable Language getElementLanguage() {
     return JavaLanguage.INSTANCE;
   }
 
   @Override
   public boolean isDumbAware() {
-    return FileBasedIndex.isIndexAccessDuringDumbModeEnabled();
+    return true;
   }
 }

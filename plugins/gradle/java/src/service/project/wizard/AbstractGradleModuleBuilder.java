@@ -4,8 +4,8 @@ package org.jetbrains.plugins.gradle.service.project.wizard;
 import com.intellij.application.options.CodeStyle;
 import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
+import com.intellij.ide.impl.TrustedPaths;
 import com.intellij.ide.projectWizard.ProjectSettingsStep;
-import com.intellij.ide.util.EditorHelper;
 import com.intellij.ide.util.projectWizard.*;
 import com.intellij.openapi.GitSilentFileAdderProvider;
 import com.intellij.openapi.application.ApplicationManager;
@@ -26,6 +26,7 @@ import com.intellij.openapi.externalSystem.service.project.wizard.AbstractExtern
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.*;
@@ -46,8 +47,6 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
 import com.intellij.ui.UIBundle;
 import com.intellij.util.io.PathKt;
 import org.gradle.util.GradleVersion;
@@ -75,8 +74,6 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-
-import static com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode.MODAL_SYNC;
 
 public abstract class AbstractGradleModuleBuilder extends AbstractExternalModuleBuilder<GradleProjectSettings> {
 
@@ -212,6 +209,7 @@ public abstract class AbstractGradleModuleBuilder extends AbstractExternalModule
       GradleJvmResolutionUtil.setupGradleJvm(project, projectSettings, gradleVersion);
       GradleJvmValidationUtil.validateJavaHome(project, rootProjectPath, gradleVersion);
 
+      TrustedPaths.getInstance().setProjectPathTrusted(rootProjectPath, true);
       settings.linkProject(projectSettings);
     }
     if (isCreatingNewProject) {
@@ -223,10 +221,6 @@ public abstract class AbstractGradleModuleBuilder extends AbstractExternalModule
 
     // execute when current dialog is closed
     ApplicationManager.getApplication().invokeLater(() -> {
-      if (isCreatingNewProject) {
-        // update external projects data to be able to add child modules before the initial import finish
-        loadPreviewProject(project);
-      }
       if (isCreatingBuildScriptFile) {
         preImportConfigurators.forEach(c -> c.accept(buildScriptFile, settingsScriptFile));
         openBuildScriptFile(project, buildScriptFile);
@@ -236,14 +230,6 @@ public abstract class AbstractGradleModuleBuilder extends AbstractExternalModule
       }
       reloadProject(project);
     }, ModalityState.nonModal(), project.getDisposed());
-  }
-
-  private void loadPreviewProject(@NotNull Project project) {
-    ImportSpecBuilder previewSpec = new ImportSpecBuilder(project, GradleConstants.SYSTEM_ID);
-    previewSpec.usePreviewMode();
-    previewSpec.use(MODAL_SYNC);
-    previewSpec.callback(new ConfigureGradleModuleCallback(previewSpec));
-    ExternalSystemUtil.refreshProject(PathKt.getSystemIndependentPath(rootProjectPath), previewSpec);
   }
 
   private void reloadProject(@NotNull Project project) {
@@ -299,10 +285,8 @@ public abstract class AbstractGradleModuleBuilder extends AbstractExternalModule
 
   private static void openBuildScriptFile(@NotNull Project project, VirtualFile buildScriptFile) {
     if (buildScriptFile == null) return;
-    PsiManager psiManager = PsiManager.getInstance(project);
-    PsiFile psiFile = psiManager.findFile(buildScriptFile);
-    if (psiFile == null) return;
-    EditorHelper.openInEditor(psiFile);
+    var fileEditorManager = FileEditorManager.getInstance(project);
+    fileEditorManager.openFile(buildScriptFile, false);
   }
 
   @Override

@@ -18,6 +18,7 @@ import org.jetbrains.idea.maven.buildtool.MavenSyncSpec
 import org.jetbrains.idea.maven.model.MavenConstants
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.project.MavenSyncListener
+import org.jetbrains.idea.maven.utils.MavenLog
 
 @ApiStatus.Internal
 class MavenProjectAware(
@@ -37,15 +38,17 @@ class MavenProjectAware(
   }
 
   override fun reloadProject(context: ExternalSystemProjectReloadContext) {
+    MavenLog.LOG.debug("MavenProjectAware.reloadProject")
     ApplicationManager.getApplication().invokeAndWait {
       FileDocumentManager.getInstance().saveAllDocuments()
     }
     if (context.hasUndefinedModifications) {
-      manager.findAllAvailablePomFilesIfNotMavenized()
+      MavenLog.LOG.debug("MavenProjectAware.reloadProject - context.hasUndefinedModifications=true")
       val spec = MavenSyncSpec.incremental("MavenProjectAware.reloadProject, undefined modifications", context.isExplicitReload)
       manager.scheduleUpdateAllMavenProjects(spec)
     }
     else {
+      MavenLog.LOG.debug("MavenProjectAware.reloadProject - context.hasUndefinedModifications=false")
       val settingsFilesContext = context.settingsFilesContext
 
       val filesToUpdate = mutableListOf<VirtualFile>()
@@ -65,17 +68,9 @@ class MavenProjectAware(
         manager.scheduleUpdateMavenProjects(spec, filesToUpdate, filesToDelete)
       }
       else {
-        manager.findAllAvailablePomFilesIfNotMavenized()
         val spec = MavenSyncSpec.incremental("MavenProjectAware.reloadProject, sync all", context.isExplicitReload)
         manager.scheduleUpdateAllMavenProjects(spec)
       }
-    }
-  }
-
-  private fun hasPomFile(rootDirectory: String): Boolean {
-    val projectTree = manager.projectsTree
-    return MavenConstants.POM_NAMES.any {
-      projectTree.isPotentialProject("$rootDirectory/$it")
     }
   }
 
@@ -91,9 +86,6 @@ class MavenProjectAware(
       result.add(rootDirectory + "/" + MavenConstants.JVM_CONFIG_RELATIVE_PATH)
       result.add(rootDirectory + "/" + MavenConstants.MAVEN_CONFIG_RELATIVE_PATH)
       result.add(rootDirectory + "/" + MavenConstants.MAVEN_WRAPPER_RELATIVE_PATH)
-      if (hasPomFile(rootDirectory)) {
-        result.add(rootDirectory + "/" + MavenConstants.PROFILES_XML)
-      }
     }
     return result
   }

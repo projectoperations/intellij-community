@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInsight.daemon;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings;
@@ -19,7 +19,7 @@ import com.intellij.codeInspection.sillyAssignment.SillyAssignmentInspection;
 import com.intellij.codeInspection.uncheckedWarnings.UncheckedWarningLocalInspection;
 import com.intellij.codeInspection.unneededThrows.RedundantThrowsDeclarationLocalInspection;
 import com.intellij.codeInspection.unusedImport.UnusedImportInspection;
-import com.intellij.codeInspection.unusedSymbol.UnusedSymbolLocalInspectionBase;
+import com.intellij.codeInspection.unusedSymbol.UnusedSymbolLocalInspection;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
@@ -28,7 +28,6 @@ import com.intellij.openapi.extensions.ExtensionPoint;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
-import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.RecursionManager;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -144,7 +143,7 @@ public class LightAdvHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testBadUnicodeEscapeInComment() { doTest(false); }
   public void testUnclosedDecl() { doTest(false); }
   public void testSillyAssignment() {
-    LanguageLevelProjectExtension.getInstance(getJavaFacade().getProject()).setLanguageLevel(LanguageLevel.JDK_1_7);
+    IdeaTestUtil.setProjectLanguageLevel(getJavaFacade().getProject(), LanguageLevel.JDK_1_7);
     doTest(true, true);
   }
   public void testTernary() { doTest(false); }
@@ -243,6 +242,7 @@ public class LightAdvHighlightingTest extends LightDaemonAnalyzerTestCase {
 
   public void testIgnoreImplicitThisReferenceBeforeSuperSinceJdk7() { doTest(false); }
   public void testStatementsBeforeSuper() { IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_22_PREVIEW, () -> doTest(false)); }
+  public void testFlexibleConstructorBodies() { IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_23_PREVIEW, () -> doTest(false)); }
   public void testCastFromVoid() { doTest(false); }
   public void testCatchUnknownMethod() { doTest(false); }
   public void testIDEADEV8822() { doTest(false); }
@@ -256,7 +256,7 @@ public class LightAdvHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testInnerClassesShadowing() { doTest(false); }
 
   public void testUnusedParamsOfPublicMethodDisabled() {
-    UnusedSymbolLocalInspectionBase tool = myUnusedDeclarationInspection.getSharedLocalInspectionTool();
+    UnusedSymbolLocalInspection tool = myUnusedDeclarationInspection.getSharedLocalInspectionTool();
     assertNotNull(tool);
     String oldVal = tool.getParameterVisibility();
     try {
@@ -337,12 +337,12 @@ public class LightAdvHighlightingTest extends LightDaemonAnalyzerTestCase {
   }
 
   public void testNamesHighlighting() {
-    LanguageLevelProjectExtension.getInstance(getJavaFacade().getProject()).setLanguageLevel(LanguageLevel.JDK_1_5);
+    IdeaTestUtil.setProjectLanguageLevel(getJavaFacade().getProject(), LanguageLevel.JDK_1_5);
     doTestFile(BASE_PATH + "/" + getTestName(false) + ".java").checkSymbolNames().test();
   }
 
   public void testAnnotationHighlighting() {
-    LanguageLevelProjectExtension.getInstance(getJavaFacade().getProject()).setLanguageLevel(LanguageLevel.JDK_1_5);
+    IdeaTestUtil.setProjectLanguageLevel(getJavaFacade().getProject(), LanguageLevel.JDK_1_5);
     doTestFile(BASE_PATH + "/" + getTestName(false) + ".java").checkSymbolNames().test();
   }
 
@@ -466,8 +466,6 @@ public class LightAdvHighlightingTest extends LightDaemonAnalyzerTestCase {
   }
 
   public void testReferenceToImplicitClass() {
-    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_22_PREVIEW, () -> {
-      doTest(false);
-    });
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_22_PREVIEW, () -> doTest(false));
   }
 }

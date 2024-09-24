@@ -3,6 +3,7 @@ package com.intellij.openapi.wm.impl
 
 import com.intellij.diagnostic.LoadingState
 import com.intellij.ide.ui.UISettings
+import com.intellij.idea.AppMode
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.impl.RawSwingDispatcher
 import com.intellij.openapi.diagnostic.Logger
@@ -85,8 +86,8 @@ internal abstract class IdeFrameDecorator protected constructor(@JvmField protec
 
   abstract val isInFullScreen: Boolean
 
-  open fun setStoredFullScreen() {
-    notifyFrameComponents(state = true)
+  open fun setStoredFullScreen(state: Boolean) {
+    notifyFrameComponents(state)
   }
 
   open fun setProject() {
@@ -212,6 +213,6 @@ private class WLFrameDecorator(frame: IdeFrameImpl) : IdeFrameDecorator(frame) {
 
 internal const val MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY: String = "ide.win.frame.decoration"
 
-private val mergeMainMenuWithWindowTitleOverrideValue: Boolean? = System.getProperty(MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY)?.toBoolean()
+private val mergeMainMenuWithWindowTitleOverrideValue: Boolean? = if (AppMode.isRemoteDevHost()) false else System.getProperty(MERGE_MAIN_MENU_WITH_WINDOW_TITLE_PROPERTY)?.toBoolean()
 internal val isMergeMainMenuWithWindowTitleOverridden: Boolean
   get() = mergeMainMenuWithWindowTitleOverrideValue != null

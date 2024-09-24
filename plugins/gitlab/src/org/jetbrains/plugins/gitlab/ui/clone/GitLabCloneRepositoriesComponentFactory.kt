@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.ui.clone
 
 import com.intellij.collaboration.async.launchNow
@@ -39,6 +39,7 @@ import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccount
 import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneRepositoriesViewModel
 import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneRepositoriesViewModel.SearchModel
 import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneViewModel
+import javax.swing.JComponent
 import javax.swing.JSeparator
 import javax.swing.ListCellRenderer
 import javax.swing.ListModel
@@ -89,7 +90,7 @@ internal object GitLabCloneRepositoriesComponentFactory {
         cell(directoryField)
           .align(AlignX.FILL)
           .validationOnApply {
-            CloneDvcsValidationUtils.checkDirectory(it.text, it.textField)
+            CloneDvcsValidationUtils.checkDirectory(it.text, it.textField as JComponent)
           }
       }
     }.apply {
@@ -187,16 +188,12 @@ internal object GitLabCloneRepositoriesComponentFactory {
     cs: CoroutineScope,
     repositoriesVm: GitLabCloneRepositoriesViewModel
   ): TextFieldWithBrowseButton {
-    val fcd = FileChooserDescriptorFactory.createSingleFolderDescriptor().apply {
-      isShowFileSystemRoots = true
-      isHideIgnored = false
-    }
     val directoryField = TextFieldWithBrowseButton().apply {
-      addBrowseFolderListener(
-        DvcsBundle.message("clone.destination.directory.browser.title"),
-        DvcsBundle.message("clone.destination.directory.browser.description"),
-        project,
-        fcd
+      addBrowseFolderListener(project, FileChooserDescriptorFactory.createSingleFolderDescriptor()
+        .withShowFileSystemRoots(true)
+        .withHideIgnored(false)
+        .withTitle(DvcsBundle.message("clone.destination.directory.browser.title"))
+        .withDescription(DvcsBundle.message("clone.destination.directory.browser.description"))
       )
       addDocumentListener(object : DocumentAdapter() {
         override fun textChanged(e: DocumentEvent) {

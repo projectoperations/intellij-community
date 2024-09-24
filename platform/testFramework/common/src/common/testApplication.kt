@@ -32,10 +32,11 @@ import com.intellij.openapi.editor.impl.EditorFactoryImpl
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl
 import com.intellij.openapi.project.ex.ProjectManagerEx
+import com.intellij.openapi.project.impl.P3SupportInstaller
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.RecursionManager
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.util.registry.RegistryKeyBean.Companion.addKeysFromPlugins
+import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.encoding.EncodingManager
@@ -119,15 +120,15 @@ fun loadApp(setupEventQueue: Runnable) {
   // if BB in classpath
   enableCoroutineDump()
   CoroutineDumpState.install()
-  JBR.getJstack()?.includeInfoFrom {
-    """
-    $COROUTINE_DUMP_HEADER
-    ${dumpCoroutines(stripDump = false)}
-    """
+  JBR.getJstack()?.includeInfoFrom { """
+$COROUTINE_DUMP_HEADER
+${dumpCoroutines(stripDump = false)}
+""" // dumpCoroutines is multiline, trimIndent won't work
   }
   val isHeadless = UITestUtil.getAndSetHeadlessProperty()
   AppMode.setHeadlessInTestMode(isHeadless)
   PluginManagerCore.isUnitTestMode = true
+  P3SupportInstaller.seal()
   IdeaForkJoinWorkerThreadFactory.setupForkJoinCommonPool(true)
   PluginManagerCore.scheduleDescriptorLoading(GlobalScope)
   setupEventQueue.run()
@@ -167,9 +168,9 @@ private fun loadAppInUnitTestMode(isHeadless: Boolean) {
     app.registerComponents(modules = pluginSet.getEnabledModules(), app = app)
 
     val task = suspend {
-      initConfigurationStore(app)
+      initConfigurationStore(app, emptyList())
 
-      addKeysFromPlugins()
+      RegistryManager.getInstance() // to trigger RegistryKeyBean.addKeysFromPlugins exactly once per run
       Registry.markAsLoaded()
 
       preloadServicesAndCallAppInitializedListeners(app)
@@ -210,7 +211,7 @@ private suspend fun preloadServicesAndCallAppInitializedListeners(app: Applicati
     }
 
     @Suppress("TestOnlyProblems")
-    callAppInitialized(getAppInitializedListeners(app), app.getCoroutineScope())
+    callAppInitialized(getAppInitializedListeners(app))
 
     LoadingState.setCurrentState(LoadingState.COMPONENTS_LOADED)
   }
@@ -287,7 +288,9 @@ fun Application.checkEditorsReleased() {
       EditorFactoryImpl.throwNotReleasedError(editor)
     }
     actions.add {
-      editorFactory.releaseEditor(editor)
+      ApplicationManager.getApplication().invokeAndWait {
+        editorFactory.releaseEditor(editor)
+      }
     }
   }
   runAll(actions)

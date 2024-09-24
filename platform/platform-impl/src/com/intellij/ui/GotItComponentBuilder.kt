@@ -22,10 +22,6 @@ import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.GotItComponentBuilder.Companion.EXTENDED_MAX_WIDTH
 import com.intellij.ui.GotItComponentBuilder.Companion.MAX_LINES_COUNT
-import com.intellij.ui.InlineCodeExtension.Companion.getStyles
-import com.intellij.ui.InlineCodeExtension.Companion.patchCodeTags
-import com.intellij.ui.ShortcutExtension.Companion.getStyles
-import com.intellij.ui.ShortcutExtension.Companion.patchShortcutTags
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.labels.LinkLabel
@@ -586,6 +582,7 @@ class GotItComponentBuilder(textSupplier: GotItTextBuilder.() -> @Nls String) {
     panel.background = JBUI.CurrentTheme.GotItTooltip.background(useContrastColors)
     panel.border = EmptyBorder(JBUI.CurrentTheme.GotItTooltip.insets())
 
+    RemoteTransferUIManager.forceDirectTransfer(panel)
     return panel
   }
 
@@ -758,6 +755,7 @@ private class LimitedWidthEditorPane(htmlBuilder: HtmlBuilder,
  *
  * To install this extension you need to add styles returned from [getStyles] to your [StyleSheet].
  */
+@Deprecated(message = "Use JBHtmlPane and <shortcut> element instead")
 class ShortcutExtension : ExtendableHTMLViewFactory.Extension {
   override fun invoke(elem: Element, defaultView: View): View? {
     val tagAttributes = elem.attributes.getAttribute(HTML.Tag.SPAN) as? AttributeSet
@@ -828,7 +826,7 @@ class ShortcutExtension : ExtendableHTMLViewFactory.Extension {
 
     private fun shortcutSpan(shortcutText: @NlsSafe String) = HtmlChunk.span().attr("class", "shortcut").addText(shortcutText).toString()
 
-    private val SHORTCUT_REGEX: Regex = Regex("""<shortcut (?<type>actionId|raw)="(?<value>[\w.]+)"/>""")
+    private val SHORTCUT_REGEX: Regex = Regex("""<shortcut (?<type>actionId|raw)="(?<value>[\w. ]+)"/>""")
   }
 
   private class ShortcutView(elem: Element) : InlineView(elem) {
@@ -916,6 +914,7 @@ class ShortcutExtension : ExtendableHTMLViewFactory.Extension {
  *
  * To install this extension you need to add styles returned from [getStyles] to your [StyleSheet].
  */
+@Deprecated(message = "Use JBHtmlPane and <code> element instead")
 private class InlineCodeExtension : ExtendableHTMLViewFactory.Extension {
   override fun invoke(elem: Element, defaultView: View): View? {
     val tagAttributes = elem.attributes.getAttribute(HTML.Tag.SPAN) as? AttributeSet
@@ -1021,6 +1020,7 @@ private class InlineCodeExtension : ExtendableHTMLViewFactory.Extension {
  * also do not propagate [StyleConstants.LineSpacing] to the [ParagraphView].
  * So, this is a workaround.
  */
+@Deprecated(message = "Use JBHtmlPane and CSS line-height property instead")
 private class LineSpacingExtension(val lineSpacing: Float) : ExtendableHTMLViewFactory.Extension {
   override fun invoke(elem: Element, defaultView: View): View? {
     return if (defaultView is ParagraphView) {

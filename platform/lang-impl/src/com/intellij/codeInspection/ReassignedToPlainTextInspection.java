@@ -1,6 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection;
 
+import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
@@ -23,9 +24,7 @@ import org.jetbrains.annotations.Nullable;
 // this file is assigned to "Plain text" file type even though there's a plugin supporting this specific extension/file pattern
 public final class ReassignedToPlainTextInspection extends LocalInspectionTool {
   @Override
-  @NonNls
-  @NotNull
-  public String getShortName() {
+  public @NonNls @NotNull String getShortName() {
     return "ReassignedToPlainText";
   }
 
@@ -50,10 +49,8 @@ public final class ReassignedToPlainTextInspection extends LocalInspectionTool {
     }
 
     LocalQuickFix removeFix = new LocalQuickFix() {
-      @Nls
-      @NotNull
       @Override
-      public String getFamilyName() {
+      public @Nls @NotNull String getFamilyName() {
         return InspectionsBundle.message("reassigned.to.plain.text.inspection.fix.remove.name");
       }
 
@@ -61,12 +58,15 @@ public final class ReassignedToPlainTextInspection extends LocalInspectionTool {
       public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
         ((FileTypeManagerImpl)FileTypeManager.getInstance()).removePlainTextAssociationsForFile(descriptor.getPsiElement().getContainingFile().getName());
       }
+
+      @Override
+      public @NotNull IntentionPreviewInfo generatePreview(@NotNull Project project, @NotNull ProblemDescriptor previewDescriptor) {
+        return IntentionPreviewInfo.EMPTY;
+      }
     };
     LocalQuickFix editFix = new LocalQuickFix() {
-      @Nls
-      @NotNull
       @Override
-      public String getFamilyName() {
+      public @Nls @NotNull String getFamilyName() {
         return InspectionsBundle.message("reassigned.to.plain.text.inspection.fix.edit.name");
       }
 

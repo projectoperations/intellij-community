@@ -16,8 +16,8 @@ import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager
-import com.intellij.rt.execution.junit.FileComparisonData
 import com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
@@ -30,7 +30,10 @@ import org.jetbrains.kotlin.idea.base.test.InTextDirectivesUtils
 import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.idea.highlighter.AbstractHighlightingPassBase
 import org.jetbrains.kotlin.idea.intentions.computeOnBackground
-import org.jetbrains.kotlin.idea.test.*
+import org.jetbrains.kotlin.idea.test.DirectiveBasedActionUtils
+import org.jetbrains.kotlin.idea.test.KotlinLightCodeInsightFixtureTestCase
+import org.jetbrains.kotlin.idea.test.KotlinTestUtils
+import org.jetbrains.kotlin.idea.test.withCustomCompilerOptions
 import org.jetbrains.kotlin.idea.util.application.executeCommand
 import org.jetbrains.kotlin.psi.KtFile
 import java.io.File
@@ -52,6 +55,8 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
 
     private val fixTextDirectiveName: String = "FIX"
 
+    private val noFixTextDirectiveName: String = "NO_FIX"
+
     private fun createInspection(testDataFile: File): LocalInspectionTool {
         val candidateFiles = mutableListOf<File>()
 
@@ -66,13 +71,13 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
 
         if (candidateFiles.isEmpty()) {
             throw AssertionError(
-                ".inspection file is not found for " + testDataFile +
+                "$inspectionFileName file is not found for " + testDataFile +
                         "\nAdd it to base directory of test data. It should contain fully-qualified name of inspection class."
             )
         }
         if (candidateFiles.size > 1) {
             throw AssertionError(
-                "Several .inspection files are available for " + testDataFile +
+                "Several $inspectionFileName files are available for " + testDataFile +
                         "\nPlease remove some of them\n" + candidateFiles
             )
         }
@@ -82,7 +87,7 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
     }
 
     protected open fun doTest(path: String) {
-        val mainFile = File(path)
+        val mainFile = File(dataFilePath(fileName()))
         val inspection = createInspection(mainFile)
 
         val fileText = FileUtil.loadFile(mainFile, true)
@@ -115,7 +120,7 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
       These "extra" file names should be of the form: "xxx.1.blah", "xxx.2.foo", "xxx.3.xml" etc.
       I.e., they should start with the main file name, followed by sequential number 1,2,3..., followed by any extension.
      */
-    private fun findExtraFilesForTest(mainFile: File): List<String> {
+    protected fun findExtraFilesForTest(mainFile: File): List<String> {
         var i = 1
         val extraFileNames = mutableListOf<String>()
         extraFileLoop@ while (true) {
@@ -161,7 +166,8 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
         expectedProblemString: String?,
         expectedHighlightString: String?,
         localFixTextString: String?,
-        inspectionSettings: Element? = null
+        inspectionSettings: Element?,
+        noLocalFixTextStrings: List<String> = emptyList(),
     ): Boolean {
         val problemExpected = expectedProblemString == null || expectedProblemString != "none"
         // use Class instead of `inspection` as an argument to correctly calculate LocalInspectionToolWrapper.getID()
@@ -219,6 +225,16 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
             }
         }
 
+        if (allLocalFixActions.isNotEmpty()) {
+            val actions = allLocalFixActions.map { it.text }
+            noLocalFixTextStrings.forEach {
+                assertTrue(
+                    "Expected no `$it` fix action",
+                    it !in actions
+                )
+            }
+        }
+
         val localFixActions = if (localFixTextString == null || localFixTextString == "none") {
             allLocalFixActions
         } else {
@@ -229,8 +245,7 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
 
         val fixDescription = localFixTextString?.let { "with specified text '$localFixTextString'" } ?: ""
         if (localFixTextString != "none") {
-            assertTrue(
-              "Fix $fixDescription not found in actions available:\n $availableDescription",
+            assertTrue("Fix $fixDescription not found among ${allLocalFixActions.size} actions available:\n $availableDescription",
               localFixActions.isNotEmpty()
             )
         }
@@ -314,6 +329,9 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
         val localFixTextString = InTextDirectivesUtils.findStringWithPrefixes(
             fileText, "// $fixTextDirectiveName: "
         )
+        val noLocalFixTextStrings = InTextDirectivesUtils.findListWithPrefixes(
+            fileText, "// $noFixTextDirectiveName: "
+        )
 
         val inspectionSettings = loadInspectionSettings(mainFile)
         val afterFileAbsolutePath = getAfterTestDataAbsolutePath(mainFileName)
@@ -323,10 +341,11 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
                 expectedProblemString,
                 expectedHighlightString,
                 localFixTextString,
-                inspectionSettings
+                inspectionSettings,
+                noLocalFixTextStrings,
             )
         ) {
-            assertFalse("${afterFileAbsolutePath.fileName} should not exist as no action could be applied", Files.exists(afterFileAbsolutePath))
+            assertFalse("${afterFileAbsolutePath.fileName} should not exist as no action could be applied:\n$afterFileAbsolutePath", Files.exists(afterFileAbsolutePath))
             return
         }
 
@@ -334,8 +353,7 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
         dispatchAllEventsInIdeEventQueue()
         try {
             myFixture.checkResultByFile("${afterFileAbsolutePath.fileName}")
-        } catch (e: AssertionError) {
-            if (e !is FileComparisonData) throw e
+        } catch (e: FileComparisonFailedError) {
             KotlinTestUtils.assertEqualsToFile(
                 File(testDataDirectory, "${afterFileAbsolutePath.fileName}"),
                 editor.document.text

@@ -8,6 +8,7 @@ import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.dsl.UiDslException
 import com.intellij.ui.dsl.builder.*
+import com.intellij.ui.dsl.builder.impl.DslComponentPropertyInternal
 import com.intellij.util.ui.ExtendableHTMLViewFactory
 import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
@@ -42,7 +43,7 @@ enum class DslLabelType {
 }
 
 @ApiStatus.Internal
-class DslLabel(private val type: DslLabelType) : JEditorPane() {
+class DslLabel(@ApiStatus.Internal val type: DslLabelType) : JEditorPane() {
 
   var action: HyperlinkEventAction? = null
 
@@ -54,8 +55,10 @@ class DslLabel(private val type: DslLabelType) : JEditorPane() {
 
   var limitPreferredSize: Boolean = false
 
+  @ApiStatus.Internal
   @Nls
-  private var userText: String? = null
+  var userText: String? = null
+    private set
 
   init {
     contentType = UIUtil.HTML_MIME
@@ -117,13 +120,17 @@ class DslLabel(private val type: DslLabelType) : JEditorPane() {
   override fun getPreferredSize(): Dimension {
     val result = super.getPreferredSize()
     return if (maxLineLength == MAX_LINE_LENGTH_WORD_WRAP && limitPreferredSize)
-      Dimension(min(getSupposedWidth(DEFAULT_COMMENT_WIDTH), result.width), result.height)
+      Dimension(min(getSupposedWidth(getPreferredColumnsWordWrap()), result.width), result.height)
     else result
   }
 
   override fun setText(@Nls t: String?) {
     userText = t
     updateEditorPaneText()
+  }
+
+  private fun getPreferredColumnsWordWrap(): Int {
+    return getClientProperty(DslComponentPropertyInternal.PREFERRED_COLUMNS_LABEL_WORD_WRAP) as Int? ?: DEFAULT_COMMENT_WIDTH
   }
 
   private fun updateEditorPaneText() {

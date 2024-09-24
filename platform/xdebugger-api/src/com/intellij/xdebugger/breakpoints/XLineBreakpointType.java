@@ -16,10 +16,7 @@ import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 import org.jetbrains.concurrency.Promise;
 import org.jetbrains.concurrency.Promises;
 
@@ -61,7 +58,11 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
 
   @Override
   public String getDisplayText(final XLineBreakpoint<P> breakpoint) {
-    return filePositionDisplayText(breakpoint.getPresentableFilePath(), breakpoint);
+    // It's not expected to be really short like getShortText(), but too long is also bad.
+    var path = breakpoint.getPresentableFilePath();
+    var shortenedPath = StringUtil.shortenPathWithEllipsis(path, 50);
+
+    return filePositionDisplayText(shortenedPath, breakpoint);
   }
 
   @Nls
@@ -84,7 +85,6 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
    * </ul>
    */
   public int getColumn(XLineBreakpoint<P> breakpoint) {
-    if (!XDebuggerUtil.areInlineBreakpointsEnabled()) return -1;
 
     return ReadAction.compute(() -> {
       var range = breakpoint.getType().getHighlightRange(breakpoint);
@@ -95,6 +95,7 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
       if (file == null) return -1;
       var document = FileDocumentManager.getInstance().getDocument(file);
       if (document == null) return -1;
+      if (!XDebuggerUtil.areInlineBreakpointsEnabled(file)) return -1;
       if (0 > offset || offset > document.getTextLength()) return -1;
       return offset - document.getLineStartOffset(document.getLineNumber(offset));
     });
@@ -207,7 +208,11 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
     return false;
   }
 
-  public boolean changeLine(@NotNull XLineBreakpoint<P> breakpoint, int newLine, @NotNull Project project) {
+  /**
+   * @return {@code false} if the line breakpoint type should forbid {@code setLine} event processing, {@code true} otherwise
+   */
+  @ApiStatus.Internal
+  public boolean lineShouldBeChanged(@NotNull XLineBreakpoint<P> breakpoint, int newLine, @NotNull Project project) {
     return true;
   }
 
@@ -223,11 +228,25 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
     public abstract TextRange getHighlightRange();
 
     /**
+     * The priority is considered when several breakpoint variants can be set on the same line,
+     * in this case we choose the variant with the highest priority.
+     */
+    public int getPriority(@NotNull Project project) {
+      return getType().getPriority();
+    }
+
+    /**
      * @return true iff this variant corresponds to breakpoint hitting at all line locations
      *         (i.e., "all", "line and all lambdas")
      */
     public boolean isMultiVariant() {
       return false;
+    }
+
+    public boolean shouldUseAsInlineVariant() {
+      // No need to show "all" variant in case of the inline breakpoints approach,
+      // it's useful only for the popup based one.
+      return !isMultiVariant();
     }
 
     @Nullable

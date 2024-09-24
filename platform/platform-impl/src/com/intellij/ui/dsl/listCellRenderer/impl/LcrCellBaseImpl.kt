@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui.dsl.listCellRenderer.impl
 
 import com.intellij.ui.SimpleColoredComponent
@@ -11,11 +11,10 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 
 @ApiStatus.Internal
-internal sealed class LcrCellBaseImpl<T: LcrInitParams>(val initParams: T, val baselineAlign: Boolean, val gapBefore: LcrRow.Gap) {
+internal sealed class LcrCellBaseImpl<T : LcrInitParams>(val initParams: T, val baselineAlign: Boolean, val beforeGap: LcrRow.Gap) {
 
   enum class Type(private val instanceFactory: () -> JComponent) {
     ICON(::JLabel),
-    TEXT(::JLabel),
     SIMPLE_COLORED_TEXT(::PatchedSimpleColoredComponent);
 
     private val instance = lazy { instanceFactory() }
@@ -31,7 +30,7 @@ internal sealed class LcrCellBaseImpl<T: LcrInitParams>(val initParams: T, val b
 
   abstract val type: Type
 
-  abstract fun apply(component: JComponent)
+  abstract fun apply(component: JComponent, enabled: Boolean)
 }
 
 private class PatchedSimpleColoredComponent : SimpleColoredComponent() {
@@ -46,6 +45,7 @@ private class PatchedSimpleColoredComponent : SimpleColoredComponent() {
   init {
     @Suppress("UseDPIAwareInsets")
     ipad = Insets(ipad.top, 0, ipad.bottom, 0)
+    myBorder = null
     isOpaque = false
   }
 

@@ -1,64 +1,70 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ijent.community.impl
 
-import com.intellij.platform.ijent.fs.IjentFileSystemApi
-import com.intellij.platform.ijent.fs.IjentFsResult
-import com.intellij.platform.ijent.fs.IjentOpenedFile
-import com.intellij.platform.ijent.fs.IjentPath
-import org.jetbrains.annotations.ApiStatus.Internal
+import com.intellij.platform.ijent.fs.*
 
 @Suppress("unused") // Usages are to be implemented later.
-@Internal
 object IjentFsResultImpl {
-  data class DoesNotExist(override val where: IjentPath.Absolute, override val message: String) : IjentFsResult.DoesNotExist
+  data class Ok<T, E : IjentFsError>(override val value: T) : IjentFsResult.Ok<T, E>
+  data class Error<T, E : IjentFsError>(override val error: E) : IjentFsResult.Error<T, E>
 
-  data class PermissionDenied(override val where: IjentPath.Absolute, override val message: String) : IjentFsResult.PermissionDenied
+  data class BytesReadImpl(override val bytesRead: Int) : IjentOpenedFile.Reader.ReadResult.Bytes
+  data object EOFImpl : IjentOpenedFile.Reader.ReadResult.EOF
 
-  data class NotDirectory(override val where: IjentPath.Absolute, override val message: String) : IjentFsResult.NotDirectory
+  data class Other(override val where: IjentPath.Absolute, override val message: String) :
+    IjentFileSystemApi.FileReaderError.Other,
+    IjentFileSystemApi.FileWriterError.Other,
+    IjentFileSystemApi.ListDirectoryError.Other,
+    IjentFileSystemApi.SameFileError.Other,
+    IjentFileSystemApi.StatError.Other,
+    IjentFileSystemApi.CanonicalizeError.Other,
+    IjentOpenedFile.SeekError.Other,
+    IjentOpenedFile.TellError.Other,
+    IjentOpenedFile.Reader.ReadError.Other,
+    IjentOpenedFile.Writer.WriteError.Other
 
-  data class NotFile(override val where: IjentPath.Absolute, override val message: String) : IjentFsResult.NotFile
+  data class DoesNotExist(override val where: IjentPath.Absolute, override val message: String) :
+    IjentFileSystemApi.FileReaderError.DoesNotExist,
+    IjentFileSystemApi.FileWriterError.DoesNotExist,
+    IjentFileSystemApi.ListDirectoryError.DoesNotExist,
+    IjentFileSystemApi.SameFileError.DoesNotExist,
+    IjentFileSystemApi.StatError.DoesNotExist,
+    IjentFileSystemApi.CanonicalizeError.DoesNotExist
 
-  object ListDirectory {
-    data class Ok(override val value: Collection<String>) :
-      IjentFileSystemApi.ListDirectory.Ok
-  }
+  data class AlreadyExists(override val where: IjentPath.Absolute, override val message: String) :
+    IjentFileSystemApi.FileReaderError.AlreadyExists,
+    IjentFileSystemApi.FileWriterError.AlreadyExists
 
-  object ListDirectoryWithAttrs {
-    data class Ok(override val value: Collection<IjentFileSystemApi.FileInfo>) :
-      IjentFileSystemApi.ListDirectoryWithAttrs.Ok
-  }
+  class PermissionDenied(override val where: IjentPath.Absolute, override val message: String) :
+    IjentFileSystemApi.CanonicalizeError.PermissionDenied,
+    IjentFileSystemApi.FileReaderError.PermissionDenied,
+    IjentFileSystemApi.FileWriterError.PermissionDenied,
+    IjentFileSystemApi.ListDirectoryError.PermissionDenied,
+    IjentFileSystemApi.SameFileError.PermissionDenied,
+    IjentFileSystemApi.StatError.PermissionDenied
 
- object SameFile {
-   data class Ok(override val value: Boolean) :
-     IjentFileSystemApi.SameFile.Ok
- }
+  data class NotDirectory(override val where: IjentPath.Absolute, override val message: String) :
+    IjentFileSystemApi.CanonicalizeError.NotDirectory,
+    IjentFileSystemApi.FileReaderError.NotDirectory,
+    IjentFileSystemApi.FileWriterError.NotDirectory,
+    IjentFileSystemApi.ListDirectoryError.NotDirectory,
+    IjentFileSystemApi.SameFileError.NotDirectory,
+    IjentFileSystemApi.StatError.NotDirectory
 
-  object FileReader {
-    data class Ok(override val value: IjentOpenedFile.Reader) :
-      IjentFileSystemApi.FileReader.Ok
-  }
+  data class NotFile(override val where: IjentPath.Absolute, override val message: String) :
+    IjentFileSystemApi.CanonicalizeError.NotFile,
+    IjentFileSystemApi.FileReaderError.NotFile,
+    IjentFileSystemApi.FileWriterError.NotFile,
+    IjentFileSystemApi.SameFileError.NotFile,
+    IjentFileSystemApi.StatError.NotFile
 
-  object FileWriter {
-    data class Ok(override val value: IjentOpenedFile.Writer) :
-      IjentFileSystemApi.FileWriter.Ok
-  }
+  data class InvalidValue(override val where: IjentPath.Absolute, override val message: String) :
+    IjentOpenedFile.Reader.ReadError.InvalidValue,
+    IjentOpenedFile.Writer.WriteError.InvalidValue,
+    IjentOpenedFile.SeekError.InvalidValue
 
-  object Reader {
-    object Read {
-      data class Ok(override val value: Int) :
-        IjentOpenedFile.Reader.Read.Ok
-    }
-  }
-
-  object Writer {
-    object Write {
-      data class Ok(override val value: Int) :
-        IjentOpenedFile.Writer.Write.Ok
-    }
-  }
-
-  object Stat {
-    data class Ok(override val value: IjentFileSystemApi.FileInfo) :
-      IjentFileSystemApi.Stat.Ok
-  }
+  data class UnknownFile(override val where: IjentPath.Absolute, override val message: String) :
+    IjentOpenedFile.Reader.ReadError.UnknownFile,
+    IjentOpenedFile.Writer.WriteError.UnknownFile,
+    IjentOpenedFile.SeekError.UnknownFile
 }

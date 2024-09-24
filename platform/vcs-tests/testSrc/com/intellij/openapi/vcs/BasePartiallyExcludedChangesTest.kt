@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs
 
 import com.intellij.openapi.util.Disposer
@@ -7,6 +7,7 @@ import com.intellij.openapi.vcs.ex.ExclusionState
 import com.intellij.openapi.vcs.ex.PartialLocalLineStatusTracker
 import com.intellij.openapi.vcs.ex.RangeExclusionState
 import com.intellij.openapi.vcs.impl.PartialChangesUtil
+import com.intellij.util.containers.HashingStrategy
 
 abstract class BasePartiallyExcludedChangesTest : BaseLineStatusTrackerManagerTest() {
   private lateinit var stateHolder: MyStateHolder
@@ -17,7 +18,7 @@ abstract class BasePartiallyExcludedChangesTest : BaseLineStatusTrackerManagerTe
     stateHolder.updateExclusionStates()
   }
 
-  protected inner class MyStateHolder : PartiallyExcludedFilesStateHolder<FilePath>(getProject()) {
+  protected inner class MyStateHolder : PartiallyExcludedFilesStateHolder<FilePath>(getProject(), HashingStrategy.canonical()) {
     val paths = HashSet<FilePath>()
 
     init {
@@ -37,13 +38,15 @@ abstract class BasePartiallyExcludedChangesTest : BaseLineStatusTrackerManagerTe
       return PartialChangesUtil.getPartialTracker(getProject(), file)
     }
 
+    override fun fireInclusionChanged() = Unit
+
     fun toggleElements(elements: Collection<FilePath>) {
       val hasExcluded = elements.any { getExclusionState(it) != ExclusionState.ALL_INCLUDED }
       if (hasExcluded) includeElements(elements) else excludeElements(elements)
     }
 
     fun waitExclusionStateUpdate() {
-      myUpdateQueue.flush()
+      updateQueue.flush()
     }
   }
 

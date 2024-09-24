@@ -1,14 +1,16 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.setup
 
 import com.intellij.ide.projectWizard.NewProjectWizardConstants.Language.JAVA
 import com.intellij.ide.projectWizard.generators.BuildSystemJavaNewProjectWizardData.Companion.javaBuildSystemData
 import com.intellij.ide.wizard.NewProjectWizardBaseData.Companion.baseData
-import com.intellij.idea.IJIgnore
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
+import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.use
 import com.intellij.testFramework.useProjectAsync
 import com.intellij.testFramework.utils.module.assertModules
 import com.intellij.testFramework.withProjectAsync
+import com.intellij.workspaceModel.ide.impl.WorkspaceModelCacheImpl
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.plugins.gradle.service.project.wizard.GradleJavaNewProjectWizardData.Companion.javaGradleData
 import org.jetbrains.plugins.gradle.service.project.wizard.GradleNewProjectWizardStep.GradleDsl
@@ -20,8 +22,8 @@ import org.junit.jupiter.api.Test
 class GradleCreateProjectTest : GradleCreateProjectTestCase() {
 
   @Test
-  fun `test project create`() {
-    runBlocking {
+  fun `test project re-create`() = runBlocking {
+    Disposer.newDisposable().use { disposable ->
       val projectInfo = projectInfo("project") {
         withJavaBuildFile()
         withSettingsFile {
@@ -36,18 +38,23 @@ class GradleCreateProjectTest : GradleCreateProjectTestCase() {
           withJavaBuildFile()
         }
       }
+
+      WorkspaceModelCacheImpl.forceEnableCaching(disposable)
       createProjectByWizard(projectInfo)
         .useProjectAsync(save = true) { project ->
           assertProjectState(project, projectInfo)
+          assertBuildFiles(projectInfo)
         }
       createProjectByWizard(projectInfo)
         .useProjectAsync(save = true) { project ->
           assertProjectState(project, projectInfo)
+          assertBuildFiles(projectInfo)
         }
       deleteProject(projectInfo)
       createProjectByWizard(projectInfo)
         .useProjectAsync { project ->
           assertProjectState(project, projectInfo)
+          assertBuildFiles(projectInfo)
         }
     }
   }
@@ -64,6 +71,7 @@ class GradleCreateProjectTest : GradleCreateProjectTestCase() {
       createProjectByWizard(projectInfo)
         .useProjectAsync { project ->
           assertProjectState(project, projectInfo)
+          assertBuildFiles(projectInfo)
         }
     }
   }
@@ -80,6 +88,7 @@ class GradleCreateProjectTest : GradleCreateProjectTestCase() {
       createProjectByWizard(projectInfo)
         .useProjectAsync { project ->
           assertProjectState(project, projectInfo)
+          assertBuildFiles(projectInfo)
         }
     }
   }
@@ -104,11 +113,11 @@ class GradleCreateProjectTest : GradleCreateProjectTestCase() {
       createProjectByWizard(projectInfo)
         .useProjectAsync { project ->
           assertProjectState(project, projectInfo)
+          assertBuildFiles(projectInfo)
         }
     }
   }
 
-  @IJIgnore(issue = "IDEA-341326")
   @Test
   fun `test project kotlin dsl setting generation with groovy-kotlin scripts`() {
     runBlocking {
@@ -129,6 +138,7 @@ class GradleCreateProjectTest : GradleCreateProjectTestCase() {
       createProjectByWizard(projectInfo)
         .useProjectAsync { project ->
           assertProjectState(project, projectInfo)
+          assertBuildFiles(projectInfo)
         }
     }
   }
@@ -136,7 +146,7 @@ class GradleCreateProjectTest : GradleCreateProjectTestCase() {
   @Test
   fun `test NPW properties suggestion`() {
     runBlocking {
-      createProjectByWizard(NEW_EMPTY_PROJECT, wait = false) {
+      createProjectByWizard(NEW_EMPTY_PROJECT, numProjectSyncs = 0) {
         baseData!!.name = "project"
         baseData!!.path = testRoot.path
       }.withProjectAsync { project ->

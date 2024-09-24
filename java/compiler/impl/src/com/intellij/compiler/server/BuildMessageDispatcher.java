@@ -2,7 +2,11 @@
 package com.intellij.compiler.server;
 
 import com.intellij.concurrency.ConcurrentCollectionFactory;
+import com.intellij.concurrency.ThreadContext;
+import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.util.concurrency.ChildContext;
+import com.intellij.util.concurrency.Propagation;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -233,8 +237,46 @@ class BuildMessageDispatcher extends SimpleChannelInboundHandlerAdapter<CmdlineR
 
     private SessionData(@NotNull UUID sessionId, @NotNull BuilderMessageHandler handler, CmdlineRemoteProto.Message.ControllerMessage params) {
       this.sessionId = sessionId;
-      this.handler = handler;
+      this.handler = new ContextAwareBuilderMessageHandler(handler);
       this.params = params;
+    }
+
+    private static class ContextAwareBuilderMessageHandler implements BuilderMessageHandler {
+      private final BuilderMessageHandler myDelegate;
+      private final @NotNull ChildContext myCapturedContext;
+
+      private ContextAwareBuilderMessageHandler(BuilderMessageHandler delegate) {
+        myDelegate = delegate;
+        myCapturedContext = Propagation.createChildContext(BuildMessageDispatcher.class.getSimpleName());
+      }
+
+      @Override
+      public void buildStarted(@NotNull UUID sessionId) {
+        try (AccessToken ignored = ThreadContext.resetThreadContext()) {
+          myCapturedContext.runInChildContext(() -> myDelegate.buildStarted(sessionId));
+        }
+      }
+
+      @Override
+      public void handleBuildMessage(Channel channel, UUID sessionId, CmdlineRemoteProto.Message.BuilderMessage msg) {
+        try (AccessToken ignored = ThreadContext.resetThreadContext()) {
+          myCapturedContext.runInChildContext(() -> myDelegate.handleBuildMessage(channel, sessionId, msg));
+        }
+      }
+
+      @Override
+      public void handleFailure(@NotNull UUID sessionId, CmdlineRemoteProto.Message.Failure failure) {
+        try (AccessToken ignored = ThreadContext.resetThreadContext()) {
+          myCapturedContext.runInChildContext(() -> myDelegate.handleFailure(sessionId, failure));
+        }
+      }
+
+      @Override
+      public void sessionTerminated(@NotNull UUID sessionId) {
+        try (AccessToken ignored = ThreadContext.resetThreadContext()) {
+          myCapturedContext.runInChildContext(() -> myDelegate.sessionTerminated(sessionId));
+        }
+      }
     }
   }
 }

@@ -4,12 +4,25 @@ package org.jetbrains.kotlin.idea.core.script
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.extensions.ProjectExtensionPointName
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFile
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider
 import org.jetbrains.kotlin.idea.core.script.configuration.cache.ScriptConfigurationSnapshot
+import org.jetbrains.kotlin.idea.core.script.k2.K2ScriptDefinitionProvider
+import org.jetbrains.kotlin.idea.core.script.k2.ScriptDependenciesSource
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.NotNullableUserDataProperty
+import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
+import org.jetbrains.kotlin.scripting.definitions.ScriptDefinitionsSource
 import kotlin.script.experimental.api.ScriptDiagnostic
+
+val SCRIPT_DEFINITIONS_SOURCES: ProjectExtensionPointName<ScriptDefinitionsSource> =
+    ProjectExtensionPointName("org.jetbrains.kotlin.scriptDefinitionsSource")
+
+val SCRIPT_DEPENDENCIES_SOURCES: ProjectExtensionPointName<ScriptDependenciesSource<*>> =
+    ProjectExtensionPointName("org.jetbrains.kotlin.scriptDependenciesSource")
 
 @set: org.jetbrains.annotations.TestOnly
 var Application.isScriptChangesNotifierDisabled by NotNullableUserDataProperty(
@@ -25,7 +38,7 @@ fun scriptingDebugLog(file: KtFile, message: () -> String) {
 
 fun scriptingDebugLog(file: VirtualFile? = null, message: () -> String) {
     if (logger.isDebugEnabled) {
-        logger.debug("[KOTLIN_SCRIPTING] ${file?.let { file.path + " "} ?: ""}" + message())
+        logger.debug("[KOTLIN_SCRIPTING] ${file?.let { file.path + " " } ?: ""}" + message())
     }
 }
 
@@ -55,3 +68,10 @@ fun logScriptingConfigurationErrors(file: VirtualFile, snapshot: ScriptConfigura
         }
     }
 }
+
+fun getAllDefinitions(project: Project): List<ScriptDefinition> =
+    if (KotlinPluginModeProvider.isK2Mode()) {
+        K2ScriptDefinitionProvider.getInstance(project).getAllDefinitions().toList()
+    } else {
+        ScriptDefinitionsManager.getInstance(project).allDefinitions
+    }

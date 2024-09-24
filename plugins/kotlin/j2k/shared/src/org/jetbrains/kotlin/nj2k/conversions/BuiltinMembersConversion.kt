@@ -2,16 +2,16 @@
 
 package org.jetbrains.kotlin.nj2k.conversions
 
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.config.ApiVersion
 import org.jetbrains.kotlin.config.ApiVersion.Companion.KOTLIN_1_8
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider.Companion.isK1Mode
+import org.jetbrains.kotlin.j2k.Nullability.NotNull
 import org.jetbrains.kotlin.nj2k.*
 import org.jetbrains.kotlin.nj2k.conversions.ReplaceType.REPLACE_SELECTOR
 import org.jetbrains.kotlin.nj2k.conversions.ReplaceType.REPLACE_WITH_QUALIFIER
-import org.jetbrains.kotlin.nj2k.symbols.JKMethodSymbol
-import org.jetbrains.kotlin.nj2k.symbols.JKUnresolvedField
-import org.jetbrains.kotlin.nj2k.symbols.deepestFqName
+import org.jetbrains.kotlin.nj2k.symbols.*
 import org.jetbrains.kotlin.nj2k.tree.*
 import org.jetbrains.kotlin.nj2k.tree.JKLiteralExpression.LiteralType.INT
 import org.jetbrains.kotlin.nj2k.tree.JKLiteralExpression.LiteralType.STRING
@@ -23,13 +23,13 @@ class BuiltinMembersConversion(context: NewJ2kConverterContext) : RecursiveConve
     private val conversions: Map<String, List<Conversion>> =
         ConversionsHolder(symbolProvider, typeFactory).getConversions()
 
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun applyToElement(element: JKTreeElement): JKTreeElement {
         if (element !is JKExpression) return recurse(element)
         return recurse(element.convert() ?: element)
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun JKExpression.convert(): JKExpression? {
         val selector = when (this) {
             is JKQualifiedExpression -> selector
@@ -98,28 +98,34 @@ class BuiltinMembersConversion(context: NewJ2kConverterContext) : RecursiveConve
     }
 
     private interface ResultBuilder {
-        context(KtAnalysisSession)
+        context(KaSession)
         fun build(from: JKExpression): JKExpression
     }
 
     private inner class MethodBuilder(
         private val fqName: String,
         private val parameterTypesFqNames: List<String>?,
-        private val argumentsProvider: (JKArgumentList) -> JKArgumentList
+        private val argumentsProvider: (JKArgumentList) -> JKArgumentList,
+        private val canMoveLambdaOutsideParentheses: Boolean = false
     ) : ResultBuilder {
-        context(KtAnalysisSession)
+        context(KaSession)
         override fun build(from: JKExpression): JKExpression {
             val methodSymbol = if (parameterTypesFqNames == null) {
                 symbolProvider.provideMethodSymbol(fqName)
             } else {
                 symbolProvider.provideMethodSymbolWithExactSignature(fqName, parameterTypesFqNames)
             }
+
+            val type = determineNewExpressionType(methodSymbol, from)
+
             return when (from) {
                 is JKCallExpression -> {
                     JKCallExpressionImpl(
                         methodSymbol,
                         argumentsProvider(from::arguments.detached()),
-                        from::typeArgumentList.detached()
+                        from::typeArgumentList.detached(),
+                        type,
+                        canMoveLambdaOutsideParentheses
                     )
                 }
 
@@ -127,15 +133,18 @@ class BuiltinMembersConversion(context: NewJ2kConverterContext) : RecursiveConve
                     JKCallExpressionImpl(
                         methodSymbol,
                         JKArgumentList(),
-                        JKTypeArgumentList()
+                        JKTypeArgumentList(),
+                        type
                     )
 
-                is JKMethodAccessExpression -> JKMethodAccessExpression(methodSymbol)
+                is JKMethodAccessExpression -> JKMethodAccessExpression(methodSymbol, type)
                 is JKNewExpression ->
                     JKCallExpressionImpl(
                         methodSymbol,
                         argumentsProvider(from::arguments.detached()),
-                        JKTypeArgumentList()
+                        JKTypeArgumentList(),
+                        type,
+                        canMoveLambdaOutsideParentheses
                     )
 
                 else -> error("Bad conversion")
@@ -144,54 +153,66 @@ class BuiltinMembersConversion(context: NewJ2kConverterContext) : RecursiveConve
     }
 
     private inner class FieldBuilder(private val fqName: String) : ResultBuilder {
-        context(KtAnalysisSession)
-        override fun build(from: JKExpression): JKExpression =
-            when (from) {
-                is JKCallExpression ->
-                    JKFieldAccessExpression(
-                        symbolProvider.provideFieldSymbol(fqName)
-                    ).withFormattingFrom(from)
-
-                is JKFieldAccessExpression ->
-                    JKFieldAccessExpression(
-                        symbolProvider.provideFieldSymbol(fqName)
-                    ).withFormattingFrom(from)
-
-                else -> error("Bad conversion")
-            }
+        context(KaSession)
+        override fun build(from: JKExpression): JKExpression {
+            if (from !is JKCallExpression && from !is JKFieldAccessExpression) error("Bad conversion")
+            val symbol = symbolProvider.provideFieldSymbol(fqName)
+            val type = determineNewExpressionType(symbol, from)
+            return JKFieldAccessExpression(symbol, type).withFormattingFrom(from)
+        }
     }
 
     private inner class ExtensionMethodBuilder(private val fqName: String) : ResultBuilder {
-        context(KtAnalysisSession)
-        override fun build(from: JKExpression): JKExpression =
-            when (from) {
-                is JKCallExpression -> {
-                    val arguments = from.arguments::arguments.detached()
-                    JKQualifiedExpression(
-                        arguments.first()::value.detached().parenthesizeIfCompoundExpression(),
-                        JKCallExpressionImpl(
-                            symbolProvider.provideMethodSymbol(fqName),
-                            JKArgumentList(arguments.drop(1)),
-                            from::typeArgumentList.detached()
-                        )
-                    ).withFormattingFrom(from)
-                }
+        context(KaSession)
+        override fun build(from: JKExpression): JKExpression {
+            if (from !is JKCallExpression) error("Bad conversion")
 
-                else -> error("Bad conversion")
-            }
+            // Before transforming the call to an extension function call,
+            // we need to handle the implicit cast on the first argument.
+            // Otherwise, it won't be handled later in the conversion pipeline,
+            // since it won't be an argument anymore, but a call receiver.
+            ImplicitCastsConversion(context).applyToElement(from)
+
+            val methodSymbol = symbolProvider.provideMethodSymbol(fqName)
+            val arguments = from.arguments::arguments.detached()
+            val type = determineNewExpressionType(methodSymbol, from)
+
+            return JKQualifiedExpression(
+                arguments.first()::value.detached().parenthesizeIfCompoundExpression(),
+                JKCallExpressionImpl(
+                    methodSymbol,
+                    JKArgumentList(arguments.drop(1)),
+                    from::typeArgumentList.detached(),
+                    type
+                ),
+                type
+            ).withFormattingFrom(from)
+        }
     }
 
     private inner class CustomExpressionBuilder(val builder: (JKExpression) -> JKExpression) : ResultBuilder {
-        context(KtAnalysisSession)
+        context(KaSession)
         override fun build(from: JKExpression): JKExpression = builder(from)
     }
 
     private fun Conversion.createBuilder(): ResultBuilder = when (to) {
-        is Method -> MethodBuilder(to.fqName, to.parameterTypesFqNames, argumentsProvider ?: { it })
+        is Method -> MethodBuilder(to.fqName, to.parameterTypesFqNames, argumentsProvider ?: { it }, to.canMoveLambdaOutsideParentheses)
         is Field -> FieldBuilder(to.fqName)
         is ExtensionMethod -> ExtensionMethodBuilder(to.fqName)
         is CustomExpression -> CustomExpressionBuilder(to.expressionBuilder)
         else -> error("Bad conversion")
+    }
+
+    // Usually, the types of original and replacement expressions should be semantically the same,
+    // but this is not always the case with number types (ex. with java.lang.Math vs. kotlin.math methods)
+    context(KaSession)
+    private fun determineNewExpressionType(newSymbol: JKSymbol, originalExpression: JKExpression): JKType? {
+        val symbolType = when (newSymbol) {
+            is JKMethodSymbol -> newSymbol.returnType
+            is JKFieldSymbol -> newSymbol.fieldType
+            else -> null
+        }
+        return symbolType ?: originalExpression.calculateType(typeFactory)
     }
 }
 
@@ -234,7 +255,11 @@ private interface SymbolInfo : Info {
     infix fun convertTo(to: Info): Conversion = Conversion(this, to)
 }
 
-private data class Method(override val fqName: String, val parameterTypesFqNames: List<String>? = null) : SymbolInfo
+private data class Method(
+    override val fqName: String,
+    val parameterTypesFqNames: List<String>? = null,
+    val canMoveLambdaOutsideParentheses: Boolean = false
+) : SymbolInfo
 
 private data class NewExpression(override val fqName: String) : SymbolInfo
 
@@ -249,6 +274,7 @@ private class ConversionsHolder(private val symbolProvider: JKSymbolProvider, pr
         val conversions = primitiveConversions +
                 objectConversions +
                 collectionConversions +
+                streamConversions +
                 enumConversions +
                 throwableConversions +
                 stringConversions +
@@ -364,12 +390,45 @@ private class ConversionsHolder(private val symbolProvider: JKSymbolProvider, pr
     )
 
     private val collectionConversions: List<Conversion> = listOf(
+        Method("java.util.Iterable.forEach") convertTo Method("kotlin.collections.Iterable.forEach", canMoveLambdaOutsideParentheses = true),
+
         Method("java.util.Map.entrySet") convertTo Field("kotlin.collections.Map.entries"),
         Method("java.util.Map.keySet") convertTo Field("kotlin.collections.Map.keys"),
         Method("java.util.Map.size") convertTo Field("kotlin.collections.Map.size"),
         Method("java.util.Map.values") convertTo Field("kotlin.collections.Map.values"),
+        Method("java.util.Map.compute") convertTo Method("java.util.Map.compute", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.Map.computeIfAbsent") convertTo Method("java.util.Map.computeIfAbsent", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.Map.computeIfPresent") convertTo Method("java.util.Map.computeIfPresent", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.Map.merge") convertTo Method("java.util.Map.merge", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.Map.replaceAll") convertTo Method("java.util.Map.replaceAll", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.Map.forEach") convertTo CustomExpression { expression ->
+            val forEachExpression = expression as JKCallExpression
+            val lambdaArgument = forEachExpression.arguments.arguments.singleOrNull()?.value?.safeAs<JKLambdaExpression>()
+                ?: return@CustomExpression expression
+            if (lambdaArgument.parameters.size != 2) return@CustomExpression expression
+
+            // Analogous to changes made by `JavaMapForEachInspection`
+            JKCallExpressionImpl(
+                symbolProvider.provideMethodSymbol("kotlin.collections.Map.forEach"),
+                JKArgumentList(
+                    JKLambdaExpression(
+                        lambdaArgument::statement.detached(),
+                        listOf(
+                            JKKtDestructuringDeclaration(
+                                lambdaArgument.parameters.map {
+                                    JKKtDestructuringDeclarationEntry(it::type.detached(), it::name.detached())
+                                }
+                            )
+                        )
+                    )
+                ),
+                canMoveLambdaOutsideParentheses = true
+            )
+        },
+
         Method("java.util.Collection.size") convertTo Field("kotlin.collections.Collection.size"),
         Method("java.util.Collection.remove") convertTo Method("kotlin.collections.MutableCollection.remove"),
+        Method("java.util.Collection.removeIf") convertTo Method("kotlin.collections.MutableCollection.removeIf", canMoveLambdaOutsideParentheses = true),
         Method("java.util.Collection.toArray") convertTo Method("kotlin.collections.toTypedArray") withByArgumentsFilter { it.isEmpty() },
         Method("java.util.Collection.toArray") convertTo Method("kotlin.collections.toTypedArray") withByArgumentsFilter {
             it.singleOrNull()?.let { parameter ->
@@ -378,16 +437,48 @@ private class ConversionsHolder(private val symbolProvider: JKSymbolProvider, pr
         } withArgumentsProvider { JKArgumentList() },
 
         Method("java.util.List.remove") convertTo Method("kotlin.collections.MutableCollection.removeAt"),
+        Method("java.util.List.replaceAll") convertTo Method("kotlin.collections.MutableCollection.replaceAll", canMoveLambdaOutsideParentheses = true),
         Method("java.util.Map.Entry.getKey") convertTo Field("kotlin.collections.Map.Entry.key"),
         Method("java.util.Map.Entry.getValue") convertTo Field("kotlin.collections.Map.Entry.value"),
 
-        Method("java.util.Set.of") convertTo Method("kotlin.collections.setOf") withReplaceType REPLACE_WITH_QUALIFIER withByArgumentsFilter ::setOfFilter,
-        Method("java.util.List.of") convertTo Method("kotlin.collections.listOf") withReplaceType REPLACE_WITH_QUALIFIER withByArgumentsFilter ::listOfFilter,
-        Method("java.util.Collections.singletonList") convertTo Method("kotlin.collections.listOf") withReplaceType REPLACE_WITH_QUALIFIER,
-        Method("java.util.Collections.singleton") convertTo Method("kotlin.collections.setOf") withReplaceType REPLACE_WITH_QUALIFIER,
-        Method("java.util.Collections.emptyList") convertTo Method("kotlin.collections.emptyList") withReplaceType REPLACE_WITH_QUALIFIER,
-        Method("java.util.Collections.emptySet") convertTo Method("kotlin.collections.emptySet") withReplaceType REPLACE_WITH_QUALIFIER,
-        Method("java.util.Collections.emptyMap") convertTo Method("kotlin.collections.emptyMap") withReplaceType REPLACE_WITH_QUALIFIER,
+        Method("java.util.Set.of") convertTo Method(setOfFqName()) withReplaceType REPLACE_WITH_QUALIFIER withByArgumentsFilter ::setOfFilter,
+        Method("java.util.List.of") convertTo Method(listOfFqName()) withReplaceType REPLACE_WITH_QUALIFIER withByArgumentsFilter ::listOfFilter,
+        Method("java.util.Collections.singletonList") convertTo Method(listOfFqName()) withReplaceType REPLACE_WITH_QUALIFIER,
+        Method("java.util.Collections.singleton") convertTo Method(setOfFqName()) withReplaceType REPLACE_WITH_QUALIFIER,
+        Method("java.util.Collections.emptyList") convertTo Method(emptyListFqName()) withReplaceType REPLACE_WITH_QUALIFIER,
+        Method("java.util.Collections.emptySet") convertTo Method(emptySetFqName()) withReplaceType REPLACE_WITH_QUALIFIER,
+        Method("java.util.Collections.emptyMap") convertTo Method(emptyMapFqName()) withReplaceType REPLACE_WITH_QUALIFIER,
+    )
+
+    // For now, these conversions only mark that the last lambda can be moved outside parentheses
+    private val streamConversions: List<Conversion> = listOf(
+        Method("java.util.stream.Stream.allMatch") convertTo Method("java.util.stream.Stream.allMatch", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.anyMatch") convertTo Method("java.util.stream.Stream.anyMatch", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.collect") convertTo Method("java.util.stream.Stream.collect", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.dropWhile") convertTo Method("java.util.stream.Stream.dropWhile", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.filter") convertTo Method("java.util.stream.Stream.filter", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.flatMap") convertTo Method("java.util.stream.Stream.flatMap", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.flatMapToDouble") convertTo Method("java.util.stream.Stream.flatMapToDouble", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.flatMapToInt") convertTo Method("java.util.stream.Stream.flatMapToInt", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.flatMapToLong") convertTo Method("java.util.stream.Stream.flatMapToLong", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.forEach") convertTo Method("java.util.stream.Stream.forEach", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.forEachOrdered") convertTo Method("java.util.stream.Stream.forEachOrdered", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.generate") convertTo Method("java.util.stream.Stream.generate", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.iterate") convertTo Method("java.util.stream.Stream.iterate", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.map") convertTo Method("java.util.stream.Stream.map", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.mapMulti") convertTo Method("java.util.stream.Stream.mapMulti", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.mapMultiToDouble") convertTo Method("java.util.stream.Stream.mapMultiToDouble", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.mapMultiToInt") convertTo Method("java.util.stream.Stream.mapMultiToInt", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.mapMultiToLong") convertTo Method("java.util.stream.Stream.mapMultiToLong", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.mapToDouble") convertTo Method("java.util.stream.Stream.mapToDouble", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.mapToInt") convertTo Method("java.util.stream.Stream.mapToInt", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.mapToLong") convertTo Method("java.util.stream.Stream.mapToLong", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.noneMatch") convertTo Method("java.util.stream.Stream.noneMatch", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.peek") convertTo Method("java.util.stream.Stream.peek", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.reduce") convertTo Method("java.util.stream.Stream.reduce", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.sorted") convertTo Method("java.util.stream.Stream.sorted", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.takeWhile") convertTo Method("java.util.stream.Stream.takeWhile", canMoveLambdaOutsideParentheses = true),
+        Method("java.util.stream.Stream.toArray") convertTo Method("java.util.stream.Stream.toArray", canMoveLambdaOutsideParentheses = true),
     )
 
     private val enumConversions: List<Conversion> = listOf(
@@ -419,8 +510,21 @@ private class ConversionsHolder(private val symbolProvider: JKSymbolProvider, pr
         Method("java.lang.String.strip") convertTo Method("kotlin.text.trim") withByArgumentsFilter { it.isEmpty() },
         Method("java.lang.String.stripLeading") convertTo Method("kotlin.text.trimStart") withByArgumentsFilter { it.isEmpty() },
         Method("java.lang.String.stripTrailing") convertTo Method("kotlin.text.trimEnd") withByArgumentsFilter { it.isEmpty() },
-        Method("java.lang.String.indexOf") convertTo Method("kotlin.text.indexOf"),
-        Method("java.lang.String.lastIndexOf") convertTo Method("kotlin.text.lastIndexOf"),
+
+        Method("java.lang.String.indexOf")
+                convertTo Method("kotlin.text.indexOf", parameterTypesFqNames = listOf("kotlin.String", "kotlin.Int", "kotlin.Boolean"))
+                withByArgumentsFilter { it.firstOrNull()?.calculateType(typeFactory)?.isStringType() == true },
+        Method("java.lang.String.indexOf")
+                convertTo Method("kotlin.text.indexOf", parameterTypesFqNames = listOf("kotlin.Char", "kotlin.Int", "kotlin.Boolean"))
+                withByArgumentsFilter { it.firstOrNull()?.calculateType(typeFactory)?.isStringType() == false },
+
+        Method("java.lang.String.lastIndexOf")
+                convertTo Method("kotlin.text.lastIndexOf", parameterTypesFqNames = listOf("kotlin.String", "kotlin.Int", "kotlin.Boolean"))
+                withByArgumentsFilter { it.firstOrNull()?.calculateType(typeFactory)?.isStringType() == true },
+        Method("java.lang.String.lastIndexOf")
+                convertTo Method("kotlin.text.lastIndexOf", parameterTypesFqNames = listOf("kotlin.Char", "kotlin.Int", "kotlin.Boolean"))
+                withByArgumentsFilter { it.firstOrNull()?.calculateType(typeFactory)?.isStringType() == false },
+
         Method("java.lang.String.getBytes") convertTo Method("kotlin.text.toByteArray")
                 withByArgumentsFilter { it.singleOrNull()?.calculateType(typeFactory)?.isStringType() == true }
                 withArgumentsProvider { arguments ->
@@ -555,14 +659,15 @@ private class ConversionsHolder(private val symbolProvider: JKSymbolProvider, pr
                                 symbolProvider.provideMethodSymbol("kotlin.text.isEmpty")
                             ).asStatement()
                         )
-                    )
+                    ),
+                    canMoveLambdaOutsideParentheses = true
                 )
             } else {
                 expression
             }.castToTypedArray()
         },
 
-        Method("java.lang.String.trim") convertTo Method("kotlin.text.trim") withArgumentsProvider {
+        Method("java.lang.String.trim") convertTo Method("kotlin.text.trim", canMoveLambdaOutsideParentheses = true) withArgumentsProvider {
             JKArgumentList(
                 JKLambdaExpression(
                     JKExpressionStatement(
@@ -587,6 +692,16 @@ private class ConversionsHolder(private val symbolProvider: JKSymbolProvider, pr
                     symbolProvider.provideMethodSymbol("kotlin.text.String.format"),
                     (expression as JKCallExpression).arguments::arguments.detached()
                 )
+        } withReplaceType REPLACE_WITH_QUALIFIER,
+
+        Method("java.lang.String.lines") convertTo CustomExpression { expression ->
+            if (expression !is JKCallExpression) error("Expression should be JKCallExpression")
+            val parent = expression.parent.cast<JKQualifiedExpression>()
+
+            parent::receiver.detached()
+                .callOn(symbolProvider.provideMethodSymbol("kotlin.text.lineSequence"))
+                .callOn(symbolProvider.provideMethodSymbol("kotlin.streams.asStream"))
+                .withFormattingFrom(parent)
         } withReplaceType REPLACE_WITH_QUALIFIER,
 
         // It is the constructor of "kotlin.String" and not "java.lang.String" because
@@ -735,12 +850,17 @@ private class ConversionsHolder(private val symbolProvider: JKSymbolProvider, pr
             JKThisExpression(JKLabelEmpty()) to expr.copyTreeAndDetach()
         }
 
-        val cast = JKTypeCastExpression(
-            receiver,
-            JKTypeElement(JKClassType(symbolProvider.provideClassSymbol("java.lang.Object")))
-        ).parenthesize()
+        val objectTypeElement = JKTypeElement(JKClassType(symbolProvider.provideClassSymbol("java.lang.Object"), nullability = NotNull))
+        val existingCast = (receiver as? JKParenthesizedExpression)?.expression as? JKTypeCastExpression
 
-        JKQualifiedExpression(cast, selector)
+        return@CustomExpression if ((existingCast?.type?.type as? JKClassType)?.classReference?.fqName == "kotlin.Any") {
+            // If we already have a cast to Any, replace "Any" with "Object" and don't produce a double cast
+            existingCast.type = objectTypeElement
+            JKQualifiedExpression(receiver, selector)
+        } else {
+            val cast = JKTypeCastExpression(receiver, objectTypeElement).parenthesize()
+            JKQualifiedExpression(cast, selector)
+        }
     }
 
     private fun filterReceiverCastToJavaLangObject(expr: JKExpression): Boolean {
@@ -845,4 +965,22 @@ private class ConversionsHolder(private val symbolProvider: JKSymbolProvider, pr
 
     private fun List<JKLiteralExpression>.containsNull(): Boolean =
         any { it.isNull() }
+
+    // TODO: before mutability inference is implemented in K2 (KTIJ-29148),
+    //   use mutable versions of collection creation functions
+
+    private fun setOfFqName(): String =
+        if (isK1Mode()) "kotlin.collections.setOf" else "kotlin.collections.mutableSetOf"
+
+    private fun listOfFqName(): String =
+        if (isK1Mode()) "kotlin.collections.listOf" else "kotlin.collections.mutableListOf"
+
+    private fun emptyListFqName(): String =
+        if (isK1Mode()) "kotlin.collections.emptyList" else "kotlin.collections.mutableListOf"
+
+    private fun emptySetFqName(): String =
+        if (isK1Mode()) "kotlin.collections.emptySet" else "kotlin.collections.mutableSetOf"
+
+    private fun emptyMapFqName(): String =
+        if (isK1Mode()) "kotlin.collections.emptyMap" else "kotlin.collections.mutableMapOf"
 }

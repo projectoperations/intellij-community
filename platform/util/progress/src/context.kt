@@ -1,14 +1,13 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Experimental
 @file:Suppress("DeprecatedCallableAddReplaceWith")
 
 package com.intellij.platform.util.progress
 
+import com.intellij.concurrency.IntelliJContextElement
 import com.intellij.platform.util.progress.impl.EmptyProgressStep
 import com.intellij.platform.util.progress.impl.ProgressStep
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
-import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -67,7 +66,9 @@ private fun CoroutineContext.currentProgressStep(): ProgressStep {
   return this[ProgressStepElement.Key]?.step ?: EmptyProgressStep
 }
 
-private class ProgressStepElement(val step: ProgressStep) : AbstractCoroutineContextElement(Key) {
+private class ProgressStepElement(val step: ProgressStep) : AbstractCoroutineContextElement(Key), IntelliJContextElement {
+  override fun produceChildElement(parentContext: CoroutineContext, isStructured: Boolean): IntelliJContextElement = this
+
   object Key : CoroutineContext.Key<ProgressStepElement>
 }
 
@@ -80,9 +81,11 @@ fun CoroutineContext.internalCreateRawHandleFromContextStepIfExistsAndFresh(): R
 @Deprecated("To report use `reportProgress` or `reportSequentialProgress`. Don't pass as context.")
 fun ProgressReporter0.asContextElement(): CoroutineContext.Element = ProgressReporterElement.Step
 
+@get:Internal
 @Deprecated("To report use `reportProgress` or `reportSequentialProgress`. Don't pass as context.")
 val CoroutineContext.progressReporter: ProgressReporter0? get() = null
 
+@get:Internal
 @Deprecated("To report use `reportProgress` or `reportSequentialProgress`. Don't pass as context.")
 val CoroutineScope.progressReporter: ProgressReporter0? get() = null
 
@@ -93,14 +96,18 @@ val CoroutineScope.progressReporter: ProgressReporter0? get() = null
 )
 fun RawProgressReporter.asContextElement(): CoroutineContext.Element = ProgressReporterElement.Raw(this)
 
+@get:Internal
 @Deprecated(
   "To report use `reportRawProgress`. " +
   "To pass reporter via context implement own context element."
 )
 val CoroutineContext.rawProgressReporter: RawProgressReporter? get() = (this[ProgressReporterElement] as? ProgressReporterElement.Raw)?.reporter
 
-private sealed class ProgressReporterElement : AbstractCoroutineContextElement(ProgressReporterElement) {
+private sealed class ProgressReporterElement : AbstractCoroutineContextElement(ProgressReporterElement), IntelliJContextElement {
   companion object : CoroutineContext.Key<ProgressReporterElement>
+
+  override fun produceChildElement(parentContext: CoroutineContext, isStructured: Boolean): IntelliJContextElement = this
+
   data object Step : ProgressReporterElement()
   class Raw(val reporter: RawProgressReporter) : ProgressReporterElement()
 }

@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import org.intellij.plugins.markdown.ui.preview.PreviewStaticServer
@@ -17,6 +18,8 @@ import org.jsoup.nodes.Comment
 import org.jsoup.nodes.DataNode
 import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
+import java.net.URLDecoder
+import java.nio.charset.Charset
 
 @ApiStatus.Internal
 class IncrementalDOMBuilder(
@@ -114,16 +117,26 @@ class IncrementalDOMBuilder(
 
   private fun actuallyProcessImageNode(node: Node, baseFile: VirtualFile, projectRoot: VirtualFile) {
     var path = node.attr("src")
-    if (!path.startsWith('/')) {
-      val resolved = baseFile.findFileByRelativePath(path) ?: return
-      path = VfsUtilCore.getRelativePath(resolved, projectRoot) ?: path
+    val hasFileHost = path.startsWith("file:/")
+    if (hasFileHost && !node.hasAttr("from-extension")) {
+      return
     }
-    if (SystemInfo.isWindows && path.startsWith("/")) {
-      path = path.trimStart('/', '\\')
+    if (!hasFileHost) {
+      path = URLDecoder.decode(path, Charset.defaultCharset())
+      if (SystemInfo.isWindows) {
+        path = StringUtil.replace(path, "\\", "/")
+      }
+      if (!path.startsWith('/')) {
+        val resolved = baseFile.findFileByRelativePath(path) ?: return
+        path = VfsUtilCore.getRelativePath(resolved, projectRoot) ?: path
+      }
+      if (SystemInfo.isWindows && path.startsWith("/")) {
+        path = path.trimStart('/')
+      }
+      path = FileUtil.toSystemIndependentName(path)
     }
-    val fixedPath = FileUtil.toSystemIndependentName(path)
     if (fileSchemeResourceProcessor != null) {
-      val processed = PreviewStaticServer.getStaticUrl(fileSchemeResourceProcessor, fixedPath)
+      val processed = PreviewStaticServer.getStaticUrl(fileSchemeResourceProcessor, path)
       node.attr("data-original-src", path)
       node.attr("src", processed)
     }

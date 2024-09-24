@@ -25,14 +25,13 @@ abstract class DiffFileEditorBase(
 ) : FileEditorBase() {
   companion object {
     private val LOG = logger<DiffFileEditorBase>()
-    const val DIFF_IN_NAVIGATION_HISTORY_KEY = "include.diffs.in.navigation.history"
   }
 
   private val panel = MyPanel(component)
 
   init {
     Disposer.register(contentDisposable, Disposable {
-      firePropertyChange(FileEditor.PROP_VALID, true, false)
+      firePropertyChange(FileEditor.getPropValid(), true, false)
     })
   }
 

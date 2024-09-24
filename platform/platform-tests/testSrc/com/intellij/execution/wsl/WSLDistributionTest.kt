@@ -13,12 +13,17 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.use
-import com.intellij.platform.ijent.*
-import com.intellij.platform.ijent.fs.IjentFileSystemApi
+import com.intellij.platform.eel.EelExecApi
+import com.intellij.platform.eel.EelPlatform
+import com.intellij.platform.ijent.IjentExecApi
+import com.intellij.platform.ijent.IjentPosixApi
+import com.intellij.platform.ijent.IjentPosixInfo
+import com.intellij.platform.ijent.IjentTunnelsPosixApi
+import com.intellij.platform.ijent.fs.IjentFileSystemPosixApi
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
+import com.intellij.testFramework.registerOrReplaceServiceInstance
 import com.intellij.testFramework.replaceService
 import com.intellij.util.containers.orNull
 import com.intellij.util.io.Ksuid
@@ -66,8 +71,8 @@ class WSLDistributionTest {
     WSLUtil.setSystemCompatible(true)
   }
 
-  @Test
-  fun `no sudden changes in WSLCommandLineOptions`() {
+  @TestTemplate
+  fun `no sudden changes in WSLCommandLineOptions`(strategy: WslTestStrategy) {
     val options = WSLCommandLineOptions()
     val defaultValues = WSLCommandLineOptions::class.memberProperties
       .map { property ->
@@ -76,6 +81,11 @@ class WSLDistributionTest {
       }
       .sorted()
       .joinToString("\n")
+
+    val launchWithWslExe = when (strategy) {
+      WslTestStrategy.Legacy -> true
+      WslTestStrategy.Ijent -> false
+    }
 
     withClue("""
       Changes in WSLCommandLineOptions should be performed cautiously. 
@@ -89,7 +99,7 @@ class WSLDistributionTest {
         myExecuteCommandInLoginShell = true
         myExecuteCommandInShell = true
         myInitShellCommands = []
-        myLaunchWithWslExe = false
+        myLaunchWithWslExe = $launchWithWslExe
         myPassEnvVarsUsingInterop = false
         myRemoteWorkingDirectory = null
         mySleepTimeoutSec = 0.0
@@ -130,6 +140,39 @@ class WSLDistributionTest {
           cmd = listOf(
             TEST_SHELL, "-l", "-c",
             """export FOOBAR=''"'"'o"ops 2'"'"'' && export HURR=DURR && printf foo bar ''"'"'o"ops 1'"'"''""",
+          ),
+        ))
+        environment.entries should beEmpty()
+      }
+    }
+
+    /** IDEA-351354 */
+    @TestTemplate
+    fun `environment variables with brackets`(strategy: WslTestStrategy) {
+      val options = WSLCommandLineOptions()
+      withClue("Checking the default value for an option. If it fails, the test should be revised") {
+        options.isPassEnvVarsUsingInterop should be(false)
+      }
+      val cmd = strategy.patch(
+        GeneralCommandLine("true")
+          .withEnvironment("CommonProgramFiles", "/mnt/c/Program Files/Common Files")
+          .withEnvironment("CommonProgramFiles(x86)", "/mnt/c/Program Files (x86)/Common Files")
+          .withEnvironment("ProgramFiles", "/mnt/c/Program Files")
+          .withEnvironment("Path", "/mnt/c/ProgramData/chocolatey/bin;C:/WINDOWS/system32;C:/WINDOWS;C:/Program Files (x86)/Gpg4win/../GnuPG/bin")
+          .withEnvironment("ProgramFiles(x86)", "/mnt/c/Program Files (x86)"),
+        options,
+      )
+      assertSoftly(cmd) {
+        argv should be(strategy.argv(
+          wslExeParams = listOf(wslExe, "--distribution", WSL_ID, "--exec", "$toolsRoot/ttyfix"),
+          cmd = listOf(
+            TEST_SHELL, "-l", "-c",
+            // It doesn't matter if Windows paths should be passed into environment variables for running something on Linux.
+            // The goal of this test is to ensure that both filters return the same output.
+            "export CommonProgramFiles='/mnt/c/Program Files/Common Files'" +
+            " && export Path='/mnt/c/ProgramData/chocolatey/bin;C:/WINDOWS/system32;C:/WINDOWS;C:/Program Files (x86)/Gpg4win/../GnuPG/bin'" +
+            " && export ProgramFiles='/mnt/c/Program Files'" +
+            " && true",
           ),
         ))
         environment.entries should beEmpty()
@@ -409,15 +452,15 @@ class WSLDistributionTest {
       }
     }
 
-    return when (this) {
-      WslTestStrategy.Legacy -> mockWslDistribution.patchCommandLine(cmd, null, options)
-      WslTestStrategy.Ijent -> ProgressManager.getInstance().runProcess(
-        Computable {
-          passGeneralCommandLineThroughWslIjentManager(mockWslDistribution, cmd, options)
-        },
-        EmptyProgressIndicator()  // These particular tests don't require any really cancellable progress indicator.
-      )
-    }
+    return ProgressManager.getInstance().runProcess(
+      Computable {
+        when (this) {
+          WslTestStrategy.Legacy -> mockWslDistribution.patchCommandLine(cmd, null, options)
+          WslTestStrategy.Ijent -> passGeneralCommandLineThroughWslIjentManager(mockWslDistribution, cmd, options)
+        }
+      },
+      EmptyProgressIndicator()  // These particular tests don't require any really cancellable progress indicator.
+    )
   }
 
   private fun passGeneralCommandLineThroughWslIjentManager(
@@ -437,7 +480,7 @@ class WSLDistributionTest {
           @DelicateCoroutinesApi
           override val processAdapterScope: CoroutineScope = scope
 
-          override suspend fun getIjentApi(wslDistribution: WSLDistribution, project: Project?, rootUser: Boolean): IjentApi {
+          override suspend fun getIjentApi(wslDistribution: WSLDistribution, project: Project?, rootUser: Boolean): IjentPosixApi {
             require(wslDistribution == mockWslDistribution) { "$wslDistribution != $mockWslDistribution" }
             return MockIjentApi(adapter, rootUser)
           }
@@ -465,74 +508,51 @@ class WSLDistributionTest {
 
 enum class WslTestStrategy { Legacy, Ijent }
 
-private class MockIjentApi(private val adapter: GeneralCommandLine, val rootUser: Boolean) : IjentApi {
-  override val id: IjentId get() = throw UnsupportedOperationException()
-
-  override val platform: IjentExecFileProvider.SupportedPlatform get() = throw UnsupportedOperationException()
+private class MockIjentApi(private val adapter: GeneralCommandLine, val rootUser: Boolean) : IjentPosixApi {
+  override val platform: EelPlatform.Posix get() = throw UnsupportedOperationException()
 
   override val isRunning: Boolean get() = true
 
-  override val info: IjentApi.Info get() = throw UnsupportedOperationException()
+  override val info: IjentPosixInfo get() = throw UnsupportedOperationException()
 
   override fun close(): Unit = Unit
 
+  override suspend fun waitUntilExit(): Unit = Unit
+
   override val exec: IjentExecApi get() = MockIjentExecApi(adapter, rootUser)
 
-  override val fs: IjentFileSystemApi get() = throw UnsupportedOperationException()
+  override val fs: IjentFileSystemPosixApi get() = throw UnsupportedOperationException()
 
-  override val tunnels: IjentTunnelsApi get() = throw UnsupportedOperationException()
+  override val tunnels: IjentTunnelsPosixApi get() = throw UnsupportedOperationException()
 }
 
 private class MockIjentExecApi(private val adapter: GeneralCommandLine, private val rootUser: Boolean) : IjentExecApi {
-  override fun executeProcessBuilder(exe: String): IjentExecApi.ExecuteProcessBuilder =
-    MockIjentApiExecuteProcessBuilder(adapter.apply { exePath = exe }, rootUser)
+
+
+  override suspend fun execute(builder: EelExecApi.ExecuteProcessBuilder): EelExecApi.ExecuteProcessResult = executeResultMock.also {
+    adapter.exePath = builder.exe
+    if (rootUser) {
+      adapter.putUserData(TEST_ROOT_USER_SET, true)
+    }
+    adapter.addParameters(builder.args)
+    adapter.setWorkDirectory(builder.workingDirectory)
+    adapter.environment.putAll(builder.env)
+  }
 
   override suspend fun fetchLoginShellEnvVariables(): Map<String, String> = mapOf("SHELL" to TEST_SHELL)
 }
 
 private val TEST_ROOT_USER_SET by lazy { Key.create<Boolean>("TEST_ROOT_USER_SET") }
 
-private class MockIjentApiExecuteProcessBuilder(
-  private val adapter: GeneralCommandLine,
-  rootUser: Boolean,
-) : IjentExecApi.ExecuteProcessBuilder {
-  init {
-    if (rootUser) {
-      adapter.putUserData(TEST_ROOT_USER_SET, true)
-    }
-  }
-
-  override fun args(args: List<String>): IjentExecApi.ExecuteProcessBuilder = apply {
-    adapter.parametersList.run {
-      clearAll()
-      addAll(args)
-    }
-  }
-
-  override fun env(env: Map<String, String>): IjentExecApi.ExecuteProcessBuilder = apply {
-    adapter.environment.run {
-      clear()
-      putAll(env)
-    }
-  }
-
-  override fun pty(pty: IjentExecApi.Pty?): IjentExecApi.ExecuteProcessBuilder = this
-
-  override fun workingDirectory(workingDirectory: String?): IjentExecApi.ExecuteProcessBuilder = apply {
-    adapter.setWorkDirectory(workingDirectory)
-  }
-
-  override suspend fun execute(): IjentExecApi.ExecuteProcessResult = executeResultMock
-}
 
 private val executeResultMock by lazy {
-  IjentExecApi.ExecuteProcessResult.Failure(errno = 12345, message = "mock result ${Ksuid.generate()}")
+  EelExecApi.ExecuteProcessResult.Failure(errno = 12345, message = "mock result ${Ksuid.generate()}")
 }
 
 private class WslTestStrategyExtension
   : TestTemplateInvocationContextProvider,
-    TestInstancePreConstructCallback,
-    TestInstancePreDestroyCallback {
+    AfterEachCallback,
+    BeforeEachCallback {
 
   override fun supportsTestTemplate(extension: ExtensionContext): Boolean =
     extension.testMethod.orNull()
@@ -545,17 +565,27 @@ private class WslTestStrategyExtension
   override fun provideTestTemplateInvocationContexts(extension: ExtensionContext): Stream<TestTemplateInvocationContext> =
     WslTestStrategy.entries.map { MyTestTemplateInvocationContext(it) as TestTemplateInvocationContext }.stream()
 
-  override fun preDestroyTestInstance(extensionContext: ExtensionContext) {
-    val value = when (extensionContext.getStore(ExtensionContext.Namespace.GLOBAL).get(WslTestStrategy::class.java) as WslTestStrategy?) {
-      null -> false
-      WslTestStrategy.Legacy -> false
-      WslTestStrategy.Ijent -> true
-    }
-    Registry.get("wsl.use.remote.agent.for.launch.processes").setValue(value)
+  override fun beforeEach(context: ExtensionContext) {
+    val disposable = Disposer.newDisposable()
+    context.getStore(ExtensionContext.Namespace.GLOBAL).put(this to Disposable::class.java, disposable)
+
+    val oldService = WslIjentAvailabilityService.getInstance()
+    ApplicationManager.getApplication().registerOrReplaceServiceInstance(
+      WslIjentAvailabilityService::class.java,
+      object : WslIjentAvailabilityService by oldService {
+        override fun runWslCommandsViaIjent(): Boolean =
+          when (context.getStore(ExtensionContext.Namespace.GLOBAL).get(WslTestStrategy::class.java) as WslTestStrategy?) {
+            null -> false
+            WslTestStrategy.Legacy -> false
+            WslTestStrategy.Ijent -> true
+          }
+      },
+      disposable,
+    )
   }
 
-  override fun preConstructTestInstance(testInstanceFactoryContext: TestInstanceFactoryContext, extension: ExtensionContext) {
-    Registry.get("wsl.use.remote.agent.for.launch.processes").resetToDefault()
+  override fun afterEach(context: ExtensionContext) {
+    Disposer.dispose(context.getStore(ExtensionContext.Namespace.GLOBAL).get(this to Disposable::class.java) as Disposable)
   }
 
   private class MyTestTemplateInvocationContext(

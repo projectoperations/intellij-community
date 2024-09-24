@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.devkit.inspections.missingApi
 
 import com.intellij.codeInspection.InspectionProfileEntry
@@ -10,16 +10,18 @@ import com.intellij.codeInspection.options.OptPane
 import com.intellij.codeInspection.options.OptPane.*
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtil
+import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.roots.TestSourcesFilter
 import com.intellij.openapi.util.BuildNumber
+import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.xml.XmlFile
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.idea.devkit.DevKitBundle
 import org.jetbrains.idea.devkit.actions.DevkitActionsUtil
 import org.jetbrains.idea.devkit.module.PluginModuleType
 import org.jetbrains.idea.devkit.util.DescriptorUtil
-import org.jetbrains.idea.devkit.util.PsiUtil
 
 internal val MISSING_API_INSPECTION_SHORT_NAME = InspectionProfileEntry.getShortName(MissingRecentApiInspection::class.java.simpleName)
 
@@ -39,6 +41,8 @@ internal val MISSING_API_INSPECTION_SHORT_NAME = InspectionProfileEntry.getShort
  * where APIs' introduction versions are specified.
  */
 @VisibleForTesting
+@IntellijInternalApi
+@Internal
 class MissingRecentApiInspection : LocalInspectionTool() {
 
   /**
@@ -48,12 +52,12 @@ class MissingRecentApiInspection : LocalInspectionTool() {
    * differ from the actual values. For example, it is the case for gradle-intellij-plugin,
    * which allows to override "since" and "until" values during plugin build.
    */
-  private var sinceBuildString: String? = null
+  var sinceBuildString: String? = null
 
   /**
    * Actual "until" build constraint of the plugin under development.
    */
-  private var untilBuildString: String? = null
+  var untilBuildString: String? = null
 
   private val sinceBuild: BuildNumber?
     get() = sinceBuildString?.let { BuildNumber.fromStringOrNull(it) }
@@ -64,7 +68,7 @@ class MissingRecentApiInspection : LocalInspectionTool() {
   override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
     val project = holder.project
     val virtualFile = holder.file.virtualFile
-    if (PsiUtil.isIdeaProject(project) || virtualFile != null && TestSourcesFilter.isTestSources(virtualFile, project)) {
+    if (IntelliJProjectUtil.isIntelliJPlatformProject(project) || virtualFile != null && TestSourcesFilter.isTestSources(virtualFile, project)) {
       return PsiElementVisitor.EMPTY_VISITOR
     }
     val module = ModuleUtil.findModuleForPsiElement(holder.file) ?: return PsiElementVisitor.EMPTY_VISITOR

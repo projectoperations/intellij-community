@@ -54,6 +54,7 @@
   <technology name="google-http-java-client" class="com.google.api.client.http.HttpResponse"/>
   <technology name="gorm" class="org.grails.datastore.gorm.GormInstanceApi"/>
   <technology name="grails" class="grails.core.GrailsClass"/>
+  <technology name="graphql-dgs" class="com.netflix.graphql.dgs.DgsQuery"/>
   <technology name="graphql-java" class="graphql.GraphQL"/>
   <technology name="groovy" class="groovy.lang.GroovyObject"/>
   <technology name="grpc" class="io.grpc.ManagedChannel"/>
@@ -63,6 +64,7 @@
   <technology name="hazelcast" class="com.hazelcast.config.Config"/>
   <technology name="hazelcast-jet" class="com.hazelcast.jet.pipeline.Pipeline"/>
   <technology name="helidon" class="io.helidon.webserver.WebServer"/>
+  <technology name="helidon-mp" class="io.helidon.microprofile.server.Server"/>
   <technology name="hexagonkt" class="com.hexagonkt.http.Path"/>
   <technology name="hibernate" class="org.hibernate.Hibernate"/>
   <technology name="hibernate-envers" class="org.hibernate.envers.Audited"/>
@@ -118,12 +120,14 @@
   <technology name="kotest" class="io.kotest.core.annotation.Tags"/>
   <technology name="kotless" class="io.kotless.HttpMethod"/>
   <technology name="kotlin" class="kotlin.reflect.KClass"/>
+  <technology name="kotlin-test" root="kotlin.test.Asserter"/>
   <technology name="kotlinx-coroutines" class="kotlinx.coroutines.CoroutineDispatcher"/>
   <technology name="kotlinx-datetime" class="kotlinx.datetime.Instant"/>
+  <technology name="kotlinx-io" root="kotlinx.io.Buffer"/>
   <technology name="kotlinx-serialization" class="kotlinx.serialization.KSerializer"/>
+  <technology name="ktor-client" class="io.ktor.client.HttpClient"/>
   <technology name="ktor-server" class="io.ktor.application.Application"/>
   <technology name="ktor-server" class="io.ktor.server.application.Application"/>
-  <technology name="ktor-client" class="io.ktor.client.HttpClient"/>
   <technology name="ktorm" class="org.ktorm.entity.Entity"/>
   <technology name="lagom-java" class="com.lightbend.lagom.javadsl.api.Service"/>
   <technology name="lagom-scala" class="com.lightbend.lagom.scaladsl.api.Service"/>
@@ -186,6 +190,7 @@
   <technology name="spring-amqp" class="org.springframework.amqp.core.Message"/>
   <technology name="spring-batch" class="org.springframework.batch.core.Job"/>
   <technology name="spring-boot" class="org.springframework.boot.SpringApplication"/>
+  <technology name="spring-boot-testjars" class="org.springframework.experimental.boot.test.context.DynamicProperty"/>
   <technology name="spring-cloud" class="org.springframework.cloud.client.SpringCloudApplication"/>
   <technology name="spring-cloud-gateway" class="org.springframework.cloud.gateway.route.RouteDefinition"/>
   <technology name="spring-cloud-kubernetes" class="org.springframework.cloud.kubernetes.commons.ConditionalOnKubernetesEnabled"/>
@@ -195,7 +200,7 @@
   <technology name="spring-core" class="org.springframework.context.ApplicationContext"/>
   <technology name="spring-data-commons" class="org.springframework.data.repository.Repository"/>
   <technology name="spring-data-hadoop" class="org.springframework.data.hadoop.HadoopException"/>
-  <technology name="spring-data-jdbc-ext" class="org.springframework.data.jdbc.support.DatabaseType"/>
+  <technology name="spring-data-jdbc-ext" class="org.springframework.data.jdbc.support.JdbcUtil"/>
   <technology name="spring-data-jpa" class="org.springframework.data.jpa.repository.Query"/>
   <technology name="spring-data-mongo" class="org.springframework.data.mongodb.MongoDbFactory"/>
   <technology name="spring-data-neo4j" class="org.springframework.data.neo4j.config.Neo4jConfiguration"/>
@@ -206,7 +211,7 @@
   <technology name="spring-integration" class="org.springframework.integration.channel.DirectChannel"/>
   <technology name="spring-integration-amqp" class="org.springframework.integration.amqp.channel.AbstractAmqpChannel"/>
   <technology name="spring-kafka" class="org.springframework.kafka.core.KafkaTemplate"/>
-  <technology name="spring-modulith" class="org.springframework.modulith.core.ApplicationModule"/>
+  <technology name="spring-modulith" class="org.springframework.modulith.ApplicationModule"/>
   <technology name="spring-mvc" class="org.springframework.web.context.WebApplicationContext"/>
   <technology name="spring-osgi" class="org.springframework.osgi.OsgiException"/>
   <technology name="spring-rabbitmq" class="org.springframework.amqp.rabbit.core.RabbitTemplate"/>

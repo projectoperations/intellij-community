@@ -1,5 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs;
 
 import com.intellij.CommonBundle;
@@ -8,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.CommandEvent;
 import com.intellij.openapi.command.CommandListener;
+import com.intellij.openapi.components.ComponentManagerEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -33,8 +33,10 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.SmartHashSet;
 import com.intellij.vcsUtil.VcsUtil;
 import kotlin.Unit;
+import kotlinx.coroutines.CoroutineScope;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -84,12 +86,13 @@ public abstract class VcsVFSListener implements Disposable {
 
   protected final Project myProject;
   protected final AbstractVcs myVcs;
+  @NotNull protected final CoroutineScope coroutineScope;
   protected final ChangeListManager myChangeListManager;
   protected final VcsShowConfirmationOption myAddOption;
   protected final VcsShowConfirmationOption myRemoveOption;
   protected final StateProcessor myProcessor = new StateProcessor();
   private final ProjectConfigurationFilesProcessorImpl myProjectConfigurationFilesProcessor;
-  protected final ExternallyAddedFilesProcessorImpl myExternalFilesProcessor;
+  private final ExternallyAddedFilesProcessorImpl myExternalFilesProcessor;
   private final IgnoreFilesProcessorImpl myIgnoreFilesProcessor;
   private final List<VFileEvent> myEventsToProcess = new SmartList<>();
 
@@ -403,9 +406,10 @@ public abstract class VcsVFSListener implements Disposable {
   /**
    * @see #installListeners()
    */
-  protected VcsVFSListener(@NotNull AbstractVcs vcs) {
+  protected VcsVFSListener(@NotNull AbstractVcs vcs, @NotNull CoroutineScope coroutineScope) {
     myProject = vcs.getProject();
     myVcs = vcs;
+    this.coroutineScope = coroutineScope;
     myChangeListManager = ChangeListManager.getInstance(myProject);
     myVcsIgnoreManager = VcsIgnoreManager.getInstance(myProject);
 
@@ -421,21 +425,22 @@ public abstract class VcsVFSListener implements Disposable {
   }
 
   /**
-   * @deprecated Use {@link #VcsVFSListener(AbstractVcs)} followed by {@link #installListeners()}
+   * @deprecated Use {@link #VcsVFSListener(AbstractVcs, CoroutineScope)} followed by {@link #installListeners()}
    */
   @Deprecated(forRemoval = true)
   protected VcsVFSListener(@NotNull Project project, @NotNull AbstractVcs vcs) {
-    this(vcs);
+    //noinspection UsagesOfObsoleteApi
+    this(vcs, ((ComponentManagerEx)project).getCoroutineScope());
     installListeners();
   }
 
   protected void installListeners() {
     VirtualFileManager.getInstance().addAsyncFileListener(new MyAsyncVfsListener(), this);
-    myProject.getMessageBus().connect(this).subscribe(CommandListener.TOPIC, new MyCommandAdapter());
+    myProject.getMessageBus().connect(coroutineScope).subscribe(CommandListener.TOPIC, new MyCommandAdapter());
 
     myProjectConfigurationFilesProcessor.install();
-    myExternalFilesProcessor.install();
-    myIgnoreFilesProcessor.install();
+    myExternalFilesProcessor.install(coroutineScope);
+    myIgnoreFilesProcessor.install(coroutineScope);
   }
 
   @Override
@@ -837,8 +842,20 @@ public abstract class VcsVFSListener implements Disposable {
             myProcessor.clearAllPendingTasks();
           }
         }
+
+        @Override
+        public boolean isHeadless() {
+          return false;
+        }
       }.queue();
     }
+  }
+
+  @TestOnly
+  protected final void waitForEventsProcessedInTestMode() {
+    myExternalFilesProcessor.waitForEventsProcessedInTestMode();
+    myProjectConfigurationFilesProcessor.waitForEventsProcessedInTestMode();
+    myIgnoreFilesProcessor.waitForEventsProcessedInTestMode();
   }
 }
 

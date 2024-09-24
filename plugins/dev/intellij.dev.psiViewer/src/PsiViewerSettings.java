@@ -12,8 +12,11 @@ import org.jetbrains.annotations.NotNull;
 @State(name = "PsiViewerSettings", storages = @Storage(StoragePathMacros.NON_ROAMABLE_FILE))
 @Service
 public final class PsiViewerSettings implements PersistentStateComponent<PsiViewerSettings> {
-  public boolean showWhiteSpaces = true;
+  public boolean showWhiteSpaces = false;
   public boolean showTreeNodes = true;
+
+  public boolean updatePsiTreeOnChanges = true;
+  public boolean showEmptyProperties = false;
   public String type = "JAVA file";
   public String text = "";
   public String dialect = "";

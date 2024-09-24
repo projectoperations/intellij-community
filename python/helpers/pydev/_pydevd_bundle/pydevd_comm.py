@@ -71,8 +71,10 @@ from _pydev_imps._pydev_saved_modules import threading
 from _pydev_imps._pydev_saved_modules import time
 from _pydev_imps._pydev_saved_modules import socket
 from socket import socket, AF_INET, SOCK_STREAM, SHUT_RD, SHUT_WR, SOL_SOCKET, SO_REUSEADDR, SHUT_RDWR, timeout
-from _pydevd_bundle.pydevd_constants import DebugInfoHolder, get_thread_id, IS_JYTHON, IS_PY2, IS_PY3K, \
-    IS_PY36_OR_GREATER, STATE_RUN, dict_keys, ASYNC_EVAL_TIMEOUT_SEC, IS_IRONPYTHON, GlobalDebuggerHolder, \
+from _pydevd_bundle.pydevd_constants import DebugInfoHolder, get_thread_id, IS_JYTHON, \
+    IS_PY2, IS_PY3K, \
+    IS_PY36_OR_GREATER, STATE_RUN, dict_keys, ASYNC_EVAL_TIMEOUT_SEC, IS_IRONPYTHON, \
+    GlobalDebuggerHolder, \
     get_global_debugger, GetGlobalDebugger, set_global_debugger, NEXT_VALUE_SEPARATOR
 from _pydev_bundle.pydev_override import overrides
 import json
@@ -96,9 +98,7 @@ from _pydevd_bundle import pydevd_vm_type
 from _pydevd_bundle.smart_step_into import find_stepping_variants
 from pydevd_file_utils import get_abs_path_real_path_and_base_from_frame, norm_file_to_client, is_real_file
 import pydevd_file_utils
-import os
 import sys
-import inspect
 import traceback
 from _pydevd_bundle.pydevd_utils import quote_smart as quote, compare_object_attrs_key, to_string, \
     get_non_pydevd_threads, is_pandas_container, is_numpy_container
@@ -270,9 +270,7 @@ class ReaderThread(PyDBDaemonThread):
         self.name = "pydevd.Reader"
         from _pydevd_bundle.pydevd_process_net_command import process_net_command
         self.process_net_command = process_net_command
-        self.global_debugger_holder = GlobalDebuggerHolder
-
-
+        self.debugger = GlobalDebuggerHolder.global_dbg
 
     def do_kill_pydev_thread(self):
         #We must close the socket so that it doesn't stay halted there.
@@ -330,12 +328,11 @@ class ReaderThread(PyDBDaemonThread):
             traceback.print_exc()
             self.handle_except()
 
-
     def handle_except(self):
-        self.global_debugger_holder.global_dbg.finish_debugging_session()
+        self.debugger.finish_debugging_session()
 
     def process_command(self, cmd_id, seq, text):
-        self.process_net_command(self.global_debugger_holder.global_dbg, cmd_id, seq, text)
+        self.process_net_command(self.debugger, cmd_id, seq, text)
 
 
 #----------------------------------------------------------------------------------- SOCKET UTILITIES - WRITER
@@ -425,14 +422,19 @@ def start_server(port):
         newSock, _addr = s.accept()
         pydevd_log(1, "Connection accepted")
         # closing server socket is not necessary but we don't need it
-        s.shutdown(SHUT_RDWR)
-        s.close()
+        try:
+            s.shutdown(SHUT_RDWR)
+        except:
+            pass
+        finally:
+            s.close()
         return newSock
 
     except:
         sys.stderr.write("Could not bind to port: %s\n" % (port,))
         sys.stderr.flush()
         traceback.print_exc()
+        raise
 
 #=======================================================================================================================
 # start_client
@@ -1379,7 +1381,7 @@ class InternalDataViewerAction(InternalThreadCommand):
 #=======================================================================================================================
 class InternalTableCommand(InternalThreadCommand):
     def __init__(self, sequence, thread_id, frame_id, init_command, command_type,
-                 start_index, end_index):
+                 start_index, end_index, format):
         super().__init__(thread_id)
         self.sequence = sequence
         self.frame_id = frame_id
@@ -1387,6 +1389,7 @@ class InternalTableCommand(InternalThreadCommand):
         self.command_type = command_type
         self.start_index = start_index
         self.end_index = end_index
+        self.format = format
 
     def do_it(self, dbg):
         try:
@@ -1404,7 +1407,8 @@ class InternalTableCommand(InternalThreadCommand):
             dbg.writer.add_command(cmd)
 
     def exec_command(self, frame):
-        return exec_table_command(self.init_command, self.command_type, self.start_index, self.end_index,
+        return exec_table_command(self.init_command, self.command_type,
+                                  self.start_index, self.end_index, self.format,
                                   frame.f_globals, frame.f_locals)
 
 
@@ -1881,6 +1885,7 @@ class InternalLoadFullValue(InternalThreadCommand):
         self.thread_id = thread_id
         self.frame_id = frame_id
         self.vars = vars
+        self.py_db = GlobalDebuggerHolder.global_dbg
 
     def do_it(self, dbg):
         """Starts a thread that will load values asynchronously"""
@@ -1899,6 +1904,7 @@ class InternalLoadFullValue(InternalThreadCommand):
                     var_objects.append((var_obj, name))
 
             t = GetValueAsyncThreadDebug(dbg, self.sequence, var_objects, dbg.get_user_type_renderers())
+            self.py_db.value_resolve_thread_list.append(t)
             t.start()
         except:
             exc = get_exception_traceback_str()

@@ -36,7 +36,6 @@ import com.intellij.psi.util.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
-import com.siyeh.ig.psiutils.ClassUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
 import org.jdom.Element;
 import org.jetbrains.annotations.Contract;
@@ -112,6 +111,16 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
       @Override
       public void visitMethod(@NotNull PsiMethod method) {
         checkNullableStuffForMethod(method, holder);
+      }
+
+      @Override
+      public void visitClass(@NotNull PsiClass aClass) {
+        if (aClass.isRecord()) {
+          PsiMethod constructor = JavaPsiRecordUtil.findCanonicalConstructor(aClass);
+          if (constructor instanceof SyntheticElement) {
+            checkParameters(constructor, holder, List.of(), manager);
+          }
+        }
       }
 
       @Override
@@ -714,9 +723,11 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
                                               @Nullable PsiModifierListOwner listOwner,
                                               @NotNull @PropertyKey(resourceBundle = JavaAnalysisBundle.BUNDLE) String messageKey,
                                               @NotNull LocalQuickFix @NotNull ... additionalFixes) {
-    RemoveAnnotationQuickFix fix = new RemoveAnnotationQuickFix(annotation, listOwner, true);
+    RemoveAnnotationQuickFix removeFix = new RemoveAnnotationQuickFix(annotation, listOwner, true);
+    MoveAnnotationToBoundFix moveToBoundFix = MoveAnnotationToBoundFix.create(annotation);
+    LocalQuickFix[] fixes = moveToBoundFix == null ? new LocalQuickFix[]{removeFix} : new LocalQuickFix[]{moveToBoundFix, removeFix};
     reportProblem(holder, !annotation.isPhysical() && listOwner != null ? listOwner.getNavigationElement() : annotation,
-                  ArrayUtil.append(additionalFixes, fix), messageKey);
+                  ArrayUtil.mergeArrays(additionalFixes, fixes), messageKey);
   }
 
   @Override
@@ -912,8 +923,8 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
     if (hasNullability(nullableManager, superParameter)) return false;
     PsiType type = superParameter.getType();
     if (TypeUtils.isTypeParameter(type)) {
-      PsiClass childClass = ClassUtils.getContainingClass(parameter);
-      PsiClass superClass = ClassUtils.getContainingClass(superParameter);
+      PsiClass childClass = PsiUtil.getContainingClass(parameter);
+      PsiClass superClass = PsiUtil.getContainingClass(superParameter);
       if (superClass != null && childClass != null) {
         PsiType substituted =
           TypeConversionUtil.getSuperClassSubstitutor(superClass, childClass, PsiSubstitutor.EMPTY).substitute(type);
@@ -930,17 +941,20 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
                                                                 PsiParameter parameter) {
     if (!REPORT_NULLS_PASSED_TO_NOT_NULL_PARAMETER || !holder.isOnTheFly()) return;
 
+    PsiVariable owner = parameter.isPhysical() ? parameter : JavaPsiRecordUtil.getComponentForCanonicalConstructorParameter(parameter);
+    if (owner == null) return;
+
     PsiElement elementToHighlight = null;
-    NullabilityAnnotationInfo info = nullableManager.findOwnNullabilityInfo(parameter);
+    NullabilityAnnotationInfo info = nullableManager.findOwnNullabilityInfo(owner);
     if (info != null && !info.isInferred()) {
       if (info.getNullability() == Nullability.NOT_NULL) {
         PsiAnnotation notNullAnnotation = info.getAnnotation();
-        boolean physical = PsiTreeUtil.isAncestor(parameter, notNullAnnotation, true);
-        elementToHighlight = physical ? notNullAnnotation : parameter.getNameIdentifier();
+        boolean physical = PsiTreeUtil.isAncestor(owner, notNullAnnotation, true);
+        elementToHighlight = physical ? notNullAnnotation : owner.getNameIdentifier();
       }
     }
-    else if (DfaPsiUtil.getTypeNullability(parameter.getType()) == Nullability.NOT_NULL) {
-      elementToHighlight = parameter.getNameIdentifier();
+    else if (DfaPsiUtil.getTypeNullability(owner.getType()) == Nullability.NOT_NULL) {
+      elementToHighlight = owner.getNameIdentifier();
     }
     if (elementToHighlight == null || !JavaNullMethodArgumentUtil.hasNullArgument(method, parameterIdx)) return;
 

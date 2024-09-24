@@ -1,7 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.modcommand;
 
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.project.Project;
@@ -12,7 +13,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Context in which the action is invoked
+ * Context in which the action is invoked.
  *
  * @param project   current project
  * @param file      current file
@@ -81,6 +82,20 @@ public record ActionContext(
     int end = model.getSelectionEnd();
     return new ActionContext(file.getProject(), file, editor.getCaretModel().getOffset(),
                              TextRange.create(start, Math.max(end, start)), null);
+  }
+
+  /**
+   * @param injectedFile a file injected somewhere inside the {@link #file()}
+   * @return a new {@link ActionContext} which is bound to the injected file, rather than the host file.
+   */
+  public @NotNull ActionContext mapToInjected(@NotNull PsiFile injectedFile) {
+    if (!(injectedFile.getFileDocument() instanceof DocumentWindow documentWindow)) {
+      throw new IllegalArgumentException("Not injected: " + injectedFile);
+    }
+    int offset = this.offset >= 0 ? documentWindow.hostToInjected(this.offset) : this.offset;
+    int start = this.selection.getStartOffset() >= 0 ? documentWindow.hostToInjected(this.selection.getStartOffset()) : this.selection.getStartOffset();
+    int end = this.selection.getEndOffset() >= 0 ? documentWindow.hostToInjected(this.selection.getEndOffset()) : this.selection.getEndOffset();
+    return new ActionContext(project, injectedFile, offset, new TextRange(start, end), element);
   }
 
   /**

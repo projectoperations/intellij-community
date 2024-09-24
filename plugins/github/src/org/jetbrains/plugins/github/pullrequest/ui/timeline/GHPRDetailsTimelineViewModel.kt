@@ -1,22 +1,17 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.github.pullrequest.ui.timeline
 
-import com.intellij.collaboration.async.CompletableFutureUtil
-import com.intellij.collaboration.async.mapScoped
 import com.intellij.collaboration.async.stateInNow
 import com.intellij.collaboration.ui.codereview.comment.CodeReviewSubmittableTextViewModelBase
 import com.intellij.collaboration.ui.codereview.comment.CodeReviewTextEditingViewModel
 import com.intellij.collaboration.ui.icon.IconsProvider
 import com.intellij.collaboration.util.ComputedResult
 import com.intellij.collaboration.util.getOrNull
-import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.collaboration.util.map
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.util.io.await
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import org.jetbrains.plugins.github.api.data.GHReactionContent
 import org.jetbrains.plugins.github.api.data.GHUser
@@ -26,6 +21,7 @@ import org.jetbrains.plugins.github.pullrequest.data.GHPRDataContext
 import org.jetbrains.plugins.github.pullrequest.data.GHReactionsService
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDataProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDetailsDataProvider
+import org.jetbrains.plugins.github.pullrequest.data.provider.detailsComputationFlow
 import org.jetbrains.plugins.github.pullrequest.ui.details.model.GHPRDetailsFull
 import org.jetbrains.plugins.github.pullrequest.ui.emoji.GHReactionViewModelImpl
 import org.jetbrains.plugins.github.pullrequest.ui.emoji.GHReactionsViewModel
@@ -40,33 +36,16 @@ class GHPRDetailsTimelineViewModel internal constructor(private val project: Pro
   private val reactionsService: GHReactionsService = dataContext.reactionsService
   private val reactionIconsProvider: IconsProvider<GHReactionContent> = dataContext.reactionIconsProvider
 
-  val details: StateFlow<ComputedResult<GHPRDetailsFull>> = channelFlow<ComputedResult<GHPRDetailsFull>> {
-    val disposable = Disposer.newDisposable()
-    dataProvider.detailsData.loadDetails(disposable) {
-      if (!it.isDone) {
-        trySend(ComputedResult.loading())
-      }
-      it.handle { res, err ->
-        if (err != null && !CompletableFutureUtil.isCancellation(err)) {
-          trySend(ComputedResult.failure(err.cause ?: err))
-        }
-        else {
-          val details = createDetails(res)
-          trySend(ComputedResult.success(details))
-        }
-      }
-    }
-    awaitClose { Disposer.dispose(disposable) }
-  }.stateIn(cs, SharingStarted.Eagerly, ComputedResult.loading())
+  val details: StateFlow<ComputedResult<GHPRDetailsFull>> =
+    dataProvider.detailsData.detailsComputationFlow.map { it.map(::createDetails) }
+      .stateInNow(cs, ComputedResult.loading())
 
   private val _descriptionEditVm = MutableStateFlow<GHPREditDescriptionViewModel?>(null)
   val descriptionEditVm: StateFlow<GHPREditDescriptionViewModel?> = _descriptionEditVm.asStateFlow()
 
-  val reactionsVm: Flow<GHReactionsViewModel?> = details.mapScoped {
-    val details = details.value.getOrNull() ?: return@mapScoped null
-    val prId = details.id.id
-    GHReactionViewModelImpl(this, prId, MutableStateFlow(details.reactions), currentUser, reactionsService, reactionIconsProvider)
-  }.stateInNow(cs, null)
+  private val loadedReactionsState = details.map { it.getOrNull() }.filterNotNull().map { it.reactions }.stateInNow(cs, emptyList())
+  val reactionsVm: GHReactionsViewModel =
+    GHReactionViewModelImpl(cs, dataProvider.id.id, loadedReactionsState, currentUser, reactionsService, reactionIconsProvider)
 
   private fun createDetails(data: GHPullRequest): GHPRDetailsFull = GHPRDetailsFull(
     dataProvider.id,
@@ -96,15 +75,15 @@ class GHPRDetailsTimelineViewModel internal constructor(private val project: Pro
   }
 }
 
-class GHPREditDescriptionViewModel(project: Project,
-                                   parentCs: CoroutineScope,
-                                   private val detailsData: GHPRDetailsDataProvider,
-                                   initialText: String,
-                                   private val onDone: () -> Unit)
+class GHPREditDescriptionViewModel internal constructor(project: Project,
+                                                        parentCs: CoroutineScope,
+                                                        private val detailsData: GHPRDetailsDataProvider,
+                                                        initialText: String,
+                                                        private val onDone: () -> Unit)
   : CodeReviewSubmittableTextViewModelBase(project, parentCs, initialText), CodeReviewTextEditingViewModel {
   override fun save() {
     submit {
-      detailsData.updateDetails(EmptyProgressIndicator(), description = it).await()
+      detailsData.updateDetails(description = it)
       onDone()
     }
   }

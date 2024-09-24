@@ -8,6 +8,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.java.compiler.AnnotationProcessingConfiguration;
+import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
 
 import java.util.List;
 
@@ -37,8 +38,14 @@ public abstract class CompilerConfiguration {
   /**
    * Explicitly set parallel value property. The value will be written to user-local settings file (workspace.xml)
    * This value will override any value set in shared settings.
+   * @deprecated use {@link #setParallelCompilationOption(ParallelCompilationOption)} instead
    */
+  @Deprecated
   public abstract void setParallelCompilationEnabled(boolean enabled);
+
+  @NotNull
+  public abstract ParallelCompilationOption getParallelCompilationOption();
+  public abstract void setParallelCompilationOption(@NotNull ParallelCompilationOption option);
 
   @Nullable
   public abstract String getBytecodeTargetLevel(Module module);
@@ -53,6 +60,11 @@ public abstract class CompilerConfiguration {
 
   @NotNull
   public abstract AnnotationProcessingConfiguration getAnnotationProcessingConfiguration(Module module);
+
+  /**
+   * Adds a new empty annotation processing profile with the given name and returns the created instance.
+   */
+  public abstract @NotNull ProcessorConfigProfile addNewProcessorProfile(@NotNull String profileName);
 
   /**
    * Returns true if at least one enabled annotation processing profile exists.

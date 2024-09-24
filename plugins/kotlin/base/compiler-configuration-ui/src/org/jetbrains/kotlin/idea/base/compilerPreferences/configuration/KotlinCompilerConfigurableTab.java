@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.base.compilerPreferences.configuration;
 
@@ -59,6 +59,8 @@ import javax.swing.*;
 import javax.swing.event.PopupMenuEvent;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.intellij.openapi.options.Configurable.isCheckboxModified;
 import static com.intellij.openapi.options.Configurable.isFieldModified;
@@ -150,8 +152,10 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
         warningLabel.setIcon(AllIcons.General.WarningDialog);
 
         additionalArgsOptionsField.attachLabel(additionalArgsLabel);
-        kotlinJpsPluginVersionComboBox.addActionListener(
-                e -> onLanguageLevelChanged(getSelectedKotlinJpsPluginVersionView()));
+        if (isJpsCompilerVisible()) {
+            kotlinJpsPluginVersionComboBox.addActionListener(
+                    e -> onLanguageLevelChanged(getSelectedKotlinJpsPluginVersionView()));
+        }
 
         fillVersions();
 
@@ -309,16 +313,8 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
             boolean forFiles
     ) {
         label.setLabelFor(fileChooser);
-
-        fileChooser.addBrowseFolderListener(title, null, null,
-                                            new FileChooserDescriptor(forFiles, !forFiles, false, false, false, false),
-                                            TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT);
-    }
-
-    private static boolean isBrowseFieldModifiedWithNullize(@NotNull TextFieldWithBrowseButton chooser, @Nullable String currentValue) {
-        return !StringUtil.equals(
-                StringUtil.nullize(chooser.getText(), true),
-                StringUtil.nullize(currentValue, true));
+        var descriptor = new FileChooserDescriptor(forFiles, !forFiles, false, false, false, false).withTitle(title);
+        fileChooser.addBrowseFolderListener(null, descriptor, TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT);
     }
 
     private static boolean isBrowseFieldModified(@NotNull TextFieldWithBrowseButton chooser, @NotNull String currentValue) {
@@ -371,14 +367,18 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
         }
 
         apiVersionComboBox.setModel(new MutableCollectionComboBoxModel<>(permittedAPIVersions));
-        languageVersionComboBox.setModel(new MutableCollectionComboBoxModel<>(permittedAPIVersions));
+        if (isJpsCompilerVisible()) {
+            languageVersionComboBox.setModel(new MutableCollectionComboBoxModel<>(permittedAPIVersions));
+        }
 
         VersionView selectedItem =
                 VersionComparatorUtil.compare(selectedAPIVersion.getVersionString(), upperBound.getVersionString()) <= 0
                 ? selectedAPIView
                 : upperBoundView;
         apiVersionComboBox.setSelectedItem(selectedItem);
-        languageVersionComboBox.setSelectedItem(selectedItem);
+        if (isJpsCompilerVisible()) {
+            languageVersionComboBox.setSelectedItem(selectedItem);
+        }
     }
 
     private void fillJvmVersionList() {
@@ -430,8 +430,12 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
                 });
     }
 
+    private boolean isJpsCompilerVisible() {
+        return isProjectSettings && jpsPluginSettings != null;
+    }
+
     private void fillVersions() {
-        if (isProjectSettings && jpsPluginSettings != null) {
+        if (isJpsCompilerVisible()) {
             defaultJpsVersionItem = JpsVersionItem.createFromRawVersion(
                     KotlinJpsPluginSettingsKt.getVersionWithFallback(jpsPluginSettings)
             );
@@ -675,7 +679,7 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
                     !getSelectedKotlinJpsPluginVersion().equals(KotlinJpsPluginSettingsKt.getVersionWithFallback(jpsPluginSettings)) ||
                     !additionalArgsOptionsField.getText().equals(compilerSettings.getAdditionalArguments());
 
-            if (shouldInvalidateCaches) {
+            if (!project.isDefault() && shouldInvalidateCaches) {
                 ApplicationUtilsKt.runWriteAction(
                         new Function0<>() {
                             @Override
@@ -701,6 +705,7 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
         if (compilerWorkspaceSettings != null) {
             compilerWorkspaceSettings.setPreciseIncrementalEnabled(enableIncrementalCompilationForJvmCheckBox.isSelected());
             compilerWorkspaceSettings.setIncrementalCompilationForJsEnabled(enableIncrementalCompilationForJsCheckBox.isSelected());
+            compilerWorkspaceSettings.setDaemonVmOptions(extractDaemonVmOptions());
 
             boolean oldEnableDaemon = compilerWorkspaceSettings.getEnableDaemon();
             compilerWorkspaceSettings.setEnableDaemon(keepAliveCheckBox.isSelected());
@@ -735,7 +740,9 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
             KotlinCompilerSettings.getInstance(project).setSettings(compilerSettings);
         }
 
-        BuildManager.getInstance().clearState(project);
+        if (!project.isDefault()) {
+            BuildManager.getInstance().clearState(project);
+        }
     }
 
     @Override
@@ -749,12 +756,15 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
         if (jpsPluginSettings != null) {
             setSelectedItem(kotlinJpsPluginVersionComboBox, defaultJpsVersionItem);
         }
+        // This call adds the correct values to the language/apiVersion dropdown based on the compiler version.
+        // It also selects some values of the dropdown, but we want to choose the values reflecting the current settings afterward.
+        onLanguageLevelChanged(getSelectedKotlinJpsPluginVersionView()); // getSelectedLanguageVersionView() replaces null
+
         if (!commonCompilerArguments.getAutoAdvanceLanguageVersion()) {
             setSelectedItem(languageVersionComboBox, KotlinFacetSettingsKt.getLanguageVersionView(commonCompilerArguments));
         } else {
             setSelectedItem(languageVersionComboBox, getLatestStableVersion());
         }
-        onLanguageLevelChanged((VersionView) languageVersionComboBox.getSelectedItem()); // getSelectedLanguageVersionView() replaces null
         if (!commonCompilerArguments.getAutoAdvanceApiVersion()) {
             setSelectedItem(apiVersionComboBox, KotlinFacetSettingsKt.getApiVersionView(commonCompilerArguments));
         } else {
@@ -948,5 +958,26 @@ public class KotlinCompilerConfigurableTab implements SearchableConfigurable {
                     return null;
                 }).installOn(component);
         component.addActionListener(e -> ComponentValidator.getInstance(component).ifPresent(ComponentValidator::revalidate));
+    }
+
+    // Expected format is
+    // -XdaemonVmOptions=-Xmx6000m for one argument
+    // and
+    // -XdaemonVmOptions=\"-Xmx6000m -XX:HeapDumpPath=kotlin-build-process-heap-dump.hprof -XX:+HeapDumpOnOutOfMemoryError\"
+    // for multiple
+    private @NotNull String extractDaemonVmOptions() {
+        String additionalOptions = getAdditionalArgsOptionsField().getText();
+        if (additionalOptions.contains("-XdaemonVmOptions")) {
+            Pattern pattern = Pattern.compile("-XdaemonVmOptions=(?:\"([^\"]*)\"|([^\\s]*))");
+            Matcher matcher = pattern.matcher(additionalOptions);
+
+            if (matcher.find()) {
+                String daemonArguments = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+                if (daemonArguments != null) {
+                    return daemonArguments;
+                }
+            }
+        }
+        return "";
     }
 }

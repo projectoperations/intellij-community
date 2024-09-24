@@ -5,10 +5,10 @@ import com.intellij.compiler.CompilerTestUtil;
 import com.intellij.openapi.compiler.CompilerMessage;
 import com.intellij.openapi.compiler.CompilerMessageCategory;
 import com.intellij.openapi.module.ModuleManager;
-import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.testFramework.CompilerTester;
+import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase;
 
@@ -28,7 +28,7 @@ public abstract class AbstractCompilerAwareTest extends JavaCodeInsightFixtureTe
   protected void setUp() throws Exception {
     super.setUp();
 
-    LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_11);
+    IdeaTestUtil.setProjectLanguageLevel(getProject(), LanguageLevel.JDK_11);
   }
 
   @Override
@@ -57,6 +57,12 @@ public abstract class AbstractCompilerAwareTest extends JavaCodeInsightFixtureTe
 
   protected void rebuildProject() {
     for (final CompilerMessage compilerMessage : myCompilerTester.rebuild()) {
+      if (compilerMessage.getMessage().contains("Kotlin compile daemon is ready")) {
+        // For Kotlin, this error does not indicate that the compilation failed and can be ignored.
+        // It will start a second daemon that should compile the project correctly.
+        // See KT-69929
+        continue;
+      }
       assertNotSame("File: " + compilerMessage.getVirtualFile() + ", " + compilerMessage.getMessage(),
                     CompilerMessageCategory.ERROR, compilerMessage.getCategory());
     }

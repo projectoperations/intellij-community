@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.highlighting;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
@@ -14,6 +14,8 @@ import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.paths.WebReference;
 import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
@@ -75,7 +77,14 @@ public class HyperlinkAnnotator implements Annotator, DumbAware {
 
   private static final Key<ParameterizedCachedValue<List<PsiReference>, PsiElement>> REFS_KEY = Key.create("HyperlinkAnnotator");
   private static final ParameterizedCachedValueProvider<List<PsiReference>, PsiElement> REFS_PROVIDER = element -> {
-    List<PsiReference> references = PsiReferenceService.getService().getReferences(element, Hints.HIGHLIGHTED_REFERENCES);
+    List<PsiReference> references;
+    try {
+      references = PsiReferenceService.getService().getReferences(element, Hints.HIGHLIGHTED_REFERENCES);
+    }
+    catch (IndexNotReadyException ignored) {
+      return Result.create(emptyList(), DumbService.getInstance(element.getProject()));
+    }
+
     if (references.isEmpty()) references = emptyList();
     return Result.create(references, PsiModificationTracker.MODIFICATION_COUNT);
   };
@@ -122,10 +131,8 @@ public class HyperlinkAnnotator implements Annotator, DumbAware {
     return hasUnprocessedReferences;
   }
 
-  @Nls
-  @NotNull
   @ApiStatus.Internal
-  public static String getMessage() {
+  public static @Nls @NotNull String getMessage() {
     String message = IdeBundle.message("open.url.in.browser.tooltip");
     Shortcut[] shortcuts = requireNonNull(KeymapManager.getInstance()).getActiveKeymap().getShortcuts(IdeActions.ACTION_GOTO_DECLARATION);
     String shortcutText = "";

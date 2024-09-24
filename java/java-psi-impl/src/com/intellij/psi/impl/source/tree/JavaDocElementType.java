@@ -5,6 +5,7 @@ import com.intellij.lang.ASTNode;
 import com.intellij.lang.java.JavaParserDefinition;
 import com.intellij.lang.java.lexer.BasicJavaLexer;
 import com.intellij.lang.java.lexer.JavaDocLexer;
+import com.intellij.lang.java.lexer.JavaTypeEscapeLexer;
 import com.intellij.lang.java.parser.JavaParser;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.pom.java.LanguageLevel;
@@ -56,6 +57,8 @@ public interface JavaDocElementType {
   IElementType DOC_SNIPPET_ATTRIBUTE_LIST =
     new JavaDocCompositeElementType("DOC_SNIPPET_ATTRIBUTE_LIST", () -> new PsiSnippetAttributeListImpl(), BasicJavaDocElementType.BASIC_DOC_SNIPPET_ATTRIBUTE_LIST);
   IElementType DOC_SNIPPET_ATTRIBUTE_VALUE = new JavaDocParentProviderElementType("DOC_SNIPPET_ATTRIBUTE_VALUE", BasicJavaDocElementType.BASIC_DOC_SNIPPET_ATTRIBUTE_VALUE);
+  IElementType DOC_MARKDOWN_CODE_BLOCK = new JavaDocCompositeElementType("DOC_CODE_BLOCK", () -> new PsiMarkdownCodeBlockImpl(), BasicJavaDocElementType.BASIC_DOC_MARKDOWN_CODE_BLOCK);
+  IElementType DOC_MARKDOWN_REFERENCE_LINK = new JavaDocCompositeElementType("DOC_REFERENCE_LINK", () -> new PsiMarkdownReferenceLinkImpl(), BasicJavaDocElementType.BASIC_DOC_MARKDOWN_REFERENCE_LINK);
 
   ILazyParseableElementType DOC_REFERENCE_HOLDER = new BasicJavaDocElementType.DocReferenceHolderElementType(
     () -> JavaParser.INSTANCE,
@@ -66,7 +69,7 @@ public interface JavaDocElementType {
   ILazyParseableElementType DOC_TYPE_HOLDER = new BasicJavaDocElementType.DocTypeHolderElementType(
     () -> JavaParser.INSTANCE,
     (level) -> (JavaDocLexer)JavaParserDefinition.createDocLexer(level),
-    (level) -> (BasicJavaLexer)JavaParserDefinition.createLexer(level)
+    (level) -> (JavaTypeEscapeLexer)JavaParserDefinition.createLexerWithMarkdownEscape(level)
   );
 
   ILazyParseableElementType DOC_COMMENT = new BasicJavaDocElementType.DocCommentElementType(

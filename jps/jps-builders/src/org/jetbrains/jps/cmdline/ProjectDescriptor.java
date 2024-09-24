@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.cmdline;
 
 import org.jetbrains.jps.builders.BuildRootIndex;
+import org.jetbrains.jps.builders.BuildTarget;
 import org.jetbrains.jps.builders.BuildTargetIndex;
 import org.jetbrains.jps.builders.logging.BuildLoggingManager;
 import org.jetbrains.jps.incremental.CompilerEncodingConfiguration;
@@ -42,8 +29,9 @@ public final class ProjectDescriptor {
   private final JpsProject myProject;
   private final JpsModel myModel;
   public final BuildFSState fsState;
-  private final ProjectStamps myProjectStamps;
   public final BuildDataManager dataManager;
+  private final ProjectStamps myProjectStamps;
+
   private final BuildLoggingManager myLoggingManager;
   private final ModuleExcludeIndex myModuleExcludeIndex;
   private int myUseCounter = 1;
@@ -58,13 +46,16 @@ public final class ProjectDescriptor {
                            ProjectStamps projectStamps,
                            BuildDataManager dataManager,
                            BuildLoggingManager loggingManager,
-                           final ModuleExcludeIndex moduleExcludeIndex,
-                           final BuildTargetIndex buildTargetIndex, final BuildRootIndex buildRootIndex, IgnoredFileIndex ignoredFileIndex) {
+                           ModuleExcludeIndex moduleExcludeIndex,
+                           BuildTargetIndex buildTargetIndex,
+                           BuildRootIndex buildRootIndex,
+                           IgnoredFileIndex ignoredFileIndex) {
     myModel = model;
     myIgnoredFileIndex = ignoredFileIndex;
     myProject = model.getProject();
     this.fsState = fsState;
     myProjectStamps = projectStamps;
+    dataManager.fileStampService = projectStamps;
     this.dataManager = dataManager;
     myBuildTargetIndex = buildTargetIndex;
     myBuildRootIndex = buildRootIndex;
@@ -112,6 +103,7 @@ public final class ProjectDescriptor {
     myUseCounter++;
   }
 
+  @SuppressWarnings("UseOfSystemOutOrSystemErr")
   public void release() {
     boolean shouldClose;
     synchronized (this) {
@@ -120,15 +112,10 @@ public final class ProjectDescriptor {
     }
     if (shouldClose) {
       try {
-        myProjectStamps.close();
+        dataManager.close();
       }
-      finally {
-        try {
-          dataManager.close();
-        }
-        catch (IOException e) {
-          e.printStackTrace(System.err);
-        }
+      catch (IOException e) {
+        e.printStackTrace(System.err);
       }
     }
   }
@@ -145,7 +132,12 @@ public final class ProjectDescriptor {
     return myProject;
   }
 
+  /**
+   * @deprecated Use {@link BuildDataManager#getFileStampStorage(BuildTarget)}.
+   */
+  @Deprecated(forRemoval = true)
   public ProjectStamps getProjectStamps() {
-    return myProjectStamps;
+    //noinspection removal
+    return dataManager.getFileStampService();
   }
 }

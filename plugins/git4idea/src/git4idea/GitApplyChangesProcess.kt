@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea
 
 import com.intellij.dvcs.DvcsUtil
@@ -25,7 +25,6 @@ import com.intellij.openapi.vcs.update.RefreshVFsSynchronously
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.ui.UIUtil
 import com.intellij.vcs.log.VcsCommitMetadata
-import com.intellij.vcs.log.VcsFullCommitDetails
 import com.intellij.vcs.log.util.VcsUserUtil
 import com.intellij.xml.util.XmlStringUtil.wrapInHtml
 import com.intellij.xml.util.XmlStringUtil.wrapInHtmlTag
@@ -58,19 +57,21 @@ import java.util.concurrent.atomic.AtomicBoolean
  * waits for the [ChangeListManager] update, shows the commit dialog and removes the changelist after commit,
  * if the commit was successful.
  */
-internal class GitApplyChangesProcess(private val project: Project,
-                                      private val commits: List<VcsFullCommitDetails>,
-                                      forceAutoCommit: Boolean,
-                                      @Nls private val operationName: String,
-                                      @Nls private val appliedWord: String,
-                                      private val command: (GitRepository, VcsCommitMetadata, autoCommit: Boolean, List<GitLineHandlerListener>) -> GitCommandResult,
-                                      private val abortCommand: GitAbortOperationAction,
-                                      private val emptyCommitDetector: (GitCommandResult) -> Boolean,
-                                      private val defaultCommitMessageGenerator: (GitRepository, VcsFullCommitDetails) -> @NonNls String,
-                                      private val preserveCommitMetadata: Boolean,
-                                      private val cleanupBeforeCommit: (GitRepository, autoCommit: Boolean) -> Unit = { _, _ -> },
-                                      private val activityName: @NlsContexts.Label String,
-                                      private val activityId: ActivityId) {
+internal class GitApplyChangesProcess(
+  private val project: Project,
+  private val commits: List<VcsCommitMetadata>,
+  forceAutoCommit: Boolean,
+  @Nls private val operationName: String,
+  @Nls private val appliedWord: String,
+  private val command: (GitRepository, VcsCommitMetadata, autoCommit: Boolean, List<GitLineHandlerListener>) -> GitCommandResult,
+  private val abortCommand: GitAbortOperationAction,
+  private val emptyCommitDetector: (GitCommandResult) -> Boolean,
+  private val defaultCommitMessageGenerator: (GitRepository, VcsCommitMetadata) -> @NonNls String,
+  private val preserveCommitMetadata: Boolean,
+  private val cleanupBeforeCommit: (GitRepository, autoCommit: Boolean) -> Unit = { _, _ -> },
+  private val activityName: @NlsContexts.Label String,
+  private val activityId: ActivityId,
+) {
   private val repositoryManager = GitRepositoryManager.getInstance(project)
   private val vcsNotifier = VcsNotifier.getInstance(project)
   private val changeListManager = ChangeListManagerEx.getInstanceEx(project)
@@ -90,8 +91,8 @@ internal class GitApplyChangesProcess(private val project: Project,
     val commitsInRoots = DvcsUtil.groupCommitsByRoots(repositoryManager, commits)
     LOG.info("${operationName}ing commits: " + toString(commitsInRoots))
 
-    val successfulCommits = mutableListOf<VcsFullCommitDetails>()
-    val skippedCommits = mutableListOf<VcsFullCommitDetails>()
+    val successfulCommits = mutableListOf<VcsCommitMetadata>()
+    val skippedCommits = mutableListOf<VcsCommitMetadata>()
 
     repoLoop@ for ((repository, repoCommits) in commitsInRoots) {
       try {
@@ -110,10 +111,12 @@ internal class GitApplyChangesProcess(private val project: Project,
   /**
    * @return true to continue with other commits, false to break execution
    */
-  private fun executeForCommit(repository: GitRepository,
-                               commit: VcsFullCommitDetails,
-                               successfulCommits: MutableList<VcsFullCommitDetails>,
-                               alreadyPicked: MutableList<VcsFullCommitDetails>): Boolean {
+  private fun executeForCommit(
+    repository: GitRepository,
+    commit: VcsCommitMetadata,
+    successfulCommits: MutableList<VcsCommitMetadata>,
+    alreadyPicked: MutableList<VcsCommitMetadata>,
+  ): Boolean {
     val conflictDetector = GitSimpleEventDetector(CHERRY_PICK_CONFLICT)
     val localChangesOverwrittenDetector = GitSimpleEventDetector(LOCAL_CHANGES_OVERWRITTEN_BY_CHERRY_PICK)
     val untrackedFilesDetector = GitUntrackedFilesOverwrittenByOperationDetector(repository.root)
@@ -204,15 +207,19 @@ internal class GitApplyChangesProcess(private val project: Project,
   private abstract class CommitStrategy {
     open fun start() = Unit
     open fun finish() = Unit
-    abstract fun doUserCommit(successfulCommits: MutableList<VcsFullCommitDetails>,
-                              alreadyPicked: MutableList<VcsFullCommitDetails>): Boolean
+    abstract fun doUserCommit(
+      successfulCommits: MutableList<VcsCommitMetadata>,
+      alreadyPicked: MutableList<VcsCommitMetadata>,
+    ): Boolean
 
     open fun afterChangesRefreshed() = Unit
   }
 
-  private inner class ChangeListCommit(val repository: GitRepository,
-                                       val commit: VcsFullCommitDetails,
-                                       val commitMessage: String) : CommitStrategy() {
+  private inner class ChangeListCommit(
+    val repository: GitRepository,
+    val commit: VcsCommitMetadata,
+    val commitMessage: String,
+  ) : CommitStrategy() {
     lateinit var changeList: LocalChangeList
     lateinit var previousDefaultChangelist: LocalChangeList
 
@@ -230,17 +237,23 @@ internal class GitApplyChangesProcess(private val project: Project,
       changeListManager.scheduleAutomaticEmptyChangeListDeletion(changeList, true)
     }
 
-    override fun doUserCommit(successfulCommits: MutableList<VcsFullCommitDetails>,
-                              alreadyPicked: MutableList<VcsFullCommitDetails>): Boolean {
+    override fun doUserCommit(
+      successfulCommits: MutableList<VcsCommitMetadata>,
+      alreadyPicked: MutableList<VcsCommitMetadata>,
+    ): Boolean {
       return commitChangelist(repository, commit, commitMessage, changeList, successfulCommits, alreadyPicked)
     }
   }
 
-  private inner class SimplifiedCommit(val repository: GitRepository,
-                                       val commit: VcsFullCommitDetails,
-                                       val commitMessage: String) : CommitStrategy() {
-    override fun doUserCommit(successfulCommits: MutableList<VcsFullCommitDetails>,
-                              alreadyPicked: MutableList<VcsFullCommitDetails>): Boolean {
+  private inner class SimplifiedCommit(
+    val repository: GitRepository,
+    val commit: VcsCommitMetadata,
+    val commitMessage: String,
+  ) : CommitStrategy() {
+    override fun doUserCommit(
+      successfulCommits: MutableList<VcsCommitMetadata>,
+      alreadyPicked: MutableList<VcsCommitMetadata>,
+    ): Boolean {
       val list = changeListManager.defaultChangeList
       return commitChangelist(repository, commit, commitMessage, list, successfulCommits, alreadyPicked)
     }
@@ -255,11 +268,15 @@ internal class GitApplyChangesProcess(private val project: Project,
     }
   }
 
-  private class StagingAreaCommit(val repository: GitRepository,
-                                  val commit: VcsFullCommitDetails,
-                                  val commitMessage: String) : CommitStrategy() {
-    override fun doUserCommit(successfulCommits: MutableList<VcsFullCommitDetails>,
-                              alreadyPicked: MutableList<VcsFullCommitDetails>): Boolean {
+  private class StagingAreaCommit(
+    val repository: GitRepository,
+    val commit: VcsCommitMetadata,
+    val commitMessage: String,
+  ) : CommitStrategy() {
+    override fun doUserCommit(
+      successfulCommits: MutableList<VcsCommitMetadata>,
+      alreadyPicked: MutableList<VcsCommitMetadata>,
+    ): Boolean {
       runInEdt {
         showStagingArea(repository.project, commitMessage)
       }
@@ -267,12 +284,14 @@ internal class GitApplyChangesProcess(private val project: Project,
     }
   }
 
-  private fun commitChangelist(repository: GitRepository,
-                               commit: VcsFullCommitDetails,
-                               commitMessage: String,
-                               changeList: LocalChangeList,
-                               successfulCommits: MutableList<VcsFullCommitDetails>,
-                               alreadyPicked: MutableList<VcsFullCommitDetails>): Boolean {
+  private fun commitChangelist(
+    repository: GitRepository,
+    commit: VcsCommitMetadata,
+    commitMessage: String,
+    changeList: LocalChangeList,
+    successfulCommits: MutableList<VcsCommitMetadata>,
+    alreadyPicked: MutableList<VcsCommitMetadata>,
+  ): Boolean {
     val actualList = changeListManager.getChangeList(changeList.id)
     if (actualList == null) {
       LOG.error("Couldn't find the changelist with id ${changeList.id} and name ${changeList.name} among " +
@@ -313,10 +332,12 @@ internal class GitApplyChangesProcess(private val project: Project,
     VcsDirtyScopeManager.getInstance(project).filePathsDirty(ChangesUtil.getPaths(changes), null)
   }
 
-  private fun showCommitDialogAndWaitForCommit(repository: GitRepository,
-                                               changeList: LocalChangeList,
-                                               commitMessage: String,
-                                               changes: Collection<Change>): Boolean {
+  private fun showCommitDialogAndWaitForCommit(
+    repository: GitRepository,
+    changeList: LocalChangeList,
+    commitMessage: String,
+    changes: Collection<Change>,
+  ): Boolean {
     val commitSucceeded = AtomicBoolean()
     val sem = Semaphore(0)
     ApplicationManager.getApplication().invokeAndWait({
@@ -364,9 +385,13 @@ internal class GitApplyChangesProcess(private val project: Project,
     return commitSucceeded.get()
   }
 
-  private fun createChangeListData(commit: VcsFullCommitDetails) = ChangeListData(commit.author, Date(commit.authorTime))
+  private fun createChangeListData(commit: VcsCommitMetadata): ChangeListData {
+    return ChangeListData(author = commit.author,
+                          date = Date(commit.authorTime),
+                          automatic = true)
+  }
 
-  private fun notifyResult(successfulCommits: List<VcsFullCommitDetails>, skipped: List<VcsFullCommitDetails>) {
+  private fun notifyResult(successfulCommits: List<VcsCommitMetadata>, skipped: List<VcsCommitMetadata>) {
     when {
       skipped.isEmpty() -> {
         vcsNotifier.notifySuccess(null,
@@ -386,16 +411,18 @@ internal class GitApplyChangesProcess(private val project: Project,
     }
   }
 
-  private fun notifyConflictWarning(repository: GitRepository,
-                                    commit: VcsFullCommitDetails,
-                                    successfulCommits: List<VcsFullCommitDetails>) {
+  private fun notifyConflictWarning(
+    repository: GitRepository,
+    commit: VcsCommitMetadata,
+    successfulCommits: List<VcsCommitMetadata>,
+  ) {
     val title = GitBundle.message("apply.changes.operation.performed.with.conflicts", operationName.capitalize())
 
     var description = commitDetails(commit)
     description += UIUtil.BR + GitBundle.message("apply.changes.unresolved.conflicts.text")
     description += getSuccessfulCommitDetailsIfAny(successfulCommits)
 
-    val notification = VcsNotifier.IMPORTANT_ERROR_NOTIFICATION
+    val notification = VcsNotifier.importantNotification()
       .createNotification(title, description, NotificationType.WARNING)
       .addAction(NotificationAction.createSimple(GitBundle.message("apply.changes.unresolved.conflicts.notification.resolve.action.text")) {
         val hash = commit.id.toShortString()
@@ -412,7 +439,7 @@ internal class GitApplyChangesProcess(private val project: Project,
     VcsNotifier.getInstance(project).notify(notification)
   }
 
-  private fun notifyCommitCancelled(commit: VcsFullCommitDetails, successfulCommits: List<VcsFullCommitDetails>) {
+  private fun notifyCommitCancelled(commit: VcsCommitMetadata, successfulCommits: List<VcsCommitMetadata>) {
     if (successfulCommits.isEmpty()) {
       // don't notify about cancelled commit. Notify just in the case when there were already successful commits in the queue.
       return
@@ -422,16 +449,18 @@ internal class GitApplyChangesProcess(private val project: Project,
     vcsNotifier.notifyMinorWarning(GitNotificationIdsHolder.COMMIT_CANCELLED, GitBundle.message("apply.changes.operation.canceled", operationName.capitalize()), description)
   }
 
-  private fun notifyError(@Nls content: String,
-                          failedCommit: VcsFullCommitDetails,
-                          successfulCommits: List<VcsFullCommitDetails>) {
+  private fun notifyError(
+    @Nls content: String,
+    failedCommit: VcsCommitMetadata,
+    successfulCommits: List<VcsCommitMetadata>,
+  ) {
     var description = commitDetails(failedCommit) + UIUtil.BR + content
     description += getSuccessfulCommitDetailsIfAny(successfulCommits)
     vcsNotifier.notifyError(null, GitBundle.message("apply.changes.operation.failed", operationName.capitalize()), description)
   }
 
   @Nls
-  private fun getSuccessfulCommitDetailsIfAny(successfulCommits: List<VcsFullCommitDetails>): String {
+  private fun getSuccessfulCommitDetailsIfAny(successfulCommits: List<VcsCommitMetadata>): String {
     var description = ""
     if (successfulCommits.isNotEmpty()) {
       description += UIUtil.HR +
@@ -443,7 +472,7 @@ internal class GitApplyChangesProcess(private val project: Project,
   }
 
   @Nls
-  private fun formSkippedDescription(skipped: List<VcsFullCommitDetails>, but: Boolean): String {
+  private fun formSkippedDescription(skipped: List<VcsCommitMetadata>, but: Boolean): String {
     val hashes = StringUtil.join(skipped, { commit -> commit.id.toShortString() }, ", ")
     if (but) {
       return GitBundle.message("apply.changes.skipped", hashes, skipped.size, appliedWord)
@@ -452,7 +481,7 @@ internal class GitApplyChangesProcess(private val project: Project,
   }
 
   @NlsSafe
-  private fun getCommitsDetails(successfulCommits: List<VcsFullCommitDetails>): String {
+  private fun getCommitsDetails(successfulCommits: List<VcsCommitMetadata>): String {
     var description = ""
     for (commit in successfulCommits) {
       if (description.isNotEmpty()) description += UIUtil.BR
@@ -462,23 +491,24 @@ internal class GitApplyChangesProcess(private val project: Project,
   }
 
   @NlsSafe
-  private fun commitDetails(commit: VcsFullCommitDetails): String {
+  private fun commitDetails(commit: VcsCommitMetadata): String {
     return commit.id.toShortString() + " " + StringUtil.escapeXmlEntities(commit.subject)
   }
 
-  private fun toString(commitsInRoots: Map<GitRepository, List<VcsFullCommitDetails>>): String {
+  private fun toString(commitsInRoots: Map<GitRepository, List<VcsCommitMetadata>>): String {
     return commitsInRoots.entries.joinToString("; ") { entry ->
       val commits = entry.value.joinToString { it.id.asString() }
       getShortRepositoryName(entry.key) + ": [" + commits + "]"
     }
   }
 
-  class ConflictResolver(project: Project,
-                         root: VirtualFile,
-                         commitHash: String,
-                         commitAuthor: String,
-                         commitMessage: String,
-                         @Nls operationName: String
+  class ConflictResolver(
+    project: Project,
+    root: VirtualFile,
+    commitHash: String,
+    commitAuthor: String,
+    commitMessage: String,
+    @Nls operationName: String,
   ) : GitConflictResolver(project, setOf(root),
                           makeParams(project, commitHash, commitAuthor, commitMessage, operationName)) {
     override fun notifyUnresolvedRemain() {/* we show a [possibly] compound notification after applying all commits.*/
@@ -490,11 +520,13 @@ internal class GitApplyChangesProcess(private val project: Project,
   }
 }
 
-private fun makeParams(project: Project,
-                       commitHash: String,
-                       commitAuthor: String,
-                       commitMessage: String,
-                       @Nls operationName: String): GitConflictResolver.Params {
+private fun makeParams(
+  project: Project,
+  commitHash: String,
+  commitAuthor: String,
+  commitMessage: String,
+  @Nls operationName: String,
+): GitConflictResolver.Params {
 
   val params = GitConflictResolver.Params(project)
   params.setErrorNotificationTitle(GitBundle.message("apply.changes.operation.performed.with.conflicts", operationName.capitalize()))
@@ -507,7 +539,7 @@ private class MergeDialogCustomizer(
   @NlsSafe private val commitHash: String,
   private val commitAuthor: String,
   @NlsSafe private val commitMessage: String,
-  @Nls private val operationName: String
+  @Nls private val operationName: String,
 ) : GitDefaultMergeDialogCustomizer(project) {
 
   override fun getMultipleFileMergeDescription(files: MutableCollection<VirtualFile>) = wrapInHtml(

@@ -3,29 +3,63 @@ package com.intellij.util.xmlb;
 
 import com.intellij.serialization.ClassUtil;
 import com.intellij.serialization.MutableAccessor;
-import com.intellij.util.xml.dom.XmlElement;
+import com.intellij.util.ReflectionUtil;
 import com.intellij.util.xmlb.annotations.Attribute;
+import kotlinx.serialization.json.JsonElement;
 import org.jdom.Element;
+import org.jdom.Namespace;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-final class AttributeBinding extends BasePrimitiveBinding {
-  private final Class<?> valueClass;
+import static com.intellij.util.xmlb.JsonHelperKt.valueToJson;
+
+final class AttributeBinding implements NestedBinding {
+  final Class<?> valueClass;
+
+  private final MutableAccessor accessor;
+  final String name;
+
+  private final @Nullable Converter<Object> converter;
 
   AttributeBinding(@NotNull MutableAccessor accessor, @Nullable Attribute attribute) {
-    super(accessor, attribute == null ? null : attribute.value(), attribute == null ? null : attribute.converter());
+    this.accessor = accessor;
+    String suggestedName = attribute == null ? null : attribute.value();
+    name = (suggestedName == null || suggestedName.isEmpty()) ? accessor.getName() : suggestedName;
 
+    @SuppressWarnings("rawtypes")
+    Class<? extends Converter> converterClass = attribute == null ? null : attribute.converter();
+    //noinspection unchecked
+    converter = converterClass == null || converterClass == Converter.class ? null : ReflectionUtil.newInstance(converterClass, false);
     valueClass = ClassUtil.typeToClass(accessor.getGenericType());
   }
 
   @Override
-  public @Nullable Object serialize(@NotNull Object o, @Nullable SerializationFilter filter) {
-    Object value = accessor.read(o);
+  public @Nullable JsonElement deserializeToJson(@NotNull Element element) {
+    return valueToJson(element.getAttributeValue(name), valueClass);
+  }
+
+  @Override
+  public @NotNull JsonElement toJson(@NotNull Object bean, @Nullable SerializationFilter filter) {
+    return JsonHelperKt.toJson(bean, accessor, converter);
+  }
+
+  @Override
+  public void setFromJson(@NotNull Object bean, @NotNull JsonElement data) {
+    JsonHelperKt.setFromJson(bean, data, accessor, valueClass, converter);
+  }
+
+  @Override
+  public @NotNull MutableAccessor getAccessor() {
+    return accessor;
+  }
+
+  @Override
+  public void serialize(@NotNull Object bean, @NotNull Element parent, @Nullable SerializationFilter filter) {
+    Object value = accessor.read(bean);
     if (value == null) {
-      return null;
+      return;
     }
 
-    Converter<Object> converter = getConverter();
     String stringValue;
     if (converter == null) {
       stringValue = XmlSerializerImpl.convertToString(value);
@@ -33,23 +67,23 @@ final class AttributeBinding extends BasePrimitiveBinding {
     else {
       stringValue = converter.toString(value);
       if (stringValue == null) {
-        return null;
+        return;
       }
     }
-    return new org.jdom.Attribute(name, stringValue);
+
+    org.jdom.Attribute attribute = new org.jdom.Attribute(true, name, stringValue, Namespace.NO_NAMESPACE);
+    parent.setAttribute(attribute);
   }
 
   @Override
-  public @NotNull Object deserialize(@NotNull Object context, @NotNull Element element) {
+  public @Nullable <T> Object deserialize(@Nullable Object context, @NotNull T element, @NotNull DomAdapter<T> adapter) {
     return context;
   }
 
-  @Override
-  public @NotNull Object deserialize(@NotNull Object context, @NotNull XmlElement element) {
+  public @NotNull Object deserialize(@NotNull Object context) {
     return context;
   }
 
-  @Override
   public void setValue(@NotNull Object bean, @Nullable String value) {
     if (converter == null) {
       XmlSerializerImpl.doSet(bean, value, accessor, valueClass);
@@ -60,16 +94,11 @@ final class AttributeBinding extends BasePrimitiveBinding {
   }
 
   public String toString() {
-    return "AttributeBinding[" + name + "]";
+    return "AttributeBinding(name=" + name + ")";
   }
 
   @Override
-  public boolean isBoundTo(@NotNull Element element) {
-    return false;
-  }
-
-  @Override
-  public boolean isBoundTo(@NotNull XmlElement element) {
+  public <T> boolean isBoundTo(@NotNull T element, @NotNull DomAdapter<T> adapter) {
     return false;
   }
 }

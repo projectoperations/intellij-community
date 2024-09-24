@@ -3,7 +3,10 @@ package org.jetbrains.plugins.gitlab.mergerequest.data
 
 import com.intellij.collaboration.ui.codereview.details.data.ReviewRequestState
 import com.intellij.openapi.util.NlsSafe
+import git4idea.GitRemoteBranch
+import git4idea.push.GitSpecialRefRemoteBranch
 import git4idea.remote.hosting.HostedGitRepositoryRemote
+import git4idea.repo.GitRemote
 import org.jetbrains.plugins.gitlab.api.GitLabServerPath
 import org.jetbrains.plugins.gitlab.api.dto.*
 import org.jetbrains.plugins.gitlab.mergerequest.api.dto.GitLabMergeRequestDTO
@@ -36,6 +39,7 @@ data class GitLabMergeRequestFullDetails(
   val diffRefs: GitLabDiffRefs?,
   val headPipeline: GitLabPipelineDTO?,
   val userPermissions: GitLabMergeRequestPermissionsDTO,
+  val shouldRemoveSourceBranch: Boolean?,
   val shouldBeRebased: Boolean,
   val rebaseInProgress: Boolean
 ) {
@@ -68,6 +72,7 @@ data class GitLabMergeRequestFullDetails(
       headPipeline = dto.headPipeline,
       userPermissions = dto.userPermissions,
       detailedLabels = dto.labels,
+      shouldRemoveSourceBranch = dto.shouldRemoveSourceBranch,
       shouldBeRebased = dto.shouldBeRebased,
       rebaseInProgress = dto.rebaseInProgress
     )
@@ -86,13 +91,30 @@ val GitLabMergeRequestFullDetails.reviewState: ReviewRequestState
       else -> ReviewRequestState.OPENED // to avoid null state
     }
 
-fun GitLabMergeRequestFullDetails.getRemoteDescriptor(server: GitLabServerPath): HostedGitRepositoryRemote? =
-  sourceProject?.let {
-    HostedGitRepositoryRemote(
-      it.ownerPath,
-      server.toURI(),
-      it.fullPath,
-      it.httpUrlToRepo,
-      it.sshUrlToRepo
-    )
-  }
+fun GitLabProjectDTO.getRemoteDescriptor(server: GitLabServerPath): HostedGitRepositoryRemote =
+  HostedGitRepositoryRemote(
+    ownerPath,
+    server.toURI(),
+    fullPath,
+    httpUrlToRepo,
+    sshUrlToRepo
+  )
+
+fun GitLabMergeRequestFullDetails.getSourceRemoteDescriptor(server: GitLabServerPath): HostedGitRepositoryRemote? =
+  sourceProject?.getRemoteDescriptor(server)
+
+fun GitLabMergeRequestFullDetails.getTargetRemoteDescriptor(server: GitLabServerPath): HostedGitRepositoryRemote =
+  targetProject.getRemoteDescriptor(server)
+
+/**
+ * Gets a special remote ref for the head of the merge request.
+ * This special reference does not represent a remote branch,
+ * only a reference to the last commit of the MR.
+ *
+ * https://gitlab.com/gitlab-org/gitlab-foss/-/issues/47110
+ */
+fun GitLabMergeRequestFullDetails.getSpecialRemoteBranchForHead(remote: GitRemote): GitRemoteBranch =
+  GitSpecialRefRemoteBranch("refs/merge-requests/${iid}/head", remote)
+
+fun GitLabMergeRequestFullDetails.isFork(): Boolean =
+  sourceProject?.fullPath != targetProject.fullPath

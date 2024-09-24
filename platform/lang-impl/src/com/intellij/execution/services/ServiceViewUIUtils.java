@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.services;
 
 import com.intellij.execution.ui.UIExperiment;
@@ -12,9 +12,11 @@ import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.content.*;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.plaf.TabbedPaneUI;
@@ -24,6 +26,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.function.Supplier;
 
+@Internal
 public final class ServiceViewUIUtils {
   private ServiceViewUIUtils() {
   }
@@ -91,7 +94,15 @@ public final class ServiceViewUIUtils {
 
   public static @NotNull JComponent wrapServicesAligned(@NotNull ActionToolbar toolbar) {
     JComponent toolbarComponent = toolbar.getComponent();
-    toolbarComponent.setBorder(JBUI.Borders.empty());
+    int left = 0;
+    int right = 0;
+    Border border = toolbarComponent.getBorder();
+    if (border != null) {
+      Insets insets = border.getBorderInsets(toolbarComponent);
+      left = insets.left;
+      right = insets.right;
+    }
+    toolbarComponent.setBorder(JBUI.Borders.empty(0, left, 0, right));
     return new NonOpaquePanel(toolbarComponent) {
       @Override
       public Dimension getPreferredSize() {

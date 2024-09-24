@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.externalSystem.testFramework;
 
 import com.intellij.execution.wsl.WSLDistribution;
@@ -18,6 +18,7 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.ByteArraySequence;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -73,7 +74,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   protected @Nullable WSLDistribution myWSLDistribution;
 
   @Override
-  public void setUp() throws Exception {
+  protected void setUp() throws Exception {
     super.setUp();
     setUpFixtures();
     myProject = myTestFixture.getProject();
@@ -184,7 +185,11 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
       },
       () -> EdtTestUtil.runInEdtAndWait(() -> tearDownFixtures()),
       () -> myProject = null,
-      () -> PathKt.delete(myTestDir.toPath()),
+      () -> {
+        if (myTestDir != null) {
+          NioFiles.deleteRecursively(myTestDir.toPath());
+        }
+      },
       () -> ExternalSystemProgressNotificationManagerImpl.assertListenersReleased(),
       () -> ExternalSystemProgressNotificationManagerImpl.cleanupListeners(),
       () -> super.tearDown(),
@@ -192,7 +197,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     ).run();
   }
 
-  protected void tearDownFixtures() throws Exception {
+  protected void tearDownFixtures() {
     RunAll.runAll(
       () -> myTestFixture.tearDown(),
       () -> myTestFixture = null
@@ -359,6 +364,10 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     VirtualFile file = createProjectSubFile(relativePath);
     setFileContent(file, content, false);
     return file;
+  }
+
+  protected Project getProject() {
+    return myProject;
   }
 
   protected Module getModule(final String name) {

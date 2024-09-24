@@ -33,7 +33,11 @@ open class AddModifierFix(
         return KotlinBundle.message("fix.add.modifier.text.generic", modifier.value)
     }
 
-    override fun getFamilyName() = KotlinBundle.message("fix.add.modifier.family")
+    override fun getFamilyName(): String = KotlinBundle.message("fix.add.modifier.family")
+
+    override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? {
+        return element?.containingFile
+    }
 
     protected fun invokeOnElement(element: KtModifierListOwner?) {
         if (element == null) return
@@ -127,6 +131,7 @@ open class AddModifierFix(
         val addInnerModifier = createFactory(KtTokens.INNER_KEYWORD)
         val addOverrideModifier = createFactory(KtTokens.OVERRIDE_KEYWORD)
         val addDataModifier = createFactory(KtTokens.DATA_KEYWORD, KtClass::class.java)
+        val addInlineToFunctionWithReified = createFactory(KtTokens.INLINE_KEYWORD, KtNamedFunction::class.java)
 
         val modifiersWithWarning: Set<KtModifierKeywordToken> = setOf(KtTokens.ABSTRACT_KEYWORD, KtTokens.FINAL_KEYWORD)
         private val modalityModifiers = modifiersWithWarning + KtTokens.OPEN_KEYWORD

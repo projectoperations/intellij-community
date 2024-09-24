@@ -2,6 +2,7 @@
 package com.intellij.openapi.progress
 
 import com.intellij.concurrency.currentThreadContextOrNull
+import com.intellij.concurrency.currentThreadOverriddenContextOrNull
 import com.intellij.openapi.application.impl.ModalityStateEx
 import com.intellij.testFramework.common.timeoutRunBlocking
 import kotlinx.coroutines.*
@@ -41,8 +42,8 @@ class RunBlockingCancellableTest : CancellationTest() {
 
       runBlockingCancellable {
         assertJobIsChildOf(coroutineContext.job, job)
-        assertNull(currentThreadContextOrNull())
-        assertNull(Cancellation.currentJob())
+        assertNull(currentThreadOverriddenContextOrNull())
+        assertEquals(coroutineContext.job, Cancellation.currentJob())
         assertNull(ProgressManager.getGlobalProgressIndicator())
       }
 
@@ -83,8 +84,8 @@ class RunBlockingCancellableTest : CancellationTest() {
       assertNotNull(ProgressManager.getGlobalProgressIndicator())
 
       runBlockingCancellable {
-        assertNull(currentThreadContextOrNull())
-        assertNull(Cancellation.currentJob())
+        assertNull(currentThreadOverriddenContextOrNull())
+        assertEquals(coroutineContext.job, Cancellation.currentJob())
         assertNull(ProgressManager.getGlobalProgressIndicator())
       }
 
@@ -186,7 +187,7 @@ class RunBlockingCancellableTest : CancellationTest() {
 
   private fun testRunBlockingCancellableRethrow() {
     testRunBlockingCancellableRethrow(object : Throwable() {})
-    testRunBlockingCancellableRethrow(CancellationException()) // manual CE
+    testRunBlockingCancellableRethrowPce(CancellationException()) // manual CE
     testRunBlockingCancellableRethrow(ProcessCanceledException()) // manual PCE
   }
 
@@ -199,7 +200,7 @@ class RunBlockingCancellableTest : CancellationTest() {
     assertSame(t, thrown)
   }
 
-  private fun testRunBlockingCancellableRethrow(t: CancellationException) {
+  private fun testRunBlockingCancellableRethrowPce(t: CancellationException) {
     val thrown = assertThrows<CeProcessCanceledException> {
       runBlockingCancellable {
         throw t
@@ -224,7 +225,8 @@ class RunBlockingCancellableTest : CancellationTest() {
 
   private fun testRunBlockingCancellableChildFailure() {
     testRunBlockingCancellableChildFailure(object : Throwable() {})
-    testRunBlockingCancellableChildFailure(ProcessCanceledException())
+    testRunBlockingCancellableChildDoesNotFailParent(CancellationException())
+    testRunBlockingCancellableChildDoesNotFailParent(ProcessCanceledException())
   }
 
   private inline fun <reified T : Throwable> testRunBlockingCancellableChildFailure(t: T) {
@@ -234,6 +236,14 @@ class RunBlockingCancellableTest : CancellationTest() {
       }
     }
     assertSame(t, thrown)
+  }
+
+  private fun testRunBlockingCancellableChildDoesNotFailParent(t: Throwable) {
+    assertDoesNotThrow {
+      runBlockingCancellable {
+        Job(parent = coroutineContext.job).completeExceptionally(t)
+      }
+    }
   }
 
   @Test

@@ -3,6 +3,7 @@ package com.intellij.psi.codeStyle;
 
 import com.intellij.application.options.CodeStyle;
 import com.intellij.configurationStore.Property;
+import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
@@ -19,6 +20,13 @@ import java.util.Collection;
 import java.util.List;
 
 public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements ImportsLayoutSettings {
+  private static final int CURRENT_VERSION = 1;
+
+  private int myVersion = CURRENT_VERSION;
+  private int myOldVersion = 0;
+
+  private boolean myIsInitialized = false;
+
   private static final String REPEAT_ANNOTATIONS = "REPEAT_ANNOTATIONS";
   private static final String REPEAT_ANNOTATIONS_ITEM = "ANNO";
   private static final String DO_NOT_IMPORT_INNER = "DO_NOT_IMPORT_INNER";
@@ -52,6 +60,7 @@ public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements Im
   public String VISIBILITY = "public";
 
   public boolean USE_EXTERNAL_ANNOTATIONS;
+  public boolean GENERATE_USE_TYPE_ANNOTATION_BEFORE_TYPE = true;
   public boolean INSERT_OVERRIDE_ANNOTATION = true;
 
   public boolean REPEAT_SYNCHRONIZED = true;
@@ -122,6 +131,7 @@ public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements Im
   public boolean ALIGN_MULTILINE_TEXT_BLOCKS = false;
 
   public int BLANK_LINES_AROUND_INITIALIZER = 1;
+  public int BLANK_LINES_AROUND_FIELD_WITH_ANNOTATIONS = 0;
 
   public static final int FULLY_QUALIFY_NAMES_IF_NOT_IMPORTED = 1;
   public static final int FULLY_QUALIFY_NAMES_ALWAYS = 2;
@@ -130,7 +140,28 @@ public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements Im
   public int CLASS_NAMES_IN_JAVADOC = FULLY_QUALIFY_NAMES_IF_NOT_IMPORTED;
   public boolean SPACE_BEFORE_COLON_IN_FOREACH = true;
   public boolean SPACE_INSIDE_ONE_LINE_ENUM_BRACES = false;
-
+  /**
+   * "Java | Spaces | Within | Code Braces" option provides a way to regulate spaces in simple (one-line) code blocks with empty body
+   * This option gives a more customizable behavior of formatting simple nonempty code blocks in cases when the
+   * "Code Braces" option is disabled.
+   * <p>
+   * Example: <br>
+   * 1) SPACES_INSIDE_BLOCK_BRACES_WHEN_BODY_IS_PRESENT is disabled && SPACE_WITHIN_BRACES is disabled
+   *
+   * <p>
+   * public void fun() {int x = 1; } will be formatted to fun() {int x = 1;}
+   * </p>
+   * 2) SPACES_INSIDE_BLOCK_BRACES_WHEN_BODY_IS_PRESENT is enabled && SPACE_WITHIN_BRACES is disabled
+   * <p>
+   * "public void fun() {int x = 1; }" will be formatted to "fun() { int x = 1; }"
+   * </p>
+   * </p>
+   * <p>
+   * This option doesn't take any effect in cases when SPACE_WITHIN_BRACES is enabled
+   * </p>
+   * @see CommonCodeStyleSettings#SPACE_WITHIN_BRACES
+   */
+  public boolean SPACES_INSIDE_BLOCK_BRACES_WHEN_BODY_IS_PRESENT = false;
   public boolean NEW_LINE_WHEN_BODY_IS_PRESENTED = false;
 
   public boolean useFqNamesInJavadocAlways() {
@@ -390,6 +421,9 @@ public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements Im
     cloned.PACKAGES_TO_USE_IMPORT_ON_DEMAND.copyFrom(PACKAGES_TO_USE_IMPORT_ON_DEMAND);
     cloned.IMPORT_LAYOUT_TABLE = new PackageEntryTable();
     cloned.IMPORT_LAYOUT_TABLE.copyFrom(IMPORT_LAYOUT_TABLE);
+    cloned.myVersion = myVersion;
+    cloned.myOldVersion = myOldVersion;
+    cloned.myIsInitialized = myIsInitialized;
     return cloned;
   }
 
@@ -398,6 +432,8 @@ public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements Im
     super.readExternal(parentElement);
     readExternalCollection(parentElement, myRepeatAnnotations, REPEAT_ANNOTATIONS, REPEAT_ANNOTATIONS_ITEM);
     readExternalCollection(parentElement, myDoNotImportInner, DO_NOT_IMPORT_INNER, DO_NOT_IMPORT_INNER_ITEM);
+    myOldVersion = myVersion = CustomCodeStyleSettingsUtils.readVersion(parentElement.getChild(getTagName()));
+    myIsInitialized = true;
   }
 
   @Override
@@ -405,6 +441,40 @@ public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements Im
     super.writeExternal(parentElement, parentSettings);
     writeExternalCollection(parentElement, myRepeatAnnotations, REPEAT_ANNOTATIONS, REPEAT_ANNOTATIONS_ITEM);
     writeExternalCollection(parentElement, myDoNotImportInner, DO_NOT_IMPORT_INNER, DO_NOT_IMPORT_INNER_ITEM);
+    writeVersion(parentElement);
+  }
+
+
+  /**
+   * Appends {@code version} attribute to the {@code JavaCodeStyleSettings} tag in {@link CodeStyleScheme}
+   * It might create a tag with empty body, in cases when custom options have
+   * default value and this value is different from common options
+   * @param parentElement root element in {@link CodeStyleScheme} xml file.
+   * @see JavaCodeStyleSettings#shouldWriteVersion()
+   */
+  private void writeVersion(@NotNull Element parentElement) {
+    if (!shouldWriteVersion()) return;
+    Element settingsTag = parentElement.getChild(getTagName());
+    if (settingsTag == null) {
+      parentElement.addContent(new Element(getTagName()));
+      settingsTag = parentElement.getChild(getTagName());
+    }
+    CustomCodeStyleSettingsUtils.writeVersion(settingsTag, myVersion);
+    myOldVersion = myVersion;
+  }
+
+  private boolean shouldWriteVersion() {
+    if (myVersion != CURRENT_VERSION) return false;
+
+    if (myOldVersion == myVersion) return true;
+
+    if (myOldVersion == 0 && !isFirstMigrationPreserved()) return true;
+    return false;
+  }
+
+  private boolean isFirstMigrationPreserved() {
+    CommonCodeStyleSettings commonSettings = getCommonSettings();
+    return commonSettings.BLANK_LINES_AROUND_FIELD == BLANK_LINES_AROUND_FIELD_WITH_ANNOTATIONS;
   }
 
   public static JavaCodeStyleSettings getInstance(@NotNull PsiFile file) {
@@ -432,6 +502,14 @@ public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements Im
     }
   }
 
+  private static JavaCodeStyleSettings getDefaultCustomSettings() {
+    return CodeStyleSettings.getDefaults().getCustomSettings(JavaCodeStyleSettings.class);
+  }
+
+  private CommonCodeStyleSettings getCommonSettings() {
+    return getContainer().getCommonSettings(JavaLanguage.INSTANCE);
+  }
+
   private void writeExternalCollection(Element parentElement,
                                        Collection<String> collection,
                                        String collectionName,
@@ -450,8 +528,40 @@ public class JavaCodeStyleSettings extends CustomCodeStyleSettings implements Im
     }
   }
 
+  /**
+   * {@link JavaCodeStyleSettings} supports migration.
+   * It happens consequently and works in the following way:
+   * <p>
+   *   Case 1: all {@link JavaCodeStyleSettings} options have a default value, e.g.
+   *   there is no tag, corresponding to the custom settings in the {@link CodeStyleScheme} or some
+   *   {@link JavaCodeStyleSettings} options have a non-default value, e. g.
+   *   there is a tag in the {@link CodeStyleScheme}, but no attribute {@code version} specified.
+   *   Then it is supposed, that all needed options should be
+   *   migrated (current migration version is 0).
+   * </p>
+   * <p>
+   *   Case 2: some {@link JavaCodeStyleSettings} options have a non-default value, e. g.
+   *   there is a tag in the {@link CodeStyleScheme}, and it has attribute {@code version}.
+   *   Then only later versions will be migrated.
+   * </p>
+   * @see JavaCodeStyleSettings#writeVersion(Element)
+   * @see JavaCodeStyleSettings#migrateSettingsToVersion1
+   */
   @Override
   protected void afterLoaded() {
+    migrateNonVersionedSettings();
+    if (myIsInitialized) {
+      if (myVersion < 1) migrateSettingsToVersion1();
+      myVersion = CURRENT_VERSION;
+    }
+  }
+
+  private void migrateSettingsToVersion1() {
+    CommonCodeStyleSettings commonCodeStyleSettings = getCommonSettings();
+    BLANK_LINES_AROUND_FIELD_WITH_ANNOTATIONS = commonCodeStyleSettings.BLANK_LINES_AROUND_FIELD;
+  }
+
+  private void migrateNonVersionedSettings() {
     REPLACE_INSTANCEOF_AND_CAST |= REPLACE_CAST || REPLACE_INSTANCEOF;
     REPLACE_CAST = REPLACE_INSTANCEOF = false;
   }

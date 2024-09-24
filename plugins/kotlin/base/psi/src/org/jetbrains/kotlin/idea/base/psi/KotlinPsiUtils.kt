@@ -9,6 +9,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.parentOfType
+import com.intellij.psi.util.parents
 import com.intellij.psi.util.parentsOfType
 import com.intellij.util.asSafely
 import com.intellij.util.text.CharArrayUtil
@@ -21,6 +22,7 @@ import org.jetbrains.kotlin.psi.psiUtil.*
 import org.jetbrains.kotlin.util.match
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
+import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration as isExpectDeclaration_alias
 
 val KtClassOrObject.classIdIfNonLocal: ClassId?
     get() {
@@ -132,6 +134,15 @@ fun <T> getTopmostElementAtOffset(element: PsiElement, offset: Int, vararg class
     return lastElementOfType
 }
 
+/**
+ * @return the [FqName] of the first non-local declaration containing [offset]
+ */
+fun getFqNameAtOffset(file: KtFile, offset: Int): FqName? {
+    if (offset !in 0 until file.textLength) return null
+
+    return file.findElementAt(offset)?.parents(withSelf = true)?.mapNotNull { it.kotlinFqName }?.firstOrNull()
+}
+
 private fun <T> Array<out Class<out T>>.anyIsInstance(element: PsiElement): Boolean =
     any { it.isInstance(element) }
 
@@ -141,12 +152,11 @@ private fun PsiElement.isSuitableTopmostElementAtOffset(offset: Int): Boolean =
 
 fun KtExpression.safeDeparenthesize(): KtExpression = KtPsiUtil.safeDeparenthesize(this)
 
-fun KtDeclaration.isExpectDeclaration(): Boolean =
-    when {
-        hasExpectModifier() -> true
-        this is KtParameter -> ownerFunction?.isExpectDeclaration() == true
-        else -> containingClassOrObject?.isExpectDeclaration() == true
-    }
+@Deprecated(
+    "Use 'isExpectDeclaration()' instead",
+    ReplaceWith("isExpectDeclaration()", "org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration"),
+)
+fun KtDeclaration.isExpectDeclaration(): Boolean = isExpectDeclaration_alias()
 
 fun KtDeclaration.isEffectivelyActual(checkConstructor: Boolean = true): Boolean = when {
     hasActualModifier() -> true
@@ -201,6 +211,10 @@ fun KtCallExpression.getContainingValueArgument(expression: KtExpression): KtVal
     return null
 }
 
+fun KtCallExpression.getSamConstructorValueArgument(): KtValueArgument? {
+    return valueArguments.singleOrNull()?.takeIf { it.getArgumentExpression() is KtLambdaExpression }
+}
+
 fun KtClass.mustHaveNonEmptyPrimaryConstructor(): Boolean =
     isData() || isInlineOrValue()
 
@@ -225,7 +239,7 @@ fun KtPrimaryConstructor.isRedundant(): Boolean {
         valueParameters.isNotEmpty() -> false
         annotations.isNotEmpty() -> false
         modifierList?.text?.isBlank() == false -> false
-        isExpectDeclaration() -> false
+        isExpectDeclaration_alias() -> false
         containingClass.mustHaveNonEmptyPrimaryConstructor() -> false
         containingClass.secondaryConstructors.isNotEmpty() -> false
         else -> true
@@ -275,3 +289,64 @@ fun getCallElement(argument: KtValueArgument): KtCallElement? {
 
 val PsiElement.isInsideKtTypeReference: Boolean
     get() = getNonStrictParentOfType<KtTypeReference>() != null
+
+/**
+ * Returns the name of the label which can be used to perform the labeled return
+ * from the current lambda, if the lambda is present and if the labeled return is possible.
+ *
+ * The name corresponds either to:
+ * - lambda's explicit label (`foo@{ ... }`)
+ * - the name of the outer function call (`foo { ... }`)
+ */
+fun KtBlockExpression.getParentLambdaLabelName(): String? {
+    val lambdaExpression = getStrictParentOfType<KtLambdaExpression>() ?: return null
+    val callExpression = lambdaExpression.getStrictParentOfType<KtCallExpression>() ?: return null
+    val valueArgument = callExpression.valueArguments.find {
+        it.getArgumentExpression()?.unpackFunctionLiteral(allowParentheses = false) === lambdaExpression
+    } ?: return null
+    val lambdaLabelName = (valueArgument.getArgumentExpression() as? KtLabeledExpression)?.getLabelName()
+    return lambdaLabelName ?: callExpression.getCallNameExpression()?.text
+}
+
+/**
+ * Searches for a parameter with the given [name] in the parent function of the element.
+ * If not found in the immediate parent function, it recursively searches in the enclosing parent functions.
+ *
+ * @param name The name of the parameter to search for.
+ * @return The found `KtParameter` with the given name, or `null` if no parameter with such [name] is found.
+ */
+fun KtElement.findParameterWithName(name: String): KtParameter? {
+    val function = getStrictParentOfType<KtFunction>() ?: return null
+    return function.valueParameters.firstOrNull { it.name == name } ?: function.findParameterWithName(name)
+}
+
+fun KtSimpleNameExpression.isPartOfQualifiedExpression(): Boolean {
+    var parent = parent
+    while (parent is KtDotQualifiedExpression) {
+        if (parent.selectorExpression !== this) return true
+        parent = parent.parent
+    }
+    return false
+}
+
+fun KtTypeReference?.typeArguments(): List<KtTypeProjection> {
+    return (this?.typeElement as? KtUserType)?.typeArguments.orEmpty()
+}
+
+fun KtNamedDeclaration.getReturnTypeReference(): KtTypeReference? = getReturnTypeReferences().singleOrNull()
+
+fun KtNamedDeclaration.getReturnTypeReferences(): List<KtTypeReference> {
+    return when (this) {
+        is KtCallableDeclaration -> listOfNotNull(typeReference)
+        is KtClassOrObject -> superTypeListEntries.mapNotNull { it.typeReference }
+        is KtScript -> emptyList()
+        else -> throw AssertionError("Unexpected declaration kind: $text")
+    }
+}
+
+fun KtSimpleNameExpression.canBeUsedInImport(): Boolean {
+    if (this is KtEnumEntrySuperclassReferenceExpression) return false
+    if (parent is KtThisExpression || parent is KtSuperExpression) return false
+
+    return true
+}

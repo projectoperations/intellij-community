@@ -1,15 +1,17 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.codeInsight.postfix
 
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplateProvider
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplateWithExpressionSelector
+import com.intellij.lang.LanguageRefactoringSupport
 import com.intellij.openapi.editor.Editor
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisFromWriteAction
-import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisFromWriteAction
-import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisOnEdt
-import org.jetbrains.kotlin.idea.k2.refactoring.introduce.introduceVariable.K2IntroduceVariableHandler
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.idea.KotlinLanguage
+import org.jetbrains.kotlin.idea.refactoring.introduce.KotlinIntroduceVariableHandler
 import org.jetbrains.kotlin.psi.KtExpression
 
 internal class KotlinIntroduceVariablePostfixTemplate(
@@ -22,12 +24,14 @@ internal class KotlinIntroduceVariablePostfixTemplate(
     /* selector = */ allExpressions(ValuedFilter, NonPackageAndNonImportFilter),
     provider
 ) {
-    @OptIn(KtAllowAnalysisOnEdt::class)
+    @OptIn(KaAllowAnalysisOnEdt::class)
     override fun expandForChooseExpression(expression: PsiElement, editor: Editor) {
+        val introduceVariableHandler =
+            LanguageRefactoringSupport.getInstance().forLanguage(KotlinLanguage.INSTANCE).introduceVariableHandler as KotlinIntroduceVariableHandler
         allowAnalysisOnEdt {
-            @OptIn(KtAllowAnalysisFromWriteAction::class)
+            @OptIn(KaAllowAnalysisFromWriteAction::class)
             allowAnalysisFromWriteAction {
-                K2IntroduceVariableHandler.collectCandidateTargetContainersAndDoRefactoring(
+                introduceVariableHandler.collectCandidateTargetContainersAndDoRefactoring(
                     expression.project, editor, expression as KtExpression,
                     isVar = kind == "var"
                 )

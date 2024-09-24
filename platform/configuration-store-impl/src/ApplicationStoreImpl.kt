@@ -6,7 +6,11 @@ import com.intellij.diagnostic.LoadingState
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.appSystemDir
-import com.intellij.openapi.components.*
+import com.intellij.openapi.components.PathMacroManager
+import com.intellij.openapi.components.StateStorageOperation
+import com.intellij.openapi.components.StoragePathMacros
+import com.intellij.openapi.components.impl.stores.stateStore
+import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
@@ -25,6 +29,7 @@ import org.jetbrains.annotations.VisibleForTesting
 import java.nio.file.Files
 import java.nio.file.Path
 
+@ApiStatus.Internal
 const val APP_CONFIG: String = "\$APP_CONFIG\$"
 
 @ApiStatus.Internal
@@ -32,7 +37,10 @@ const val APP_CONFIG: String = "\$APP_CONFIG\$"
 @Suppress("NonDefaultConstructor")
 open class ApplicationStoreImpl(private val app: Application) : ComponentStoreWithExtraComponents(), ApplicationStoreJpsContentReader {
   override val storageManager: StateStorageManagerImpl =
-    ApplicationStateStorageManager(PathMacroManager.getInstance(app), app.getService(SettingsController::class.java))
+    ApplicationStateStorageManager(pathMacroManager = PathMacroManager.getInstance(app), controller = app.getService(SettingsController::class.java))
+
+  override val allowSavingWithoutModifications: Boolean
+    get() = true
 
   override val serviceContainer: ComponentManagerImpl
     get() = app as ComponentManagerImpl
@@ -42,6 +50,7 @@ open class ApplicationStoreImpl(private val app: Application) : ComponentStoreWi
     get() = if (app.isUnitTestMode) StateLoadPolicy.LOAD_ONLY_DEFAULT else StateLoadPolicy.LOAD
 
   final override fun setPath(path: Path) {
+    @Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
     storageManager.setMacros(java.util.List.of(
       // app config must be first, because collapseMacros collapse from fist to last, so,
       // at first we must replace APP_CONFIG because it overlaps ROOT_CONFIG value
@@ -60,7 +69,7 @@ open class ApplicationStoreImpl(private val app: Application) : ComponentStoreWi
 
     coroutineScope {
       launch {
-        super.doSave(saveResult = saveResult, forceSavingAllSettings = forceSavingAllSettings)
+        super.doSave(saveResult, forceSavingAllSettings)
       }
 
       val projectManager = serviceAsync<ProjectManager>() as ProjectManagerEx
@@ -101,7 +110,7 @@ class ApplicationStateStorageManager(pathMacroManager: PathMacroManager? = null,
           Files.deleteIfExists(storage.file)
         }
         else {
-          writer.writeTo(file = storage.file, requestor = null, lineSeparator = LineSeparator.LF, useXmlProlog = isUseXmlProlog)
+          writer.writeTo(storage.file, requestor = null, LineSeparator.LF, isUseXmlProlog)
         }
       }.getOrLogException(LOG)
     }
@@ -112,7 +121,10 @@ class ApplicationStateStorageManager(pathMacroManager: PathMacroManager? = null,
 
   override fun expandMacro(collapsedPath: String): Path =
     if (collapsedPath[0] == '$') super.expandMacro(collapsedPath)
-    else macros[0].value.resolve(collapsedPath) // APP_CONFIG is the first macro
+    else macros[0].value.resolve(collapsedPath)  // APP_CONFIG is the first macro
 }
 
 private class ApplicationPathMacroManager : PathMacroManager(null)
+
+@ApiStatus.Internal
+fun removeMacroIfStartsWith(path: String, macro: String): String = path.removePrefix("$macro/")

@@ -4,14 +4,14 @@
     <exclude-output />
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/resources" type="java-resource" />
-      <sourceFolder url="file://$MODULE_DIR$/testResources" type="java-test-resource" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="kotlin.plugin.common" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.plugin" scope="RUNTIME" />
     <orderEntry type="library" scope="RUNTIME" name="kotlinc.kotlin-compiler-common" level="project" />
     <orderEntry type="module" module-name="kotlin.base.analysis" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.base.analysis-api-providers" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.base.analysis-api-platform" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.base.code-insight" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.base.compiler-configuration" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.base.compiler-configuration-ui" scope="RUNTIME" />
@@ -43,6 +43,7 @@
     <orderEntry type="module" module-name="kotlin.formatter" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.gradle.code-insight-common" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.gradle.code-insight-groovy" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.gradle.code-insight-toml" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.gradle.gradle" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.gradle.gradle-java" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.gradle.gradle-tooling" scope="RUNTIME" />
@@ -50,7 +51,6 @@
     <orderEntry type="module" module-name="kotlin.grazie" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.inspections" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.j2k.shared" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.j2k.k1.new" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.j2k.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.maven" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.migration" scope="RUNTIME" />
@@ -70,10 +70,10 @@
     <orderEntry type="module" module-name="kotlin.scripting" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.spellchecker" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.fir.fir-low-level-api-ide-impl" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.base.fir.code-insight" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.uast.uast-kotlin.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.uast.uast-kotlin-idea.k2" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.base.fir.analysis-api-providers" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.base.fir.analysis-api-platform" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.base.fir.code-insight" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.base.fir.project-structure" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.code-insight.api" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.code-insight.intentions.shared" scope="RUNTIME" />
@@ -92,28 +92,37 @@
     <orderEntry type="module" module-name="kotlin.code-insight.line-markers.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.jvm-debugger.base.util" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.jvm-debugger.core" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.jvm-debugger.coroutines" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.jvm-debugger.evaluation" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.navigation" scope="TEST" />
     <orderEntry type="module" module-name="kotlin.refactorings.move.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.refactorings.rename.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.code-insight.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.refactorings.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.refactorings.common" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.refactorings.introduce.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.searching.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.searching.base" />
     <orderEntry type="module" module-name="kotlin.bundled-compiler-plugins-support" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.compiler-plugins.compiler-plugin-support.common" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.compiler-plugins.assignment.common.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.compiler-plugins.assignment.gradle" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.compiler-plugins.assignment.maven" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.compiler-plugins.kotlinx-serialization.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.compiler-plugins.parcelize.k2" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.code-insight.structural-search.k2" />
     <orderEntry type="module" module-name="kotlin.i18n" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.injection.k2" />
     <orderEntry type="module" module-name="kotlin.base.injection" />
     <orderEntry type="module" module-name="kotlin.onboarding" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.onboarding.gradle" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.base.code-insight.minimal" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.highlighting.minimal" />
     <orderEntry type="module" module-name="kotlin.formatter.minimal" />
     <orderEntry type="module" module-name="kotlin.ide" />
+    <orderEntry type="module" module-name="kotlin.code-insight.fixes.k2" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.jsr223" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.performanceExtendedPlugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.jvm-debugger.evaluation.k2" scope="RUNTIME" />
+    <orderEntry type="module" module-name="kotlin.features-trainer" scope="RUNTIME" />
   </component>
 </module>

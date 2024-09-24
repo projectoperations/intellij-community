@@ -21,6 +21,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -58,7 +59,7 @@ internal class FeatureUsageSettingsEvents private constructor(private val projec
       coroutineScope.launch {
         delay(1.minutes)
 
-        if (!FeatureUsageLogger.isEnabled()) {
+        if (!FeatureUsageLogger.getInstance().isEnabled()) {
           channel.close()
           return@launch
         }
@@ -71,7 +72,7 @@ internal class FeatureUsageSettingsEvents private constructor(private val projec
 
       (project ?: ApplicationManager.getApplication()).messageBus.simpleConnect().subscribe(DynamicPluginListener.TOPIC, object : DynamicPluginListener {
         override fun beforePluginUnload(pluginDescriptor: IdeaPluginDescriptor, isUpdate: Boolean) {
-          if (!FeatureUsageLogger.isEnabled()) return
+          if (!FeatureUsageLogger.getInstance().isEnabled()) return
           // process all pending requests
           synchronized(printer) {
             while (true) {
@@ -114,6 +115,7 @@ internal class FeatureUsageSettingsEvents private constructor(private val projec
 
 private val counter = AtomicInteger(0)
 
+@ApiStatus.Internal
 open class FeatureUsageSettingsEventPrinter(private val recordDefault: Boolean) {
   private val valuesExtractor = ConfigurationStateExtractor(recordDefault)
 

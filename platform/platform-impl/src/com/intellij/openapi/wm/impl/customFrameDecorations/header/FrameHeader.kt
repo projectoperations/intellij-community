@@ -4,10 +4,11 @@ package com.intellij.openapi.wm.impl.customFrameDecorations.header
 import com.intellij.CommonBundle
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
+import com.intellij.ide.ui.UISettings
 import com.intellij.idea.ActionsBundle
-import com.intellij.openapi.wm.impl.IdeRootPane
-import com.intellij.openapi.wm.impl.customFrameDecorations.CustomFrameTitleButtons
-import com.intellij.openapi.wm.impl.customFrameDecorations.ResizableCustomFrameTitleButtons
+import com.intellij.openapi.wm.impl.customFrameDecorations.frameButtons.CustomFrameButtons
+import com.intellij.openapi.wm.impl.customFrameDecorations.frameButtons.LinuxResizableCustomFrameButtons
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil.hideNativeLinuxTitle
 import com.intellij.util.ui.JBFont
 import java.awt.Font
 import java.awt.Frame
@@ -16,7 +17,7 @@ import javax.swing.JFrame
 import javax.swing.JPopupMenu
 import javax.swing.JSeparator
 
-internal open class FrameHeader(protected val frame: JFrame) : CustomHeader(frame) {
+internal abstract class FrameHeader(protected val frame: JFrame) : CustomHeader(frame) {
   private val iconifyAction = CustomFrameAction(ActionsBundle.message("action.MinimizeCurrentWindow.text"),
                                                         AllIcons.Windows.MinimizeSmall) { iconify() }
   private val restoreAction = CustomFrameAction(CommonBundle.message("button.without.mnemonic.restore"),
@@ -29,13 +30,18 @@ internal open class FrameHeader(protected val frame: JFrame) : CustomHeader(fram
   @Suppress("LeakingThis")
   private val closeAction = createCloseAction(this)
 
-  protected val buttonPanes: CustomFrameTitleButtons? by lazy {
+  protected val buttonPanes: CustomFrameButtons? by lazy {
     createButtonsPane()
   }
 
   override fun windowStateChanged() {
     super.windowStateChanged()
     updateActions()
+  }
+
+  override fun updateActive() {
+    super.updateActive()
+    buttonPanes?.onUpdateFrameActive()
   }
 
   private fun iconify() {
@@ -96,9 +102,9 @@ internal open class FrameHeader(protected val frame: JFrame) : CustomHeader(fram
     closeMenuItem.font = JBFont.label().deriveFont(Font.BOLD)
   }
 
-  private fun createButtonsPane(): CustomFrameTitleButtons? {
-    if (IdeRootPane.hideNativeLinuxTitle) {
-      return ResizableCustomFrameTitleButtons.create(closeAction, restoreAction, iconifyAction, maximizeAction)
+  private fun createButtonsPane(): CustomFrameButtons? {
+    if (hideNativeLinuxTitle(UISettings.shadowInstance)) {
+      return LinuxResizableCustomFrameButtons.create(closeAction, restoreAction, iconifyAction, maximizeAction)
     }
     return null
   }

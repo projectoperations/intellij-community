@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing;
 
 import com.intellij.openapi.editor.Document;
@@ -7,12 +7,11 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.search.FilenameIndex;
-import com.intellij.util.SmartList;
+import com.intellij.util.indexing.FileBasedIndexDataInitialization.FileBasedIndexDataInitializationResult;
 import kotlin.Pair;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,12 +23,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static com.intellij.openapi.progress.util.ProgressIndicatorUtils.awaitWithCheckCanceled;
 
 public final class RegisteredIndexes {
-  @NotNull
-  private final FileDocumentManager myFileDocumentManager;
-  @NotNull
-  private final FileBasedIndexImpl myFileBasedIndex;
-  @NotNull
-  private final Future<IndexConfiguration> myStateFuture;
+  private final @NotNull FileDocumentManager myFileDocumentManager;
+  private final @NotNull FileBasedIndexImpl myFileBasedIndex;
+  private final @NotNull Future<FileBasedIndexDataInitializationResult> myStateFuture;
 
   private final List<ID<?, ?>> myIndicesForDirectories = new CopyOnWriteArrayList<>();
 
@@ -41,7 +37,7 @@ public final class RegisteredIndexes {
 
   private volatile boolean myInitialized;
 
-  private volatile IndexConfiguration myState;
+  private volatile FileBasedIndexDataInitializationResult myInitResult;
   private volatile Future<?> myAllIndicesInitializedFuture;
 
   private final Map<ID<?, ?>, DocumentUpdateTask> myUnsavedDataUpdateTasks = new ConcurrentHashMap<>();
@@ -61,19 +57,38 @@ public final class RegisteredIndexes {
     return myShutdownPerformed.compareAndSet(false, true);
   }
 
-  void setState(@NotNull IndexConfiguration state) {
-    myState = state;
+  boolean isShutdownPerformed() {
+    return myShutdownPerformed.get();
+  }
+
+  void setInitializationResult(@NotNull FileBasedIndexDataInitializationResult result) {
+    myInitResult = result;
   }
 
   IndexConfiguration getState() {
-    return myState;
+    FileBasedIndexDataInitializationResult result = myInitResult;
+    return result == null ? null : result.myState;
   }
 
+  @NotNull
   IndexConfiguration getConfigurationState() {
-    IndexConfiguration state = myState; // memory barrier
-    if (state == null) {
+    return getInitializationResult().myState;
+  }
+
+  boolean getWasCorrupted() {
+    return getInitializationResult().myWasCorrupted;
+  }
+
+  @NotNull
+  OrphanDirtyFilesQueue getOrphanDirtyFilesQueue() {
+    return getInitializationResult().myOrphanDirtyFilesQueue;
+  }
+
+  private @NotNull FileBasedIndexDataInitializationResult getInitializationResult() {
+    FileBasedIndexDataInitializationResult result = myInitResult; // memory barrier
+    if (result == null) {
       try {
-        myState = state = awaitWithCheckCanceled(myStateFuture);
+        myInitResult = result = awaitWithCheckCanceled(myStateFuture);
       }
       catch (ProcessCanceledException ex) {
         throw ex;
@@ -82,7 +97,7 @@ public final class RegisteredIndexes {
         throw new RuntimeException(t);
       }
     }
-    return state;
+    return result;
   }
 
   void waitUntilAllIndicesAreInitialized() {
@@ -196,8 +211,7 @@ public final class RegisteredIndexes {
   }
 
   @TestOnly
-  @NotNull
-  public Pair<List<ID<?, ?>>, List<ID<?, ?>>> getRequiredIndexesForFileType(@NotNull FileType fileType) {
+  public @NotNull Pair<List<ID<?, ?>>, List<ID<?, ?>>> getRequiredIndexesForFileType(@NotNull FileType fileType) {
     return myRequiredIndexesEvaluator.getRequiredIndexesForFileType(fileType);
   }
 }

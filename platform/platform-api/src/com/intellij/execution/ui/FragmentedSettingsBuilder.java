@@ -109,7 +109,15 @@ public class FragmentedSettingsBuilder<Settings extends FragmentedSettings> impl
 
     if (myMain == null) {
       myPanel.setBorder(JBUI.Borders.emptyLeft(5));
-      addLine(new JSeparator());
+      addLine(new JSeparator() {
+        @Override
+        public Dimension getMinimumSize() {
+          Dimension minimumSize = super.getMinimumSize();
+          Dimension preferredSize = getPreferredSize();
+          minimumSize.height = Math.max(minimumSize.height, preferredSize.height);
+          return minimumSize;
+        }
+      });
     }
 
     addBeforeRun(beforeRun);
@@ -199,7 +207,15 @@ public class FragmentedSettingsBuilder<Settings extends FragmentedSettings> impl
   }
 
   protected void addTagPanel(@NotNull List<? extends SettingsEditorFragment<Settings, ?>> tags) {
-    JPanel tagsPanel = new JPanel(new WrapLayout(FlowLayout.LEADING, JBUI.scale(TAG_HGAP), JBUI.scale(TAG_VGAP)));
+    JPanel tagsPanel = new JPanel(new WrapLayout(FlowLayout.LEADING, JBUI.scale(TAG_HGAP), JBUI.scale(TAG_VGAP))) {
+      @Override
+      public Dimension getMinimumSize() {
+        Dimension minimumSize = super.getMinimumSize();
+        Dimension preferredSize = getPreferredSize();
+        minimumSize.height = Math.max(minimumSize.height, preferredSize.height);
+        return minimumSize;
+      }
+    };
     for (SettingsEditorFragment<Settings, ?> tag : tags) {
       tagsPanel.add(tag.getComponent());
     }
@@ -255,10 +271,13 @@ public class FragmentedSettingsBuilder<Settings extends FragmentedSettings> impl
                                                                           callback, -1);
     popup.setHandleAutoSelectionBeforeShow(true);
     popup.addListSelectionListener(e -> {
-      JBPopup jbPopup = PopupUtil.getPopupContainerFor((Component)e.getSource());
-      Object selectedItem = PlatformCoreDataKeys.SELECTED_ITEM.getData((DataProvider)e.getSource());
-      if (selectedItem instanceof AnActionHolder) {
-        jbPopup.setAdText(getHint(((AnActionHolder)selectedItem).getAction()), SwingConstants.LEFT);
+      Component component = (Component)e.getSource();
+      if (component instanceof JList<?> list) {
+        Object selectedItem = list.getSelectedValue();
+        if (selectedItem instanceof AnActionHolder) {
+          JBPopup jbPopup = PopupUtil.getPopupContainerFor(component);
+          jbPopup.setAdText(getHint(((AnActionHolder)selectedItem).getAction()), SwingConstants.LEFT);
+        }
       }
     });
     return popup;

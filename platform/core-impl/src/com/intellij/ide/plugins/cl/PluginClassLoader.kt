@@ -24,12 +24,12 @@ import kotlinx.coroutines.job
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.TestOnly
-import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.Writer
 import java.net.URL
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Implements filtering for a plugin class loader.
- * This is needed to distinguish classes from different modules when they are packed to a single JAR file.
+ * This is necessary to distinguish classes from different modules when they are packed to a single JAR file.
  */
 @ApiStatus.Internal
 interface ResolveScopeManager {
@@ -61,13 +61,15 @@ private var logStream: Writer? = null
 private val parentListCacheIdCounter = AtomicInteger()
 
 @ApiStatus.Internal
-class PluginClassLoader(classPath: ClassPath,
-                        private val parents: Array<IdeaPluginDescriptorImpl>,
-                        private val pluginDescriptor: PluginDescriptor,
-                        private val coreLoader: ClassLoader,
-                        resolveScopeManager: ResolveScopeManager?,
-                        packagePrefix: String?,
-                        private val libDirectories: MutableList<String>) : UrlClassLoader(classPath), PluginAwareClassLoader {
+class PluginClassLoader(
+  classPath: ClassPath,
+  private val parents: Array<IdeaPluginDescriptorImpl>,
+  private val pluginDescriptor: PluginDescriptor,
+  private val coreLoader: ClassLoader,
+  resolveScopeManager: ResolveScopeManager?,
+  packagePrefix: String?,
+  private val libDirectories: List<Path>,
+) : UrlClassLoader(classPath), PluginAwareClassLoader {
   // cache of a computed list of all parents (not only direct)
   @Volatile
   private var allParents: Array<ClassLoader>? = null
@@ -81,6 +83,7 @@ class PluginClassLoader(classPath: ClassPath,
   private val edtTime = AtomicLong()
   private val backgroundTime = AtomicLong()
   private val loadedClassCounter = AtomicInteger()
+  @Suppress("SSBasedInspection")
   private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + CoroutineName(pluginId.idString))
   private val _resolveScopeManager = resolveScopeManager ?: defaultResolveScopeManager
 
@@ -116,9 +119,7 @@ class PluginClassLoader(classPath: ClassPath,
     }
   }
 
-  fun getLibDirectories(): MutableList<String> {
-    return libDirectories
-  }
+  fun getLibDirectories(): List<Path> = libDirectories
 
   override fun getPackagePrefix(): String? = packagePrefix
 
@@ -175,7 +176,7 @@ class PluginClassLoader(classPath: ClassPath,
         _resolveScopeManager.isDefinitelyAlienClass(name = name, packagePrefix = it, force = forceLoadFromSubPluginClassloader)
       }
       if (consistencyError == null) {
-        c = loadClassInsideSelf(name, fileName, packageNameHash, forceLoadFromSubPluginClassloader)
+        c = loadClassInsideSelf(name = name, fileName = fileName, packageNameHash = packageNameHash, forceLoadFromSubPluginClassloader = forceLoadFromSubPluginClassloader)
       }
       else {
         if (!consistencyError.isEmpty()) {
@@ -193,9 +194,7 @@ class PluginClassLoader(classPath: ClassPath,
         if (classloader is PluginClassLoader) {
           try {
             val consistencyError = classloader.packagePrefix?.let {
-              classloader._resolveScopeManager.isDefinitelyAlienClass(name = name,
-                                                                      packagePrefix = it,
-                                                                      force = forceLoadFromSubPluginClassloader)
+              classloader._resolveScopeManager.isDefinitelyAlienClass(name = name, packagePrefix = it, force = forceLoadFromSubPluginClassloader)
             }
             if (consistencyError != null) {
               if (!consistencyError.isEmpty() && error == null) {
@@ -204,10 +203,7 @@ class PluginClassLoader(classPath: ClassPath,
               }
               continue
             }
-            c = classloader.loadClassInsideSelf(name = name,
-                                                fileName = fileName,
-                                                packageNameHash = packageNameHash,
-                                                forceLoadFromSubPluginClassloader = false)
+            c = classloader.loadClassInsideSelf(name = name, fileName = fileName, packageNameHash = packageNameHash, forceLoadFromSubPluginClassloader = false)
           }
           catch (e: IOException) {
             throw ClassNotFoundException(name, e)
@@ -227,7 +223,7 @@ class PluginClassLoader(classPath: ClassPath,
               }
               continue
             }
-            c = classloader.loadClassInsideSelf(name, fileName, packageNameHash, false)
+            c = classloader.loadClassWithPrecomputedMeta(name, fileName, fileNameWithoutExtension, packageNameHash)
           }
           catch (e: IOException) {
             throw ClassNotFoundException(name, e)
@@ -243,7 +239,7 @@ class PluginClassLoader(classPath: ClassPath,
               break
             }
           }
-          catch (ignoreAndContinue: ClassNotFoundException) {
+          catch (_: ClassNotFoundException) {
             // ignore and continue
           }
         }
@@ -311,36 +307,34 @@ class PluginClassLoader(classPath: ClassPath,
     return consistencyError == null && super.hasLoadedClass(name)
   }
 
-  override fun loadClassInsideSelf(name: String,
-                                   fileName: String,
-                                   packageNameHash: Long,
-                                   forceLoadFromSubPluginClassloader: Boolean): Class<*>? {
+  override fun loadClassInsideSelf(name: String): Class<*>? {
+    val fileNameWithoutExtension = name.replace('.', '/')
+    val fileName = fileNameWithoutExtension + ClasspathCache.CLASS_EXTENSION
+    val packageNameHash = ClasspathCache.getPackageNameHash(fileNameWithoutExtension, fileNameWithoutExtension.lastIndexOf('/'))
+    return loadClassInsideSelf(name, fileName, packageNameHash, false)
+  }
+
+  private fun loadClassInsideSelf(name: String, fileName: String, packageNameHash: Long, forceLoadFromSubPluginClassloader: Boolean): Class<*>? {
     synchronized(getClassLoadingLock(name)) {
       var c = findLoadedClass(name)
-      if (c != null && c.classLoader === this) {
+      if (c?.classLoader === this) {
         return c
       }
 
-      val logStream = logStream
       c = try {
         classPath.findClass(name, fileName, packageNameHash, classDataConsumer)
       }
       catch (e: LinkageError) {
         logStream?.let { logClass(name = name, logStream = it, exception = e) }
         flushDebugLog()
-        throw PluginException("""Cannot load class $name (
-  error: ${e.message},
-  classLoader=$this
-)""", e, pluginId)
+        throw PluginException("Cannot load class $name (\n  error: ${e.message},\n  classLoader=$this\n)", e, pluginId)
       }
       if (c == null) {
         return null
       }
 
       loadedClassCounter.incrementAndGet()
-      if (logStream != null) {
-        logClass(name = name, logStream = logStream, exception = null)
-      }
+      logStream?.let { logClass(name = name, logStream = it, exception = null) }
       return c
     }
   }
@@ -353,7 +347,7 @@ class PluginClassLoader(classPath: ClassPath,
       logStream.write("""$name [$specifier] ${pluginId.idString}${if (packagePrefix == null) "" else ":$packagePrefix"}
 ${if (exception == null) "" else exception.message}""")
     }
-    catch (ignored: IOException) {
+    catch (_: IOException) {
     }
   }
 
@@ -446,7 +440,7 @@ ${if (exception == null) "" else exception.message}""")
         try {
           resources.add(classloader.getResources(name))
         }
-        catch (ignore: IOException) {
+        catch (_: IOException) {
         }
       }
     }
@@ -458,9 +452,9 @@ ${if (exception == null) "" else exception.message}""")
       val libFileName = System.mapLibraryName(libName)
       val iterator = libDirectories.listIterator(libDirectories.size)
       while (iterator.hasPrevious()) {
-        val libFile = File(iterator.previous(), libFileName)
-        if (libFile.exists()) {
-          return libFile.absolutePath
+        val libFile = iterator.previous().resolve(libFileName)
+        if (Files.exists(libFile)) {
+          return libFile.toString()
         }
       }
     }
@@ -477,7 +471,8 @@ ${if (exception == null) "" else exception.message}""")
     return "${javaClass.simpleName}(" +
            "plugin=$pluginDescriptor, " +
            "packagePrefix=$packagePrefix, " +
-           "state=${if (state == PluginAwareClassLoader.ACTIVE) "active" else "unload in progress"}" +
+           "state=${if (state == PluginAwareClassLoader.ACTIVE) "active" else "unload in progress"}, " +
+           "parents=${parents.joinToString()}, " +
            ")"
   }
 
@@ -588,6 +583,6 @@ private fun flushDebugLog() {
   try {
     logStream.flush()
   }
-  catch (ignore: IOException) {
+  catch (_: IOException) {
   }
 }

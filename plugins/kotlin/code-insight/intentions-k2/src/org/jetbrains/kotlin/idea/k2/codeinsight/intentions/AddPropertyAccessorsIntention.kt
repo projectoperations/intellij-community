@@ -5,11 +5,15 @@ package org.jetbrains.kotlin.idea.k2.codeinsight.intentions
 import com.intellij.codeInsight.intention.LowPriorityAction
 import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
-import org.jetbrains.kotlin.analysis.api.annotations.hasAnnotation
-import org.jetbrains.kotlin.analysis.api.symbols.KtPropertySymbol
-import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.AbstractKotlinApplicableModCommandIntention
-import org.jetbrains.kotlin.idea.codeinsight.api.applicators.applicabilityTarget
+import com.intellij.openapi.util.TextRange
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
+import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
+import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
+import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
+import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.intentions.AddAccessorUtils
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.intentions.AddAccessorUtils.addAccessors
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -23,13 +27,15 @@ import org.jetbrains.kotlin.psi.psiUtil.hasExpectModifier
 internal abstract class AbstractAddAccessorIntention(
     private val addGetter: Boolean,
     private val addSetter: Boolean,
-) : AbstractKotlinApplicableModCommandIntention<KtProperty>(KtProperty::class) {
-    override fun getFamilyName(): String = AddAccessorUtils.familyAndActionName(addGetter, addSetter)
-    override fun getActionName(element: KtProperty): String = familyName
+) : KotlinApplicableModCommandAction<KtProperty, Unit>(KtProperty::class) {
 
-    override fun getApplicabilityRange() = applicabilityTarget { ktProperty: KtProperty ->
-        if (ktProperty.hasInitializer()) ktProperty.nameIdentifier else ktProperty
-    }
+    override fun getFamilyName(): String = AddAccessorUtils.familyAndActionName(addGetter, addSetter)
+
+    override fun getApplicableRanges(element: KtProperty): List<TextRange> =
+        ApplicabilityRange.single(element) { property ->
+            if (property.hasInitializer()) property.nameIdentifier
+            else property
+        }
 
     override fun isApplicableByPsi(element: KtProperty): Boolean {
         if (element.isLocal ||
@@ -50,14 +56,32 @@ internal abstract class AbstractAddAccessorIntention(
         return true
     }
 
-    context(KtAnalysisSession)
-    override fun isApplicableByAnalyze(element: KtProperty): Boolean {
-        if (element.annotationEntries.isEmpty()) return true
-        val symbol = element.getVariableSymbol() as? KtPropertySymbol ?: return false
-        return symbol.backingFieldSymbol?.hasAnnotation(JVM_FIELD_CLASS_ID) != true
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
+    override fun prepareContext(element: KtProperty): Unit? {
+        if (element.isPropertyNotInitialized()) return null
+        if (element.annotationEntries.isEmpty()) return Unit
+        val symbol = element.symbol as? KaPropertySymbol ?: return null
+
+        val isApplicable = symbol.backingFieldSymbol?.annotations?.contains(JVM_FIELD_CLASS_ID) != true
+        return isApplicable.asUnit
     }
 
-    override fun apply(element: KtProperty, context: ActionContext, updater: ModPsiUpdater) {
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
+    private fun KtProperty.isPropertyNotInitialized(): Boolean {
+        // TODO: when KT-63221 is fixed use `diagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)` instead
+        return containingKtFile.collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+            .filter { it.psi == this@isPropertyNotInitialized }
+            .any { it is KaFirDiagnostic.MustBeInitialized }
+    }
+
+    override fun invoke(
+      actionContext: ActionContext,
+      element: KtProperty,
+      elementContext: Unit,
+      updater: ModPsiUpdater,
+    ) {
         addAccessors(element, addGetter, addSetter, updater::moveCaretTo)
     }
 }

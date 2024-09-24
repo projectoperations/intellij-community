@@ -30,6 +30,11 @@
     "ideaId": "AngularJS"
   },
   {
+    "vsCodeId": "astro-build.astro-vscode",
+    "ideaName": "Astro",
+    "ideaId": "org.jetbrains.plugins.astro"
+  },
+  {
     "vsCodeId": "austin.code-gnu-global",
     "ideaName": "C++ Intellisense",
     "builtIn": true
@@ -38,6 +43,11 @@
     "vsCodeId": "bajdzis.vscode-database",
     "ideaName": "vscode-database",
     "builtIn": true
+  },
+  {
+    "vsCodeId": "bungcip.better-toml",
+    "ideaName": "Toml",
+    "ideaId": "org.toml.lang"
   },
   {
     "vsCodeId": "christian-kohler.npm-intellisense",
@@ -168,6 +178,11 @@
     "vsCodeId": "GitHub.vscode-pull-request-github",
     "ideaName": "GitHub Pull Requests and Issues",
     "builtIn": true
+  },
+  {
+    "vsCodeId": "GitLab.gitlab-workflow",
+    "ideaName": "GitLab",
+    "ideaId": "org.jetbrains.plugins.gitlab"
   },
   {
     "vsCodeId": "GraphQL.vscode-graphql",
@@ -415,6 +430,11 @@
     "ideaId": "org.jetbrains.plugins.vue"
   },
   {
+    "vsCodeId": "Prisma.prisma",
+    "ideaName": "Prisma ORM",
+    "ideaId": "org.intellij.prisma"
+  },
+  {
     "vsCodeId": "redhat.vscode-xml",
     "ideaName": "XML",
     "builtIn": true
@@ -483,6 +503,16 @@
     "vsCodeId": "Vue.volar",
     "ideaName": "Vue.js",
     "ideaId": "org.jetbrains.plugins.vue"
+  },
+  {
+    "vsCodeId": "waderyan.gitblame",
+    "ideaName": "Git Blame",
+    "builtIn": true
+  },
+  {
+    "vsCodeId": "wayou.vscode-todo-highlight",
+    "ideaName": "TODO Highlight",
+    "builtIn": true
   },
   {
     "vsCodeId": "YclepticStudios.unity-snippets",

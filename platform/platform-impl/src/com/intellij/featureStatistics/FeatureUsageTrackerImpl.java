@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.featureStatistics;
 
 import com.intellij.internal.statistic.eventLog.EventLogGroup;
@@ -24,6 +24,7 @@ import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.XmlSerializer;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,6 +32,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Set;
 
+import static com.intellij.configurationStore.XmlSerializer.getJdomSerializer;
 import static com.intellij.internal.statistic.utils.PluginInfoDetectorKt.getPluginInfo;
 
 @State(
@@ -193,11 +195,11 @@ public final class FeatureUsageTrackerImpl extends FeatureUsageTracker implement
     }
 
     Element statsTag = new Element(COMPLETION_STATS_TAG);
-    XmlSerializer.serializeInto(myCompletionStats, statsTag);
+    getJdomSerializer().serializeObjectInto(myCompletionStats, statsTag, getJdomSerializer().getDefaultSerializationFilter());
     element.addContent(statsTag);
 
     Element fstatsTag = new Element(FIXES_STATS_TAG);
-    XmlSerializer.serializeInto(myFixesStats, fstatsTag);
+    getJdomSerializer().serializeObjectInto(myFixesStats, fstatsTag, getJdomSerializer().getDefaultSerializationFilter());
     element.addContent(fstatsTag);
 
     element.setAttribute(ATT_FIRST_RUN, String.valueOf(getFirstRunTime()));
@@ -258,6 +260,7 @@ public final class FeatureUsageTrackerImpl extends FeatureUsageTracker implement
     }
   }
 
+  @ApiStatus.Internal
   public static final class ProductivityUtilValidator extends CustomValidationRule {
     @Override
     public @NotNull String getRuleId() {

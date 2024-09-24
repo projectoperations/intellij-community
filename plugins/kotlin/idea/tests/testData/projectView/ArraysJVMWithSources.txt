@@ -114,8 +114,10 @@ Navigation item file #0: kotlin-stdlib-sources.jar!/jvmMain/kotlin/collections/A
      +PsiDirectory: system
      +PsiDirectory: text
      +PsiDirectory: time
+     +PsiDirectory: uuid
      _Assertions
      BuilderInference
+     ConsistentCopyVisibility
      ContextFunctionTypeParams
      DeepRecursiveFunction
      DeepRecursiveScope
@@ -128,6 +130,7 @@ Navigation item file #0: kotlin-stdlib-sources.jar!/jvmMain/kotlin/collections/A
      ExperimentalStdlibApi
      ExperimentalSubclassOptIn
      ExperimentalUnsignedTypes
+     ExposedCopyVisibility
      ExtensionFunctionType
      Function
      InitializedLazyImpl
@@ -212,4 +215,4 @@ Navigation item file #0: kotlin-stdlib-sources.jar!/jvmMain/kotlin/collections/A
      UShortArrayKt
      UShortKt
     +PsiDirectory: META-INF
-   +PsiDirectory: kotlin-stdlib-common.jar
+   +PsiDirectory: kotlin-stdlib-common.klib

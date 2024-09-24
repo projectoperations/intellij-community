@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl.welcomeScreen.recentProjects
 
 import com.intellij.icons.AllIcons
@@ -7,6 +7,7 @@ import com.intellij.ide.ui.laf.darcula.ui.DarculaProgressBarUI
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.addKeyboardAction
 import com.intellij.openapi.ui.panel.ComponentPanelBuilder
@@ -383,6 +384,10 @@ internal class RecentProjectFilteringTree(
       private val projectPathLabel = ComponentPanelBuilder.createNonWrappingCommentComponent("").apply {
         foreground = NamedColorUtil.getInactiveTextColor()
       }
+      private val projectBranchNameLabel = ComponentPanelBuilder.createNonWrappingCommentComponent("").apply {
+        foreground = NamedColorUtil.getInactiveTextColor()
+        icon = AllIcons.Vcs.Branch
+      }
       private val projectIconLabel = JLabel()
       private val projectActions = ActionsButton().apply {
         setState(AllIcons.Ide.Notification.Gear, false)
@@ -392,6 +397,7 @@ internal class RecentProjectFilteringTree(
 
         add(projectNameLabel)
         add(projectPathLabel)
+        add(projectBranchNameLabel)
       }
       private val updateScaleHelper = UpdateScaleHelper()
 
@@ -420,6 +426,12 @@ internal class RecentProjectFilteringTree(
           disabledIcon = recentProjectsManager.getProjectIcon(item.projectPath, isProjectValid = false)
           isEnabled = isPathValid
         }
+        projectBranchNameLabel.apply {
+          isVisible = item.branchName != null
+          if(isVisible) {
+            text = item.branchName
+          }
+        }
         if (isPathValid) {
           buttonViewModel.prepareActionsButton(projectActions, rowHovered, AllIcons.Ide.Notification.Gear,
                                                AllIcons.Ide.Notification.GearHover)
@@ -432,7 +444,7 @@ internal class RecentProjectFilteringTree(
         val toolTipPath = PathUtil.toSystemDependentName(item.projectPath)
         val tooltip = if (isPathValid) toolTipPath else "$toolTipPath ${IdeBundle.message("recent.project.unavailable")}"
         if (tooltip != toolTipText) {
-          IdeTooltipManager.getInstance().hideCurrent(null)
+          serviceIfCreated<IdeTooltipManager>()?.hideCurrent(mouseEvent = null)
           toolTipText = tooltip
         }
 

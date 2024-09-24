@@ -8,15 +8,16 @@ import com.intellij.collaboration.ui.html.AsyncHtmlImageLoader
 import com.intellij.collaboration.util.ChangesSelection
 import com.intellij.collaboration.util.getOrNull
 import com.intellij.openapi.actionSystem.DataKey
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.util.coroutines.childScope
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import org.jetbrains.plugins.github.api.data.GHIssueComment
 import org.jetbrains.plugins.github.api.data.GHNode
 import org.jetbrains.plugins.github.api.data.GHRepositoryPermissionLevel
@@ -33,10 +34,9 @@ import org.jetbrains.plugins.github.pullrequest.ui.GHLoadingErrorHandler
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.item.GHPRTimelineItem
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.item.UpdateableGHPRTimelineCommentViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.item.UpdateableGHPRTimelineReviewViewModel
+import org.jetbrains.plugins.github.pullrequest.ui.toolwindow.model.GHPRToolWindowViewModel
 import org.jetbrains.plugins.github.ui.avatars.GHAvatarIconsProvider
-import java.util.*
-
-private typealias GHPRTimelineItemDTO = org.jetbrains.plugins.github.api.data.pullrequest.timeline.GHPRTimelineItem
+import org.jetbrains.plugins.github.api.data.pullrequest.timeline.GHPRTimelineItem as GHPRTimelineItemDTO
 
 interface GHPRTimelineViewModel {
   val ghostUser: GHUser
@@ -63,6 +63,8 @@ interface GHPRTimelineViewModel {
 
   fun showCommit(oid: String)
 
+  fun openPullRequestInfoAndTimeline(number: Long)
+
   companion object {
     val DATA_KEY: DataKey<GHPRTimelineViewModel> = DataKey.create("GitHub.PullRequest.Timeline.ViewModel")
   }
@@ -74,8 +76,9 @@ internal class GHPRTimelineViewModelImpl(
   private val dataContext: GHPRDataContext,
   private val dataProvider: GHPRDataProvider
 ) : GHPRTimelineViewModel {
-  private val cs = parentCs.childScope(Dispatchers.Main + CoroutineName("GitHub Pull Request Timeline View Model"))
+  private val cs = parentCs.childScope("GitHub Pull Request Timeline View Model", Dispatchers.Main)
 
+  private val twVm by lazy { project.service<GHPRToolWindowViewModel>() }
   private val securityService = dataContext.securityService
 
   private val detailsData = dataProvider.detailsData
@@ -108,6 +111,11 @@ internal class GHPRTimelineViewModelImpl(
     val disposable = Disposer.newDisposable()
     timelineLoader.addLoadingStateChangeListener(disposable) {
       trySend(timelineLoader.loading)
+
+      // Update the last seen date to the last time a fully loaded timeline was loaded
+      if (!timelineLoader.canLoadMore() && !timelineLoader.loading) {
+        updateLastSeen(System.currentTimeMillis())
+      }
     }
     send(timelineLoader.loading)
     awaitClose { Disposer.dispose(disposable) }
@@ -142,28 +150,23 @@ internal class GHPRTimelineViewModelImpl(
         timelineModel.add(addedData)
         itemsFromModel.value = timelineModel.getItemsList()
 
-        // Update the 'last seen' date to now if there are no further timeline items
-        val prId = detailsVm.details.value.getOrNull()?.id ?: return
-        val latestItemLoaded =
-          if (!timelineLoader.canLoadMore()) System.currentTimeMillis()
-          else addedData.mapNotNull { it.createdAt }.maxOrNull()?.time
-        interactionState.updateStateFor(prId) { st ->
-          PRState(
-            prId,
-            if (latestItemLoaded != null && st?.lastSeen != null) maxOf(latestItemLoaded, st.lastSeen)
-            else latestItemLoaded ?: st?.lastSeen)
-        }
+        val latestLoadedItemTime = loadedData.mapNotNull { it.createdAt }.maxOrNull()?.time
+        updateLastSeen(latestLoadedItemTime ?: System.currentTimeMillis())
       }
 
       override fun onDataUpdated(idx: Int) {
         val newItem = timelineLoader.loadedData[idx]
         timelineModel.update(idx, newItem)
         itemsFromModel.value = timelineModel.getItemsList()
+
+        updateLastSeen(System.currentTimeMillis())
       }
 
       override fun onDataRemoved(idx: Int) {
         timelineModel.remove(idx)
         itemsFromModel.value = timelineModel.getItemsList()
+
+        updateLastSeen(System.currentTimeMillis())
       }
 
       override fun onAllDataRemoved() {
@@ -172,6 +175,13 @@ internal class GHPRTimelineViewModelImpl(
         timelineLoader.loadMore()
       }
     })
+  }
+
+  private fun updateLastSeen(lastSeenMillis: Long) {
+    val prId = detailsVm.details.value.getOrNull()?.id ?: return
+    interactionState.updateStateFor(prId) { st ->
+      PRState(prId, maxOf(lastSeenMillis, st?.lastSeen ?: 0L))
+    }
   }
 
   private fun getItemID(data: GHPRTimelineItemDTO): Any =
@@ -214,13 +224,20 @@ internal class GHPRTimelineViewModelImpl(
   }
 
   override fun updateAll() {
-    detailsData.reloadDetails()
-    timelineLoader.loadMore(true)
-    reviewData.resetReviewThreads()
+    cs.launch {
+      detailsData.signalDetailsNeedReload()
+      detailsData.signalMergeabilityNeedsReload()
+      timelineLoader.loadMore(true)
+      reviewData.signalThreadsNeedReload()
+    }
   }
 
   override fun showCommit(oid: String) {
     showCommitRequests.tryEmit(oid)
+  }
+
+  override fun openPullRequestInfoAndTimeline(number: Long) {
+    twVm.projectVm.value?.openPullRequestInfoAndTimeline(number)
   }
 }
 

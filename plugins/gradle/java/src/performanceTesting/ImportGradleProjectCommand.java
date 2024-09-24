@@ -148,7 +148,10 @@ public final class ImportGradleProjectCommand extends AbstractCommand {
               if (!projectsPaths.contains(projectPath)) return;
               connection.disconnect();
               if (gradleProjectsToRefreshCount.decrementAndGet() == 0) {
-                ApplicationManager.getApplication().invokeLater(() -> promise.setResult(null));
+
+                ApplicationManager.getApplication().invokeLater(() -> {
+                  promise.setResult(null);
+                });
               }
             }
           });

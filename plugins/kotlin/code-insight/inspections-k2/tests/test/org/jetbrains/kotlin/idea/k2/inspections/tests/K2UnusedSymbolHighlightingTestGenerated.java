@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.k2.inspections.tests;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -22,6 +23,12 @@ public abstract class K2UnusedSymbolHighlightingTestGenerated extends AbstractK2
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/multifile")
     public static class Multifile extends AbstractK2LocalInspectionAndGeneralHighlightingTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -96,6 +103,11 @@ public abstract class K2UnusedSymbolHighlightingTestGenerated extends AbstractK2
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/multifile/functionReference.kt");
         }
 
+        @TestMetadata("importedDeclarationMember.kt")
+        public void testImportedDeclarationMember() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/multifile/importedDeclarationMember.kt");
+        }
+
         @TestMetadata("parameterOnlyUsedAsNamedArgument.kt")
         public void testParameterOnlyUsedAsNamedArgument() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/multifile/parameterOnlyUsedAsNamedArgument.kt");
@@ -145,6 +157,12 @@ public abstract class K2UnusedSymbolHighlightingTestGenerated extends AbstractK2
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/inspectionsLocal/unusedSymbol")
     public static class Uncategorized extends AbstractK2LocalInspectionAndGeneralHighlightingTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
@@ -152,6 +170,16 @@ public abstract class K2UnusedSymbolHighlightingTestGenerated extends AbstractK2
         @TestMetadata("abstractFunctionParameter.kt")
         public void testAbstractFunctionParameter() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/abstractFunctionParameter.kt");
+        }
+
+        @TestMetadata("actualClassParameter.kt")
+        public void testActualClassParameter() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/actualClassParameter.kt");
+        }
+
+        @TestMetadata("actualFunctionParameter.kt")
+        public void testActualFunctionParameter() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/actualFunctionParameter.kt");
         }
 
         @TestMetadata("annotationConstructor.kt")
@@ -267,6 +295,11 @@ public abstract class K2UnusedSymbolHighlightingTestGenerated extends AbstractK2
         @TestMetadata("enumSecondaryConstructor.kt")
         public void testEnumSecondaryConstructor() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/enumSecondaryConstructor.kt");
+        }
+
+        @TestMetadata("expectClassParameter.kt")
+        public void testExpectClassParameter() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/expectClassParameter.kt");
         }
 
         @TestMetadata("expectFunctionParameter.kt")
@@ -397,6 +430,11 @@ public abstract class K2UnusedSymbolHighlightingTestGenerated extends AbstractK2
         @TestMetadata("loopParameter.kt")
         public void testLoopParameter() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/loopParameter.kt");
+        }
+
+        @TestMetadata("mainWithUnusedParameter.kt")
+        public void testMainWithUnusedParameter() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedSymbol/mainWithUnusedParameter.kt");
         }
 
         @TestMetadata("namedFunctionalParameter.kt")

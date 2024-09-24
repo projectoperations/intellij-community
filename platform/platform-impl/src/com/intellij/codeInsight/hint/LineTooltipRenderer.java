@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.hint;
 
 import com.intellij.ide.BrowserUtil;
@@ -39,6 +39,7 @@ import java.util.List;
 
 public class LineTooltipRenderer extends ComparableObject.Impl implements TooltipRenderer {
 
+  public final static int CONTENT_PADDING = 20;
   /**
    * Html-like text for showing
    * Please note that the tooltip size is calculated dynamically based on the html so
@@ -72,7 +73,7 @@ public class LineTooltipRenderer extends ComparableObject.Impl implements Toolti
                                                  @NotNull JEditorPane editorPane,
                                                  boolean highlightActions,
                                                  boolean hasSeparators) {
-    int leftBorder = 10;
+    int leftBorder = CONTENT_PADDING;
     int rightBorder = 12;
     final class MyPanel extends JPanel implements WidthBasedLayout {
       private MyPanel() {
@@ -311,7 +312,7 @@ public class LineTooltipRenderer extends ComparableObject.Impl implements Toolti
     if (parts.size() <= 1) return html;
     StringBuilder b = new StringBuilder();
     for (String part : parts) {
-      boolean addBorder = b.length() > 0;
+      boolean addBorder = !b.isEmpty();
       b.append("<div");
       if (addBorder) {
         b.append(" style='margin-top:6; padding-top:6; border-top: thin solid #");

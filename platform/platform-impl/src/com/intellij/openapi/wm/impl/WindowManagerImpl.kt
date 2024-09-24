@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment")
 
 package com.intellij.openapi.wm.impl
@@ -12,6 +12,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
@@ -27,7 +28,6 @@ import com.intellij.openapi.wm.impl.FrameInfoHelper.Companion.isMaximized
 import com.intellij.openapi.wm.impl.status.IdeStatusBarImpl
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
 import com.intellij.ui.ComponentUtil
-import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.ScreenUtil
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.sun.jna.platform.WindowUtils
@@ -252,9 +252,6 @@ class WindowManagerImpl : WindowManagerEx(), PersistentStateComponentWithModific
     return getFrameHelper(project ?: IdeFocusManager.getGlobalInstance().lastFocusedFrame?.project ?: return null)
   }
 
-  @ApiStatus.Internal
-  fun getProjectFrameRootPane(project: Project?): IdeRootPane? = projectToFrame.get(project)?.frameHelper?.rootPane
-
   override fun getIdeFrame(project: Project?): IdeFrame? {
     if (project != null) {
       return getFrameHelper(project)
@@ -280,21 +277,22 @@ class WindowManagerImpl : WindowManagerEx(), PersistentStateComponentWithModific
   }
 
   suspend fun assignFrame(frameHelper: ProjectFrameHelper, project: Project) {
+    assignFrame(frameHelper, project, true)
+  }
+
+  internal suspend fun assignFrame(frameHelper: ProjectFrameHelper, project: Project, withListener: Boolean) {
     withContext(Dispatchers.EDT) {
       LOG.assertTrue(!projectToFrame.containsKey(project))
 
-      val listener = FrameStateListener(defaultFrameInfoHelper)
-      frameHelper.frame.addComponentListener(listener)
-      projectToFrame.put(project, ProjectItem(frameHelper, listener))
+      if (withListener) {
+        val listener = FrameStateListener(defaultFrameInfoHelper)
+        frameHelper.frame.addComponentListener(listener)
+        projectToFrame.put(project, ProjectItem(frameHelper, listener))
+      }
+      else {
+        projectToFrame.put(project, ProjectItem(frameHelper, null))
+      }
     }
-  }
-
-  internal suspend fun lightFrameAssign(project: Project, frameHelper: ProjectFrameHelper) {
-    projectToFrame.put(project, ProjectItem(frameHelper, null))
-    frameHelper.setRawProject(project)
-    frameHelper.setProject(project)
-    frameHelper.installDefaultProjectStatusBarWidgets(project)
-    frameHelper.updateTitle(project)
   }
 
   @RequiresEdt
@@ -351,7 +349,7 @@ class WindowManagerImpl : WindowManagerEx(), PersistentStateComponentWithModific
     }
     state.getChild(DesktopLayout.TAG)?.let {
       val layout = DesktopLayout()
-      layout.readExternal(it, ExperimentalUI.isNewUI())
+      layout.readExternal(it)
       oldLayout = layout
     }
   }
@@ -482,30 +480,7 @@ internal class FrameStateListener(private val defaultFrameInfoHelper: FrameInfoH
         }
       }
       else if (isMaximized(extendedState)) {
-        val normalBounds = frame.normalBounds
-        if (normalBounds == null) {
-          IDE_FRAME_EVENT_LOG.debug("Not updating frame bounds because normalBounds == null")
-        }
-        if (normalBounds != null) {
-          normalBoundsOnCurrentScreen = normalBounds
-          if (
-            oldScreen != null && !oldScreen.isEmpty &&
-            newScreen != null && !newScreen.isEmpty &&
-            newScreen != oldScreen
-          ) {
-            // The frame was moved to another screen after it had been maximized, move/scale its "normal" bounds accordingly.
-            normalBoundsOnCurrentScreen = Rectangle(normalBoundsOnCurrentScreen)
-            ScreenUtil.moveAndScale(normalBoundsOnCurrentScreen, oldScreen, newScreen)
-            if (IDE_FRAME_EVENT_LOG.isDebugEnabled) { // avoid unnecessary concatenation
-              IDE_FRAME_EVENT_LOG.debug("Updated bounds for IDE frame ${normalBoundsOnCurrentScreen} after moving from $oldScreen to $newScreen")
-            }
-          }
-          else {
-            if (IDE_FRAME_EVENT_LOG.isDebugEnabled) { // avoid unnecessary concatenation
-              IDE_FRAME_EVENT_LOG.debug("Frame moved from $oldScreen to $newScreen, not updating normal bounds $normalBounds")
-            }
-          }
-        }
+        normalBoundsOnCurrentScreen = getNormalFrameBounds(frame, oldScreen, newScreen)
       }
     }
 
@@ -523,4 +498,40 @@ internal class FrameStateListener(private val defaultFrameInfoHelper: FrameInfoH
       ProjectFrameBounds.getInstance(project).markDirty(if (isMaximized(extendedState)) normalBoundsOnCurrentScreen else bounds)
     }
   }
+}
+
+private fun getNormalFrameBounds(frame: IdeFrameImpl, oldScreen: Rectangle?, newScreen: Rectangle?): Rectangle? {
+  val nativeBounds = frame.getNativeNormalBounds()
+  if (nativeBounds != null) {
+    IDE_FRAME_EVENT_LOG.debug { "Got native bounds: $nativeBounds" }
+    FrameBoundsConverter.scaleDown(nativeBounds, frame.graphicsConfiguration)
+    IDE_FRAME_EVENT_LOG.debug { "Updated normal frame bounds from native bounds: $nativeBounds" }
+    return nativeBounds
+  }
+  var result: Rectangle? = null
+  val normalBounds = frame.normalBounds
+  if (normalBounds == null) {
+    IDE_FRAME_EVENT_LOG.debug("Not updating frame bounds because normalBounds == null")
+  }
+  if (normalBounds != null) {
+    result = normalBounds
+    if (
+      oldScreen != null && !oldScreen.isEmpty &&
+      newScreen != null && !newScreen.isEmpty &&
+      newScreen != oldScreen
+    ) {
+      // The frame was moved to another screen after it had been maximized, move/scale its "normal" bounds accordingly.
+      result = Rectangle(result)
+      ScreenUtil.moveAndScale(result, oldScreen, newScreen)
+      if (IDE_FRAME_EVENT_LOG.isDebugEnabled) { // avoid unnecessary concatenation
+        IDE_FRAME_EVENT_LOG.debug("Updated bounds for IDE frame ${result} after moving from $oldScreen to $newScreen")
+      }
+    }
+    else {
+      if (IDE_FRAME_EVENT_LOG.isDebugEnabled) { // avoid unnecessary concatenation
+        IDE_FRAME_EVENT_LOG.debug("Frame moved from $oldScreen to $newScreen, not updating normal bounds $normalBounds")
+      }
+    }
+  }
+  return result
 }

@@ -27,7 +27,6 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.fixes.InlineGetterSetterCallFix;
-import com.siyeh.ig.psiutils.ClassUtils;
 import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.codeInspection.options.OptPane.checkbox;
@@ -60,14 +59,12 @@ public final class CallToSimpleSetterInClassInspection extends BaseInspection im
   }
 
   @Override
-  @NotNull
-  public String getID() {
+  public @NotNull String getID() {
     return "CallToSimpleSetterFromWithinClass";
   }
 
   @Override
-  @NotNull
-  public String buildErrorString(Object... infos) {
+  public @NotNull String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("call.to.simple.setter.in.class.problem.descriptor");
   }
 
@@ -81,7 +78,7 @@ public final class CallToSimpleSetterInClassInspection extends BaseInspection im
     @Override
     public void visitMethodCallExpression(@NotNull PsiMethodCallExpression call) {
       super.visitMethodCallExpression(call);
-      final PsiClass containingClass = ClassUtils.getContainingClass(call);
+      final PsiClass containingClass = PsiUtil.getContainingClass(call);
       if (containingClass == null) {
         return;
       }

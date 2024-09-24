@@ -2,6 +2,7 @@
 package com.intellij.configurationStore.schemeManager
 
 import com.intellij.configurationStore.LOG
+import com.intellij.configurationStore.RELOADING_STORAGE_WRITE_REQUESTOR
 import com.intellij.configurationStore.StoreReloadManager
 import com.intellij.configurationStore.StoreReloadManagerImpl
 import com.intellij.openapi.diagnostic.debug
@@ -14,7 +15,6 @@ import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
-import com.intellij.util.SmartList
 import kotlin.io.path.invariantSeparatorsPathString
 
 internal class SchemeFileTracker<T : Scheme, M : T>(
@@ -24,9 +24,10 @@ internal class SchemeFileTracker<T : Scheme, M : T>(
   private val applicator = SchemeChangeApplicator(schemeManager)
 
   override fun after(events: List<VFileEvent>) {
-    val list = SmartList<SchemeChangeEvent<T,M>>()
+    val list = ArrayList<SchemeChangeEvent<T, M>>()
+
     for (event in events) {
-      if (event.requestor is SchemeManagerImpl<*, *>) {
+      if (event.requestor is SchemeManagerImpl<*, *> || event.requestor == RELOADING_STORAGE_WRITE_REQUESTOR) {
         continue
       }
 
@@ -46,8 +47,8 @@ internal class SchemeFileTracker<T : Scheme, M : T>(
           else if (schemeManager.canRead(event.childName) && isMyDirectory(event.parent)) {
             val virtualFile = event.file
             LOG.debug { "CREATED ${event.path} (virtualFile: ${if (virtualFile == null) "not " else ""}found)" }
-            virtualFile?.let {
-              list.add(AddScheme(it))
+            if (virtualFile != null) {
+              list.add(AddScheme(virtualFile))
             }
           }
         }

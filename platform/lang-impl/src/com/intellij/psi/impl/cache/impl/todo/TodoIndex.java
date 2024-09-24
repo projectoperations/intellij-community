@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.psi.impl.cache.impl.todo;
 
@@ -16,8 +16,6 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -38,12 +36,7 @@ public final class TodoIndex extends SingleEntryFileBasedIndexExtension<Map<Todo
 
   public TodoIndex() {
     ApplicationManager.getApplication().getMessageBus().simpleConnect()
-      .subscribe(IndexPatternProvider.INDEX_PATTERNS_CHANGED, new PropertyChangeListener() {
-        @Override
-        public void propertyChange(PropertyChangeEvent evt) {
-          FileBasedIndex.getInstance().requestRebuild(NAME);
-        }
-      });
+      .subscribe(IndexPatternProvider.INDEX_PATTERNS_CHANGED, __ -> FileBasedIndex.getInstance().requestRebuild(NAME));
   }
 
   private final DataExternalizer<Map<TodoIndexEntry, Integer>> myValueExternalizer = new DataExternalizer<>() {
@@ -52,7 +45,7 @@ public final class TodoIndex extends SingleEntryFileBasedIndexExtension<Map<Todo
                      @NotNull Map<TodoIndexEntry, Integer> value) throws IOException {
       int size = value.size();
       DataInputOutputUtil.writeINT(out, size);
-      if (size <= 0) return;
+      if (size == 0) return;
       for (TodoIndexEntry entry : value.keySet()) {
         IOUtil.writeUTF(out, entry.pattern);
         out.writeBoolean(entry.caseSensitive);
@@ -135,9 +128,8 @@ public final class TodoIndex extends SingleEntryFileBasedIndexExtension<Map<Todo
         return TodoIndexers.needsTodoIndex(file);
       }
 
-      @NotNull
       @Override
-      public ThreeState acceptFileType(@NotNull FileType fileType) {
+      public @NotNull ThreeState acceptFileType(@NotNull FileType fileType) {
         DataIndexer<TodoIndexEntry, Integer, FileContent> indexer = PlatformIdTableBuilding.getTodoIndexer(fileType);
         if (indexer == null) return ThreeState.NO;
         else return ThreeState.UNSURE;

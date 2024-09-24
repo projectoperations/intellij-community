@@ -5,25 +5,23 @@ import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.base.KtConstantValue
-import org.jetbrains.kotlin.analysis.api.components.KtConstantEvaluationMode
-import org.jetbrains.kotlin.analysis.api.components.KtDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KtFirDiagnostic
-
+import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
+import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
+import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.quickfixes.CleanupFix
 import org.jetbrains.kotlin.idea.codeinsight.utils.*
-import org.jetbrains.kotlin.idea.codeinsights.impl.base.inspections.MayBeConstantInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.utils.checkMayBeConstantByFields
 import org.jetbrains.kotlin.idea.codeinsight.utils.replaceReferencesToGetterByReferenceToField
+import org.jetbrains.kotlin.idea.codeinsights.impl.base.inspections.MayBeConstantInspectionBase
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.inspections.matchStatus
 import org.jetbrains.kotlin.idea.quickfix.AddModifierFix
 import org.jetbrains.kotlin.idea.util.application.runWriteActionIfPhysical
 import org.jetbrains.kotlin.idea.util.findAnnotation
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
-
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtProperty
@@ -38,7 +36,7 @@ class MayBeConstantInspection : MayBeConstantInspectionBase() {
 
         val initializer = initializer
         analyze(this) {
-            if (!hasPrimitiveOrStringType()) return Status.NONE
+            if (!hasNonNullablePrimitiveOrStringType()) return Status.NONE
         }
 
         val withJvmField = findAnnotation(ClassId.fromString(JVM_FIELD_CLASS_ID)) != null
@@ -50,7 +48,7 @@ class MayBeConstantInspection : MayBeConstantInspectionBase() {
                     val constant = initializer.getConstantValue() ?: return Status.NONE
                     val erroneousConstant = initializer.usesNonConstValAsConstant()
 
-                    if (constant is KtConstantValue.KtNullConstantValue || constant is KtConstantValue.KtErrorConstantValue) return Status.NONE
+                    if (constant is KaConstantValue.NullValue || constant is KaConstantValue.ErrorValue) return Status.NONE
                     matchStatus(withJvmField, erroneousConstant)
                 }
             }
@@ -59,21 +57,23 @@ class MayBeConstantInspection : MayBeConstantInspectionBase() {
         }
     }
 
-    context(KtAnalysisSession)
-    private fun KtProperty.hasPrimitiveOrStringType(): Boolean {
-        val type = this.getReturnKtType()
-        return type.isPrimitive || type.isString
+    context(KaSession)
+    private fun KtProperty.hasNonNullablePrimitiveOrStringType(): Boolean {
+        val type = this.returnType
+        if (type.isMarkedNullable) return false
+        return type.isPrimitive || type.isStringType
     }
 
-    context(KtAnalysisSession)
-    private fun KtExpression.getConstantValue(): KtConstantValue? {
-        return evaluate(KtConstantEvaluationMode.CONSTANT_EXPRESSION_EVALUATION)
+    context(KaSession)
+    private fun KtExpression.getConstantValue(): KaConstantValue? {
+        return evaluate()
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
     private fun KtExpression.usesNonConstValAsConstant(): Boolean {
-        val diagnostics = getDiagnostics(KtDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
-        return diagnostics.find { it is KtFirDiagnostic.NonConstValUsedInConstantExpression } != null
+        val diagnostics = diagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+        return diagnostics.find { it is KaFirDiagnostic.NonConstValUsedInConstantExpression } != null
     }
 
     private class AddConstModifierFix(property: KtProperty) : AddModifierFix(property, KtTokens.CONST_KEYWORD), CleanupFix {

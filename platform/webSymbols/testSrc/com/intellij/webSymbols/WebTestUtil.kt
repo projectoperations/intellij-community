@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("WebTestUtil")
 
 package com.intellij.webSymbols
@@ -7,6 +7,7 @@ import com.intellij.codeInsight.CodeInsightSettings
 import com.intellij.codeInsight.completion.PrioritizedLookupElement
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationOrUsageHandler2
+import com.intellij.codeInsight.navigation.actions.GotoDeclarationOrUsageHandler2.Companion.testGTDUOutcome
 import com.intellij.find.usages.api.SearchTarget
 import com.intellij.find.usages.api.UsageOptions
 import com.intellij.find.usages.impl.AllSearchOptions
@@ -17,16 +18,16 @@ import com.intellij.lang.documentation.ide.IdeDocumentationTargetProvider
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.model.psi.PsiSymbolReference
 import com.intellij.model.psi.impl.referencesAt
-import com.intellij.openapi.actionSystem.IdeActions
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.backend.documentation.impl.computeDocumentationBlocking
+import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -37,7 +38,6 @@ import com.intellij.psi.search.SearchScope
 import com.intellij.psi.util.elementsAtOffsetUp
 import com.intellij.refactoring.rename.api.RenameTarget
 import com.intellij.refactoring.rename.symbol.SymbolRenameTargetFactory
-import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestDataFile
 import com.intellij.testFramework.UsefulTestCase
@@ -47,14 +47,17 @@ import com.intellij.testFramework.fixtures.CodeInsightTestFixture
 import com.intellij.testFramework.fixtures.TestLookupElementPresentation
 import com.intellij.usages.Usage
 import com.intellij.util.ObjectUtils.coalesce
+import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.webSymbols.declarations.WebSymbolDeclaration
 import com.intellij.webSymbols.declarations.WebSymbolDeclarationProvider
+import com.intellij.webSymbols.impl.canUnwrapSymbols
 import com.intellij.webSymbols.query.WebSymbolMatch
 import com.intellij.webSymbols.query.WebSymbolsQueryExecutorFactory
 import junit.framework.TestCase.*
 import org.junit.Assert
 import java.io.File
+import java.util.concurrent.Callable
 import kotlin.math.max
 import kotlin.math.min
 
@@ -163,12 +166,14 @@ data class LookupElementInfo(
   val isItemTextUnderline: Boolean,
   val isTypeGreyed: Boolean,
 ) {
-  fun render(renderPriority: Boolean,
-             renderTypeText: Boolean,
-             renderTailText: Boolean,
-             renderProximity: Boolean,
-             renderDisplayText: Boolean,
-             renderDisplayEffects: Boolean): String {
+  fun render(
+    renderPriority: Boolean,
+    renderTypeText: Boolean,
+    renderTailText: Boolean,
+    renderProximity: Boolean,
+    renderDisplayText: Boolean,
+    renderDisplayEffects: Boolean,
+  ): String {
     val result = StringBuilder()
     result.append(lookupString)
     if (renderPriority || renderTypeText || renderTailText || renderProximity || renderDisplayText || renderDisplayEffects) {
@@ -225,9 +230,11 @@ data class LookupElementInfo(
   }
 }
 
-private fun CodeInsightTestFixture.checkDocumentation(actualDocumentation: String?,
-                                                      fileSuffix: String = ".expected",
-                                                      directory: String = "") {
+private fun CodeInsightTestFixture.checkDocumentation(
+  actualDocumentation: String?,
+  fileSuffix: String = ".expected",
+  directory: String = "",
+) {
   assertNotNull("No documentation rendered", actualDocumentation)
   val expectedFile = InjectedLanguageManager.getInstance(project).getTopLevelFile(file)
                        .virtualFile.nameWithoutExtension + fileSuffix + ".html"
@@ -259,13 +266,15 @@ infix fun ((item: LookupElementInfo) -> Boolean).and(other: (item: LookupElement
   }
 
 @JvmOverloads
-fun CodeInsightTestFixture.renderLookupItems(renderPriority: Boolean,
-                                             renderTypeText: Boolean,
-                                             renderTailText: Boolean = false,
-                                             renderProximity: Boolean = false,
-                                             renderDisplayText: Boolean = false,
-                                             renderDisplayEffects: Boolean = renderPriority,
-                                             lookupFilter: (item: LookupElementInfo) -> Boolean = { true }): List<String> =
+fun CodeInsightTestFixture.renderLookupItems(
+  renderPriority: Boolean,
+  renderTypeText: Boolean,
+  renderTailText: Boolean = false,
+  renderProximity: Boolean = false,
+  renderDisplayText: Boolean = false,
+  renderDisplayEffects: Boolean = renderPriority,
+  lookupFilter: (item: LookupElementInfo) -> Boolean = { true },
+): List<String> =
   lookupElements?.asSequence()
     ?.map {
       val presentation = TestLookupElementPresentation.renderReal(it)
@@ -484,8 +493,14 @@ fun CodeInsightTestFixture.checkGTDUOutcome(expectedOutcome: GotoDeclarationOrUs
   val actualSignature = signature ?: editor.currentPositionSignature
   val editor = InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(editor, file)
   val offset = editor.caretModel.offset
-  val file = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: file
-  val gtduOutcome = GotoDeclarationOrUsageHandler2.testGTDUOutcomeInNonBlockingReadAction(editor, file, offset)
+
+  val gtduOutcome = ReadAction
+    .nonBlocking(Callable {
+      val file = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: file
+      testGTDUOutcome(editor, file, offset)
+    })
+    .submit(AppExecutorUtil.getAppExecutorService())
+    .get()
   Assert.assertEquals(actualSignature,
                       expectedOutcome,
                       gtduOutcome)
@@ -578,30 +593,13 @@ fun CodeInsightTestFixture.renameWebSymbol(newName: String) {
   renameTarget(target, newName)
 }
 
-fun CodeInsightTestFixture.configureAndCopyPaste(sourceFile: String, destinationFile: String) {
-  configureFromTempProjectFile(sourceFile)
-  performEditorAction(IdeActions.ACTION_EDITOR_COPY)
-  configureFromTempProjectFile(destinationFile)
-  performEditorAction(IdeActions.ACTION_EDITOR_PASTE)
-  WriteAction.runAndWait<Throwable> {
-    FileDocumentManager.getInstance().saveAllDocuments()
-  }
-}
 
-fun CodeInsightTestFixture.performCopyPaste(destinationSignature: String) {
-  performEditorAction(IdeActions.ACTION_EDITOR_COPY)
-  editor.caretModel.primaryCaret.setSelection(0,0)
-  moveToOffsetBySignature(destinationSignature)
-  performEditorAction(IdeActions.ACTION_EDITOR_PASTE)
-  WriteAction.runAndWait<Throwable> {
-    FileDocumentManager.getInstance().saveAllDocuments()
-  }
-}
-
-fun doCompletionItemsTest(fixture: CodeInsightTestFixture,
-                          fileName: String,
-                          goldFileWithExtension: Boolean = false,
-                          renderDisplayText: Boolean = false) {
+fun doCompletionItemsTest(
+  fixture: CodeInsightTestFixture,
+  fileName: String,
+  goldFileWithExtension: Boolean = false,
+  renderDisplayText: Boolean = false,
+) {
   val fileNameNoExt = FileUtil.getNameWithoutExtension(fileName)
   fixture.configureByFile(fileName)
   WriteAction.runAndWait<Throwable> { WebSymbolsQueryExecutorFactory.getInstance(fixture.project) }

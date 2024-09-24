@@ -1,14 +1,12 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ijent.community.impl.nio
 
-import com.intellij.platform.ijent.IjentId
-import com.intellij.platform.ijent.fs.IjentFileSystemApi.Canonicalize
-import com.intellij.platform.ijent.fs.IjentFsResult
-import com.intellij.platform.ijent.fs.IjentPath
-import com.intellij.platform.ijent.fs.getOrThrow
-import org.jetbrains.annotations.ApiStatus
+import com.intellij.platform.core.nio.fs.BasicFileAttributesHolder2
+import com.intellij.platform.ijent.fs.*
+import java.lang.ref.WeakReference
 import java.net.URI
 import java.nio.file.*
+import java.nio.file.attribute.BasicFileAttributes
 
 /**
  * Such paths are supposed to be created via the corresponding nio FileSystem. [Path.of] does NOT return instances of this class.
@@ -19,16 +17,18 @@ import java.nio.file.*
  * val path: Path = ijent.fs.asNioFileSystem().getPath("/usr/bin/cowsay")
  * ```
  */
-@ApiStatus.Experimental
 class IjentNioPath internal constructor(
   val ijentPath: IjentPath,
   internal val nioFs: IjentNioFileSystem,
-) : Path {
-  val ijentId: IjentId get() = nioFs.ijentFsApi.id
+  cachedAttributes: BasicFileAttributes?,
+) : Path, BasicFileAttributesHolder2.Impl(cachedAttributes) {
+  private val isWindows
+    get() = when (nioFs.ijentFs) {
+      is IjentFileSystemPosixApi -> false
+      is IjentFileSystemWindowsApi -> true
+    }
 
-  private val isWindows get() = nioFs.isWindows
-
-  override fun getFileSystem(): FileSystem = nioFs
+  override fun getFileSystem(): IjentNioFileSystem = nioFs
 
   override fun isAbsolute(): Boolean =
     when (ijentPath) {
@@ -36,29 +36,29 @@ class IjentNioPath internal constructor(
       is IjentPath.Relative -> false
     }
 
-  override fun getRoot(): Path? =
+  override fun getRoot(): IjentNioPath? =
     when (ijentPath) {
       is IjentPath.Absolute -> ijentPath.root.toNioPath()
       is IjentPath.Relative -> null
     }
 
-  override fun getFileName(): Path? =
+  override fun getFileName(): IjentNioPath? =
     IjentPath.Relative
       .parse(ijentPath.fileName)
       .getOrThrow()
       .toNioPath()
       .takeIf { it.nameCount > 0 }
 
-  override fun getParent(): Path? =
+  override fun getParent(): IjentNioPath? =
     ijentPath.parent?.toNioPath()
 
   override fun getNameCount(): Int =
     ijentPath.nameCount
 
-  override fun getName(index: Int): Path =
+  override fun getName(index: Int): IjentNioPath =
     ijentPath.getName(index).toNioPath()
 
-  override fun subpath(beginIndex: Int, endIndex: Int): Path =
+  override fun subpath(beginIndex: Int, endIndex: Int): IjentNioPath =
     TODO()
 
   override fun startsWith(other: Path): Boolean {
@@ -81,19 +81,19 @@ class IjentNioPath internal constructor(
       is IjentPath.Relative -> ijentPath.endsWith(otherIjentPath)
     }
 
-  override fun normalize(): Path =
+  override fun normalize(): IjentNioPath =
     when (ijentPath) {
       is IjentPath.Absolute -> ijentPath.normalize().getOrThrow().toNioPath()
       is IjentPath.Relative -> ijentPath.normalize().toNioPath()
     }
 
-  override fun resolve(other: Path): Path =
+  override fun resolve(other: Path): IjentNioPath =
     when (val otherIjentPath = other.toIjentPath(isWindows)) {
       is IjentPath.Absolute -> otherIjentPath.toNioPath()  // TODO is it the desired behaviour?
       is IjentPath.Relative -> ijentPath.resolve(otherIjentPath).getOrThrow().toNioPath()
     }
 
-  override fun relativize(other: Path): Path =
+  override fun relativize(other: Path): IjentNioPath =
     when (val otherIjentPath = other.toIjentPath(isWindows)) {
       is IjentPath.Absolute -> when (ijentPath) {
         is IjentPath.Absolute -> ijentPath.relativize(otherIjentPath).getOrThrow().toNioPath()
@@ -107,12 +107,7 @@ class IjentNioPath internal constructor(
   override fun toUri(): URI =
     when (ijentPath) {
       is IjentPath.Absolute ->
-        URI(
-          "ijent",
-          ijentId.id,
-          ijentPath.toString(),
-          null,
-        )
+        nioFs.uri.resolve(ijentPath.toString())
 
       is IjentPath.Relative ->
         throw InvalidPathException(toString(), "Can't create a URL from a relative path") // TODO Really no way?
@@ -127,7 +122,7 @@ class IjentNioPath internal constructor(
       throw InvalidPathException(toString(), "Can't build an absolute path for $this")
     }
 
-  override fun toRealPath(vararg options: LinkOption): Path =
+  override fun toRealPath(vararg options: LinkOption): IjentNioPath =
     when (ijentPath) {
       is IjentPath.Absolute ->
         ijentPath.normalize().getOrThrow()
@@ -135,12 +130,10 @@ class IjentNioPath internal constructor(
             if (LinkOption.NOFOLLOW_LINKS in options)
               normalizedPath
             else
-              nioFs.fsBlocking {
-                when (val v = nioFs.ijentFsApi.canonicalize(normalizedPath)) {
-                  is Canonicalize.Ok -> v.value
-                  is IjentFsResult.Error -> v.throwFileSystemException()
-                }
+              fsBlocking {
+                nioFs.ijentFs.canonicalize(normalizedPath)
               }
+                .getOrThrowFileSystemException()
           }
           .toNioPath()
 
@@ -161,8 +154,14 @@ class IjentNioPath internal constructor(
     IjentNioPath(
       ijentPath = this,  // Don't confuse with the parent "this".
       nioFs = nioFs,
+      cachedAttributes = null,
     )
 
+  /**
+   * Commonly, instances of Path are not considered as equal if they actually represent the same path but come from different file systems.
+   *
+   * See [sun.nio.fs.UnixPath.equals] and [sun.nio.fs.WindowsPath#equals].
+   */
   override fun equals(other: Any?): Boolean =
     other is IjentNioPath &&
     ijentPath == other.ijentPath &&

@@ -1,0 +1,32 @@
+- name: lib/modules/intellij.searchEverywhereMl.ranking.core.jar
+  contentModules:
+  - name: intellij.searchEverywhereMl.ranking.core
+    libraries:
+      find-action-model:
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/searchEverywhere/model/find-action-model/231/find-action-model-231.jar
+      find-action-model-experimental:
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/searchEverywhere/model/find-action-model/243/find-action-model-243.jar
+      find-file-model:
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/searchEverywhere/model/find-file-model/232/find-file-model-232.jar
+      find-file-model-experimental:
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/searchEverywhere/model/find-file-model/243/find-file-model-243.jar
+      find-classes-model:
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/searchEverywhere/model/find-classes-model/231/find-classes-model-231.jar
+      find-classes-model-experimental:
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/searchEverywhere/model/find-classes-model/243/find-classes-model-243.jar
+      find-all-model-experimental:
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/searchEverywhere/model/find-all-model/232/find-all-model-232.jar
+- name: lib/searchEverywhereMl.jar
+  modules:
+  - name: intellij.searchEverywhereMl
+  contentModules:
+  - name: intellij.searchEverywhereMl.typos
+  - name: intellij.searchEverywhereMl.ranking.ext
+  - name: intellij.searchEverywhereMl.ranking.java
+  - name: intellij.searchEverywhereMl.ranking.yaml
+  - name: intellij.searchEverywhereMl.ranking.vcs
+  - name: intellij.searchEverywhereMl.semantics
+  - name: intellij.searchEverywhereMl.semantics.java
+  - name: intellij.searchEverywhereMl.semantics.kotlin
+  - name: intellij.searchEverywhereMl.semantics.python
+  - name: intellij.searchEverywhereMl.semantics.testCommands

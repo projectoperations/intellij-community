@@ -3,8 +3,8 @@
 package org.jetbrains.kotlin.idea.configuration
 
 import com.intellij.externalSystem.JavaModuleData
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.runReadAction
+import com.intellij.openapi.application.smartReadAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.Extensions
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
@@ -13,7 +13,6 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleGrouper
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
-import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.project.modules
@@ -38,6 +37,7 @@ import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.cli.common.arguments.CommonCompilerArguments
 import org.jetbrains.kotlin.config.KotlinFacetSettingsProvider
 import org.jetbrains.kotlin.idea.KotlinFileType
+import org.jetbrains.kotlin.idea.base.facet.isMultiPlatformModule
 import org.jetbrains.kotlin.idea.base.facet.platform.platform
 import org.jetbrains.kotlin.idea.base.indices.KotlinPackageIndexUtils
 import org.jetbrains.kotlin.idea.base.platforms.*
@@ -104,10 +104,19 @@ const val KOTLIN_GROUP_ID = "org.jetbrains.kotlin"
 fun isRepositoryConfigured(repositoriesBlockText: String): Boolean =
     repositoriesBlockText.contains(MAVEN_CENTRAL) || repositoriesBlockText.contains(JCENTER)
 
+@Deprecated("Use 'toGradleCompileScope(Module) instead")
 fun DependencyScope.toGradleCompileScope(isAndroidModule: Boolean) = when (this) {
     DependencyScope.COMPILE -> "implementation"
     // TODO: We should add testCompile or androidTestCompile
     DependencyScope.TEST -> if (isAndroidModule) "implementation" else "testImplementation"
+    DependencyScope.RUNTIME -> "runtime"
+    DependencyScope.PROVIDED -> "implementation"
+    else -> "implementation"
+}
+
+fun DependencyScope.toGradleCompileScope(targetModule: Module? = null) = when (this) {
+    DependencyScope.COMPILE -> "implementation"
+    DependencyScope.TEST -> if (targetModule?.isMultiPlatformModule == true) "implementation" else "testImplementation"
     DependencyScope.RUNTIME -> "runtime"
     DependencyScope.PROVIDED -> "implementation"
     else -> "implementation"
@@ -131,7 +140,7 @@ fun getRepositoryForVersion(version: IdeKotlinVersion): RepositoryDescription? =
 
 fun isModuleConfigured(moduleSourceRootGroup: ModuleSourceRootGroup): Boolean {
     return allConfigurators().any {
-        it.getStatus(moduleSourceRootGroup) == ConfigureKotlinStatus.CONFIGURED
+        it.isApplicable(moduleSourceRootGroup.baseModule) && it.getStatus(moduleSourceRootGroup) == ConfigureKotlinStatus.CONFIGURED
     }
 }
 
@@ -149,10 +158,12 @@ suspend fun getModulesWithKotlinFiles(project: Project, modulesWithKotlinFacets:
 
     val projectScope = project.projectScope()
     // nothing to configure if there is no Kotlin files in entire project
-    val anyKotlinFileInProject = readAction {
+
+    val anyKotlinFileInProject = smartReadAction(project) {
         FileTypeIndex.containsFileOfType(KotlinFileType.INSTANCE, projectScope)
     }
     if (!anyKotlinFileInProject) {
+        LOG.debug("Did not find any Kotlin files in project")
         return emptyList()
     }
 
@@ -160,7 +171,7 @@ suspend fun getModulesWithKotlinFiles(project: Project, modulesWithKotlinFacets:
 
     val modules =
         if (modulesWithKotlinFacets.isNullOrEmpty()) {
-            readAction {
+            smartReadAction(project) {
                 val kotlinFiles = FileTypeIndex.getFiles(KotlinFileType.INSTANCE, projectScope)
                 kotlinFiles.mapNotNullTo(mutableSetOf()) { ktFile: VirtualFile ->
                     if (projectFileIndex.isInSourceContent(ktFile)) {
@@ -171,7 +182,7 @@ suspend fun getModulesWithKotlinFiles(project: Project, modulesWithKotlinFacets:
 
         } else {
             // filter modules with Kotlin facet AND have at least a single Kotlin file in them
-            readAction {
+            smartReadAction(project) {
                 modulesWithKotlinFacets.filterTo(mutableSetOf()) { module ->
                     if (module.isDisposed) return@filterTo false
 
@@ -179,6 +190,7 @@ suspend fun getModulesWithKotlinFiles(project: Project, modulesWithKotlinFacets:
                 }
             }
         }
+    LOG.debug("Found ${modules.size} modules with Kotlin files")
     return modules
 }
 
@@ -193,19 +205,17 @@ fun getConfigurableModulesWithKotlinFiles(project: Project): List<ModuleSourceRo
     return ModuleSourceRootMap(project).groupByBaseModules(modules)
 }
 
-fun showConfigureKotlinNotificationIfNeeded(module: Module) {
-    val action: () -> Unit = {
+suspend fun showConfigureKotlinNotificationIfNeeded(module: Module) {
+    val project = module.project
+    val needNotify = smartReadAction(project) {
+        if (module.isDisposed) return@smartReadAction false
+
         val moduleGroup = module.toModuleGroup()
-        if (isNotConfiguredNotificationRequired(moduleGroup)) {
-            ConfigureKotlinNotificationManager.notify(module.project)
-        }
+        isNotConfiguredNotificationRequired(moduleGroup)
     }
 
-    val dumbService = DumbService.getInstance(module.project)
-    if (dumbService.isDumb) {
-        dumbService.smartInvokeLater { action() }
-    } else {
-        action()
+    if (needNotify) {
+        ConfigureKotlinNotificationManager.notify(project)
     }
 }
 
@@ -364,6 +374,8 @@ fun hasAnyKotlinRuntimeInScope(module: Module): Boolean {
                     || hasKotlinCommonLegacyRuntimeInScope(scope)
                     || hasKotlinJsRuntimeInScope(module)
                     || hasKotlinWasmRuntimeInScope(module)
+                    || hasKotlinWasmJsRuntimeInScope(module)
+                    || hasKotlinWasmWasiRuntimeInScope(module)
                     || hasKotlinNativeRuntimeInScope(module)
         })
     }
@@ -379,7 +391,15 @@ fun getPlatform(module: Module): String {
             if (module.name.contains("android")) "jvm.android"
             else "jvm"
         }
-        module.platform.isWasm() && hasKotlinWasmRuntimeInScope(module) -> "wasm"
+
+        module.platform.isWasm() -> {
+            when {
+                hasKotlinWasmJsRuntimeInScope(module) -> "wasm.js"
+                hasKotlinWasmWasiRuntimeInScope(module) -> "wasm.wasi"
+                else -> "wasm.unknown"
+            }
+        }
+
         module.platform.isJs() && hasKotlinJsRuntimeInScope(module) -> "js"
         module.platform.isCommon() -> "common"
         module.platform.isNative() -> "native." + (module.platform?.componentPlatforms?.first()?.targetName ?: "unknown")
@@ -424,7 +444,15 @@ fun hasKotlinJsRuntimeInScope(module: Module): Boolean {
 }
 
 fun hasKotlinWasmRuntimeInScope(module: Module): Boolean {
-    return hasKotlinPlatformRuntimeInScope(module, KOTLIN_WASM_FQ_NAME, KotlinWasmLibraryKind)
+    return hasKotlinPlatformRuntimeInScope(module, KOTLIN_WASM_FQ_NAME, KotlinWasmJsLibraryKind)
+}
+
+fun hasKotlinWasmJsRuntimeInScope(module: Module): Boolean {
+    return hasKotlinPlatformRuntimeInScope(module, KOTLIN_WASM_JS_FQ_NAME, KotlinWasmJsLibraryKind)
+}
+
+fun hasKotlinWasmWasiRuntimeInScope(module: Module): Boolean {
+    return hasKotlinPlatformRuntimeInScope(module, KOTLIN_WASM_WASI_FQ_NAME, KotlinWasmWasiLibraryKind)
 }
 
 fun hasKotlinNativeRuntimeInScope(module: Module): Boolean {
@@ -449,6 +477,7 @@ private const val GROUP_WITH_KOTLIN_VERSION = 2
 typealias ModulesNamesAndFirstSourceRootModules = Map<String, Module>
 typealias KotlinVersionsAndModules = Map<String, ModulesNamesAndFirstSourceRootModules>
 
+@Deprecated("Use org.jetbrains.kotlin.idea.gradleJava.kotlinGradlePluginVersion instead")
 fun Module.getGradleKotlinVersion(): String? {
     return getKotlinCompilerArguments(this)?.pluginClasspaths?.let { pluginsClasspaths ->
         pluginsClasspaths.firstOrNull { it.contains(ARTIFACT_NAME) }?.let {
@@ -561,6 +590,8 @@ private fun getJvmTargetFromSdkOrDefault(
 
 private val KOTLIN_JS_FQ_NAME = FqName("kotlin.js")
 private val KOTLIN_WASM_FQ_NAME = FqName("kotlin.wasm")
+private val KOTLIN_WASM_JS_FQ_NAME = FqName("kotlin.wasm.js")
+private val KOTLIN_WASM_WASI_FQ_NAME = FqName("kotlin.wasm.wasi")
 
 private val KOTLIN_NATIVE_FQ_NAME = FqName("kotlin.native")
 

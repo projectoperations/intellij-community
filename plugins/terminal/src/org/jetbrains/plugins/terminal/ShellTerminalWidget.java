@@ -10,7 +10,6 @@ import com.intellij.terminal.JBTerminalSystemSettingsProviderBase;
 import com.intellij.terminal.JBTerminalWidget;
 import com.intellij.terminal.JBTerminalWidgetListener;
 import com.intellij.terminal.actions.TerminalActionUtil;
-import com.intellij.terminal.pty.PtyProcessTtyConnector;
 import com.intellij.terminal.ui.TerminalWidget;
 import com.intellij.util.Alarm;
 import com.intellij.util.ObjectUtils;
@@ -24,7 +23,6 @@ import com.jediterm.terminal.model.TerminalLineIntervalHighlighting;
 import com.jediterm.terminal.model.TerminalModelListener;
 import com.jediterm.terminal.model.TerminalTextBuffer;
 import com.jediterm.terminal.ui.TerminalAction;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.terminal.action.RenameTerminalSessionActionKt;
@@ -36,6 +34,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -50,6 +50,7 @@ public class ShellTerminalWidget extends JBTerminalWidget {
   private ShellStartupOptions myStartupOptions;
   private final Prompt myPrompt = new Prompt();
   private final TerminalShellCommandHandlerHelper myShellCommandHandlerHelper;
+  private final BlockingQueue<String> myCommandsToExecute = new LinkedBlockingQueue<>();
 
   private final Alarm myVfsRefreshAlarm;
   private final TerminalModelListener myVfsRefreshModelListener;
@@ -93,7 +94,7 @@ public class ShellTerminalWidget extends JBTerminalWidget {
         }
       }
       if (e.getKeyCode() == KeyEvent.VK_ENTER || TerminalShellCommandHandlerHelper.matchedExecutor(e) != null) {
-        TerminalUsageTriggerCollector.triggerCommandExecuted(project, getTypedShellCommand(), false);
+        TerminalUsageTriggerCollector.triggerCommandStarted(project, getTypedShellCommand(), false);
         if (myShellCommandHandlerHelper.processEnterKeyPressed(e)) {
           e.consume();
         }
@@ -189,22 +190,18 @@ public class ShellTerminalWidget extends JBTerminalWidget {
     if (!typedCommand.isEmpty()) {
       throw new IOException("Cannot execute command when another command is typed: " + typedCommand); //NON-NLS
     }
+    myCommandsToExecute.add(shellCommand);
     doWithTerminalStarter(terminalStarter -> {
-      TerminalUtil.sendCommandToExecute(shellCommand, terminalStarter);
+      List<String> commands = new ArrayList<>();
+      myCommandsToExecute.drainTo(commands);
+      for (String command : commands) {
+        TerminalUtil.sendCommandToExecute(command, terminalStarter);
+      }
     });
   }
 
   public void executeWithTtyConnector(@NotNull Consumer<TtyConnector> consumer) {
     asNewWidget().getTtyConnectorAccessor().executeWithTtyConnector(consumer);
-  }
-
-  @Override
-  public @Nls @Nullable String getDefaultSessionName(@NotNull TtyConnector connector) {
-    if (getProcessTtyConnector(connector) instanceof PtyProcessTtyConnector) {
-      // use name from settings for local terminal
-      return TerminalOptionsProvider.getInstance().getTabName();
-    }
-    return super.getDefaultSessionName(connector);
   }
 
   public boolean hasRunningCommands() throws IllegalStateException {

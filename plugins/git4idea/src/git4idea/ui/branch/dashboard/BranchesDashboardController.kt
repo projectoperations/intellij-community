@@ -5,7 +5,8 @@ import com.intellij.dvcs.branch.DvcsBranchManager
 import com.intellij.dvcs.branch.DvcsBranchManager.DvcsBranchManagerListener
 import com.intellij.dvcs.branch.GroupingKey
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.DataProvider
+import com.intellij.openapi.actionSystem.DataSink
+import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProgressIndicator
@@ -19,6 +20,7 @@ import com.intellij.vcs.log.data.VcsLogData
 import com.intellij.vcs.log.impl.VcsLogUiProperties
 import com.intellij.vcs.log.impl.VcsProjectLog
 import com.intellij.vcs.log.ui.filter.VcsLogFilterUiEx
+import git4idea.GitLocalBranch
 import git4idea.branch.GitBranchIncomingOutgoingManager
 import git4idea.branch.GitBranchIncomingOutgoingManager.GitIncomingOutgoingListener
 import git4idea.branch.GitBranchType
@@ -27,11 +29,12 @@ import git4idea.repo.GitRemote
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
 import git4idea.ui.branch.GitBranchManager
-import git4idea.ui.branch.dashboard.BranchesDashboardUtil.anyIncomingOutgoingState
 import kotlin.properties.Delegates
 
-internal class BranchesDashboardController(private val project: Project,
-                                           private val ui: BranchesDashboardUi) : Disposable, DataProvider {
+internal class BranchesDashboardController(
+  private val project: Project,
+  private val ui: BranchesDashboardUi,
+) : Disposable, UiDataProvider {
 
   private val changeListener = DataPackChangeListener { ui.updateBranchesTree(false) }
   private val logUiFilterListener = VcsLogFilterUiEx.VcsLogFilterListener { rootsToFilter = ui.getRootsToFilter() }
@@ -166,9 +169,10 @@ internal class BranchesDashboardController(private val project: Project,
   }
 
   private fun updateBranchesIncomingOutgoingState() {
+    val incomingOutgoingManager = GitBranchIncomingOutgoingManager.getInstance(project)
     for (localBranch in localBranches) {
-      val incomingOutgoing = localBranch.repositories.anyIncomingOutgoingState(localBranch.branchName)
-      localBranch.apply { this.incomingOutgoingState = incomingOutgoing }
+      val incomingOutgoing = incomingOutgoingManager.getIncomingOutgoingState(localBranch.repositories, GitLocalBranch(localBranch.branchName))
+      localBranch.incomingOutgoingState = incomingOutgoing
     }
 
     ui.refreshTree()
@@ -247,10 +251,7 @@ internal class BranchesDashboardController(private val project: Project,
     logUiFilterListener.onFiltersChanged()
   }
 
-  override fun getData(dataId: String): Any? {
-    if (BRANCHES_UI_CONTROLLER.`is`(dataId)) {
-      return this
-    }
-    return null
+  override fun uiDataSnapshot(sink: DataSink) {
+    sink[BRANCHES_UI_CONTROLLER] = this
   }
 }

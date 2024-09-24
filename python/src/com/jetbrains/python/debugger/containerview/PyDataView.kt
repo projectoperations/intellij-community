@@ -23,7 +23,6 @@ import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.content.ContentManager
 import com.intellij.ui.dsl.builder.panel
-import com.intellij.xdebugger.XDebuggerManager
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.console.PydevConsoleCommunication
 import com.jetbrains.python.debugger.PyDebugProcess
@@ -86,15 +85,18 @@ class PyDataView(private val project: Project) : DumbAware {
   private fun showInToolWindow(value: PyDebugValue) {
     val window = ToolWindowManager.getInstance(project).getToolWindow(DATA_VIEWER_ID)
     if (window == null) {
-      LOG.error("Tool window '$DATA_VIEWER_ID' is not found")
+      thisLogger().error("Tool window '$DATA_VIEWER_ID' is not found")
       return
     }
     window.contentManager.getReady(this).doWhenDone {
       val selectedInfo = addTab(value.frameAccessor)
       val dataViewerPanel = selectedInfo.component as PyDataViewerPanel
       dataViewerPanel.apply(value, false)
+      window.show {
+        window.component.requestFocusInWindow()
+        dataViewerPanel.requestFocusInWindow()
+      }
     }
-    window.show()
   }
 
   fun closeTabs(ifClose: Predicate<PyFrameAccessor>) {
@@ -130,13 +132,6 @@ class PyDataView(private val project: Project) : DumbAware {
     }
 
     restoreSelectedInfo(handler)
-
-    if (contentManager.selectedContent == null) {
-      val accessor = getFrameAccessor(handler)
-      if (accessor != null) {
-        addTab(accessor)
-      }
-    }
   }
 
   private fun restoreSelectedInfo(handler: ProcessHandler) {
@@ -155,15 +150,6 @@ class PyDataView(private val project: Project) : DumbAware {
         selectedInfos[accessor.processHandler] = selectedInfo
       }
     }
-  }
-
-  private fun getFrameAccessor(handler: ProcessHandler): PyFrameAccessor? {
-    for (process in XDebuggerManager.getInstance(project).getDebugProcesses(PyDebugProcess::class.java)) {
-      if (Comparing.equal(handler, process.processHandler)) {
-        return process
-      }
-    }
-    return null
   }
 
   fun closeDisconnectedFromConsoleTabs() {
@@ -248,8 +234,6 @@ class PyDataView(private val project: Project) : DumbAware {
   }
 
   companion object {
-    private val LOG by lazy { thisLogger() }
-
     private const val DATA_VIEWER_ID = "SciView"
 
     const val COLORED_BY_DEFAULT = "python.debugger.dataview.coloredbydefault"

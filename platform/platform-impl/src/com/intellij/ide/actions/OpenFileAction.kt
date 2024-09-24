@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions
 
 import com.intellij.icons.AllIcons
@@ -13,7 +13,6 @@ import com.intellij.idea.ActionsBundle
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehavior
 import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
@@ -23,6 +22,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileChooser.PathChooserDialog
 import com.intellij.openapi.fileChooser.impl.FileChooserUtil
 import com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessProvider
+import com.intellij.openapi.fileTypes.FileTypes
 import com.intellij.openapi.fileTypes.ex.FileTypeChooser
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
@@ -36,12 +36,13 @@ import com.intellij.platform.PlatformProjectOpenProcessor
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.projectImport.ProjectOpenProcessor.Companion.getImportProvider
+import com.intellij.util.SlowOperations
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
 
-open class OpenFileAction : AnAction(), DumbAware, LightEditCompatible, ActionRemoteBehaviorSpecification {
+open class OpenFileAction : AnAction(), DumbAware, LightEditCompatible, ActionRemoteBehaviorSpecification.BackendOnly {
   companion object {
     @JvmStatic
     fun openFile(filePath: String, project: Project) {
@@ -67,9 +68,7 @@ open class OpenFileAction : AnAction(), DumbAware, LightEditCompatible, ActionRe
   init {
     templatePresentation.isApplicationScope = true
   }
-
-  override fun getBehavior(): ActionRemoteBehavior = ActionRemoteBehavior.BackendOnly
-
+  
   override fun actionPerformed(e: AnActionEvent) {
     val project = e.project
     val showFiles = project != null || PlatformProjectOpenProcessor.getInstanceIfItExists() != null
@@ -144,15 +143,17 @@ private class ProjectOrFileChooserDescriptor : OpenProjectFileChooserDescriptor(
     title = IdeBundle.message("title.open.file.or.project")
   }
 
-  override fun isFileVisible(file: VirtualFile, showHiddenFiles: Boolean): Boolean {
-    return if (file.isDirectory) super.isFileVisible(file, showHiddenFiles) else myStandardDescriptor.isFileVisible(file, showHiddenFiles)
+  override fun isFileVisible(file: VirtualFile, showHiddenFiles: Boolean): Boolean = when {
+    file.isDirectory -> super.isFileVisible(file, showHiddenFiles)
+    else -> myStandardDescriptor.isFileVisible(file, showHiddenFiles)
   }
 
-  override fun isFileSelectable(file: VirtualFile?): Boolean {
-    if (file == null) {
-      return false
+  override fun isFileSelectable(file: VirtualFile?): Boolean = when {
+    file == null -> false
+    file.isDirectory -> SlowOperations.knownIssue("IJPL-162827").use {
+      super.isFileSelectable(file)
     }
-    return if (file.isDirectory) super.isFileSelectable(file) else myStandardDescriptor.isFileSelectable(file)
+    else -> myStandardDescriptor.isFileSelectable(file)
   }
 
   override fun isChooseMultiple() = true
@@ -182,9 +183,9 @@ private suspend fun doOpenFile(project: Project?, virtualFile: VirtualFile) {
   }
 
   LightEditUtil.markUnknownFileTypeAsPlainTextIfNeeded(project, virtualFile)
-  readAction {
-    FileTypeChooser.getKnownFileTypeOrAssociate(virtualFile, project)
-  } ?: return
+  readAction { virtualFile.fileType }.takeIf { it != FileTypes.UNKNOWN }
+  ?: FileTypeChooser.associateFileType(virtualFile.name)
+  ?: return
   if (project == null || project.isDefault) {
     PlatformProjectOpenProcessor.createTempProjectAndOpenFileAsync(file, OpenProjectTask { projectToClose = project })
   }

@@ -14,7 +14,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PsiMethodImpl;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
-import com.intellij.psi.search.searches.MethodReferencesSearch;
 import com.intellij.psi.util.*;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
@@ -85,9 +84,9 @@ public final class JavaSourceInference {
   @NotNull
   private static Nullability findNullability(PsiMethodImpl method, MethodData data) {
     PsiType type = method.getReturnType();
+    if (type == null || type instanceof PsiPrimitiveType) return Nullability.UNKNOWN;
     NullabilityAnnotationInfo info = NullableNotNullManager.getInstance(method.getProject()).findExplicitNullability(method);
     if (info != null) return info.getNullability();
-    if (type == null || type instanceof PsiPrimitiveType) return Nullability.UNKNOWN;
     MethodReturnInferenceResult result = data.getMethodReturn();
     if (result == null) return Nullability.UNKNOWN;
     try {
@@ -313,7 +312,8 @@ public final class JavaSourceInference {
       return false;
     }
 
-    return MethodReferencesSearch.search(method, new LocalSearchScope(containingClass), false).findFirst() == null;
+    return SyntaxTraverser.psiTraverser(containingClass).filter(PsiReferenceExpression.class)
+      .find(methodRef -> methodRef.isReferenceTo(method)) == null;
   }
 
   private static boolean isLibraryCode(@NotNull PsiMethod method) {

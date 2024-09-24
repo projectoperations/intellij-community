@@ -10,7 +10,6 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.LoggingRule;
-import com.jetbrains.TestEnv;
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,7 +38,7 @@ public abstract class PyEnvTestCase {
   private static final String TAGS_FILE = "tags.txt";
 
   @NotNull
-  protected static final PyEnvTestSettings SETTINGS = new PyEnvTestSettings();
+  protected static final PyEnvTestSettings SETTINGS = PyEnvTestSettings.Companion.fromEnvVariables();
 
 
   /**
@@ -70,7 +69,7 @@ public abstract class PyEnvTestCase {
   @Rule public final TestWatcher myWatcher = new TestWatcher(){};
 
   static {
-    LOG.warn("Using following config\n" + SETTINGS.reportConfiguration());
+    LOG.info("Using following config\n" + SETTINGS.reportConfiguration());
   }
 
   /**
@@ -229,7 +228,7 @@ public abstract class PyEnvTestCase {
   }
 
   public static List<String> getDefaultPythonRoots() {
-    return ContainerUtil.map(SETTINGS.getPythons(), File::getAbsolutePath);
+    return ContainerUtil.map(SETTINGS.getPythons$intellij_python_community_tests(), File::getAbsolutePath);
   }
 
   /**

@@ -3,13 +3,14 @@ package com.intellij.ide.startup.importSettings
 
 import com.intellij.ide.startup.importSettings.chooser.ui.OnboardingController
 import com.intellij.ide.startup.importSettings.data.SettingsService
+import com.intellij.ide.startup.importSettings.data.StartupWizardService
+import com.intellij.ide.startup.importSettings.statistics.ImportSettingsEventsCollector
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.platform.ide.bootstrap.IdeStartupWizard
 import com.intellij.platform.ide.bootstrap.isIdeStartupWizardEnabled
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.jetbrains.rd.util.reactive.fire
-import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
 internal class IdeStartupWizardImpl : IdeStartupWizard {
@@ -23,18 +24,30 @@ internal class IdeStartupWizardImpl : IdeStartupWizard {
     coroutineScope {
       // Fire-and-forget call to warm up the external settings transfer
       val settingsService = SettingsService.getInstance()
-      async { settingsService.getExternalService().warmUp(this) }
-      async { settingsService.getJbService().warmUp() }
+      settingsService.warmUp()
 
-      if (!settingsService.shouldShowImport()) {
-        logger.info("No import options available: skipping the import wizard.")
+      if (settingsService.shouldShowImport()) {
+        logger.info("Settings service reports that we should show the import wizard.")
+        OnboardingController.getInstance().startImport(
+          { settingsService.importCancelled.fire() },
+          titleGetter = { ApplicationNamesInfo.getInstance().fullProductName }
+        )
         return@coroutineScope
       }
 
-      OnboardingController.getInstance().startImport(
-        { settingsService.importCancelled.fire() },
-        titleGetter = { ApplicationNamesInfo.getInstance().fullProductName }
-      )
+      logger.info("No import options available: skipping the import wizard.")
+      ImportSettingsEventsCollector.importDialogNotShown()
+
+      val wizardService = StartupWizardService.getInstance()
+      if (wizardService != null) {
+        logger.info("A startup wizard service is activated.")
+        OnboardingController.getInstance().startWizard(
+          cancelCallback = { settingsService.importCancelled.fire() },
+          titleGetter = { ApplicationNamesInfo.getInstance().fullProductName }
+        )
+      }
+
+      logger.info("No active startup wizard service detected either: skipping the startup wizard.")
     }
   }
 }

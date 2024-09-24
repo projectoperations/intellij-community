@@ -132,8 +132,11 @@ public class BreakpointManager {
       public void breakpointChanged(@NotNull XBreakpoint xBreakpoint) {
         Breakpoint<?> breakpoint = getJavaBreakpoint(xBreakpoint);
         if (breakpoint != null) {
-          breakpoint.scheduleReload();
-          breakpoint.updateUI();
+          //maybe readaction
+          ReadAction.run(() -> {
+            breakpoint.scheduleReload();
+            breakpoint.updateUI();
+          });
         }
       }
     });
@@ -184,8 +187,8 @@ public class BreakpointManager {
   }
 
   @Nullable
-  public RunToCursorBreakpoint addRunToCursorBreakpoint(@NotNull XSourcePosition position, boolean ignoreBreakpoints, boolean needReplaceWithAllThreadSuspendContext) {
-    return RunToCursorBreakpoint.create(myProject, position, ignoreBreakpoints, needReplaceWithAllThreadSuspendContext);
+  public RunToCursorBreakpoint addRunToCursorBreakpoint(@NotNull XSourcePosition position, boolean ignoreBreakpoints) {
+    return RunToCursorBreakpoint.create(myProject, position, ignoreBreakpoints);
   }
 
   @Nullable
@@ -659,6 +662,7 @@ public class BreakpointManager {
   public void updateBreakpointsUI() {
     ReadAction.nonBlocking(this::getBreakpoints)
       .coalesceBy(this)
+      .expireWhen(myProject::isDisposed)
       .submit(AppExecutorUtil.getAppExecutorService())
       .onSuccess(b -> b.forEach(Breakpoint::updateUI));
   }

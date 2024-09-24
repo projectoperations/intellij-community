@@ -1,8 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
@@ -10,10 +10,11 @@ import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.event.EditorEventMulticaster;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.util.concurrency.ThreadingAssertions;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
@@ -22,6 +23,8 @@ import com.intellij.xdebugger.impl.breakpoints.XExpressionState;
 import com.intellij.xdebugger.impl.inline.InlineWatch;
 import com.intellij.xdebugger.impl.inline.InlineWatchInplaceEditor;
 import com.intellij.xdebugger.impl.inline.XInlineWatchesView;
+import kotlinx.coroutines.CoroutineScope;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,17 +33,24 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+@ApiStatus.Internal
 public final class XDebuggerWatchesManager {
   private final Map<String, List<XExpression>> watches = new ConcurrentHashMap<>();
   private final Map<String, Set<InlineWatch>> inlineWatches = new ConcurrentHashMap<>();
   private final MergingUpdateQueue myInlinesUpdateQueue;
   private final Project myProject;
 
-  public XDebuggerWatchesManager(@NotNull Project project) {
+  public XDebuggerWatchesManager(@NotNull Project project, @NotNull CoroutineScope coroutineScope) {
     myProject = project;
     EditorEventMulticaster editorEventMulticaster = EditorFactory.getInstance().getEventMulticaster();
     editorEventMulticaster.addDocumentListener(new MyDocumentListener(), project);
-    myInlinesUpdateQueue = new MergingUpdateQueue("XInlineWatches", 300, true, null, project);
+    myProject.getMessageBus().connect().subscribe(FileDocumentManagerListener.TOPIC, new FileDocumentManagerListener() {
+      @Override
+      public void fileContentLoaded(@NotNull VirtualFile file, @NotNull Document document) {
+        getDocumentInlines(document).forEach(InlineWatch::setMarker);
+      }
+    });
+    myInlinesUpdateQueue = MergingUpdateQueue.Companion.edtMergingUpdateQueue("XInlineWatches", 300, coroutineScope);
   }
 
   public @NotNull List<XExpression> getWatches(String confName) {
@@ -60,6 +70,7 @@ public final class XDebuggerWatchesManager {
     return inlineWatches.values().stream().flatMap(l -> l.stream()).collect(Collectors.toList());
   }
 
+  @ApiStatus.Internal
   public @NotNull WatchesManagerState saveState(@NotNull WatchesManagerState state) {
     List<ConfigurationState> expressions = state.getExpressions();
     expressions.clear();
@@ -79,6 +90,7 @@ public final class XDebuggerWatchesManager {
     inlineWatches.clear();
   }
 
+  @ApiStatus.Internal
   public void loadState(@NotNull WatchesManagerState state) {
     clearContext();
 
@@ -92,7 +104,7 @@ public final class XDebuggerWatchesManager {
     VirtualFileManager fileManager = VirtualFileManager.getInstance();
     XDebuggerUtil debuggerUtil = XDebuggerUtil.getInstance();
     for (InlineWatchState inlineWatchState : state.getInlineExpressionStates()) {
-      if (inlineWatchState == null || inlineWatchState.getFileUrl() == null || inlineWatchState.getWatchState() == null) continue;
+      if (inlineWatchState.getFileUrl() == null || inlineWatchState.getWatchState() == null) continue;
 
       VirtualFile file = fileManager.findFileByUrl(inlineWatchState.getFileUrl());
       XSourcePosition position = debuggerUtil.createPosition(file, inlineWatchState.getLine());
@@ -103,9 +115,16 @@ public final class XDebuggerWatchesManager {
       inlineWatches.computeIfAbsent(inlineWatchState.getFileUrl(), (k) -> new HashSet<>()).add(watch);
     }
 
-    ApplicationManager.getApplication().invokeLater(() -> {
-      inlineWatches.values().stream().flatMap(set -> set.stream()).forEach(InlineWatch::setMarker);
-    }, ModalityState.nonModal(), myProject.getDisposed());
+    // set markers in the background
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      for (InlineWatch i : ContainerUtil.flatten(inlineWatches.values())) {
+        ReadAction.nonBlocking(() -> {
+          if (!i.setMarker()) {
+            inlineWatches.get(i.getPosition().getFile().getUrl()).remove(i);
+          }
+        }).executeSynchronously();
+      }
+    });
   }
 
   public void showInplaceEditor(@NotNull XSourcePosition presentationPosition,
@@ -137,9 +156,8 @@ public final class XDebuggerWatchesManager {
     }
   }
 
+  @RequiresEdt
   public void addInlineWatchExpression(@NotNull XExpression expression, int index, XSourcePosition position, boolean navigateToWatchNode) {
-    ThreadingAssertions.assertEventDispatchThread();
-
     InlineWatch watch = new InlineWatch(expression, position);
     watch.setMarker();
     String fileUrl = position.getFile().getUrl();
@@ -155,8 +173,7 @@ public final class XDebuggerWatchesManager {
 
     Set<InlineWatch> toRemove = new HashSet<>();
     for (InlineWatch inlineWatch : inlines) {
-      inlineWatch.updatePosition();
-      if (!inlineWatch.isValid()) {
+      if (!inlineWatch.updatePosition()) {
         toRemove.add(inlineWatch);
       }
     }

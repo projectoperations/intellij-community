@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.refactoring;
 
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter;
@@ -240,7 +240,6 @@ public abstract class BaseRefactoringProcessor implements Runnable {
         RefactoringUiService.getInstance().setStatusBarInfo(myProject, RefactoringBundle.message("readonly.occurences.found"));
       }
     }
-    long executeStart = System.currentTimeMillis();
     if (isPreview) {
       for (UsageInfo usage : usages) {
         LOG.assertTrue(usage != null, getClass());
@@ -250,8 +249,6 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     else {
       execute(usages);
     }
-    long executeDuration = System.currentTimeMillis() - executeStart;
-    RefactoringUsageCollector.EXECUTED.log(this.getClass(), executeDuration);
   }
 
   @TestOnly
@@ -266,8 +263,10 @@ public abstract class BaseRefactoringProcessor implements Runnable {
   }
 
   protected void previewRefactoring(UsageInfo @NotNull [] usages) {
-    if (ApplicationManager.getApplication().isUnitTestMode()) {
-      if (!PREVIEW_IN_TESTS) throw new RuntimeException("Unexpected preview in tests: " + StringUtil.join(usages, UsageInfo::toString, ", "));
+    if (ApplicationManager.getApplication().isUnitTestMode() || Boolean.getBoolean("ide.performance.skip.refactoring.dialogs")) {
+      if (!PREVIEW_IN_TESTS) {
+        throw new RuntimeException("Unexpected preview in tests: " + StringUtil.join(usages, UsageInfo::toString, ", "));
+      }
       ensureElementsWritable(usages, createUsageViewDescriptor(usages));
       execute(usages);
       return;
@@ -327,12 +326,15 @@ public abstract class BaseRefactoringProcessor implements Runnable {
   }
 
   protected void execute(final UsageInfo @NotNull [] usages) {
+    long executeStart = System.currentTimeMillis();
     CommandProcessor.getInstance().executeCommand(myProject, () -> {
       Collection<UsageInfo> usageInfos = new LinkedHashSet<>(Arrays.asList(usages));
       doRefactoring(usageInfos);
       if (isGlobalUndoAction()) CommandProcessor.getInstance().markCurrentCommandAsGlobal(myProject);
       SuggestedRefactoringProvider.getInstance(myProject).reset();
     }, getCommandName(), null, getUndoConfirmationPolicy());
+    long executeDuration = System.currentTimeMillis() - executeStart;
+    RefactoringUsageCollector.EXECUTED.log(this.getClass(), executeDuration);
   }
 
   protected boolean isGlobalUndoAction() {
@@ -390,7 +392,7 @@ public abstract class BaseRefactoringProcessor implements Runnable {
     presentation.setNonCodeUsagesString(UsageViewBundle.message(
       "usage.view.results.node.prefix",
       UsageViewBundle.message("usage.view.results.node.non.code"),
-      descriptor.getCodeReferencesText(nonCodeUsageCount, nonCodeFiles.size())
+      descriptor.getCommentReferencesText(nonCodeUsageCount, nonCodeFiles.size())
     ));
     presentation.setDynamicUsagesString(UsageViewBundle.message(
       "usage.view.results.node.prefix",
@@ -666,7 +668,8 @@ public abstract class BaseRefactoringProcessor implements Runnable {
   }
 
   protected boolean showConflicts(@NotNull MultiMap<PsiElement, @DialogMessage String> conflicts, UsageInfo @Nullable [] usages) {
-    if (!conflicts.isEmpty() && ApplicationManager.getApplication().isUnitTestMode()) {
+    if (!conflicts.isEmpty() && (ApplicationManager.getApplication().isUnitTestMode()
+                                 || Boolean.getBoolean("ide.performance.skip.refactoring.dialogs"))) {
       if (!ConflictsInTestsException.isTestIgnore()) throw new ConflictsInTestsException(conflicts.values());
       return true;
     }

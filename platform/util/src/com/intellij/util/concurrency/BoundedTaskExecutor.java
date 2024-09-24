@@ -202,7 +202,9 @@ public final class BoundedTaskExecutor extends AbstractExecutorService {
         final AtomicReference<Runnable> currentTask = new AtomicReference<>(firstTask);
         @Override
         public void run() {
-          try (AccessToken ignored = ThreadContext.resetThreadContext()) {
+          AccessToken token = AppExecutorUtil.propagateContext() ? ThreadContext.resetThreadContext() : AccessToken.EMPTY_ACCESS_TOKEN;
+          //noinspection TryFinallyCanBeTryWithResources
+          try {
             // This runnable is intended to be used for offloading the queue by executing stored tasks.
             // It means that it shall not possess a thread context,
             // but the executed tasks must have a context.
@@ -212,6 +214,9 @@ public final class BoundedTaskExecutor extends AbstractExecutorService {
             else {
               executeFirstTaskAndHelpQueue();
             }
+          }
+          finally {
+            token.close();
           }
         }
 
@@ -311,7 +316,7 @@ public final class BoundedTaskExecutor extends AbstractExecutorService {
     List<Runnable> queued = new ArrayList<>(myTaskQueue.size());
     myTaskQueue.drainTo(queued);
     for (Runnable fromQueue : queued) {
-      Runnable task = fromQueue instanceof ContextRunnable ? ((ContextRunnable)fromQueue).getDelegate() : fromQueue;
+      Runnable task = Propagation.unwrapContextRunnable(fromQueue);
       if (task instanceof FutureTask && !(task instanceof LastTask)) {
         ((FutureTask<?>)task).cancel(false);
       }

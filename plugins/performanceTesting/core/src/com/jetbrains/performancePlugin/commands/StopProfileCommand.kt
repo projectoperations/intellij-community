@@ -12,19 +12,17 @@ import com.jetbrains.performancePlugin.profilers.ProfilersController
  * Syntax: %stopProfile [parameters]
  * Example: %stopProfile collapsed,flamegraph,traces=5000
  */
-internal class StopProfileCommand(text: String, line: Int) : PlaybackCommandCoroutineAdapter(text, line) {
+class StopProfileCommand(text: String, line: Int) : PlaybackCommandCoroutineAdapter(text, line) {
   companion object {
     const val PREFIX: String = CMD_PREFIX + "stopProfile"
   }
 
   override suspend fun doExecute(context: PlaybackContext) {
     val profilerController = ProfilersController.getInstance()
-    check(isAnyProfilingStarted()) {
-      "Profiling hasn't been started"
-    }
-
     val reportPath = getCurrentProfilerHandler().stopProfileAsyncWithNotification(extractCommandArgument(PREFIX))
-    profilerController.reportsPath = reportPath
-    profilerController.isStoppedByScript = true
+    if(reportPath != null) {
+      profilerController.reportsPath = reportPath
+      profilerController.isStoppedByScript = true
+    }
   }
 }

@@ -2,11 +2,11 @@
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module
 
 import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.components.impl.stores.IComponentStore
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
-import com.intellij.openapi.module.ModuleComponent
+import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.impl.NonPersistentModuleStore
 import com.intellij.openapi.progress.blockingContext
@@ -40,9 +40,11 @@ import com.intellij.workspaceModel.ide.impl.legacyBridge.project.ModuleRootListe
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import com.intellij.workspaceModel.ide.toPath
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import java.io.IOException
 import java.nio.file.Path
-
 
 internal class ModuleManagerComponentBridge(private val project: Project, coroutineScope: CoroutineScope)
   : ModuleManagerBridgeImpl(project = project, coroutineScope = coroutineScope, moduleRootListenerBridge = ModuleRootListenerBridgeImpl) {
@@ -50,28 +52,15 @@ internal class ModuleManagerComponentBridge(private val project: Project, corout
 
   internal class ModuleManagerInitProjectActivity : InitProjectActivity {
     override suspend fun run(project: Project) {
-      val moduleManager = project.serviceAsync<ModuleManager>() as ModuleManagerComponentBridge
-      val modules = moduleManager.modules().toList()
+      val modules = (project.serviceAsync<ModuleManager>() as ModuleManagerComponentBridge).modules().toList()
       span("firing modules_added event") {
         blockingContext {
           fireModulesAdded(project, modules)
         }
       }
       span("deprecated module component moduleAdded calling") {
-        @Suppress("removal", "DEPRECATION")
-        val deprecatedComponents = mutableListOf<ModuleComponent>()
         for (module in modules) {
-          if (!module.isLoaded) {
-            module.moduleAdded(deprecatedComponents)
-          }
-        }
-        if (!deprecatedComponents.isEmpty()) {
-          writeAction {
-            for (deprecatedComponent in deprecatedComponents) {
-              @Suppress("DEPRECATION", "removal")
-              deprecatedComponent.moduleAdded()
-            }
-          }
+          module.markAsLoaded()
         }
       }
     }
@@ -88,10 +77,7 @@ internal class ModuleManagerComponentBridge(private val project: Project, corout
   @Suppress("UNCHECKED_CAST")
   override fun initializeBridges(event: Map<Class<*>, List<EntityChange<*>>>, builder: MutableEntityStorage) {
     // Initialize modules
-    val moduleChanges = (event[ModuleEntity::class.java] as? List<EntityChange<ModuleEntity>>) ?: emptyList()
-    for (moduleChange in moduleChanges) {
-      initializeModuleBridge(moduleChange, builder)
-    }
+    initializeModuleBridges(event, builder)
 
     // Initialize facets
     FacetEntityChangeListener.getInstance(project).initializeFacetBridge(event, builder)
@@ -104,35 +90,48 @@ internal class ModuleManagerComponentBridge(private val project: Project, corout
     }
   }
 
-  private fun initializeModuleBridge(change: EntityChange<ModuleEntity>, builder: MutableEntityStorage) {
-    if (change is EntityChange.Added) {
-      val alreadyCreatedModule = change.entity.findModule(builder)
-      if (alreadyCreatedModule == null) {
-        // Create module bridge
-        val plugins = PluginManagerCore.getPluginSet().getEnabledModules()
-        val module = createModuleInstance(moduleEntity = change.entity,
-                                          versionedStorage = entityStore,
-                                          diff = builder,
-                                          isNew = true,
-                                          precomputedExtensionModel = null,
-                                          plugins = plugins,
-                                          corePlugin = plugins.firstOrNull { it.pluginId == PluginManagerCore.CORE_ID })
-        builder.mutableModuleMap.addMapping(change.entity, module)
-      }
+  @Suppress("SSBasedInspection", "UNCHECKED_CAST")
+  private fun initializeModuleBridges(event: Map<Class<*>, List<EntityChange<*>>>, builder: MutableEntityStorage) {
+    val moduleChanges = (event[ModuleEntity::class.java] as? List<EntityChange<ModuleEntity>>) ?: emptyList()
+    LOG.debug { "Starting initialize bridges for ${moduleChanges.size} modules" }
+
+    // Theoretically, the module initialization can be parallized using fork-join approach, see IJPL-149482
+    //   This approach is used in ModuleManagerBridgeImpl.loadModules
+    // However, simple use of Dispatchers.Default while being inside of write action, may cause threading issues, see IDEA-355596
+    moduleChanges.forEach {
+      if (it !is EntityChange.Added<ModuleEntity>) return@forEach
+      if (it.newEntity.findModule(builder) != null) return@forEach
+
+      LOG.debug { "Creating module instance for ${it.newEntity.name}" }
+      val plugins = PluginManagerCore.getPluginSet().getEnabledModules()
+      val bridge = createModuleInstanceWithoutCreatingComponents(
+        moduleEntity = it.newEntity,
+        versionedStorage = entityStore,
+        diff = builder,
+        isNew = true,
+        precomputedExtensionModel = null,
+        plugins = plugins,
+        corePlugin = plugins.firstOrNull { it.pluginId == PluginManagerCore.CORE_ID },
+      )
+      LOG.debug { "Creating components ${it.newEntity.name}" }
+      bridge.callCreateComponents()
+
+      LOG.debug { "${it.newEntity.name} module initialized" }
+      builder.mutableModuleMap.addMapping(it.newEntity, bridge)
     }
   }
 
   private fun initializeModuleLibraryBridge(change: EntityChange<LibraryEntity>, builder: MutableEntityStorage) {
     if (change is EntityChange.Added) {
-      val tableId = change.entity.tableId as LibraryTableId.ModuleLibraryTableId
+      val tableId = change.newEntity.tableId as LibraryTableId.ModuleLibraryTableId
       val moduleEntity = builder.resolve(tableId.moduleId)
-                         ?: error("Could not find module for module library: ${change.entity.symbolicId}")
-      val library = builder.libraryMap.getDataByEntity(change.entity)
+                         ?: error("Could not find module for module library: ${change.newEntity.symbolicId}")
+      val library = builder.libraryMap.getDataByEntity(change.newEntity)
       if (library == null) {
         val module = moduleEntity.findModule(builder)
                      ?: error("Could not find module bridge for module entity $moduleEntity")
         val moduleRootComponent = ModuleRootComponentBridge.getInstance(module)
-        (moduleRootComponent.getModuleLibraryTable() as ModuleLibraryTableBridgeImpl).addLibrary(change.entity, builder)
+        (moduleRootComponent.getModuleLibraryTable() as ModuleLibraryTableBridgeImpl).addLibrary(change.newEntity, builder)
       }
     }
   }
@@ -176,6 +175,10 @@ internal class ModuleManagerComponentBridge(private val project: Project, corout
                             virtualFileUrl = virtualFileUrl,
                             entityStorage = entityStorage,
                             diff = diff)
+  }
+
+  companion object {
+    val LOG = logger<ModuleManagerComponentBridge>()
   }
 }
 

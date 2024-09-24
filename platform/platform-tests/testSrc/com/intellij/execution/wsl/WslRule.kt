@@ -3,6 +3,7 @@ package com.intellij.execution.wsl
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.io.IoTestUtil
+import com.intellij.testFramework.ensureCorrectVersion
 import org.junit.Assume.assumeTrue
 import org.junit.rules.ExternalResource
 import java.io.IOException
@@ -30,7 +31,7 @@ class WslRule(private val assume: Boolean = true) : ExternalResource() {
 
 class WslFixture private constructor(val vms: List<WSLDistribution>) {
   val wsl: WSLDistribution
-    get() = if (vms.isNotEmpty()) vms[0] else throw IllegalStateException("No WSL VMs are available")
+    get() = if (vms.isNotEmpty()) vms[0].also { ensureCorrectVersion(it) } else throw IllegalStateException("No WSL VMs are available")
 
   companion object {
     private val LOG = logger<WslFixture>()
@@ -46,9 +47,7 @@ class WslFixture private constructor(val vms: List<WSLDistribution>) {
       if (assume || WSLUtil.isSystemCompatible() && WSLDistribution.findWslExe() != null) {
         val candidates = WslDistributionManager.getInstance().installedDistributions
         vms = candidates.filter {
-          it !is WSLDistributionLegacy
-          && IoTestUtil.reanimateWslDistribution(it.id)
-          && fileSystemWorks(it)
+          IoTestUtil.reanimateWslDistribution(it.id) && fileSystemWorks(it)
         }
         if (assume) {
           assumeTrue("No alive WSL WMs among ${candidates.map(WSLDistribution::getId)}", vms.isNotEmpty())

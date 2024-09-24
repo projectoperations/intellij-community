@@ -1,11 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.debugger.core.breakpoints
 
 import com.intellij.debugger.engine.DebugProcess
 import com.intellij.debugger.impl.DebuggerUtilsEx
 import com.intellij.debugger.ui.breakpoints.LineBreakpoint
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.xdebugger.XSourcePosition
@@ -13,11 +12,9 @@ import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XBreakpointProperties
 import com.sun.jdi.ReferenceType
 import org.jetbrains.java.debugger.breakpoints.properties.JavaLineBreakpointProperties
-import org.jetbrains.kotlin.codegen.inline.KOTLIN_STRATA_NAME
+import org.jetbrains.kotlin.idea.debugger.base.util.KotlinDebuggerConstants.KOTLIN_STRATA_NAME
 import org.jetbrains.kotlin.idea.debugger.base.util.safeSourceName
-import org.jetbrains.kotlin.psi.KtElement
-import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
-import org.jetbrains.kotlin.util.containingNonLocalDeclaration
+import org.jetbrains.kotlin.idea.debugger.getContainingMethod
 
 class KotlinLineBreakpoint(
     project: Project?,
@@ -64,11 +61,6 @@ class KotlinLineBreakpoint(
         return false
     }
 
-    override fun getMethodName(): String? {
-        ReadAction.compute<String, Throwable> {
-            sourcePosition?.elementAt?.getNonStrictParentOfType<KtElement>()?.containingNonLocalDeclaration()?.name
-        }?.let { return it }
-
-        return super.getMethodName()
-    }
+    override fun computeMethodName(): String? =
+        runReadAction { sourcePosition?.elementAt?.getContainingMethod()?.name } ?: super.computeMethodName()
 }

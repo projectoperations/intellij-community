@@ -1,17 +1,22 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanBuilder
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.Serializable
+import org.jetbrains.intellij.build.io.DEFAULT_TIMEOUT
+import org.jetbrains.intellij.build.productRunner.IntellijProductRunner
+import org.jetbrains.intellij.build.telemetry.block
 import org.jetbrains.jps.model.module.JpsModule
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CancellationException
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.time.Duration
 
 interface BuildContext : CompilationContext {
   val productProperties: ProductProperties
@@ -34,9 +39,16 @@ interface BuildContext : CompilationContext {
   fun getExtraExecutablePattern(os: OsFamily): List<String>
 
   /**
-   * Build number without product code (e.g. '162.500.10')
+   * IDE build number without product code (e.g. '162.500.10').
+   * [org.jetbrains.intellij.build.impl.SnapshotBuildNumber.VALUE] by default.
    */
   val buildNumber: String
+
+  /**
+   * Build number used for all plugins being built.
+   * [buildNumber] by default.
+   */
+  val pluginBuildNumber: String get() = buildNumber
 
   /**
    * Build number with product code (e.g. 'IC-162.500.10')
@@ -65,16 +77,22 @@ interface BuildContext : CompilationContext {
   val ideMainClassName: String
 
   /**
-   * Specifies whether the new modular loader should be used in the IDE distributions, see [ProductProperties.supportModularLoading] and
+   * Specifies whether the new modular loader should be used in the IDE distributions, see [ProductProperties.rootModuleForModularLoader] and
    * [BuildOptions.useModularLoader].
    */
   val useModularLoader: Boolean
-  
+
   /**
    * Specifies whether the runtime module repository should be added to the distributions, see [BuildOptions.generateRuntimeModuleRepository].
    */
   val generateRuntimeModuleRepository: Boolean
-  
+
+  /**
+   * Returns main modules' names of plugins bundled with the product.
+   * In IDEs, which use path-based loader, this list is specified manually in [ProductModulesLayout.bundledPluginModules] property.
+   */
+  suspend fun getBundledPluginModules(): List<String>
+
   /**
    * see BuildTasksImpl.buildProvidedModuleList
    */
@@ -83,7 +101,7 @@ interface BuildContext : CompilationContext {
   val appInfoXml: String
 
   /**
-   * Add file to be copied into application.
+   * Add the file to be copied into an application.
    */
   fun addDistFile(file: DistFile)
 
@@ -92,7 +110,7 @@ interface BuildContext : CompilationContext {
    */
   fun getDistFiles(os: OsFamily?, arch: JvmArchitecture?): Collection<DistFile>
 
-  fun includeBreakGenLibraries(): Boolean
+  suspend fun includeBreakGenLibraries(): Boolean
 
   fun patchInspectScript(path: Path)
 
@@ -107,58 +125,101 @@ interface BuildContext : CompilationContext {
 
   fun findApplicationInfoModule(): JpsModule
 
-  fun findFileInModuleSources(moduleName: String, relativePath: String): Path?
-
-  fun findFileInModuleSources(module: JpsModule, relativePath: String): Path?
-
   suspend fun signFiles(files: List<Path>, options: PersistentMap<String, String> = persistentMapOf()) {
     proprietaryBuildTools.signTool.signFiles(files = files, context = this, options = options)
   }
 
-  val jetBrainsClientModuleFilter: JetBrainsClientModuleFilter
-  
+  suspend fun getJetBrainsClientModuleFilter(): JetBrainsClientModuleFilter
+
   val isEmbeddedJetBrainsClientEnabled: Boolean
-  
+
   fun shouldBuildDistributions(): Boolean
 
   fun shouldBuildDistributionForOS(os: OsFamily, arch: JvmArchitecture): Boolean
 
-  fun createCopyForProduct(productProperties: ProductProperties,
+  suspend fun createCopyForProduct(productProperties: ProductProperties,
                            projectHomeForCustomizers: Path,
                            prepareForBuild: Boolean = true): BuildContext
 
   suspend fun buildJar(targetFile: Path, sources: List<Source>, compress: Boolean = false)
+
+  fun reportDistributionBuildNumber()
+
+  suspend fun cleanupJarCache()
+
+  suspend fun createProductRunner(additionalPluginModules: List<String> = emptyList()): IntellijProductRunner
+
+  suspend fun runProcess(
+    args: List<String>,
+    workingDir: Path? = null,
+    timeout: Duration = DEFAULT_TIMEOUT,
+    additionalEnvVariables: Map<String, String> = emptyMap(),
+    attachStdOutToException: Boolean = false,
+  )
 }
 
-suspend inline fun BuildContext.executeStep(spanBuilder: SpanBuilder,
-                                            stepId: String,
-                                            crossinline step: suspend CoroutineScope.(Span) -> Unit) {
-  if (isStepSkipped(stepId)) {
-    spanBuilder.startSpan().addEvent("skip '$stepId' step").end()
-  }
-  else {
-    spanBuilder.useWithScope(Dispatchers.IO, step)
+suspend inline fun <T> BuildContext.executeStep(
+  spanBuilder: SpanBuilder,
+  stepId: String,
+  coroutineContext: CoroutineContext = EmptyCoroutineContext,
+  crossinline step: suspend CoroutineScope.(Span) -> T,
+): T? {
+  return spanBuilder.block(coroutineContext) { span ->
+    try {
+      options.buildStepListener.onStart(stepId, messages)
+      if (isStepSkipped(stepId)) {
+        span.addEvent("skip '$stepId' step")
+        options.buildStepListener.onSkipping(stepId, messages)
+        null
+      }
+      else {
+        step(span)
+      }
+    }
+    catch (e: CancellationException) {
+      throw e
+    }
+    catch (failure: Throwable) {
+      options.buildStepListener.onFailure(stepId, failure, messages)
+      null
+    }
+    finally {
+      options.buildStepListener.onCompletion(stepId, messages)
+    }
   }
 }
 
 @Serializable
 class BuiltinModulesFileData(
   @JvmField val plugins: MutableList<String> = mutableListOf(),
-  @JvmField val modules: MutableList<String> = mutableListOf(),
+  @JvmField var layout: List<ProductInfoLayoutItem> = emptyList(),
   @JvmField val fileExtensions: MutableList<String> = mutableListOf(),
 )
+
+@Serializable
+data class ProductInfoLayoutItem(
+  @JvmField val name: String,
+  @JvmField val kind: ProductInfoLayoutItemKind,
+  @JvmField val classPath: List<String> = emptyList(),
+)
+
+@Suppress("EnumEntryName")
+@Serializable
+enum class ProductInfoLayoutItemKind {
+  plugin, pluginAlias, productModuleV2, moduleV2
+}
 
 sealed interface DistFileContent {
   fun readAsStringForDebug(): String
 }
 
-internal data class LocalDistFileContent(@JvmField val file: Path) : DistFileContent {
-  override fun readAsStringForDebug() = Files.newInputStream(file).readNBytes(1024).toString(Charsets.UTF_8)
+data class LocalDistFileContent(@JvmField val file: Path, val isExecutable: Boolean = false) : DistFileContent {
+  override fun readAsStringForDebug() = Files.newInputStream(file).readNBytes(1024).decodeToString()
 
-  override fun toString(): String = "LocalDistFileContent(file=$file)"
+  override fun toString(): String = "LocalDistFileContent(file=$file, isExecutable=$isExecutable)"
 }
 
-internal data class InMemoryDistFileContent(@JvmField val data: ByteArray) : DistFileContent {
+data class InMemoryDistFileContent(@JvmField val data: ByteArray) : DistFileContent {
   override fun readAsStringForDebug(): String = String(data, 0, data.size.coerceAtMost(1024), Charsets.UTF_8)
 
   override fun equals(other: Any?): Boolean {

@@ -19,9 +19,12 @@ internal class TerminalCommandHandlerCustomizer : LocalTerminalCustomizer() {
 
   class TerminalCommandHandlerOptions(val project: Project) {
     var enabled: Boolean
-      get() = PropertiesComponent.getInstance().getBoolean(Constants.TERMINAL_CUSTOM_COMMAND_EXECUTION, true)
+      get() = PropertiesComponent.getInstance().getBoolean(
+        Constants.TERMINAL_CUSTOM_COMMAND_EXECUTION, Constants.TERMINAL_CUSTOM_COMMAND_EXECUTION_DEFAULT)
+
       set(value) {
-        PropertiesComponent.getInstance().setValue(Constants.TERMINAL_CUSTOM_COMMAND_EXECUTION, value, true)
+        PropertiesComponent.getInstance().setValue(Constants.TERMINAL_CUSTOM_COMMAND_EXECUTION, value,
+                                                   Constants.TERMINAL_CUSTOM_COMMAND_EXECUTION_DEFAULT)
         ApplicationManager.getApplication().messageBus.syncPublisher(TERMINAL_COMMAND_HANDLER_TOPIC).modeChanged()
       }
   }
@@ -39,6 +42,7 @@ internal class TerminalCommandHandlerCustomizer : LocalTerminalCustomizer() {
 
   object Constants {
     const val TERMINAL_CUSTOM_COMMAND_EXECUTION = "terminalCustomCommandExecutionTurnOff"
+    const val TERMINAL_CUSTOM_COMMAND_EXECUTION_DEFAULT = false
 
     @JvmStatic
     @Topic.AppLevel

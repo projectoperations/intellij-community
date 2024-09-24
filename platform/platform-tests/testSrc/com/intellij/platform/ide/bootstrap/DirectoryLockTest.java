@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.bootstrap;
 
 import com.intellij.ide.CliResult;
@@ -13,7 +13,6 @@ import com.intellij.testFramework.TestLoggerFactory;
 import com.intellij.testFramework.rules.InMemoryFsRule;
 import com.intellij.testFramework.rules.TempDirectory;
 import com.intellij.util.Suppressions;
-import com.intellij.util.TimeoutUtil;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -26,7 +25,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,6 +62,8 @@ public abstract sealed class DirectoryLockTest {
   }
 
   public static final class FallbackModeTest extends DirectoryLockTest {
+    @Rule public final InMemoryFsRule memoryFs = new InMemoryFsRule(SystemInfo.isWindows);
+
     @Override
     protected Path getTestDir() {
       var path = SystemInfo.isWindows ? "C:\\tests\\" + tempDir.getRootPath().getFileName() : tempDir.getRootPath().toString();
@@ -74,7 +74,6 @@ public abstract sealed class DirectoryLockTest {
   @Rule public final TestRule watcher = TestLoggerFactory.createTestWatcher();
   @Rule public final Timeout timeout = Timeout.seconds(30);
   @Rule public final TempDirectory tempDir = new TempDirectory();
-  @Rule public final InMemoryFsRule memoryFs = new InMemoryFsRule(SystemInfo.isWindows);
   @Rule public final ApplicationRule app = new ApplicationRule();
 
   private Path testDir;
@@ -123,6 +122,15 @@ public abstract sealed class DirectoryLockTest {
   public void lockingVacantDirectories() throws Exception {
     var lock = createLock(Files.createDirectories(testDir.resolve("c")), Files.createDirectories(testDir.resolve("s")));
     assertNull(lock.lockOrActivate(currentDir, List.of()));
+  }
+
+  @Test
+  public void lockingReadOnlyDirectory() throws Exception {
+    assumeTrue(SystemInfo.isUnix);
+    var configDir = Files.createDirectories(testDir.resolve("c"));
+    NioFiles.setReadOnly(configDir, true);
+    var lock = createLock(configDir, Files.createDirectories(testDir.resolve("s")));
+    assertThatThrownBy(() -> lock.lockOrActivate(currentDir, List.of())).isInstanceOf(IOException.class);
   }
 
   @Test
@@ -233,17 +241,5 @@ public abstract sealed class DirectoryLockTest {
     Files.writeString(configDir.resolve(SpecialConfigFiles.LOCK_FILE), Long.toString(ProcessHandle.current().pid()));
     var lock = createLock(configDir, testDir.resolve("s"));
     assertThatThrownBy(() -> lock.lockOrActivate(currentDir, List.of())).isInstanceOf(CannotActivateException.class);
-  }
-
-  @Test
-  public void responseTimeout() throws Exception {
-    var timeoutMs = 300;
-    var lock = new DirectoryLock(testDir.resolve("c"), testDir.resolve("s"), args -> { TimeoutUtil.sleep(10_000L); return CliResult.OK; })
-      .withConnectTimeout(timeoutMs);
-    activeLocks.add(lock);
-    assertNull(lock.lockOrActivate(currentDir, List.of()));
-    var t = System.nanoTime();
-    assertThatThrownBy(() -> lock.lockOrActivate(currentDir, List.of())).isInstanceOf(CannotActivateException.class);
-    assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t)).isGreaterThanOrEqualTo(timeoutMs);
   }
 }

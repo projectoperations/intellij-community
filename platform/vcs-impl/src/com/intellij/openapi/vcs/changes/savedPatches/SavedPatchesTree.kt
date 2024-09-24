@@ -1,21 +1,16 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs.changes.savedPatches
 
-import com.intellij.ide.DataManager
+import com.intellij.ide.impl.DataValidators
 import com.intellij.ide.util.treeView.TreeState
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.CommonDataKeys
-import com.intellij.openapi.actionSystem.IdeActions
-import com.intellij.openapi.actionSystem.ex.ActionUtil
-import com.intellij.openapi.actionSystem.ex.ActionUtil.performActionDumbAwareWithCallbacks
+import com.intellij.openapi.actionSystem.DataSink
+import com.intellij.openapi.actionSystem.DataSnapshotProvider
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.ClearableLazyValue
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vcs.VcsBundle
-import com.intellij.openapi.vcs.changes.savedPatches.SavedPatchesUi.Companion.SAVED_PATCHES_UI_PLACE
 import com.intellij.openapi.vcs.changes.ui.*
 import com.intellij.openapi.vcs.changes.ui.VcsTreeModelData.allUnder
 import com.intellij.ui.SimpleTextAttributes
@@ -24,17 +19,17 @@ import com.intellij.ui.components.panels.Wrapper
 import com.intellij.ui.render.RenderingHelper
 import com.intellij.ui.speedSearch.SpeedSearchSupply
 import com.intellij.ui.speedSearch.SpeedSearchUtil
-import com.intellij.util.EditSourceOnDoubleClickHandler
+import com.intellij.ui.tree.TreeVisitor
+import com.intellij.ui.tree.TreeVisitor.Action
 import com.intellij.util.FontUtil
-import com.intellij.util.Processor
 import com.intellij.util.ui.tree.TreeUtil
 import org.jetbrains.annotations.Nls
 import java.awt.BorderLayout
 import java.awt.Component
-import java.util.stream.Stream
 import javax.swing.JComponent
 import javax.swing.JTree
 import javax.swing.tree.DefaultTreeModel
+import javax.swing.tree.TreeNode
 import javax.swing.tree.TreePath
 
 class SavedPatchesTree(project: Project,
@@ -57,19 +52,6 @@ class SavedPatchesTree(project: Project,
     setEmptyText(VcsBundle.message("saved.patch.empty.text"))
     speedSearch = MySpeedSearch.installOn(this)
 
-    doubleClickHandler = Processor { e ->
-      if (EditSourceOnDoubleClickHandler.isToggleEvent(this, e)) return@Processor false
-
-      val diffAction = ActionManager.getInstance().getAction(IdeActions.ACTION_SHOW_DIFF_COMMON)
-
-      val dataContext = DataManager.getInstance().getDataContext(this)
-      val event = AnActionEvent.createFromAnAction(diffAction, e, SAVED_PATCHES_UI_PLACE, dataContext)
-      val isEnabled = ActionUtil.lastUpdateAndCheckDumb(diffAction, event, true)
-      if (isEnabled) performActionDumbAwareWithCallbacks(diffAction, event)
-
-      isEnabled
-    }
-
     savedPatchesProviders.forEach { provider ->
       provider.subscribeToPatchesListChanges(parentDisposable) {
         if (isProviderVisible(provider)) rebuildTree()
@@ -83,26 +65,53 @@ class SavedPatchesTree(project: Project,
     return ChangesGroupingSupport.Disabled(myProject, this)
   }
 
-  override fun getData(dataId: String): Any? {
-    val selectedObjects = selectedPatchObjects()
-    val data = visibleProvidersList.firstNotNullOfOrNull { provider -> provider.getData(dataId, selectedObjects) }
-    if (data != null) return data
-    if (CommonDataKeys.PROJECT.`is`(dataId)) return myProject
-    return super.getData(dataId)
+  override fun uiDataSnapshot(sink: DataSink) {
+    super.uiDataSnapshot(sink)
+    if (visibleProvidersList.isNotEmpty()) {
+      val selectedObjects = selectedPatchObjects()
+      visibleProvidersList.forEach { provider ->
+        DataSink.uiDataSnapshot(sink, object : DataSnapshotProvider, DataValidators.SourceWrapper {
+          override fun dataSnapshot(sink: DataSink) = provider.uiDataSnapshot(sink, selectedObjects)
+          override fun unwrapSource(): Any = provider
+        })
+      }
+    }
   }
 
-  internal fun selectedPatchObjects(): Stream<SavedPatchesProvider.PatchObject<*>> {
+  internal fun selectedPatchObjects(): Iterable<SavedPatchesProvider.PatchObject<*>> {
     return VcsTreeModelData.selected(this)
       .iterateUserObjects(SavedPatchesProvider.PatchObject::class.java)
-      .toStream()
   }
 
   override fun getToggleClickCount(): Int = 2
 
-  internal fun expandPatchesByProvider(provider: SavedPatchesProvider<*>) {
-    if (!isProviderVisible(provider)) return
-    val tagNode = VcsTreeModelData.findTagNode(this, provider.tag) ?: root
-    expandPath(TreeUtil.getPathFromRoot(tagNode))
+  private fun findNodeForProvider(provider: SavedPatchesProvider<*>): ChangesBrowserNode<*>? {
+    if (!isProviderVisible(provider)) return null
+    return VcsTreeModelData.findTagNode(this, provider.tag) ?: root
+  }
+
+  private fun showFirstUnderNode(node: TreeNode) {
+    if (!isRootVisible && node.parent == null) {
+      TreeUtil.promiseSelectFirst(this)
+      return
+    }
+    val treePath = TreeUtil.getPathFromRoot(node)
+    TreeUtil.promiseSelect(this, TreeVisitor {
+      if (it.isDescendant(treePath)) Action.CONTINUE
+      else if (treePath.isDescendant(it)) Action.INTERRUPT
+      else Action.SKIP_CHILDREN
+    })
+  }
+
+  internal fun showFirstUnderProvider(provider: SavedPatchesProvider<*>) {
+    val providerNode = findNodeForProvider(provider) ?: return
+    showFirstUnderNode(providerNode)
+  }
+
+  internal fun showFirstUnderObject(provider: SavedPatchesProvider<*>, userObject: Any) {
+    val providerNode = findNodeForProvider(provider) ?: return
+    val node = TreeUtil.findNodeWithObject(providerNode, userObject) ?: providerNode
+    showFirstUnderNode(node)
   }
 
   private inner class SavedPatchesTreeModel : SimpleAsyncChangesTreeModel() {

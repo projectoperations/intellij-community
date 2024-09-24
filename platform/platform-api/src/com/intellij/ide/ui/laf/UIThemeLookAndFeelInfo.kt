@@ -60,6 +60,9 @@ fun EditorColorsScheme.isDefaultForTheme(theme: UIThemeLookAndFeelInfo?): Boolea
 val UIThemeLookAndFeelInfo.defaultSchemeName: String @Internal get() = editorSchemeId ?: defaultNonLaFSchemeName(isDark)
 private fun defaultNonLaFSchemeName() = defaultNonLaFSchemeName(StartupUiUtil.isDarkTheme)
 @Internal
-fun defaultNonLaFSchemeName(dark: Boolean): String = if (dark) "Darcula" else EditorColorsScheme.DEFAULT_SCHEME_NAME
+fun defaultNonLaFSchemeName(dark: Boolean): String = if (dark) "Darcula" else EditorColorsScheme.getDefaultSchemeName()
 
-val UIThemeLookAndFeelInfo.isThemeFromPlugin: Boolean @Internal get() = providerClassLoader is PluginAwareClassLoader
+val UIThemeLookAndFeelInfo.isThemeFromPlugin: Boolean @Internal get() {
+  val pluginClassLoader = providerClassLoader as? PluginAwareClassLoader
+  return pluginClassLoader?.pluginDescriptor?.isBundled == false
+}

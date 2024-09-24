@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.containers;
 
 import com.intellij.openapi.Disposable;
@@ -2221,16 +2221,6 @@ public final class ContainerUtil {
     return result.computeIfAbsent(key, __ -> factory.create());
   }
 
-  /**
-   * @deprecated use {@link Map#getOrDefault(Object, Object)}
-   */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  @Contract(pure = true)
-  public static @NotNull <T, V> V getOrElse(@NotNull Map<? extends T, V> map, T key, @NotNull V defValue) {
-    return map.getOrDefault(key, defValue);
-  }
-
   @Contract(pure=true)
   public static <T> boolean and(T @NotNull [] iterable, @NotNull Condition<? super T> condition) {
     for (T t : iterable) {
@@ -2394,11 +2384,12 @@ public final class ContainerUtil {
    * Processes the list, remove all duplicates and return the list with unique elements.
    * @param list must be sorted (according to the comparator), all elements must be not-null
    */
-  public static @Unmodifiable @NotNull <T> List<? extends T> removeDuplicatesFromSorted(@NotNull List<? extends T> list, @NotNull Comparator<? super T> comparator) {
+  public static @NotNull <T> List<? extends @NotNull T> removeDuplicatesFromSorted(@NotNull List<? extends @NotNull T> list, @NotNull Comparator<? super T> comparator) {
     T prev = null;
-    List<T> result = null;
+    List<@NotNull T> result = null;
     for (int i = 0; i < list.size(); i++) {
       T t = list.get(i);
+      //noinspection ConstantValue
       if (t == null) {
         throw new IllegalArgumentException("get(" + i + ") = null");
       }
@@ -2417,7 +2408,7 @@ public final class ContainerUtil {
       }
       prev = t;
     }
-    return result == null ? list : Collections.unmodifiableList(result);
+    return result == null ? list : result;
   }
 
   /**
@@ -2429,12 +2420,14 @@ public final class ContainerUtil {
     for (Collection<? extends E> list : collections) {
       totalSize += list.size();
     }
+    if (totalSize == 0) return emptyList();
+
     List<E> result = new ArrayList<>(totalSize);
     for (Collection<? extends E> list : collections) {
       result.addAll(list);
     }
 
-    return result.isEmpty() ? emptyList() : result;
+    return result;
   }
 
   /**
@@ -2528,6 +2521,25 @@ public final class ContainerUtil {
   public static <T> int indexOf(@NotNull List<? extends T> list, @NotNull Condition<? super T> condition) {
     for (int i = 0, listSize = list.size(); i < listSize; i++) {
       T t = list.get(i);
+      if (condition.value(t)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Finds the first element in the array that satisfies given condition.
+   *
+   * @param list array to scan
+   * @param condition condition that should be satisfied
+   * @param <T> type of the list elements
+   * @return index of the first element in the array that satisfies the condition; -1 if no element satisfies the condition.
+   */
+  @Contract(pure=true)
+  public static <T> int indexOf(T @NotNull [] list, @NotNull Condition<? super T> condition) {
+    for (int i = 0; i < list.length; i++) {
+      T t = list[i];
       if (condition.value(t)) {
         return i;
       }
@@ -2783,7 +2795,7 @@ public final class ContainerUtil {
   }
 
   @Contract(mutates = "param1")
-  public static <T> T @NotNull [] copyAndClear(@NotNull Collection<? extends T> collection, @NotNull ArrayFactory<? extends T> factory, boolean clear) {
+  public static <T> T @NotNull [] copyAndClear(@NotNull Collection<T> collection, @NotNull ArrayFactory<? extends T> factory, boolean clear) {
     int size = collection.size();
     T[] a = factory.create(size);
     if (size > 0) {

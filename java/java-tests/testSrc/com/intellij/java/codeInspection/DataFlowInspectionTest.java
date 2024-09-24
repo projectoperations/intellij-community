@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInspection;
 
 import com.intellij.JavaTestUtil;
@@ -352,6 +352,12 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
 
     doTest();
   }
+  
+  public void testJsr305CheckForNullAsQualifierNickname() {
+    addJavaxNullabilityAnnotations(myFixture);
+    addJavaxDefaultNullabilityAnnotations(myFixture);
+    doTest();
+  }
 
   public void testNullabilityDefaultVsMethodImplementing() {
     addJavaxDefaultNullabilityAnnotations(myFixture);
@@ -396,16 +402,24 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
     fixture.addClass("package javax.annotation.meta;" +
                      "public enum When { ALWAYS, UNKNOWN, MAYBE, NEVER }");
 
-    fixture.addClass("package javax.annotation;" +
-                     "import javax.annotation.meta.*;" +
-                     "public @interface Nonnull {" +
-                     "  When when() default When.ALWAYS;" +
-                     "}");
-    fixture.addClass("package javax.annotation;" +
-                     "import javax.annotation.meta.*;" +
-                     "@TypeQualifierNickname " +
-                     "@Nonnull(when = When.UNKNOWN) " +
-                     "public @interface Nullable {}");
+    fixture.addClass("""
+                       package javax.annotation;
+                       import javax.annotation.meta.*;
+                       public @interface Nonnull {
+                         When when() default When.ALWAYS;
+                       }""");
+    fixture.addClass("""
+                       package javax.annotation;
+                       import javax.annotation.meta.*;
+                       @TypeQualifierNickname
+                       @Nonnull(when = When.MAYBE)
+                       public @interface CheckForNull {}""");
+    fixture.addClass("""
+                       package javax.annotation;
+                       import javax.annotation.meta.*;
+                       @TypeQualifierNickname
+                       @Nonnull(when = When.UNKNOWN)
+                       public @interface Nullable {}""");
   }
 
   public void testCustomTypeQualifierDefault() {
@@ -579,6 +593,7 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void testGetterOfNullableFieldIsNotNull() { doTest(); }
 
   public void testArrayStoreProblems() { doTest(); }
+  public void testArrayAccessInTry() { doTest(); }
 
   public void testNestedScopeComplexity() { doTest(); }
 
@@ -588,9 +603,7 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void testRedundantAssignment() {
     doTest();
     UiInterceptors.register(new ChooserInterceptor(List.of("Extract side effect", "Delete assignment completely"), "Extract side effect"));
-    IntentionAction action = myFixture.findSingleIntention("Remove redundant assignment");
-    myFixture.launchAction(action);
-    myFixture.checkResultByFile(getTestName(false) + "_after.java");
+    checkIntentionResult("Remove redundant assignment");
   }
   public void testXorNullity() { doTest(); }
   public void testPrimitiveNull() { doTest(); }
@@ -745,4 +758,8 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void testInitializedViaSuperCall() { doTest(); }
   public void testBoxedBooleanMethodWithCast() { doTest(); }
   public void testAssignAndReturnVolatile() { doTest(); }
+  public void testQualifiedValueFromConstant() { doTest();}
+  public void testFieldAliasing() { doTest();}
+  public void testFieldLocalNoAliasing() { doTest();}
+  public void testIoContracts() { doTest(); }
 }

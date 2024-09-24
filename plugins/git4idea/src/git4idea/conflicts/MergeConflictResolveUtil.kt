@@ -6,7 +6,8 @@ import com.intellij.diff.DiffManagerEx
 import com.intellij.diff.DiffRequestFactory
 import com.intellij.diff.chains.DiffRequestProducerException
 import com.intellij.diff.merge.*
-import com.intellij.diff.util.DiffUserDataKeysEx
+import com.intellij.diff.merge.MergeCallback.Listener
+import com.intellij.diff.util.DiffUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.runInEdt
@@ -82,8 +83,7 @@ object MergeConflictResolveUtil {
                                                                           mergeData.CONFLICT_TYPE,
                                                                           resolver.windowTitle, resolver.contentTitles)
         resolver.titleCustomizerList.run {
-          request.putUserData(DiffUserDataKeysEx.EDITORS_TITLE_CUSTOMIZER,
-                              listOf(leftTitleCustomizer, centerTitleCustomizer, rightTitleCustomizer))
+          DiffUtil.addTitleCustomizers(request, listOf(leftTitleCustomizer, centerTitleCustomizer, rightTitleCustomizer))
         }
         MergeUtils.putRevisionInfos(request, mergeData)
         MergeCallback.register(request, MyMergeCallback(resolver))
@@ -209,7 +209,7 @@ object MergeConflictResolveUtil {
 
 fun updateMergeConflictEditorNotifications(project: Project) {
   if (project.isDisposed) return
-  val provider: MergeConflictResolveUtil.NotificationProvider =
-    EditorNotificationProvider.EP_NAME.findExtension(MergeConflictResolveUtil.NotificationProvider::class.java, project) ?: return
-  EditorNotifications.getInstance(project).updateNotifications(provider)
+  //val provider: MergeConflictResolveUtil.NotificationProvider =
+  //  EditorNotificationProvider.EP_NAME.findExtension(MergeConflictResolveUtil.NotificationProvider::class.java, project) ?: return
+  EditorNotifications.getInstance(project).updateAllNotifications()
 }

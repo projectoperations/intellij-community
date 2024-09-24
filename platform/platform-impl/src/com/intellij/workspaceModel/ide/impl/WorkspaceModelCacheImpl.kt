@@ -13,7 +13,7 @@ import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.WorkspaceModelCache
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
 import com.intellij.platform.backend.workspace.WorkspaceModelTopics
-import com.intellij.platform.backend.workspace.impl.internal
+import com.intellij.platform.backend.workspace.impl.WorkspaceModelInternal
 import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.VersionedStorageChange
@@ -28,6 +28,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
 import java.nio.file.Files
 import java.nio.file.Path
@@ -40,17 +41,20 @@ import kotlin.time.measureTimedValue
 @OptIn(FlowPreview::class)
 @ApiStatus.Internal
 class WorkspaceModelCacheImpl(private val project: Project, coroutineScope: CoroutineScope) : WorkspaceModelCache {
-  override val enabled: Boolean = forceEnableCaching || !ApplicationManager.getApplication().isUnitTestMode
+  override val enabled: Boolean
+    get() = forceEnableCaching || !ApplicationManager.getApplication().isUnitTestMode
+
+  private val isCacheSaved = AtomicBoolean(true)
   private val saveRequests = MutableSharedFlow<Unit>(replay=1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
   private lateinit var virtualFileUrlManager: VirtualFileUrlManager
-  private val cacheFile by lazy { initCacheFile() }
+  override val cacheFile by lazy { initCacheFile() }
   private val unloadedEntitiesCacheFile by lazy { project.getProjectDataPath(DATA_DIR_NAME).resolve("unloaded-entities-cache.data") }
   private val invalidateProjectCacheMarkerFile by lazy { project.getProjectDataPath(DATA_DIR_NAME).resolve(".invalidate") }
 
   private val urlRelativizer =
-    if (Registry.`is`("ide.workspace.model.store.relative.paths.in.cache", true)) {
-      JpsProjectUrlRelativizer(project)
+    if (Registry.`is`("ide.workspace.model.store.relative.paths.in.cache", false)) {
+      createJpsProjectUrlRelativizer(project)
     } else {
       null
     }
@@ -70,6 +74,7 @@ class WorkspaceModelCacheImpl(private val project: Project, coroutineScope: Coro
         override fun changed(event: VersionedStorageChange) {
           LOG.debug("Schedule cache update")
           check(saveRequests.tryEmit(Unit))
+          isCacheSaved.set(false)
         }
       })
 
@@ -103,11 +108,18 @@ class WorkspaceModelCacheImpl(private val project: Project, coroutineScope: Coro
     doCacheSaving()
   }
 
+  @Internal
+  fun doCacheSavingOnProjectClose() {
+    if (isCacheSaved.get()) return
+    doCacheSaving()
+  }
+
   @OptIn(EntityStorageInstrumentationApi::class)
   private fun doCacheSaving(): Unit = saveWorkspaceModelCachesTimeMs.addMeasuredTime {
+    isCacheSaved.set(true)
     val workspaceModel = WorkspaceModel.getInstance(project)
     val storage = workspaceModel.currentSnapshot
-    val unloadedStorage = workspaceModel.internal.currentSnapshotOfUnloadedEntities
+    val unloadedStorage = (workspaceModel as WorkspaceModelInternal).currentSnapshotOfUnloadedEntities
     if (!storage.isConsistent || !unloadedStorage.isConsistent) {
       invalidateProjectCache()
     }
@@ -175,6 +187,7 @@ class WorkspaceModelCacheImpl(private val project: Project, coroutineScope: Coro
       invalidateCaches(cachesInvalidated, invalidateCachesMarkerFile)
     }
 
+    @JvmStatic
     fun forceEnableCaching(disposable: Disposable) {
       forceEnableCaching = true
       Disposer.register(disposable) { forceEnableCaching = false }

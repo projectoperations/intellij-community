@@ -4,11 +4,10 @@ package org.jetbrains.kotlin.idea.core.script.configuration
 
 import com.intellij.codeInsight.daemon.OutsidersPsiFileSupport
 import com.intellij.ide.scratch.ScratchUtil
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
 import com.intellij.platform.backend.workspace.WorkspaceModelTopics
@@ -17,17 +16,21 @@ import com.intellij.platform.workspace.storage.EntityChange
 import com.intellij.platform.workspace.storage.VersionedStorageChange
 import com.intellij.psi.search.GlobalSearchScope
 import kotlinx.coroutines.CoroutineScope
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider
 import org.jetbrains.kotlin.idea.base.util.caching.findSdkBridge
 import org.jetbrains.kotlin.idea.base.util.caching.getChanges
 import org.jetbrains.kotlin.idea.core.KotlinPluginDisposable
 import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.idea.core.script.ScriptDependenciesModificationTracker
 import org.jetbrains.kotlin.idea.core.script.configuration.listener.ScriptChangesNotifier
+import org.jetbrains.kotlin.idea.core.script.configuration.listener.ScriptChangesNotifierK1
+import org.jetbrains.kotlin.idea.core.script.configuration.listener.ScriptChangesNotifierK2
 import org.jetbrains.kotlin.idea.core.script.configuration.utils.getKtFile
 import org.jetbrains.kotlin.idea.core.script.ucache.*
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
 import org.jetbrains.kotlin.scripting.resolve.ScriptCompilationConfigurationWrapper
+import java.nio.file.Path
 
 /**
  * The [CompositeScriptConfigurationManager] will provide redirection of [ScriptConfigurationManager] calls to the
@@ -45,8 +48,7 @@ import org.jetbrains.kotlin.scripting.resolve.ScriptCompilationConfigurationWrap
  * Listener should do something to invalidate configuration and schedule reloading.
  */
 class CompositeScriptConfigurationManager(val project: Project, val scope: CoroutineScope) : ScriptConfigurationManager {
-    private val notifier = ScriptChangesNotifier(project)
-
+    private val notifier = if (KotlinPluginModeProvider.isK2Mode()) ScriptChangesNotifierK2() else ScriptChangesNotifierK1(project)
     private val classpathRoots: ScriptClassRootsCache
         get() = updater.classpathRoots
 
@@ -64,10 +66,14 @@ class CompositeScriptConfigurationManager(val project: Project, val scope: Corou
         override fun afterUpdate() {
             plugins.forEach { it.afterUpdate() }
         }
-    }
 
-    override fun loadPlugins() {
-        plugins
+        override fun onTrivialUpdate() {
+            plugins.forEach { it.onTrivialUpdate() }
+        }
+
+        override fun onUpdateException(exception: Exception) {
+            plugins.forEach { it.onUpdateException(exception) }
+        }
     }
 
     fun updateScriptDependenciesIfNeeded(file: VirtualFile) {
@@ -183,17 +189,20 @@ class CompositeScriptConfigurationManager(val project: Project, val scope: Corou
     override fun getAllScriptSdkDependenciesSources(): Collection<VirtualFile> =
         classpathRoots.sdks.nonIndexedSourceRoots
 
+    override fun getScriptDependingOn(dependencies: Collection<String>): VirtualFile? =
+        classpathRoots.scriptsPaths().firstNotNullOfOrNull { scriptPath ->
+            VfsUtil.findFile(Path.of(scriptPath), true)?.takeIf { scriptVirtualFile ->
+                getScriptDependenciesClassFiles(scriptVirtualFile).any { scriptDependency ->
+                    dependencies.contains(scriptDependency.presentableUrl)
+                }
+            }
+        }
+
     override fun getScriptDependenciesClassFiles(file: VirtualFile): Collection<VirtualFile> =
         classpathRoots.getScriptDependenciesClassFiles(file)
 
     override fun getScriptDependenciesSourceFiles(file: VirtualFile): Collection<VirtualFile> =
         classpathRoots.getScriptDependenciesSourceFiles(file)
-
-    override fun getScriptSdkDependenciesClassFiles(file: VirtualFile): Collection<VirtualFile> =
-        classpathRoots.getScriptDependenciesSdkFiles(file, OrderRootType.CLASSES)
-
-    override fun getScriptSdkDependenciesSourceFiles(file: VirtualFile): Collection<VirtualFile> =
-        classpathRoots.getScriptDependenciesSdkFiles(file, OrderRootType.SOURCES)
 
     ///////////////////
     // Adapters for deprecated API

@@ -9,6 +9,7 @@ import com.intellij.openapi.externalSystem.statistics.ExternalSystemActionsColle
 import com.intellij.openapi.externalSystem.statistics.ProjectImportCollector
 import com.intellij.openapi.externalSystem.statistics.anonymizeSystemId
 import com.intellij.openapi.project.Project
+import org.jetbrains.annotations.ApiStatus
 
 object MavenImportStats {
   // Hacky way to measure report import stages speed.
@@ -27,19 +28,16 @@ object MavenImportStats {
   data object PluginsResolvingTask : MavenBackgroundActivitySubstask(ProjectImportCollector.PLUGIN_RESOLVE_PROCESS)
 
 
+  @ApiStatus.ScheduledForRemoval
   @Deprecated("to be removed")
   class ImportingTaskOld
 
+  @ApiStatus.ScheduledForRemoval
   @Deprecated("to be removed")
   class ImportingTask
 
   data object ApplyingModelTask : MavenSyncSubstask(ProjectImportCollector.WORKSPACE_APPLY_STAGE)
 
-  data object ConfiguringProjectsTask : MavenSyncSubstask(ProjectImportCollector.PROJECT_CONFIGURATION_STAGE)
-
-  class MavenSyncProjectTask
-
-  class MavenReapplyModelOnlyProjectTask
 }
 
 
@@ -56,11 +54,15 @@ fun importActivityStarted(project: Project, externalSystemId: ProjectSystemId, d
 }
 
 
-fun <T> runImportActivitySync(project: Project,
-                              externalSystemId: ProjectSystemId,
-                              taskClass: Class<*>,
-                              action: () -> T): T {
-  val activity = importActivityStarted(project, externalSystemId)
+fun <T> runMavenConfigurationTask(project: Project,
+                                  parentActivity: StructuredIdeActivity,
+                                  taskClass: Class<*>,
+                                  action: () -> T): T {
+  val activity = ProjectImportCollector.PROJECT_CONFIGURATION_STAGE.startedWithParent(project, parentActivity) {
+    listOf(
+      ProjectImportCollector.TASK_CLASS.with(taskClass)
+    )
+  }
   try {
     return action()
   }

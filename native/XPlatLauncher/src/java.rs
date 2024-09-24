@@ -1,10 +1,10 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
-use std::{env, thread};
-use std::ffi::{c_void, CString};
+use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::path::Path;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::thread;
 use std::thread::JoinHandle;
 
 use anyhow::{anyhow, bail, Context, Error, Result};
@@ -12,6 +12,7 @@ use jni::JNIEnv;
 use jni::objects::{JObject, JValue};
 use jni::sys::{jboolean, jint, jsize};
 use log::{debug, error};
+
 use crate::{jvm_property, ui};
 
 #[cfg(target_os = "macos")]
@@ -21,9 +22,6 @@ use {
     core_foundation::runloop::{CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRunInMode, CFRunLoopTimerCreate,
                                CFRunLoopTimerRef, kCFRunLoopDefaultMode, kCFRunLoopRunFinished}
 };
-
-#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
-use std::ffi::{c_char, CStr, c_int};
 
 #[cfg(target_os = "windows")]
 const JVM_LIB_REL_PATH: &str = "bin\\server\\jvm.dll";
@@ -35,44 +33,38 @@ const JVM_LIB_REL_PATH: &str = "lib/server/libjvm.so";
 static DEBUG_MODE: AtomicBool = AtomicBool::new(true);
 static HOOK_MESSAGES: Mutex<Option<Vec<String>>> = Mutex::new(None);
 
-#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 #[no_mangle]
-extern "C" fn vfprintf_hook(fp: *const c_void, format: *const c_char, args: va_list::VaList) -> jint {
+extern "C" fn vfprintf_hook(fp: *const c_void, format: *const c_char, args: va_list::VaList<'_>) -> jint {
     extern "C" {
-        fn vfprintf(fp: *const c_void, format: *const c_char, args: va_list::VaList) -> c_int;
-        fn vsnprintf(s: *mut c_char, n: usize, format: *const c_char, args: va_list::VaList) -> c_int;
+        fn vfprintf(fp: *const c_void, format: *const c_char, args: va_list::VaList<'_>) -> c_int;
+        fn vsnprintf(s: *mut c_char, n: usize, format: *const c_char, args: va_list::VaList<'_>) -> c_int;
     }
 
     match &mut *HOOK_MESSAGES.lock().unwrap() {
         None => unsafe { vfprintf(fp, format, args) },
         Some(messages) => {
             let mut buffer = [0; 4096];
-            let _ = unsafe { vsnprintf(buffer.as_mut_ptr(), buffer.len(), format, args) };
+            let len = unsafe { vsnprintf(buffer.as_mut_ptr(), buffer.len(), format, args) };
             let message = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().to_string();
             debug!("[JVM] vfprintf_hook: {:?}", message);
             messages.push(message);
-            0  // because nothing was actually printed
+            len
         }
     }
-}
-
-#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
-fn get_vfprintf_hook_pointer() -> *mut c_void {
-    vfprintf_hook as *mut c_void
-}
-
-#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
-fn get_vfprintf_hook_pointer() -> *mut c_void {
-    std::ptr::null_mut()
 }
 
 #[no_mangle]
 extern "C" fn abort_hook() {
     error!("[JVM] abort_hook");
-    let text = HOOK_MESSAGES.lock().unwrap().as_ref().unwrap().join("");
-    if !text.is_empty() {
-        let gui = !DEBUG_MODE.load(Ordering::Acquire);
-        ui::show_error(gui, anyhow::format_err!(text))
+    match HOOK_MESSAGES.lock() {
+        Ok(unlocked) => {
+            let text = unlocked.as_ref().map(|lines| lines.join("")).unwrap_or("".to_string());
+            if !text.is_empty() {
+                let gui = !DEBUG_MODE.load(Ordering::Acquire);
+                ui::show_error(gui, anyhow::format_err!(text))
+            }
+        }
+        Err(e) => error!("[JVM] HOOK_MESSAGES.lock() failed: {}", e)
     }
 }
 
@@ -93,6 +85,8 @@ pub fn run_jvm_and_event_loop(jre_home: &Path, vm_options: Vec<String>, main_cla
         // resetting stack overflow protection handler set by the runtime (`std/src/sys/unix/stack_overflow.rs`)
         reset_signal_handler(libc::SIGBUS)?;
         reset_signal_handler(libc::SIGSEGV)?;
+        // resetting interrupt handler masked when an IDE is launched in a particularly perverse way
+        reset_signal_handler(libc::SIGINT)?;
     }
 
     let jre_home = jre_home.to_owned();
@@ -106,7 +100,12 @@ pub fn run_jvm_and_event_loop(jre_home: &Path, vm_options: Vec<String>, main_cla
         debug!("[JVM] Thread started [{:?}]", thread::current().id());
 
         let mut vm_options = vm_options.clone();
-        vm_options.push(jvm_property!("sun.java.command", main_class));
+        let mut java_command = main_class.clone();
+        args.iter().for_each(|arg| {
+            java_command += " ";
+            java_command += arg
+        });
+        vm_options.push(jvm_property!("sun.java.command", java_command));
 
         let jni_env_result = load_and_start_jvm(&jre_home, vm_options);
         let jni_env = match jni_env_result {
@@ -157,17 +156,12 @@ fn reset_signal_handler(signal: c_int) -> Result<()> {
 }
 
 fn load_and_start_jvm(jre_home: &Path, vm_options: Vec<String>) -> Result<JNIEnv<'static>> {
-    // Read the current directory and pass it to JVM through environment variable.
-    // The real current directory will be changed in load_libjvm().
-    let work_dir = env::current_dir().context("Failed to get current directory")?;
-    env::set_var("IDEA_INITIAL_DIRECTORY", work_dir);
-
     let libjvm_path = jre_home.join(JVM_LIB_REL_PATH);
     debug!("[JVM] Loading {libjvm_path:?}");
-    let libjvm = load_libjvm(jre_home, &libjvm_path)?;
+    let libjvm = load_libjvm(&libjvm_path)?;
 
     debug!("[JVM] Looking for 'JNI_CreateJavaVM' symbol");
-    let create_jvm_call: CreateJvmCall<'_> = unsafe { libjvm.get(b"JNI_CreateJavaVM")? };
+    let create_jvm_call: CreateJvmCall<'_> = unsafe { libjvm.get(b"JNI_CreateJavaVM\0")? };
 
     debug!("[JVM] Constructing JVM init args");
     let mut java_vm: *mut jni::sys::JavaVM = std::ptr::null_mut();
@@ -199,23 +193,17 @@ fn load_and_start_jvm(jre_home: &Path, vm_options: Vec<String>) -> Result<JNIEnv
 }
 
 #[cfg(target_os = "windows")]
-fn load_libjvm(jre_home: &Path, libjvm_path: &Path) -> Result<libloading::Library> {
-    let jre_bin_dir = jre_home.join("bin");
-    debug!("[JVM] Changing working dir to {jre_bin_dir:?}, so that 'libjvm.dll' can find its dependencies");
-    env::set_current_dir(&jre_bin_dir)?;
-
-    unsafe {
-        libloading::Library::new(libjvm_path)
-    }.context("Failed to load 'libjvm.dll'")
+fn load_libjvm(libjvm_path: &Path) -> Result<libloading::Library> {
+    unsafe { libloading::Library::new(libjvm_path) }
+        .context("Failed to load 'jvm.dll'")
 }
 
 #[cfg(target_family = "unix")]
-fn load_libjvm(_jre_home: &Path, libjvm_path: &Path) -> Result<libloading::Library> {
+fn load_libjvm(libjvm_path: &Path) -> Result<libloading::Library> {
     let path_ref = Some(libjvm_path.as_os_str());
     let flags = libloading::os::unix::RTLD_LAZY;
-    unsafe {
-        libloading::os::unix::Library::open(path_ref, flags).map(From::from)
-    }.context("Failed to load 'libjvm'")
+    unsafe { libloading::os::unix::Library::open(path_ref, flags).map(From::from) }
+        .with_context(|| format!("Failed to load '{}'", Path::new(libjvm_path.file_name().unwrap()).display()))
 }
 
 fn get_jvm_init_args(vm_options: Vec<String>) -> Result<(jni::sys::JavaVMInitArgs, Vec<jni::sys::JavaVMOption>)> {
@@ -226,17 +214,15 @@ fn get_jvm_init_args(vm_options: Vec<String>) -> Result<(jni::sys::JavaVMInitArg
         extraInfo: abort_hook as *mut c_void,
     });
 
-    let hook_pointer = get_vfprintf_hook_pointer();
-    if !hook_pointer.is_null() {
-        jni_options.push(jni::sys::JavaVMOption {
-            optionString: CString::new("vfprintf")?.into_raw(),
-            extraInfo: hook_pointer,
-        });
-    }
+    jni_options.push(jni::sys::JavaVMOption {
+        optionString: CString::new("vfprintf")?.into_raw(),
+        extraInfo: vfprintf_hook as *mut c_void,
+    });
 
-    for opt in vm_options {
+    let c_vm_options = convert_vm_options(vm_options)?;
+    for opt in c_vm_options {
         jni_options.push(jni::sys::JavaVMOption {
-            optionString: CString::new(opt.as_str())?.into_raw(),
+            optionString: opt.into_raw(),
             extraInfo: std::ptr::null_mut(),
         });
     }
@@ -249,6 +235,51 @@ fn get_jvm_init_args(vm_options: Vec<String>) -> Result<(jni::sys::JavaVMInitArg
     };
 
     Ok((jvm_init_args, jni_options))
+}
+
+#[cfg(target_os = "windows")]
+fn convert_vm_options(vm_options: Vec<String>) -> Result<Vec<CString>> {
+    use {
+        windows::core::{HSTRING, PCSTR},
+        windows::Win32::Foundation::BOOL,
+        windows::Win32::Globalization::{GetACP, CP_ACP, CP_UTF8, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte}
+    };
+
+    let mut strings = Vec::<CString>::with_capacity(vm_options.len());
+    let acp = unsafe { GetACP() };
+    debug!("[JVM] ACP={}", acp);
+
+    for opt in vm_options {
+        let str = if acp == CP_UTF8 {
+            CString::new(opt.as_bytes())
+        } else {
+            let ucs_str = HSTRING::from(&opt);
+            let mut acp_bytes = vec![0u8; ucs_str.len()];
+            let mut failed = BOOL::default();
+            let acp_len = unsafe {
+                WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, ucs_str.as_wide(), Some(&mut acp_bytes), PCSTR::null(), Some(&mut failed))
+            };
+            if acp_len == 0 {
+                bail!("Cannot convert VM option string '{}' to ANSI code page ({}): {}", opt, acp, std::io::Error::last_os_error());
+            }
+            if failed.as_bool() {
+                bail!("Cannot convert VM option string '{}' to ANSI code page ({})", opt, acp);
+            }
+            CString::new(acp_bytes)
+        }.with_context(|| format!("Invalid VM option string: '{}'", opt))?;
+        strings.push(str);
+    }
+
+    Ok(strings)
+}
+
+#[cfg(target_family = "unix")]
+fn convert_vm_options(vm_options: Vec<String>) -> Result<Vec<CString>> {
+    let mut strings = Vec::<CString>::with_capacity(vm_options.len());
+    for opt in vm_options {
+        strings.push(CString::new(opt.as_bytes())?);
+    }
+    Ok(strings)
 }
 
 fn release_jvm_init_args(jni_options: Vec<jni::sys::JavaVMOption>) {

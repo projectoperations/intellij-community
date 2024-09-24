@@ -1,10 +1,9 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python;
 
-import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
-import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.PyElementType;
 
 import static com.jetbrains.python.PyElementTypesFacade.Companion;
 
@@ -28,6 +27,7 @@ public interface PyElementTypes {
   IElementType TYPE_PARAMETER = Companion.getINSTANCE().getTypeParameter();
   IElementType TYPE_PARAMETER_LIST = Companion.getINSTANCE().getTypeParameterList();
   IElementType TYPE_ALIAS_STATEMENT = Companion.getINSTANCE().getTypeAliasStatement();
+  IElementType STATEMENT_LIST = Companion.getINSTANCE().getStatementList();
 
   TokenSet PARAMETER_LIST_SET = TokenSet.create(PARAMETER_LIST);
 
@@ -58,7 +58,6 @@ public interface PyElementTypes {
   PyElementType TRY_EXCEPT_STATEMENT = new PyElementType("TRY_EXCEPT_STATEMENT", Companion.getINSTANCE().getTryExceptStatementConstructor());
   PyElementType WITH_STATEMENT = new PyElementType("WITH_STATEMENT", Companion.getINSTANCE().getWithStatementConstructor());
   PyElementType WHILE_STATEMENT = new PyElementType("WHILE_STATEMENT", Companion.getINSTANCE().getWhileStatementConstructor());
-  PyElementType STATEMENT_LIST = new PyElementType("STATEMENT_LIST", Companion.getINSTANCE().getStatementListConstructor());
 
   PyElementType NONLOCAL_STATEMENT = new PyElementType("NONLOCAL_STATEMENT", Companion.getINSTANCE().getNonlocalStatementConstructor());
   PyElementType WITH_ITEM = new PyElementType("WITH_ITEM", Companion.getINSTANCE().getWithItemConstructor());
@@ -99,16 +98,6 @@ public interface PyElementTypes {
   PyElementType SET_COMP_EXPRESSION = new PyElementType("SET_COMP_EXPRESSION", Companion.getINSTANCE().getSetCompExpressionConstructor());
   PyElementType DICT_COMP_EXPRESSION = new PyElementType("DICT_COMP_EXPRESSION", Companion.getINSTANCE().getDictCompExpressionConstructor());
   TokenSet STATEMENT_LISTS = TokenSet.create(STATEMENT_LIST);
-
-  TokenSet BINARY_OPS = TokenSet.create(PyTokenTypes.OR_KEYWORD, PyTokenTypes.AND_KEYWORD, PyTokenTypes.LT, PyTokenTypes.GT,
-                                        PyTokenTypes.OR, PyTokenTypes.XOR, PyTokenTypes.AND, PyTokenTypes.LTLT, PyTokenTypes.GTGT,
-                                        PyTokenTypes.EQEQ, PyTokenTypes.GE, PyTokenTypes.LE, PyTokenTypes.NE, PyTokenTypes.NE_OLD,
-                                        PyTokenTypes.IN_KEYWORD, PyTokenTypes.IS_KEYWORD, PyTokenTypes.NOT_KEYWORD, PyTokenTypes.PLUS,
-                                        PyTokenTypes.MINUS, PyTokenTypes.MULT, PyTokenTypes.AT, PyTokenTypes.FLOORDIV, PyTokenTypes.DIV,
-                                        PyTokenTypes.PERC, PyTokenTypes.EXP);
-
-  TokenSet UNARY_OPS = TokenSet.create(PyTokenTypes.NOT_KEYWORD, PyTokenTypes.PLUS, PyTokenTypes.MINUS, PyTokenTypes.TILDE,
-                                       PyTokenTypes.AWAIT_KEYWORD);
 
   // Parts
   PyElementType IF_PART_IF = new PyElementType("IF_IF", Companion.getINSTANCE().getIfPartIfConstructor());

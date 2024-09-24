@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.util.gotoByName;
 
 import com.intellij.ide.SearchTopHitProvider;
@@ -27,6 +27,8 @@ import com.intellij.ui.switcher.QuickActionProvider;
 import com.intellij.util.CollectConsumer;
 import com.intellij.util.Processor;
 import com.intellij.util.text.Matcher;
+import kotlin.Unit;
+import kotlin.sequences.Sequence;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -53,18 +55,17 @@ public final class GotoActionItemProvider implements ChooseByNameWeightedItemPro
     myIntentions = ClearableLazyValue.create(() -> ReadAction.nonBlocking(() -> myModel.getAvailableIntentions()).executeSynchronously());
   }
 
-  @NotNull
   @Override
-  public List<String> filterNames(@NotNull ChooseByNameViewModel base, String @NotNull [] names, @NotNull String pattern) {
+  public @NotNull List<String> filterNames(@NotNull ChooseByNameViewModel base, String @NotNull [] names, @NotNull String pattern) {
     return Collections.emptyList(); // no common prefix insertion in goto action
   }
 
   @Override
   public boolean filterElements(final @NotNull ChooseByNameViewModel base,
-                                @NotNull final String pattern,
+                                final @NotNull String pattern,
                                 boolean everywhere,
                                 @NotNull ProgressIndicator cancelled,
-                                @NotNull final Processor<Object> consumer) {
+                                final @NotNull Processor<Object> consumer) {
     return filterElementsWithWeights(base, pattern, everywhere, cancelled, descriptor -> consumer.process(descriptor.getItem()));
   }
 
@@ -105,9 +106,8 @@ public final class GotoActionItemProvider implements ChooseByNameWeightedItemPro
         ActionWrapper wrapper = wrapAnAction(action);
         int degree = matcher.matchingDegree(pattern);
         return new MatchedValue(wrapper, pattern, degree, MatchedValueType.ABBREVIATION) {
-          @NotNull
           @Override
-          public String getValueText() {
+          public @NotNull String getValueText() {
             return pattern;
           }
         };
@@ -131,7 +131,10 @@ public final class GotoActionItemProvider implements ChooseByNameWeightedItemPro
         provider.consumeTopHits(prefix + pattern, collector, project);
       }
       else if (project != null && provider instanceof OptionsTopHitProvider.ProjectLevelProvidersAdapter) {
-        ((OptionsTopHitProvider.ProjectLevelProvidersAdapter)provider).consumeAllTopHits(pattern, collector, project);
+        ((OptionsTopHitProvider.ProjectLevelProvidersAdapter)provider).blockingConsumeAllTopHits(pattern, it -> {
+          collector.accept(it);
+          return Unit.INSTANCE;
+        }, project);
       }
       provider.consumeTopHits(pattern, collector, project);
     }
@@ -151,23 +154,34 @@ public final class GotoActionItemProvider implements ChooseByNameWeightedItemPro
     Set<OptionDescription> optionDescriptions = null;
     boolean filterOutInspections = Registry.is("go.to.action.filter.out.inspections", true);
     for (String word : words) {
-      final Set<OptionDescription> descriptions = Objects.requireNonNullElse(registrar.getAcceptableDescriptions(word), new HashSet<>());
-      descriptions.removeIf(description -> {
-        return "ActionManager".equals(description.getPath()) ||
-               filterOutInspections && "Inspections".equals(description.getGroupName());
-      });
-
-      if (!descriptions.isEmpty()) {
-        if (optionDescriptions == null) {
-          optionDescriptions = descriptions;
-        }
-        else {
-          optionDescriptions.retainAll(descriptions);
+      List<OptionDescription> descriptions = null;
+      Sequence<@NotNull OptionDescription> s = registrar.findAcceptableDescriptions(word);
+      if (s != null) {
+        descriptions = new ArrayList<>();
+        Iterator<OptionDescription> iterator = s.iterator();
+        while (iterator.hasNext()) {
+          descriptions.add(iterator.next());
         }
       }
+
+      if (descriptions == null || descriptions.isEmpty()) {
+        descriptions = List.of();
+      }
       else {
+        descriptions.removeIf(description -> {
+          return "ActionManager".equals(description.getPath()) || (filterOutInspections && "Inspections".equals(description.getGroupName()));
+        });
+      }
+
+      if (descriptions.isEmpty()) {
         optionDescriptions = null;
         break;
+      }
+      else if (optionDescriptions == null) {
+        optionDescriptions = new HashSet<>(descriptions);
+      }
+      else {
+        optionDescriptions.retainAll(descriptions);
       }
     }
     if (!Strings.isEmptyOrSpaces(pattern)) {
@@ -213,7 +227,11 @@ public final class GotoActionItemProvider implements ChooseByNameWeightedItemPro
 
     QuickActionProvider provider = myModel.getDataContext().getData(QuickActionProvider.KEY);
     if (provider != null) {
-      actions = Stream.concat(actions, provider.getActions(true).stream());
+      actions = Stream.concat(Stream.concat(actions, provider.getActions(true).stream()), provider.getActions(true).stream()
+        .flatMap(action -> {
+          if (!(action instanceof ActionGroup o)) return Stream.<AnAction>empty();
+          return myModel.getUpdateSession().children(o).stream();
+        }));
     }
 
     Stream<ActionWrapper> actionWrappers = actions
@@ -253,8 +271,7 @@ public final class GotoActionItemProvider implements ChooseByNameWeightedItemPro
     return processItems(pattern, MatchedValueType.INTENTION, intentions, consumer);
   }
 
-  @NotNull
-  private ActionWrapper wrapAnAction(@NotNull AnAction action) {
+  private @NotNull ActionWrapper wrapAnAction(@NotNull AnAction action) {
     return createActionWrapper(action, myModel.getGroupMapping(action), MatchMode.NAME, myModel);
   }
 

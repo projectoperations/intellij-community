@@ -25,9 +25,9 @@ import com.intellij.openapi.roots.libraries.PersistentLibraryKind;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.NotNullFunction;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,10 +35,11 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 
+@ApiStatus.Internal
 @Order(ExternalSystemConstants.BUILTIN_LIBRARY_DATA_SERVICE_ORDER)
 public final class LibraryDataService extends AbstractProjectDataService<LibraryData, Library> {
+
   private static final Logger LOG = Logger.getInstance(LibraryDataService.class);
-  public static final @NotNull NotNullFunction<String, File> PATH_TO_FILE = File::new;
 
   public static final ExtensionPointName<LibraryDataServiceExtension> EP_NAME =
     ExtensionPointName.create("com.intellij.libraryDataServiceExtension");
@@ -71,8 +72,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
     }
   }
 
-  private void importLibrary(final @NotNull LibraryData toImport, final @NotNull IdeModifiableModelsProvider modelsProvider) {
-
+  private static void importLibrary(final @NotNull LibraryData toImport, final @NotNull IdeModifiableModelsProvider modelsProvider) {
     final String libraryName = toImport.getInternalName();
     Library library = modelsProvider.getLibraryByName(libraryName);
     ProjectModelExternalSource source = ExternalSystemApiUtil.toExternalSource(toImport.getOwner());
@@ -89,7 +89,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
     prepareNewLibrary(toImport, libraryName, libraryModel);
   }
 
-  private void prepareNewLibrary(@NotNull LibraryData libraryData,
+  private static void prepareNewLibrary(@NotNull LibraryData libraryData,
                                  @NotNull String libraryName,
                                  @NotNull Library.ModifiableModel libraryModel) {
     Map<OrderRootType, Collection<File>> libraryFiles = prepareLibraryFiles(libraryData);
@@ -119,7 +119,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
     }
   }
 
-  public @NotNull Map<OrderRootType, Collection<File>> prepareLibraryFiles(@NotNull LibraryData data) {
+  static @NotNull Map<OrderRootType, Collection<File>> prepareLibraryFiles(@NotNull LibraryData data) {
     Map<OrderRootType, Collection<File>> result = new HashMap<>();
     for (LibraryPathType pathType: LibraryPathType.values()) {
       OrderRootType orderRootType = ExternalLibraryPathTypeMapper.getInstance().map(pathType);
@@ -130,7 +130,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
       if (paths.isEmpty()) {
         continue;
       }
-      List<File> files = ContainerUtil.map(paths, PATH_TO_FILE);
+      List<File> files = ContainerUtil.map(paths, File::new);
       refreshVfsFiles(files);
       result.put(orderRootType, files);
     }
@@ -304,7 +304,7 @@ public final class LibraryDataService extends AbstractProjectDataService<Library
     Set<String> excludedPaths = externalLibrary.getPaths(LibraryPathType.EXCLUDED);
     for (Map.Entry<OrderRootType, Set<String>> entry: toAdd.entrySet()) {
       Map<OrderRootType, Collection<File>> roots = new HashMap<>();
-      roots.put(entry.getKey(), ContainerUtil.map(entry.getValue(), PATH_TO_FILE));
+      roots.put(entry.getKey(), ContainerUtil.map(entry.getValue(), File::new));
       registerPaths(false, roots, excludedPaths, libraryModel, externalLibrary.getInternalName());
     }
   }

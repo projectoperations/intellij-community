@@ -3,9 +3,13 @@ package org.jetbrains.plugins.gitlab.mergerequest.ui.review
 
 import com.intellij.collaboration.async.inverted
 import com.intellij.collaboration.messages.CollaborationToolsBundle
+import com.intellij.collaboration.ui.ExceptionUtil
 import com.intellij.collaboration.ui.HorizontalListPanel
+import com.intellij.collaboration.ui.codereview.list.error.ErrorStatusPresenter
 import com.intellij.collaboration.ui.codereview.review.CodeReviewSubmitPopupHandler
-import com.intellij.collaboration.ui.util.*
+import com.intellij.collaboration.ui.util.bindDisabledIn
+import com.intellij.collaboration.ui.util.bindEnabledIn
+import com.intellij.collaboration.ui.util.bindVisibilityIn
 import com.intellij.ide.plugins.newui.InstallButton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
@@ -54,5 +58,12 @@ internal object GitLabMergeRequestSubmitReviewPopup : CodeReviewSubmitPopupHandl
       add(unApproveButton)
       add(submitButton)
     }
+  }
+
+  override val errorPresenter: ErrorStatusPresenter<Throwable> by lazy {
+    ErrorStatusPresenter.simple(
+      CollaborationToolsBundle.message("review.submit.failed"),
+      descriptionProvider = ExceptionUtil::getPresentableMessage
+    )
   }
 }

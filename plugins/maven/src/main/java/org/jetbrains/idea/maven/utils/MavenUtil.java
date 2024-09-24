@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.utils;
 
 import com.intellij.codeInsight.actions.ReformatCodeProcessor;
@@ -83,6 +83,7 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -131,16 +132,21 @@ public class MavenUtil {
   public static final String BIN_DIR = "bin";
   public static final String CONF_DIR = "conf";
   public static final String M2_CONF_FILE = "m2.conf";
+  public static final String MVN_FILE = "mvn";
   public static final String REPOSITORY_DIR = "repository";
   public static final String LIB_DIR = "lib";
   public static final String CLIENT_ARTIFACT_SUFFIX = "-client";
   public static final String CLIENT_EXPLODED_ARTIFACT_SUFFIX = CLIENT_ARTIFACT_SUFFIX + " exploded";
-  protected static final String PROP_FORCED_M2_HOME = "idea.force.m2.home";
+  @Deprecated
+  private static final String PROP_FORCED_M2_HOME = "idea.force.m2.home";
+  public static final String MAVEN_REPO_LOCAL = "maven.repo.local";
+
 
   @SuppressWarnings("unchecked")
   private static final Pair<Pattern, String>[] SUPER_POM_PATHS = new Pair[]{
-    Pair.create(Pattern.compile("maven-\\d+\\.\\d+\\.\\d+-uber\\.jar"), "org/apache/maven/project/" + MavenConstants.SUPER_POM_XML),
-    Pair.create(Pattern.compile("maven-model-builder-\\d+\\.\\d+\\.\\d+\\.jar"), "org/apache/maven/model/" + MavenConstants.SUPER_POM_XML)
+    Pair.create(Pattern.compile("maven-\\d+\\.\\d+\\.\\d+-uber\\.jar"), "org/apache/maven/project/" + MavenConstants.SUPER_POM_4_0_XML),
+    Pair.create(Pattern.compile("maven-model-builder-\\d+\\.\\d+\\.\\d+\\.jar"),
+                "org/apache/maven/model/" + MavenConstants.SUPER_POM_4_0_XML)
   };
 
   private static volatile Map<String, String> ourPropertiesFromMvnOpts;
@@ -297,12 +303,12 @@ public class MavenUtil {
   }
 
   @NotNull
-  public static java.nio.file.Path getPluginSystemDir(@NotNull String folder) {
+  public static Path getPluginSystemDir(@NotNull String folder) {
     return PathManagerEx.getAppSystemDir().resolve("Maven").resolve(folder);
   }
 
   @NotNull
-  public static java.nio.file.Path getBaseDir(@NotNull VirtualFile file) {
+  public static Path getBaseDir(@NotNull VirtualFile file) {
     VirtualFile virtualBaseDir = getVFileBaseDir(file);
     return virtualBaseDir.toNioPath();
   }
@@ -614,14 +620,14 @@ public class MavenUtil {
 
   /**
    * @deprecated do not use this method, it mixes path to maven home and labels like "Use bundled maven"
-   * use {@link MavenUtil#getMavenHomeFile(org.jetbrains.idea.maven.project.StaticResolvedMavenHomeType) getMavenHomeFile(StaticResolvedMavenHomeType} instead
+   * use {@link MavenUtil#getMavenHomeFile(StaticResolvedMavenHomeType) getMavenHomeFile(StaticResolvedMavenHomeType} instead
    */
   @Nullable
   @Deprecated(forRemoval = true)
   public static File resolveMavenHomeDirectory(@Nullable String overrideMavenHome) {
     if (!isEmptyOrSpaces(overrideMavenHome)) {
       //noinspection HardCodedStringLiteral
-      return MavenUtil.getMavenHomeFile(staticOrBundled(resolveMavenHomeType(overrideMavenHome)));
+      return getMavenHomeFile(staticOrBundled(resolveMavenHomeType(overrideMavenHome)));
     }
 
     String m2home = System.getenv(ENV_M2_HOME);
@@ -797,13 +803,21 @@ public class MavenUtil {
   }
 
   public static boolean isEmptyOrSpaces(@Nullable String str) {
-    return str == null || str.length() == 0 || str.trim().length() == 0;
+    return str == null || str.isBlank();
   }
 
 
   public static boolean isValidMavenHome(@Nullable File home) {
     if (home == null) return false;
-    return getMavenConfFile(home).exists();
+    try {
+      String[] list = new File(home, BIN_DIR).list();
+      if (list == null) return false;
+      Set<String> set = Set.of(list);
+      return set.contains(M2_CONF_FILE) && set.contains(MVN_FILE);
+    }
+    catch (Exception ignored) {
+    }
+    return false;
   }
 
   public static File getMavenConfFile(File mavenHome) {
@@ -936,11 +950,21 @@ public class MavenUtil {
 
   @NotNull
   public static File resolveDefaultLocalRepository() {
+    String mavenRepoLocal = System.getProperty(MAVEN_REPO_LOCAL);
+
+    if (mavenRepoLocal != null) {
+      MavenLog.LOG.info("using " + MAVEN_REPO_LOCAL + "=" + mavenRepoLocal + " as maven home");
+      return new File(mavenRepoLocal);
+    }
+
     String forcedM2Home = System.getProperty(PROP_FORCED_M2_HOME);
     if (forcedM2Home != null) {
+      MavenLog.LOG.error(PROP_FORCED_M2_HOME + " is deprecated, use maven.repo.local property instead");
       return new File(forcedM2Home);
     }
+
     File result = doResolveLocalRepository(resolveUserSettingsFile(null), null);
+
     if (result == null) {
       result = new File(resolveM2Dir(), REPOSITORY_DIR);
     }
@@ -959,10 +983,17 @@ public class MavenUtil {
                                             @Nullable String overriddenUserSettingsFile) {
     String forcedM2Home = System.getProperty(PROP_FORCED_M2_HOME);
     if (forcedM2Home != null) {
+      MavenLog.LOG.error(PROP_FORCED_M2_HOME + " is deprecated, use maven.repo.local property instead");
       return new File(forcedM2Home);
     }
     File result = null;
     if (!isEmptyOrSpaces(overriddenLocalRepository)) result = new File(overriddenLocalRepository);
+
+    String localRepoHome = System.getProperty(MAVEN_REPO_LOCAL);
+    if (localRepoHome != null) {
+      MavenLog.LOG.debug("Using " + MAVEN_REPO_LOCAL + "=" + localRepoHome);
+      return new File(localRepoHome);
+    }
     if (result == null) {
       result = doResolveLocalRepository(resolveUserSettingsFile(overriddenUserSettingsFile),
                                         resolveGlobalSettingsFile(mavenHomeType));
@@ -1007,7 +1038,7 @@ public class MavenUtil {
   }
 
   @Nullable
-  public static java.nio.file.Path getArtifactPath(@NotNull java.nio.file.Path localRepository,
+  public static Path getArtifactPath(@NotNull Path localRepository,
                                                    @NotNull MavenId id,
                                                    @NotNull String extension,
                                                    @Nullable String classifier) {
@@ -1030,7 +1061,7 @@ public class MavenUtil {
   }
 
   @Nullable
-  public static java.nio.file.Path getRepositoryParentFile(@NotNull Project project, @NotNull MavenId id) {
+  public static Path getRepositoryParentFile(@NotNull Project project, @NotNull MavenId id) {
     if (id.getGroupId() == null || id.getArtifactId() == null || id.getVersion() == null) {
       return null;
     }
@@ -1038,10 +1069,10 @@ public class MavenUtil {
     return getParentFile(id, projectsManager.getLocalRepository());
   }
 
-  private static java.nio.file.Path getParentFile(@NotNull MavenId id, File localRepository) {
+  private static Path getParentFile(@NotNull MavenId id, File localRepository) {
     assert id.getGroupId() != null;
     String[] pathParts = id.getGroupId().split("\\.");
-    java.nio.file.Path path = Paths.get(localRepository.getAbsolutePath(), pathParts);
+    Path path = Paths.get(localRepository.getAbsolutePath(), pathParts);
     path = Paths.get(path.toString(), id.getArtifactId(), id.getVersion());
     return path;
   }
@@ -1189,43 +1220,67 @@ public class MavenUtil {
     return expandProperties(text, MavenServerUtil.collectSystemProperties());
   }
 
+  /**
+   * Retrieves the effective SuperPOM as a virtual file.
+   *
+   * @param mavenDistribution A valid Maven distribution.
+   * @param superPomName      The name of the POM file. MavenConstants#SUPER_POM_4_0_XML for Maven 3 and either MavenConstants#SUPER_POM_4_0_XML or MavenConstants#SUPER_POM_4_1_XML for Maven 4.
+   * @return A {@link VirtualFile} representing the SuperPOM located inside the jar if found, False otherwise.
+   */
+
   @Nullable
-  public static VirtualFile resolveSuperPomFile(@NotNull File mavenHome) {
-    return doResolveSuperPomFile(new File(mavenHome, LIB_DIR));
+  public static VirtualFile resolveSuperPomFile(@NotNull Path mavenHome, String superPomName) {
+    return doResolveSuperPomFile(mavenHome.resolve(LIB_DIR).toFile(), superPomName);
   }
 
   @Nullable
-  public static VirtualFile doResolveSuperPomFile(@NotNull File mavenHome) {
-    File[] files = mavenHome.listFiles();
-    if (files == null) return null;
+  public static VirtualFile resolveSuperPomFile(@NotNull Project project, VirtualFile projectFile) {
+    MavenDistribution distribution = MavenDistributionsCache.getInstance(project).getMavenDistribution(projectFile.getParent().getPath());
+    String superPomName = resolveMavenSchema(projectFile);
+    return resolveSuperPomFile(distribution.getMavenHome(), superPomName);
+  }
 
-    for (File library : files) {
+  private static String resolveMavenSchema(VirtualFile file) {
+    return MavenConstants.SUPER_POM_4_0_XML; //todo
+  }
 
-      for (Pair<Pattern, String> path : SUPER_POM_PATHS) {
-        if (path.first.matcher(library.getName()).matches()) {
-          VirtualFile libraryVirtualFile = LocalFileSystem.getInstance().findFileByNioFile(library.toPath());
-          if (libraryVirtualFile == null) continue;
+  @Nullable
+  private static VirtualFile doResolveSuperPomFile(@NotNull File libDir, String superPomName) {
+    File[] libraries = libDir.listFiles();
+    if (libraries == null) return null;
 
-          VirtualFile root = JarFileSystem.getInstance().getJarRootForLocalFile(libraryVirtualFile);
-          if (root == null) continue;
-
-          VirtualFile pomFile = root.findFileByRelativePath(path.second);
-          if (pomFile != null) {
-            return pomFile;
-          }
+    for (File library : libraries) {
+      if ((library.getName().startsWith("maven-model-builder-") && library.getName().endsWith(".jar"))) {
+        VirtualFile result = tryReadFromLib(library, "org/apache/maven/model/" + superPomName);
+        if (result != null) {
+          return result;
+        }
+      }
+      else if ((library.getName().startsWith("maven-") && library.getName().endsWith("-uber.jar"))) {
+        //old maven versions
+        VirtualFile result = tryReadFromLib(library, "org/apache/maven/project/" + superPomName);
+        if (result != null) {
+          return result;
         }
       }
     }
-
     return null;
+  }
+
+  private static @Nullable VirtualFile tryReadFromLib(File library, @NotNull String pathInJar) {
+    VirtualFile libraryVirtualFile = LocalFileSystem.getInstance().findFileByNioFile(library.toPath());
+    if (libraryVirtualFile == null) return null;
+    VirtualFile root = JarFileSystem.getInstance().getJarRootForLocalFile(libraryVirtualFile);
+    if (root == null) return null;
+    return root.findFileByRelativePath(pathInJar);
   }
 
   public static List<LookupElement> getPhaseVariants(MavenProjectsManager manager) {
     Set<String> goals = new HashSet<>(MavenConstants.PHASES);
 
     for (MavenProject mavenProject : manager.getProjects()) {
-      for (MavenPlugin plugin : mavenProject.getPlugins()) {
-        MavenPluginInfo pluginInfo = MavenArtifactUtil.readPluginInfo(manager.getLocalRepository(), plugin.getMavenId());
+      for (var mavenProjectPluginInfo : mavenProject.getPluginInfos()) {
+        MavenPluginInfo pluginInfo = MavenArtifactUtil.readPluginInfo(mavenProjectPluginInfo.getArtifact());
         if (pluginInfo != null) {
           for (MavenPluginInfo.Mojo mojo : pluginInfo.getMojos()) {
             goals.add(mojo.getDisplayName());
@@ -1453,7 +1508,7 @@ public class MavenUtil {
   public static boolean isPomFileName(String fileName) {
     return fileName.equals(MavenConstants.POM_XML) ||
            fileName.endsWith(".pom") || fileName.startsWith("pom.") ||
-           fileName.equals(MavenConstants.SUPER_POM_XML);
+           fileName.equals(MavenConstants.SUPER_POM_4_0_XML);
   }
 
   public static boolean isPotentialPomFile(String nameOrPath) {
@@ -1568,14 +1623,14 @@ public class MavenUtil {
     return baseDir.findFileByRelativePath(fileRelativePath);
   }
 
-  public static Path toPath(@Nullable MavenProject mavenProject, String path) {
+  public static MavenPathWrapper toPath(@Nullable MavenProject mavenProject, String path) {
     if (!Paths.get(path).isAbsolute()) {
       if (mavenProject == null) {
         throw new IllegalArgumentException("Project should be not-nul for non-absolute paths");
       }
       path = new File(mavenProject.getDirectory(), path).getPath();
     }
-    return new Path(path);
+    return new MavenPathWrapper(path);
   }
 
   public static @NotNull Sdk getJdk(@NotNull Project project, @NotNull String name) throws ExternalSystemJdkException {
@@ -1732,20 +1787,27 @@ public class MavenUtil {
     return !shouldResetDependenciesAndFolders(readingProblems);
   }
 
+  /**
+   * @deprecated use MavenUtil.resolveSuperPomFile
+   */
+  @Deprecated(forRemoval = true)
   public static @Nullable VirtualFile getEffectiveSuperPom(Project project, @NotNull String workingDir) {
     MavenDistribution distribution = MavenDistributionsCache.getInstance(project).getMavenDistribution(workingDir);
-    MavenHomeType type = MavenProjectsManager.getInstance(project).getGeneralSettings().getMavenHomeType();
-    return MavenUtil.resolveSuperPomFile(distribution.getMavenHome().toFile());
+    return resolveSuperPomFile(distribution.getMavenHome(), MavenConstants.SUPER_POM_4_0_XML);
   }
 
+
+  /**
+   * @deprecated use MavenUtil.resolveSuperPomFile
+   */
+  @Deprecated(forRemoval = true)
   public static @Nullable VirtualFile getEffectiveSuperPomWithNoRespectToWrapper(Project project) {
     MavenDistribution distribution = MavenDistributionsCache.getInstance(project).getSettingsDistribution();
-    MavenHomeType type = MavenProjectsManager.getInstance(project).getGeneralSettings().getMavenHomeType();
-    return MavenUtil.resolveSuperPomFile(distribution.getMavenHome().toFile());
+    return resolveSuperPomFile(distribution.getMavenHome(), MavenConstants.SUPER_POM_4_0_XML);
   }
 
   public static MavenProjectModelReadHelper createModelReadHelper(Project project) {
-    return new MavenProjectModelServerModelReadHelper(project);
+    return MavenProjectModelReadHelper.getInstance(project);
   }
 
   public static Collection<File> collectClasspath(Collection<Class<?>> classes) {

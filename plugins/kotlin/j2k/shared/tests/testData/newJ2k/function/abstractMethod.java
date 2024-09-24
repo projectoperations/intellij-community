@@ -1,2 +1,2 @@
 //method
-abstract int getNoofGears();
+abstract int noofGears();

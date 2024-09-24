@@ -30,6 +30,7 @@ import com.intellij.serviceContainer.findConstructorOrNull
 import com.intellij.util.xmlb.annotations.MapAnnotation
 import com.intellij.util.xmlb.annotations.Property
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
 import java.nio.file.Path
@@ -102,6 +103,7 @@ open class ModuleImpl @ApiStatus.Internal constructor(
     return super.isDisposed() || (project as ProjectEx).isLight && project.isDisposed()
   }
 
+  @Internal
   override fun isComponentSuitable(componentConfig: ComponentConfig): Boolean {
     if (!super.isComponentSuitable(componentConfig)) {
       return false
@@ -165,10 +167,8 @@ open class ModuleImpl @ApiStatus.Internal constructor(
 
   override fun isLoaded(): Boolean = isModuleAdded
 
-  @Suppress("removal", "DEPRECATION")
-  override fun moduleAdded(oldComponents: MutableList<com.intellij.openapi.module.ModuleComponent>) {
+  override fun markAsLoaded() {
     isModuleAdded = true
-    processInitializedComponents(com.intellij.openapi.module.ModuleComponent::class.java, oldComponents::add)
   }
 
   override fun setOption(key: String, value: String?) {

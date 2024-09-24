@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx.Companion.getInstanceEx
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.ui.playback.PlaybackContext
@@ -28,7 +29,8 @@ class ExecuteEditorActionCommand(text: String, line: Int) : PlaybackCommandCorou
     val input = extractCommandArgument(DelayTypeCommand.PREFIX)
     val parameter = input.parameter(1)
     val expectedOpenedFile = input.parameter("expectedOpenedFile")
-    val span = PerformanceTestSpan.TRACER.spanBuilder(PARTITION_SPAN_NAME + cleanSpanName(parameter)).setParent(
+    val spanTag = input.parameter("spanTag")?.let { "_${it}" } ?: ""
+    val span = PerformanceTestSpan.TRACER.spanBuilder(PARTITION_SPAN_NAME + cleanSpanName(parameter) + spanTag).setParent(
       PerformanceTestSpan.getContext())
     val spanRef = Ref<Span>()
     val connection = context.project.messageBus.simpleConnect()
@@ -40,7 +42,9 @@ class ExecuteEditorActionCommand(text: String, line: Int) : PlaybackCommandCorou
     withContext(Dispatchers.EDT) {
       spanRef.set(span.startSpan())
       val job = DaemonCodeAnalyzerListener.listen(connection, spanRef, expectedOpenedFile = expectedOpenedFile)
-      executeAction(editor, parameter)
+      writeIntentReadAction {
+        executeAction(editor, parameter)
+      }
       job.waitForComplete()
     }
   }

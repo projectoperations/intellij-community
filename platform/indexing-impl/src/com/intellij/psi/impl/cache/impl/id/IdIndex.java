@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.psi.impl.cache.impl.id;
 
@@ -27,9 +27,10 @@ import java.util.Map;
 import static com.intellij.util.indexing.hints.FileTypeSubstitutionStrategy.BEFORE_SUBSTITUTION;
 
 /**
- * An implementation of identifier index where key is a identifier hash and value is occurrence mask {@link UsageSearchContext}.
- *
- * Consider usage of {@link com.intellij.psi.search.PsiSearchHelper} or {@link com.intellij.psi.impl.cache.CacheManager} instead direct index access.
+ * An implementation of identifier index where the key is an identifier hash,
+ * and the value is an occurrence mask ({@link UsageSearchContext}).
+ *<p>
+ * Consider usage of {@link com.intellij.psi.search.PsiSearchHelper} or {@link com.intellij.psi.impl.cache.CacheManager} instead of direct index access.
  */
 @ApiStatus.Internal
 public class IdIndex extends FileBasedIndexExtension<IdIndexEntry, Integer> {
@@ -55,6 +56,11 @@ public class IdIndex extends FileBasedIndexExtension<IdIndexEntry, Integer> {
   @Override
   public boolean dependsOnFileContent() {
     return true;
+  }
+
+  @Override
+  public int getCacheSize() {
+    return 64 * super.getCacheSize();
   }
 
   @Override

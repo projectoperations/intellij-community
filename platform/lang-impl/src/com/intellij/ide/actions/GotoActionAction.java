@@ -3,6 +3,7 @@ package com.intellij.ide.actions;
 
 import com.intellij.ide.DataManager;
 import com.intellij.ide.actions.searcheverywhere.ActionSearchEverywhereContributor;
+import com.intellij.ide.actions.searcheverywhere.statistics.SearchFieldStatisticsCollector;
 import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.ide.ui.search.OptionDescription;
 import com.intellij.ide.util.gotoByName.GotoActionModel;
@@ -23,6 +24,7 @@ import java.awt.event.InputEvent;
 public class GotoActionAction extends SearchEverywhereBaseAction implements DumbAware, LightEditCompatible {
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
+    e = SearchFieldStatisticsCollector.wrapEventWithActionStartData(e);
     String tabID = ActionSearchEverywhereContributor.class.getSimpleName();
     showInSearchEverywherePopup(tabID, e, false, true);
   }
@@ -51,6 +53,8 @@ public class GotoActionAction extends SearchEverywhereBaseAction implements Dumb
     });
   }
 
+  /** @deprecated Use {@link ActionManager#tryToExecute(AnAction, InputEvent, Component, String, boolean)} instead */
+  @Deprecated(forRemoval = true)
   public static void performAction(@NotNull Object element, @Nullable Component component, @Nullable AnActionEvent e) {
     performAction(element, component, e, 0);
   }
@@ -76,8 +80,8 @@ public class GotoActionAction extends SearchEverywhereBaseAction implements Dumb
     DataManager dataManager = DataManager.getInstance();
     DataContext context = dataManager != null ? dataManager.getDataContext(component) : DataContext.EMPTY_CONTEXT;
     AnActionEvent event = new AnActionEvent(
-      inputEvent, context, ActionPlaces.ACTION_SEARCH, presentation, ActionManager.getInstance(),
-      inputEvent == null ? modifiers : inputEvent.getModifiers());
+      context, presentation, ActionPlaces.ACTION_SEARCH,
+      ActionUiKind.SEARCH_POPUP, inputEvent, modifiers, ActionManager.getInstance());
     event.setInjectedContext(action.isInInjectedContext());
     if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
       Window window = SwingUtilities.getWindowAncestor(component);

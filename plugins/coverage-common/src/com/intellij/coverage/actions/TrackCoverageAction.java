@@ -12,6 +12,7 @@ import com.intellij.execution.testframework.TestFrameworkRunningModel;
 import com.intellij.execution.testframework.ToggleModelAction;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.util.Disposer;
@@ -26,13 +27,18 @@ import javax.swing.event.TreeSelectionListener;
 import java.util.ArrayList;
 import java.util.List;
 
-public class TrackCoverageAction extends ToggleModelAction {
+class TrackCoverageAction extends ToggleModelAction {
   private final TestConsoleProperties myProperties;
   private TestFrameworkRunningModel myModel;
   private TreeSelectionListener myTreeSelectionListener;
   private Alarm myUpdateCoverageAlarm;
+  /**
+   * State memorization via {@link TestConsoleProperties} is replaced with per-session property,
+   * as this option affects coverage visible data a lot, while it is hard to notice when enabled accidentally.
+   */
+  private boolean myIsActive;
 
-  public TrackCoverageAction(TestConsoleProperties properties) {
+  TrackCoverageAction(TestConsoleProperties properties) {
     super(CoverageBundle.message("show.coverage.per.test.action.text"), CoverageBundle.message("show.coverage.per.test.action.description"),
           AllIcons.RunConfigurations.TrackCoverage, properties,
           TestConsoleProperties.TRACK_CODE_COVERAGE);
@@ -40,19 +46,24 @@ public class TrackCoverageAction extends ToggleModelAction {
   }
 
   @Override
+  public @NotNull ActionUpdateThread getActionUpdateThread() {
+    return ActionUpdateThread.BGT;
+  }
+
+  @Override
   public void setSelected(@NotNull final AnActionEvent e, final boolean state) {
-    super.setSelected(e, state);
-    if (!TestConsoleProperties.TRACK_CODE_COVERAGE.value(myProperties)) {
-      restoreMergedCoverage();
+    myIsActive = state;
+    if (state) {
+      selectSubCoverageAsync();
     }
     else {
-      selectSubCoverageAsync();
+      restoreMergedCoverage();
     }
   }
 
   @Override
   public boolean isSelected(@NotNull AnActionEvent e) {
-    return super.isSelected(e) && CoverageDataManager.getInstance(myProperties.getProject()).isSubCoverageActive();
+    return myIsActive;
   }
 
   private void restoreMergedCoverage() {
@@ -149,7 +160,7 @@ public class TrackCoverageAction extends ToggleModelAction {
 
     @Override
     public void valueChanged(final TreeSelectionEvent e) {
-      if (!TestConsoleProperties.TRACK_CODE_COVERAGE.value(myModel.getProperties()) || !isEnabled()) return;
+      if (!myIsActive || !isEnabled()) return;
       selectSubCoverageAsync();
     }
   }

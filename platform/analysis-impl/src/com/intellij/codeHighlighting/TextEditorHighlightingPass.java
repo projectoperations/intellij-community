@@ -16,6 +16,8 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.concurrency.ThreadingAssertions;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -23,6 +25,15 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * The highlighting pass which is associated with {@link Document} and its markup model.
+ * The instantiation of this class must happen in the background thread, under {@link com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator}
+ * which has corresponding {@link com.intellij.codeInsight.daemon.impl.HighlightingSession}.
+ * It's discouraged to do all that manually, please register your {@link TextEditorHighlightingPassFactory} in plugin.xml instead, e.g. like this:
+ * <pre>
+ *   {@code <highlightingPassFactory implementation="com.a.b.MyPassFactory"/>}
+ * </pre>
+ */
 public abstract class TextEditorHighlightingPass implements HighlightingPass {
   public static final TextEditorHighlightingPass[] EMPTY_ARRAY = new TextEditorHighlightingPass[0];
   protected final @NotNull Document myDocument;
@@ -42,6 +53,7 @@ public abstract class TextEditorHighlightingPass implements HighlightingPass {
     myRunIntentionPassAfter = runIntentionPassAfter;
     myInitialDocStamp = document.getModificationStamp();
     myInitialPsiStamp = PsiModificationTracker.getInstance(project).getModificationCount();
+    ThreadingAssertions.assertBackgroundThread();
   }
   protected TextEditorHighlightingPass(@NotNull Project project, @NotNull Document document) {
     this(project, document, true);
@@ -79,7 +91,7 @@ public abstract class TextEditorHighlightingPass implements HighlightingPass {
     if (myProject.isDisposed()) {
       return false;
     }
-    if (isDumbMode() && !DumbService.isDumbAware(this)) {
+    if (!DumbService.getInstance(myProject).isUsableInCurrentContext(this)) {
       return false;
     }
 
@@ -100,15 +112,17 @@ public abstract class TextEditorHighlightingPass implements HighlightingPass {
     if (!isValid()) {
       return; // the document has changed.
     }
-    if (DumbService.getInstance(myProject).isDumb() && !DumbService.isDumbAware(this)) {
-      Document document = getDocument();
-      PsiFile file = PsiDocumentManager.getInstance(myProject).getPsiFile(document);
-      if (file != null) {
-        DaemonCodeAnalyzerEx.getInstanceEx(myProject).getFileStatusMap().markFileUpToDate(getDocument(), getId());
-      }
-      return;
+    if (DumbService.getInstance(myProject).isUsableInCurrentContext(this)) {
+      doApplyInformationToEditor();
     }
-    doApplyInformationToEditor();
+  }
+
+  @ApiStatus.Internal
+  public void markUpToDateIfStillValid() {
+    ThreadingAssertions.assertEventDispatchThread();
+    if (isValid()) {
+      DaemonCodeAnalyzerEx.getInstanceEx(myProject).getFileStatusMap().markFileUpToDate(getDocument(), getId());
+    }
   }
 
   public abstract void doCollectInformation(@NotNull ProgressIndicator progress);

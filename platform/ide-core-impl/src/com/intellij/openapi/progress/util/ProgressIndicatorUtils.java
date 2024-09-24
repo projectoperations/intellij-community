@@ -371,6 +371,8 @@ public final class ProgressIndicatorUtils {
       }
       catch (TimeoutException ignore) {
       }
+      //TODO RC: in a non-cancellable section we could still (re-)throw a (P)CE if the _awaited_ code gets cancelled
+      //         (nowadays it is mistakenly considered an error) -- [Danila et all, private conversation]
       catch (RejectedExecutionException ree) {
         //EA-225412: FJP throws REE (which propagates through futures) e.g. when FJP reaches max
         // threads while compensating for too many managedBlockers -- or when it is shutdown.
@@ -433,7 +435,7 @@ public final class ProgressIndicatorUtils {
       ((CoreProgressManager)ProgressManager.getInstance()).runCheckCanceledHooks(indicator);
     }
     if (isNonCancelable) return;
-    Cancellation.checkCancelled();
+    Cancellation.ensureActive();
     if (indicator == null) return;
     indicator.checkCanceled();              // check for cancellation as usual and run the hooks
     if (indicator.isCanceled()) {           // if a just-canceled indicator or PCE is disabled

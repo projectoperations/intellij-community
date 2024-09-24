@@ -1,8 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.refactoring.move.moveClassesOrPackages;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.ReferencesSearch;
@@ -38,11 +39,21 @@ public abstract class MoveDirectoryWithClassesHelper {
                                List<? super PsiFile> movedFiles,
                                RefactoringElementListener listener);
 
+  public void retargetUsages(List<UsageInfo> usageInfos, Map<PsiElement, PsiElement> oldToNewMap) { }
+
   public abstract void postProcessUsages(UsageInfo[] usages, Function<? super PsiDirectory, ? extends PsiDirectory> newDirMapper);
 
   public abstract void beforeMove(PsiFile psiFile);
 
   public abstract void afterMove(PsiElement newElement);
+
+  public void preprocessUsages(Project project,
+                               Set<PsiFile> files,
+                               Ref<UsageInfo[]> infos,
+                               PsiDirectory targetDirectory,
+                               MultiMap<PsiElement, String> conflicts) {
+    preprocessUsages(project, files, infos.get(), targetDirectory, conflicts);
+  }
 
   public void preprocessUsages(Project project,
                                Set<PsiFile> files,
@@ -74,6 +85,11 @@ public abstract class MoveDirectoryWithClassesHelper {
           result.add(new MoveDirectoryUsageInfo(reference, psiDirectory));
         }
       }
+    }
+
+    @Override
+    public void retargetUsages(List<UsageInfo> usages, Map<PsiElement, PsiElement> oldToNewMap) {
+      CommonMoveUtil.retargetUsages(usages.toArray(UsageInfo.EMPTY_ARRAY), oldToNewMap);
     }
 
     @Override
@@ -113,6 +129,8 @@ public abstract class MoveDirectoryWithClassesHelper {
       listener.elementMoved(psiFile);
       return true;
     }
+
+
 
     @Override
     public void beforeMove(PsiFile psiFile) {

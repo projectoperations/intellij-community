@@ -1,3 +1,3 @@
 class C {
-public Foo f;
+    public String f;
 }

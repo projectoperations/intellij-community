@@ -17,6 +17,7 @@ import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecificat
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.*
+import com.intellij.openapi.components.impl.stores.stateStore
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.options.OptionsBundle
 import com.intellij.openapi.options.SchemeManagerFactory
@@ -31,7 +32,7 @@ import com.intellij.util.ReflectionUtil
 import com.intellij.util.containers.putValue
 import com.intellij.util.io.Compressor
 import com.intellij.util.io.outputStream
-import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
 import java.io.IOException
@@ -43,6 +44,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.isRegularFile
 
+@Internal
 open class ExportSettingsAction : AnAction(), ActionRemoteBehaviorSpecification.Frontend, DumbAware {
   protected open fun getExportableComponents(): Map<FileSpec, List<ExportableItem>> = filterExisting(getExportableComponentsMap(true))
 
@@ -120,10 +122,13 @@ open class ExportSettingsAction : AnAction(), ActionRemoteBehaviorSpecification.
 
 }
 
-fun exportSettings(exportableItems: Set<ExportableItem>,
-                   out: OutputStream,
-                   exportableThirdPartyFiles: Map<FileSpec, Path> = mapOf(),
-                   storageManager: StateStorageManagerImpl = getAppStorageManager()) {
+@Internal
+fun exportSettings(
+  exportableItems: Set<ExportableItem>,
+  out: OutputStream,
+  exportableThirdPartyFiles: Map<FileSpec, Path> = mapOf(),
+  storageManager: StateStorageManagerImpl = getAppStorageManager(),
+) {
   val filter = HashSet<String>()
   Compressor.Zip(out)
     .filter { entryName, _ -> filter.add(entryName) }
@@ -154,21 +159,25 @@ fun exportSettings(exportableItems: Set<ExportableItem>,
     }
 }
 
-@ApiStatus.Internal
-data class FileSpec(@NlsSafe val relativePath: String,
-                    /* File spec as written in the class annotation */ val rawFileSpec: String,
-                    val isDirectory: Boolean = false)
+@Internal
+data class FileSpec(
+  @JvmField @NlsSafe val relativePath: String,
+  /* File spec as written in the class annotation */ @JvmField val rawFileSpec: String,
+  @JvmField val isDirectory: Boolean = false,
+)
 
-@ApiStatus.Internal
-data class ExportableItem(val fileSpec: FileSpec,
-                          val presentableName: String,
-                          @NonNls val componentName: String? = null,
-                          val roamingType: RoamingType = RoamingType.DEFAULT)
+@Internal
+data class ExportableItem(
+  @JvmField val fileSpec: FileSpec,
+  @JvmField val presentableName: String,
+  @JvmField @NonNls val componentName: String? = null,
+  @JvmField val roamingType: RoamingType = RoamingType.DEFAULT,
+)
 
-@ApiStatus.Internal
-data class LocalExportableItem(val file: Path, val presentableName: String, val roamingType: RoamingType = RoamingType.DEFAULT)
+@Internal
+data class LocalExportableItem(@JvmField val file: Path, @JvmField val presentableName: String, @JvmField val roamingType: RoamingType = RoamingType.DEFAULT)
 
-@ApiStatus.Internal
+@Internal
 fun exportInstalledPlugins(zip: Compressor) {
   val pluginIds = PluginManagerCore.loadedPlugins
     .asSequence()
@@ -179,7 +188,7 @@ fun exportInstalledPlugins(zip: Compressor) {
   }
 }
 
-@ApiStatus.Internal
+@Internal
 fun getExportableComponentsMap(isComputePresentableNames: Boolean,
                                storageManager: StateStorageManager = getAppStorageManager(),
                                withDeprecated: Boolean = false,
@@ -225,9 +234,7 @@ fun getExportableComponentsMap(isComputePresentableNames: Boolean,
 
     var thereIsExportableStorage = false
     for (storage in storages) {
-      val isRoamable = getEffectiveRoamingType(storage.roamingType, storage.path).isRoamable
-      val exportable = isStorageExportable(storage, isRoamable, withExportable)
-      LOG.debug("Storage for class ${aClass.simpleName} is ${stringify(isRoamable, "roamable")}, ${stringify(exportable, "exportable")}: $storage")
+      val exportable = isStorageExportable(aClass.simpleName, stateAnnotation, storage, withExportable)
       if (exportable) {
         thereIsExportableStorage = true
         val paths = getRelativePaths(storage, storageManager, withDeprecated)
@@ -261,7 +268,7 @@ fun getExportableComponentsMap(isComputePresentableNames: Boolean,
 
 private fun stringify(value: Boolean, name: String): String = if (value) name else "not $name"
 
-fun looksLikeDirectory(storage: Storage): Boolean {
+private fun looksLikeDirectory(storage: Storage): Boolean {
   return storage.stateSplitter.java != StateSplitterEx::class.java
 }
 
@@ -298,9 +305,22 @@ private fun getAdditionalExportFile(stateAnnotation: State) = stateAnnotation.ad
 
 private fun getAppStorageManager() = ApplicationManager.getApplication().stateStore.storageManager as StateStorageManagerImpl
 
-private fun isStorageExportable(storage: Storage, isRoamable: Boolean, withExportable: Boolean): Boolean =
-  storage.exportable && withExportable ||
-  isRoamable && storage.storageClass == StateStorage::class && storage.path.isNotEmpty()
+internal fun isStorageExportable(
+  simpleName: String,
+  stateAnnotation: State,
+  storage: Storage,
+  withExportable: Boolean,
+): Boolean {
+  if (isSpecialOrNonRoamableStorage(storage.path)) {
+    LOG.debug("Storage for class $simpleName is special (non-roamable, not exportable): $storage")
+    return false
+  }
+  val isRoamable = (getEffectiveRoamingType(storage.roamingType, storage.path).isRoamable
+                    && storage.storageClass == StateStorage::class && storage.path.isNotEmpty())
+  val isExportable = storage.exportable || stateAnnotation.exportable
+  LOG.debug("Storage for class $simpleName is ${stringify(isRoamable, "roamable")}, ${stringify(isExportable, "exportable")}: $storage")
+  return isRoamable || (withExportable && isExportable)
+}
 
 private fun getComponentPresentableName(state: State, aClass: Class<*>, pluginDescriptor: PluginDescriptor?): String {
   val presentableName = state.presentableName.java
@@ -351,7 +371,10 @@ private fun getComponentPresentableName(state: State, aClass: Class<*>, pluginDe
 private fun messageOrDefault(classLoader: ClassLoader, bundleName: String, @Nls defaultName: String): String {
   try {
     return AbstractBundle.messageOrDefault(
-      DynamicBundle.getResourceBundle(classLoader, bundleName), "exportable.$defaultName.presentable.name", defaultName)
+      bundle = DynamicBundle.getResourceBundle(classLoader, bundleName),
+      key = "exportable.$defaultName.presentable.name",
+      defaultValue = defaultName,
+    )!!
   }
   catch (e: MissingResourceException) {
     LOG.warn("Missing bundle ${bundleName} at ${classLoader}: ${e.message}")
@@ -359,6 +382,7 @@ private fun messageOrDefault(classLoader: ClassLoader, bundleName: String, @Nls 
   }
 }
 
+@Internal
 fun getExportableItemsFromLocalStorage(exportableItems: Map<FileSpec, List<ExportableItem>>, storageManager: StateStorageManager):
   Map<Path, List<LocalExportableItem>> {
 

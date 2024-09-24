@@ -21,17 +21,22 @@ package com.intellij.ide.highlighter;
 
 import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.ide.structureView.StructureViewBuilderProvider;
+import com.intellij.ide.structureView.TreeBasedStructureViewBuilder;
+import com.intellij.ide.structureView.logical.PhysicalAndLogicalStructureViewBuilder;
 import com.intellij.lang.LanguageStructureViewBuilder;
 import com.intellij.lang.PsiStructureViewFactory;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+@ApiStatus.Internal
 public class LanguageFileTypeStructureViewBuilderProvider implements StructureViewBuilderProvider {
   @Override
   @Nullable
@@ -41,7 +46,12 @@ public class LanguageFileTypeStructureViewBuilderProvider implements StructureVi
     final PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
     if (psiFile == null) return null;
 
-    final PsiStructureViewFactory factory = LanguageStructureViewBuilder.INSTANCE.forLanguage(psiFile.getLanguage());
-    return factory == null ?  null : factory.getStructureViewBuilder(psiFile);
+    final PsiStructureViewFactory factory = LanguageStructureViewBuilder.getInstance().forLanguage(psiFile.getLanguage());
+    if (factory == null) return null;
+    StructureViewBuilder physicalBuilder = factory.getStructureViewBuilder(psiFile);
+    if (!(physicalBuilder instanceof TreeBasedStructureViewBuilder treeBasedStructureViewBuilder)) return physicalBuilder;
+    if (ApplicationManager.getApplication().isUnitTestMode()) return physicalBuilder;
+
+    return new PhysicalAndLogicalStructureViewBuilder(treeBasedStructureViewBuilder, psiFile);
   }
 }

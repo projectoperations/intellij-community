@@ -1,5 +1,5 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment")
+@file:Suppress("ReplacePutWithAssignment", "ReplaceGetOrSet")
 
 package com.intellij.configurationStore.schemeManager
 
@@ -34,15 +34,11 @@ internal class SchemeLoader<T : Scheme, MUTABLE_SCHEME : T>(
   private val isDuringLoad: Boolean,
 ) {
   private val filesToDelete = HashSet<String>()
-
   private val schemes: MutableList<T> = oldList.list.toMutableList()
   private var newSchemesOffset = schemes.size
-
   // the scheme could be changed - so, hashcode will be changed - we must use identity hashing strategy
   private val schemeToInfo = IdentityHashMap(oldList.schemeToInfo)
-
   private val isApplied = AtomicBoolean()
-
   private var digest: HashStream64? = null
 
   // or from current session, or from current state
@@ -63,13 +59,12 @@ internal class SchemeLoader<T : Scheme, MUTABLE_SCHEME : T>(
       LOG.debug {
         "Schedule to delete: ${filesToDelete.joinToString()} (and preScheduledFilesToDelete: ${preScheduledFilesToDelete.joinToString()})"
       }
-      schemeManager.filesToDelete.addAll(filesToDelete)
-      schemeManager.filesToDelete.addAll(preScheduledFilesToDelete)
+      schemeManager.filesToDelete += filesToDelete
+      schemeManager.filesToDelete += preScheduledFilesToDelete
     }
 
     val newSchemes = schemes.subList(newSchemesOffset, schemes.size)
-    schemeManager.schemeListManager.replaceSchemeList(oldList = oldList,
-                                                      newList = toSchemeCollection(list = schemes, schemeToInfo = schemeToInfo))
+    schemeManager.schemeListManager.replaceSchemeList(oldList, newList = toSchemeCollection(schemes, schemeToInfo))
     if (!isDuringLoad) {
       for (newScheme in newSchemes) {
         @Suppress("UNCHECKED_CAST")
@@ -141,7 +136,7 @@ internal class SchemeLoader<T : Scheme, MUTABLE_SCHEME : T>(
   }
 
   fun loadScheme(fileName: String, input: InputStream?, preloadedBytes: ByteArray?): MUTABLE_SCHEME? {
-    val extension = schemeManager.getFileExtension(fileName, isAllowAny = false)
+    val extension = schemeManager.getFileExtension(fileName = fileName, isAllowAny = false)
     if (isFileScheduledForDeleteInThisLoadSession(fileName)) {
       LOG.warn("Scheme file \"$fileName\" is not loaded because marked to delete")
       return null
@@ -150,14 +145,14 @@ internal class SchemeLoader<T : Scheme, MUTABLE_SCHEME : T>(
     val processor = schemeManager.processor
     val fileNameWithoutExtension = fileName.substring(0, fileName.length - extension.length)
 
-    fun createInfo(schemeName: String, element: Element?): ExternalInfo {
-      val info = ExternalInfo(fileNameWithoutExtension, extension)
+    fun createInfo(schemeKey: String, element: Element?): ExternalInfo {
+      val info = ExternalInfo(fileNameWithoutExtension = fileNameWithoutExtension, fileExtension = extension)
       if (element != null) {
         val hashStream = getHashStream()
         hashElement(element, hashStream)
         info.digest = hashStream.asLong
       }
-      info.schemeKey = schemeName
+      info.schemeKey = schemeKey
       return info
     }
 
@@ -176,42 +171,34 @@ internal class SchemeLoader<T : Scheme, MUTABLE_SCHEME : T>(
         val schemeKey = name
                         ?: processor.getSchemeKey(attributeProvider, fileNameWithoutExtension)
                         ?: throw nameIsMissed(bytes)
-        if (!checkExisting(schemeKey, fileName, fileNameWithoutExtension, extension)) {
+        if (!checkExisting(schemeKey = schemeKey, fileName = fileName, fileNameWithoutExtension = fileNameWithoutExtension, extension = extension)) {
           return null
         }
 
-        val externalInfo = createInfo(schemeName = schemeKey, element = null)
-        scheme = processor.createScheme(
-          dataHolder = SchemeDataHolderImpl(processor = processor, bytes = bytes, externalInfo = externalInfo),
-          name = schemeKey,
-          attributeProvider = attributeProvider,
-        )
-        schemeToInfo.put(scheme!!, externalInfo)
+        val externalInfo = createInfo(schemeKey = schemeKey, element = null)
+        val dataHolder = SchemeDataHolderImpl(processor = processor, bytes = bytes, externalInfo = externalInfo)
+        val newScheme = processor.createScheme(dataHolder = dataHolder, name = schemeKey, attributeProvider = attributeProvider)
+        schemeToInfo.put(newScheme, externalInfo)
         retainProbablyScheduledForDeleteFile(fileName)
+        scheme = newScheme
       }
     }
     else {
       val element = if (preloadedBytes == null) JDOMUtil.load(input) else JDOMUtil.load(preloadedBytes)
-      scheme = (processor as NonLazySchemeProcessor).readScheme(element, isDuringLoad) ?: return null
-      val schemeKey = processor.getSchemeKey(scheme!!)
-      if (!checkExisting(schemeKey = schemeKey,
-                         fileName = fileName,
-                         fileNameWithoutExtension = fileNameWithoutExtension,
-                         extension = extension)) {
+      val loadedScheme = (processor as NonLazySchemeProcessor).readScheme(element, isDuringLoad) ?: return null
+      val schemeKey = processor.getSchemeKey(loadedScheme)
+      if (!checkExisting(schemeKey, fileName, fileNameWithoutExtension, extension)) {
         return null
       }
-
-      schemeToInfo.put(scheme!!, createInfo(schemeKey, element))
+      schemeToInfo.put(loadedScheme, createInfo(schemeKey, element))
       retainProbablyScheduledForDeleteFile(fileName)
+      scheme = loadedScheme
     }
-
     schemes.add(scheme!!)
     return scheme
   }
 
-  private fun isFileScheduledForDeleteInThisLoadSession(fileName: String): Boolean {
-    return filesToDelete.contains(fileName)
-  }
+  private fun isFileScheduledForDeleteInThisLoadSession(fileName: String): Boolean = filesToDelete.contains(fileName)
 
   private fun retainProbablyScheduledForDeleteFile(fileName: String) {
     filesToDelete.remove(fileName)
@@ -227,11 +214,9 @@ internal class SchemeLoader<T : Scheme, MUTABLE_SCHEME : T>(
   }
 }
 
-internal inline fun <T> lazyPreloadScheme(bytes: ByteArray,
-                                          isOldSchemeNaming: Boolean,
-                                          consumer: (name: String?, parser: XMLStreamReader) -> T?): T? {
+internal inline fun <T> lazyPreloadScheme(bytes: ByteArray, isOldSchemeNaming: Boolean, consumer: (name: String?, parser: XMLStreamReader) -> T?): T? {
   val reader = createXmlStreamReader(bytes)
-  return consumer(readSchemeNameFromXml(isOldSchemeNaming = isOldSchemeNaming, parser = reader), reader)
+  return consumer(readSchemeNameFromXml(isOldSchemeNaming, parser = reader), reader)
 }
 
 private fun readSchemeNameFromXml(isOldSchemeNaming: Boolean, parser: XMLStreamReader): String? {
@@ -304,14 +289,17 @@ internal class ExternalInfo(@JvmField var fileNameWithoutExtension: String, @Jvm
   override fun toString(): String = fileName
 }
 
-internal fun VirtualFile.getOrCreateChild(fileName: String, requestor: StorageManagerFileWriteRequestor): VirtualFile {
-  return findChild(fileName) ?: runAsWriteActionIfNeeded { createChildData(requestor, fileName) }
+internal fun VirtualFile.getOrCreateChild(requestor: StorageManagerFileWriteRequestor, fileName: String, directory: Boolean): VirtualFile {
+  return findChild(fileName) ?: runAsWriteActionIfNeeded {
+    if (directory) createChildDirectory(requestor, fileName) else createChildData(requestor, fileName)
+  }
 }
 
 internal fun createDir(ioDir: Path, requestor: StorageManagerFileWriteRequestor): VirtualFile {
   NioFiles.createDirectories(ioDir)
   val parentFile = ioDir.parent
-  val parentVirtualFile = (if (parentFile == null) null else VfsUtil.createDirectoryIfMissing(parentFile.invariantSeparatorsPathString))
-                          ?: throw IOException(ProjectBundle.message("project.configuration.save.file.not.found", parentFile))
-  return parentVirtualFile.getOrCreateChild(ioDir.fileName.toString(), requestor)
+  val parentVirtualFile =
+    (if (parentFile == null) null else VfsUtil.createDirectoryIfMissing(parentFile.invariantSeparatorsPathString))
+    ?: throw IOException(ProjectBundle.message("project.configuration.save.file.not.found", parentFile))
+  return parentVirtualFile.getOrCreateChild(requestor, ioDir.fileName.toString(), directory = true)
 }

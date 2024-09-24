@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.local;
 
 import com.intellij.core.CoreBundle;
@@ -31,7 +31,9 @@ import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.fixtures.BareTestFixtureTestCase;
 import com.intellij.testFramework.rules.TempDirectory;
+import com.intellij.tools.ide.metrics.benchmark.Benchmark;
 import com.intellij.util.SystemProperties;
+import com.intellij.util.lang.JavaVersion;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jetbrains.annotations.NotNull;
 import org.junit.After;
@@ -40,10 +42,10 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.text.Normalizer;
 import java.util.*;
 
 import static com.intellij.openapi.util.io.IoTestUtil.*;
@@ -555,7 +557,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     assertEquals(2, topDir.getChildren().length);
 
     try {
-      sourceFile.copy(this, parentDir, ".");
+      WriteAction.runAndWait(() -> sourceFile.copy(this, parentDir, ".") );
       fail("Copying a file into a '.' path should have failed");
     }
     catch (IOException ignored) {
@@ -899,7 +901,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
   @Test
   public void testFindFileByUrlPerformance() {
     VirtualFileManager virtualFileManager = VirtualFileManager.getInstance();
-    PlatformTestUtil.newPerformanceTest("findFileByUrl", () -> {
+    Benchmark.newBenchmark("findFileByUrl", () -> {
       for (int i=0; i<10_000_000;i++) {
         assertNull(virtualFileManager.findFileByUrl("temp://"));
       }
@@ -958,12 +960,12 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     assertThat(file.is(VFileProperty.SPECIAL)).isTrue();
     assertThat(file.getLength()).isEqualTo(0);
 
-    assertThatExceptionOfType(FileNotFoundException.class)
+    assertThatExceptionOfType(NoSuchFileException.class)
       .isThrownBy(() -> file.getInputStream())
-      .withMessageStartingWith("Not a file: ");
-    assertThatExceptionOfType(FileNotFoundException.class)
+      .withMessageContaining("Not a file");
+    assertThatExceptionOfType(NoSuchFileException.class)
       .isThrownBy(() -> file.contentsToByteArray())
-      .withMessageStartingWith("Not a file: ");
+      .withMessageContaining("Not a file");
   }
 
   @Test
@@ -1012,5 +1014,26 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
 
     byte[] actualContent = myFS.refreshAndFindFileByIoFile(file).contentsToByteArray();
     assertArrayEquals(expectedContent, actualContent);
+  }
+
+  @Test
+  public void canonicallyCasedHardLink() throws IOException {
+    assumeTrue("Requires JRE 21+", JavaVersion.current().isAtLeast(21));
+    var original = tempDir.newFile("original").toPath();
+    var hardLink = Files.createLink(original.resolveSibling("hardLink"), original);
+    assertThat(myFS.refreshAndFindFileByNioFile(hardLink).getName()).isEqualTo(hardLink.getFileName().toString());
+    assertThat(myFS.refreshAndFindFileByNioFile(original).getName()).isEqualTo(original.getFileName().toString());
+  }
+
+  @Test
+  public void canonicallyCasedDecomposedName() {
+    assumeTrue("Requires JRE 21+", JavaVersion.current().isAtLeast(21));
+    @SuppressWarnings({"NonAsciiCharacters", "SpellCheckingInspection"}) var name = "schön";
+    var nfdName = Normalizer.normalize(name, Normalizer.Form.NFD);
+    var nfcName = Normalizer.normalize(name, Normalizer.Form.NFC);
+    var nfdFile = tempDir.newFile(nfdName).toPath();
+    var nfcFile = nfdFile.resolveSibling(nfcName);
+    assumeTrue("Filesystem does not support normalization", Files.exists(nfcFile));
+    assertThat(myFS.refreshAndFindFileByNioFile(nfcFile).getName()).isEqualTo(nfdName);
   }
 }

@@ -1,7 +1,6 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.updateSettings.impl.pluginsAdvertisement
 
-import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.*
 import com.intellij.ide.plugins.advertiser.PluginData
@@ -129,7 +128,7 @@ sealed interface PluginAdvertiserService {
   ): List<IdeaPluginDescriptor>
 
   @ApiStatus.Internal
-  fun collectDependencyUnknownFeatures(includeIgnored: Boolean = false)
+  suspend fun collectDependencyUnknownFeatures(includeIgnored: Boolean = false)
 
   @ApiStatus.Internal
   fun rescanDependencies(block: suspend CoroutineScope.() -> Unit = {})
@@ -552,26 +551,22 @@ open class PluginAdvertiserServiceImpl(
     }
   }
 
-  override fun collectDependencyUnknownFeatures(includeIgnored: Boolean) {
+  override suspend fun collectDependencyUnknownFeatures(includeIgnored: Boolean) {
     val featuresCollector = UnknownFeaturesCollector.getInstance(project)
 
     featuresCollector.getUnknownFeaturesOfType(DEPENDENCY_SUPPORT_FEATURE)
       .forEach { featuresCollector.unregisterUnknownFeature(it) }
 
-    DependencyCollectorBean.EP_NAME.extensionList
-      .asSequence()
-      .flatMap { dependencyCollectorBean ->
-        dependencyCollectorBean.instance.collectDependencies(project).map { coordinate ->
-          UnknownFeature(
-            DEPENDENCY_SUPPORT_FEATURE,
-            IdeBundle.message("plugins.advertiser.feature.dependency"),
-            dependencyCollectorBean.kind + ":" + coordinate,
-            null,
-          )
-        }
-      }.forEach {
-        featuresCollector.registerUnknownFeature(it)
+    for (extension in DependencyCollectorBean.EP_NAME.extensionList) {
+      for (dependency in extension.instance.collectDependencies(project)) {
+        featuresCollector.registerUnknownFeature(UnknownFeature(
+          DEPENDENCY_SUPPORT_FEATURE,
+          IdeBundle.message("plugins.advertiser.feature.dependency"),
+          extension.kind + ":" + dependency,
+          null,
+        ))
       }
+    }
   }
 
   private fun collectFeaturesByName(
@@ -606,6 +601,7 @@ open class PluginAdvertiserServiceImpl(
   }
 }
 
+@ApiStatus.Internal
 open class HeadlessPluginAdvertiserServiceImpl : PluginAdvertiserService {
 
   final override suspend fun run(
@@ -621,11 +617,12 @@ open class HeadlessPluginAdvertiserServiceImpl : PluginAdvertiserService {
     return emptyList()
   }
 
-  final override fun collectDependencyUnknownFeatures(includeIgnored: Boolean) {}
+  final override suspend fun collectDependencyUnknownFeatures(includeIgnored: Boolean) {}
 
   final override fun rescanDependencies(block: suspend CoroutineScope.() -> Unit) {}
 }
 
+@ApiStatus.Internal
 data class SuggestedIde(
   @NlsContexts.DialogMessage
   val name: String,
@@ -647,11 +644,16 @@ private fun setTryUltimateKey(project: Project, value: Boolean) {
   EditorNotifications.getInstance(project).updateAllNotifications()
 }
 
+@ApiStatus.Internal
 fun disableTryUltimate(project: Project) = setTryUltimateKey(project, true)
+
+@ApiStatus.Internal
 fun enableTryUltimate(project: Project) = setTryUltimateKey(project, false)
 
+@ApiStatus.Internal
 fun tryUltimateIsDisabled() : Boolean = PropertiesComponent.getInstance().getBoolean(TRY_ULTIMATE_DISABLED_KEY)
 
+@ApiStatus.Internal
 fun tryUltimate(
   pluginId: PluginId?,
   suggestedIde: SuggestedIde,
@@ -663,11 +665,16 @@ fun tryUltimate(
   if (Registry.`is`("ide.try.ultimate.automatic.installation") && project != null) {
     eventSource.logTryUltimate(project, pluginId)
     project.service<UltimateInstallationService>().install(pluginId, suggestedIde)
-  } else {
-    fallback?.invoke() ?: eventSource.openDownloadPageAndLog(project = project, url = suggestedIde.defaultDownloadUrl, pluginId = pluginId)
+  }
+  else {
+    fallback?.invoke() ?: eventSource.openDownloadPageAndLog(project = project,
+                                                             url = suggestedIde.defaultDownloadUrl,
+                                                             suggestedIde = suggestedIde,
+                                                             pluginId = pluginId)
   }
 }
 
+@ApiStatus.Internal
 fun EditorNotificationPanel.createTryUltimateActionLabel(
   suggestedIde: SuggestedIde,
   project: Project,
@@ -677,13 +684,9 @@ fun EditorNotificationPanel.createTryUltimateActionLabel(
   val labelName = IdeBundle.message("plugins.advertiser.action.try.ultimate", suggestedIde.name)
   createActionLabel(labelName) {
     action?.invoke()
-    val component = findLabelByName(labelName)
-    component?.icon = AllIcons.Actions.Install
-
     tryUltimate(pluginId, suggestedIde, project)
   }
 }
-
 
 private object OsArchMapper {
   const val OS_ARCH_PARAMETER: String = "{type}"

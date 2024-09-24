@@ -28,7 +28,6 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.fixes.InlineGetterSetterCallFix;
-import com.siyeh.ig.psiutils.ClassUtils;
 import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.codeInspection.options.OptPane.checkbox;
@@ -60,14 +59,12 @@ public final class CallToSimpleGetterInClassInspection extends BaseInspection im
   }
 
   @Override
-  @NotNull
-  public String getID() {
+  public @NotNull String getID() {
     return "CallToSimpleGetterFromWithinClass";
   }
 
   @Override
-  @NotNull
-  public String buildErrorString(Object... infos) {
+  public @NotNull String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("call.to.simple.getter.in.class.problem.descriptor");
   }
 
@@ -94,7 +91,7 @@ public final class CallToSimpleGetterInClassInspection extends BaseInspection im
         // inlining a top-level getter call would break code
         return;
       }
-      final PsiClass containingClass = ClassUtils.getContainingClass(call);
+      final PsiClass containingClass = PsiUtil.getContainingClass(call);
       if (containingClass == null) {
         return;
       }

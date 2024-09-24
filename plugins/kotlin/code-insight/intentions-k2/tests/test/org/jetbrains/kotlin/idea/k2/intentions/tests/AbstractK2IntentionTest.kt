@@ -4,17 +4,16 @@ package org.jetbrains.kotlin.idea.k2.intentions.tests
 
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.psi.PsiFile
-import com.intellij.util.ThrowableRunnable
+import org.jetbrains.kotlin.idea.base.test.IgnoreTests
 import org.jetbrains.kotlin.idea.fir.invalidateCaches
 import org.jetbrains.kotlin.idea.intentions.AbstractIntentionTestBase
 import org.jetbrains.kotlin.idea.test.KotlinLightProjectDescriptor
 import org.jetbrains.kotlin.idea.test.KotlinWithJdkAndRuntimeLightProjectDescriptor
 import org.jetbrains.kotlin.idea.test.runAll
-import org.jetbrains.kotlin.idea.base.test.IgnoreTests
 import java.io.File
 
 abstract class AbstractK2IntentionTest : AbstractIntentionTestBase() {
-    override fun intentionFileName() = ".k2Intention"
+    override fun intentionFileName(): String = ".k2Intention"
 
     override fun afterFileNameSuffix(ktFilePath: File): String {
         return if (ktFilePath.resolveSibling(ktFilePath.name + AFTER_K2_EXTENSION).exists()) AFTER_K2_EXTENSION
@@ -23,12 +22,10 @@ abstract class AbstractK2IntentionTest : AbstractIntentionTestBase() {
 
     override fun fileName(): String {
         val fileName = super.fileName()
-        val firFileName = IgnoreTests.deriveFirFileName(fileName)
+        val firFileName = IgnoreTests.deriveK2FileName(fileName, IgnoreTests.FileExtension.FIR)
 
         return if (File(testDataDirectory, firFileName).exists()) firFileName else fileName
     }
-
-    override fun isFirPlugin() = true
 
     override fun getDefaultProjectDescriptor(): KotlinLightProjectDescriptor {
         return KotlinWithJdkAndRuntimeLightProjectDescriptor.getInstance()
@@ -49,8 +46,8 @@ abstract class AbstractK2IntentionTest : AbstractIntentionTestBase() {
 
     override fun tearDown() {
         runAll(
-          ThrowableRunnable { project.invalidateCaches() },
-          ThrowableRunnable { super.tearDown() }
+            { project.invalidateCaches() },
+            { super.tearDown() },
         )
     }
 

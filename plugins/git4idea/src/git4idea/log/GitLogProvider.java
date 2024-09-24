@@ -13,6 +13,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.backend.observation.TrackingUtil;
 import com.intellij.platform.diagnostic.telemetry.IJTracer;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
+import com.intellij.platform.diagnostic.telemetry.helpers.TraceKt;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.CollectConsumer;
 import com.intellij.util.Consumer;
@@ -22,6 +23,7 @@ import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.vcs.log.*;
 import com.intellij.vcs.log.data.VcsLogSorter;
 import com.intellij.vcs.log.graph.GraphCommit;
+import com.intellij.vcs.log.graph.PermanentGraph;
 import com.intellij.vcs.log.graph.impl.facade.PermanentGraphImpl;
 import com.intellij.vcs.log.graph.impl.print.GraphColorGetterByNodeFactory;
 import com.intellij.vcs.log.impl.*;
@@ -29,6 +31,7 @@ import com.intellij.vcs.log.util.UserNameRegex;
 import com.intellij.vcs.log.util.VcsUserUtil;
 import com.intellij.vcs.log.visible.CommitCountStageKt;
 import com.intellij.vcs.log.visible.filters.VcsLogFiltersKt;
+import com.intellij.vcs.log.visible.filters.VcsLogParentFilterImplKt;
 import com.intellij.vcsUtil.VcsFileUtil;
 import git4idea.*;
 import git4idea.branch.GitBranchUtil;
@@ -51,8 +54,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 import static com.intellij.openapi.vcs.VcsScopeKt.VcsScope;
-import static com.intellij.platform.diagnostic.telemetry.helpers.TraceKt.computeWithSpan;
-import static com.intellij.platform.diagnostic.telemetry.helpers.TraceKt.runWithSpan;
 import static com.intellij.platform.diagnostic.telemetry.helpers.TraceUtil.computeWithSpanThrows;
 import static com.intellij.vcs.log.VcsLogFilterCollection.*;
 import static git4idea.history.GitCommitRequirements.DiffRenames;
@@ -149,8 +150,7 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
       }
     }
 
-    List<VcsCommitMetadata> sortedCommits = computeWithSpan(myTracer, SortingCommits.getName(), span -> {
-      span.setAttribute("rootName", root.getName());
+    List<VcsCommitMetadata> sortedCommits = TraceKt.use(myTracer.spanBuilder(SortingCommits.getName()).setAttribute("rootName", root.getName()), span -> {
       List<VcsCommitMetadata> commits = VcsLogSorter.sortByDateTopoOrder(allDetails);
       return ContainerUtil.getFirstItems(commits, requirements.getCommitCount());
     });
@@ -169,9 +169,7 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
                                           @NotNull Set<? extends VcsRef> manuallyReadBranches,
                                           @Nullable Set<String> currentTagNames,
                                           @Nullable DetailedLogData commitsFromTags) {
-    runWithSpan(myTracer, ValidatingData.getName(), span -> {
-      span.setAttribute("rootName", root.getName());
-
+    TraceKt.use(myTracer.spanBuilder(ValidatingData.getName()).setAttribute("rootName", root.getName()), __ -> {
       Set<Hash> refs = ContainerUtil.map2Set(allRefs, VcsRef::getCommitHash);
 
       PermanentGraphImpl.newInstance(sortedCommits, new GraphColorGetterByNodeFactory<>((hash, integer) -> 0), (head1, head2) -> {
@@ -183,6 +181,7 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
         }
         return 0;
       }, refs);
+      return null;
     });
   }
 
@@ -254,10 +253,8 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
   }
 
   private @NotNull Set<String> readCurrentTagNames(@NotNull VirtualFile root) throws VcsException {
-    return computeWithSpanThrows(myTracer, ReadingTags.getName(), span -> {
-      span.setAttribute("rootName", root.getName());
-      return new HashSet<>(GitBranchUtil.getAllTags(myProject, root));
-    });
+    return computeWithSpanThrows(myTracer.spanBuilder(ReadingTags.getName()).setAttribute("rootName", root.getName()),
+                                 __ -> new HashSet<>(GitBranchUtil.getAllTags(myProject, root)));
   }
 
   private static @NotNull <T> Set<T> remove(@NotNull Set<? extends T> original, Set<T> @NotNull ... toRemove) {
@@ -279,9 +276,7 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
   private @NotNull DetailedLogData loadSomeCommitsOnTaggedBranches(@NotNull VirtualFile root,
                                                                    int commitCount,
                                                                    @NotNull Collection<String> unmatchedTags) throws VcsException {
-    return computeWithSpanThrows(myTracer, LoadingCommitsOnTaggedBranch.getName(), span -> {
-      span.setAttribute("rootName", root.getName());
-
+    return computeWithSpanThrows(myTracer.spanBuilder(LoadingCommitsOnTaggedBranch.getName()).setAttribute("rootName", root.getName()), __ -> {
       List<String> params = new ArrayList<>();
       params.add("--max-count=" + commitCount);
 
@@ -342,8 +337,7 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
   }
 
   private @NotNull Set<VcsRef> readBranches(@NotNull GitRepository repository) {
-    return computeWithSpan(myTracer, ReadingBranches.getName(), span -> {
-      span.setAttribute("rootName", repository.getRoot().getName());
+    return TraceKt.use(myTracer.spanBuilder( ReadingBranches.getName()).setAttribute("rootName", repository.getRoot().getName()), span -> {
       VirtualFile root = repository.getRoot();
       repository.update();
       GitBranchesCollection branches = repository.getBranches();
@@ -394,10 +388,10 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
 
   @Override
   public @NotNull List<TimedVcsCommit> getCommitsMatchingFilter(@NotNull VirtualFile root, @NotNull VcsLogFilterCollection filterCollection,
-                                                                int maxCount) throws VcsException {
+                                                                @NotNull PermanentGraph.Options graphOptions, int maxCount) throws VcsException {
     VcsLogRangeFilter rangeFilter = filterCollection.get(RANGE_FILTER);
     if (rangeFilter == null) {
-      return getCommitsMatchingFilter(root, filterCollection, null, maxCount);
+      return getCommitsMatchingFilter(root, filterCollection, null, graphOptions, maxCount);
     }
 
      /*
@@ -407,17 +401,19 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
      */
     Set<TimedVcsCommit> commits = new LinkedHashSet<>();
     if (filterCollection.get(BRANCH_FILTER) != null || filterCollection.get(REVISION_FILTER) != null) {
-      commits.addAll(getCommitsMatchingFilter(root, filterCollection, null, maxCount));
+      commits.addAll(getCommitsMatchingFilter(root, filterCollection, null, graphOptions, maxCount));
       filterCollection = VcsLogFiltersKt.without(VcsLogFiltersKt.without(filterCollection, BRANCH_FILTER), REVISION_FILTER);
     }
     for (VcsLogRangeFilter.RefRange range : rangeFilter.getRanges()) {
-      commits.addAll(getCommitsMatchingFilter(root, filterCollection, range, maxCount));
+      commits.addAll(getCommitsMatchingFilter(root, filterCollection, range, graphOptions, maxCount));
     }
     return new ArrayList<>(commits);
   }
 
   private @NotNull List<TimedVcsCommit> getCommitsMatchingFilter(@NotNull VirtualFile root, @NotNull VcsLogFilterCollection filterCollection,
-                                                                 @Nullable VcsLogRangeFilter.RefRange range, int maxCount) throws VcsException {
+                                                                 @Nullable VcsLogRangeFilter.RefRange range,
+                                                                 @NotNull PermanentGraph.Options options,
+                                                                 int maxCount) throws VcsException {
 
     GitRepository repository = getRepository(root);
     if (repository == null) {
@@ -470,6 +466,16 @@ public final class GitLogProvider implements VcsLogProvider, VcsIndexableLogProv
 
     if (!CommitCountStageKt.isAll(maxCount)) {
       filterParameters.add(prepareParameter("max-count", String.valueOf(maxCount)));
+    }
+
+    if (options.equals(PermanentGraph.Options.FirstParent.INSTANCE)) {
+      filterParameters.add("--first-parent");
+    }
+
+    VcsLogParentFilter parentFilter = filterCollection.get(PARENT_FILTER);
+    if (parentFilter != null && !VcsLogParentFilterImplKt.getMatchesAll(parentFilter)) {
+      if (VcsLogParentFilterImplKt.getHasLowerBound(parentFilter)) filterParameters.add("--min-parents=" + parentFilter.getMinParents());
+      if (VcsLogParentFilterImplKt.getHasUpperBound(parentFilter)) filterParameters.add("--max-parents=" + parentFilter.getMaxParents());
     }
 
     // note: structure filter must be the last parameter, because it uses "--" which separates parameters from paths

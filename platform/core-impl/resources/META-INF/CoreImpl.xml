@@ -3,6 +3,10 @@
     <extensionPoint name="virtualFileSystem" beanClass="com.intellij.openapi.vfs.impl.VirtualFileManagerImpl$VirtualFileSystemBean" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.openapi.vfs.VirtualFileSystem"/>
     </extensionPoint>
+    <extensionPoint name="fileEditor.fileTextConverter"
+                    interface="com.intellij.openapi.fileEditor.impl.converter.FileTextConverter"
+                    dynamic="true"/>
+
     <extensionPoint name="psi.treeChangeListener"
                     interface="com.intellij.psi.PsiTreeChangeListener"
                     area="IDEA_PROJECT"
@@ -37,6 +41,8 @@
     <extensionPoint name="documentWriteAccessGuard" interface="com.intellij.openapi.editor.impl.DocumentWriteAccessGuard" dynamic="true"/>
     <extensionPoint name="diagnostic.freezeProfiler" interface="com.intellij.diagnostic.FreezeProfiler" dynamic="true"/>
     <extensionPoint name="elementsToHighlightFilter" interface="com.intellij.openapi.util.Condition" dynamic="true"/>
+    <extensionPoint name="inlineCompletionLineRendererCustomization"
+                    interface="com.intellij.codeInsight.inline.completion.render.InlineCompletionInlayRenderer" dynamic="true"/>
     <extensionPoint name="lang.treePatcher" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.psi.templateLanguages.TreePatcher"/>
     </extensionPoint>
@@ -46,8 +52,6 @@
                         serviceImplementation="com.intellij.diagnostic.PluginProblemReporterImpl"/>
     <projectService serviceInterface="com.intellij.psi.PsiManager"
                     serviceImplementation="com.intellij.psi.impl.PsiManagerImpl" preload="true"/>
-    <applicationService serviceInterface="com.intellij.psi.impl.DocumentCommitProcessor"
-                        serviceImplementation="com.intellij.psi.impl.DocumentCommitThread"/>
     <projectService serviceInterface="com.intellij.psi.SmartPointerManager"
                     serviceImplementation="com.intellij.psi.impl.smartPointers.SmartPointerManagerImpl"/>
     <projectService serviceInterface="com.intellij.psi.impl.file.PsiDirectoryFactory"

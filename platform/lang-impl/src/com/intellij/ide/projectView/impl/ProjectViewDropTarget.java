@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.projectView.impl;
 
 import com.intellij.ide.DataManager;
@@ -137,8 +137,7 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
       .submit(AppExecutorUtil.getAppExecutorService());
   }
 
-  @Nullable
-  private static TreePath getValidTarget(TreePath @NotNull [] sources, @NotNull TreePath target, @NotNull DropHandler handler) {
+  private static @Nullable TreePath getValidTarget(TreePath @NotNull [] sources, @NotNull TreePath target, @NotNull DropHandler handler) {
     while (target != null) {
       if (handler.isValidTarget(sources, target)) return target;
       if (!handler.shouldDelegateToParent(sources, target)) break;
@@ -185,11 +184,9 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
     void doDropFiles(List<? extends File> files, @NotNull TreePath target);
   }
 
-  @Nullable
-  protected abstract PsiElement getPsiElement(@NotNull TreePath path);
+  protected abstract @Nullable PsiElement getPsiElement(@NotNull TreePath path);
 
-  @Nullable
-  protected abstract Module getModule(@NotNull PsiElement element);
+  protected abstract @Nullable Module getModule(@NotNull PsiElement element);
 
   abstract class MoveCopyDropHandler implements DropHandler {
     @Override
@@ -314,10 +311,9 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
         if (!element.isValid()) return;
       }
 
-      DataContext context = CustomizedDataContext.create(externalDrop ? DataContext.EMPTY_CONTEXT : dataContext, dataId -> {
-        if (LangDataKeys.TARGET_MODULE.is(dataId)) return module;
-        if (LangDataKeys.TARGET_PSI_ELEMENT.is(dataId)) return target;
-        else return null;
+      DataContext context = CustomizedDataContext.withSnapshot(externalDrop ? DataContext.EMPTY_CONTEXT : dataContext, sink -> {
+        sink.set(LangDataKeys.TARGET_MODULE, module);
+        sink.set(LangDataKeys.TARGET_PSI_ELEMENT, target);
       });
       getActionHandler().invoke(myProject, sources, context);
     }
@@ -355,8 +351,7 @@ public abstract class ProjectViewDropTarget implements DnDNativeTarget {
       });
     }
 
-    @NotNull
-    private DropContext getDropContext(PsiElement @Nullable [] sourceElements, @NotNull TreePath target) {
+    private @NotNull DropContext getDropContext(PsiElement @Nullable [] sourceElements, @NotNull TreePath target) {
       PsiElement targetElement = getPsiElement(target);
       Module targetModule = targetElement == null || !myProject.isInitialized() ? null : getModule(targetElement);
       return new DropContext(sourceElements, targetElement, targetModule);

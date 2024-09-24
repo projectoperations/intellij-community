@@ -1,4 +1,4 @@
-// RUNTIME_WITH_FULL_JDK
+// IGNORE_K2
 
 public class Test {
     void m() {

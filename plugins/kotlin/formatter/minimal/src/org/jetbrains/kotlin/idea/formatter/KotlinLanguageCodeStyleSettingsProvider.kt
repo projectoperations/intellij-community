@@ -86,6 +86,12 @@ class KotlinLanguageCodeStyleSettingsProvider : LanguageCodeStyleSettingsProvide
                 )
 
                 showCustomOption(
+                    KotlinCodeStyleSettings::SPACE_AROUND_ELVIS,
+                    KotlinBundle.message("formatter.title.elvis.operator"),
+                    codeStyleSettingsCustomizableOptions.SPACES_AROUND_OPERATORS
+                )
+
+                showCustomOption(
                     KotlinCodeStyleSettings::SPACE_BEFORE_TYPE_COLON,
                     KotlinBundle.message("formatter.title.before.colon.after.declaration.name"),
                     codeStyleSettingsCustomizableOptions.SPACES_OTHER
@@ -205,6 +211,12 @@ class KotlinLanguageCodeStyleSettingsProvider : LanguageCodeStyleSettingsProvide
                 )
 
                 showCustomOption(
+                    KotlinCodeStyleSettings::INDENT_BEFORE_ARROW_ON_NEW_LINE,
+                    KotlinBundle.message("formatter.title.indent.before.arrow.on.new.line"),
+                    codeStyleSettingsCustomizableOptions.WRAPPING_SWITCH_STATEMENT,
+                )
+
+                showCustomOption(
                     KotlinCodeStyleSettings::LBRACE_ON_NEXT_LINE,
                     KotlinBundle.message("formatter.title.put.left.brace.on.new.line"),
                     codeStyleSettingsCustomizableOptions.WRAPPING_BRACES
@@ -296,7 +308,13 @@ class KotlinLanguageCodeStyleSettingsProvider : LanguageCodeStyleSettingsProvide
                 )
             }
             SettingsType.COMMENTER_SETTINGS -> {
-                consumer.showAllStandardOptions()
+                consumer.showStandardOptions(
+                    "LINE_COMMENT_ADD_SPACE",
+                    "LINE_COMMENT_ADD_SPACE_ON_REFORMAT",
+                    "LINE_COMMENT_AT_FIRST_COLUMN",
+                    "BLOCK_COMMENT_AT_FIRST_COLUMN",
+                    "BLOCK_COMMENT_ADD_SPACE"
+                )
             }
             else -> consumer.showStandardOptions()
         }
@@ -313,9 +331,15 @@ class KotlinLanguageCodeStyleSettingsProvider : LanguageCodeStyleSettingsProvide
                    val test =
                        12
 
-                   @Deprecated("Foo") fun foo1(i1: Int, i2: Int, i3: Int) : Int {
+                   @Deprecated("Foo") fun foo1(i1: Int, i2: Int, i3: Int, a: Any) : Int {
                        when (i1) {
                            is Number -> 0
+                           else -> 1
+                       }
+                       when (a) {
+                           is Int,
+                           is String 
+                           -> 0
                            else -> 1
                        }
                        if (i2 > 0 &&
@@ -433,7 +457,8 @@ class KotlinLanguageCodeStyleSettingsProvider : LanguageCodeStyleSettingsProvide
         else -> """open class Some {
                        private val f: (Int)->Int = { a: Int -> a * 2 }
                        fun foo(): Int {
-                           val test: Int = 12
+                           val bar: Int? = 5
+                           val test: Int = bar ?: 12
                            for (i in 10..<42) {
                                println (when {
                                    i < test -> -1

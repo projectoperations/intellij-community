@@ -12,7 +12,6 @@ import org.jetbrains.idea.maven.model.MavenProjectProblem
 import org.jetbrains.idea.maven.server.MavenServerManager
 import org.jetbrains.idea.maven.server.MisconfiguredPlexusDummyEmbedder
 import org.jetbrains.idea.maven.utils.MavenLog
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.BufferedReader
 import java.io.File
@@ -23,7 +22,7 @@ import java.util.stream.Collectors
 
 
 class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
-  
+
   private val httpServerFixture = MavenHttpRepositoryServerFixture()
   private lateinit var myUrl: String
 
@@ -169,7 +168,6 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDownloadedFromRepositoryWithWrongAuthentificationLeadsToError() = runBlocking {
-    assumeTrue(isWorkspaceImport)
     val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     val remoteRepoPath = helper.getTestDataPath("remote")
     val localRepoPath = helper.getTestDataPath("local1")
@@ -197,8 +195,14 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
     createProjectPom(pom())
     doImportProjectsAsync(listOf(projectPom), false)
     TestCase.assertEquals(1, projectsManager.rootProjects.size)
-    TestCase.assertEquals("status code: 401, reason phrase: Unauthorized (401)",
-                          projectsManager.rootProjects[0].problems.single { it.type == MavenProjectProblem.ProblemType.REPOSITORY }.description)
+    val problemDescription = projectsManager.rootProjects[0].problems.single { it.type == MavenProjectProblem.ProblemType.REPOSITORY }.description
+    forMaven3 {
+      TestCase.assertEquals("status code: 401, reason phrase: Unauthorized (401)", problemDescription)
+    }
+    forMaven4 {
+      TestCase.assertEquals("too many authentication attempts. Limit: 3", problemDescription)
+    }
+
   }
 
   @Test
@@ -295,7 +299,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
   fun testWithDependencyLastUpdatedWithErrorForceUpdate() = runBlocking {
     doLastUpdatedTest(true, pom()) {
       TestCase.assertEquals(1, projectsManager.rootProjects.size)
-      TestCase.assertEquals(projectsManager.rootProjects[0].problems.joinToString{it.toString()}, 0, projectsManager.rootProjects[0].problems.size)
+      TestCase.assertEquals(projectsManager.rootProjects[0].problems.joinToString { it.toString() }, 0, projectsManager.rootProjects[0].problems.size)
     }
   }
 
@@ -303,7 +307,7 @@ class MavenRepositoriesDownloadingTest : MavenMultiVersionImportingTestCase() {
   fun testWithPluginLastUpdatedWithErrorForceUpdate() = runBlocking {
     doLastUpdatedTest(true, pomPlugins()) {
       TestCase.assertEquals(1, projectsManager.rootProjects.size)
-      TestCase.assertEquals(projectsManager.rootProjects[0].problems.joinToString{it.toString()},0, projectsManager.rootProjects[0].problems.size)
+      TestCase.assertEquals(projectsManager.rootProjects[0].problems.joinToString { it.toString() }, 0, projectsManager.rootProjects[0].problems.size)
     }
     val helper = MavenCustomRepositoryHelper(dir, "local1", "remote")
     removeFromLocalRepository("org/mytest/myartifact/")

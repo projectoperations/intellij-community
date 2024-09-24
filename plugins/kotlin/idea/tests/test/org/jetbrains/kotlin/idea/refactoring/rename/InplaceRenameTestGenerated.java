@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.refactoring.rename;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -19,6 +20,12 @@ import org.junit.runner.RunWith;
 @RunWith(JUnit3RunnerWithInners.class)
 @TestMetadata("testData/refactoring/rename/inplace")
 public class InplaceRenameTestGenerated extends AbstractInplaceRenameTest {
+    @java.lang.Override
+    @org.jetbrains.annotations.NotNull
+    public final KotlinPluginMode getPluginMode() {
+        return KotlinPluginMode.K1;
+    }
+
     private void runTest(String testDataFilePath) throws Exception {
         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
@@ -118,6 +125,21 @@ public class InplaceRenameTestGenerated extends AbstractInplaceRenameTest {
         runTest("testData/refactoring/rename/inplace/conflicts/typeParameters/HidingClassByTypeParameter1.kt");
     }
 
+    @TestMetadata("conflicts/typeParameters/TypeParameterInCompanionDontHideOuter.kt")
+    public void testConflicts_typeParameters_TypeParameterInCompanionDontHideOuter() throws Exception {
+        runTest("testData/refactoring/rename/inplace/conflicts/typeParameters/TypeParameterInCompanionDontHideOuter.kt");
+    }
+
+    @TestMetadata("conflicts/typeParameters/TypeParameterInInnerHideOuter.kt")
+    public void testConflicts_typeParameters_TypeParameterInInnerHideOuter() throws Exception {
+        runTest("testData/refactoring/rename/inplace/conflicts/typeParameters/TypeParameterInInnerHideOuter.kt");
+    }
+
+    @TestMetadata("conflicts/typeParameters/TypeParameterInStaticDontHideOuter.kt")
+    public void testConflicts_typeParameters_TypeParameterInStaticDontHideOuter() throws Exception {
+        runTest("testData/refactoring/rename/inplace/conflicts/typeParameters/TypeParameterInStaticDontHideOuter.kt");
+    }
+
     @TestMetadata("conflicts/typeParameters/TypeParameterVsLocalFunction.kt")
     public void testConflicts_typeParameters_TypeParameterVsLocalFunction() throws Exception {
         runTest("testData/refactoring/rename/inplace/conflicts/typeParameters/TypeParameterVsLocalFunction.kt");
@@ -133,6 +155,21 @@ public class InplaceRenameTestGenerated extends AbstractInplaceRenameTest {
         runTest("testData/refactoring/rename/inplace/conflicts/typeParameters/TypeParameterVsTypeAlias.kt");
     }
 
+    @TestMetadata("DisableInplaceRenameOnThis.kt")
+    public void testDisableInplaceRenameOnThis() throws Exception {
+        runTest("testData/refactoring/rename/inplace/DisableInplaceRenameOnThis.kt");
+    }
+
+    @TestMetadata("DisableInplaceRenameOnThisExtension.kt")
+    public void testDisableInplaceRenameOnThisExtension() throws Exception {
+        runTest("testData/refactoring/rename/inplace/DisableInplaceRenameOnThisExtension.kt");
+    }
+
+    @TestMetadata("DisableInplaceRenameOnThisWithLabel.kt")
+    public void testDisableInplaceRenameOnThisWithLabel() throws Exception {
+        runTest("testData/refactoring/rename/inplace/DisableInplaceRenameOnThisWithLabel.kt");
+    }
+
     @TestMetadata("EnumEntries.kt")
     public void testEnumEntries() throws Exception {
         runTest("testData/refactoring/rename/inplace/EnumEntries.kt");
@@ -146,6 +183,11 @@ public class InplaceRenameTestGenerated extends AbstractInplaceRenameTest {
     @TestMetadata("EraseCompanionName.kt")
     public void testEraseCompanionName() throws Exception {
         runTest("testData/refactoring/rename/inplace/EraseCompanionName.kt");
+    }
+
+    @TestMetadata("expressionsInRange.kt")
+    public void testExpressionsInRange() throws Exception {
+        runTest("testData/refactoring/rename/inplace/expressionsInRange.kt");
     }
 
     @TestMetadata("ExtensionAndNoReceiver.kt")
@@ -388,6 +430,11 @@ public class InplaceRenameTestGenerated extends AbstractInplaceRenameTest {
         runTest("testData/refactoring/rename/inplace/HidingParameterByLocal.kt");
     }
 
+    @TestMetadata("HidingPropertyByLocal.kt")
+    public void testHidingPropertyByLocal() throws Exception {
+        runTest("testData/refactoring/rename/inplace/HidingPropertyByLocal.kt");
+    }
+
     @TestMetadata("HidingPropertyBySetterParameter.kt")
     public void testHidingPropertyBySetterParameter() throws Exception {
         runTest("testData/refactoring/rename/inplace/HidingPropertyBySetterParameter.kt");
@@ -456,6 +503,11 @@ public class InplaceRenameTestGenerated extends AbstractInplaceRenameTest {
     @TestMetadata("InvokeToPlus.kt")
     public void testInvokeToPlus() throws Exception {
         runTest("testData/refactoring/rename/inplace/InvokeToPlus.kt");
+    }
+
+    @TestMetadata("JavaInheritor.kt")
+    public void testJavaInheritor() throws Exception {
+        runTest("testData/refactoring/rename/inplace/JavaInheritor.kt");
     }
 
     @TestMetadata("LabelFromFunction.kt")
@@ -616,6 +668,11 @@ public class InplaceRenameTestGenerated extends AbstractInplaceRenameTest {
     @TestMetadata("QuotedParameter.kt")
     public void testQuotedParameter() throws Exception {
         runTest("testData/refactoring/rename/inplace/QuotedParameter.kt");
+    }
+
+    @TestMetadata("RedundantOverride.kt")
+    public void testRedundantOverride() throws Exception {
+        runTest("testData/refactoring/rename/inplace/RedundantOverride.kt");
     }
 
     @TestMetadata("SameNameFunctionByImplicitReceiver.kt")

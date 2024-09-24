@@ -33,7 +33,7 @@ import java.util.concurrent.Future;
  * This class stores the data annotations for coverage information in the editor.
  */
 @Service(Service.Level.PROJECT)
-public final class CoverageDataAnnotationsManager implements Disposable {
+final class CoverageDataAnnotationsManager implements Disposable {
   private final Project myProject;
   private final Object myAnnotationsLock = new Object();
   private final ExecutorService myExecutor;
@@ -41,9 +41,9 @@ public final class CoverageDataAnnotationsManager implements Disposable {
   private final Map<Editor, Future<?>> myRequests = new ConcurrentHashMap<>();
   private volatile CompletableFuture<?> myUpdateRequest = null;
 
-  public CoverageDataAnnotationsManager(Project project) {
+  CoverageDataAnnotationsManager(Project project) {
     myProject = project;
-    myExecutor = AppExecutorUtil.createBoundedScheduledExecutorService("CoverageDataAnnotationsManager Pool", 1);
+    myExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor("CoverageDataAnnotationsManager Pool", 1);
   }
 
   public static CoverageDataAnnotationsManager getInstance(@NotNull Project project) {
@@ -57,7 +57,7 @@ public final class CoverageDataAnnotationsManager implements Disposable {
 
   public synchronized void clearAnnotations() {
     for (var it = myRequests.entrySet().iterator(); it.hasNext(); ) {
-      it.next().getValue().cancel(true);
+      it.next().getValue().cancel(false);
       it.remove();
     }
     myExecutor.execute(() -> {
@@ -142,7 +142,7 @@ public final class CoverageDataAnnotationsManager implements Disposable {
   }
 
 
-  public static class CoverageEditorFactoryListener implements EditorFactoryListener {
+  static final class CoverageEditorFactoryListener implements EditorFactoryListener {
     @Override
     public void editorCreated(@NotNull EditorFactoryEvent event) {
       Editor editor = event.getEditor();
@@ -167,7 +167,7 @@ public final class CoverageDataAnnotationsManager implements Disposable {
 
       Future<?> request = manager.myRequests.remove(editor);
       if (request != null) {
-        request.cancel(true);
+        request.cancel(false);
       }
 
       manager.myExecutor.execute(() -> manager.clearEditor(editor));

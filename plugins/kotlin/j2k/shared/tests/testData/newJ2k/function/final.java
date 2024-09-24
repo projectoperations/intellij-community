@@ -1,2 +1,2 @@
 //method
-final String getString() { return ""; }
+final String string() { return ""; }

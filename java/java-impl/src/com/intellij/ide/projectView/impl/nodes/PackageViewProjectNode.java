@@ -1,15 +1,11 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.projectView.impl.nodes;
 
 import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.ModuleGroup;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleDescription;
-import com.intellij.openapi.module.ModuleManager;
-import com.intellij.openapi.module.impl.LoadedModuleDescriptionImpl;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaDirectoryService;
@@ -20,6 +16,8 @@ import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
+
+import static com.intellij.ide.projectView.impl.nodes.ImplKt.moduleDescriptions;
 
 public class PackageViewProjectNode extends AbstractProjectNode {
   public PackageViewProjectNode(@NotNull Project project, ViewSettings viewSettings) {
@@ -43,16 +41,9 @@ public class PackageViewProjectNode extends AbstractProjectNode {
   }
 
   @Override
-  @NotNull
-  public Collection<AbstractTreeNode<?>> getChildren() {
+  public @NotNull Collection<AbstractTreeNode<?>> getChildren() {
     if (getSettings().isShowModules()) {
-      List<ModuleDescription> modulesWithSourceRoots = new ArrayList<>();
-      for (Module module : ModuleManager.getInstance(getProject()).getModules()) {
-        if (ModuleRootManager.getInstance(module).getSourceRoots().length > 0) {
-          modulesWithSourceRoots.add(new LoadedModuleDescriptionImpl(module));
-        }
-      }
-      return modulesAndGroups(modulesWithSourceRoots);
+      return modulesAndGroups(moduleDescriptions(myProject));
     }
     else {
       final ProjectRootManager projectRootManager = ProjectRootManager.getInstance(myProject);
@@ -99,15 +90,13 @@ public class PackageViewProjectNode extends AbstractProjectNode {
 
   }
 
-  @NotNull
   @Override
-  protected AbstractTreeNode createModuleGroup(@NotNull final Module module) {
+  protected @NotNull AbstractTreeNode createModuleGroup(final @NotNull Module module) {
     return new PackageViewModuleNode(getProject(), module, getSettings());
   }
 
-  @NotNull
   @Override
-  protected AbstractTreeNode createModuleGroupNode(@NotNull final ModuleGroup moduleGroup) {
+  protected @NotNull AbstractTreeNode createModuleGroupNode(final @NotNull ModuleGroup moduleGroup) {
     return new PackageViewModuleGroupNode(getProject(),  moduleGroup, getSettings());
   }
 

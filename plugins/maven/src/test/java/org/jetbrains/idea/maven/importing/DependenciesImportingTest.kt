@@ -15,18 +15,14 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.testFramework.PlatformTestUtil
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.MavenCustomRepositoryHelper
-import org.junit.Assume
-import org.junit.Assume.assumeTrue
 import org.junit.Test
-import java.io.File
 import java.util.*
 
 class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
-  
+
   override fun setUp() {
     super.setUp()
     projectsManager.initForTests()
-    projectsManager.listenForExternalChanges()
   }
 
   @Test
@@ -47,9 +43,9 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
     assertModules("project")
     assertModuleLibDep("project", "Maven: junit:junit:4.0",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0.jar!/",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0-sources.jar!/",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0-javadoc.jar!/")
+                       "jar://$repositoryPath/junit/junit/4.0/junit-4.0.jar!/",
+                       "jar://$repositoryPath/junit/junit/4.0/junit-4.0-sources.jar!/",
+                       "jar://$repositoryPath/junit/junit/4.0/junit-4.0-javadoc.jar!/")
     assertProjectLibraryCoordinates("Maven: junit:junit:4.0", "junit", "junit", "4.0")
   }
 
@@ -124,26 +120,6 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     assertProjectLibraryCoordinates("Maven: junit:junit:bar:4.0", "junit", "junit", "bar", "jar", "4.0")
   }
 
-  @Test
-  fun testSystemDependencyWithoutPath() = runBlocking {
-    createProjectPom("""
-                       <groupId>test</groupId>
-                       <artifactId>project</artifactId>
-                       <version>1</version>
-                       <dependencies>
-                         <dependency>
-                           <groupId>junit</groupId>
-                           <artifactId>junit</artifactId>
-                           <version>4.0</version>
-                           <scope>system</scope>
-                         </dependency>
-                       </dependencies>
-                       """.trimIndent())
-    doImportProjectsAsync(listOf(projectPom), false)
-
-    assertModules("project")
-    assertModuleLibDeps("project") // dependency was not added due to reported pom model problem.
-  }
 
   @Test
   @InstantImportCompatible
@@ -487,6 +463,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     assertModuleModuleDeps("m1", mn("project", "m2"))
   }
 
+
   @Test
   fun testInterModuleDependenciesIfThereArePropertiesInArtifactHeader() = runBlocking {
     createProjectPom("""
@@ -585,8 +562,6 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDependenciesInPerSourceTypeModule() = runBlocking {
-    Assume.assumeTrue(isWorkspaceImport)
-
     createModulePom("m1",
                     """
                       <groupId>test</groupId>
@@ -649,8 +624,6 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testTestDependencyOnPerSourceTypeModule() = runBlocking {
-    Assume.assumeTrue(isWorkspaceImport)
-
     createModulePom("m1",
                     """
                       <groupId>test</groupId>
@@ -1006,6 +979,59 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
   }
 
   @Test
+  fun testIncrementalSyncTransitiveLibraryDependencyManagement() = runBlocking {
+    importProjectAsync("""
+                    <groupId>test</groupId>
+                    <artifactId>project</artifactId>
+                    <version>1</version>
+                    <dependencyManagement>
+                      <dependencies>
+                        <dependency>
+                          <groupId>asm</groupId>
+                          <artifactId>asm</artifactId>
+                          <version>3.3.0</version>
+                        </dependency>       
+                      </dependencies>
+                    </dependencyManagement>                    
+                    <dependencies>
+                      <dependency>
+                        <groupId>asm</groupId>
+                        <artifactId>asm-attrs</artifactId>
+                        <version>2.2.1</version>
+                      </dependency>
+                    </dependencies>
+                    """.trimIndent())
+
+    assertModules("project")
+    assertModuleLibDeps("project", "Maven: asm:asm-attrs:2.2.1", "Maven: asm:asm:3.3.0")
+
+    updateProjectPom("""
+                    <groupId>test</groupId>
+                    <artifactId>project</artifactId>
+                    <version>1</version>
+                    <dependencyManagement>
+                      <dependencies>
+                        <dependency>
+                          <groupId>asm</groupId>
+                          <artifactId>asm</artifactId>
+                          <version>3.3.1</version>
+                        </dependency>       
+                      </dependencies>
+                    </dependencyManagement>                    
+                    <dependencies>
+                      <dependency>
+                        <groupId>asm</groupId>
+                        <artifactId>asm-attrs</artifactId>
+                        <version>2.2.1</version>
+                      </dependency>
+                    </dependencies>
+                    """.trimIndent())
+    updateAllProjects()
+
+    assertModuleLibDeps("project", "Maven: asm:asm-attrs:2.2.1", "Maven: asm:asm:3.3.1")
+  }
+
+  @Test
   fun testExclusionOfTransitiveDependencies() = runBlocking {
     createProjectPom("""
                        <groupId>test</groupId>
@@ -1059,6 +1085,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDependencyWithEnvironmentProperty() = runBlocking {
+    needFixForMaven4()
     val javaHome = FileUtil.toSystemIndependentName(System.getProperty("java.home"))
 
     createProjectPom("""
@@ -1085,6 +1112,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDependencyWithEnvironmentENVProperty() = runBlocking {
+    needFixForMaven4()
     var envDir = FileUtil.toSystemIndependentName(System.getenv(envVar))
     envDir = StringUtil.trimEnd(envDir, "/")
 
@@ -1382,8 +1410,8 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     val root = projectsTree.rootProjects[0]
     val modules = projectsTree.getModules(root)
 
-    assertOrderedElementsAreEqual(root.getProblems())
-    assertTrue(modules[0].getProblems()[0].description!!.contains("Unresolved dependency: 'xxx:yyy:pom:1'"))
+    assertOrderedElementsAreEqual(root.problems)
+    assertTrue(modules[0].problems[0].description!!.contains("Unresolved dependency: 'xxx:yyy:pom:1'"))
   }
 
   @Test
@@ -1419,6 +1447,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testUsingMirrors() = runBlocking {
+    needFixForMaven4()
     repositoryPath = dir.path + "/repo"
     val mirrorPath = pathTransformer.toRemotePath(FileUtil.toSystemIndependentName(dir.path + "/mirror"))
 
@@ -1496,7 +1525,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     assertProjectLibraries("Maven: junit:junit:4.0")
     assertModuleLibDeps("project", "Maven: junit:junit:4.0")
 
-    importProjectAsync()
+    updateAllProjects()
 
     assertProjectLibraries("Maven: junit:junit:4.0")
     assertModuleLibDeps("project", "Maven: junit:junit:4.0")
@@ -1584,18 +1613,19 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     importProjects(m1, m2)
     assertModuleModuleDeps("m1", "m2")
 
-    createModulePom("m1", """
+    updateModulePom("m1", """
       <groupId>test</groupId>
       <artifactId>m1</artifactId>
       <version>1</version>
       """.trimIndent())
 
-    importProjects(m1, m2)
+    updateAllProjects()
     assertModuleModuleDeps("m1")
   }
 
   @Test
   fun testDifferentSystemDependenciesWithSameId() = runBlocking {
+    needFixForMaven4()
     createModulePom("m1", """
       <groupId>test</groupId>
       <artifactId>m1</artifactId>
@@ -1611,7 +1641,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
         </dependency>
       </dependencies>
       """)
-          createModulePom("m2", """<groupId>test</groupId>
+    createModulePom("m2", """<groupId>test</groupId>
       <artifactId>m2</artifactId>
       <version>1</version>
       <dependencies>
@@ -1641,77 +1671,6 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     //    assertProjectLibraries("Maven: xxx:yyy:1");
     assertModuleLibDep("m1", "Maven: xxx:yyy:1", "jar://" + root + "/m1/foo.jar!/")
     assertModuleLibDep("m2", "Maven: xxx:yyy:1", "jar://" + root + "/m2/foo.jar!/")
-  }
-
-  @Test
-  fun testUpdateRootEntriesWithActualPath() = runBlocking {
-    importProjectAsync("""
-                    <groupId>test</groupId>
-                    <artifactId>project</artifactId>
-                    <version>1</version>
-                    <dependencies>
-                      <dependency>
-                        <groupId>junit</groupId>
-                        <artifactId>junit</artifactId>
-                        <version>4.0</version>
-                      </dependency>
-                    </dependencies>
-                    """.trimIndent())
-
-    assertProjectLibraries("Maven: junit:junit:4.0")
-    assertModuleLibDeps("project", "Maven: junit:junit:4.0")
-
-    assertModuleLibDep("project", "Maven: junit:junit:4.0",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0.jar!/",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0-sources.jar!/",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0-javadoc.jar!/")
-
-    waitForImportWithinTimeout {
-      repositoryPath = File(dir, "__repo").path
-    }
-    projectsManager.embeddersManager.reset() // to recognize repository change
-
-    updateAllProjects()
-
-    assertModuleLibDep("project", "Maven: junit:junit:4.0",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0.jar!/",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0-sources.jar!/",
-                       "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0-javadoc.jar!/")
-  }
-
-  @Test
-  fun testUpdateRootEntriesWithActualPathForDependenciesWithClassifiers() = runBlocking {
-    importProjectAsync("""
-                    <groupId>test</groupId>
-                    <artifactId>project</artifactId>
-                    <version>1</version>
-                    <dependencies>
-                      <dependency>
-                        <groupId>org.testng</groupId>
-                        <artifactId>testng</artifactId>
-                        <version>5.8</version>
-                        <classifier>jdk15</classifier>
-                      </dependency>
-                    </dependencies>
-                    """.trimIndent())
-
-    assertModuleLibDeps("project", "Maven: org.testng:testng:jdk15:5.8", "Maven: junit:junit:3.8.1")
-    assertModuleLibDep("project", "Maven: org.testng:testng:jdk15:5.8",
-                       "jar://" + repositoryPath + "/org/testng/testng/5.8/testng-5.8-jdk15.jar!/",
-                       "jar://" + repositoryPath + "/org/testng/testng/5.8/testng-5.8-sources.jar!/",
-                       "jar://" + repositoryPath + "/org/testng/testng/5.8/testng-5.8-javadoc.jar!/")
-
-    waitForImportWithinTimeout {
-      repositoryPath = File(dir, "__repo").path
-    }
-    projectsManager.embeddersManager.reset() // to recognize repository change
-
-    updateAllProjects()
-
-    assertModuleLibDep("project", "Maven: org.testng:testng:jdk15:5.8",
-                       "jar://" + repositoryPath + "/org/testng/testng/5.8/testng-5.8-jdk15.jar!/",
-                       "jar://" + repositoryPath + "/org/testng/testng/5.8/testng-5.8-sources.jar!/",
-                       "jar://" + repositoryPath + "/org/testng/testng/5.8/testng-5.8-javadoc.jar!/")
   }
 
   @Test
@@ -1747,6 +1706,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDoNotPopulateSameRootEntriesOnEveryImportForSystemLibraries() = runBlocking {
+    needFixForMaven4()
     val root = root
     val path = "jar://$root/foo/bar.jar!/"
     runBlocking {
@@ -1799,11 +1759,11 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     doImportProjectsAsync(listOf(projectPom), false)
 
     assertModuleLibDep("project", "Maven: xxx:yyy:1",
-                       Arrays.asList("jar://$projectPath/foo/bar.jar!/"),
+                       listOf("jar://$projectPath/foo/bar.jar!/"),
                        emptyList(),
                        emptyList())
 
-    createProjectPom("""
+    updateProjectPom("""
       <groupId>test</groupId>
       <artifactId>project</artifactId>
       <version>1</version>
@@ -1819,10 +1779,10 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
       </dependencies>
       """.trimIndent())
 
-    doImportProjectsAsync(listOf(projectPom), false)
+    updateAllProjects()
 
     assertModuleLibDep("project", "Maven: xxx:yyy:1",
-                       Arrays.asList("jar://$projectPath/foo/xxx.jar!/"),
+                       listOf("jar://$projectPath/foo/xxx.jar!/"),
                        emptyList(),
                        emptyList())
   }
@@ -1887,7 +1847,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
                            "Maven: group:lib3:1",
                            "Maven: group:lib4:1")
 
-    createModulePom("m1", """
+    updateModulePom("m1", """
       <groupId>test</groupId>
       <artifactId>m1</artifactId>
       <version>1</version>
@@ -1900,7 +1860,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
       </dependencies>
       """.trimIndent())
 
-    createModulePom("m2", """
+    updateModulePom("m2", """
       <groupId>test</groupId>
       <artifactId>m2</artifactId>
       <version>1</version>
@@ -1913,7 +1873,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
       </dependencies>
       """.trimIndent())
 
-    importProjectAsync()
+    updateAllProjects()
     assertProjectLibraries("Maven: group:lib2:1",
                            "Maven: group:lib3:1")
   }
@@ -1952,19 +1912,14 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     clearLibraryRoots("Maven: group:lib2:1", JavadocOrderRootType.getInstance())
     addLibraryRoot("Maven: group:lib2:1", JavadocOrderRootType.getInstance(), "file://foo.baz")
 
-    importProjectAsync("""
+    updateProjectPom("""
                     <groupId>test</groupId>
                     <artifactId>project</artifactId>
                     <version>1</version>
                     """.trimIndent())
+    updateAllProjects()
 
-    if (supportsKeepingManualChanges()) {
-      assertProjectLibraries("Maven: group:lib1:1",
-                             "Maven: group:lib2:1")
-    }
-    else {
-      assertProjectLibraries()
-    }
+    assertProjectLibraries()
   }
 
   @Test
@@ -1979,11 +1934,8 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
     assertProjectLibraries("lib")
     addLibraryRoot("lib", OrderRootType.CLASSES, "file://" + repositoryPath + "/foo/bar.jar!/")
-    if (supportsKeepingManualChanges()) {
-      assertModuleLibDeps("project", "lib")
-    }
 
-    createProjectPom("""
+    updateProjectPom("""
                     <groupId>test</groupId>
                     <artifactId>project</artifactId>
                     <version>1</version>
@@ -1992,12 +1944,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
     assertProjectLibraries("lib")
 
-    if (supportsKeepingManualChanges()) {
-      assertModuleLibDeps("project", "lib")
-    }
-    else {
-      assertModuleLibDeps("project")
-    }
+    assertModuleLibDeps("project")
   }
 
   @Test
@@ -2066,7 +2013,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     assertProjectLibraries("Maven: group:lib1:1",
                            "Maven: group:lib2:1")
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -2076,10 +2023,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
                        </modules>
                        """.trimIndent())
 
-    //configConfirmationForYesAnswer();
-    MavenProjectLegacyImporter.setAnswerToDeleteObsoleteModulesQuestion(true)
-
-    importProjectAsync()
+    updateAllProjects()
     assertProjectLibraries("Maven: group:lib1:1")
   }
 
@@ -2109,11 +2053,12 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
     assertProjectLibraries("Maven: group:lib1:tests:1",
                            "Maven: group:lib2:test-jar:tests:1")
 
-    importProjectAsync("""
+    updateProjectPom("""
                     <groupId>test</groupId>
                     <artifactId>project</artifactId>
                     <version>1</version>
                     """.trimIndent())
+    updateAllProjects()
 
     assertProjectLibraries()
   }
@@ -2292,7 +2237,6 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDependencyToIgnoredProject() = runBlocking {
-    assumeTrue(isWorkspaceImport)
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -2327,10 +2271,6 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
     assertModules("project", "m1", "m2")
     assertModuleModuleDeps("m1", "m2")
-
-    //configConfirmationForYesAnswer();
-    MavenProjectLegacyImporter.setAnswerToDeleteObsoleteModulesQuestion(true)
-
 
     setIgnoredFilesPathForNextImport(listOf(m2.getPath()))
 
@@ -2502,7 +2442,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
     importProjectAsync()
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <packaging>pom</packaging>
@@ -2517,7 +2457,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
                        </dependencies>
                        """.trimIndent())
 
-    importProjectAsync()
+    updateAllProjects()
 
     assertModuleLibDep("project", "Maven: junit:junit:4.0",
                        "jar://" + repositoryPath + "/junit/junit/4.0/junit-4.0.jar!/",
@@ -2556,19 +2496,11 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
         modifiableModel.addInvalidLibrary("Maven: AnotherLibrary", LibraryTablesRegistrar.PROJECT_LEVEL)
         modifiableModel.commit()
       }
-      if (supportsKeepingManualChanges()) {
-        assertModuleLibDeps("project", "Maven: junit:junit:4.0", "SomeLibrary", "Maven: AnotherLibrary")
-      }
 
       // incremental sync doesn't update module if effective pom dependencies haven't changed
       updateAllProjectsFullSync()
 
-      if (supportsKeepingManualChanges()) {
-        assertModuleLibDeps("project", "SomeLibrary", "Maven: junit:junit:4.0")
-      }
-      else {
-        assertModuleLibDeps("project", "Maven: junit:junit:4.0")
-      }
+      assertModuleLibDeps("project", "Maven: junit:junit:4.0")
     }
     finally {
       value.resetToDefault()

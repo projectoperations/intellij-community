@@ -19,7 +19,6 @@ import com.jetbrains.jsonSchema.extension.JsonSchemaValidation;
 import com.jetbrains.jsonSchema.extension.JsonValidationHost;
 import com.jetbrains.jsonSchema.extension.adapters.JsonValueAdapter;
 import com.jetbrains.jsonSchema.impl.light.legacy.JsonSchemaObjectReadingUtils;
-import com.jetbrains.jsonSchema.impl.validations.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,7 +42,8 @@ public final class JsonSchemaAnnotatorChecker implements JsonValidationHost {
     myErrors = new HashMap<>();
   }
 
-  public Map<PsiElement, JsonValidationError> getErrors() {
+  @Override
+  public @NotNull Map<PsiElement, JsonValidationError> getErrors() {
     return myErrors;
   }
 
@@ -153,8 +153,8 @@ public final class JsonSchemaAnnotatorChecker implements JsonValidationHost {
   }
 
   @Override
-  public MatchResult resolve(JsonSchemaObject schemaObject) {
-    return new JsonSchemaResolver(myProject, schemaObject).detailedResolve();
+  public MatchResult resolve(JsonSchemaObject schemaObject, @Nullable JsonValueAdapter inspectedElementAdapter) {
+    return new JsonSchemaResolver(myProject, schemaObject, new JsonPointerPosition(), inspectedElementAdapter).detailedResolve();
   }
 
   @Override
@@ -166,69 +166,18 @@ public final class JsonSchemaAnnotatorChecker implements JsonValidationHost {
 
   @Override
   public boolean isValid() {
-    return myErrors.size() == 0 && !myHadTypeError;
+    return myErrors.isEmpty() && !myHadTypeError;
   }
 
-  private static Collection<JsonSchemaValidation> getAllValidations(@NotNull JsonSchemaObject schema,
-                                                                    JsonSchemaType type,
-                                                                    @NotNull JsonValueAdapter value) {
-    Set<JsonSchemaValidation> validations = new LinkedHashSet<>();
-    validations.add(EnumValidation.INSTANCE);
-    if (type != null) {
-      validations.add(TypeValidation.INSTANCE);
-      if (JsonSchemaType._string_number.equals(type)) {
-        validations.add(NumericValidation.INSTANCE);
-        validations.add(StringValidation.INSTANCE);
-      }
-      else if (JsonSchemaType._number.equals(type) || JsonSchemaType._integer.equals(type)) {
-        validations.add(NumericValidation.INSTANCE);
-      }
-      else if (JsonSchemaType._string.equals(type)) {
-        validations.add(StringValidation.INSTANCE);
-      }
-      else if (JsonSchemaType._array.equals(type)) {
-        validations.add(ArrayValidation.INSTANCE);
-      }
-      else if (JsonSchemaType._object.equals(type)) {
-        validations.add(ObjectValidation.INSTANCE);
-      }
-    }
-    if (!value.isShouldBeIgnored()) {
-      if (JsonSchemaObjectReadingUtils.hasNumericChecks(schema) && value.isNumberLiteral()) {
-        validations.add(NumericValidation.INSTANCE);
-      }
-      if (JsonSchemaObjectReadingUtils.hasStringChecks(schema) && value.isStringLiteral()) {
-        validations.add(StringValidation.INSTANCE);
-      }
-      if (JsonSchemaObjectReadingUtils.hasArrayChecks(schema) && value.isArray()) {
-        validations.add(ArrayValidation.INSTANCE);
-      }
-      if (hasMinMaxLengthChecks(schema)) {
-        if (value.isStringLiteral()) {
-          validations.add(StringValidation.INSTANCE);
-        }
-        else if (value.isArray()) {
-          validations.add(ArrayValidation.INSTANCE);
-        }
-      }
-      if (JsonSchemaObjectReadingUtils.hasObjectChecks(schema) && value.isObject()) {
-        validations.add(ObjectValidation.INSTANCE);
-      }
-    }
-    if (schema.getNot() != null) {
-      validations.add(NotValidation.INSTANCE);
-    }
-    if (schema.getIfThenElse() != null) {
-      validations.add(IfThenElseValidation.INSTANCE);
-    }
-    return validations;
-  }
+  public boolean checkByScheme(@NotNull JsonValueAdapter value, @NotNull JsonSchemaObject schema) {
+    final JsonSchemaType instanceFieldType = JsonSchemaType.getType(value);
 
-  public void checkByScheme(@NotNull JsonValueAdapter value, @NotNull JsonSchemaObject schema) {
-    final JsonSchemaType type = JsonSchemaType.getType(value);
-    for (JsonSchemaValidation validation : getAllValidations(schema, type, value)) {
-      validation.validate(value, schema, type, this, myOptions);
+    var isValid = true;
+    for (JsonSchemaValidation validation : schema.getValidations(instanceFieldType, value)) {
+      isValid &= validation.validate(value, schema, instanceFieldType, this, myOptions);
+      if (!isValid && myOptions.shouldStopValidationAfterAnyErrorFound()) return false;
     }
+    return isValid;
   }
 
   @Override
@@ -237,7 +186,10 @@ public final class JsonSchemaAnnotatorChecker implements JsonValidationHost {
   }
 
   public void checkObjectBySchemaRecordErrors(@NotNull JsonSchemaObject schema, @NotNull JsonValueAdapter object, @NotNull JsonPointerPosition position) {
-    final JsonSchemaAnnotatorChecker checker = checkByMatchResult(myProject, object, new JsonSchemaResolver(myProject, schema, position).detailedResolve(), myOptions);
+    final JsonSchemaAnnotatorChecker checker = checkByMatchResult(myProject,
+                                                                  object,
+                                                                  new JsonSchemaResolver(myProject, schema, position, object).detailedResolve(),
+                                                                  myOptions);
     if (checker != null) {
       myHadTypeError = checker.isHadTypeError();
       myErrors.putAll(checker.getErrors());
@@ -247,6 +199,11 @@ public final class JsonSchemaAnnotatorChecker implements JsonValidationHost {
   @Override
   public void addErrorsFrom(JsonValidationHost otherHost) {
     this.myErrors.putAll(((JsonSchemaAnnotatorChecker)otherHost).myErrors);
+  }
+
+  @Override
+  public boolean hasRecordedErrorsFor(@NotNull JsonValueAdapter inspectedValueAdapter) {
+    return myErrors.containsKey(inspectedValueAdapter.getDelegate());
   }
 
   private static @NotNull Pair<JsonSchemaObject, JsonSchemaAnnotatorChecker> processSchemasVariants(
@@ -312,7 +269,7 @@ public final class JsonSchemaAnnotatorChecker implements JsonValidationHost {
     return true;
   }
 
-  public static @Nullable JsonSchemaType getMatchingSchemaType(@NotNull JsonSchemaObject schema, @NotNull JsonSchemaType input) {
+  public static @Nullable JsonSchemaType getMatchingSchemaType(@NotNull JsonSchemaObject schema, @Nullable JsonSchemaType input) {
     final JsonSchemaType matchType = schema.getType();
     if (matchType != null) {
       if (JsonSchemaType._integer.equals(input) && JsonSchemaType._number.equals(matchType)) {
@@ -344,12 +301,6 @@ public final class JsonSchemaAnnotatorChecker implements JsonValidationHost {
     }
     if (JsonSchemaObjectReadingUtils.hasProperties(schema) && JsonSchemaType._object.equals(input)) return JsonSchemaType._object;
     return null;
-  }
-
-
-
-  private static boolean hasMinMaxLengthChecks(JsonSchemaObject schema) {
-    return schema.getMinLength() != null || schema.getMaxLength() != null;
   }
 
   public static @Nullable String getValue(PsiElement propValue, JsonSchemaObject schema) {
@@ -550,6 +501,7 @@ public final class JsonSchemaAnnotatorChecker implements JsonValidationHost {
         .map(e -> StringUtil.split(e, ", "))
         .flatMap(e -> e.stream())
         .distinct()
+        .sorted()
         .collect(Collectors.joining(", "));
       return new JsonValidationError(prefix + text, commonIssueKind, null, errors.iterator().next().getPriority());
     }

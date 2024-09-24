@@ -15,6 +15,7 @@ import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Interner;
+import com.intellij.util.text.UniqueNameGenerator;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jetbrains.annotations.NotNull;
@@ -188,7 +189,7 @@ public abstract class ModuleInsight {
     }
     final Set<String> moduleNames = new HashSet<>(myExistingModuleNames);
     for (ModuleDescriptor module : newModules) {
-      final String suggested = suggestUniqueName(moduleNames, module.getName());
+      final String suggested = UniqueNameGenerator.generateUniqueName(module.getName(), moduleNames);
       module.setName(suggested);
       moduleNames.add(suggested);
     }
@@ -272,8 +273,8 @@ public abstract class ModuleInsight {
       final Set<String> libNames = new HashSet<>(myExistingProjectLibraryNames);
       for (LibraryDescriptor library : libraries) {
         final Collection<File> libJars = library.getJars();
-        final String newName = suggestUniqueName(libNames, libJars.size() == 1 ? FileUtilRt
-          .getNameWithoutExtension(libJars.iterator().next().getName()) : library.getName());
+        String baseName = libJars.size() == 1 ? FileUtilRt.getNameWithoutExtension(libJars.iterator().next().getName()) : library.getName();
+        final String newName = UniqueNameGenerator.generateUniqueName(baseName, libNames);
         library.setName(newName);
         libNames.add(newName);
       }
@@ -285,15 +286,6 @@ public abstract class ModuleInsight {
   }
 
   public abstract boolean isApplicableRoot(final DetectedProjectRoot root);
-
-  private static String suggestUniqueName(Set<String> existingNames, String baseName) {
-    String name = baseName;
-    int index = 1;
-    while (existingNames.contains(name)) {
-      name = baseName + (index++);
-    }
-    return name;
-  }
 
   public void merge(final ModuleDescriptor mainModule, final ModuleDescriptor module) {
     for (File contentRoot : module.getContentRoots()) {
@@ -329,7 +321,7 @@ public abstract class ModuleInsight {
     final LibraryDescriptor newLibrary = new LibraryDescriptor(newLibraryName, new ArrayList<>(jarsToExtract));
     myLibraries.add(newLibrary);
     library.removeJars(jarsToExtract);
-    if (library.getJars().size() == 0) {
+    if (library.getJars().isEmpty()) {
       removeLibrary(library);
     }
     return newLibrary;
@@ -344,7 +336,7 @@ public abstract class ModuleInsight {
         newModule = createModuleDescriptor(root, sources != null ? sources : new HashSet<>());
       }
       else {
-        if (sources != null && sources.size() > 0) {
+        if (sources != null && !sources.isEmpty()) {
           for (DetectedSourceRoot source : sources) {
             newModule.addSourceRoot(root, source);
           }
@@ -385,7 +377,7 @@ public abstract class ModuleInsight {
     to.addJars(files);
     from.removeJars(files);
     // remove the library if it became empty
-    if (from.getJars().size() == 0) {
+    if (from.getJars().isEmpty()) {
       removeLibrary(from);
     }
   }
@@ -432,11 +424,7 @@ public abstract class ModuleInsight {
     final Map<File, LibraryDescriptor> rootToLibraryMap = new HashMap<>();
     for (File jar : jars) {
       final File parent = jar.getParentFile();
-      LibraryDescriptor lib = rootToLibraryMap.get(parent);
-      if (lib == null) {
-        lib = new LibraryDescriptor(parent.getName(), new HashSet<>());
-        rootToLibraryMap.put(parent, lib);
-      }
+      LibraryDescriptor lib = rootToLibraryMap.computeIfAbsent(parent, p -> new LibraryDescriptor(p.getName(), new HashSet<>()));
       lib.addJars(Collections.singleton(jar));
     }
     return new ArrayList<>(rootToLibraryMap.values());

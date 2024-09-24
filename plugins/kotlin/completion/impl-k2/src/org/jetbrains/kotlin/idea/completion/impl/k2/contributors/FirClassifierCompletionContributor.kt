@@ -1,17 +1,16 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+package org.jetbrains.kotlin.idea.completion.impl.k2.contributors
 
-package org.jetbrains.kotlin.idea.completion.contributors
-
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.symbols.*
-import org.jetbrains.kotlin.analysis.api.types.KtNonErrorClassType
+import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.idea.completion.FirCompletionSessionParameters
 import org.jetbrains.kotlin.idea.completion.checkers.CompletionVisibilityChecker
-import org.jetbrains.kotlin.idea.completion.context.FirBasicCompletionContext
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.CompletionSymbolOrigin
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.FirClassifierProvider.getAvailableClassifiersCurrentScope
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.FirClassifierProvider.getAvailableClassifiersFromIndex
-import org.jetbrains.kotlin.idea.completion.contributors.helpers.getStaticScopes
+import org.jetbrains.kotlin.idea.completion.contributors.helpers.staticScope
+import org.jetbrains.kotlin.idea.completion.impl.k2.context.FirBasicCompletionContext
 import org.jetbrains.kotlin.idea.completion.lookups.ImportStrategy
 import org.jetbrains.kotlin.idea.completion.reference
 import org.jetbrains.kotlin.idea.completion.weighers.WeighingContext
@@ -20,23 +19,23 @@ import org.jetbrains.kotlin.psi.KtElement
 
 internal open class FirClassifierCompletionContributor(
     basicContext: FirBasicCompletionContext,
-    priority: Int,
+    priority: Int = 0,
 ) : FirCompletionContributorBase<KotlinNameReferencePositionContext>(basicContext, priority) {
 
-    context(KtAnalysisSession)
-    protected open fun filterClassifiers(classifierSymbol: KtClassifierSymbol): Boolean = true
+    context(KaSession)
+    protected open fun filterClassifiers(classifierSymbol: KaClassifierSymbol): Boolean = true
 
-    context(KtAnalysisSession)
-    protected open fun getImportingStrategy(classifierSymbol: KtClassifierSymbol): ImportStrategy =
+    context(KaSession)
+    protected open fun getImportingStrategy(classifierSymbol: KaClassifierSymbol): ImportStrategy =
         importStrategyDetector.detectImportStrategyForClassifierSymbol(classifierSymbol)
 
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun complete(
         positionContext: KotlinNameReferencePositionContext,
         weighingContext: WeighingContext,
         sessionParameters: FirCompletionSessionParameters,
     ) {
-        val visibilityChecker = CompletionVisibilityChecker.create(basicContext, positionContext)
+        val visibilityChecker = CompletionVisibilityChecker(basicContext, positionContext)
 
         when (val receiver = positionContext.explicitReceiver) {
             null -> {
@@ -49,32 +48,37 @@ internal open class FirClassifierCompletionContributor(
         }
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun completeWithReceiver(
         receiver: KtElement,
         visibilityChecker: CompletionVisibilityChecker,
         context: WeighingContext
     ) {
-        val reference = receiver.reference() ?: return
-        getStaticScopes(reference).forEach { scopeWithKind ->
-            scopeWithKind.scope
-                .getClassifierSymbols(scopeNameFilter)
-                .filter { filterClassifiers(it) }
-                .filter { visibilityChecker.isVisible(it) }
-                .forEach {
-                    val symbolOrigin = CompletionSymbolOrigin.Scope(scopeWithKind.kind)
-                    addClassifierSymbolToCompletion(it, context, symbolOrigin, ImportStrategy.DoNothing)
-                }
-        }
+        val symbols = receiver.reference()
+            ?.resolveToSymbols()
+            ?: return
+
+        symbols.asSequence()
+            .mapNotNull { it.staticScope }
+            .forEach { scopeWithKind ->
+                scopeWithKind.scope
+                    .classifiers(scopeNameFilter)
+                    .filter { filterClassifiers(it) }
+                    .filter { visibilityChecker.isVisible(it) }
+                    .forEach {
+                        val symbolOrigin = CompletionSymbolOrigin.Scope(scopeWithKind.kind)
+                        addClassifierSymbolToCompletion(it, context, symbolOrigin, ImportStrategy.DoNothing)
+                    }
+            }
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun completeWithoutReceiver(
         positionContext: KotlinNameReferencePositionContext,
         visibilityChecker: CompletionVisibilityChecker,
         context: WeighingContext
     ) {
-        val availableFromScope = mutableSetOf<KtClassifierSymbol>()
+        val availableFromScope = mutableSetOf<KaClassifierSymbol>()
         getAvailableClassifiersCurrentScope(
             originalKtFile,
             positionContext.nameExpression,
@@ -91,6 +95,7 @@ internal open class FirClassifierCompletionContributor(
 
         if (prefixMatcher.prefix.isNotEmpty()) {
             getAvailableClassifiersFromIndex(
+                parameters,
                 symbolFromIndexProvider,
                 scopeNameFilter,
                 visibilityChecker
@@ -106,26 +111,24 @@ internal open class FirClassifierCompletionContributor(
 
 internal class FirAnnotationCompletionContributor(
     basicContext: FirBasicCompletionContext,
-    priority: Int
+    priority: Int = 0,
 ) : FirClassifierCompletionContributor(basicContext, priority) {
 
-    context(KtAnalysisSession)
-    override fun filterClassifiers(classifierSymbol: KtClassifierSymbol): Boolean = when (classifierSymbol) {
-        is KtAnonymousObjectSymbol -> false
-        is KtTypeParameterSymbol -> false
-        is KtNamedClassOrObjectSymbol -> when (classifierSymbol.classKind) {
-            KtClassKind.ANNOTATION_CLASS -> true
-            KtClassKind.ENUM_CLASS -> false
-            KtClassKind.ANONYMOUS_OBJECT -> false
-            KtClassKind.CLASS, KtClassKind.OBJECT, KtClassKind.COMPANION_OBJECT, KtClassKind.INTERFACE -> {
-                // TODO show class if nested classifier is annotation class
-                // classifierSymbol.getDeclaredMemberScope().getClassifierSymbols().any { filterClassifiers(it) }
-                false
+    context(KaSession)
+    override fun filterClassifiers(classifierSymbol: KaClassifierSymbol): Boolean = when (classifierSymbol) {
+        is KaAnonymousObjectSymbol -> false
+        is KaTypeParameterSymbol -> false
+        is KaNamedClassSymbol -> when (classifierSymbol.classKind) {
+            KaClassKind.ANNOTATION_CLASS -> true
+            KaClassKind.ENUM_CLASS -> false
+            KaClassKind.ANONYMOUS_OBJECT -> false
+            KaClassKind.CLASS, KaClassKind.OBJECT, KaClassKind.COMPANION_OBJECT, KaClassKind.INTERFACE -> {
+                classifierSymbol.staticDeclaredMemberScope.classifiers.any { filterClassifiers(it) }
             }
         }
 
-        is KtTypeAliasSymbol -> {
-            val expendedClass = (classifierSymbol.expandedType as? KtNonErrorClassType)?.classSymbol
+        is KaTypeAliasSymbol -> {
+            val expendedClass = (classifierSymbol.expandedType as? KaClassType)?.symbol
             expendedClass?.let { filterClassifiers(it) } == true
         }
     }
@@ -136,11 +139,11 @@ internal class FirClassifierReferenceCompletionContributor(
     priority: Int
 ) : FirClassifierCompletionContributor(basicContext, priority) {
 
-    context(KtAnalysisSession)
-    override fun getImportingStrategy(classifierSymbol: KtClassifierSymbol): ImportStrategy = when (classifierSymbol) {
-        is KtTypeParameterSymbol -> ImportStrategy.DoNothing
-        is KtClassLikeSymbol -> {
-            classifierSymbol.classIdIfNonLocal?.let { ImportStrategy.AddImport(it.asSingleFqName()) } ?: ImportStrategy.DoNothing
+    context(KaSession)
+    override fun getImportingStrategy(classifierSymbol: KaClassifierSymbol): ImportStrategy = when (classifierSymbol) {
+        is KaTypeParameterSymbol -> ImportStrategy.DoNothing
+        is KaClassLikeSymbol -> {
+            classifierSymbol.classId?.let { ImportStrategy.AddImport(it.asSingleFqName()) } ?: ImportStrategy.DoNothing
         }
     }
 }

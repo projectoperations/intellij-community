@@ -1,4 +1,4 @@
-//file
+// IGNORE_K2
 package test;
 
 import java.util.List;

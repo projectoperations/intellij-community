@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.hint.api.impls;
 
 import com.intellij.codeInsight.AnnotationTargetUtil;
@@ -72,8 +72,7 @@ public final class MethodParameterInfoHandler
   );
 
   @Override
-  @Nullable
-  public PsiExpressionList findElementForParameterInfo(@NotNull final CreateParameterInfoContext context) {
+  public @Nullable PsiExpressionList findElementForParameterInfo(final @NotNull CreateParameterInfoContext context) {
     PsiExpressionList argumentList = findArgumentList(context.getFile(), context.getOffset(), context.getParameterListStart(), true);
 
     if (argumentList != null) {
@@ -102,7 +101,7 @@ public final class MethodParameterInfoHandler
   }
 
   private static PsiExpressionList findMethodsForArgumentList(final CreateParameterInfoContext context,
-                                                              @NotNull final PsiExpressionList argumentList) {
+                                                              final @NotNull PsiExpressionList argumentList) {
 
     CandidateInfo[] candidates = getMethods(argumentList);
     if (candidates.length == 0) {
@@ -111,14 +110,14 @@ public final class MethodParameterInfoHandler
     PsiMethod method = argumentList.getParent() instanceof PsiCall call ? call.resolveMethod() : null;
     CandidateWithPresentation[] items = ContainerUtil.map2Array(candidates, CandidateWithPresentation.class,
       c -> new CandidateWithPresentation(c,
-                                         MethodPresentation.from((PsiMethod)c.getElement(), 
+                                         MethodPresentation.from((PsiMethod)c.getElement(),
                                                     getCandidateInfoSubstitutor(c, method != null && c.getElement() == method))));
     context.setItemsToShow(items);
     return argumentList;
   }
 
   @Override
-  public void showParameterInfo(@NotNull final PsiExpressionList element, @NotNull final CreateParameterInfoContext context) {
+  public void showParameterInfo(final @NotNull PsiExpressionList element, final @NotNull CreateParameterInfoContext context) {
     int offset = element.getTextRange().getStartOffset();
     if (CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION) {
       ParameterInfoControllerBase controller = ParameterInfoControllerBase.findControllerAtOffset(context.getEditor(), offset);
@@ -140,7 +139,7 @@ public final class MethodParameterInfoHandler
   }
 
   @Override
-  public PsiExpressionList findElementForUpdatingParameterInfo(@NotNull final UpdateParameterInfoContext context) {
+  public PsiExpressionList findElementForUpdatingParameterInfo(final @NotNull UpdateParameterInfoContext context) {
     if (context.isPreservedOnHintHidden() && isOutsideOfCompletedInvocation(context)) {
       context.setPreservedOnHintHidden(false);
       return null;
@@ -282,7 +281,13 @@ public final class MethodParameterInfoHandler
   }
 
   @Override
-  public void updateParameterInfo(@NotNull final PsiExpressionList o, @NotNull final UpdateParameterInfoContext context) {
+  public void updateParameterInfo(final @NotNull PsiExpressionList o, final @NotNull UpdateParameterInfoContext context) {
+    DumbService.getInstance(o.getProject()).withAlternativeResolveEnabled(() -> {
+      updateParameterInfoInternal(o, context);
+    });
+  }
+
+  private static void updateParameterInfoInternal(@NotNull PsiExpressionList o, @NotNull UpdateParameterInfoContext context) {
     int offset = context.getOffset();
     TextRange elRange = o.getTextRange();
     int index = offset <= elRange.getStartOffset() || offset >= elRange.getEndOffset()
@@ -550,32 +555,27 @@ public final class MethodParameterInfoHandler
   }
 
   @Override
-  @NotNull
-  public Class<PsiExpressionList> getArgumentListClass() {
+  public @NotNull Class<PsiExpressionList> getArgumentListClass() {
     return PsiExpressionList.class;
   }
 
   @Override
-  @NotNull
-  public IElementType getActualParametersRBraceType() {
+  public @NotNull IElementType getActualParametersRBraceType() {
     return JavaTokenType.RBRACE;
   }
 
   @Override
-  @NotNull
-  public Set<Class<?>> getArgumentListAllowedParentClasses() {
+  public @NotNull Set<Class<?>> getArgumentListAllowedParentClasses() {
     return ourArgumentListAllowedParentClassesSet;
   }
 
-  @NotNull
   @Override
-  public Set<? extends Class<?>> getArgListStopSearchClasses() {
+  public @NotNull Set<? extends Class<?>> getArgListStopSearchClasses() {
     return ourStopSearch;
   }
 
   @Override
-  @NotNull
-  public IElementType getActualParameterDelimiterType() {
+  public @NotNull IElementType getActualParameterDelimiterType() {
     return JavaTokenType.COMMA;
   }
 
@@ -611,7 +611,7 @@ public final class MethodParameterInfoHandler
       CandidateInfo[] candidates = getCandidates((PsiCallExpression)call);
       ArrayList<CandidateInfo> result = new ArrayList<>();
 
-      if (!(argList.getParent() instanceof PsiAnonymousClass)) {
+      if (!(argList.getParent() instanceof PsiAnonymousClass aClass)) {
         cand:
         for (CandidateInfo candidate : candidates) {
           PsiMethod methodCandidate = (PsiMethod)candidate.getElement();
@@ -633,7 +633,6 @@ public final class MethodParameterInfoHandler
         }
       }
       else {
-        PsiClass aClass = (PsiClass)argList.getParent();
         for (CandidateInfo candidate : candidates) {
           if (candidate.isStaticsScopeCorrect() && helper.isAccessible((PsiMethod)candidate.getElement(), argList, aClass)) {
             result.add(candidate);
@@ -788,11 +787,21 @@ public final class MethodParameterInfoHandler
     return html.replaceAll("<a.*?>", "").replaceAll("</a>", "");
   }
 
-  private static void appendModifierList(@NotNull StringBuilder buffer, @NotNull PsiModifierListOwner owner) {
+  private static void appendModifierList(@NotNull StringBuilder buffer, @Nullable PsiType type, @NotNull PsiModifierListOwner owner) {
     if (DumbService.isDumb(owner.getProject())) return;
 
     int lastSize = buffer.length();
     Set<String> shownAnnotations = new HashSet<>();
+    if (type != null) {
+      PsiAnnotation[] annotations = type.getAnnotations();
+      for (PsiAnnotation annotation : annotations) {
+        final PsiJavaCodeReferenceElement element = annotation.getNameReferenceElement();
+        if (element != null) {
+          String referenceName = element.getReferenceName();
+          shownAnnotations.add(referenceName);
+        }
+      }
+    }
     for (PsiAnnotation annotation : AnnotationUtil.getAllAnnotations(owner, false, null, true)) {
       final PsiJavaCodeReferenceElement element = annotation.getNameReferenceElement();
       if (element != null) {
@@ -801,7 +810,9 @@ public final class MethodParameterInfoHandler
           String qualifiedName = annotation.getQualifiedName();
           if (NON_DOCUMENTED_JETBRAINS_ANNOTATIONS.contains(qualifiedName)) continue;
         }
-        if (resolved instanceof PsiClass cls && !AnnotationUtil.isInferredAnnotation(annotation) &&
+        if (resolved instanceof PsiClass cls &&
+            !AnnotationUtil.isInferredAnnotation(annotation) &&
+            !AnnotationUtil.isExternalAnnotation(annotation) &&
             (!JavaDocInfoGenerator.isDocumentedAnnotationType(cls) ||
              AnnotationTargetUtil.findAnnotationTarget(cls, PsiAnnotation.TargetType.TYPE_USE) != null)) {
           continue;
@@ -821,7 +832,7 @@ public final class MethodParameterInfoHandler
   }
 
   @Override
-  public void updateUI(@NotNull final Object p, @NotNull final ParameterInfoUIContext context) {
+  public void updateUI(final @NotNull Object p, final @NotNull ParameterInfoUIContext context) {
     updateMethodPresentation(context, ((CandidateWithPresentation)p).presentation);
   }
 
@@ -879,7 +890,7 @@ public final class MethodParameterInfoHandler
   public static @NotNull PsiMethod getMethodFromCandidate(@NotNull Object object) {
     return ((CandidateWithPresentation)object).getMethod();
   }
-  
+
   public static @Nullable PsiMethod tryGetMethodFromCandidate(@NotNull Object object) {
     return object instanceof CandidateWithPresentation cwp ? cwp.getMethod() : null;
   }
@@ -896,7 +907,7 @@ public final class MethodParameterInfoHandler
       PsiType paramType = substitutor.substitute(param.getType());
       String type = paramType.getPresentableText(!DumbService.isDumb(param.getProject()));
       StringBuilder buffer = new StringBuilder();
-      appendModifierList(buffer, param);
+      appendModifierList(buffer, paramType, param);
       String modifiers = buffer.toString();
       String name = param.getName();
       String javaDoc = JavaDocInfoGeneratorFactory.create(param.getProject(), param).generateMethodParameterJavaDoc();
@@ -914,7 +925,7 @@ public final class MethodParameterInfoHandler
       PsiType returnType = substitutor.substitute(method.getReturnType());
       String type = returnType == null ? "" : returnType.getPresentableText(true);
       StringBuilder buffer = new StringBuilder();
-      appendModifierList(buffer, method);
+      appendModifierList(buffer, returnType, method);
       String modifiers = buffer.toString();
       List<ParameterPresentation> parameters =
         ContainerUtil.map(method.getParameterList().getParameters(), param -> ParameterPresentation.from(param, substitutor));

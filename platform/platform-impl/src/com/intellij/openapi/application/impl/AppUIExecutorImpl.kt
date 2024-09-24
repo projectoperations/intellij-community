@@ -10,7 +10,9 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.TransactionGuard
 import com.intellij.openapi.application.constraints.ConstrainedExecution.ContextConstraint
 import com.intellij.openapi.application.constraints.Expiration
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.DumbServiceImpl
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.impl.PsiDocumentManagerBase
@@ -61,7 +63,10 @@ internal class AppUIExecutorImpl private constructor(private val modality: Modal
 
   private class MyEdtExecutor(private val modality: ModalityState) : Executor {
     override fun execute(command: Runnable) {
+      // TransactionGuard.isWritingAllowed could throw exception if there is no write intent lock
+      // It was always so, but now we could be here without WIL
       if (ApplicationManager.getApplication().isDispatchThread
+          && ApplicationManager.getApplication().isWriteIntentLockAcquired
           && (!TransactionGuard.getInstance().isWriteSafeModality(modality)
               || TransactionGuard.getInstance().isWritingAllowed)
           && !ModalityState.current().dominates(modality)) {
@@ -174,7 +179,13 @@ internal class InSmartMode(private val project: Project) : ContextConstraint {
     }
   }
 
-  override fun isCorrectContext(): Boolean = !project.isDisposed && !DumbService.isDumb(project)
+  override fun isCorrectContext(): Boolean {
+    val correctContext = !project.isDisposed && DumbServiceImpl.getInstance(project).runWhenSmartCondition.asBoolean
+    if (!correctContext) {
+      thisLogger().debug("InSmartMode dispatched")
+    }
+    return correctContext
+  }
 
   override fun schedule(runnable: Runnable) {
     DumbService.getInstance(project).runWhenSmart(runnable)

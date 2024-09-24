@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.encoding;
 
 import com.intellij.concurrency.ConcurrentCollectionFactory;
@@ -183,6 +183,8 @@ public final class EncodingProjectManagerImpl extends EncodingProjectManager imp
     if (!myMapping.isEmpty()) {
       VirtualFile parent = virtualFile;
       while (parent != null) {
+        //TODO RC: parent.getUrl() creates A LOT of dummy allocations -- seems like we could
+        //         organise the mapping hierarchically instead
         Charset charset = myMapping.get(new LightFilePointer(parent.getUrl()));
         if (charset != null || !useParentDefaults) return charset;
         parent = parent.getParent();
@@ -508,7 +510,12 @@ public final class EncodingProjectManagerImpl extends EncodingProjectManager imp
 
   @Override
   public void setDefaultCharsetName(@NotNull String name) {
-    setEncoding(null, name.isEmpty() ? null : CharsetToolkit.forName(name));
+    Charset oldCharset = getDefaultCharset();
+    Charset newCharset = CharsetToolkit.forName(name);
+    if (!Comparing.equal(oldCharset, newCharset)) {
+      setEncoding(null, name.isEmpty() ? null : newCharset);
+      EncodingManagerImpl.firePropertyChange(null, PROP_DEFAULT_FILES_ENCODING, oldCharset, newCharset);
+    }
   }
 
   @Override

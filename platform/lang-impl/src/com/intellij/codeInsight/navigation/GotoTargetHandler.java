@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.navigation;
 
 import com.intellij.codeInsight.CodeInsightActionHandler;
@@ -13,6 +13,7 @@ import com.intellij.model.Pointer;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
+import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -38,6 +39,7 @@ import com.intellij.ui.ExperimentalUI;
 import com.intellij.usages.UsageView;
 import com.intellij.util.Alarm;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -89,16 +91,13 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
 
   protected void chooseFromAmbiguousSources(Editor editor, PsiFile file, Consumer<? super GotoData> successCallback) { }
 
-  @NonNls
-  @Nullable
-  protected abstract String getFeatureUsedKey();
+  protected abstract @NonNls @Nullable String getFeatureUsedKey();
 
   protected boolean useEditorFont() {
     return true;
   }
 
-  @Nullable
-  protected abstract GotoData getSourceAndTargetElements(Editor editor, PsiFile file);
+  protected abstract @Nullable GotoData getSourceAndTargetElements(Editor editor, PsiFile file);
 
   protected void show(@NotNull Project project,
                       @NotNull Editor editor,
@@ -229,8 +228,7 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
     }
   }
 
-  @NotNull
-  protected Comparator<ItemWithPresentation> createComparator(@NotNull GotoData gotoData) {
+  protected @NotNull Comparator<ItemWithPresentation> createComparator(@NotNull GotoData gotoData) {
     return Comparator.comparing(gotoData::getComparingObject);
   }
 
@@ -254,8 +252,7 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
     return ourDefaultTargetElementRenderer.computePresentation(element);
   }
 
-  @Nullable
-  private static TargetPresentation getTargetPresentationFromRenderers(@NotNull PsiElement element, boolean hasDifferentNames) {
+  private static @Nullable TargetPresentation getTargetPresentationFromRenderers(@NotNull PsiElement element, boolean hasDifferentNames) {
     GotoData dummyData = new GotoData(element, PsiElement.EMPTY_ARRAY, Collections.emptyList());
     dummyData.hasDifferentNames = hasDifferentNames;
     PsiElementListCellRenderer<?> renderer = createRenderer(dummyData, element);
@@ -277,11 +274,12 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
 
   protected boolean navigateToElement(PsiElement target) {
     Navigatable descriptor = target instanceof Navigatable ? (Navigatable)target : EditSourceUtil.getDescriptor(target);
-    if (descriptor != null && descriptor.canNavigate()) {
-      navigateToElement(descriptor);
-      return true;
+    if (descriptor == null) return false;
+    try (AccessToken ignore = SlowOperations.knownIssue("IDEA-339117, EA-842843")) {
+      if (!descriptor.canNavigate()) return false;
     }
-    return false;
+    navigateToElement(descriptor);
+    return true;
   }
 
   protected void navigateToElement(@NotNull Navigatable descriptor) {
@@ -297,27 +295,22 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
    * @deprecated use getChooserTitle(PsiElement, String, int, boolean) instead
    */
   @Deprecated(forRemoval = true)
-  @NotNull
-  protected @NlsContexts.PopupTitle String getChooserTitle(PsiElement sourceElement, String name, int length) {
+  protected @NotNull @NlsContexts.PopupTitle String getChooserTitle(PsiElement sourceElement, String name, int length) {
     LOG.warn("Please override getChooserTitle(PsiElement, String, int, boolean) instead");
     return "";
   }
 
-  @NotNull
-  protected @NlsContexts.PopupTitle String getChooserTitle(@NotNull PsiElement sourceElement, @Nullable String name, int length, boolean finished) {
+  protected @NotNull @NlsContexts.PopupTitle String getChooserTitle(@NotNull PsiElement sourceElement, @Nullable String name, int length, boolean finished) {
     return getChooserTitle(sourceElement, name, length);
   }
 
-  @NotNull
-  protected @NlsContexts.TabTitle String getFindUsagesTitle(@NotNull PsiElement sourceElement, String name, int length) {
+  protected @NotNull @NlsContexts.TabTitle String getFindUsagesTitle(@NotNull PsiElement sourceElement, String name, int length) {
     return getChooserTitle(sourceElement, name, length, true);
   }
 
-  @NotNull
-  protected abstract @NlsContexts.HintText String getNotFoundMessage(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file);
+  protected abstract @NotNull @NlsContexts.HintText String getNotFoundMessage(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file);
 
-  @Nullable
-  protected @NlsContexts.PopupAdvertisement String getAdText(PsiElement source, int length) {
+  protected @Nullable @NlsContexts.PopupAdvertisement String getAdText(PsiElement source, int length) {
     return null;
   }
 
@@ -330,7 +323,7 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
   }
 
   public static final class GotoData {
-    @NotNull public final PsiElement source;
+    public final @NotNull PsiElement source;
     public PsiElement[] targets;
     public final List<AdditionalAction> additionalActions;
     public boolean isCanceled;

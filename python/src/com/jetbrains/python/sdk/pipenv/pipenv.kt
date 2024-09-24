@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.pipenv
 
 import com.google.gson.Gson
@@ -6,18 +6,14 @@ import com.google.gson.JsonSyntaxException
 import com.google.gson.annotations.SerializedName
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
-import com.intellij.codeInspection.util.IntentionName
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.RunCanceledByUserException
-import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
-import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.execution.process.ProcessOutput
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationListener
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
@@ -29,13 +25,12 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtil
 import com.intellij.openapi.module.ModuleUtilCore
+import com.intellij.openapi.progress.Cancellation
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
-import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsContexts.ProgressTitle
 import com.intellij.openapi.util.NlsSafe
@@ -45,14 +40,14 @@ import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.PathUtil
 import com.jetbrains.python.PyBundle
+import com.jetbrains.python.icons.PythonIcons
 import com.jetbrains.python.inspections.PyPackageRequirementsInspection
 import com.jetbrains.python.packaging.*
 import com.jetbrains.python.sdk.*
-import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
-import com.jetbrains.python.icons.PythonIcons
 import org.jetbrains.annotations.SystemDependent
 import org.jetbrains.annotations.TestOnly
 import java.io.File
+import java.nio.file.Path
 import javax.swing.Icon
 
 const val PIP_FILE: String = "Pipfile"
@@ -73,29 +68,11 @@ val Module.pipFile: VirtualFile?
 /**
  * Tells if the SDK was added as a pipenv.
  */
-var Sdk.isPipEnv: Boolean
+internal val Sdk.isPipEnv: Boolean
   get() = sdkAdditionalData is PyPipEnvSdkAdditionalData
-  set(value) {
-    val oldData = sdkAdditionalData
-    val newData = if (value) {
-      when (oldData) {
-        is PythonSdkAdditionalData -> PyPipEnvSdkAdditionalData(oldData)
-        else -> PyPipEnvSdkAdditionalData()
-      }
-    }
-    else {
-      when (oldData) {
-        is PyPipEnvSdkAdditionalData -> PythonSdkAdditionalData(PythonSdkFlavor.getFlavor(this))
-        else -> oldData
-      }
-    }
-    val modificator = sdkModificator
-    modificator.sdkAdditionalData = newData
-    ApplicationManager.getApplication().runWriteAction { modificator.commitChanges() }
-  }
 
 /**
- * The user-set persisted path to the pipenv executable.
+ * The user-set persisted a path to the pipenv executable.
  */
 var PropertiesComponent.pipEnvPath: @SystemDependent String?
   get() = getValue(PIPENV_PATH_SETTING)
@@ -144,12 +121,12 @@ fun setupPipEnvSdkUnderProgress(project: Project?,
     override fun compute(indicator: ProgressIndicator): String {
       indicator.isIndeterminate = true
       val pipEnv = setupPipEnv(FileUtil.toSystemDependentName(projectPath), python, installPackages)
-      return PythonSdkUtil.getPythonExecutable(pipEnv) ?: FileUtil.join(pipEnv, "bin", "python")
+      return  VirtualEnvReader.Instance.findPythonInPythonRoot(Path.of(pipEnv))?.toString() ?: FileUtil.join(pipEnv, "bin", "python")
     }
   }
-  return createSdkByGenerateTask(task, existingSdks, null, projectPath, suggestedSdkName(projectPath))?.apply {
-    associateWithModule(module, newProjectPath)
-    isPipEnv = true
+  return createSdkByGenerateTask(task, existingSdks, null, projectPath, suggestedSdkName(projectPath), PyPipEnvSdkAdditionalData()).apply {
+    // FIXME: multi module project support - associate with module path
+    setAssociationToPath(projectPath)
   }
 }
 
@@ -187,35 +164,11 @@ fun runPipEnv(sdk: Sdk, vararg args: String): String {
  * Runs the configured pipenv for the specified project path.
  */
 fun runPipEnv(projectPath: @SystemDependent String, vararg args: String): String {
-  val executable = getPipEnvExecutable()?.path ?: throw PyExecutionException(
+  val executable = getPipEnvExecutable()?.toPath() ?: throw PyExecutionException(
     PyBundle.message("python.sdk.pipenv.execution.exception.no.pipenv.message"),
     "pipenv", emptyList(), ProcessOutput())
-
-  val command = listOf(executable) + args
-  val commandLine = GeneralCommandLine(command).withWorkDirectory(projectPath)
-  val handler = CapturingProcessHandler(commandLine)
-  val indicator = ProgressManager.getInstance().progressIndicator
-  val result = with(handler) {
-    when {
-      indicator != null -> {
-        addProcessListener(IndicatedProcessOutputListener(indicator))
-        runProcessWithProgressIndicator(indicator)
-      }
-      else ->
-        runProcess()
-    }
-  }
-  return with(result) {
-    when {
-      isCancelled ->
-        throw RunCanceledByUserException()
-      exitCode != 0 ->
-        throw PyExecutionException(PyBundle.message("python.sdk.pipenv.execution.exception.error.running.pipenv.message"),
-                                   executable, args.asList(),
-                                   stdout, stderr, exitCode, emptyList())
-      else -> stdout
-    }
-  }
+  @Suppress("DialogTitleCapitalization")
+  return runCommand(executable, Path.of(projectPath), PyBundle.message("python.sdk.pipenv.execution.exception.error.running.pipenv.message"), *args)
 }
 
 /**
@@ -235,46 +188,15 @@ val Sdk.pipFileLockRequirements: List<PyRequirement>?
 /**
  * A quick-fix for setting up the pipenv for the module of the current PSI element.
  */
-class UsePipEnvQuickFix(sdk: Sdk?, module: Module) : LocalQuickFix {
-  @IntentionName
-  private val quickFixName = when {
-    sdk != null && sdk.isAssociatedWithAnotherModule(module) -> PyBundle.message("python.sdk.pipenv.quickfix.fix.pipenv.name")
-    else -> PyBundle.message("python.sdk.pipenv.quickfix.use.pipenv.name")
-  }
-
-  companion object {
-    fun isApplicable(module: Module): Boolean = module.pipFile != null
-
-    fun setUpPipEnv(project: Project, module: Module) {
-      val sdksModel = ProjectSdksModel().apply {
-        reset(project)
-      }
-      val existingSdks = sdksModel.sdks.filter { it.sdkType is PythonSdkType }
-      // XXX: Should we show an error message on exceptions and on null?
-      val newSdk = setupPipEnvSdkUnderProgress(project, module, existingSdks, null, null, false) ?: return
-      val existingSdk = existingSdks.find { it.isPipEnv && it.homePath == newSdk.homePath }
-      val sdk = existingSdk ?: newSdk
-      if (sdk == newSdk) {
-        SdkConfigurationUtil.addSdk(newSdk)
-      }
-      else {
-        sdk.associateWithModule(module, null)
-      }
-      project.pythonSdk = sdk
-      module.pythonSdk = sdk
-    }
-  }
+class PipEnvAssociationQuickFix : LocalQuickFix {
+  private val quickFixName = PyBundle.message("python.sdk.pipenv.quickfix.use.pipenv.name")
 
   override fun getFamilyName() = quickFixName
 
   override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
     val element = descriptor.psiElement ?: return
     val module = ModuleUtilCore.findModuleForPsiElement(element) ?: return
-    // Invoke the setup later to escape the write action of the quick fix in order to show the modal progress dialog
-    ApplicationManager.getApplication().invokeLater {
-      if (project.isDisposed || module.isDisposed) return@invokeLater
-      setUpPipEnv(project, module)
-    }
+    module.pythonSdk?.setAssociationToModule(module)
   }
 }
 
@@ -364,7 +286,7 @@ class PipEnvPipFileWatcher : EditorFactoryListener {
         try {
           runPipEnv(sdk, *args.toTypedArray())
         }
-        catch (e: RunCanceledByUserException) {
+        catch (_: RunCanceledByUserException) {
         }
         catch (e: ExecutionException) {
           showSdkExecutionException(sdk, e, PyBundle.message("python.sdk.pipenv.execution.exception.error.running.pipenv.message"))
@@ -394,7 +316,9 @@ private val Document.virtualFile: VirtualFile?
 private fun VirtualFile.getModule(project: Project): Module? =
   ModuleUtil.findModuleForFile(this, project)
 
-private val LOCK_NOTIFICATION_GROUP = NotificationGroupManager.getInstance().getNotificationGroup("Pipfile Watcher")
+private val LOCK_NOTIFICATION_GROUP = Cancellation.forceNonCancellableSectionInClassInitializer {
+  NotificationGroupManager.getInstance().getNotificationGroup("Pipfile Watcher")
+}
 
 private val Sdk.packageManager: PyPackageManager
   get() = PyPackageManagers.getInstance().forSdk(this)

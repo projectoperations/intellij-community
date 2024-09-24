@@ -19,6 +19,7 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.EnvironmentUtil;
 import com.intellij.util.ObjectUtils;
 import com.jetbrains.python.PySdkBundle;
 import com.jetbrains.python.psi.LanguageLevel;
@@ -45,8 +46,10 @@ import java.util.Map;
  * Needs not to be instantiated and only holds static methods.
  *
  * @see PythonSdkUtil for Pyhton SDK utilities with no run-time dependencies
+ *
+ * @deprecated please use Kotlin coroutines to run processes in background
  */
-//TODO: rename to PySdkExecuteUtil or PySdkRuntimeUtil
+@Deprecated
 public final class PySdkUtil {
   private static final Logger LOG = Logger.getInstance(PySdkUtil.class);
 
@@ -57,18 +60,6 @@ public final class PySdkUtil {
 
   private PySdkUtil() {
     // explicitly none
-  }
-
-  /**
-   * Executes a process and returns its stdout and stderr outputs as lists of lines.
-   *
-   * @param homePath process run directory
-   * @param command  command to execute and its arguments
-   * @return a tuple of (stdout lines, stderr lines, exit_code), lines in them have line terminators stripped, or may be null.
-   */
-  @NotNull
-  public static ProcessOutput getProcessOutput(String homePath, @NonNls String[] command) {
-    return getProcessOutput(homePath, command, -1);
   }
 
   /**
@@ -124,7 +115,7 @@ public final class PySdkUtil {
     if (homePath == null || !new File(homePath).exists()) {
       return new ProcessOutput();
     }
-    final Map<String, String> systemEnv = System.getenv();
+    final Map<String, String> systemEnv = EnvironmentUtil.getEnvironmentMap();
     final Map<String, String> expandedCmdEnv = mergeEnvVariables(systemEnv, cmd.getEnvironment());
     final Map<String, String> env = extraEnv != null ? mergeEnvVariables(expandedCmdEnv, extraEnv) : expandedCmdEnv;
     PythonEnvUtil.resetHomePathChanges(homePath, env);
@@ -248,9 +239,13 @@ public final class PySdkUtil {
   @NotNull
   public static LanguageLevel getLanguageLevelForSdk(@Nullable Sdk sdk) {
     if (sdk != null && PythonSdkUtil.isPythonSdk(sdk)) {
-      final PythonSdkFlavor flavor = PythonSdkFlavor.getFlavor(sdk);
+      final PythonSdkFlavor<?> flavor = PythonSdkFlavor.getFlavor(sdk);
       if (flavor != null) {
         return flavor.getLanguageLevel(sdk);
+      }
+      String versionString = sdk.getVersionString();
+      if (versionString != null) {
+        return LanguageLevel.fromPythonVersion(sdk.getVersionString());
       }
     }
     return LanguageLevel.getDefault();

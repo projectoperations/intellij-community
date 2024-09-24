@@ -457,14 +457,6 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
   }
 
   protected static StackFrameProxyImpl getFrameProxy(@NotNull SuspendContextImpl suspendContext) {
-    if (suspendContext.getAnotherThreadToFocus() != null) {
-      try {
-        return suspendContext.getAnotherThreadToFocus().frame(0);
-      }
-      catch (EvaluateException e) {
-        throw new RuntimeException(e);
-      }
-    }
     return suspendContext.getFrameProxy();
   }
 
@@ -512,7 +504,7 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
     return myRunnableState;
   }
 
-  protected DebuggerSession attachVirtualMachine(RunProfileState state,
+  public DebuggerSession attachVirtualMachine(RunProfileState state,
                                                  ExecutionEnvironment environment,
                                                  RemoteConnection remoteConnection,
                                                  boolean pollConnection) throws ExecutionException {

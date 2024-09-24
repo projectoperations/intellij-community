@@ -33,9 +33,19 @@ import java.util.Collection;
 import java.util.List;
 
 import static com.intellij.openapi.vfs.InvalidVirtualFileAccessException.getInvalidationReason;
+import static com.intellij.util.SystemProperties.getBooleanProperty;
 
 public abstract class VirtualFileSystemEntry extends NewVirtualFile {
   public static final VirtualFileSystemEntry[] EMPTY_ARRAY = new VirtualFileSystemEntry[0];
+
+  /**
+   * If true -- {@link #isValid()} return false for 'alien' vfiles (vfiles created in previous VFS session).
+   * If false -- {@link #isValid()} throw AssertionError for 'alien' files (as all other method do)
+   * @see #isValid() comments for details
+   */
+  private static final boolean TREAT_ALIEN_FILES_AS_INVALID_INSTEAD_OF_CODE_BUG = getBooleanProperty(
+    "VirtualFileSystemEntry.TREAT_ALIEN_FILES_AS_INVALID_INSTEAD_OF_CODE_BUG", true
+  );
 
   @ApiStatus.Internal
   static final class VfsDataFlags {
@@ -67,7 +77,8 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
     VfsDataFlags.CHILDREN_CASE_SENSITIVE;
 
   @MagicConstant(flagsFromClass = VfsDataFlags.class)
-  @interface Flags { }
+  @interface Flags {
+  }
 
   private volatile @NotNull("except `NULL_VIRTUAL_FILE`") VfsData.Segment mySegment;
   private volatile VirtualDirectoryImpl myParent;
@@ -95,13 +106,15 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
     myId = -42;
   }
 
-  @NotNull VfsData getVfsData() {
-    VfsData data = getSegment().owningVfsData;
+  @NotNull
+  VfsData getVfsData() {
+    VfsData data = mySegment.owningVfsData;
     PersistentFSImpl owningPersistentFS = data.owningPersistentFS();
     if (!owningPersistentFS.isOwnData(data)) {
       //PersistentFSImpl re-creates VfsData on (re-)connect
       throw new AssertionError("'Alien' file object: was created before PersistentFS (re-)connected " +
-                               "(id=" + myId + ", parent=" + myParent + ")");
+                               "(id=" + myId + ", parent=" + myParent + "), " +
+                               "owningData: " + data + ", pFS: " + owningPersistentFS);
     }
     return data;
   }
@@ -110,7 +123,8 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
     return getVfsData().owningPersistentFS();
   }
 
-  @NotNull VfsData.Segment getSegment() {
+  @NotNull
+  VfsData.Segment getSegment() {
     VfsData.Segment segment = mySegment;
     if (segment.replacement != null) {
       segment = updateSegmentAndParent(segment);
@@ -148,15 +162,15 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
 
   @Override
   public @NotNull CharSequence getNameSequence() {
-    PersistentFSImpl fs = (PersistentFSImpl)ManagingFS.getInstanceOrNull();
-    if (fs == null) {
+    PersistentFSImpl pfs = (PersistentFSImpl)ManagingFS.getInstanceOrNull();
+    if (pfs == null) {
       return "<FS-is-disposed>";//shutdown-safe
     }
-    return fs.getNameByNameId(getNameId());
+    return pfs.getName(myId);
   }
 
   public final int getNameId() {
-    return getSegment().getNameId(myId);
+    return owningPersistentFS().peer().getNameIdByFileId(myId);
   }
 
   @Override
@@ -388,7 +402,33 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
 
   @Override
   public final boolean isValid() {
-    return exists();
+    if (!TREAT_ALIEN_FILES_AS_INVALID_INSTEAD_OF_CODE_BUG) {
+      return exists();
+    }
+    else {
+      //RC: logically, isValid() == exists()
+      //    The complication arises about the behavior in case of 'alien' files -- i.e. files that were created in previous VFS
+      //    session. General policy is that such files must not exist: if VFS is reconnected, _all_ the VirtualFiles from
+      //    previous session must be thrown out and must not be used _in any way_. By default, we consider _any_ use of such
+      //    'alien' files a code bug, so we throw AssertionError if a VFile from a previous VFS epoch is used _in any way_
+      //    (see getVfsData() for details).
+      //
+      //    Unfortunately, reality always strikes back against our best hopes: there are some cases, mainly in older junit3-4
+      //    tests, there VirtualFiles _leaked_ from one test to another, with VFS re-connected in between -- which leads to
+      //    flaky 'Alien file object' assertions failing the tests. So we're forced to compromise our integrity: isValid()
+      //    is the only method that _doesn't_ throw the AssertionError for alien files, but returns false instead.
+      //    In other words: we now consider an 'alien' file as 'invalid' file, instead of a primordial sin.
+
+      VfsData data = mySegment.owningVfsData;
+      PersistentFSImpl owningPersistentFS = data.owningPersistentFS();
+      if (!owningPersistentFS.isOwnData(data)) {
+        Logger.getInstance(VirtualFileSystemEntry.class).warn(
+          "'Alien' file object: was created before PersistentFS (re-)connected (id=" + myId + ", parent=" + myParent + ")"
+        );
+        return false;
+      }
+      return data.isFileValid(myId);
+    }
   }
 
   @Override
@@ -416,29 +456,37 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
       throw new IllegalArgumentException(CoreBundle.message("file.invalid.name.error", newName));
     }
 
-    PersistentFSImpl pFS = owningPersistentFS();
+    PersistentFSImpl pfs = owningPersistentFS();
 
     VirtualDirectoryImpl parent = getParent();
+    //children are sorted by name: child position must change after its name has changed
     parent.removeChild(this);
-
-    int newNameId = pFS.peer().getNameId(newName);
-    getSegment().setNameId(myId, newNameId);
+    pfs.peer().setName(myId, newName);
     parent.addChild(this);
 
-    pFS.incStructuralModificationCount();
+    pfs.incStructuralModificationCount();
   }
 
-  public void setParent(@NotNull VirtualFile newParent) {
+  public void setParent(@NotNull VirtualFile _newParent) {
     ApplicationManager.getApplication().assertWriteAccessAllowed();
 
-    VirtualDirectoryImpl parent = getParent();
-    parent.removeChild(this);
+    VirtualDirectoryImpl newParent = (VirtualDirectoryImpl)_newParent;
+    VirtualDirectoryImpl oldParent = getParent();
 
-    VirtualDirectoryImpl directory = (VirtualDirectoryImpl)newParent;
-    getSegment().changeParent(myId, directory);
-    directory.addChild(this);
+    //Both oldParent.myData & newParent.myData locks must be acquired here -- to prevent
+    // FileAlreadyCreatedException in VirtualDirectoryImpl.createChildImpl()/VfsData$Segment.initFileData()
+    // if called concurrently
+    VirtualDirectoryImpl.runUnderAllLocksAcquired(
+      () -> {
+        oldParent.removeChild(this);
 
-    updateLinkStatus(directory);
+        getSegment().changeParent(myId, newParent);
+        newParent.addChild(this);
+        return (Void)null;
+      },
+      oldParent, newParent
+    );
+    updateLinkStatus(newParent);
 
     owningPersistentFS().incStructuralModificationCount();
   }

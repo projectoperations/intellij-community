@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.impl.EditorGutterListener;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
+import com.intellij.openapi.util.Pair;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,9 +38,13 @@ public abstract class EditorGutterComponentEx extends JComponent implements Edit
    */
   public static final DataKey<Point> ICON_CENTER_POSITION = DataKey.create("EditorGutter.ICON_CENTER_POSITION");
 
+  public abstract @NotNull EditorEx getEditor();
+
   public abstract @Nullable FoldRegion findFoldingAnchorAt(int x, int y);
 
   public abstract @NotNull List<GutterMark> getGutterRenderers(int line);
+
+  public abstract @NotNull List<Pair<GutterMark, Rectangle>> getGutterRenderersAndRectangles(int visualLine);
 
   public abstract void addEditorGutterListener(@NotNull EditorGutterListener listener, @NotNull Disposable parentDisposable);
 

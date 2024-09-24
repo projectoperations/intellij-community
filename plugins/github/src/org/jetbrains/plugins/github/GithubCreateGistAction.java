@@ -1,18 +1,12 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.github;
 
-import com.intellij.icons.AllIcons;
 import com.intellij.ide.BrowserUtil;
 import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
@@ -20,8 +14,6 @@ import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -38,24 +30,13 @@ import org.jetbrains.plugins.github.util.*;
 
 import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-/**
- * @author oleg
- */
 public class GithubCreateGistAction extends DumbAwareAction {
-  private static final Logger LOG = GithubUtil.LOG;
   private static final Condition<@Nullable VirtualFile> FILE_WITH_CONTENT = f -> f != null && !(f.getFileType().isBinary());
-
-  protected GithubCreateGistAction() {
-    super(GithubBundle.messagePointer("create.gist.action.title"),
-          GithubBundle.messagePointer("create.gist.action.description"),
-          AllIcons.Vcs.Vendors.Github);
-  }
 
   @Override
   public @NotNull ActionUpdateThread getActionUpdateThread() {
@@ -63,7 +44,7 @@ public class GithubCreateGistAction extends DumbAwareAction {
   }
 
   @Override
-  public void update(@NotNull final AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null || project.isDefault()) {
       e.getPresentation().setEnabledAndVisible(false);
@@ -92,7 +73,7 @@ public class GithubCreateGistAction extends DumbAwareAction {
   }
 
   @Override
-  public void actionPerformed(@NotNull final AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null || project.isDefault()) {
       return;
@@ -140,9 +121,9 @@ public class GithubCreateGistAction extends DumbAwareAction {
       public void run(@NotNull ProgressIndicator indicator) {
         String token = GHCompatibilityUtil.getOrRequestToken(account, project);
         if (token == null) return;
-        GithubApiRequestExecutor requestExecutor = GithubApiRequestExecutor.Factory.getInstance().create(token);
+        GithubApiRequestExecutor requestExecutor = GithubApiRequestExecutor.Factory.getInstance().create(account.getServer(), token);
 
-        List<FileContent> contents = collectContents(project, editor, file, files);
+        List<FileContent> contents = GithubGistContentsCollector.Companion.collectContents(project, editor, file, files);
         if (contents.isEmpty()) return;
 
         String gistUrl = createGist(project, requestExecutor, indicator, account.getServer(),
@@ -184,39 +165,6 @@ public class GithubCreateGistAction extends DumbAwareAction {
     return null;
   }
 
-  @NotNull
-  static List<FileContent> collectContents(@NotNull Project project,
-                                           @Nullable Editor editor,
-                                           @Nullable VirtualFile file,
-                                           VirtualFile @Nullable [] files) {
-    if (editor != null) {
-      String content = getContentFromEditor(editor);
-      if (content == null) {
-        return Collections.emptyList();
-      }
-      if (file != null) {
-        return Collections.singletonList(new FileContent(file.getName(), content));
-      }
-      else {
-        return Collections.singletonList(new FileContent("", content));
-      }
-    }
-    if (files != null) {
-      List<FileContent> contents = new ArrayList<>();
-      for (VirtualFile vf : files) {
-        contents.addAll(getContentFromFile(vf, project, null));
-      }
-      return contents;
-    }
-
-    if (file != null) {
-      return getContentFromFile(file, project, null);
-    }
-
-    LOG.error("File, files and editor can't be null all at once!");
-    throw new IllegalStateException("File, files and editor can't be null all at once!");
-  }
-
   @Nullable
   static String createGist(@NotNull Project project,
                            @NotNull GithubApiRequestExecutor executor,
@@ -247,86 +195,5 @@ public class GithubCreateGistAction extends DumbAwareAction {
                                     e);
       return null;
     }
-  }
-
-  @Nullable
-  private static String getContentFromEditor(@NotNull final Editor editor) {
-    String text = ReadAction.compute(() -> editor.getSelectionModel().getSelectedText());
-    if (text == null) {
-      text = editor.getDocument().getText();
-    }
-
-    if (StringUtil.isEmptyOrSpaces(text)) {
-      return null;
-    }
-    return text;
-  }
-
-  @NotNull
-  private static List<FileContent> getContentFromFile(@NotNull final VirtualFile file, @NotNull Project project, @Nullable String prefix) {
-    if (file.isDirectory()) {
-      return getContentFromDirectory(file, project, prefix);
-    }
-    if (file.getFileType().isBinary()) {
-      GithubNotifications
-        .showWarning(project, GithubNotificationIdsHolder.GIST_CANNOT_CREATE,
-                     GithubBundle.message("cannot.create.gist"),
-                     GithubBundle.message("create.gist.error.binary.file", file.getName()));
-      return Collections.emptyList();
-    }
-    String content = ReadAction.compute(() -> {
-      try {
-        Document document = FileDocumentManager.getInstance().getDocument(file);
-        if (document != null) {
-          return document.getText();
-        }
-        else {
-          return new String(file.contentsToByteArray(), file.getCharset());
-        }
-      }
-      catch (IOException e) {
-        LOG.info("Couldn't read contents of the file " + file, e);
-        return null;
-      }
-    });
-    if (content == null) {
-      GithubNotifications
-        .showWarning(project,
-                     GithubNotificationIdsHolder.GIST_CANNOT_CREATE,
-                     GithubBundle.message("cannot.create.gist"),
-                     GithubBundle.message("create.gist.error.content.read", file.getName()));
-      return Collections.emptyList();
-    }
-    if (StringUtil.isEmptyOrSpaces(content)) {
-      return Collections.emptyList();
-    }
-    String filename = addPrefix(file.getName(), prefix, false);
-    return Collections.singletonList(new FileContent(filename, content));
-  }
-
-  @NotNull
-  private static List<FileContent> getContentFromDirectory(@NotNull VirtualFile dir, @NotNull Project project, @Nullable String prefix) {
-    List<FileContent> contents = new ArrayList<>();
-    for (VirtualFile file : dir.getChildren()) {
-      if (!isFileIgnored(file, project)) {
-        String pref = addPrefix(dir.getName(), prefix, true);
-        contents.addAll(getContentFromFile(file, project, pref));
-      }
-    }
-    return contents;
-  }
-
-  private static String addPrefix(@NotNull String name, @Nullable String prefix, boolean addTrailingSlash) {
-    String pref = prefix == null ? "" : prefix;
-    pref += name;
-    if (addTrailingSlash) {
-      pref += "_";
-    }
-    return pref;
-  }
-
-  private static boolean isFileIgnored(@NotNull VirtualFile file, @NotNull Project project) {
-    ChangeListManager manager = ChangeListManager.getInstance(project);
-    return manager.isIgnoredFile(file) || FileTypeManager.getInstance().isFileIgnored(file);
   }
 }

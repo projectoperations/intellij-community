@@ -1,6 +1,6 @@
-// ERROR: This annotation is not applicable to target 'local variable'
-// ERROR: This annotation is not applicable to target 'value parameter'
-// ERROR: This annotation is not applicable to target 'value parameter'
+// ERROR: This annotation is not applicable to target 'value parameter'.
+// ERROR: This annotation is not applicable to target 'value parameter'.
+// ERROR: This annotation is not applicable to target 'local variable'.
 import javaApi.Anon1
 import javaApi.Anon2
 import javaApi.Anon3
@@ -17,9 +17,7 @@ import javaApi.E
 @Anon4("x", "y")
 @Anon5(1)
 @Anon6("x", "y")
-@Anon7(
-    String::class, StringBuilder::class
-)
+@Anon7(String::class, StringBuilder::class)
 @Anon8(classes = [String::class, StringBuilder::class])
 internal class C {
     @Anon5(1)

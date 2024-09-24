@@ -38,7 +38,7 @@ internal object JacksonSchemaNodeAccessor : RawJsonSchemaNodeAccessor<JsonNode> 
     if (!node.isObject) return null
     return getChild(node, *relativeChildPath)
       .takeIf { it !is MissingNode }
-      ?.asText()
+      ?.toPrettyString()
   }
 
   override fun readTextNodeValue(node: JsonNode, vararg relativeChildPath: String): String? {
@@ -51,7 +51,7 @@ internal object JacksonSchemaNodeAccessor : RawJsonSchemaNodeAccessor<JsonNode> 
   }
 
   override fun readBooleanNodeValue(node: JsonNode, vararg relativeChildPath: String): Boolean? {
-    if (!node.isObject) return null
+    if (!(node.isObject || (node.isBoolean && relativeChildPath.isEmpty()))) return null
     val maybeBoolean = getChild(node, *relativeChildPath)
     return if (maybeBoolean.isBoolean)
       maybeBoolean.asBoolean()

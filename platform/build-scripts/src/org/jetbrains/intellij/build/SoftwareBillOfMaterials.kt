@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
 import org.jetbrains.annotations.ApiStatus
@@ -17,6 +17,7 @@ interface SoftwareBillOfMaterials {
       const val JETBRAINS: String = "JetBrains s.r.o."
       const val GOOGLE: String = "Google LLC"
       const val APACHE: String = "The Apache Software Foundation"
+      const val ECLIPSE: String = "Eclipse Foundation"
     }
   }
 
@@ -25,11 +26,6 @@ interface SoftwareBillOfMaterials {
      * [Specification](https://spdx.github.io/spdx-spec/v2.3/document-creation-information/#68-creator-field)
      */
     var creator: String? = null
-
-    /**
-     * [Specification](https://spdx.github.io/spdx-spec/v2.3/package-information/#717-copyright-text-field)
-     */
-    var copyrightText: String? = null
 
     /**
      * [Specification](https://spdx.github.io/spdx-spec/v2.3/package-information/#715-declared-license-field)
@@ -41,9 +37,17 @@ interface SoftwareBillOfMaterials {
      */
     var documentNamespace: String? = null
 
-    class DistributionLicense(val name: String, val text: String, val url: String?) {
+    /**
+     * @param copyrightText https://spdx.github.io/spdx-spec/v2.3/package-information/#717-copyright-text-field
+     */
+    class DistributionLicense(val name: String, val text: String, val url: String?, var copyrightText: String) {
       internal companion object {
-        val JETBRAINS = DistributionLicense(LibraryLicense.JETBRAINS_OWN, LibraryLicense.JETBRAINS_OWN, null)
+        val JETBRAINS = DistributionLicense(
+          name = LibraryLicense.JETBRAINS_OWN,
+          text = LibraryLicense.JETBRAINS_OWN,
+          copyrightText = LibraryLicense.JETBRAINS_OWN,
+          url = null,
+        )
       }
     }
   }

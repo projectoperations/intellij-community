@@ -23,6 +23,8 @@ import org.junit.platform.suite.api.Suite
   WithModalProgressTest::class,
   CoroutineToIndicatorTest::class,
   CurrentThreadCoroutineScopeTest::class,
+  ImplicitBlockingContextTest::class,
+  CancellableContextTest::class,
 
   // rw
   CancellableReadActionWithJobTest::class,
@@ -36,7 +38,6 @@ import org.junit.platform.suite.api.Suite
   // propagation
   ThreadContextPropagationTest::class,
   CancellationPropagationTest::class,
-  AlarmContextPropagationTest::class,
   MergingUpdateQueuePropagationTest::class,
   DocumentManagerPropagationTest::class,
   DumbServicePropagationTest::class,

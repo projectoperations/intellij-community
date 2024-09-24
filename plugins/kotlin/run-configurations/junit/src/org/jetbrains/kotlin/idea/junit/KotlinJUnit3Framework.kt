@@ -1,8 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.junit
 
 import com.intellij.execution.junit.JUnit3Framework
 import com.intellij.execution.junit.JUnitUtil
+import com.intellij.ide.fileTemplates.FileTemplateDescriptor
 import com.intellij.java.analysis.OuterModelsModificationTrackerManager
 import com.intellij.lang.Language
 import com.intellij.openapi.util.NlsSafe
@@ -10,6 +11,7 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.impl.compiled.ClsFileImpl
+import com.intellij.psi.impl.compiled.ClsJavaCodeReferenceElementImpl
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.psi.util.CachedValueProvider
@@ -26,6 +28,7 @@ import org.jetbrains.kotlin.idea.testIntegration.framework.KotlinPsiBasedTestFra
 import org.jetbrains.kotlin.idea.testIntegration.framework.KotlinPsiBasedTestFramework.Companion.asKtNamedFunction
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
+import org.jetbrains.kotlin.psi.psiUtil.isPrivate
 
 class KotlinJUnit3Framework: JUnit3Framework(), KotlinPsiBasedTestFramework {
     private val psiBasedDelegate = object : AbstractKotlinPsiBasedTestFramework() {
@@ -83,7 +86,7 @@ class KotlinJUnit3Framework: JUnit3Framework(), KotlinPsiBasedTestFramework {
             if (name == null) return NO
             return checkJUnit3TestClass(
                 declaration,
-                PsiShortNamesCache.getInstance(declaration.project),
+                PsiShortNamesCache.getInstance(declaration.project).withoutLanguages(KotlinLanguage.INSTANCE),
                 declaration.resolveScope,
                 mutableSetOf(name)
             )
@@ -95,6 +98,7 @@ class KotlinJUnit3Framework: JUnit3Framework(), KotlinPsiBasedTestFramework {
             resolveScope: GlobalSearchScope,
             visitedShortNames: MutableSet<String>
         ): ThreeState {
+            if (declaration.isPrivate()) return NO
             if (declaration is KtClass && declaration.isInner()) return NO
             val objects = if (declaration is KtObjectDeclaration) listOf(declaration) else declaration.companionObjects
             if (objects.flatMap { it.declarations }.filterIsInstance<KtNamedFunction>().any { it.name == "suite" }) {
@@ -156,16 +160,21 @@ class KotlinJUnit3Framework: JUnit3Framework(), KotlinPsiBasedTestFramework {
             // circular dependency detected
             val superShortName = superClass.name
             if (superShortName == null || !visitedShortNames.add(superShortName)) return NO
-            if (checkNameMatch(psiJavaFile, TEST_CLASS_FQN, superShortName)) {
+            if (checkNameMatch(psiJavaFile, psiClass, TEST_CLASS_FQN, superShortName)) {
                 return YES
             }
 
             return checkJUnit3TestClass(superClass, shortNamesCache, resolveScope, visitedShortNames)
         }
 
-        private fun checkNameMatch(file: PsiJavaFile, fqNames: Set<String>, shortName: String): Boolean {
+        private fun checkNameMatch(file: PsiJavaFile, psiClass: PsiClass, fqNames: Set<String>, shortName: String): Boolean {
             if (shortName in fqNames || "${file.packageName}.$shortName" in fqNames) return true
-            val importStatements = (file.importList ?: ((file as? ClsFileImpl)?.decompiledPsiFile as? PsiJavaFile)?.importList)?.importStatements ?: return false
+            if (file is ClsFileImpl) {
+                val referenceElements = psiClass.extendsList?.referenceElements?.takeIf { it.size > 0 } ?: return false
+                val referenceElement = referenceElements[0] as? ClsJavaCodeReferenceElementImpl ?: return false
+                return referenceElement.qualifiedName in fqNames
+            }
+            val importStatements = file.importList?.importStatements ?: return false
             for (importStatement in importStatements) {
                 val importedFqName = importStatement.qualifiedName ?: continue
                 if (importedFqName.endsWith(".$shortName") && importedFqName in fqNames) {
@@ -224,6 +233,17 @@ class KotlinJUnit3Framework: JUnit3Framework(), KotlinPsiBasedTestFramework {
     override fun isIgnoredMethod(declaration: KtNamedFunction): Boolean =
         psiBasedDelegate.isIgnoredMethod(declaration)
 
+    override fun getSetUpMethodFileTemplateDescriptor(): FileTemplateDescriptor? {
+        return FileTemplateDescriptor("Kotlin JUnit3 SetUp Function.kt")
+    }
+
+    override fun getTearDownMethodFileTemplateDescriptor(): FileTemplateDescriptor? {
+        return FileTemplateDescriptor("Kotlin JUnit3 TearDown Function.kt")
+    }
+
+    override fun getTestMethodFileTemplateDescriptor(): FileTemplateDescriptor {
+        return FileTemplateDescriptor("Kotlin JUnit3 Test Function.kt")
+    }
 }
 
 private val TEST_CLASS_FQN = setOf(JUnitUtil.TEST_CASE_CLASS)

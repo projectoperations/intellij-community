@@ -7,6 +7,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.util.containers.Stack
 import com.intellij.webSymbols.*
 import com.intellij.webSymbols.completion.WebSymbolCodeCompletionItem
+import com.intellij.webSymbols.context.WebSymbolsContext
 import com.intellij.webSymbols.html.WebSymbolHtmlAttributeValue
 import com.intellij.webSymbols.patterns.WebSymbolsPattern
 import com.intellij.webSymbols.query.WebSymbolsCodeCompletionQueryParams
@@ -18,6 +19,7 @@ import com.intellij.webSymbols.webTypes.impl.WebTypesJsonContributionAdapter
 import com.intellij.webSymbols.webTypes.impl.wrap
 import com.intellij.webSymbols.webTypes.json.*
 import com.intellij.webSymbols.webTypes.json.resolve
+import java.util.Objects
 import javax.swing.Icon
 
 open class WebTypesSymbolBase : WebTypesSymbol {
@@ -47,6 +49,16 @@ open class WebTypesSymbolBase : WebTypesSymbol {
   override fun toString(): String =
     base.toString()
 
+  override fun equals(other: Any?): Boolean =
+    other === this
+    || other is WebTypesSymbolBase
+    && other.javaClass == javaClass
+    && other.base == base
+    && other.queryExecutor === queryExecutor
+
+  override fun hashCode(): Int =
+    Objects.hash(base.hashCode(), queryExecutor.hashCode())
+
   override fun createPointer(): Pointer<WebTypesSymbolBase> {
     val queryExecutorPtr = this.queryExecutor.createPointer()
     val basePtr = this.base.createPointer()
@@ -73,7 +85,7 @@ open class WebTypesSymbolBase : WebTypesSymbol {
                           params: WebSymbolsListSymbolsQueryParams,
                           scope: Stack<WebSymbolsScope>): List<WebSymbolsScope> =
     base.rootScope
-      .getSymbols(base.contributionForQuery, this.origin, qualifiedKind, params)
+      .getSymbols(base.contributionForQuery, this.origin as WebTypesJsonOrigin, qualifiedKind, params)
       .toList()
 
   final override fun getCodeCompletions(qualifiedName: WebSymbolQualifiedName,
@@ -86,7 +98,7 @@ open class WebTypesSymbolBase : WebTypesSymbol {
   final override val kind: SymbolKind
     get() = base.kind
 
-  final override val origin: WebTypesJsonOrigin
+  final override val origin: WebSymbolOrigin
     get() = base.jsonOrigin
 
   final override val namespace: SymbolNamespace
@@ -140,7 +152,7 @@ open class WebTypesSymbolBase : WebTypesSymbol {
             ?: superContributions.asSequence().mapNotNull { it.type }.firstOrNull()
 
   final override val apiStatus: WebSymbolApiStatus
-    get() = base.contribution.toApiStatus(origin)
+    get() = base.contribution.toApiStatus(origin as WebTypesJsonOrigin)
 
   final override val virtual: Boolean
     get() = base.contribution.virtual == true
@@ -170,7 +182,7 @@ open class WebTypesSymbolBase : WebTypesSymbol {
             ?: superContributions.firstOrNull()?.defaultValue
 
   final override val pattern: WebSymbolsPattern?
-    get() = base.jsonPattern?.wrap(base.contribution.name, origin)
+    get() = base.jsonPattern?.wrap(base.contribution.name, origin as WebTypesJsonOrigin)
 
 
   final override val queryScope: List<WebSymbolsScope>
@@ -182,6 +194,9 @@ open class WebTypesSymbolBase : WebTypesSymbol {
   final override fun isExclusiveFor(qualifiedKind: WebSymbolQualifiedKind): Boolean =
     base.isExclusiveFor(qualifiedKind)
         || superContributions.any { it.isExclusiveFor(qualifiedKind) }
+
+  override fun matchContext(context: WebSymbolsContext): Boolean =
+    super.matchContext(context) && base.contribution.requiredContext.evaluate(context)
 
   private inner class HtmlAttributeValueImpl(private val value: HtmlAttributeValue) : WebSymbolHtmlAttributeValue {
     override val kind: WebSymbolHtmlAttributeValue.Kind?

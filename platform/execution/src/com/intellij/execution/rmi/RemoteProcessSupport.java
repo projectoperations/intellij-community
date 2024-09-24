@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.rmi;
 
 import com.intellij.execution.*;
@@ -14,6 +14,7 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.Cancellation;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.*;
@@ -22,6 +23,7 @@ import com.intellij.util.ExceptionUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import kotlinx.coroutines.Job;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -31,6 +33,8 @@ import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.server.RMIClientSocketFactory;
+import java.rmi.server.RMISocketFactory;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -314,6 +318,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
         ProgressManager.checkCanceled();
       }
       if (info == null) {
+        LOG.info("Starring remote process. Existing info not found, creating PendingInfo:" + key);
         myProcMap.put(key, new PendingInfo(ref, null));
       }
     }
@@ -329,7 +334,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
 
   private EntryPoint acquire(final RunningInfo info) throws Exception {
     EntryPoint result = RemoteUtil.executeWithClassLoader(() -> {
-      Registry registry = LocateRegistry.getRegistry(info.host, info.port);
+      Registry registry = LocateRegistry.getRegistry(info.host, info.port, getClientSocketFactory());
       Remote remote = Objects.requireNonNull(registry.lookup(info.name));
 
       if (myValueClass.isInstance(remote)) {
@@ -345,6 +350,17 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     return result;
   }
 
+  /**
+   * Override this method to use custom client socket factory.
+   * <p>
+   * Default implementation returns null and uses {@link RMISocketFactory#getSocketFactory()}
+   *
+   * @return client socket factory to be used by this remote process support.
+   */
+  protected RMIClientSocketFactory getClientSocketFactory() {
+    return null;
+  }
+
   private ProcessListener getProcessListener(@NotNull final Pair<Target, Parameters> key) {
     return new ProcessListener() {
       @Override
@@ -355,6 +371,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
         synchronized (myProcMap) {
           o = myProcMap.get(key);
           if (o instanceof PendingInfo) {
+            LOG.info("Staring remote process, startNotified received, creating PendingInfo: " + key);
             myProcMap.put(key, new PendingInfo(((PendingInfo)o).ref, processHandler));
           }
         }
@@ -363,6 +380,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
 
       @Override
       public void processTerminated(@NotNull ProcessEvent event) {
+        LOG.info("Remote process terminated with code: " + event.getExitCode() + " message = " + event.getText());
         if (dropProcessInfo(key, null, event.getProcessHandler())) {
           fireModificationCountChanged();
         }
@@ -371,6 +389,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
 
       @Override
       public void processWillTerminate(@NotNull ProcessEvent event, boolean willBeDestroyed) {
+        LOG.info("Remote process will terminate: " + event.getText() + " message = " + event.getText());
         if (dropProcessInfo(key, null, event.getProcessHandler())) {
           fireModificationCountChanged();
         }
@@ -382,6 +401,21 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
 
       @Override
       public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
+
+        if (LOG.isDebugEnabled()) {
+          String out = "";
+          if (outputType == ProcessOutputTypes.STDOUT) {
+            out = "stdout";
+          }
+          if (outputType == ProcessOutputTypes.STDERR) {
+            out = "stderr";
+          }
+          if (outputType == ProcessOutputTypes.SYSTEM) {
+            out = "system";
+          }
+          LOG.debug("Remote process " + out + ":" + event.getText());
+        }
+
         String text = StringUtil.notNullize(event.getText());
         logText(key.second, event, outputType);
         RunningInfo result = null;
@@ -397,8 +431,9 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
                 int port = Integer.parseInt(data.get(0));
                 int servicesPort = Integer.parseInt(data.get(1));
                 String id = data.get(2);
-
-                result = new RunningInfo(info.handler, getRemoteHost(), publishPort(port), id, publishPort(servicesPort));
+                String host = getRemoteHost();
+                LOG.info("Started remote process on: " + host + ":" + port + "with service port " + servicesPort + " and id = " + id);
+                result = new RunningInfo(info.handler, host, publishPort(port), id, publishPort(servicesPort));
                 myProcMap.put(key, result);
                 myProcMap.notifyAll();
               }
@@ -418,7 +453,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
           }
           fireModificationCountChanged();
           try {
-            Heartbeat heartbeat = new Heartbeat(result.host, result.port);
+            Heartbeat heartbeat = new Heartbeat(result.host, result.port, getClientSocketFactory());
             heartbeat.startBeat();
             myHeartbeatRef.set(heartbeat);
           }
@@ -452,7 +487,9 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
       }
     }
     if (info instanceof PendingInfo pendingInfo) {
-      if (error != null || pendingInfo.stderr.length() > 0 || pendingInfo.ref.isNull()) {
+      LOG.warn("Dropping process info for pending process: stder = " + pendingInfo.stderr, error);
+
+      if (error != null || !pendingInfo.stderr.isEmpty() || pendingInfo.ref.isNull()) {
         pendingInfo.ref.set(new FailedInfo(error, pendingInfo.stderr.toString()));
       }
       synchronized (pendingInfo.ref) {
@@ -471,6 +508,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     synchronized (myInProcMap) {
       info = myInProcMap.get(key);
       if (info == null) {
+        LOG.info("Running remote service in process: " + key);
         info = new InProcessInfo<>(acquireInProcessFactory(target, configuration));
         myInProcMap.put(key, info);
         created = true;
@@ -573,13 +611,14 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     private boolean live = true;
     private ScheduledFuture<?> myFuture = null;
 
-    Heartbeat(String host, int port) throws RemoteException {
-      myRegistry = LocateRegistry.getRegistry(host, port);
+    Heartbeat(String host, int port, RMIClientSocketFactory clientSocketFactory) throws RemoteException {
+      myRegistry = LocateRegistry.getRegistry(host, port, clientSocketFactory);
     }
 
     void stopBeat() {
       if (myFuture != null) {
         myFuture.cancel(false);
+        myFuture = null;
       }
     }
 
@@ -589,7 +628,21 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
       myFuture = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(() -> {
         beat();
       }, pulseTimeoutMillis, pulseTimeoutMillis, TimeUnit.MILLISECONDS);
-      Disposer.register(ApplicationManager.getApplication(), () -> stopBeat());
+      //noinspection TestOnlyProblems
+      Job contextJob = Cancellation.currentJob();
+      if (contextJob != null) {
+        // The spawned process is bound to the container that invoked it
+        // Using Application as a default container is a bad guess, as it does not allow
+        // proper disposal of the closing of the actual container
+        // which may lead to project leaks, in this particular case.
+        contextJob.invokeOnCompletion((__) -> {
+          stopBeat();
+          return null;
+        });
+      }
+      else {
+        Disposer.register(ApplicationManager.getApplication(), () -> stopBeat());
+      }
     }
 
     public boolean beat() {

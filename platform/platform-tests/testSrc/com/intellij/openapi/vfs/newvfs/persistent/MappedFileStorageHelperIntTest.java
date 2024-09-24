@@ -1,7 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.openapi.vfs.newvfs.persistent.mapped.MappedFileStorageHelper;
+import com.intellij.platform.util.io.storages.StorageTestingUtils;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -123,7 +124,7 @@ public class MappedFileStorageHelperIntTest {
     for (int i = 0; i < ENOUGH_VALUES; i++) {
       vfs.createRecord();
     }
-    int maxAllocatedID = vfs.connection().getRecords().maxAllocatedID();
+    int maxAllocatedID = vfs.connection().records().maxAllocatedID();
 
     for (int fileId = FSRecords.ROOT_FILE_ID; fileId <= maxAllocatedID; fileId++) {
       storageHelper.writeIntField(fileId, FIELD_1_OFFSET_IN_ROW, /*value: */ fileId);
@@ -141,7 +142,7 @@ public class MappedFileStorageHelperIntTest {
     for (int i = 0; i < ENOUGH_VALUES; i++) {
       vfs.createRecord();
     }
-    int maxAllocatedID = vfs.connection().getRecords().maxAllocatedID();
+    int maxAllocatedID = vfs.connection().records().maxAllocatedID();
 
     for (int fileId = FSRecords.ROOT_FILE_ID; fileId <= maxAllocatedID; fileId++) {
       int valueReadBack = storageHelper.readIntField(fileId, FIELD_1_OFFSET_IN_ROW);
@@ -155,7 +156,7 @@ public class MappedFileStorageHelperIntTest {
     for (int i = 0; i < ENOUGH_VALUES; i++) {
       vfs.createRecord();
     }
-    int maxAllocatedID = vfs.connection().getRecords().maxAllocatedID();
+    int maxAllocatedID = vfs.connection().records().maxAllocatedID();
 
     for (int fileId = FSRecords.ROOT_FILE_ID; fileId <= maxAllocatedID; fileId++) {
       storageHelper.writeIntField(fileId, FIELD_1_OFFSET_IN_ROW, /*value: */ fileId);

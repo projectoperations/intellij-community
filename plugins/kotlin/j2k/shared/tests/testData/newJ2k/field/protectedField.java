@@ -1,3 +1,3 @@
 class C {
-protected Foo f;
+    protected String f;
 }

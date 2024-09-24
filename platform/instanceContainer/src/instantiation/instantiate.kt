@@ -1,12 +1,13 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.instanceContainer.instantiation
 
 import com.intellij.concurrency.installTemporaryThreadContext
 import com.intellij.openapi.progress.Cancellation
-import com.intellij.platform.util.coroutines.namedChildScope
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.ArrayUtilRt
 import com.intellij.util.containers.toArray
 import kotlinx.coroutines.*
+import org.jetbrains.annotations.ApiStatus
 import java.lang.invoke.MethodHandle
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
@@ -56,11 +57,16 @@ suspend fun <T> instantiate(
 private fun findConstructor(instanceClass: Class<*>, signatures: List<MethodType>): Pair<MethodType, MethodHandle> {
   val lookup = MethodHandles.privateLookupIn(instanceClass, MethodHandles.lookup())
   for (signature in signatures) {
-    runCatching {
-      return Pair(
-        signature,
-        lookup.findConstructor(instanceClass, signature)
-      )
+    try {
+      return Pair(signature, lookup.findConstructor(instanceClass, signature))
+    }
+    catch (e: CancellationException) {
+      throw e
+    }
+    catch (_: NoSuchMethodException) {
+    }
+    catch (e: Throwable) {
+      throw e
     }
   }
   throw InstantiationException("Class '$instanceClass' does not define any of supported signatures '$signatures'")
@@ -287,7 +293,7 @@ private suspend fun <T> instantiate(
       .toArray(ArrayUtilRt.EMPTY_OBJECT_ARRAY)
       .also { args ->
         replaceScopeMarkerWithScope(args) {
-          parentScope.namedChildScope(instanceClass.name)
+          parentScope.childScope(instanceClass.name)
         }
       }
   }
@@ -300,13 +306,26 @@ private suspend fun <T> instantiate(
   // In general, we want initialization to be cancellable, and it must be canceled only on parent scope cancellation,
   // which happens only on project/application shutdown, or on plugin unload.
   Cancellation.withNonCancelableSection().use {
-    // A separate thread-local is required to track cyclic service initialization, because
-    // we don't want it to be captured by lambdas scheduled in the constructor (= context propagation).
-    // Only the context of the owner coroutine should be captured.
-    // TODO Put BlockingJob to bind all computations started in instance constructor to instance scope.
-    installTemporaryThreadContext(currentCoroutineContext()).use {
-      return instantiate(args)
+    return withStoredTemporaryContext(parentScope) {
+      instantiate(args)
     }
+  }
+}
+
+
+// A separate thread-local is required to track cyclic service initialization, because
+// we don't want it to be captured by lambdas scheduled in the constructor (= context propagation).
+// Only the context of the owner coroutine should be captured.
+// TODO Put BlockingJob to bind all computations started in instance constructor to instance scope.
+@ApiStatus.Internal
+suspend fun <T> withStoredTemporaryContext(parentScope: CoroutineScope, action: () -> T): T {
+  val existingCoroutineContext = currentCoroutineContext()
+  val scopeContext = parentScope.coroutineContext
+  // `temporaryCoroutineContext` belongs to the initialization processes throughout the whole chain of initialization.
+  // We want to prevent the elements that are relevant to `parentScope` from leaking into the nested initialization processes.
+  val curatedContext = scopeContext.fold(existingCoroutineContext) { newCtx, key -> newCtx.minusKey(key.key) }
+  return installTemporaryThreadContext(curatedContext).use {
+    action()
   }
 }
 

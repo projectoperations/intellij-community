@@ -51,8 +51,8 @@ public class ConfigurationContext {
   private RunnerAndConfigurationSettings myConfiguration;
   private boolean myInitialized;
   private boolean myMultipleSelection;
-  private Ref<RunnerAndConfigurationSettings> myExistingConfiguration;
-  private final Module myModule;
+  private volatile Ref<RunnerAndConfigurationSettings> myExistingConfiguration;
+  private final @Nullable Module myModule;
   private final RunConfiguration myRuntimeConfiguration;
   private final DataContext myDataContext;
   private final String myPlace;
@@ -172,17 +172,17 @@ public class ConfigurationContext {
     myPlace = null;
   }
 
-  private @Nullable Object getDefaultData(@NotNull String dataId) {
-    if (CommonDataKeys.PROJECT.is(dataId)) return myLocation == null ? null : myLocation.getProject();
-    if (PlatformCoreDataKeys.MODULE.is(dataId)) return myModule;
-    if (Location.DATA_KEY.is(dataId)) return myLocation;
-    if (CommonDataKeys.EDITOR.is(dataId)) return myEditor;
-    if (CommonDataKeys.PSI_ELEMENT.is(dataId)) return myLocation == null ? null : myLocation.getPsiElement();
-    return null;
+  private void defaultSnapshot(@NotNull DataSink sink) {
+    sink.set(CommonDataKeys.PROJECT, myLocation == null ? null : myLocation.getProject());
+    sink.set(PlatformCoreDataKeys.MODULE, myModule);
+    sink.set(Location.DATA_KEY, myLocation);
+    sink.set(CommonDataKeys.EDITOR, myEditor);
+    sink.set(CommonDataKeys.PSI_ELEMENT, myLocation == null ? null : myLocation.getPsiElement());
   }
 
   public @NotNull DataContext getDefaultDataContext() {
-    return IdeUiService.getInstance().createCustomizedDataContext(DataContext.EMPTY_CONTEXT, this::getDefaultData);
+    return IdeUiService.getInstance().createCustomizedDataContext(
+      DataContext.EMPTY_CONTEXT, (EdtNoGetDataProvider)this::defaultSnapshot);
   }
   
   public boolean containsMultipleSelection() {
@@ -252,25 +252,27 @@ public class ConfigurationContext {
    * @return an existing configuration, or null if none was found.
    */
   public @Nullable RunnerAndConfigurationSettings findExisting() {
-    if (myExistingConfiguration != null) {
-      RunnerAndConfigurationSettings configuration = myExistingConfiguration.get();
+    Ref<RunnerAndConfigurationSettings> existingRef = myExistingConfiguration;
+    if (existingRef != null) {
+      RunnerAndConfigurationSettings configuration = existingRef.get();
       if (configuration == null || !Registry.is("suggest.all.run.configurations.from.context") || configuration.equals(myConfiguration)) {
         return configuration;
       }
     }
-    myExistingConfiguration = new Ref<>();
     Location<? extends PsiElement> location = getLocation();
     if (location == null) {
+      myExistingConfiguration = Ref.create(null);
       return null;
     }
 
-    final PsiElement psiElement = location.getPsiElement();
+    PsiElement psiElement = location.getPsiElement();
     if (!psiElement.isValid()) {
+      myExistingConfiguration = Ref.create(null);
       return null;
     }
 
     if (MultipleRunLocationsProvider.findAlternativeLocations(location) != null) {
-      myExistingConfiguration.set(null);
+      myExistingConfiguration = Ref.create(null);
       return null;
     }
 
@@ -290,8 +292,9 @@ public class ConfigurationContext {
         existingConfigurations.add(new ExistingConfiguration(configuration, producer));
       }
     }
-    myExistingConfiguration.set(findPreferredConfiguration(existingConfigurations, psiElement));
-    return myExistingConfiguration.get();
+    RunnerAndConfigurationSettings preferred = findPreferredConfiguration(existingConfigurations, psiElement);
+    myExistingConfiguration = Ref.create(preferred);
+    return preferred;
   }
 
   private @Nullable RunnerAndConfigurationSettings findPreferredConfiguration(@NotNull List<ExistingConfiguration> existingConfigurations,
@@ -365,7 +368,7 @@ public class ConfigurationContext {
     return myConfiguration == null ? myLocation.getProject() : myConfiguration.getConfiguration().getProject();
   }
 
-  public Module getModule() {
+  public @Nullable Module getModule() {
     return myModule;
   }
 
@@ -402,8 +405,7 @@ public class ConfigurationContext {
     return myRuntimeConfiguration == null || myRuntimeConfiguration.getType() == type;
   }
 
-  @Deprecated(forRemoval = true)
-  public @Nullable List<RuntimeConfigurationProducer> findPreferredProducers() {
+  private @Nullable List<RuntimeConfigurationProducer> findPreferredProducers() {
     if (myPreferredProducers == null) {
       myPreferredProducers = PreferredProducerFind.findPreferredProducers(myLocation, this, true);
     }

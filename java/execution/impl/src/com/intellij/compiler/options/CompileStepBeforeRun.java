@@ -15,6 +15,8 @@ import com.intellij.openapi.compiler.CompileContext;
 import com.intellij.openapi.compiler.CompileScope;
 import com.intellij.openapi.compiler.CompilerManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.DumbAware;
@@ -154,9 +156,8 @@ public final class CompileStepBeforeRun extends BeforeRunTaskProvider<CompileSte
                 }
 
                 final Ref<Boolean> includeTests = new Ref<>(true); // use the biggest scope by default
-                if (configuration instanceof JavaRunConfigurationBase) {
+                if (configuration instanceof JavaRunConfigurationBase conf) {
                   // use more fine-grained compilation scope avoiding compiling classes, not relevant for running this configuration
-                  final JavaRunConfigurationBase conf = (JavaRunConfigurationBase)configuration;
                   final String runClass = conf.getRunClass();
                   final JavaRunConfigurationModule confModule = conf.getConfigurationModule();
                   if (runClass != null && confModule != null) {
@@ -186,7 +187,11 @@ public final class CompileStepBeforeRun extends BeforeRunTaskProvider<CompileSte
           }).expireWith(myProject).executeSynchronously();
 
           ProjectTaskManagerImpl.putBuildOriginator(myProject, CompileStepBeforeRun.class);
-          projectTaskManager.run(pair.first, pair.second).onSuccess(taskResult -> {
+
+          ApplicationManager.getApplication().invokeAndWait(() ->
+            ((FileDocumentManagerImpl)FileDocumentManager.getInstance()).saveAllDocuments(false));
+
+            projectTaskManager.run(pair.first, pair.second).onSuccess(taskResult -> {
             if ((!taskResult.hasErrors() || ignoreErrors) && !taskResult.isAborted()) {
               result.set(Boolean.TRUE);
             }

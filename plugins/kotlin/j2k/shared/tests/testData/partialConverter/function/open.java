@@ -1,2 +1,2 @@
 //method
-String getString<caret>() { return ""; }
+String string<caret>() { return ""; }

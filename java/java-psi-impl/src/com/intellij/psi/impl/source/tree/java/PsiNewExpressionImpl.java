@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.source.tree.java;
 
 import com.intellij.lang.ASTNode;
@@ -37,6 +23,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.List;
 
 public class PsiNewExpressionImpl extends ExpressionPsiElement implements PsiNewExpression {
   private static final Logger LOG = Logger.getInstance(PsiNewExpressionImpl.class);
@@ -56,10 +43,9 @@ public class PsiNewExpressionImpl extends ExpressionPsiElement implements PsiNew
     return doGetType(annotation);
   }
 
-  @Nullable
-  private PsiType doGetType(@Nullable PsiAnnotation stopAt) {
+  private @Nullable PsiType doGetType(@Nullable PsiAnnotation stopAt) {
     PsiType type = null;
-    SmartList<PsiAnnotation> annotations = new SmartList<>();
+    List<PsiAnnotation> annotations = new SmartList<>();
     boolean stop = false;
 
     for (ASTNode child = getFirstChildNode(); child != null; child = child.getTreeNext()) {
@@ -168,21 +154,18 @@ public class PsiNewExpressionImpl extends ExpressionPsiElement implements PsiNew
         return JavaResolveResult.EMPTY_ARRAY;
       }
 
-      @NotNull
       @Override
-      public PsiElement getElement() {
+      public @NotNull PsiElement getElement() {
         return PsiNewExpressionImpl.this;
       }
 
-      @NotNull
       @Override
-      public TextRange getRangeInElement() {
+      public @NotNull TextRange getRangeInElement() {
         return null;
       }
 
       @Override
-      @NotNull
-      public String getCanonicalText() {
+      public @NotNull String getCanonicalText() {
         throw new UnsupportedOperationException();
       }
 
@@ -209,8 +192,7 @@ public class PsiNewExpressionImpl extends ExpressionPsiElement implements PsiNew
   }
 
   @Override
-  @NotNull
-  public JavaResolveResult resolveMethodGenerics() {
+  public @NotNull JavaResolveResult resolveMethodGenerics() {
     ResolveResult[] results = getConstructorFakeReference().multiResolve(false);
     return results.length == 1 ? (JavaResolveResult)results[0] : JavaResolveResult.EMPTY;
   }
@@ -221,8 +203,7 @@ public class PsiNewExpressionImpl extends ExpressionPsiElement implements PsiNew
   }
 
   @Override
-  @NotNull
-  public PsiReferenceParameterList getTypeArgumentList() {
+  public @NotNull PsiReferenceParameterList getTypeArgumentList() {
     return (PsiReferenceParameterList) findChildByRoleAsPsiElement(ChildRole.REFERENCE_PARAMETER_LIST);
   }
 
@@ -250,8 +231,7 @@ public class PsiNewExpressionImpl extends ExpressionPsiElement implements PsiNew
 
   private static final TokenSet CLASS_REF = TokenSet.create(JavaElementType.JAVA_CODE_REFERENCE, JavaElementType.ANONYMOUS_CLASS);
   @Override
-  @Nullable
-  public PsiJavaCodeReferenceElement getClassOrAnonymousClassReference() {
+  public @Nullable PsiJavaCodeReferenceElement getClassOrAnonymousClassReference() {
     ASTNode ref = findChildByType(CLASS_REF);
     if (ref == null) return null;
     if (ref instanceof PsiJavaCodeReferenceElement) return (PsiJavaCodeReferenceElement)ref;
@@ -275,9 +255,6 @@ public class PsiNewExpressionImpl extends ExpressionPsiElement implements PsiNew
   public ASTNode findChildByRole(int role){
     LOG.assertTrue(ChildRole.isUnique(role));
     switch(role){
-      default:
-        return null;
-
       case ChildRole.REFERENCE_PARAMETER_LIST:
         return findChildByType(JavaElementType.REFERENCE_PARAMETER_LIST);
 
@@ -321,6 +298,9 @@ public class PsiNewExpressionImpl extends ExpressionPsiElement implements PsiNew
         else{
           return null;
         }
+
+      default:
+        return null;
     }
   }
 

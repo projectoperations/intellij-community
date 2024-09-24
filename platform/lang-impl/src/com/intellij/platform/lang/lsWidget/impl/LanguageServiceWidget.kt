@@ -2,15 +2,14 @@
 package com.intellij.platform.lang.lsWidget.impl
 
 import com.intellij.icons.AllIcons
+import com.intellij.ide.ui.LafManager
 import com.intellij.lang.LangBundle
-import com.intellij.openapi.actionSystem.ActionGroup
-import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListPopup
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.StatusBarWidget
 import com.intellij.openapi.wm.impl.status.EditorBasedStatusBarPopup
@@ -18,10 +17,16 @@ import com.intellij.platform.lang.lsWidget.LanguageServicePopupSection.ForCurren
 import com.intellij.platform.lang.lsWidget.LanguageServiceWidgetItem
 import com.intellij.platform.lang.lsWidget.LanguageServiceWidgetItemsProvider
 import com.intellij.ui.LayeredIcon
+import com.intellij.ui.RowIcon
+import com.intellij.util.IconUtil
 import com.intellij.util.messages.MessageBusConnection
+import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.JBDimension
+import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.CoroutineScope
 import javax.swing.Icon
+
+private const val maxIconsInStatusBar = 3
 
 internal class LanguageServiceWidget(project: Project, scope: CoroutineScope) : EditorBasedStatusBarPopup(project, false, scope) {
   /**
@@ -32,7 +37,7 @@ internal class LanguageServiceWidget(project: Project, scope: CoroutineScope) : 
    */
   private var cachedWidgetItems: List<LanguageServiceWidgetItem> = emptyList()
 
-  override fun ID(): String = LanguageServiceWidgetFactory.ID
+  override fun ID(): String = LANGUAGE_SERVICES_WIDGET_ID
 
   override fun createInstance(project: Project): StatusBarWidget = LanguageServiceWidget(project, scope)
 
@@ -43,20 +48,55 @@ internal class LanguageServiceWidget(project: Project, scope: CoroutineScope) : 
   override fun getWidgetState(file: VirtualFile?): WidgetState {
     if (!Registry.`is`("language.service.status.bar.widget")) return WidgetState.HIDDEN
 
-    val allItems = LanguageServiceWidgetItemsProvider.EP_NAME.extensionList.flatMap { it.createWidgetItems(project, file) }
+    // If there are more than maxIconsInStatusBar services, then not all icons show up in the status bar.
+    // Sorting helps to make sure that icons with an error marker go first.
+    val allItems = LanguageServiceWidgetItemsProvider.EP_NAME.extensionList
+      .flatMap { it.createWidgetItems(project, file) }
+      .sortedByDescending { it.isError }
     cachedWidgetItems = allItems
     if (allItems.isEmpty()) return WidgetState.HIDDEN
 
     val fileSpecificItems = file?.let { allItems.filter { it.widgetActionLocation == ForCurrentFile } } ?: emptyList()
-    val singleFileSpecificItem = fileSpecificItems.singleOrNull()
-    val text = singleFileSpecificItem?.statusBarText ?: LangBundle.message("language.services.widget")
-    val maxToolbarTextLength = 30
-    val shortenedText = StringUtil.shortenTextWithEllipsis(text, maxToolbarTextLength, 0, true)
-    val tooltip = singleFileSpecificItem?.statusBarTooltip ?: if (text.length > maxToolbarTextLength) text else null
-    val isError = fileSpecificItems.any { it.isError } // or maybe `allItems.any { it.isError }`?
 
-    return WidgetState(tooltip, shortenedText, true).apply {
-      icon = if (isError) errorIcon else normalIcon
+    val widgetIcon = fileSpecificItems.takeIf { it.isNotEmpty() }?.let { createStatusBarIcon(it) }
+                     ?: AllIcons.Json.Object
+
+    val widgetText = when {
+      fileSpecificItems.size > maxIconsInStatusBar -> "+${fileSpecificItems.size - maxIconsInStatusBar + 1}"
+      else -> ""
+    }
+
+    @Suppress("DialogTitleCapitalization")
+    val tooltip = when {
+      fileSpecificItems.isEmpty() -> LangBundle.message("language.services.widget")
+      else -> LangBundle.message("language.services.widget.tooltip.running.on.current.file.list",
+                                 fileSpecificItems.joinToString(separator = "<br>") { "- ${it.statusBarTooltip}" })
+    }
+
+    return WidgetState(tooltip, widgetText, true).apply {
+      icon = widgetIcon
+    }
+  }
+
+  private fun createStatusBarIcon(widgetItems: List<LanguageServiceWidgetItem>): Icon {
+    // either up to 3 icons or 2 icons and "+N" text
+    val items = if (widgetItems.size <= maxIconsInStatusBar) widgetItems else widgetItems.subList(0, maxIconsInStatusBar - 1)
+    if (items.size == 1) return getStatusBarFriendlyIcon(items[0])
+
+    val separatorIcon = EmptyIcon.create(3, 16)
+    val icons = items.flatMap { listOf(getStatusBarFriendlyIcon(it), separatorIcon) }.dropLast(1)
+    return RowIcon(*icons.toTypedArray())
+  }
+
+  private fun getStatusBarFriendlyIcon(item: LanguageServiceWidgetItem): Icon {
+    val statusBarFriendlyColor = when {
+      LafManager.getInstance().currentUIThemeLookAndFeel.isDark -> JBUI.CurrentTheme.StatusBar.Widget.FOREGROUND
+      else -> JBUI.CurrentTheme.StatusBar.Widget.FOREGROUND.brighter() // without `brighter()` icons are too noisy in light themes
+    }
+    val statusBarFriendlyIcon = IconUtil.colorize(item.statusBarIcon, statusBarFriendlyColor)
+    return when {
+      item.isError -> LayeredIcon.layeredIcon(arrayOf(statusBarFriendlyIcon, AllIcons.Nodes.ErrorMark))
+      else -> statusBarFriendlyIcon
     }
   }
 
@@ -68,29 +108,37 @@ internal class LanguageServiceWidget(project: Project, scope: CoroutineScope) : 
       JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
       true
     ).apply {
-      setMinimumSize(JBDimension(270, 1))
+      setMinimumSize(JBDimension(300, 1))
     }
 
   private fun createActionGroup(): ActionGroup {
     val allItems = cachedWidgetItems
     val fileSpecificItems = allItems.filter { it.widgetActionLocation == ForCurrentFile }
     val otherItems = allItems - fileSpecificItems.toSet()
-    // The '---Other---' separator doesn't look great if it's the only separator in the popup, so check only `fileSpecificStates.isNotEmpty()`
-    val needSeparators = fileSpecificItems.isNotEmpty()
 
     val group = DefaultActionGroup()
 
-    if (needSeparators) group.addSeparator(LangBundle.message("language.services.widget.for.current.file"))
-    fileSpecificItems.forEach { group.add(it.createWidgetAction()) }
+    group.addSeparator(LangBundle.message("language.services.widget.section.running.on.current.file"))
+    if (fileSpecificItems.isNotEmpty()) {
+      fileSpecificItems.forEach { group.add(it.createWidgetAction()) }
+    }
+    else {
+      group.add(NoServices)
+    }
 
-    if (needSeparators) group.addSeparator(LangBundle.message("language.services.widget.for.other.files"))
+    group.addSeparator(LangBundle.message("language.services.widget.section.running.on.other.files"))
     otherItems.forEach { group.add(it.createWidgetAction()) }
 
     return group
   }
 
-  private companion object {
-    private val normalIcon: Icon = AllIcons.Json.Object
-    private val errorIcon: Icon = LayeredIcon.layeredIcon { arrayOf(AllIcons.Json.Object, AllIcons.Nodes.ErrorMark) }
+  private object NoServices : AnAction(LangBundle.messagePointer("language.services.widget.no.services")), DumbAware {
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+    override fun update(e: AnActionEvent) {
+      e.presentation.isEnabled = false
+    }
+
+    override fun actionPerformed(e: AnActionEvent) {}
   }
 }

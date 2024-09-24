@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff;
 
 import com.intellij.codeInsight.daemon.OutsidersPsiFileSupport;
@@ -41,10 +41,7 @@ import com.intellij.ui.LightColors;
 import com.intellij.util.LineSeparator;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.PathUtil;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.SystemIndependent;
+import org.jetbrains.annotations.*;
 
 import java.awt.datatransfer.DataFlavor;
 import java.io.File;
@@ -52,6 +49,7 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
+@ApiStatus.Internal
 public final class DiffContentFactoryImpl extends DiffContentFactoryEx {
   private static final Logger LOG = Logger.getInstance(DiffContentFactoryImpl.class);
 
@@ -664,7 +662,7 @@ public final class DiffContentFactoryImpl extends DiffContentFactoryEx {
     }
   }
 
-  private static final class MyLightVirtualFile extends LightVirtualFile {
+  private static final class MyLightVirtualFile extends LightVirtualFile implements DiffLightVirtualFile {
     private final String myPath;
 
     private MyLightVirtualFile(@NotNull @NonNls @SystemIndependent String path, @Nullable FileType fileType, @NotNull String content) {
@@ -683,7 +681,7 @@ public final class DiffContentFactoryImpl extends DiffContentFactoryEx {
     }
   }
 
-  private static class MyBinaryLightVirtualFile extends BinaryLightVirtualFile {
+  private static class MyBinaryLightVirtualFile extends BinaryLightVirtualFile implements DiffLightVirtualFile {
     private final String myPath;
 
     MyBinaryLightVirtualFile(@NotNull @NonNls @SystemIndependent String path, @Nullable FileType type, byte @NotNull [] content) {

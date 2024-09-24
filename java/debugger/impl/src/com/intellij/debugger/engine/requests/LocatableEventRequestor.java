@@ -1,40 +1,19 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.engine.requests;
 
-import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
-import com.intellij.debugger.requests.Requestor;
 import com.intellij.openapi.util.NlsContexts;
 import com.sun.jdi.event.LocatableEvent;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import java.util.function.Function;
-
-public interface LocatableEventRequestor extends Requestor {
+public interface LocatableEventRequestor extends SuspendingRequestor {
   /**
    * @return true if request was hit by the event, false otherwise
    */
   boolean processLocatableEvent(@NotNull SuspendContextCommandImpl action, LocatableEvent event) throws EventProcessingException;
 
-  /**
-   * @return either DebuggerSettings.SUSPEND_NONE or DebuggerSettings.SUSPEND_ALL or DebuggerSettings.SUSPEND_THREAD
-   */
-  String getSuspendPolicy();
-
   default boolean shouldIgnoreThreadFiltering() {
     return false;
-  }
-
-  /**
-   * The callback is applying on suspend-all context after replacing suspend-thread context.
-   * So the callback can schedule additional requests and specify whether the suspend-all event should hold suspension
-   * (true) or resume (false) it.
-   *
-   * @return null iff no need to perform switch to suspend-all context from suspend-thread context
-   */
-  default @Nullable Function<@NotNull SuspendContextImpl, @NotNull Boolean> callbackAfterReplacementForAllThreadSuspendContext() {
-    return null;
   }
 
   class EventProcessingException extends Exception {

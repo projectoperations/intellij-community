@@ -1,10 +1,14 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.frameworkSupport.buildscript
 
+import com.intellij.gradle.toolingExtension.util.GradleVersionUtil
 import com.intellij.openapi.util.text.StringUtil
 import org.gradle.util.GradleVersion
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.gradle.frameworkSupport.script.ScriptElement.Statement.Expression
+import org.jetbrains.plugins.gradle.frameworkSupport.script.ScriptTreeBuilder
+import org.jetbrains.plugins.gradle.util.GradleEnvironment
+import kotlin.apply as applyKt
 
 @ApiStatus.NonExtendable
 @Suppress("MemberVisibilityCanBePrivate")
@@ -77,14 +81,10 @@ abstract class AbstractGradleBuildScriptBuilder<BSB : GradleBuildScriptBuilder<B
     withBuildScriptDependency { call("classpath", dependency) }
 
   override fun withBuildScriptMavenCentral() =
-    withBuildScriptRepository {
-      call("mavenCentral")
-    }
+    withBuildScriptRepository { mavenCentral() }
 
   override fun withMavenCentral() =
-    withRepository {
-      call("mavenCentral")
-    }
+    withRepository { mavenCentral() }
 
   override fun applyPlugin(plugin: String) =
     withPrefix {
@@ -127,6 +127,13 @@ abstract class AbstractGradleBuildScriptBuilder<BSB : GradleBuildScriptBuilder<B
         // We use a code here to force the generator to use parenthesis in Groovy, to be in-line with the documentation
         code("jvmToolchain($jvmTarget)")
       }
+    }
+  }
+
+  override fun withKotlinDsl(): BSB = apply {
+    withMavenCentral()
+    withPlugin {
+      code("`kotlin-dsl`")
     }
   }
 
@@ -193,7 +200,7 @@ abstract class AbstractGradleBuildScriptBuilder<BSB : GradleBuildScriptBuilder<B
   }
 
   override fun targetCompatibility(level: String) = apply {
-    if (gradleVersion.isGradleOlderThan("8.2")) {
+    if (GradleVersionUtil.isGradleOlderThan(gradleVersion, "8.2")) {
       withPostfix {
         assign("targetCompatibility", level)
       }
@@ -206,7 +213,7 @@ abstract class AbstractGradleBuildScriptBuilder<BSB : GradleBuildScriptBuilder<B
   }
 
   override fun sourceCompatibility(level: String) = apply {
-    if (gradleVersion.isGradleOlderThan("8.2")) {
+    if (GradleVersionUtil.isGradleOlderThan(gradleVersion, "8.2")) {
       withPostfix {
         assign("sourceCompatibility", level)
       }
@@ -223,4 +230,14 @@ abstract class AbstractGradleBuildScriptBuilder<BSB : GradleBuildScriptBuilder<B
 
   override fun project(name: String, configuration: String): Expression =
     call("project", "path" to name, "configuration" to configuration)
+
+  override fun ScriptTreeBuilder.mavenCentral() = applyKt {
+    val mavenRepositoryUrl = GradleEnvironment.Urls.MAVEN_REPOSITORY_URL
+    if (mavenRepositoryUrl != null) {
+      mavenRepository(mavenRepositoryUrl)
+    }
+    else {
+      call("mavenCentral")
+    }
+  }
 }

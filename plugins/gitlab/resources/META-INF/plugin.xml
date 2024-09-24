@@ -1,4 +1,4 @@
-<idea-plugin package="org.jetbrains.plugins.gitlab">
+<idea-plugin package="org.jetbrains.plugins.gitlab" allow-bundled-update="true">
   <name>GitLab</name>
   <id>org.jetbrains.plugins.gitlab</id>
   <vendor>JetBrains</vendor>
@@ -39,9 +39,15 @@
   <dependencies>
     <plugin id="com.intellij.modules.lang"/>
     <plugin id="Git4Idea"/>
-    <plugin id="org.jetbrains.plugins.yaml"/>
     <plugin id="com.intellij.modules.json"/>
+    <module name="intellij.platform.collaborationTools"/>
   </dependencies>
+
+  <extensionPoints>
+    <extensionPoint qualifiedName="intellij.vcs.gitlab.titleGenerator"
+                    interface="org.jetbrains.plugins.gitlab.mergerequest.ui.create.model.GitLabTitleGeneratorExtension"
+                    dynamic="true"/>
+  </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
     <applicationService serviceImplementation="org.jetbrains.plugins.gitlab.authentication.accounts.GitLabPersistentAccounts"/>
@@ -67,8 +73,8 @@
     <virtualFileSystem key="gitlabmr" implementationClass="org.jetbrains.plugins.gitlab.mergerequest.file.GitLabVirtualFileSystem"/>
     <fileEditorProvider implementation="org.jetbrains.plugins.gitlab.mergerequest.file.GitLabFileEditorProvider"/>
     <diff.DiffExtension implementation="org.jetbrains.plugins.gitlab.mergerequest.diff.GitLabMergeRequestDiffExtension"/>
-    <fileIconProvider implementation="org.jetbrains.plugins.gitlab.ui.GitLabCiConfigIconProvider"/>
-    <iconMapper mappingFile="GitlabIconMappings.json"/>
+    <fileIconProvider implementation="org.jetbrains.plugins.gitlab.ui.GitlabCiIconProvider"/>
+    <fileTypeUsageSchemaDescriptor schema="gitlab" implementationClass="org.jetbrains.plugins.gitlab.ui.GitlabFileTypeSchemaProvider"/>
 
     <vcsAnnotationGutterActionProvider implementation="org.jetbrains.plugins.gitlab.ui.action.GitLabAnnotationGutterActionProvider"/>
 
@@ -86,6 +92,7 @@
     <registryKey defaultValue="1000" description="Request polling interval in milliseconds" key="gitlab.request.polling.interval.millis"/>
     <registryKey defaultValue="5" description="Request polling attempts" key="gitlab.request.polling.attempts"/>
     <registryKey defaultValue="62" description="Days until an entry in the viewed/not viewed state store is considered stale" key="gitlab.viewed.state.stale.timeout"/>
+    <registryKey defaultValue="0" description="The number of merge requests at the top of the list to pre-emptively load and cache" key="gitlab.merge.requests.cached.from.list"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij.statistics">
@@ -100,8 +107,11 @@
   </extensions>
 
   <extensions defaultExtensionNs="Git4Idea">
-    <GitHttpAuthDataProvider implementation="org.jetbrains.plugins.gitlab.git.http.GitLabSilentHttpAuthDataProvider"/>
-    <GitHttpAuthDataProvider implementation="org.jetbrains.plugins.gitlab.git.http.GitLabHttpAuthDataProvider"/>
+    <GitHttpAuthDataProvider id="GitLab.Silent"
+                             implementation="org.jetbrains.plugins.gitlab.git.http.GitLabSilentHttpAuthDataProvider"
+                             order="before GitLab"/>
+    <GitHttpAuthDataProvider id="GitLab"
+                             implementation="org.jetbrains.plugins.gitlab.git.http.GitLabHttpAuthDataProvider"/>
     <gitCurrentBranchPresenter
       implementation="org.jetbrains.plugins.gitlab.mergerequest.ui.review.GitLabMergeRequestOnCurrentBranchService$BranchPresenter"/>
     <gitPushNotificationCustomizer implementation="org.jetbrains.plugins.gitlab.notification.GitLabPushNotificationCustomizer"/>
@@ -239,5 +249,7 @@
       </action>
       <add-to-group group-id="Git.Experimental.Branch.Popup.Actions"/>
     </group>
+
+    <group id="GitLab.Merge.Request.Create.Title.Actions"/>
   </actions>
 </idea-plugin>

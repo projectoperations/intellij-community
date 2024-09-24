@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.fir.completion;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -17,34 +18,96 @@ import org.junit.runner.RunWith;
 @TestRoot("fir/tests")
 @TestDataPath("$CONTENT_ROOT")
 @RunWith(JUnit3RunnerWithInners.class)
-@TestMetadata("../../completion/testData/multiPlatform")
-public class K2MultiPlatformCompletionTestGenerated extends AbstractK2MultiPlatformCompletionTest {
-    private void runTest(String testDataFilePath) throws Exception {
-        KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+public abstract class K2MultiPlatformCompletionTestGenerated extends AbstractK2MultiPlatformCompletionTest {
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../completion/testData/multiPlatform/actualDeclaration")
+    public static class ActualDeclaration extends AbstractK2MultiPlatformCompletionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("actualFromSeveralFiles")
+        public void testActualFromSeveralFiles() throws Exception {
+            runTest("../../completion/testData/multiPlatform/actualDeclaration/actualFromSeveralFiles/");
+        }
+
+        @TestMetadata("actualFun")
+        public void testActualFun() throws Exception {
+            runTest("../../completion/testData/multiPlatform/actualDeclaration/actualFun/");
+        }
+
+        @TestMetadata("actualModuleTargetIsNotVisibleInAnotherModule")
+        public void testActualModuleTargetIsNotVisibleInAnotherModule() throws Exception {
+            runTest("../../completion/testData/multiPlatform/actualDeclaration/actualModuleTargetIsNotVisibleInAnotherModule/");
+        }
+
+        @TestMetadata("actualVal")
+        public void testActualVal() throws Exception {
+            runTest("../../completion/testData/multiPlatform/actualDeclaration/actualVal/");
+        }
+
+        @TestMetadata("actualWithSamePackage")
+        public void testActualWithSamePackage() throws Exception {
+            runTest("../../completion/testData/multiPlatform/actualDeclaration/actualWithSamePackage/");
+        }
     }
 
-    @TestMetadata("classInCommon")
-    public void testClassInCommon() throws Exception {
-        runTest("../../completion/testData/multiPlatform/classInCommon/");
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../completion/testData/multiPlatform/classDeclaration")
+    public static class ClassDeclaration extends AbstractK2MultiPlatformCompletionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("classInCommon")
+        public void testClassInCommon() throws Exception {
+            runTest("../../completion/testData/multiPlatform/classDeclaration/classInCommon/");
+        }
+
+        @TestMetadata("classInCommonNonImported")
+        public void testClassInCommonNonImported() throws Exception {
+            runTest("../../completion/testData/multiPlatform/classDeclaration/classInCommonNonImported/");
+        }
+
+        @TestMetadata("classInPlatform")
+        public void testClassInPlatform() throws Exception {
+            runTest("../../completion/testData/multiPlatform/classDeclaration/classInPlatform/");
+        }
     }
 
-    @TestMetadata("classInCommonNonImported")
-    public void testClassInCommonNonImported() throws Exception {
-        runTest("../../completion/testData/multiPlatform/classInCommonNonImported/");
-    }
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../completion/testData/multiPlatform/functionDeclaration")
+    public static class FunctionDeclaration extends AbstractK2MultiPlatformCompletionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
 
-    @TestMetadata("classInPlatform")
-    public void testClassInPlatform() throws Exception {
-        runTest("../../completion/testData/multiPlatform/classInPlatform/");
-    }
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
 
-    @TestMetadata("functionInCommon")
-    public void testFunctionInCommon() throws Exception {
-        runTest("../../completion/testData/multiPlatform/functionInCommon/");
-    }
+        @TestMetadata("functionInCommon")
+        public void testFunctionInCommon() throws Exception {
+            runTest("../../completion/testData/multiPlatform/functionDeclaration/functionInCommon/");
+        }
 
-    @TestMetadata("functionInPlatform")
-    public void testFunctionInPlatform() throws Exception {
-        runTest("../../completion/testData/multiPlatform/functionInPlatform/");
+        @TestMetadata("functionInPlatform")
+        public void testFunctionInPlatform() throws Exception {
+            runTest("../../completion/testData/multiPlatform/functionDeclaration/functionInPlatform/");
+        }
     }
 }

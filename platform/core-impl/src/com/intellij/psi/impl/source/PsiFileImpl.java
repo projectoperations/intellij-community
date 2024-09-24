@@ -38,6 +38,7 @@ import com.intellij.testFramework.ReadOnlyLightVirtualFile;
 import com.intellij.util.*;
 import com.intellij.util.indexing.IndexingDataKeys;
 import com.intellij.util.text.CharArrayUtil;
+import com.intellij.util.text.CharSequenceSubSequence;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -45,9 +46,23 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.*;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
+import static com.intellij.util.ObjectUtils.tryCast;
+
 public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiFileWithStubSupport, Queryable, Cloneable {
+  private static final CharTable NON_INTERNING_CHAR_TABLE = new CharTable() {
+    @Override
+    public @NotNull CharSequence intern(@NotNull CharSequence text) {
+      return text;
+    }
+
+    @Override
+    public @NotNull CharSequence intern(@NotNull CharSequence baseText, int startOffset, int endOffset) {
+      return new CharSequenceSubSequence(baseText, startOffset, endOffset);
+    }
+  };
   private static final Logger LOG = Logger.getInstance(PsiFileImpl.class);
   static final @NonNls String STUB_PSI_MISMATCH = "stub-psi mismatch";
 
@@ -253,16 +268,18 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
 
   @Override
   public @NotNull StubbedSpine getStubbedSpine() {
-    StubTree tree = getGreenStubTree();
-    if (tree != null) return tree.getSpine();
-
-    AstSpine astSpine = calcTreeElement().getStubbedSpine();
-    if (!myTrees.useSpineRefs()) {
-      synchronized (myPsiLock) {
-        updateTrees(myTrees.switchToSpineRefs(FileTrees.getAllSpinePsi(astSpine)));
+    return withGreenStubTreeOrAst(
+      stubTree -> stubTree.getSpine(),
+      ast -> {
+        AstSpine astSpine = ast.getStubbedSpine();
+        if (!myTrees.useSpineRefs()) {
+          synchronized (myPsiLock) {
+            updateTrees(myTrees.switchToSpineRefs(FileTrees.getAllSpinePsi(astSpine)));
+          }
+        }
+        return astSpine;
       }
-    }
-    return astSpine;
+    );
   }
 
   public @Nullable IStubFileElementType<?> getElementTypeForStubBuilder() {
@@ -277,6 +294,9 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
 
     if (contentLeaf instanceof FileElement) {
       treeElement = (FileElement)contentLeaf;
+      if (getUserData(IndexingDataKeys.VIRTUAL_FILE) != null) {
+        treeElement.setCharTable(NON_INTERNING_CHAR_TABLE);
+      }
     }
     else {
       CompositeElement xxx = ASTFactory.composite(myElementType);
@@ -290,7 +310,7 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
 
   @Override
   public void clearCaches() {
-    myModificationStamp ++;
+    myModificationStamp++;
   }
 
   @Override
@@ -491,7 +511,6 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
 
   @Override
   public boolean isPhysical() {
-    // TODO[ik] remove this shit with dummy file system
     return getViewProvider().isEventSystemEnabled();
   }
 
@@ -503,7 +522,7 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
   @Override
   public @Nullable IFileElementType getFileElementType() {
     return myElementType instanceof IFileElementType ? (IFileElementType)myElementType
-                                                     : ObjectUtils.tryCast(myContentElementType, IFileElementType.class);
+                                                     : tryCast(myContentElementType, IFileElementType.class);
   }
 
   @Override
@@ -590,7 +609,7 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
   /**
    * @return a root stub of {@link #getStubTree()}, or null if the file is not stub-based or AST has been loaded.
    */
-  public @Nullable StubElement getStub() {
+  public @Nullable StubElement<?> getStub() {
     StubTree stubHolder = getStubTree();
     return stubHolder != null ? stubHolder.getRoot() : null;
   }
@@ -599,14 +618,81 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
    * A green stub is a stub object that can co-exist with tree (AST). So, contrary to {@link #getStub()}, can be non-null
    * even if the AST has been loaded in this file. It can be used in cases when retrieving information from a stub is cheaper
    * than from AST.
+   *
    * @return a stub object corresponding to the file's content, or null if it's not available (e.g. has been garbage-collected)
    * @see #getStub()
    * @see #getStubTree()
+   *
+   * @deprecated Use {@link #withGreenStubOrAst} to avoid race condition. Race condition can happen when AST is attached to
+   *             the {@code PsiFile} when stub is being retrieved from the file system. In such case {@code getGreenStub} may
+   *             return {@code null}. Between call to {@code getGreenStub} and access to the AST, the AST may be GC-ed, as it
+   *             is only softly referenced. This will result in file reparse, which leads to performance degradation
+   *             and especially to the hard-to-locate flakiness of tests.
    */
+  @Deprecated
   public final @Nullable StubElement<?> getGreenStub() {
     StubTree stubHolder = getGreenStubTree();
     return stubHolder != null ? stubHolder.getRoot() : null;
   }
+
+  /**
+   * @return a stub tree object having {@link #getGreenStub()} as a root, or null if there's no green stub available
+   * @deprecated Use {@link #getStubTreeOrFileElement()} or {@link #withGreenStubTreeOrAst(Function, Function)}.
+   *             See deprecation note of {@link #getGreenStub()}
+   */
+  @Deprecated
+  public final @Nullable StubTree getGreenStubTree() {
+    return getStubTreeOrFileElement().first;
+  }
+
+  @SuppressWarnings("unchecked")
+  public final <T> T withGreenStubOrAst(
+    Function<PsiFileStub<?>, T> stubProcessor,
+    Function<FileElement, T> astProcessor
+  ) {
+    //noinspection rawtypes
+    return withGreenStubOrAst((Class<PsiFileStub<?>>)(Class)PsiFileStub.class, stubProcessor, astProcessor);
+  }
+
+  public final <T, S extends PsiFileStub<?>> T withGreenStubOrAst(
+    Class<S> stubClass,
+    Function<S, T> stubProcessor,
+    Function<FileElement, T> astProcessor
+  ) {
+    Pair<@Nullable StubTree, @Nullable FileElement> result = getStubTreeOrFileElement();
+    StubElement<?> stubElement = result.first != null ? result.first.getRoot() : null;
+    if (stubElement != null && !stubClass.isAssignableFrom(stubElement.getClass())) {
+      IStubFileElementType<?> elementType = getElementTypeForStubBuilder();
+      String elementTypeName = elementType != null ? elementType.getExternalId() : null;
+      Logger.getInstance(PsiFileImpl.class).error("stub: " + stubElement.getClass().getName() + "; file: " + elementTypeName);
+      stubElement = null;
+    }
+    if (stubElement != null) {
+      //noinspection unchecked
+      return stubProcessor.apply((S)stubElement);
+    }
+    FileElement fileElement = result.second;
+    if (fileElement == null) {
+      fileElement = calcTreeElement();
+    }
+    return astProcessor.apply(fileElement);
+  }
+
+  public final <T> T withGreenStubTreeOrAst(
+    Function<StubTree, T> stubProcessor,
+    Function<FileElement, T> astProcessor
+  ) {
+    Pair<@Nullable StubTree, @Nullable FileElement> result = getStubTreeOrFileElement();
+    if (result.first != null) {
+      return stubProcessor.apply(result.first);
+    }
+    FileElement fileElement = result.second;
+    if (fileElement == null) {
+      fileElement = calcTreeElement();
+    }
+    return astProcessor.apply(fileElement);
+  }
+
 
   /**
    * @return a stub tree, if this file has it, and only if AST isn't loaded
@@ -614,44 +700,51 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
    */
   @Override
   public @Nullable StubTree getStubTree() {
+    Pair<StubTree, FileElement> result = getStubTreeOrFileElement();
+    return result.second == null ? result.first : null;
+  }
+
+  public @NotNull Pair<@Nullable StubTree, @Nullable FileElement> getStubTreeOrFileElement() {
     assertReadAccessAllowed();
 
-    if (getTreeElement() != null) return null;
-
     StubTree derefd = derefStub();
-    if (derefd != null) return derefd;
+    FileElement treeElement = getTreeElement();
+    if (derefd != null || treeElement != null) {
+      return Pair.create(derefd, treeElement);
+    }
 
     if (Boolean.TRUE.equals(getUserData(BUILDING_STUB)) || myLoadingAst || getElementTypeForStubBuilder() == null) {
-      return null;
+      return Pair.empty();
     }
 
     VirtualFile vFile = getVirtualFile();
 
     ObjectStubTree<?> tree = StubTreeLoader.getInstance().readOrBuild(getProject(), vFile, this);
-    if (!(tree instanceof StubTree)) return null;
+    if (!(tree instanceof StubTree)) return Pair.empty();
     FileViewProvider viewProvider = getViewProvider();
-    List<Pair<IStubFileElementType, PsiFile>> roots = StubTreeBuilder.getStubbedRoots(viewProvider);
+    List<Pair<IStubFileElementType<?>, PsiFile>> roots = StubTreeBuilder.getStubbedRoots(viewProvider);
 
     try {
       synchronized (myPsiLock) {
-        if (getTreeElement() != null) return null;
-
-        StubTree derefdOnLock = derefStub();
-        if (derefdOnLock != null) return derefdOnLock;
+        FileElement treeElementOnLock = getTreeElement();
+        StubTree dereferencedOnLock = derefStub();
+        if (dereferencedOnLock != null || treeElementOnLock != null) {
+          return Pair.create(dereferencedOnLock, treeElementOnLock);
+        }
 
         PsiFileStubImpl<?> baseRoot = (PsiFileStubImpl<?>)((StubTree)tree).getRoot();
         if (!baseRoot.rootsAreSet()) {
           LOG.error("Stub roots must be set when stub tree was read or built with StubTreeLoader");
-          return null;
+          return Pair.empty();
         }
         PsiFileStub<?>[] stubRoots = baseRoot.getStubRoots();
         if (stubRoots.length != roots.size()) {
-          Function<PsiFileStub<?>, String> stubToString =
+          com.intellij.util.Function<PsiFileStub<?>, String> stubToString =
             stub -> "{" + stub.getClass().getSimpleName() + " " + stub.getType().getLanguage() + "}";
           LOG.error("readOrBuilt roots = " + StringUtil.join(stubRoots, stubToString, ", ") + "; " +
                     StubTreeLoader.getFileViewProviderMismatchDiagnostics(viewProvider));
           rebuildStub();
-          return null;
+          return Pair.empty();
         }
 
         StubTree result = null;
@@ -666,7 +759,7 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
         }
 
         assert result != null : "Current file not in root list: " + roots + ", vp=" + viewProvider;
-        return result;
+        return Pair.create(result, null);
       }
     }
     catch (StubTreeLoader.StubTreeAndIndexUnmatchCoarseException e) {
@@ -695,7 +788,7 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
 
   protected PsiFileImpl cloneImpl(FileElement treeElementClone) {
     PsiFileImpl clone = (PsiFileImpl)super.clone();
-    clone.setTreeElementPointer(treeElementClone); // should not use setTreeElement here because cloned file still have VirtualFile (SCR17963)
+    clone.setTreeElementPointer(treeElementClone); // should not use setTreeElement here because the cloned file still has VirtualFile (SCR17963)
     treeElementClone.setPsi(clone);
     return clone;
   }
@@ -735,7 +828,7 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
 
   @Override
   public PsiElement @NotNull [] getChildren() {
-    return calcTreeElement().getChildrenAsPsiElements((TokenSet)null, PsiElement.ARRAY_FACTORY);
+    return calcTreeElement().getChildrenAsPsiElements((TokenSet)null, ARRAY_FACTORY);
   }
 
   @Override
@@ -942,14 +1035,6 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
   @Override
   public boolean isEquivalentTo(PsiElement another) {
     return this == another;
-  }
-
-  /**
-   * @return a stub tree object having {@link #getGreenStub()} as a root, or null if there's no green stub available
-   */
-  public final @Nullable StubTree getGreenStubTree() {
-    StubTree result = derefStub();
-    return result != null ? result : getStubTree();
   }
 
   public @NotNull StubTree calcStubTree() {

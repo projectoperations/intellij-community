@@ -98,8 +98,7 @@ final class StubTreeLoaderImpl extends StubTreeLoader {
   @Override
   public @Nullable ObjectStubTree<?> readFromVFile(@NotNull Project project, final @NotNull VirtualFile vFile) {
     if ((DumbService.getInstance(project).isDumb() &&
-         (!FileBasedIndex.isIndexAccessDuringDumbModeEnabled() ||
-          FileBasedIndex.getInstance().getCurrentDumbModeAccessType() != DumbModeAccessType.RELIABLE_DATA_ONLY)) ||
+         FileBasedIndex.getInstance().getCurrentDumbModeAccessType() != DumbModeAccessType.RELIABLE_DATA_ONLY) ||
         NoAccessDuringPsiEvents.isInsideEventProcessing()) {
       return null;
     }
@@ -177,7 +176,15 @@ final class StubTreeLoaderImpl extends StubTreeLoader {
       List<Project> projects = ContainerUtil.findAll(ProjectManager.getInstance().getOpenProjects(),
                                                      p -> PsiManagerEx.getInstanceEx(p).getFileManager().findCachedViewProvider(vFile) !=
                                                           null);
-      message += "\nprojects with file: " + (LOG.isDebugEnabled() ? projects.toString() : projects.size());
+      message += "\nprojects with file: " + projects.size() + "\n";
+      for (Project project : projects) {
+        message += project.getLocationHash();
+        if (project.equals(cachedPsi.getProject())) {
+          message += " (this)";
+        }
+        message += " shouldBeIndexed=" + IndexableFilesIndex.getInstance(project).shouldBeIndexed(vFile);
+        message += "\n";
+      }
     }
 
     Path nioPath = vFile.getFileSystem().getNioPath(vFile);

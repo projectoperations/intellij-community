@@ -1,18 +1,22 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.propertyBased;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.java.analysis.JavaAnalysisBundle;
+import com.intellij.modcommand.ModCommand;
+import com.intellij.modcommand.ModShowConflicts;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.testFramework.propertyBased.IntentionPolicy;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 class JavaIntentionPolicy extends IntentionPolicy {
   @Override
@@ -21,6 +25,7 @@ class JavaIntentionPolicy extends IntentionPolicy {
            actionText.startsWith("Attach annotations") || // changes project model
            actionText.startsWith("Change class type parameter") || // doesn't change file text (starts live template)
            actionText.startsWith("Rename reference") || // doesn't change file text (starts live template)
+           actionText.equals("Reformat file") || // ProblematicWhitespaceInspection: may do nothing when problematic whitespace is inside comment, related to IDEA-305318
            super.shouldSkipIntention(actionText);
   }
 
@@ -48,17 +53,16 @@ class JavaIntentionPolicy extends IntentionPolicy {
            actionText.startsWith("Cast to ") || // produces uncompilable code by design
            actionText.matches("Surround with 'if \\(.+\\)'") || // might produce uninitialized variable or missing return statement problem
            actionText.startsWith("Unwrap 'else' branch (changes semantics)") || // might produce code with final variables are initialized several times
-           actionText.startsWith("Create missing branches: ") || // if all existing branches do 'return something', we don't automatically generate compilable code for new branches
+           actionText.startsWith("Create missing branches ") || // if all existing branches do 'return something', we don't automatically generate compilable code for new branches
            actionText.matches("Make .* default") || // can make interface non-functional and its lambdas incorrect
            actionText.startsWith("Unimplement") || // e.g. leaves red references to the former superclass methods
            actionText.startsWith("Add 'catch' clause for '") || // if existing catch contains "return value", new error "Missing return statement" may appear
            actionText.startsWith("Surround with try-with-resources block") || // if 'close' throws, we don't add a new 'catch' for that, see IDEA-196544
            actionText.equals("Split into declaration and initialization") || // TODO: remove when IDEA-179081 is fixed
-           actionText.matches("Replace with throws .*") || //may break catches with explicit exceptions
-           actionText.equals("Generate 'clone()' method which always throws exception") || // IDEA-207048
+           actionText.matches("Replace with throws .*") || // may break catches with explicit exceptions
            actionText.matches("Replace '.+' with '.+' in cast") || // can produce uncompilable code by design
            actionText.matches("Replace with '(new .+\\[]|.+\\[]::new)'") || // Suspicious toArray may introduce compilation error
-           actionText.equals("Rollback changes in current line"); //revert only one line
+           actionText.equals("Rollback changes in current line"); // revert only one line
   }
 
   static boolean skipPreview(@NotNull IntentionAction action) {
@@ -93,6 +97,7 @@ class JavaCommentingStrategy extends JavaIntentionPolicy {
                                       intentionText.equals("Remove 'while' statement") ||
                                       intentionText.startsWith("Unimplement Class") || intentionText.startsWith("Unimplement Interface") ||//remove methods in batch
                                       intentionText.startsWith("Suppress with 'NON-NLS' comment") ||
+                                      intentionText.startsWith("Suppress for ") || // Suppressions often modify comments 
                                       intentionText.startsWith("Move comment to separate line") ||//merge comments on same line
                                       intentionText.startsWith("Remove redundant arguments to call") ||//removes arg with all comments inside
                                       intentionText.startsWith("Convert to 'enum'") ||//removes constructor with javadoc?
@@ -102,6 +107,7 @@ class JavaCommentingStrategy extends JavaIntentionPolicy {
                                       intentionText.startsWith("Delete unnecessary import") ||
                                       intentionText.startsWith("Delete empty class initializer") ||
                                       intentionText.startsWith("Replace with 'throws Exception'") ||
+                                      intentionText.equals("Replace 'catch' section with 'throws' declaration") ||
                                       intentionText.startsWith("Replace unicode escape with character") ||
                                       intentionText.startsWith("Remove 'serialVersionUID' field") ||
                                       intentionText.startsWith("Remove unnecessary") ||
@@ -117,6 +123,7 @@ class JavaCommentingStrategy extends JavaIntentionPolicy {
                                       intentionText.matches(JavaAnalysisBundle.message("inspection.redundant.type.remove.quickfix")) ||
                                       intentionText.matches("Remove .+ suppression") ||
                                       familyName.equals("Fix typo") ||
+                                      familyName.equals("Remove annotation") || // may remove comment inside annotation
                                       familyName.equals("Reformat the whole file"); // may update @noinspection lines
     return !isCommentChangingAction;
   }
@@ -148,6 +155,15 @@ class JavaGreenIntentionPolicy extends JavaIntentionPolicy {
   @Override
   protected boolean shouldSkipIntention(@NotNull String actionText) {
     return super.shouldSkipIntention(actionText) || mayBreakCompilation(actionText);
+  }
+
+  @Override
+  public @Nullable String validateCommand(@NotNull ModCommand modCommand) {
+    if (modCommand instanceof ModShowConflicts conflicts) {
+      return "Conflict; may break compilation: " +
+             conflicts.conflicts().values().stream().flatMap(c -> c.messages().stream()).distinct().collect(Collectors.joining("; "));
+    }
+    return super.validateCommand(modCommand);
   }
 }
 

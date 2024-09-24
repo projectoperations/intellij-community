@@ -48,6 +48,7 @@ import java.util.function.IntPredicate;
 import static com.intellij.util.indexing.diagnostic.IndexLookupTimingsReporting.IndexOperationFusCollector.*;
 import static com.intellij.util.io.MeasurableIndexStore.keysCountApproximatelyIfPossible;
 
+@SuppressWarnings("TypeParameterHidesVisibleType")
 @ApiStatus.Internal
 public abstract class FileBasedIndexEx extends FileBasedIndex {
   public static final boolean TRACE_STUB_INDEX_UPDATES = SystemProperties.getBooleanProperty("idea.trace.stub.index.update", false) ||
@@ -58,6 +59,13 @@ public abstract class FileBasedIndexEx extends FileBasedIndex {
   @SuppressWarnings("SSBasedInspection")
   private static final ThreadLocal<Stack<DumbModeAccessType>> ourDumbModeAccessTypeStack =
     ThreadLocal.withInitial(() -> new com.intellij.util.containers.Stack<>());
+  /**
+   * Prevents caching of the inner computations that happened inside ignoreDumbMode (in case if access to indexes was in fact requested)
+   * But it doesn't prevent caching of the result returned from ignoreDumbMode (for example, if ignoreDumbMode is
+   * wrapped in CachedValuesManager.getCachedValue)
+   * <p>
+   * It doesn't work as a recursion guard and computePreventingRecursion is not called recursively.
+   */
   private static final RecursionGuard<Object> ourIgnoranceGuard = RecursionManager.createGuard("ignoreDumbMode");
 
   @ApiStatus.Internal
@@ -71,7 +79,7 @@ public abstract class FileBasedIndexEx extends FileBasedIndex {
   }
 
   @ApiStatus.Internal
-  static boolean doTraceSharedIndexUpdates() {
+  public static boolean doTraceSharedIndexUpdates() {
     return TRACE_SHARED_INDEX_UPDATES;
   }
 
@@ -103,21 +111,45 @@ public abstract class FileBasedIndexEx extends FileBasedIndex {
                                              @Nullable VirtualFile restrictedFile);
 
   @Override
-  public @NotNull <K, V> List<V> getValues(final @NotNull ID<K, V> indexId, @NotNull K dataKey, final @NotNull GlobalSearchScope filter) {
-    @Nullable Iterator<VirtualFile> restrictToFileIt = extractSingleFileOrEmpty(filter);
+  public @NotNull <K, V> List<V> getValues(final @NotNull ID<K, V> indexId, @NotNull K dataKey, final @NotNull GlobalSearchScope scope) {
+    Iterator<VirtualFile> restrictToFileIt = extractSingleFileOrEmpty(scope);
 
-    final List<V> values = new SmartList<>();
-    ValueProcessor<V> processor = (file, value) -> {
-      values.add(value);
-      return true;
-    };
+    List<V> values = new SmartList<>();
     if (restrictToFileIt != null) {
+      ValueProcessor<V> processor = (file, value) -> {
+        values.add(value);
+        return true;
+      };
       VirtualFile restrictToFile = restrictToFileIt.hasNext() ? restrictToFileIt.next() : null;
       if (restrictToFile == null) return Collections.emptyList();
-      processValuesInOneFile(indexId, dataKey, restrictToFile, filter, processor);
+      processValuesInOneFile(indexId, dataKey, restrictToFile, scope, processor);
     }
     else {
-      processValuesInScope(indexId, dataKey, true, filter, null, processor);
+      Project project = scope.getProject();
+      IdFilter filter = extractIdFilter(scope, project);
+      IntPredicate accessibleFileFilter = getAccessibleFileIdFilter(project);
+
+      processValueIterator(indexId, dataKey, null, scope, valueIt -> {
+        while (valueIt.hasNext()) {
+          V value = valueIt.next();
+          boolean isValueAccessible = false;
+          // to return a value, at least one file in there must be in scope
+          for (ValueContainer.IntIterator inputIdsIterator = valueIt.getInputIdsIterator(); inputIdsIterator.hasNext(); ) {
+            int id = inputIdsIterator.next();
+            if (!accessibleFileFilter.test(id) || (filter != null && !filter.containsFileId(id))) continue;
+            VirtualFile file = findFileById(id);
+            if (file != null && scope.contains(file)) {
+              isValueAccessible = true;
+              break;
+            }
+            ProgressManager.checkCanceled();
+          }
+          if (isValueAccessible) {
+            values.add(value);
+          }
+        }
+        return true;
+      });
     }
     return values;
   }
@@ -495,6 +527,10 @@ public abstract class FileBasedIndexEx extends FileBasedIndex {
 
   /**
    * Returns providers of files to be indexed.
+   * <p>
+   * Don't iterate over these providers in one [smart] read action because on large projects it will either cause a freeze
+   * without a proper indicator or ProgressManager.checkCanceled() or will be constantly interrupted by write action and restarted.
+   * Consider iterating without a read action if you don't require a consistent snapshot.
    */
   public @NotNull List<IndexableFilesIterator> getIndexableFilesProviders(@NotNull Project project) {
     if (project instanceof LightEditCompatible) {
@@ -602,6 +638,8 @@ public abstract class FileBasedIndexEx extends FileBasedIndex {
     }
 
     ApplicationManager.getApplication().assertReadAccessAllowed();
+    // after prohibitResultCaching all new attempts to cache something will be unsuccessful until ignoreDumbMode call stack finishes,
+    // e.g., if resolve triggers another resolve that will try to cache CachedValuesManager.getCachedValue it won't be cached
     ourIgnoranceGuard.prohibitResultCaching(dumbModeAccessTypeStack.get(0));
     return dumbModeAccessTypeStack.peek();
   }
@@ -622,29 +660,26 @@ public abstract class FileBasedIndexEx extends FileBasedIndex {
   public <T, E extends Throwable> T ignoreDumbMode(@NotNull DumbModeAccessType dumbModeAccessType,
                                                    @NotNull ThrowableComputable<T, E> computable) throws E {
     Application app = ApplicationManager.getApplication();
-    app.assertReadAccessAllowed();
-    if (FileBasedIndex.isIndexAccessDuringDumbModeEnabled()) {
-      Stack<DumbModeAccessType> dumbModeAccessTypeStack = ourDumbModeAccessTypeStack.get();
-      boolean preventCaching = dumbModeAccessTypeStack.empty();
-      dumbModeAccessTypeStack.push(dumbModeAccessType);
-      Disposable disposable = Disposer.newDisposable();
-      if (app.isWriteIntentLockAcquired()) {
-        app.getMessageBus().connect(disposable).subscribe(PsiModificationTracker.TOPIC,
-                                                          () -> RecursionManager.dropCurrentMemoizationCache());
-      }
-      try {
-        return preventCaching
-               ? ourIgnoranceGuard.computePreventingRecursion(dumbModeAccessType, false, computable)
-               : computable.compute();
-      }
-      finally {
-        Disposer.dispose(disposable);
-        DumbModeAccessType type = dumbModeAccessTypeStack.pop();
-        assert dumbModeAccessType == type;
-      }
+    Stack<DumbModeAccessType> dumbModeAccessTypeStack = ourDumbModeAccessTypeStack.get();
+    boolean preventCaching = dumbModeAccessTypeStack.empty();
+    dumbModeAccessTypeStack.push(dumbModeAccessType);
+    Disposable disposable = null;
+    if (app.isWriteIntentLockAcquired()) {
+      disposable = Disposer.newDisposable();
+      app.getMessageBus().connect(disposable).subscribe(PsiModificationTracker.TOPIC,
+                                                        () -> RecursionManager.dropCurrentMemoizationCache());
     }
-    else {
-      return computable.compute();
+    try {
+      return preventCaching
+             ? ourIgnoranceGuard.computePreventingRecursion(dumbModeAccessType, false, computable)
+             : computable.compute();
+    }
+    finally {
+      if (disposable != null) {
+        Disposer.dispose(disposable);
+      }
+      DumbModeAccessType type = dumbModeAccessTypeStack.pop();
+      assert dumbModeAccessType == type;
     }
   }
 

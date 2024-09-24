@@ -5,30 +5,27 @@ import com.intellij.lang.logging.JvmLogger
 import com.intellij.openapi.module.ModuleUtil
 import com.intellij.patterns.PlatformPatterns.psiElement
 import com.intellij.patterns.StandardPatterns
-import com.intellij.psi.JavaTokenType
-import com.intellij.psi.PsiExpressionStatement
-import com.intellij.psi.PsiJavaToken
+import com.intellij.psi.PsiReferenceExpression
 import com.intellij.util.ProcessingContext
+import com.siyeh.ig.psiutils.ExpressionUtils
 
 class JvmLoggerCompletionContributor : CompletionContributor() {
   init {
     extend(CompletionType.BASIC,
-           psiElement()
-             .withSuperParent(2, PsiExpressionStatement::class.java)
-             .afterLeaf(StandardPatterns.or(
-               psiElement(PsiJavaToken::class.java).withElementType(JavaTokenType.SEMICOLON),
-               psiElement(PsiJavaToken::class.java).withElementType(JavaTokenType.COLON),
-               psiElement(PsiJavaToken::class.java).withElementType(JavaTokenType.LBRACE),
-               psiElement(PsiJavaToken::class.java).withElementType(JavaTokenType.ARROW),
-             )),
+           StandardPatterns.or(
+           psiElement().withParent(PsiReferenceExpression::class.java)),
            object : CompletionProvider<CompletionParameters>() {
              override fun addCompletions(parameters: CompletionParameters, context: ProcessingContext, result: CompletionResultSet) {
+               val parent = parameters.position.parent ?: return
+               if (parent !is PsiReferenceExpression ||
+                   !ExpressionUtils.isVoidContext(parent) ||
+                   JavaKeywordCompletion.isInstanceofPlace(parameters.position)) return
                val javaResultWithSorting = JavaCompletionSorting.addJavaSorting(parameters, result)
                val module = ModuleUtil.findModuleForFile(parameters.originalFile) ?: return
                val availableLoggers = JvmLogger.findSuitableLoggers(module, true)
 
                val element = parameters.originalPosition ?: return
-               val allPlaces = JvmLogger.getAllNestedClasses(element).toList()
+               val allPlaces = JvmLogger.getAllNamedContainingClasses(element)
                val possiblePlaces = JvmLogger.getPossiblePlacesForLogger(element, availableLoggers)
                if (allPlaces.size != possiblePlaces.size) return
 

@@ -6,17 +6,16 @@ import com.intellij.openapi.util.text.StringUtilRt
 import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
-import org.jetbrains.kotlin.analysis.api.components.KtConstantEvaluationMode
-import org.jetbrains.kotlin.analysis.api.symbols.KtCallableSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KtNamedClassOrObjectSymbol
+import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
+import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.codeinsight.utils.isToString
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
-import org.jetbrains.kotlin.types.ConstantValueKind
 
 private const val TRIPLE_DOUBLE_QUOTE = "\"\"\""
 
@@ -41,19 +40,19 @@ fun KtExpression.containNoNewLine(): Boolean {
  * - is a binary expression with string plus, and
  * - has no operand with a new line.
  */
-context(KtAnalysisSession)
+context(KaSession)
 fun isStringPlusExpressionWithoutNewLineInOperands(expression: KtBinaryExpression): Boolean {
     if (expression.operationToken != KtTokens.PLUS) return false
 
     if (!expression.containNoNewLine()) return false
 
-    if (expression.getKtType()?.isString != true) return false
-    val plusOperation = expression.operationReference.mainReference.resolveToSymbol() as? KtCallableSymbol
-    val classContainingPlus = plusOperation?.getContainingSymbol() as? KtNamedClassOrObjectSymbol
+    if (expression.expressionType?.isStringType != true) return false
+    val plusOperation = expression.operationReference.mainReference.resolveToSymbol() as? KaCallableSymbol
+    val classContainingPlus = plusOperation?.containingDeclaration as? KaNamedClassSymbol
     return if (classContainingPlus != null) {
-        classContainingPlus.classIdIfNonLocal?.asSingleFqName() == StandardNames.FqNames.string.toSafe()
+        classContainingPlus.classId?.asSingleFqName() == StandardNames.FqNames.string.toSafe()
     } else {
-        plusOperation?.callableIdIfNonLocal?.asSingleFqName()?.asString() in listOf("kotlin.text.plus", "kotlin.plus")
+        plusOperation?.callableId?.asSingleFqName()?.asString() in listOf("kotlin.text.plus", "kotlin.plus")
     }
 }
 
@@ -64,7 +63,7 @@ fun isStringPlusExpressionWithoutNewLineInOperands(expression: KtBinaryExpressio
  *  - For "a" + 'b' + "c", this function returns true for "a" + 'b' + "c", but returns false for 'b' + "c" since 'b' + "c" has a parent
  *    (i.e., "a" + 'b' + "c") that consists of only string plus operations.
  */
-context(KtAnalysisSession)
+context(KaSession)
 fun isFirstStringPlusExpressionWithoutNewLineInOperands(element: KtBinaryExpression): Boolean {
     if (!isStringPlusExpressionWithoutNewLineInOperands(element)) return false
 
@@ -105,7 +104,7 @@ private fun KtExpression.dropToStringAndParenthesis(): KtExpression =
  *     "a" + 1 + 'b' + foo + 2.3f + bar -> "a1b${foo}2.3f{bar}"
  *   this function can convert `bar` to "${bar}", `2.3f` to "2.3f", ...
  */
-context(KtAnalysisSession)
+context(KaSession)
 private fun buildStringTemplateForExpression(expr: KtExpression?, forceBraces: Boolean, nextText: String?): String {
     if (expr == null) return ""
     val expression = expr.dropToStringAndParenthesis()
@@ -127,11 +126,11 @@ private fun buildStringTemplateForExpression(expr: KtExpression?, forceBraces: B
     return defaultStringTemplateForExpression
 }
 
-context(KtAnalysisSession)
+context(KaSession)
 private fun KtConstantExpression.buildStringTemplateForExpression(forceBraces: Boolean): String? {
-    val constantValue = evaluate(KtConstantEvaluationMode.CONSTANT_EXPRESSION_EVALUATION) ?: return "\${${text}}"
-    val isChar = constantValue.constantValueKind == ConstantValueKind.Char
-    val stringValue = if (isChar) "${constantValue.value}" else constantValue.renderAsKotlinConstant()
+    val constantValue = evaluate() ?: return "\${${text}}"
+    val isChar = constantValue is KaConstantValue.CharValue
+  val stringValue = if (isChar) "${constantValue.value}" else constantValue.render()
     if (isChar || stringValue == text) {
         return StringUtil.escapeStringCharacters(
             stringValue.length, stringValue, if (forceBraces) "\"$" else "\"", StringBuilder()
@@ -165,7 +164,7 @@ private fun KtStringTemplateExpression.buildStringTemplateForExpression(forceBra
     return base
 }
 
-context(KtAnalysisSession)
+context(KaSession)
 private fun foldOperandsOfBinaryExpression(left: KtExpression?, right: String, factory: KtPsiFactory): KtStringTemplateExpression {
     val forceBraces = right.isNotEmpty() && right.first() != '$' && right.first().isJavaIdentifierPart()
 
@@ -178,15 +177,16 @@ private fun foldOperandsOfBinaryExpression(left: KtExpression?, right: String, f
     }
 }
 
-context(KtAnalysisSession)
+context(KaSession)
 fun buildStringTemplateForBinaryExpression(expression: KtBinaryExpression): KtStringTemplateExpression {
     val rightText = buildStringTemplateForExpression(expression.right, forceBraces = false, nextText = null)
     return foldOperandsOfBinaryExpression(expression.left, rightText, KtPsiFactory(expression))
 }
 
-context(KtAnalysisSession)
+context(KaSession)
 fun canConvertToStringTemplate(expression: KtBinaryExpression): Boolean {
     if (expression.textContains('\n')) return false
+    if (expression.containsPrefixedStringOperands()) return false
 
     val entries = buildStringTemplateForBinaryExpression(expression).entries
     return entries.none { it is KtBlockStringTemplateEntry }
@@ -239,4 +239,25 @@ fun KtStringTemplateExpression.canBeConvertedToStringLiteral(): Boolean {
 fun KtStringTemplateExpression.convertToStringLiteral(): KtExpression {
     val text = convertContent(this)
     return replaced(KtPsiFactory(project).createExpression("\"\"\"" + text + "\"\"\""))
+}
+
+private fun KtExpression?.isPrefixedString(): Boolean =
+    this is KtStringTemplateExpression && interpolationPrefix != null
+
+fun KtBinaryExpression?.containsPrefixedStringOperands(): Boolean {
+    var containsMultiDollarString = false
+    this?.accept(object : KtVisitorVoid() {
+        override fun visitStringTemplateExpression(expression: KtStringTemplateExpression) {
+            if (expression.isPrefixedString()) {
+                containsMultiDollarString = true
+            }
+        }
+
+        override fun visitBinaryExpression(expression: KtBinaryExpression) {
+            expression.left?.accept(this)
+            expression.right?.accept(this)
+        }
+    })
+
+    return containsMultiDollarString
 }

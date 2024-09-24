@@ -1,8 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection;
 
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.codeInsight.daemon.impl.Divider;
+import com.intellij.codeInsight.daemon.impl.InspectionVisitorOptimizer;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingLevelManager;
 import com.intellij.codeInspection.ex.*;
 import com.intellij.codeInspection.reference.RefElement;
@@ -42,23 +43,6 @@ import java.util.stream.Collectors;
 
 public final class InspectionEngine {
   private static final Logger LOG = Logger.getInstance(InspectionEngine.class);
-  private static boolean createVisitorAndAcceptElements(@NotNull LocalInspectionTool tool,
-                                                        @NotNull ProblemsHolder holder,
-                                                        boolean isOnTheFly,
-                                                        @NotNull LocalInspectionToolSession session,
-                                                        @NotNull List<? extends PsiElement> elements,
-                                                        Map<Class<?>, Collection<Class<?>>> targetPsiClasses) {
-    PsiElementVisitor visitor = createVisitor(tool, holder, isOnTheFly, session);
-    // if inspection returned an empty visitor, then it should be skipped
-    if (visitor == PsiElementVisitor.EMPTY_VISITOR) return false;
-
-    List<Class<?>> acceptingPsiTypes = InspectionVisitorsOptimizer.getAcceptingPsiTypes(visitor);
-
-    tool.inspectionStarted(session, isOnTheFly);
-    acceptElements(elements, visitor, targetPsiClasses, acceptingPsiTypes);
-    tool.inspectionFinished(session, holder);
-    return true;
-  }
 
   public static @NotNull PsiElementVisitor createVisitor(@NotNull LocalInspectionTool tool,
                                                          @NotNull ProblemsHolder holder,
@@ -76,33 +60,6 @@ public final class InspectionEngine {
       LOG.error("The visitor returned from LocalInspectionTool.buildVisitor() must not be recursive: " + tool);
     }
     return visitor;
-  }
-
-  private static void acceptElements(@NotNull List<? extends PsiElement> elements,
-                                     @NotNull PsiElementVisitor elementVisitor,
-                                     Map<Class<?>, Collection<Class<?>>> targetPsiClasses,
-                                     List<Class<?>> acceptingPsiTypes) {
-    if (acceptingPsiTypes == InspectionVisitorsOptimizer.ALL_ELEMENTS_VISIT_LIST) {
-      for (int i = 0; i < elements.size(); i++) {
-        PsiElement element = elements.get(i);
-        element.accept(elementVisitor);
-        ProgressManager.checkCanceled();
-      }
-    }
-    else {
-      Set<Class<?>> accepts = InspectionVisitorsOptimizer.getVisitorAcceptClasses(targetPsiClasses, acceptingPsiTypes);
-      if (accepts == null || accepts.isEmpty()) {
-        return; // nothing to visit in this run
-      }
-
-      for (int i = 0; i < elements.size(); i++) {
-        PsiElement element = elements.get(i);
-        if (accepts.contains(element.getClass())) {
-          element.accept(elementVisitor);
-          ProgressManager.checkCanceled();
-        }
-      }
-    }
   }
 
   /**
@@ -266,7 +223,7 @@ public final class InspectionEngine {
           LOG.error(message);
         }
         else {
-          LOG.error(new PluginException(message, extension.getPluginDescriptor().getPluginId()));
+          LOG.warn(new PluginException(message, extension.getPluginDescriptor().getPluginId()));
         }
       }
       return true;
@@ -288,10 +245,9 @@ public final class InspectionEngine {
     withSession(psiFile, restrictRange, restrictRange, HighlightSeverity.INFORMATION, isOnTheFly, session -> {
       List<LocalInspectionToolWrapper> applicableTools = filterToolsApplicableByLanguage(toolWrappers, elementDialectIds, elementDialectIds);
 
-      Map<Class<?>, Collection<Class<?>>> targetPsiClasses = InspectionVisitorsOptimizer.getTargetPsiClasses(elements);
+      InspectionVisitorOptimizer inspectionVisitorsOptimizer = new InspectionVisitorOptimizer(elements);
 
-      final @Nullable var inspectionListener =
-        isOnTheFly ? null : psiFile.getProject().getMessageBus().syncPublisher(GlobalInspectionContextEx.INSPECT_TOPIC);
+      InspectListener inspectionListener = isOnTheFly ? null : psiFile.getProject().getMessageBus().syncPublisher(GlobalInspectionContextEx.INSPECT_TOPIC);
 
       Processor<LocalInspectionToolWrapper> processor = toolWrapper -> {
         ProblemsHolder holder = new ProblemsHolder(InspectionManager.getInstance(psiFile.getProject()), psiFile, isOnTheFly) {
@@ -316,7 +272,19 @@ public final class InspectionEngine {
 
         try {
           long inspectionStartTime = System.nanoTime();
-          boolean inspectionWasRun = createVisitorAndAcceptElements(tool, holder, isOnTheFly, session, elements, targetPsiClasses);
+          boolean inspectionWasRun;
+          PsiElementVisitor visitor = createVisitor(tool, holder, isOnTheFly, session);
+          // if inspection returned an empty visitor, then it should be skipped
+          if (visitor == PsiElementVisitor.EMPTY_VISITOR) {
+            inspectionWasRun = false;
+          }
+          else {
+            inspectionWasRun = true;
+            tool.inspectionStarted(session, isOnTheFly);
+            inspectionVisitorsOptimizer.acceptElements(elements, visitor);
+            tool.inspectionFinished(session, holder);
+          }
+
           long inspectionDuration = TimeoutUtil.getDurationMillis(inspectionStartTime);
 
           if (inspectionListener != null && inspectionWasRun) {
@@ -380,7 +348,7 @@ public final class InspectionEngine {
         }
         else if (toolWrapper instanceof GlobalInspectionToolWrapper) {
           GlobalInspectionTool globalTool = ((GlobalInspectionToolWrapper)toolWrapper).getTool();
-          if (globalTool instanceof GlobalSimpleInspectionTool simpleTool) {
+          if (globalTool.isGlobalSimpleInspectionTool()) {
             ProblemsHolder problemsHolder = new ProblemsHolder(inspectionManager, psiFile, false);
             ProblemDescriptionsProcessor collectProcessor = new ProblemDescriptionsProcessor() {
               @Override
@@ -410,7 +378,7 @@ public final class InspectionEngine {
                 throw new RuntimeException();
               }
             };
-            simpleTool.checkFile(psiFile, inspectionManager, problemsHolder, inspectionContext, collectProcessor);
+            globalTool.checkFile(psiFile, inspectionManager, problemsHolder, inspectionContext, collectProcessor);
           }
           else {
             RefElement fileRef = refManager.getReference(psiFile);
@@ -441,7 +409,7 @@ public final class InspectionEngine {
   }
 
   private static void convertToProblemDescriptors(@NotNull PsiElement element,
-                                                  CommonProblemDescriptor @NotNull [] commonProblemDescriptors,
+                                                  @NotNull CommonProblemDescriptor @NotNull [] commonProblemDescriptors,
                                                   @NotNull List<? super ProblemDescriptor> outDescriptors) {
     for (CommonProblemDescriptor common : commonProblemDescriptors) {
       if (common instanceof ProblemDescriptor) {
@@ -456,9 +424,9 @@ public final class InspectionEngine {
     }
   }
 
-  public static @NotNull List<LocalInspectionToolWrapper> filterToolsApplicableByLanguage(@NotNull Collection<? extends LocalInspectionToolWrapper> tools,
-                                                                                          @NotNull Set<String> elementDialectIdsForRegularTool,
-                                                                                          @NotNull Set<String> elementDialectIdsForWholeFileTool) {
+  public static @NotNull @Unmodifiable List<LocalInspectionToolWrapper> filterToolsApplicableByLanguage(@NotNull Collection<? extends LocalInspectionToolWrapper> tools,
+                                                                                                        @NotNull Set<String> elementDialectIdsForRegularTool,
+                                                                                                        @NotNull Set<String> elementDialectIdsForWholeFileTool) {
     Map<String, Boolean> resultsWithDialects = new HashMap<>();
     Map<String, Boolean> resultsNoDialects = new HashMap<>();
     return ContainerUtil.filter(tools, tool -> {

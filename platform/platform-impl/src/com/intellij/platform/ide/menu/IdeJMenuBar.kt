@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.menu
 
 import com.intellij.ide.ui.UISettings
@@ -8,8 +8,8 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.wm.IdeFrame
-import com.intellij.openapi.wm.impl.FrameInfoHelper
 import com.intellij.openapi.wm.impl.IdeFrameDecorator
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
 import com.intellij.ui.Gray
 import com.intellij.ui.ScreenUtil
 import com.intellij.ui.mac.screenmenu.Menu
@@ -24,9 +24,6 @@ import java.awt.Graphics2D
 import java.awt.geom.AffineTransform
 import javax.swing.*
 import javax.swing.border.Border
-
-internal val isFloatingMenuBarSupported: Boolean
-  get() = !SystemInfoRt.isMac && FrameInfoHelper.isFullScreenSupportedInCurrentOs()
 
 internal enum class IdeMenuBarState {
   EXPANDED,
@@ -51,7 +48,7 @@ open class IdeJMenuBar internal constructor(@JvmField internal val coroutineScop
     get() = components.mapNotNull { it as? ActionMenu }
 
   init {
-    val flavor = if (isFloatingMenuBarSupported) {
+    val flavor = if (CustomWindowHeaderUtil.isFloatingMenuBarSupported) {
       FloatingMenuBarFlavor(this)
     }
     else {
@@ -114,6 +111,13 @@ open class IdeJMenuBar internal constructor(@JvmField internal val coroutineScop
 
     val uiSettings = UISettings.getInstance()
     return if (uiSettings.showMainToolbar || uiSettings.showNavigationBar) super.getBorder() else null
+  }
+
+  /**
+   * We override [paint] and [paintChildren] in [IdeMenuBarState.COLLAPSED] state
+   */
+  override fun isPaintingOrigin(): Boolean {
+    return true
   }
 
   override fun paint(g: Graphics) {
@@ -200,7 +204,7 @@ open class IdeJMenuBar internal constructor(@JvmField internal val coroutineScop
     }
   }
 
-  open suspend fun getMainMenuActionGroup(): ActionGroup? = customMenuGroup ?: IdeMainMenuActionGroup()
+  open suspend fun getMainMenuActionGroup(): ActionGroup? = customMenuGroup ?: createIdeMainMenuActionGroup()
 
   override fun getMenuCount(): Int {
     @Suppress("IfThenToElvis", "SENSELESS_COMPARISON")

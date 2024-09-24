@@ -26,6 +26,19 @@ internal class SettingsSyncPluginManager(private val cs: CoroutineScope) : Dispo
   private val pluginEnabledStateListener = PluginEnabledStateListener()
   private val LOCK = Object()
 
+  private val PLUGIN_EXCEPTIONS = setOf("com.intellij.ja", "com.intellij.ko", "com.intellij.zh", "com.intellij.marketplace")
+
+  // TODO: migrate to better solution in 2024.3.
+  // Other places where these are mentioned:
+  // * com.intellij.openapi.application.migrations.NotebooksMigration242/PythonProMigration242
+  // * com.intellij.ide.plugins.UpdatePluginsApp
+  private val PLUGIN_DEPENDENCIES: Map<PluginId, Set<Pair<PluginId, SettingsCategory>>> = mapOf(
+    PluginId.getId("Pythonid") to setOf(PluginId.getId("PythonCore") to SettingsCategory.PLUGINS),
+    PluginId.getId("intellij.jupyter") to setOf(PluginId.getId("com.intellij.notebooks.core") to SettingsCategory.PLUGINS),
+    PluginId.getId("R4Intellij") to setOf(PluginId.getId("com.intellij.notebooks.core") to SettingsCategory.PLUGINS),
+  )
+
+
   internal var state = SettingsSyncPluginsState(emptyMap())
     private set
 
@@ -50,7 +63,7 @@ internal class SettingsSyncPluginManager(private val cs: CoroutineScope) : Dispo
         LOG.info("Plugins ${removedPluginIds.joinToString()} have been deleted from disk")
         for (pluginId in removedPluginIds) {
           val pluginData = newPlugins[pluginId] ?: continue
-          if (checkDependencies(pluginId, pluginData)) {
+          if (checkDependencies(pluginId, pluginData) && isPluginSynceable(pluginId)) {
             newPlugins.computeIfPresent(pluginId) { _, data -> PluginData(enabled = false, data.category, data.dependencies) }
             removed2disable.add(pluginId)
           } else {
@@ -70,11 +83,14 @@ internal class SettingsSyncPluginManager(private val cs: CoroutineScope) : Dispo
 
       for (plugin in currentIdePlugins) {
         val id = plugin.pluginId
-        if (PluginManagerProxy.getInstance().isEssential(id)
-            || PluginManagerProxy.getInstance().isIncompatible(plugin)) {
+        if (!isPluginSynceable(id) || PluginManagerProxy.getInstance().isIncompatible(plugin)) {
           // don't change state of essential plugin (it will be enabled in the current IDE anyway)
           // also, don't take into account incompatible plugins (makes no sense to deal with them)
           // other IDEs will manage such plugins themselves
+
+          // also don't touch localization plugins as they become bundled in 242 and might cause issues:
+          // see https://youtrack.jetbrains.com/issue/IJPL-157227/IDE-is-localized-after-Settings-Sync-between-2024.1-and-2024.2-if-language-plugins-had-updates
+          LOG.info("Plugin $id is not syncable!")
         }
         else if (shouldSaveState(plugin)) {
           newPlugins[id] = getPluginData(plugin)
@@ -89,6 +105,9 @@ internal class SettingsSyncPluginManager(private val cs: CoroutineScope) : Dispo
       return state
     }
   }
+
+  private fun isPluginSynceable(pluginId: PluginId): Boolean =
+    !(PluginManagerProxy.getInstance().isEssential(pluginId) || PLUGIN_EXCEPTIONS.contains(pluginId.idString))
 
   private fun firePluginsStateChangeEvent(pluginsState: SettingsSyncPluginsState) {
     val snapshot = SettingsSnapshot(SettingsSnapshot.MetaInfo(Instant.now(), getLocalApplicationInfo()),
@@ -142,7 +161,7 @@ internal class SettingsSyncPluginManager(private val cs: CoroutineScope) : Dispo
    * i.e. disables, enables and installs plugins according to the State.
    * It doesn't uninstall plugins - it only disable it.
    */
-  fun pushChangesToIde(newState: SettingsSyncPluginsState) {
+  suspend fun pushChangesToIde(newState: SettingsSyncPluginsState) {
     val pluginsToDisable = mutableSetOf<PluginId>()
     val pluginsToEnable = mutableSetOf<PluginId>()
     val pluginsToInstall = mutableListOf<PluginId>()
@@ -186,6 +205,20 @@ internal class SettingsSyncPluginManager(private val cs: CoroutineScope) : Dispo
           if (pluginData.enabled &&
               isPluginSyncEnabled(pluginId, isBundled = false, pluginData.category) &&
               checkDependencies(pluginId, pluginData)) {
+            if (PLUGIN_DEPENDENCIES[pluginId] != null) {
+              for (depPluginPair in PLUGIN_DEPENDENCIES[pluginId]!!) {
+                val depPluginId = depPluginPair.first
+                if (PluginManagerProxy.getInstance().findPlugin(depPluginId) == null) {
+                  LOG.info("Installation of '$pluginId' requires '$depPluginId' that is not installed")
+                  if (isPluginSyncEnabled(depPluginId, isBundled = false, depPluginPair.second)) {
+                    pluginsToInstall += depPluginId
+                  } else {
+                    LOG.warn("Syncing of '$depPluginId' required of '$pluginId' is disabled! The plugin will fail to start")
+                  }
+                }
+              }
+            }
+            // just install the plugin
             pluginsToInstall += pluginId
           }
 
@@ -257,13 +290,13 @@ internal class SettingsSyncPluginManager(private val cs: CoroutineScope) : Dispo
     isPluginSyncEnabled(plugin.pluginId, plugin.isBundled, SettingsSyncPluginCategoryFinder.getPluginCategory(plugin))
 
   private fun isPluginSyncEnabled(id: PluginId, isBundled: Boolean, category: SettingsCategory): Boolean {
-    if (PluginManagerProxy.getInstance().isEssential(id))
+    if (!isPluginSynceable(id))
       return false
     val settings = SettingsSyncSettings.getInstance()
     return settings.isCategoryEnabled(category) &&
            (category != SettingsCategory.PLUGINS ||
-            isBundled && settings.isSubcategoryEnabled(SettingsCategory.PLUGINS, BUNDLED_PLUGINS_ID) ||
-            settings.isSubcategoryEnabled(SettingsCategory.PLUGINS, id.idString))
+            (isBundled && settings.isSubcategoryEnabled(SettingsCategory.PLUGINS, BUNDLED_PLUGINS_ID)) ||
+            (!isBundled && settings.isSubcategoryEnabled(SettingsCategory.PLUGINS, id.idString)))
   }
 
   override fun dispose() {
@@ -320,13 +353,17 @@ internal class SettingsSyncPluginManager(private val cs: CoroutineScope) : Dispo
               LOG.warn("got ${ed(enable)} info about non-existing plugin ${pluginDescriptor.pluginId}")
               continue
             }
+            if (!isPluginSyncEnabled(plugin)) {
+              LOG.info("Sync of state of ${plugin.pluginId} is disabled. Won't touch its info in ${SettingsSnapshotZipSerializer.PLUGINS}")
+              continue
+            }
             if (plugin.isEnabled != enable) {
               LOG.info("State of plugin ${pluginDescriptor.pluginId} is inconsistent: received ${ed(enable)} event, " +
                        "but plugin is ${ed(plugin.isEnabled)}d. Probably, a restart is required.")
             }
             if (plugin.isBundled && enable) {
               newPlugins.remove(pluginDescriptor.pluginId)
-              LOG.info("Bundled plugin ${pluginDescriptor.pluginId} is ${ed(enable)}d. Will remove its info from plugins.json")
+              LOG.info("Bundled plugin ${pluginDescriptor.pluginId} is ${ed(enable)}d. Will remove its info from ${com.intellij.settingsSync.SettingsSnapshotZipSerializer.PLUGINS}")
             }
             else {
               newPlugins[pluginDescriptor.pluginId] = getPluginData(pluginDescriptor, enable)

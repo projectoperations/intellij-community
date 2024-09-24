@@ -34,20 +34,38 @@ def get_column_types(table):
 
 # used by pydevd
 # noinspection PyUnresolvedReferences
-def get_data(table, start_index=None, end_index=None):
+def get_data(table, start_index=None, end_index=None, format=None, conv_mode=False):
     # type: (Union[pd.DataFrame, pd.Series], int, int) -> str
 
-    def convert_data_to_html(data, max_cols):
-        return repr(__convert_to_df(data).to_html(notebook=True, max_cols=max_cols))
+    def convert_data_to_csv(data):
+        return repr(__convert_to_df(data).to_csv())
 
-    return _compute_sliced_data(table, convert_data_to_html, start_index, end_index)
+    def convert_data_to_html(data):
+        return repr(__convert_to_df(data).to_html(notebook=True))
+
+    if conv_mode:
+        computed_data = _compute_sliced_data(table, convert_data_to_csv, start_index, end_index, format)
+    else:
+        computed_data = _compute_sliced_data(table, convert_data_to_html, start_index, end_index, format)
+    return computed_data
 
 
 # used by DSTableCommands
 # noinspection PyUnresolvedReferences
-def display_data(table, start_index, end_index):
+def display_data_csv(table, start_index, end_index):
     # type: (Union[pd.DataFrame, pd.Series], int, int) -> None
-    def ipython_display(data, max_cols):
+    def ipython_display(data):
+        from IPython.display import display
+        display(__convert_to_df(data))
+
+    _compute_sliced_data(table, ipython_display, start_index, end_index)
+
+
+# used by DSTableCommands
+# noinspection PyUnresolvedReferences
+def display_data_html(table, start_index, end_index):
+    # type: (Union[pd.DataFrame, pd.Series], int, int) -> None
+    def ipython_display(data):
         from IPython.display import display
         display(__convert_to_df(data))
 
@@ -58,27 +76,49 @@ def __get_data_slice(table, start, end):
     return __convert_to_df(table).iloc[start:end]
 
 
-def _compute_sliced_data(table, fun, start_index=None, end_index=None):
+def _compute_sliced_data(table, fun, start_index=None, end_index=None, format=None, conv_mode=False):
     # type: (Union[pd.DataFrame, pd.Series], function, int, int) -> str
 
-    max_cols, max_colwidth = __get_tables_display_options()
+    max_cols, max_colwidth, max_rows = __get_tables_display_options()
 
     _jb_max_cols = pd.get_option('display.max_columns')
     _jb_max_colwidth = pd.get_option('display.max_colwidth')
+    _jb_max_rows = pd.get_option('display.max_rows')
+    if format is not None:
+        _jb_float_options = pd.get_option('display.float_format')
+
 
     pd.set_option('display.max_columns', max_cols)
+    pd.set_option('display.max_rows', max_rows)
     pd.set_option('display.max_colwidth', max_colwidth)
+
+    format_function = _define_format_function(format)
+    if format_function is not None:
+        pd.set_option('display.float_format', format_function)
 
     if start_index is not None and end_index is not None:
         table = __get_data_slice(table, start_index, end_index)
 
-    data = fun(table, max_cols)
+    data = fun(table)
 
     pd.set_option('display.max_columns', _jb_max_cols)
     pd.set_option('display.max_colwidth', _jb_max_colwidth)
+    pd.set_option('display.max_rows', _jb_max_rows)
+    if format is not None:
+        pd.set_option('display.float_format', _jb_float_options)
 
     return data
 
+
+def _define_format_function(format):
+    # type: (Union[None, str]) -> Union[Callable, None]
+    if format is None or format == 'null':
+        return None
+
+    if format.startswith("%"):
+        return lambda x: format % x
+
+    return None
 
 def get_column_descriptions(table):
     # type: (Union[pd.DataFrame, pd.Series]) -> str
@@ -90,13 +130,6 @@ def get_column_descriptions(table):
         return ""
 
 
-def get_value_counts(table):
-    # type: (Union[pd.DataFrame, pd.Series]) -> str
-    counts_result = __get_counts(table)
-
-    return get_data(counts_result, None, None)
-
-
 def __get_describe(table):
     # type: (Union[pd.DataFrame, pd.Series]) -> Union[pd.DataFrame, pd.Series, None]
     try:
@@ -104,15 +137,18 @@ def __get_describe(table):
                                     exclude=[np.complex64, np.complex128])
     except (TypeError, OverflowError, ValueError):
         return
+
+    try:
+        import geopandas
+        if type(table) is geopandas.GeoSeries:
+            return described_
+    except ImportError:
+        pass
+
     if type(table) is pd.Series:
         return described_
     else:
         return described_.reindex(columns=table.columns, copy=False)
-
-
-def __get_counts(table):
-    # type: (Union[pd.DataFrame, pd.Series]) -> pd.DataFrame
-    return __convert_to_df(table).count().to_frame().transpose()
 
 
 class ColumnVisualisationType:
@@ -136,8 +172,8 @@ def get_value_occurrences_count(table):
     df = __convert_to_df(table)
     bin_counts = []
 
-    for col_name in df.columns:
-        column_visualisation_type, result = analyze_column(df[col_name])
+    for _, column_data in df.items():
+        column_visualisation_type, result = analyze_column(column_data)
 
         bin_counts.append(str({column_visualisation_type:result}))
     return ColumnVisualisationUtils.TABLE_OCCURRENCES_COUNT_NEXT_COLUMN_SEPARATOR.join(bin_counts)
@@ -187,17 +223,15 @@ def analyze_categorical_column(column):
 
 
 def analyze_numeric_column(column):
-    if column.dtype.kind in ['i', 'u']:
-        bins = np.bincount(column)
-        unique_values = np.count_nonzero(bins)
-    else:
-        # for float type we don't compute number of unique values because it's an
-        # expensive operation, just take number of elements in a column
-        unique_values = column.size
-    if unique_values <= ColumnVisualisationUtils.NUM_BINS:
+    if column.size <= ColumnVisualisationUtils.NUM_BINS:
         res = column.value_counts().sort_index().to_dict()
     else:
-        format_function = int if column.dtype.kind == 'i' else lambda x: round(x, 1)
+        def format_function(x):
+            if x == int(x):
+                return int(x)
+            else:
+                return round(x, 3)
+
         counts, bin_edges = np.histogram(column.dropna(), bins=ColumnVisualisationUtils.NUM_BINS)
 
         # so the long dash will be correctly viewed both on Mac and Windows
@@ -216,6 +250,13 @@ def add_custom_key_value_separator(pairs_list):
 # noinspection PyUnresolvedReferences
 def __convert_to_df(table):
     # type: (Union[pd.DataFrame, pd.Series, pd.Categorical]) -> pd.DataFrame
+    try:
+        import geopandas
+        if type(table) is geopandas.GeoSeries:
+            return __series_to_df(table)
+    except ImportError:
+        pass
+
     if type(table) is pd.Series:
         return __series_to_df(table)
     if type(table) is pd.Categorical:
@@ -250,8 +291,14 @@ def __categorical_to_df(table):
 
 # In old versions of pandas max_colwidth accepted only Int-s
 def __get_tables_display_options():
-    # type: () -> Tuple[None, Union[int, None]]
+    # type: () -> Tuple[None, Union[int, None], None]
     import sys
     if sys.version_info < (3, 0):
-        return None, MAX_COLWIDTH_PYTHON_2
-    return None, None
+        return None, MAX_COLWIDTH_PYTHON_2, None
+    try:
+        import pandas as pd
+        if int(pd.__version__.split('.')[0]) < 1:
+            return None, MAX_COLWIDTH_PYTHON_2, None
+    except ImportError:
+        pass
+    return None, None, None

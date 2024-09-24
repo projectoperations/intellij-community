@@ -2,6 +2,7 @@
 package com.intellij.performance.performancePlugin.commands
 
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.ui.playback.PlaybackContext
 import com.intellij.openapi.ui.playback.commands.PlaybackCommandCoroutineAdapter
 import com.intellij.openapi.vfs.findPsiFile
@@ -10,10 +11,10 @@ import com.jetbrains.performancePlugin.commands.OpenFileCommand.Companion.findFi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.NonNls
-import org.jetbrains.kotlin.analysis.project.structure.KtSourceModule
-import org.jetbrains.kotlin.analysis.project.structure.ProjectStructureProvider
+import org.jetbrains.kotlin.analysis.api.projectStructure.KaModuleProvider
+import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
 
-class AssertKotlinFileInSpecificRootCommand(text: String, line: Int) : PlaybackCommandCoroutineAdapter(text, line) {
+internal class AssertKotlinFileInSpecificRootCommand(text: String, line: Int) : PlaybackCommandCoroutineAdapter(text, line) {
     companion object {
         const val PREFIX: @NonNls String = CMD_PREFIX + "assertOpenedKotlinFileInRoot"
     }
@@ -23,10 +24,13 @@ class AssertKotlinFileInSpecificRootCommand(text: String, line: Int) : PlaybackC
             val project = context.project
             val filePath = text.replace(PREFIX, "").trim()
             val file = findFile(filePath, project) ?: error(PerformanceTestingBundle.message("command.file.not.found", filePath))
-            val psiFIle = file.findPsiFile(project) ?: error("Fail to find psi file $filePath")
-            val ktModule = ProjectStructureProvider.getModule(project, psiFIle , null)
-            if (ktModule !is KtSourceModule) {
-                throw IllegalStateException("File $file ($ktModule) not in kt source root module")
+            //maybe readaction
+            writeIntentReadAction {
+                val psiFile = file.findPsiFile(project) ?: error("Fail to find psi file $filePath")
+                val module = KaModuleProvider.getModule(project, psiFile, useSiteModule = null)
+                if (module !is KaSourceModule) {
+                    throw IllegalStateException("File $file ($module) not in kt source root module")
+                }
             }
         }
     }

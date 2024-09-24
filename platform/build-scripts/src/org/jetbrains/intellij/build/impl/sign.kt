@@ -1,10 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplacePutWithAssignment")
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.SystemInfoRt
-import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
-import com.intellij.platform.diagnostic.telemetry.helpers.use
 import com.jetbrains.signatureverifier.ILogger
 import com.jetbrains.signatureverifier.InvalidDataException
 import com.jetbrains.signatureverifier.crypt.SignatureVerificationParams
@@ -21,11 +19,13 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.*
 import org.jetbrains.intellij.build.BuildContext
-import org.jetbrains.intellij.build.TraceManager.spanBuilder
+import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.io.PackageIndexBuilder
 import org.jetbrains.intellij.build.io.readZipFile
 import org.jetbrains.intellij.build.io.suspendAwareReadZipFile
 import org.jetbrains.intellij.build.io.transformZipUsingTempFile
+import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
+import org.jetbrains.intellij.build.telemetry.use
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.SeekableByteChannel
@@ -38,12 +38,11 @@ import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.name
 
-private fun isMacLibrary(name: String): Boolean =
+internal fun isMacLibrary(name: String): Boolean =
   name.endsWith(".jnilib") ||
   name.endsWith(".dylib") ||
   name.endsWith(".so") ||
-  name.endsWith(".tbd") ||
-  name.endsWith(".node")
+  name.endsWith(".tbd")
 
 internal fun CoroutineScope.recursivelySignMacBinaries(root: Path,
                                                        context: BuildContext,
@@ -117,15 +116,15 @@ private suspend fun signAndRepackZipIfMacSignaturesAreMissing(zip: Path, context
   }
 }
 
-private fun copyZipReplacing(origin: Path, entries: Map<String, Path>, context: BuildContext) {
+private suspend fun copyZipReplacing(origin: Path, entries: Map<String, Path>, context: BuildContext) {
   spanBuilder("replacing unsigned entries in zip")
     .setAttribute("zip", origin.toString())
     .setAttribute(AttributeKey.stringArrayKey("unsigned"), entries.keys.toList())
     .use {
-      transformZipUsingTempFile(origin) { zipWriter ->
-        val index = PackageIndexBuilder()
+      val packageIndexBuilder = PackageIndexBuilder()
+      transformZipUsingTempFile(file = origin, indexWriter = packageIndexBuilder.indexWriter) { zipWriter ->
         readZipFile(origin) { name, dataSupplier ->
-          index.addFile(name)
+          packageIndexBuilder.addFile(name)
           if (entries.containsKey(name)) {
             zipWriter.file(name, entries.getValue(name))
           }
@@ -133,7 +132,7 @@ private fun copyZipReplacing(origin: Path, entries: Map<String, Path>, context: 
             zipWriter.uncompressedData(name, dataSupplier())
           }
         }
-        index.writePackageIndex(zipWriter)
+        packageIndexBuilder.writePackageIndex(zipWriter)
       }
       Files.setLastModifiedTime(origin, FileTime.from(context.options.buildDateInSeconds, TimeUnit.SECONDS))
     }
@@ -141,7 +140,7 @@ private fun copyZipReplacing(origin: Path, entries: Map<String, Path>, context: 
 
 internal fun signingOptions(contentType: String, context: BuildContext): PersistentMap<String, String> {
   val certificateID = context.proprietaryBuildTools.macOsCodesignIdentity?.value
-  check(certificateID != null || !context.signMacOsBinaries) {
+  check(certificateID != null || context.isStepSkipped(BuildOptions.MAC_SIGN_STEP)) {
     "Missing certificate ID"
   }
   val entitlements = context.paths.communityHomeDir.resolve("platform/build-scripts/tools/mac/scripts/entitlements.xml")
@@ -179,7 +178,7 @@ internal suspend fun signMacBinaries(files: List<Path>,
   span.setAttribute("contentType", "application/x-mac-app-bin")
   span.setAttribute(AttributeKey.stringArrayKey("files"), files.map { it.name })
   val options = signingOptions(contentType = "application/x-mac-app-bin", context = context).putAll(m = additionalOptions)
-  span.useWithScope {
+  span.use {
     context.proprietaryBuildTools.signTool.signFiles(files = files, context = context, options = options)
     if (!permissions.isEmpty()) {
       // SRE-1223 workaround

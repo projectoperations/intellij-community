@@ -6,18 +6,18 @@ import com.intellij.dvcs.push.PushInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.vcs.log.VcsFullCommitDetails
 import git4idea.config.GitSharedSettings
-import org.jetbrains.idea.devkit.util.PsiUtil
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.extension
 import kotlin.io.path.invariantSeparatorsPathString
 
-abstract class IssueIDPrePushHandler : PrePushHandler {
+internal abstract class IssueIDPrePushHandler : PrePushHandler {
   abstract val paths: List<String>
   open val pathsToIgnore = listOf("/test/", "/testData/")
   abstract val commitMessageRegex: Regex
@@ -47,7 +47,7 @@ abstract class IssueIDPrePushHandler : PrePushHandler {
     }
   }
 
-  private fun handlerIsApplicable(project: Project): Boolean = isAvailable() && PsiUtil.isIdeaProject(project)
+  private fun handlerIsApplicable(project: Project): Boolean = isAvailable() && IntelliJProjectUtil.isIntelliJPlatformProject(project)
 
   override fun handle(project: Project, pushDetails: MutableList<PushInfo>, indicator: ProgressIndicator): PrePushHandler.Result {
     if (!handlerIsApplicable(project)) return PrePushHandler.Result.OK

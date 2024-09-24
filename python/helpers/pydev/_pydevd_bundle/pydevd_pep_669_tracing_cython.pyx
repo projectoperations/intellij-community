@@ -22,7 +22,7 @@ from _pydevd_bundle.pydevd_comm_constants import (
     CMD_STEP_INTO_MY_CODE, CMD_STEP_INTO_COROUTINE, CMD_STEP_RETURN)
 from _pydevd_bundle.pydevd_constants import (
     PYDEVD_TOOL_NAME, STATE_RUN, STATE_SUSPEND, GlobalDebuggerHolder)
-from _pydevd_bundle.pydevd_dont_trace_files import DONT_TRACE
+from _pydevd_bundle.pydevd_dont_trace_files import DONT_TRACE, PYDEV_FILE
 from _pydevd_bundle.pydevd_trace_dispatch import (
     set_additional_thread_info, handle_breakpoint_condition,
     handle_breakpoint_expression, DEBUG_START, DEBUG_START_PY3K,
@@ -187,7 +187,7 @@ def _stop_on_unhandled_exception(exc_info, py_db, thread):
                                     exc_info)
 
 
-def enable_pep699_monitoring():
+def enable_pep669_monitoring():
     DEBUGGER_ID = monitoring.DEBUGGER_ID
     if not monitoring.get_tool(DEBUGGER_ID):
         monitoring.use_tool_id(DEBUGGER_ID, PYDEVD_TOOL_NAME)
@@ -204,6 +204,10 @@ def enable_pep699_monitoring():
             (monitoring.events.RAISE, py_raise_callback),
         ):
             monitoring.register_callback(DEBUGGER_ID, event_type, callback)
+
+    debugger = GlobalDebuggerHolder.global_dbg
+    if debugger:
+        debugger.is_pep669_monitoring_enabled = True
 
 
 def _enable_return_tracing(code):
@@ -248,8 +252,8 @@ def py_start_callback(code, instruction_offset):
 
         frame_cache_key = _make_frame_cache_key(code)
 
-        additional_info = _get_additional_info(thread)
-        pydev_step_cmd = additional_info.pydev_step_cmd
+        info = _get_additional_info(thread)
+        pydev_step_cmd = info.pydev_step_cmd
         is_stepping = pydev_step_cmd != -1
 
         if not is_stepping and frame_cache_key in global_cache_skips:
@@ -271,16 +275,45 @@ def py_start_callback(code, instruction_offset):
                 global_cache_skips[frame_cache_key] = 1
                 return monitoring.DISABLE
 
-        breakpoints_for_file = py_db.breakpoints.get(filename)
+        breakpoints_for_file = (py_db.breakpoints.get(filename)
+                                or py_db.has_plugin_line_breaks)
         if not breakpoints_for_file and not is_stepping:
             return monitoring.DISABLE
 
+        if py_db.plugin and py_db.has_plugin_line_breaks:
+            args = (py_db, filename, info, thread)
+            result = py_db.plugin.get_breakpoint(py_db, frame, 'call', args)
+            if result is not None:
+                flag, breakpoint, new_frame, bp_type = result
+                if breakpoint:
+                    eval_result = False
+                    if breakpoint.has_condition:
+                        eval_result = handle_breakpoint_condition(py_db, info, breakpoint, new_frame)
+
+                    if breakpoint.expression is not None:
+                        handle_breakpoint_expression(breakpoint, info, new_frame)
+                        if breakpoint.is_logpoint and info.pydev_message is not None and len(
+                                info.pydev_message) > 0:
+                            cmd = py_db.cmd_factory.make_io_message(info.pydev_message + os.linesep, '1')
+                            py_db.writer.add_command(cmd)
+
+                    if breakpoint.has_condition and not eval_result:
+                        return
+
+                if flag:
+                    result = py_db.plugin.suspend(py_db, thread, frame, bp_type)
+                    if result is not None:
+                        frame = result
+
+                if info.pydev_state == STATE_SUSPEND:
+                    py_db.do_wait_suspend(thread, frame, 'call', None)
+                    return
+
         if is_stepping:
             if (pydev_step_cmd == CMD_STEP_OVER
-                    and frame is not additional_info.pydev_step_stop):
-                if frame.f_back is additional_info.pydev_step_stop:
+                    and frame is not info.pydev_step_stop):
+                if frame.f_back is info.pydev_step_stop:
                     _enable_return_tracing(code)
-                return
             if (py_db.is_filter_enabled
                     and py_db.is_ignored_by_filters(filename)):
                 return monitoring.DISABLE
@@ -291,9 +324,27 @@ def py_start_callback(code, instruction_offset):
             # at this point.
             _enable_line_tracing(code)
             _enable_return_tracing(code)
-            return
 
-        if _should_enable_line_events_for_code(frame, code, filename, additional_info):
+            # Process plugins stepping
+            stop_info = {}
+            args = (py_db, filename, info, thread)
+            stop_frame = info.pydev_step_stop
+            plugin_stop = False
+
+            if py_db.plugin is not None:
+                if pydev_step_cmd == CMD_STEP_INTO:
+                    result = py_db.plugin.cmd_step_into(py_db, frame, 'call', args, stop_info, False)
+                    if result:
+                        _, plugin_stop = result
+                if pydev_step_cmd == CMD_STEP_OVER:
+                    result = py_db.plugin.cmd_step_over(py_db, frame, 'call', args, stop_info, stop_frame is frame)
+                    if result:
+                        _, plugin_stop = result
+
+            if plugin_stop:
+                py_db.plugin.stop(py_db, frame, 'call', args, stop_info, None, pydev_step_cmd)
+
+        if _should_enable_line_events_for_code(frame, code, filename, info):
             _enable_line_tracing(code)
             _enable_return_tracing(code)
         else:
@@ -339,8 +390,13 @@ def py_line_callback(code, line_number):
         line_cache_key = (frame_cache_key, line_number)
 
         try:
+            flag = False
             breakpoint = None
             stop = False
+            exist_result = False
+            bp_type = None
+            args = (py_db, filename, info, thread)
+            new_frame = frame
             smart_stop_frame = info.pydev_smart_step_context.smart_step_stop
             context_start_line = info.pydev_smart_step_context.start_line
             context_end_line = info.pydev_smart_step_context.end_line
@@ -349,7 +405,6 @@ def py_line_callback(code, line_number):
 
             if breakpoints_for_file and line_number in breakpoints_for_file:
                 breakpoint = breakpoints_for_file[line_number]
-                new_frame = frame
                 stop = True
                 if step_cmd == CMD_STEP_OVER:
                     if stop_frame is frame:
@@ -357,21 +412,23 @@ def py_line_callback(code, line_number):
                     elif step_cmd == CMD_SMART_STEP_INTO and (
                             frame.f_back is smart_stop_frame and is_within_context):
                         stop = False
+            elif py_db.plugin is not None and py_db.has_plugin_line_breaks:
+                result = py_db.plugin.get_breakpoint(py_db, frame, 'line', args)
+                if result:
+                    exist_result = True
+                    flag, breakpoint, new_frame, bp_type = result
 
             if breakpoint:
-                if stop:
+                if stop or exist_result:
                     eval_result = False
                     if breakpoint.has_condition:
-                        eval_result = handle_breakpoint_condition(
-                            py_db, info, breakpoint, new_frame)
+                        eval_result = handle_breakpoint_condition(py_db, info, breakpoint, new_frame)
 
                     if breakpoint.expression is not None:
                         handle_breakpoint_expression(breakpoint, info, new_frame)
-                        if (breakpoint.is_logpoint
-                                and info.pydev_message is not None
-                                and len(info.pydev_message) > 0):
-                            cmd = py_db.cmd_factory.make_io_message(
-                                info.pydev_message + os.linesep, '1')
+                        if breakpoint.is_logpoint and info.pydev_message is not None and len(
+                                info.pydev_message) > 0:
+                            cmd = py_db.cmd_factory.make_io_message(info.pydev_message + os.linesep, '1')
                             py_db.writer.add_command(cmd)
 
                     if breakpoint.has_condition and not eval_result:
@@ -381,11 +438,11 @@ def py_line_callback(code, line_number):
                     if (py_db.is_filter_enabled
                             and py_db.is_ignored_by_filters(filename)):
                         # ignore files matching stepping filters
-                        return
+                        return monitoring.DISABLE
                     if (py_db.is_filter_libraries
                             and not py_db.in_project_scope(filename)):
                         # ignore library files while stepping
-                        return
+                        return monitoring.DISABLE
 
             if stop:
                 py_db.set_suspend(
@@ -394,6 +451,10 @@ def py_line_callback(code, line_number):
                     suspend_other_threads=breakpoint
                                           and breakpoint.suspend_policy == "ALL",
                 )
+            elif flag and py_db.plugin is not None:
+                result = py_db.plugin.suspend(py_db, thread, frame, bp_type)
+                if result:
+                    frame = result
 
             # if thread has a suspend flag, we suspend with a busy wait
             if info.pydev_state == STATE_SUSPEND:
@@ -410,11 +471,13 @@ def py_line_callback(code, line_number):
 
         # Step handling. We stop when we hit the right frame.
         try:
+            plugin_stop = False
+            args = (py_db, filename, info, thread)
+            stop_info = {}
             stop = False
 
             if step_cmd == CMD_SMART_STEP_INTO:
-                if smart_stop_frame is frame:
-                    if not is_within_context:
+                if smart_stop_frame is frame and not is_within_context:
                         # We don't stop on jumps in multiline statements, which
                         # the Python interpreter does in some cases, if we they
                         # happen in smart step into context.
@@ -444,6 +507,10 @@ def py_line_callback(code, line_number):
 
             elif step_cmd == CMD_STEP_INTO:
                 stop = True
+                if py_db.plugin is not None:
+                    result = py_db.plugin.cmd_step_into(py_db, frame, 'line', args, stop_info, stop)
+                    if result:
+                        stop, plugin_stop = result
 
             elif step_cmd == CMD_STEP_INTO_MY_CODE:
                 stop = py_db.in_project_scope(frame.f_code.co_filename)
@@ -456,7 +523,14 @@ def py_line_callback(code, line_number):
                     if step_cmd == CMD_STEP_INTO_COROUTINE:
                         stop = py_db.in_project_scope(frame.f_code.co_filename)
 
-            if stop:
+                if step_cmd == CMD_STEP_OVER and py_db.plugin is not None:
+                    result = py_db.plugin.cmd_step_over(py_db, frame, 'line', args, stop_info, stop)
+                    if result:
+                        stop, plugin_stop = result
+
+            if plugin_stop:
+                py_db.plugin.stop(py_db, frame, 'line', args, stop_info, None, step_cmd)
+            elif stop:
                 py_db.set_suspend(thread, step_cmd)
                 py_db.do_wait_suspend(thread, frame, 'line', None)
 
@@ -488,7 +562,7 @@ def py_raise_callback(code, instruction_offset, exception):
     info = _get_additional_info(thread)
 
     try:
-        frame = _getframe()
+        frame = _getframe(1)
         if frame is _get_top_level_frame():
             _stop_on_unhandled_exception(exc_info, py_db, thread)
             return
@@ -500,7 +574,7 @@ def py_raise_callback(code, instruction_offset, exception):
             args = (
                 py_db,
                 _get_abs_path_real_path_and_base_from_frame(frame)[1],
-                _get_additional_info(thread), thread,
+                info, thread,
                 global_cache_skips,
                 global_cache_frame_skips
             )
@@ -526,6 +600,12 @@ def py_return_callback(code, instruction_offset, retval):
     frame = _getframe(1)
     thread = get_current_thread()
     info = _get_additional_info(thread)
+    stop_frame = info.pydev_step_stop
+    filename = _get_abs_path_real_path_and_base_from_frame(frame)[1]
+    plugin_stop = False
+    args = (py_db, filename, info, thread)
+    stop_info = {}
+    stop = False
 
     try:
         if py_db.show_return_values or py_db.remove_return_values_flag:
@@ -533,20 +613,54 @@ def py_return_callback(code, instruction_offset, retval):
 
         step_cmd = info.pydev_step_cmd
 
-        if step_cmd in (CMD_STEP_OVER, CMD_STEP_RETURN):
-            if frame.f_back:
-                back = frame.f_back
-                back_code = back.f_code
-                if not py_db.in_project_scope(back_code.co_filename):
-                    return
-                if back is not None:
-                    _, back_filename, base \
-                        = get_abs_path_real_path_and_base_from_frame(back)
-                    if (base, back_code.co_name) in (DEBUG_START, DEBUG_START_PY3K):
-                        back = None
-                    if back is not info.pydev_step_stop:
-                        py_db.set_suspend(thread, step_cmd)
-                        py_db.do_wait_suspend(thread, back, 'return', retval)
+        if step_cmd == CMD_STEP_INTO and py_db.plugin is not None:
+            result = py_db.plugin.cmd_step_into(py_db, frame, 'return', args, stop_info, True)
+            if result:
+                stop, plugin_stop = result
+
+        elif step_cmd in (CMD_STEP_OVER, CMD_STEP_RETURN):
+            stop = stop_frame is frame
+            if stop:
+                stop = frame.f_back and py_db.in_project_scope(frame.f_back.f_code.co_filename)
+                if not stop:
+                    if frame.f_back:
+                        back = frame.f_back
+                        info.pydev_step_stop = back
+                        back_code = back.f_code
+                        if not py_db.in_project_scope(back_code.co_filename):
+                            stop = not step_cmd == CMD_STEP_INTO_COROUTINE
+
+                    else:
+                        # if there's no back frame, we just stop as soon as possible
+                        info.pydev_step_cmd = CMD_STEP_INTO
+                        info.pydev_step_stop = None
+
+            if step_cmd == CMD_STEP_OVER and py_db.plugin is not None:
+                result = py_db.plugin.cmd_step_over(py_db, frame, 'return', args, stop_info, stop)
+                if result:
+                    stop, plugin_stop = result
+
+        if stop and step_cmd != -1 and hasattr(frame, "f_back"):
+            f_code = getattr(frame.f_back, 'f_code', None)
+            if f_code is not None:
+                back_filename = os.path.basename(f_code.co_filename)
+                file_type = get_file_type(back_filename)
+                if file_type == PYDEV_FILE:
+                    stop = False
+
+        if plugin_stop:
+            py_db.plugin.stop(py_db, frame, 'return', args, stop_info, None, step_cmd)
+        elif stop:
+            back = frame.f_back
+            if back is not None:
+                _, back_filename, base = get_abs_path_real_path_and_base_from_frame(back)
+                if (base, back.f_code.co_name) in (DEBUG_START, DEBUG_START_PY3K):
+                    back = None
+
+            if back is not None:
+                # if we're in a return, we want it to appear to the user in the previous frame!
+                py_db.set_suspend(thread, step_cmd)
+                py_db.do_wait_suspend(thread, back, 'return', retval)
     except KeyboardInterrupt:
         _clear_run_state(info)
         raise

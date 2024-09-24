@@ -1,6 +1,8 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.compiled;
 
+import com.intellij.psi.impl.cache.ExplicitTypeAnnotationContainer;
+import com.intellij.psi.impl.cache.TypeAnnotationContainer;
 import com.intellij.psi.impl.cache.TypeInfo;
 import com.intellij.psi.impl.cache.TypeInfo.TypeKind;
 import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
@@ -26,13 +28,21 @@ public final class SignatureParsing {
   private SignatureParsing() { }
 
   /**
-   * A function to map JVM class names to {@link com.intellij.psi.impl.cache.TypeInfo.RefTypeInfo}.
+   * A function to map JVM class names to {@link TypeInfo.RefTypeInfo}.
    * Normally, this function should take into account probable inner classes. This is done by {@link FirstPassData} implementation.
    * If inner classes information is unavailable, use {@link StubBuildingVisitor#GUESSING_PROVIDER} for heuristic-based mapping
    */
   @FunctionalInterface
   public interface TypeInfoProvider {
     @NotNull TypeInfo.RefTypeInfo toTypeInfo(@NotNull String jvmClassName);
+
+    /**
+     * @param jvmClassName jvmClassName to check
+     * @return true if a given inner class is known to be static
+     */
+    default boolean isKnownStatic(@NotNull String jvmClassName) {
+      return false;
+    }
 
     /**
      * @param fn function that returns Java-style FQN by JVM class name
@@ -130,7 +140,10 @@ public final class SignatureParsing {
 
     private void createTypeParameter(PsiTypeParameterListStub listStub) {
       PsiTypeParameterStub stub = new PsiTypeParameterStubImpl(listStub, this.myTypeParameter.text());
-      myTypeParameter.getTypeAnnotations().createAnnotationStubs(stub);
+      TypeAnnotationContainer annotations = myTypeParameter.getTypeAnnotations();
+      if (annotations instanceof ExplicitTypeAnnotationContainer) {
+        ((ExplicitTypeAnnotationContainer)annotations).createAnnotationStubs(stub);
+      }
       TypeInfo[] info = this.myBounds;
       if (info.length > 0 && info[0] == null) {
         info = Arrays.copyOfRange(info, 1, info.length);
@@ -139,8 +152,7 @@ public final class SignatureParsing {
     }
   }
 
-  @NotNull
-  static TypeParametersDeclaration parseTypeParametersDeclaration(CharIterator signature, TypeInfoProvider mapping) throws ClsFormatException {
+  static @NotNull TypeParametersDeclaration parseTypeParametersDeclaration(CharIterator signature, TypeInfoProvider mapping) throws ClsFormatException {
     if (signature.current() != '<') {
       return TypeParametersDeclaration.EMPTY;
     }
@@ -176,8 +188,7 @@ public final class SignatureParsing {
     return new TypeParameterDeclaration(parameterName, bounds.toArray(TypeInfo.EMPTY_ARRAY));
   }
 
-  @Nullable
-  static TypeInfo parseTopLevelClassRefSignatureToTypeInfo(CharIterator signature, TypeInfoProvider mapping) throws ClsFormatException {
+  static @Nullable TypeInfo parseTopLevelClassRefSignatureToTypeInfo(CharIterator signature, TypeInfoProvider mapping) throws ClsFormatException {
     switch (signature.current()) {
       case 'L':
         return parseParameterizedClassRefSignatureToTypeInfo(signature, mapping);
@@ -330,8 +341,7 @@ public final class SignatureParsing {
    */
   @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated
-  @NotNull
-  public static String parseTypeString(CharacterIterator signature, Function<? super String, String> mapping) throws ClsFormatException {
+  public static @NotNull String parseTypeString(CharacterIterator signature, Function<? super String, String> mapping) throws ClsFormatException {
     StringBuilder sb = new StringBuilder();
     int pos = signature.getIndex();
     while(true) {
@@ -367,8 +377,7 @@ public final class SignatureParsing {
     return type;
   }
 
-  @Nullable
-  private static TypeInfo parseTypeWithoutVarianceToTypeInfo(CharIterator signature, TypeInfoProvider mapping) throws ClsFormatException {
+  private static @Nullable TypeInfo parseTypeWithoutVarianceToTypeInfo(CharIterator signature, TypeInfoProvider mapping) throws ClsFormatException {
     switch (signature.current()) {
       case 'L':
         return parseParameterizedClassRefSignatureToTypeInfo(signature, mapping);

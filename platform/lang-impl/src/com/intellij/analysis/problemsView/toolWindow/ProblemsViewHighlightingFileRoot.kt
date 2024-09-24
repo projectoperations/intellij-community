@@ -4,11 +4,9 @@ package com.intellij.analysis.problemsView.toolWindow
 import com.intellij.analysis.problemsView.Problem
 import com.intellij.analysis.problemsView.ProblemsProvider
 import com.intellij.lang.annotation.HighlightSeverity
-import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.ex.RangeHighlighterEx
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 
 internal class ProblemsViewHighlightingFileRoot(panel: ProblemsViewPanel, val file: VirtualFile, val document: Document) : Root(panel) {
@@ -20,7 +18,7 @@ internal class ProblemsViewHighlightingFileRoot(panel: ProblemsViewPanel, val fi
     override val project = panel.project
   }
 
-  private val watcher: ProblemsViewHighlightingWatcher = createWatcher(provider, file, document)
+  private val watcher: ProblemsViewHighlightingWatcher = ProblemsViewHighlightingWatcher(provider, this, file, document, HighlightSeverity.TEXT_ATTRIBUTES.myVal + 1)
 
   init {
     Disposer.register(this, provider)
@@ -45,9 +43,6 @@ internal class ProblemsViewHighlightingFileRoot(panel: ProblemsViewPanel, val fi
     else -> emptyList()
   }
 
-  private fun createWatcher(provider: ProblemsProvider, file: VirtualFile, document: Document): ProblemsViewHighlightingWatcher =
-    ProblemsViewHighlightingWatcher(provider, this, file, document, HighlightSeverity.TEXT_ATTRIBUTES.myVal + 1)
-
   override fun getOtherProblemCount(): Int = 0
 
   override fun getOtherProblems(): Collection<Problem> = emptyList()
@@ -57,14 +52,6 @@ internal class ProblemsViewHighlightingFileRoot(panel: ProblemsViewPanel, val fi
       return
     }
     notify(problem = problem, state = synchronized(problems) { SetUpdateState.add(problem, problems) })
-    if (Registry.`is`("wolf.the.problem.solver")) {
-      return
-    }
-    // start filling HighlightingErrorsProvider if WolfTheProblemSolver is disabled
-    if (problem.severity < HighlightSeverity.ERROR.myVal) {
-      return
-    }
-    problem.provider.project.service<HighlightingErrorsProviderBase>().problemsAppeared(file)
   }
 
   override fun problemDisappeared(problem: Problem) {
@@ -98,6 +85,6 @@ internal class ProblemsViewHighlightingFileRoot(panel: ProblemsViewPanel, val fi
           listOf(ProblemsViewGroupNode(node, it, entry.value))
         }
         ?: getNodesForProblems(node, entry.value)
-    }
+      }
   }
 }

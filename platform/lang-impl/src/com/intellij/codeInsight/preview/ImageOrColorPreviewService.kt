@@ -3,6 +3,7 @@ package com.intellij.codeInsight.preview
 
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
@@ -86,6 +87,8 @@ internal class ImageOrColorPreviewService(
 
   private suspend fun doAttach(editor: Editor) {
     val psiFile = readAction {
+      if (project.isDisposed || editor.isDisposed)
+        return@readAction null
       val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument())
       if (psiFile == null || !psiFile.isValid || psiFile is PsiCompiledElement || !isSupportedFile(psiFile)) {
         null
@@ -157,7 +160,9 @@ internal class ImageOrColorPreviewService(
       val elements = readAction { getPsiElementsAt(editor, offset) }
       if (elements == myElements.get()) return
       withContext(Dispatchers.EDT) {
-        showElements(elements)
+        writeIntentReadAction {
+          showElements(elements)
+        }
       }
     }
 
@@ -199,7 +204,9 @@ internal class ImageOrColorPreviewService(
       }
       myElements.set(null)
       withContext(Dispatchers.EDT) {
-        hideElements(elements)
+        writeIntentReadAction {
+          hideElements(elements)
+        }
       }
     }
 

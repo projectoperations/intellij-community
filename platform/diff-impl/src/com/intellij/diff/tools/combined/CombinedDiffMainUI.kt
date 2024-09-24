@@ -29,7 +29,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy
-import com.intellij.platform.util.coroutines.namedChildScope
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBPanelWithEmptyText
 import com.intellij.ui.components.panels.Wrapper
@@ -41,27 +41,25 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
-import org.jetbrains.annotations.NonNls
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
-import java.lang.Runnable
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
 import kotlin.math.max
 
+@ApiStatus.Internal
 class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToChangeAction: AnAction?) : Disposable {
   private val ourDisposable = Disposer.newCheckedDisposable().also { Disposer.register(this, it) }
 
   @OptIn(DelicateCoroutinesApi::class)
-  private val cs: CoroutineScope = GlobalScope.namedChildScope("CombinedDiffMainUI", Dispatchers.EDT)
+  private val cs: CoroutineScope = GlobalScope.childScope("CombinedDiffMainUI", Dispatchers.EDT)
 
   private val context: DiffContext = model.context
   private val settings = DiffSettings.getSettings(context.getUserData(DiffUserDataKeys.PLACE))
-
-  private val combinedToolOrder = arrayListOf<CombinedDiffTool>()
 
   private val popupActionGroup = DefaultActionGroup()
   private val touchbarActionGroup = DefaultActionGroup()
@@ -69,7 +67,7 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
 
   private val contentPanel = Wrapper()
 
-  private val diffToolChooser: MyDiffToolChooser = MyDiffToolChooser()
+  private val diffToolChooser: MyDiffToolChooser = MyDiffToolChooser(context, model, settings)
 
   private val combinedDiffUIState = CombinedDiffUIState()
 
@@ -84,17 +82,6 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
 
   private val combinedViewer get() = context.getUserData(COMBINED_DIFF_VIEWER_KEY)
 
-  //
-  // Global, shortcuts only navigation actions
-  //
-
-  private val openInEditorAction = object : OpenInEditorAction() {
-    override fun update(e: AnActionEvent) {
-      super.update(e)
-      e.presentation.isVisible = false
-    }
-  }
-
   private var searchController: CombinedDiffSearchController? = null
 
   init {
@@ -103,7 +90,6 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     }
 
     Touchbar.setActions(mainPanel, touchbarActionGroup)
-    updateAvailableDiffTools()
 
     val bottomContentSplitter = JBSplitter(true, "CombinedDiff.BottomComponentSplitter", 0.8f)
     bottomContentSplitter.firstComponent = contentPanel
@@ -119,6 +105,8 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     if (bottomPanel is Disposable) Disposer.register(ourDisposable, bottomPanel)
 
     contentPanel.setContent(DiffUtil.createMessagePanel(CommonBundle.getLoadingTreeNodeText()))
+
+    DiffUsageTriggerCollector.logShowCombinedDiffTool(model.project, diffToolChooser.getActiveTool(), model.context.getUserData(DiffUserDataKeys.PLACE))
   }
 
   @RequiresEdt
@@ -192,27 +180,6 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     ActionUtil.clearActions(mainPanel)
   }
 
-  private fun moveToolOnTop(tool: CombinedDiffTool) {
-    if (combinedToolOrder.remove(tool)) {
-      combinedToolOrder.add(0, tool)
-      updateToolOrderSettings(combinedToolOrder)
-    }
-  }
-
-  private fun updateToolOrderSettings(toolOrder: List<DiffTool>) {
-    val savedOrder = arrayListOf<String>()
-    for (tool in toolOrder) {
-      savedOrder.add(tool.javaClass.canonicalName)
-    }
-    settings.diffToolsOrder = savedOrder
-  }
-
-  private fun updateAvailableDiffTools() {
-    combinedToolOrder.clear()
-    val availableCombinedDiffTools = DiffManagerEx.getInstance().diffTools.filterIsInstance<CombinedDiffTool>()
-    combinedToolOrder.addAll(getToolOrderFromSettings(settings, availableCombinedDiffTools).filterIsInstance<CombinedDiffTool>())
-  }
-
   override fun dispose() {
     if (ourDisposable.isDisposed) return
     UIUtil.invokeLaterIfNeeded {
@@ -221,12 +188,44 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     }
   }
 
-  private inner class MyDiffToolChooser : DiffToolChooser(context.project) {
+  private class MyDiffToolChooser(
+    val context: DiffContext,
+    val model: CombinedDiffModel,
+    val settings: DiffSettings,
+  ) : DiffToolChooser(context.project) {
     private val availableTools = arrayListOf<CombinedDiffTool>().apply {
       addAll(DiffManagerEx.getInstance().diffTools.filterIsInstance<CombinedDiffTool>())
     }
 
-    private var activeTool: CombinedDiffTool = combinedToolOrder.firstOrNull() ?: availableTools.first()
+    private val combinedToolOrder = arrayListOf<CombinedDiffTool>()
+
+    private var activeTool: CombinedDiffTool
+
+    init {
+      updateAvailableDiffTools()
+      activeTool = combinedToolOrder.firstOrNull() ?: availableTools.first()
+    }
+
+    private fun updateAvailableDiffTools() {
+      combinedToolOrder.clear()
+      val availableCombinedDiffTools = DiffManagerEx.getInstance().diffTools.filterIsInstance<CombinedDiffTool>()
+      combinedToolOrder.addAll(getToolOrderFromSettings(settings, availableCombinedDiffTools).filterIsInstance<CombinedDiffTool>())
+    }
+
+    private fun moveToolOnTop(tool: CombinedDiffTool) {
+      if (combinedToolOrder.remove(tool)) {
+        combinedToolOrder.add(0, tool)
+        updateToolOrderSettings(combinedToolOrder)
+      }
+    }
+
+    private fun updateToolOrderSettings(toolOrder: List<DiffTool>) {
+      val savedOrder = arrayListOf<String>()
+      for (tool in toolOrder) {
+        savedOrder.add(tool.javaClass.canonicalName)
+      }
+      settings.diffToolsOrder = savedOrder
+    }
 
     override fun onSelected(project: Project, diffTool: DiffTool) {
       val combinedDiffTool = diffTool as? CombinedDiffTool ?: return
@@ -251,7 +250,7 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
     override fun getForcedDiffTool(): DiffTool? = null
   }
 
-  private inner class MyMainPanel : JBPanelWithEmptyText(BorderLayout()), DataProvider {
+  private inner class MyMainPanel : JBPanelWithEmptyText(BorderLayout()), UiDataProvider {
     init {
       background = CombinedDiffUI.MAIN_HEADER_BACKGROUND
     }
@@ -262,26 +261,17 @@ class CombinedDiffMainUI(private val model: CombinedDiffModel, private val goToC
       return Dimension(max(windowSize.width, size.width), max(windowSize.height, size.height))
     }
 
-    override fun getData(dataId: @NonNls String): Any? {
-      val data = DataManagerImpl.getDataProviderEx(contentPanel.targetComponent)?.getData(dataId)
-      if (data != null) return data
+    override fun uiDataSnapshot(sink: DataSink) {
+      sink[DiffDataKeys.DIFF_REQUEST] = getCurrentRequest()
+      sink[OpenInEditorAction.AFTER_NAVIGATE_CALLBACK] = Runnable { DiffUtil.minimizeDiffIfOpenedInWindow(this) }
+      sink[CommonDataKeys.PROJECT] = context.project
+      sink[PlatformCoreDataKeys.HELP_ID] = context.getUserData(DiffUserDataKeys.HELP_ID) ?: "reference.dialogs.diff.file"
+      sink[DiffDataKeys.DIFF_CONTEXT] = context
 
-      return when {
-        DiffDataKeys.DIFF_REQUEST.`is`(dataId) -> getCurrentRequest()
-        OpenInEditorAction.AFTER_NAVIGATE_CALLBACK.`is`(dataId) -> Runnable { DiffUtil.minimizeDiffIfOpenedInWindow(this) }
-        CommonDataKeys.PROJECT.`is`(dataId) -> context.project
-        PlatformCoreDataKeys.HELP_ID.`is`(dataId) -> {
-          if (context.getUserData(DiffUserDataKeys.HELP_ID) != null) {
-            context.getUserData(DiffUserDataKeys.HELP_ID)
-          }
-          else {
-            "reference.dialogs.diff.file"
-          }
-        }
-        DiffDataKeys.DIFF_CONTEXT.`is`(dataId) -> context
-        else -> getCurrentRequest()?.getUserData(DiffUserDataKeys.DATA_PROVIDER)?.getData(dataId)
-                ?: context.getUserData(DiffUserDataKeys.DATA_PROVIDER)?.getData(dataId)
-      }
+      DataSink.uiDataSnapshot(sink, context.getUserData(DiffUserDataKeys.DATA_PROVIDER))
+      DataSink.uiDataSnapshot(sink, getCurrentRequest()?.getUserData(DiffUserDataKeys.DATA_PROVIDER))
+      DataSink.uiDataSnapshot(sink, contentPanel.targetComponent as? UiDataProvider
+                                    ?: DataManagerImpl.getDataProviderEx(contentPanel.targetComponent))
     }
   }
 
@@ -328,6 +318,7 @@ private class ShowActionGroupPopupAction(
 /**
  * Various ui states which shared between the main ui and the combined diff viewer
  */
+@ApiStatus.Experimental
 class CombinedDiffUIState {
   private val searchMode: MutableStateFlow<Boolean> = MutableStateFlow(false)
   private val stickyHeaderUnderBorder: MutableStateFlow<Boolean> = MutableStateFlow(false)

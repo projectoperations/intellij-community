@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.codeInsight.intention.impl;
 
@@ -21,7 +7,10 @@ import com.intellij.codeInsight.ModCommandAwareExternalAnnotationsManager;
 import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.codeInsight.intention.PriorityAction;
 import com.intellij.java.JavaBundle;
-import com.intellij.modcommand.*;
+import com.intellij.modcommand.ActionContext;
+import com.intellij.modcommand.ModCommand;
+import com.intellij.modcommand.ModCommandAction;
+import com.intellij.modcommand.Presentation;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiAnnotation;
@@ -36,7 +25,7 @@ import java.util.List;
 import java.util.Objects;
 
 public class DeannotateIntentionAction implements ModCommandAction {
-  @NlsSafe private final String myAnnotationName;
+  private final @NlsSafe String myAnnotationName;
   
   public DeannotateIntentionAction() {
     myAnnotationName = null;
@@ -47,8 +36,7 @@ public class DeannotateIntentionAction implements ModCommandAction {
   }
 
   @Override
-  @NotNull
-  public String getFamilyName() {
+  public @NotNull String getFamilyName() {
     return JavaBundle.message("deannotate.intention.action.family.name");
   }
 
@@ -61,7 +49,7 @@ public class DeannotateIntentionAction implements ModCommandAction {
     if (listOwner != null) {
       final ExternalAnnotationsManager externalAnnotationsManager = ExternalAnnotationsManager.getInstance(context.project());
       final PsiAnnotation[] annotations = externalAnnotationsManager.findExternalAnnotations(listOwner);
-      if (annotations != null && annotations.length > 0) {
+      if (annotations.length > 0) {
         String message;
         if (annotations.length == 1) {
           message = JavaBundle.message("deannotate.intention.action.text", "@" + annotations[0].getQualifiedName());
@@ -90,7 +78,7 @@ public class DeannotateIntentionAction implements ModCommandAction {
       return annotationsManager.deannotateModCommand(List.of(listOwner), List.of(myAnnotationName));
     }
     final PsiAnnotation[] externalAnnotations = annotationsManager.findExternalAnnotations(listOwner);
-    if (externalAnnotations == null) return ModCommand.nop();
+    if (externalAnnotations.length == 0) return ModCommand.nop();
     return ModCommand.chooseAction(JavaBundle.message("deannotate.intention.chooser.title"),
                                    ContainerUtil.map(externalAnnotations, anno -> new DeannotateIntentionAction(
                                      Objects.requireNonNull(anno.getQualifiedName()))));

@@ -12,7 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.psi.*
 import com.intellij.psi.impl.source.DummyHolder
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.j2k.ast.Element
 import org.jetbrains.kotlin.j2k.usageProcessing.ExternalCodeProcessor
@@ -32,10 +32,15 @@ class OldJavaToKotlinConverter(
         private val LOG = Logger.getInstance(JavaToKotlinConverter::class.java)
     }
 
+    /**
+     * Preprocessor and postprocessor extensions are only handled in [NewJavaToKotlinConverter]. Any passed in here will be ignored.
+     */
     override fun filesToKotlin(
         files: List<PsiJavaFile>,
         postProcessor: PostProcessor,
-        progressIndicator: ProgressIndicator
+        progressIndicator: ProgressIndicator,
+        preprocessorExtensions: List<J2kPreprocessorExtension>,
+        postprocessorExtensions: List<J2kPostprocessorExtension>
     ): FilesResult {
         val withProgressProcessor = OldWithProgressProcessor(progressIndicator, files)
         val (results, externalCodeProcessing) = ApplicationManager.getApplication().runReadAction(Computable {
@@ -160,7 +165,7 @@ class OldJavaToKotlinConverter(
                 return { processUsages(refs) }
             }
 
-            context(KtAnalysisSession)
+            context(KaSession)
             override fun bindJavaDeclarationsToConvertedKotlinOnes(files: List<KtFile>) {
                 // Do nothing in Old J2K
             }

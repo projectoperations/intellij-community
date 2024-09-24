@@ -23,10 +23,11 @@ import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.projectModel.ProjectModelBundle
 import com.intellij.util.PathUtil
 import com.intellij.util.containers.BidirectionalMap
+import com.intellij.util.containers.ConcurrentFactoryMap
 import com.intellij.workspaceModel.ide.NonPersistentEntitySource
-import com.intellij.workspaceModel.ide.impl.LegacyBridgeJpsEntitySourceFactory
 import com.intellij.workspaceModel.ide.impl.legacyBridge.LegacyBridgeModifiableBase
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.ModuleManagerBridgeImpl.Companion.mutableModuleMap
+import com.intellij.workspaceModel.ide.legacyBridge.LegacyBridgeJpsEntitySourceFactory
 import com.intellij.workspaceModel.ide.legacyBridge.ModifiableModuleModelBridge
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import io.opentelemetry.api.metrics.Meter
@@ -43,6 +44,8 @@ internal class ModifiableModuleModelBridgeImpl(
   diff: MutableEntityStorage,
   cacheStorageResult: Boolean = true
 ) : LegacyBridgeModifiableBase(diff, cacheStorageResult), ModifiableModuleModelBridge {
+  private val moduleTypes = ConcurrentFactoryMap.createMap<String, ModuleTypeId> { ModuleTypeId(it) }
+
   override fun getProject(): Project = project
 
   private val modulesToAdd = BidirectionalMap<String, ModuleBridge>()
@@ -88,9 +91,8 @@ internal class ModifiableModuleModelBridgeImpl(
     }
 
     val parentPath = PathUtil.getParentPath(canonicalPath)
-    val baseModuleDir = WorkspaceModel.getInstance(project).getVirtualFileUrlManager().getOrCreateFromUri(VfsUtilCore.pathToUrl(parentPath))
-    val entitySource = LegacyBridgeJpsEntitySourceFactory.createEntitySourceForModule(
-      project = project,
+    val baseModuleDir = WorkspaceModel.getInstance(project).getVirtualFileUrlManager().getOrCreateFromUrl(VfsUtilCore.pathToUrl(parentPath))
+    val entitySource = LegacyBridgeJpsEntitySourceFactory.getInstance(project).createEntitySourceForModule(
       baseModuleDir = baseModuleDir,
       externalSource = null,
     )
@@ -99,7 +101,7 @@ internal class ModifiableModuleModelBridgeImpl(
                                                    dependencies = listOf(ModuleSourceDependency),
                                                    entitySource = entitySource
     ) {
-      type = moduleTypeId
+      type = moduleTypes[moduleTypeId]
     }
 
     return@addMeasuredTime createModuleInstance(moduleEntity, true)
@@ -268,7 +270,7 @@ internal class ModifiableModuleModelBridgeImpl(
         newNameToModule[newName] = module
       }
       val entity = module.findModuleEntity(entityStorageOnDiff.current) ?: error("Unable to find module entity for $module")
-      diff.modifyEntity(entity) {
+      diff.modifyModuleEntity(entity) {
         name = newName
       }
     }
@@ -296,17 +298,17 @@ internal class ModifiableModuleModelBridgeImpl(
     // TODO How to deduplicate with ModuleCustomImlDataEntity ?
     if (moduleGroupEntity?.path != groupPathList) {
       when {
-        moduleGroupEntity == null && groupPathList != null -> diff addEntity ModuleGroupPathEntity(path = groupPathList,
-                                                                                                   entitySource = moduleEntity.entitySource
-        ) {
-          this.module = moduleEntity
+        moduleGroupEntity == null && groupPathList != null -> {
+          diff.modifyModuleEntity(moduleEntity) {
+            this.groupPath = ModuleGroupPathEntity(path = groupPathList, entitySource = moduleEntity.entitySource)
+          }
         }
 
         moduleGroupEntity == null && groupPathList == null -> Unit
 
         moduleGroupEntity != null && groupPathList == null -> diff.removeEntity(moduleGroupEntity)
 
-        moduleGroupEntity != null && groupPathList != null -> diff.modifyEntity(moduleGroupEntity) {
+        moduleGroupEntity != null && groupPathList != null -> diff.modifyModuleGroupPathEntity(moduleGroupEntity) {
           path = groupPathList
         }
 

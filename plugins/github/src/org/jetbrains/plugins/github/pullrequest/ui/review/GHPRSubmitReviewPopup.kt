@@ -1,7 +1,9 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.github.pullrequest.ui.review
 
+import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.collaboration.ui.HorizontalListPanel
+import com.intellij.collaboration.ui.codereview.list.error.ErrorStatusPresenter
 import com.intellij.collaboration.ui.codereview.review.CodeReviewSubmitPopupHandler
 import com.intellij.collaboration.ui.util.bindDisabledIn
 import com.intellij.collaboration.ui.util.bindVisibilityIn
@@ -11,9 +13,11 @@ import com.intellij.util.ui.InlineIconButton
 import com.intellij.util.ui.JBUI
 import icons.CollaborationToolsIcons
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import org.jetbrains.plugins.github.api.data.GHPullRequestReviewEvent
 import org.jetbrains.plugins.github.i18n.GithubBundle
+import org.jetbrains.plugins.github.ui.component.GHHtmlErrorPanel
 import java.awt.event.ActionListener
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -22,6 +26,9 @@ import javax.swing.JPanel
 internal object GHPRSubmitReviewPopup : CodeReviewSubmitPopupHandler<GHPRSubmitReviewViewModel>() {
   override fun CoroutineScope.createActionsComponent(vm: GHPRSubmitReviewViewModel): JPanel {
     val cs = this
+    val hasAnyCommentFlow = combine(vm.text, vm.draftCommentsCount) { text, comments ->
+      text.isNotEmpty() || comments > 0
+    }
     val buttons = buildList<JComponent> {
       if (!vm.viewerIsAuthor) {
         object : InstallButton(GithubBundle.message("pull.request.review.submit.approve.button"), true) {
@@ -34,7 +41,7 @@ internal object GHPRSubmitReviewPopup : CodeReviewSubmitPopupHandler<GHPRSubmitR
         JButton(GithubBundle.message("pull.request.review.submit.request.changes")).apply {
           isOpaque = false
         }.apply {
-          bindDisabledIn(cs, vm.isBusy)
+          bindDisabledIn(cs, vm.isBusy.combine(hasAnyCommentFlow) { busy, hasAnyComment -> busy || !hasAnyComment })
           addActionListener { vm.submit(GHPullRequestReviewEvent.REQUEST_CHANGES) }
         }.let(::add)
       }
@@ -43,7 +50,7 @@ internal object GHPRSubmitReviewPopup : CodeReviewSubmitPopupHandler<GHPRSubmitR
         isOpaque = false
         toolTipText = GithubBundle.message("pull.request.review.submit.comment.description")
       }.apply {
-        bindDisabledIn(cs, vm.isBusy)
+        bindDisabledIn(cs, vm.isBusy.combine(hasAnyCommentFlow) { busy, hasAnyComment -> busy || !hasAnyComment })
         addActionListener { vm.submit(GHPullRequestReviewEvent.COMMENT) }
       }.let(::add)
     }
@@ -82,5 +89,12 @@ internal object GHPRSubmitReviewPopup : CodeReviewSubmitPopupHandler<GHPRSubmitR
       add(discardButton)
       add(defaultActions)
     }
+  }
+
+  override val errorPresenter: ErrorStatusPresenter<Throwable> by lazy {
+    ErrorStatusPresenter.simple(
+      CollaborationToolsBundle.message("review.submit.failed"),
+      descriptionProvider = GHHtmlErrorPanel::getLoadingErrorText
+    )
   }
 }

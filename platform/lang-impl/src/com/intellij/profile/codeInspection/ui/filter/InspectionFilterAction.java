@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.profile.codeInspection.ui.filter;
 
 import com.intellij.analysis.AnalysisBundle;
@@ -23,6 +23,7 @@ import com.intellij.profile.codeInspection.ui.LevelChooserAction;
 import com.intellij.profile.codeInspection.ui.SingleInspectionProfilePanel;
 import com.intellij.ui.FilterComponent;
 import com.intellij.util.SmartList;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,11 +36,11 @@ import java.util.Set;
  * @author Dmitry Batkovich
  */
 public final class InspectionFilterAction extends DefaultActionGroup implements Toggleable, DumbAware {
-  private final static int MIN_LANGUAGE_COUNT_TO_WRAP = 11;
+  private static final int MIN_LANGUAGE_COUNT_TO_WRAP = 11;
 
   private final SeverityRegistrar mySeverityRegistrar;
   private final InspectionsFilter myInspectionsFilter;
-  @NotNull private final FilterComponent myFilterComponent;
+  private final @NotNull FilterComponent myFilterComponent;
 
   public InspectionFilterAction(@NotNull InspectionProfileImpl profile,
                                 @NotNull InspectionsFilter inspectionsFilter,
@@ -143,7 +144,7 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
     }
 
     @Override
-    public boolean isSelected(@NotNull final AnActionEvent e) {
+    public boolean isSelected(final @NotNull AnActionEvent e) {
       return myInspectionsFilter.isShowOnlyCleanupInspections();
     }
 
@@ -153,7 +154,7 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
     }
 
     @Override
-    public void setSelected(@NotNull final AnActionEvent e, final boolean state) {
+    public void setSelected(final @NotNull AnActionEvent e, final boolean state) {
       myInspectionsFilter.setShowOnlyCleanupInspections(state);
     }
   }
@@ -165,7 +166,7 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
     }
 
     @Override
-    public boolean isSelected(@NotNull final AnActionEvent e) {
+    public boolean isSelected(final @NotNull AnActionEvent e) {
       return myInspectionsFilter.isAvailableOnlyForAnalyze();
     }
 
@@ -175,7 +176,7 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
     }
 
     @Override
-    public void setSelected(@NotNull final AnActionEvent e, final boolean state) {
+    public void setSelected(final @NotNull AnActionEvent e, final boolean state) {
       myInspectionsFilter.setAvailableOnlyForAnalyze(state);
     }
   }
@@ -193,7 +194,7 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
 
 
     @Override
-    public boolean isSelected(@NotNull final AnActionEvent e) {
+    public boolean isSelected(final @NotNull AnActionEvent e) {
       return myInspectionsFilter.containsSeverity(mySeverity);
     }
 
@@ -203,7 +204,7 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
     }
 
     @Override
-    public void setSelected(@NotNull final AnActionEvent e, final boolean state) {
+    public void setSelected(final @NotNull AnActionEvent e, final boolean state) {
       if (state) {
         myInspectionsFilter.addSeverity(mySeverity);
       } else {
@@ -224,7 +225,7 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
 
 
     @Override
-    public boolean isSelected(@NotNull final AnActionEvent e) {
+    public boolean isSelected(final @NotNull AnActionEvent e) {
       return myInspectionsFilter.getSuitableInspectionsStates() == myShowEnabledActions;
     }
 
@@ -234,7 +235,7 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
     }
 
     @Override
-    public void setSelected(@NotNull final AnActionEvent e, final boolean state) {
+    public void setSelected(final @NotNull AnActionEvent e, final boolean state) {
       final boolean previousState = isSelected(e);
       myInspectionsFilter.setSuitableInspectionsStates(previousState ? null : myShowEnabledActions);
     }
@@ -244,8 +245,16 @@ public final class InspectionFilterAction extends DefaultActionGroup implements 
     private final Language myLanguage;
 
     LanguageFilterAction(final @Nullable Language language) {
-      super(language == null ? AnalysisBundle.message("inspections.settings.language.not.specified.warning") : language.getDisplayName());
+      super(getDisplayNameForLanguage(language));
       myLanguage = language;
+    }
+
+    private static @Nls @NotNull String getDisplayNameForLanguage(@Nullable Language language) {
+      if (language == null) {
+        return AnalysisBundle.message("inspections.settings.language.not.specified.warning");
+      }
+      String displayName = language.getDisplayName();
+      return displayName.isEmpty() ? AnalysisBundle.message("inspections.settings.language.any") : displayName;
     }
 
     @Override

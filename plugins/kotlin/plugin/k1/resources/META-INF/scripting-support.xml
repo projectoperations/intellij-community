@@ -1,5 +1,11 @@
 <idea-plugin>
   <extensionPoints>
+    <extensionPoint
+            qualifiedName="org.jetbrains.kotlin.scriptDefinitionsSource"
+            interface="org.jetbrains.kotlin.scripting.definitions.ScriptDefinitionsSource"
+            area="IDEA_PROJECT"
+            dynamic="true"/>
+
     <extensionPoint qualifiedName="org.jetbrains.kotlin.scratchFileLanguageProvider" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
       <with attribute="implementationClass" implements="org.jetbrains.kotlin.idea.scratch.ScratchFileLanguageProvider"/>
     </extensionPoint>
@@ -25,8 +31,8 @@
 
     <fileEditorProvider id="KtsScratchFileEditorProvider" implementation="org.jetbrains.kotlin.idea.scratch.ui.KtScratchFileEditorProvider"/>
 
-    <projectService serviceImplementation="org.jetbrains.kotlin.analysis.api.descriptors.KtFe10CompilerPluginsProvider"
-                    serviceInterface="org.jetbrains.kotlin.analysis.project.structure.KtCompilerPluginsProvider"/>
+    <projectService serviceInterface="org.jetbrains.kotlin.analysis.api.platform.projectStructure.KotlinCompilerPluginsProvider"
+                    serviceImplementation="org.jetbrains.kotlin.analysis.api.descriptors.KotlinFe10CompilerPluginsProvider"/>
 
   </extensions>
 
@@ -34,38 +40,26 @@
     <syntheticResolveExtension implementation="org.jetbrains.kotlin.scripting.extensions.ScriptingResolveExtension"/>
     <extraImportsProviderExtension implementation="org.jetbrains.kotlin.scripting.extensions.ScriptExtraImportsProviderExtension"/>
 
-    <scriptDefinitionContributor
+    <scriptDefinitionsSource
             id="ScriptTemplatesFromCompilerSettingsProvider"
             implementation="org.jetbrains.kotlin.idea.script.ScriptTemplatesFromCompilerSettingsProvider"/>
 
-    <scriptDefinitionContributor
+    <scriptDefinitionsSource
             id="BridgeScriptDefinitionsContributor"
             implementation="org.jetbrains.kotlin.idea.script.BridgeScriptDefinitionsContributor"/>
 
-    <scriptDefinitionContributor
+    <scriptDefinitionsSource
             id="ScriptTemplatesFromDependenciesProvider"
             implementation="org.jetbrains.kotlin.idea.script.ScriptTemplatesFromDependenciesProvider"/>
 
-    <scriptDefinitionContributor id="ConsoleScriptDefinitionContributor"
-                                 implementation="org.jetbrains.kotlin.console.ConsoleScriptDefinitionContributor"/>
+    <scriptDefinitionsSource id="ConsoleScriptDefinitionContributor"
+                                 implementation="org.jetbrains.kotlin.console.ConsoleScriptDefinitionSource"/>
 
-    <scriptDefinitionContributor id="ScriptDefinitionForExtensionAndIdeConsoleRootsSource"
+    <scriptDefinitionsSource id="ScriptDefinitionForExtensionAndIdeConsoleRootsSource"
                                  implementation="org.jetbrains.kotlin.jsr223.ScriptDefinitionForExtensionAndIdeConsoleRootsSource"/>
 
-    <scriptDefinitionsProvider id="MainKtsScriptDefinitionSource"
-                               implementation="org.jetbrains.kotlin.idea.script.MainKtsScriptDefinitionSource"/>
-
-    <scripting.support.checker.provider id="MainKtsScriptCheckerProvider"
-            implementation="org.jetbrains.kotlin.idea.script.MainKtsScriptCheckerProvider"/>
-
-    <scripting.support.checker.provider id="SpaceKtsScriptCheckerProvider"
-            implementation="org.jetbrains.kotlin.idea.script.SpaceKtsScriptCheckerProvider"/>
-
-    <scripting.support.checker.provider id="TeamCityKtsScriptCheckerProvider"
-            implementation="org.jetbrains.kotlin.idea.script.TeamCityKtsScriptCheckerProvider"/>
-
-    <scripting.support.checker.provider id="WorkspaceKtsScriptCheckerProvider"
-            implementation="org.jetbrains.kotlin.idea.script.WorkspaceKtsScriptCheckerProvider"/>
+    <scriptDefinitionsProvider id="MainKtsScriptDefinitionProvider"
+                               implementation="org.jetbrains.kotlin.idea.script.MainKtsScriptDefinitionProvider"/>
 
     <ideScriptConfigurationControlFacade implementation="org.jetbrains.kotlin.idea.script.DefaultIdeScriptingConfigurationFacade"/>
 

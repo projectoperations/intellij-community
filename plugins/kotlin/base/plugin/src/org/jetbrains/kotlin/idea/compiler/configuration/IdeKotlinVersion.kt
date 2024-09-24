@@ -11,7 +11,11 @@ import org.jetbrains.kotlin.config.ApiVersion
 import org.jetbrains.kotlin.config.LanguageVersion
 import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.config.LanguageVersionSettingsImpl
+import org.jetbrains.kotlin.library.KLIB_MANIFEST_FILE_NAME
+import org.jetbrains.kotlin.library.KLIB_PROPERTY_COMPILER_VERSION
 import org.jetbrains.kotlin.util.capitalizeDecapitalize.toLowerCaseAsciiOnly
+import java.io.IOException
+import java.util.Properties
 import java.util.jar.Attributes
 
 /**
@@ -31,7 +35,7 @@ class IdeKotlinVersion private constructor(
             "^(\\d+)" + // major
             "\\.(\\d+)" + // minor
             "\\.(\\d+)" + // patch
-            "(?:-([A-Za-z]\\w+(?:-release)?))?" + // kind suffix
+            "(?:-([A-Za-z]\\w+(?:\\.\\d+)?(?:-release)?))?" + // kind suffix
             "(?:-(\\d+)?)?$" // build number
         ).toRegex(RegexOption.IGNORE_CASE)
 
@@ -43,20 +47,6 @@ class IdeKotlinVersion private constructor(
         @JvmStatic
         fun opt(@NlsSafe rawVersion: String): IdeKotlinVersion? {
             return parse(rawVersion).getOrNull()
-        }
-
-        @JvmStatic
-        fun fromKotlinVersion(version: KotlinVersion): IdeKotlinVersion {
-            val languageVersion = LanguageVersion.values().first { it.major == version.major && it.minor == version.minor }
-            return IdeKotlinVersion(
-                rawVersion = version.toString(),
-                kotlinVersion = version,
-                kind = Kind.Release,
-                requireBuildNumberForArtifact = false,
-                buildNumber = null,
-                languageVersion = languageVersion,
-                apiVersion = ApiVersion.createByLanguageVersion(languageVersion)
-            )
         }
 
         @JvmStatic
@@ -80,6 +70,22 @@ class IdeKotlinVersion private constructor(
             // "Implementation-Version" in MANIFEST.MF is sometimes written as '1.5.31-release-548(1.5.31)'
             val rawVersion = unprocessedVersion.substringBefore('(').trim()
             return opt(rawVersion)
+        }
+
+        @JvmStatic
+        fun fromKLibManifest(jarFile: VirtualFile): IdeKotlinVersion? {
+            val root = if (jarFile is FsRoot) jarFile else JarFileSystem.getInstance().getJarRootForLocalFile(jarFile) ?: return null
+            val properties = root.children.firstNotNullOfOrNull { klibManifestProperties(it) } ?: return null
+            return (properties[KLIB_PROPERTY_COMPILER_VERSION] as? String)?.let(::opt)
+        }
+
+        fun klibManifestProperties(componentFile: VirtualFile): Properties? {
+            val manifestFile = componentFile.findChild(KLIB_MANIFEST_FILE_NAME)?.takeIf { !it.isDirectory } ?: return null
+            return try {
+                manifestFile.inputStream.use { Properties().apply { load(it) } }
+            } catch (_: IOException) {
+                return null
+            }
         }
 
         private fun parseKind(kindSuffix: String, prefix: String, factory: (Int?) -> Kind): Kind? {
@@ -119,6 +125,7 @@ class IdeKotlinVersion private constructor(
                 kindSuffix.startsWith("beta") -> parseKind(kindSuffix, "beta") { Kind.Beta(it) }
                 kindSuffix.startsWith("m")  -> parseKind(kindSuffix, "m") { Kind.Milestone(it) }
                 kindSuffix.startsWith("eap") -> parseKind(kindSuffix, "eap") { Kind.Eap(it) }
+                kindSuffix.matches(Regex("""ij\d+(?:\.\d+)?""")) -> Kind.ForIde(kindSuffix)
                 else -> null
             } ?: return Result.failure(IllegalArgumentException("Unsupported version kind suffix: \"$kindSuffix\" ($rawVersion)"))
 
@@ -146,6 +153,7 @@ class IdeKotlinVersion private constructor(
         // M should always have a number, so default to M1
         data class Milestone(val number: Int?) : Kind(artifactSuffix = if (number == null) "M1" else "M$number")
         data class Eap(val number: Int?) : Kind(artifactSuffix = if (number == null) "eap" else "eap$number")
+        data class ForIde(val platform: String) : Kind(artifactSuffix = platform)
         object Dev : Kind(artifactSuffix = "dev")
         object Snapshot : Kind(artifactSuffix = "SNAPSHOT")
 

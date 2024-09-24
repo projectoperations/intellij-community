@@ -13,6 +13,8 @@ import com.intellij.openapi.project.DumbModeBlockedFunctionality
 import com.intellij.openapi.project.DumbModeBlockedFunctionalityCollector
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.text.HtmlBuilder
+import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vcs.*
 import com.intellij.openapi.vcs.changes.Change
@@ -40,7 +42,7 @@ class PostCommitChecksHandler(val project: Project) {
     fun getInstance(project: Project): PostCommitChecksHandler = project.service()
   }
 
-  private val postCommitCheckErrorNotifications = SingletonNotificationManager(VcsNotifier.IMPORTANT_ERROR_NOTIFICATION.displayId,
+  private val postCommitCheckErrorNotifications = SingletonNotificationManager(VcsNotifier.importantNotification().displayId,
                                                                                NotificationType.WARNING)
 
   private val pendingCommits = mutableListOf<StaticCommitInfo>()
@@ -70,29 +72,39 @@ class PostCommitChecksHandler(val project: Project) {
     }
   }
 
-  private suspend fun runPostCommitChecks(commitInfo: StaticCommitInfo,
-                                          commitChecks: List<CommitCheck>) {
-    withBackgroundProgress(project, VcsBundle.message("post.commit.checks.progress.text")) {
-      reportSequentialProgress { reporter ->
-        val postCommitInfo = reporter.nextStep(20, VcsBundle.message("post.commit.checks.progress.step.collecting.commits.text")) {
-          prepareCommitsToCheck(commitInfo)
-        }
-
-        reporter.nextStep(100) {
-          val problems = runCommitChecks(commitChecks, postCommitInfo)
-          if (problems.isEmpty()) {
-            LOG.debug("Post-commit checks succeeded")
-            pendingCommits.clear()
-            postCommitCheckErrorNotifications.clear()
-            lastCommitProblems = null
+  private suspend fun runPostCommitChecks(
+    commitInfo: StaticCommitInfo,
+    commitChecks: List<CommitCheck>,
+  ) {
+    try {
+      withBackgroundProgress(project, VcsBundle.message("post.commit.checks.progress.text")) {
+        reportSequentialProgress { reporter ->
+          val postCommitInfo = reporter.nextStep(20, VcsBundle.message("post.commit.checks.progress.step.collecting.commits.text")) {
+            prepareCommitsToCheck(commitInfo)
           }
-          else {
-            postCommitCheckErrorNotifications.clear()
-            reportPostCommitChecksFailure(problems)
-            lastCommitProblems = problems
+
+          reporter.nextStep(100) {
+            val problems = runCommitChecks(commitChecks, postCommitInfo)
+            if (problems.isEmpty()) {
+              LOG.debug("Post-commit checks succeeded")
+              pendingCommits.clear()
+              postCommitCheckErrorNotifications.clear()
+              lastCommitProblems = null
+            }
+            else {
+              postCommitCheckErrorNotifications.clear()
+              reportPostCommitChecksFailure(problems)
+              lastCommitProblems = problems
+            }
           }
         }
       }
+    }
+    catch (e: CancellationException) {
+      LOG.debug("post-commit checks cancelled", Throwable(e))
+    }
+    catch (e: Throwable) {
+      LOG.error(e)
     }
   }
 
@@ -124,15 +136,15 @@ class PostCommitChecksHandler(val project: Project) {
     }
   }
 
-  private suspend fun runCommitChecks(commitChecks: List<CommitCheck>,
-                                      postCommitInfo: PostCommitInfo): List<CommitProblem> {
+  private suspend fun runCommitChecks(
+    commitChecks: List<CommitCheck>,
+    postCommitInfo: PostCommitInfo,
+  ): List<CommitProblem> {
     val problems = mutableListOf<CommitProblem>()
 
-    if (DumbService.isDumb(project)) {
-      if (commitChecks.any { !DumbService.isDumbAware(it) }) {
-        problems += TextCommitProblem(VcsBundle.message("before.checkin.post.commit.error.dumb.mode"))
-        DumbModeBlockedFunctionalityCollector.logFunctionalityBlocked(project, DumbModeBlockedFunctionality.PostCommitCheck)
-      }
+    if (commitChecks.any { !DumbService.getInstance(project).isUsableInCurrentContext(it) }) {
+      problems += TextCommitProblem(VcsBundle.message("before.checkin.post.commit.error.dumb.mode"))
+      DumbModeBlockedFunctionalityCollector.logFunctionalityBlocked(project, DumbModeBlockedFunctionality.PostCommitCheck)
     }
 
     problems += commitChecks.mapWithProgress { commitCheck ->
@@ -200,8 +212,9 @@ class PostCommitChecksHandler(val project: Project) {
   }
 
   private fun reportPostCommitChecksFailure(problems: List<CommitProblem>) {
+    val content = HtmlBuilder().appendWithSeparators(HtmlChunk.br(), problems.map { HtmlChunk.text(it.text) })
     postCommitCheckErrorNotifications.notify(VcsBundle.message("post.commit.checks.failed.notification.title"),
-                                             problems.joinToString("<br/>") { it.text },
+                                             content.toString(),
                                              project) { notification ->
       notification.setDisplayId(VcsNotificationIdsHolder.POST_COMMIT_CHECKS_FAILED)
 
@@ -234,6 +247,7 @@ class PostCommitChecksHandler(val project: Project) {
         .mapNotNull { vcs -> vcs.checkinEnvironment?.postCommitChangeConverter }
       if (changeConverters.none { it.isFailureUpToDate(commitContexts) }) return null
 
+      // Do not escape XML - EditorNotificationPanel does not support it
       val text = StringUtil.shortenTextWithEllipsis(problems.joinToString(", ") { it.text }, 100, 0)
       val panel = EditorNotificationPanel(EditorNotificationPanel.Status.Error)
         .text(VcsBundle.message("post.commit.checks.failed.push.dialog.notification.text", text))
@@ -255,7 +269,7 @@ class PostCommitChecksHandler(val project: Project) {
 
 internal class PostCommitInfo(
   commitInfo: StaticCommitInfo,
-  staticChanges: List<Change>
+  staticChanges: List<Change>,
 ) : CommitInfo {
   override val commitContext: CommitContext = commitInfo.commitContext
   override val isVcsCommit: Boolean = commitInfo.isVcsCommit

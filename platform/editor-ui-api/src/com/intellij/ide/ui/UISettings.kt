@@ -2,6 +2,7 @@
 package com.intellij.ide.ui
 
 import com.intellij.diagnostic.LoadingState
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
@@ -21,6 +22,7 @@ import com.intellij.util.ComponentTreeEventDispatcher
 import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.xmlb.annotations.Transient
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.ScheduledForRemoval
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -233,6 +235,12 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       state.compactTreeIndents = value
     }
 
+  var expandNodesWithSingleClick: Boolean
+    get() = state.expandNodesWithSingleClick
+    set(value) {
+      state.expandNodesWithSingleClick = value
+    }
+
   var compactMode: Boolean
     get() = uiDensity == UIDensity.COMPACT
     set(value) {
@@ -270,6 +278,12 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
     get() = state.showIconsInMenus
     set(value) {
       state.showIconsInMenus = value
+    }
+
+  var keepPopupsForToggles: Boolean
+    get() = state.keepPopupsForToggles
+    set(value) {
+      state.keepPopupsForToggles = value
     }
 
   var sortLookupElementsLexicographically: Boolean
@@ -496,8 +510,13 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       state.showInplaceComments = value
     }
 
-  val showInplaceCommentsInternal: Boolean
-    get() = showInplaceComments && ApplicationManager.getApplication()?.isInternal ?: false
+  @get:Internal
+  @set:Internal
+  var showInplaceCommentsInternal: Boolean
+    get() = state.showInplaceCommentsInternal && ApplicationManager.getApplication()?.isInternal ?: false
+    set(value) {
+      state.showInplaceCommentsInternal = value
+    }
 
   var fullPathsInWindowHeader: Boolean
     get() = state.fullPathsInWindowHeader
@@ -533,12 +552,26 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       }
     }
 
+  var showPreviewInSearchEverywhere: Boolean
+    get() = state.showPreviewInSearchEverywhere
+    set(value) {
+      state.showPreviewInSearchEverywhere = value
+    }
+
   companion object {
     init {
       if (JBUIScale.SCALE_VERBOSE) {
         LOG.info(String.format("defFontSize=%.1f, defFontScale=%.2f", getDefFontSize(), defFontScale))
       }
     }
+
+    @Suppress("SpellCheckingInspection")
+    // enables new style help context tooltips
+    private val isHelpTooltipEnabled = System.getProperty("ide.helptooltip.enabled", "true").toBoolean()
+
+    @Internal
+    @JvmStatic
+    fun isIdeHelpTooltipEnabled(): Boolean = isHelpTooltipEnabled
 
     const val ANIMATION_DURATION: Int = 300 // Milliseconds
 
@@ -583,22 +616,26 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
         val registryValue = Registry.get(registryKey)
         if (registryValue.isMultiValue) {
           val option = registryValue.selectedOption
-          if (option.equals("Enabled")) hint = true
-          else if (option.equals("Disabled")) hint = false
-          else hint = defaultValue
+          when {
+            option.equals("Enabled") -> hint = true
+            option.equals("Disabled") -> hint = false
+            else -> hint = defaultValue
+          }
         }
         else {
           hint = if (registryValue.isBoolean && registryValue.asBoolean()) true else defaultValue
         }
       }
-      else hint = defaultValue
+      else {
+        hint = defaultValue
+      }
       return if (hint) RenderingHints.VALUE_FRACTIONALMETRICS_ON else RenderingHints.VALUE_FRACTIONALMETRICS_OFF
     }
 
     fun getPreferredFractionalMetricsValue(): Any {
-      val enableByDefault = SystemInfo.isMacOSCatalina || (FontSubpixelResolution.ENABLED
-                                                           && AntialiasingType.getKeyForCurrentScope(false) ==
-                                                           RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+      val enableByDefault = SystemInfo.isMacOSCatalina ||
+                            (FontSubpixelResolution.ENABLED
+                             && AntialiasingType.getKeyForCurrentScope(false) == RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
       return calcFractionalMetricsHint("ide.text.fractional.metrics", enableByDefault)
     }
 
@@ -705,7 +742,7 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
   }
 
   /**
-   * Notifies all registered listeners that UI settings has been changed.
+   * Notifies all registered listeners that UI settings have been changed.
    */
   fun fireUISettingsChanged() {
     updateDeprecatedProperties()
@@ -736,6 +773,7 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
 
   override fun noStateLoaded() {
     migrateFontParameters()
+    migrateSearchEverywherePreview()
   }
 
   override fun loadState(state: UISettingsState) {
@@ -747,6 +785,7 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       notRoamableOptions.fixFontSettings()
     }
     migrateFontParameters()
+    migrateSearchEverywherePreview()
 
     // check tab placement in the editor
     val editorTabPlacement = state.editorTabPlacement
@@ -788,6 +827,14 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
     if (!state.allowMergeButtons) {
       Registry.get("ide.allow.merge.buttons").setValue(false)
       state.allowMergeButtons = true
+    }
+  }
+
+  private fun migrateSearchEverywherePreview() {
+    if (PropertiesComponent.getInstance().isTrueValue(SEARCH_EVERYWHERE_PREVIEW_LEGACY_STATE_KEY)) {
+      state.showPreviewInSearchEverywhere = true
+      state._incrementModificationCount()
+      PropertiesComponent.getInstance().unsetValue(SEARCH_EVERYWHERE_PREVIEW_LEGACY_STATE_KEY)
     }
   }
 
@@ -836,3 +883,5 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
   var EDITOR_TAB_LIMIT: Int = editorTabLimit
   //</editor-fold>
 }
+
+private const val SEARCH_EVERYWHERE_PREVIEW_LEGACY_STATE_KEY = "SearchEverywhere.previewPropertyKey"

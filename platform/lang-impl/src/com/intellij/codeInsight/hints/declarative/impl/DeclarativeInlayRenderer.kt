@@ -32,12 +32,12 @@ class DeclarativeInlayRenderer(
   private var inlay: Inlay<DeclarativeInlayRenderer>? = null
 
   override fun calcWidthInPixels(inlay: Inlay<*>): Int {
-    return presentationList.getWidthInPixels(fontMetricsStorage)
+    return presentationList.getWidthInPixels(fontMetricsStorage).fullWidth
   }
 
   @RequiresEdt
-  fun updateState(newState: TinyTree<Any?>, disabled: Boolean, hasBackground: Boolean) {
-    presentationList.updateState(newState, disabled, hasBackground)
+  fun updateState(newState: TinyTree<Any?>, disabled: Boolean, hintFormat: HintFormat) {
+    presentationList.updateState(newState, disabled, hintFormat)
   }
 
   override fun paint(inlay: Inlay<*>, g: Graphics2D, targetRegion: Rectangle2D, textAttributes: TextAttributes) {
@@ -100,4 +100,6 @@ class DeclarativeInlayRenderer(
     }
     return presentationList.toInlayData(pos, providerId)
   }
+
+  internal fun getSourceId(): String = presentationList.sourceId
 }

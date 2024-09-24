@@ -1,7 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.runtime.product.serialization
 
-import com.intellij.platform.runtime.product.ModuleImportance
+import com.intellij.platform.runtime.product.RuntimeModuleLoadingRule
 import com.intellij.platform.runtime.repository.RuntimeModuleId
 import com.intellij.platform.runtime.repository.createRepository
 import com.intellij.platform.runtime.repository.serialization.RawRuntimeModuleDescriptor
@@ -22,7 +22,7 @@ class PluginXmlReaderTest {
   fun `single module`() {
     val repository = createRepository(
       tempDirectory.rootPath,
-      RawRuntimeModuleDescriptor("plugin.main", listOf("plugin"), emptyList()),
+      RawRuntimeModuleDescriptor.create("plugin.main", listOf("plugin"), emptyList()),
     )
     writePluginXml(tempDirectory.rootPath / "plugin", 
         """
@@ -31,18 +31,19 @@ class PluginXmlReaderTest {
             </idea-plugin>  
         """.trimIndent()
     )
-    val pluginModules = PluginXmlReader.loadPluginModules(repository.getModule(RuntimeModuleId.raw("plugin.main")), repository)
+    val pluginModules = PluginXmlReader.loadPluginModules(repository.getModule(RuntimeModuleId.raw("plugin.main")), repository, 
+                                                          ResourceFileResolver.createDefault(repository))
     val main = pluginModules.single()
     assertEquals("plugin.main", main.moduleId.stringId)
-    assertEquals(ModuleImportance.FUNCTIONAL, main.importance)
+    assertEquals(RuntimeModuleLoadingRule.REQUIRED, main.loadingRule)
   }
   
   @Test
   fun `multiple modules`() {
     val repository = createRepository(
       tempDirectory.rootPath,
-      RawRuntimeModuleDescriptor("plugin.main", listOf("plugin"), emptyList()),
-      RawRuntimeModuleDescriptor("plugin.optional", emptyList(), listOf("plugin.main")),
+      RawRuntimeModuleDescriptor.create("plugin.main", listOf("plugin"), emptyList()),
+      RawRuntimeModuleDescriptor.create("plugin.optional", emptyList(), listOf("plugin.main")),
     )
     @Suppress("XmlUnusedNamespaceDeclaration") 
     writePluginXml(tempDirectory.rootPath / "plugin", 
@@ -63,14 +64,15 @@ class PluginXmlReaderTest {
             </idea-plugin>  
         """.trimIndent()
     )
-    val pluginModules = PluginXmlReader.loadPluginModules(repository.getModule(RuntimeModuleId.raw("plugin.main")), repository)
+    val pluginModules = PluginXmlReader.loadPluginModules(repository.getModule(RuntimeModuleId.raw("plugin.main")), repository, 
+                                                          ResourceFileResolver.createDefault(repository))
     assertEquals(3, pluginModules.size)
     val (main, optional, unknown) = pluginModules
     assertEquals("plugin.main", main.moduleId.stringId)
-    assertEquals(ModuleImportance.FUNCTIONAL, main.importance)
+    assertEquals(RuntimeModuleLoadingRule.REQUIRED, main.loadingRule)
     assertEquals("plugin.optional", optional.moduleId.stringId)
-    assertEquals(ModuleImportance.OPTIONAL, optional.importance)
+    assertEquals(RuntimeModuleLoadingRule.OPTIONAL, optional.loadingRule)
     assertEquals("plugin.unknown", unknown.moduleId.stringId)
-    assertEquals(ModuleImportance.OPTIONAL, unknown.importance)
+    assertEquals(RuntimeModuleLoadingRule.OPTIONAL, unknown.loadingRule)
   }
 }

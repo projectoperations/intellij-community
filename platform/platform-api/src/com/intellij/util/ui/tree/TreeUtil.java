@@ -1,10 +1,12 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.ui.tree;
 
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ActionCallback;
@@ -21,9 +23,10 @@ import com.intellij.ui.tree.DelegatingEdtBgtTreeVisitor;
 import com.intellij.ui.tree.TreeVisitor;
 import com.intellij.ui.treeStructure.CachingTreePath;
 import com.intellij.ui.treeStructure.Tree;
+import com.intellij.ui.treeStructure.TreeNodeViewModel;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.Range;
-import com.intellij.util.concurrency.EdtScheduledExecutorService;
+import com.intellij.util.concurrency.EdtScheduler;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
 import com.intellij.util.containers.JBTreeTraverser;
@@ -57,7 +60,6 @@ import java.util.stream.Stream;
 
 import static com.intellij.util.ReflectionUtil.getDeclaredMethod;
 import static com.intellij.util.ReflectionUtil.getField;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.stream.Collectors.toList;
 
 public final class TreeUtil {
@@ -275,8 +277,14 @@ public final class TreeUtil {
    * @param paths to expand. See {@link #collectExpandedPaths(JTree, TreePath)}
    */
   public static void restoreExpandedPaths(final @NotNull JTree tree, final @NotNull List<? extends TreePath> paths){
-    for(int i = paths.size() - 1; i >= 0; i--){
-      tree.expandPath(paths.get(i));
+    if (isBulkExpandCollapseSupported(tree)) {
+      //noinspection unchecked
+      ((Tree)tree).expandPaths((Iterable<TreePath>)paths);
+    }
+    else {
+      for (int i = paths.size() - 1; i >= 0; i--) {
+        tree.expandPath(paths.get(i));
+      }
     }
   }
 
@@ -938,13 +946,17 @@ public final class TreeUtil {
     selectPath(tree, getPathFromRoot(node));
   }
 
-  public static void moveSelectedRow(final @NotNull JTree tree, final int direction){
-    final TreePath selectionPath = tree.getSelectionPath();
-    final DefaultMutableTreeNode treeNode = (DefaultMutableTreeNode)selectionPath.getLastPathComponent();
-    final DefaultMutableTreeNode parent = (DefaultMutableTreeNode)treeNode.getParent();
-    final int idx = parent.getIndex(treeNode);
-    ((DefaultTreeModel)tree.getModel()).removeNodeFromParent(treeNode);
-    ((DefaultTreeModel)tree.getModel()).insertNodeInto(treeNode, parent, idx + direction);
+  public static void moveSelectedRow(@NotNull JTree tree, int direction) {
+    TreePath selectionPath = tree.getSelectionPath();
+    DefaultMutableTreeNode treeNode = (DefaultMutableTreeNode)selectionPath.getLastPathComponent();
+    DefaultMutableTreeNode parent = (DefaultMutableTreeNode)treeNode.getParent();
+    int idx = parent.getIndex(treeNode);
+    if (idx + direction < 0 || idx + direction >= parent.getChildCount()) {
+      return;
+    }
+    DefaultTreeModel model = (DefaultTreeModel)tree.getModel();
+    model.removeNodeFromParent(treeNode);
+    model.insertNodeInto(treeNode, parent, idx + direction);
     selectNode(tree, treeNode);
   }
 
@@ -1343,7 +1355,9 @@ public final class TreeUtil {
   }
 
   public static @Nullable Object getUserObject(@Nullable Object node) {
-    return node instanceof DefaultMutableTreeNode ? ((DefaultMutableTreeNode)node).getUserObject() : node;
+    if (node instanceof DefaultMutableTreeNode treeNode) return treeNode.getUserObject();
+    if (node instanceof TreeNodeViewModel nodeModel) return nodeModel.getUserObject();
+    return node;
   }
 
   public static @Nullable <T> T getUserObject(@NotNull Class<T> type, @Nullable Object node) {
@@ -1548,16 +1562,18 @@ public final class TreeUtil {
         if (promise.isCancelled()) {
           return;
         }
-        EdtInvocationManager.invokeLaterIfNeeded(() -> {
-          if (promise.isCancelled()) return;
-          if (tree.isVisible(path)) {
-            if (consumer != null) consumer.accept(path);
-            promise.setResult(path);
-          }
-          else {
-            promise.cancel();
-          }
-        });
+        EdtInvocationManager.invokeLaterIfNeeded(() ->
+          WriteIntentReadAction.run((Runnable)() -> {
+            if (promise.isCancelled()) return;
+            if (tree.isVisible(path)) {
+              if (consumer != null) consumer.accept(path);
+              promise.setResult(path);
+            }
+            else {
+              promise.cancel();
+            }
+          })
+        );
       });
     return promise;
   }
@@ -1581,9 +1597,17 @@ public final class TreeUtil {
                                                                @NotNull Stream<? extends TreeVisitor> visitors,
                                                                @Nullable Consumer<? super List<TreePath>> consumer) {
     AsyncPromise<List<TreePath>> promise = new AsyncPromise<>();
+    return promiseVisitAll(tree, visitors, promise, visitor -> promiseMakeVisible(tree, visitor, promise), consumer);
+  }
+
+  private static Promise<List<TreePath>> promiseVisitAll(@NotNull JTree tree,
+                                                               @NotNull Stream<? extends TreeVisitor> visitors,
+                                                               @NotNull AsyncPromise<List<TreePath>> promise,
+                                                               @NotNull Function<? super TreeVisitor, Promise<TreePath>> visitAction,
+                                                               @Nullable Consumer<? super List<TreePath>> consumer) {
     List<Promise<TreePath>> promises = visitors
       .filter(Objects::nonNull)
-      .map(visitor -> promiseMakeVisible(tree, visitor, promise))
+      .map(visitAction)
       .collect(toList());
     Promises.collectResults(promises, true)
       .onError(promise::setError)
@@ -1812,11 +1836,11 @@ public final class TreeUtil {
     long stamp = 1L + getScrollTimeStamp(tree);
     tree.putClientProperty(TREE_UTIL_SCROLL_TIME_STAMP, stamp);
     ClientProperty.put(tree, TREE_IS_BUSY, true);
-    EdtScheduledExecutorService.getInstance().schedule(() -> {
+    EdtScheduler.getInstance().schedule(5, () -> {
       Rectangle boundsLater = stamp != getScrollTimeStamp(tree) ? null : tree.getPathBounds(path);
       if (boundsLater != null) internalScroll(tree, boundsLater, centered);
       ClientProperty.remove(tree, TREE_IS_BUSY);
-    }, 5, MILLISECONDS);
+    });
     return true;
   }
 
@@ -1945,8 +1969,17 @@ public final class TreeUtil {
     }
     if (model == null) return Promises.rejectedPromise("tree model is not set");
     AsyncPromise<TreePath> promise = new AsyncPromise<>();
-    EdtInvocationManager.invokeLaterIfNeeded(() -> promise.setResult(visitModel(model, visitor)));
+    // Code run under "invokeLaterIfNeeded" must not touch PSI, but this code touches it.
+    EdtInvocationManager.invokeLaterIfNeeded(() -> ReadAction.run(() -> promise.setResult(visitModel(model, visitor))));
     return promise;
+  }
+
+  @ApiStatus.Internal
+  public static Promise<List<TreePath>> promiseVisit(@NotNull JTree tree,
+                                                        @NotNull Stream<? extends TreeVisitor> visitors,
+                                                        @Nullable Consumer<? super List<TreePath>> consumer) {
+    AsyncPromise<List<TreePath>> promise = new AsyncPromise<>();
+    return promiseVisitAll(tree, visitors, promise, visitor -> promiseVisit(tree, visitor), consumer);
   }
 
   /**
@@ -2182,13 +2215,5 @@ public final class TreeUtil {
     TreePath path = tree.getPathForRow(row);
     if (path == null) throw new NullPointerException("path is not found at row " + row);
     return path;
-  }
-
-  /**
-   * @deprecated Use {@link #hasManyNodes} instead
-   */
-  @Deprecated(forRemoval = true)
-  public static boolean hasManyChildren(@NotNull TreeNode node, int threshold) {
-    return hasManyNodes(node, threshold);
   }
 }

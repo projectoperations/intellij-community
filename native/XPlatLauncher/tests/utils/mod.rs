@@ -1,10 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 use std::{env, fs, thread, time};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, Read, Write};
+use std::io::{Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Once;
@@ -14,7 +14,7 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use tempfile::{Builder, TempDir};
 
-use xplat_launcher::{DEBUG_MODE_ENV_VAR, get_config_home, PathExt};
+use xplat_launcher::{DEBUG_MODE_ENV_VAR, PathExt};
 
 static INIT: Once = Once::new();
 static mut SHARED: Option<TestEnvironmentShared> = None;
@@ -133,14 +133,15 @@ impl<'a> Drop for TestEnvironment<'a> {
 }
 
 pub fn prepare_test_env<'a>(launcher_location: LauncherLocation) -> TestEnvironment<'a> {
-    match prepare_test_env_impl(launcher_location, true) {
-        Ok(x) => x,
-        Err(e) => panic!("Failed to prepare test environment: {:?}", e),
-    }
+    prepare_custom_test_env(launcher_location, None, true)
 }
 
-pub fn prepare_no_jbr_test_env<'a>(launcher_location: LauncherLocation) -> TestEnvironment<'a> {
-    match prepare_test_env_impl(launcher_location, false) {
+pub fn prepare_custom_test_env<'a>(
+    launcher_location: LauncherLocation,
+    dir_suffix: Option<&str>,
+    with_jbr: bool
+) -> TestEnvironment<'a> {
+    match prepare_test_env_impl(launcher_location, dir_suffix, with_jbr) {
         Ok(x) => x,
         Err(e) => panic!("Failed to prepare test environment: {:?}", e),
     }
@@ -151,12 +152,18 @@ struct TestEnvironmentShared {
     jbr_root: PathBuf,
     app_jar_path: PathBuf,
     product_info_path: PathBuf,
-    vm_options_path: PathBuf
+    vm_options_path: PathBuf,
+    #[allow(dead_code)]
+    temp_dir: TempDir
 }
 
-fn prepare_test_env_impl<'a>(launcher_location: LauncherLocation, with_jbr: bool) -> Result<TestEnvironment<'a>> {
+fn prepare_test_env_impl<'a>(
+    launcher_location: LauncherLocation,
+    dir_suffix: Option<&str>,
+    with_jbr: bool
+) -> Result<TestEnvironment<'a>> {
     INIT.call_once(|| {
-        let shared = init_test_environment_once().expect("Failed to init shared test environment");
+        let shared = init_test_environment_once().context("Failed to init shared test environment").unwrap();
         unsafe {
             SHARED = Some(shared)
         }
@@ -164,7 +171,8 @@ fn prepare_test_env_impl<'a>(launcher_location: LauncherLocation, with_jbr: bool
 
     let shared_env = unsafe { SHARED.as_ref() }.expect("Shared test environment should have already been initialized");
 
-    let temp_dir = Builder::new().prefix("xplat_launcher_test_").tempdir().context("Failed to create temp directory")?;
+    let prefix = if let Some(s) = dir_suffix { format!("launcher_test_{s}_") } else { "launcher_test_".to_string() };
+    let temp_dir = Builder::new().prefix(&prefix).tempdir().context("Failed to create temp directory")?;
     let temp_path = temp_dir.path().canonicalize()?.strip_ns_prefix()?;
 
     let (dist_root, launcher_path) = layout_launcher(launcher_location, with_jbr, &temp_path, shared_env)?;
@@ -185,26 +193,29 @@ fn init_test_environment_once() -> Result<TestEnvironmentShared> {
     let project_root = env::current_dir().expect("Failed to get project root");
 
     let bin_name = if cfg!(target_os = "windows") { "xplat-launcher.exe" } else { "xplat-launcher" };
-    let launcher_path = env::current_exe()?.parent_or_err()?.parent_or_err()?.join(bin_name);
-    if !launcher_path.exists() {
-        bail!("Didn't find source launcher to layout, expected path: {:?}", launcher_path);
+    let launcher_file = env::current_exe()?.parent_or_err()?.parent_or_err()?.join(bin_name);
+    if !launcher_file.exists() {
+        bail!("Didn't find source launcher to layout, expected path: {:?}", launcher_file);
     }
 
-    let gradle_build_dir = Path::new("./resources/TestProject/build").canonicalize()?.strip_ns_prefix()?;
+    let gradle_build_dir = Path::new("./resources/TestProject/build");
+    if !gradle_build_dir.is_dir() {
+        bail!("Missing: {:?}; please run `gradlew :downloadJbr :fatJar` first", gradle_build_dir);
+    }
+    let gradle_build_dir = gradle_build_dir.canonicalize()?.strip_ns_prefix()?;
     let jbr_root = gradle_build_dir.join("jbr");
-    if !jbr_root.is_dir() {
-        bail!("Missing: {:?}; please run `gradlew :downloadJbr` first", jbr_root);
-    }
-
-    let app_jar_path = gradle_build_dir.join("libs").join("app.jar");
-    if !app_jar_path.is_file() {
-        bail!("Missing: {:?}; please run `gradlew :fatJar` first", app_jar_path);
-    }
-
+    let app_jar_file = gradle_build_dir.join("libs/app.jar");
     let product_info_path = project_root.join(format!("resources/product_info_{}.json", env::consts::OS));
     let vm_options_path = project_root.join("resources/xplat.vmoptions");
 
-    Ok(TestEnvironmentShared { launcher_path, jbr_root, app_jar_path, product_info_path, vm_options_path })
+    // on build agents, a temp directory may reside in a different filesystem, so copies are necessary for later linking
+    let temp_dir = Builder::new().prefix("xplat_launcher_shared_").tempdir().context("Failed to create temp directory")?;
+    let launcher_path = temp_dir.path().join(launcher_file.file_name().unwrap());
+    fs::copy(&launcher_file, &launcher_path).with_context(|| format!("Failed to copy {launcher_file:?} to {launcher_path:?}"))?;
+    let app_jar_path = temp_dir.path().join(app_jar_file.file_name().unwrap());
+    fs::copy(&app_jar_file, &app_jar_path).with_context(|| format!("Failed to copy {app_jar_file:?} to {app_jar_path:?}"))?;
+
+    Ok(TestEnvironmentShared { launcher_path, jbr_root, app_jar_path, product_info_path, vm_options_path, temp_dir })
 }
 
 #[cfg(target_os = "linux")]
@@ -240,8 +251,10 @@ fn layout_launcher(
         ],
         vec![
             (&shared_env.launcher_path, launcher_rel_path),
+            (&shared_env.app_jar_path, "lib/app.jar")
+        ],
+        vec![
             (&shared_env.vm_options_path, "bin/xplat64.vmoptions"),
-            (&shared_env.app_jar_path, "lib/app.jar"),
             (&shared_env.product_info_path, "product-info.json")
         ],
         include_jbr,
@@ -291,8 +304,10 @@ fn layout_launcher(
         ],
         vec![
             (&shared_env.launcher_path, launcher_rel_path),
+            (&shared_env.app_jar_path, "lib/app.jar")
+        ],
+        vec![
             (&shared_env.vm_options_path, "bin/xplat.vmoptions"),
-            (&shared_env.app_jar_path, "lib/app.jar"),
             (&shared_env.product_info_path, "Resources/product-info.json"),
             (&info_plist_path, "Info.plist")
         ],
@@ -314,7 +329,7 @@ fn layout_launcher(
     // .
     // └── XPlatLauncher
     //     ├── bin/
-    //     │   └── xplat-launcher.exe | remote-dev-server.exe
+    //     │   └── xplat64.exe | remote-dev-server.exe
     //     │   └── xplat64.exe.vmoptions
     //     │   └── idea.properties
     //     ├── lib/
@@ -324,7 +339,7 @@ fn layout_launcher(
     //     └── product-info.json
 
     let launcher_rel_path = match launcher_location {
-        LauncherLocation::Standard => "bin\\xplat-launcher.exe",
+        LauncherLocation::Standard => "bin\\xplat64.exe",
         LauncherLocation::RemoteDev => "bin\\remote-dev-server.exe"
     };
     let dist_root = target_dir.join("XPlatLauncher");
@@ -337,8 +352,10 @@ fn layout_launcher(
         ],
         vec![
             (&shared_env.launcher_path, launcher_rel_path),
+            (&shared_env.app_jar_path, "lib\\app.jar")
+        ],
+        vec![
             (&shared_env.vm_options_path, "bin\\xplat64.exe.vmoptions"),
-            (&shared_env.app_jar_path, "lib\\app.jar"),
             (&shared_env.product_info_path, "product-info.json")
         ],
         include_jbr,
@@ -352,20 +369,27 @@ fn layout_launcher(
 fn layout_launcher_impl(
     target_dir: &Path,
     create_files: Vec<&str>,
+    link_files: Vec<(&Path, &str)>,
     copy_files: Vec<(&Path, &str)>,
     include_jbr: bool,
     jbr_path: &Path
 ) -> Result<()> {
     for target_rel_path in create_files {
         let target = &target_dir.join(target_rel_path);
-        fs::create_dir_all(target.parent_or_err()?)?;
+        fs::create_dir_all(target.parent_or_err()?).with_context(|| format!("Failed to create dir {:?}", target.parent()))?;
         File::create(target).with_context(|| format!("Failed to create file {target:?}"))?;
+    }
+
+    for (source, target_rel_path) in link_files {
+        let target = &target_dir.join(target_rel_path);
+        fs::create_dir_all(target.parent_or_err()?)?;
+        fs::hard_link(source, target).with_context(|| format!("Failed to create hardlink {target:?} -> {source:?}"))?;
     }
 
     for (source, target_rel_path) in copy_files {
         let target = &target_dir.join(target_rel_path);
         fs::create_dir_all(target.parent_or_err()?)?;
-        fs::copy(source, target).with_context(|| format!("Failed to copy from {source:?} to {target:?}"))?;
+        fs::copy(source, target).with_context(|| format!("Failed to copy {source:?} to {target:?}"))?;
     }
 
     if include_jbr {
@@ -377,27 +401,25 @@ fn layout_launcher_impl(
 
 #[cfg(target_family = "unix")]
 fn symlink(original: &Path, link: &Path) -> Result<()> {
-    std::os::unix::fs::symlink(original, link)
-        .with_context(|| format!("Failed to create symlink {link:?} pointing to {original:?}"))?;
-
+    std::os::unix::fs::symlink(original, link).with_context(|| format!("Failed to create symlink {link:?} -> {original:?}"))?;
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
 fn symlink(original: &Path, link: &Path) -> Result<()> {
-    if original.is_dir() { std::os::windows::fs::symlink_dir(original, link) }
-    else { std::os::windows::fs::symlink_file(original, link) }
-        .with_context(|| format!("Failed to create symlink {link:?} pointing to {original:?}"))?;
+    let result = match original.is_dir() {
+        true => std::os::windows::fs::symlink_dir(original, link),
+        false => std::os::windows::fs::symlink_file(original, link)
+    };
 
-    Ok(())
-}
+    let message = match &result {
+        Ok(_) => "",
+        Err(e) if e.raw_os_error() == Some(1314) => "Cannot use CreateSymbolicLink.\
+         Consider having a privilege to do that or enabling Developer Mode",
+        Err(_) => "Failed to create a symlink for a reason unrelated to privileges",
+    };
 
-pub fn get_custom_config_dir() -> PathBuf {
-    get_jetbrains_config_root().join("XPlatLauncherTest")
-}
-
-pub fn get_jetbrains_config_root() -> PathBuf {
-    get_config_home().unwrap().join("JetBrains")
+    result.with_context(|| format!("Failed to create symlink {link:?} -> {original:?}; {message}"))
 }
 
 pub struct LauncherRunSpec {
@@ -462,8 +484,8 @@ impl LauncherRunResult {
 impl Debug for LauncherRunResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "\n** exit code: {:?} ({:?})\n** stderr: <<<{}>>>\n** stdout: <<<{}>>>",
-            self.exit_status.code(), self.exit_status, self.stderr, self.stdout))
+            "\n** exit status: {} (code: {:?})\n** stderr: <<<{}>>>\n** stdout: <<<{}>>>",
+            self.exit_status, self.exit_status.code(), self.stderr, self.stdout))
     }
 }
 
@@ -482,7 +504,7 @@ pub fn run_launcher(run_spec: &LauncherRunSpec) -> LauncherRunResult {
 }
 
 pub fn run_launcher_ext(test_env: &TestEnvironment, run_spec: &LauncherRunSpec) -> LauncherRunResult {
-    match run_launcher_impl(test_env, run_spec) {
+    match run_launcher_with_retries(test_env, run_spec) {
         Ok(result) => {
             if run_spec.assert_status {
                 assert!(result.exit_status.success(), "The exit status of the launcher is not successful: {:?}", result);
@@ -495,12 +517,44 @@ pub fn run_launcher_ext(test_env: &TestEnvironment, run_spec: &LauncherRunSpec) 
     }
 }
 
+#[cfg(target_family = "windows")]
+fn run_launcher_with_retries(test_env: &TestEnvironment, run_spec: &LauncherRunSpec) -> Result<LauncherRunResult> {
+    run_launcher_impl(test_env, run_spec)
+}
+
+#[cfg(target_family = "unix")]
+fn run_launcher_with_retries(test_env: &TestEnvironment, run_spec: &LauncherRunSpec) -> Result<LauncherRunResult> {
+    use std::os::unix::process::ExitStatusExt;
+
+    // on macOS, the test process is inexplicably killed sometimes
+    let mut retries = 3;
+    let mut run_result = run_launcher_impl(test_env, run_spec);
+    loop {
+        if let Ok(result) = &run_result {
+            if let Some(signal) = result.exit_status.signal() {
+                if signal == libc::SIGKILL {
+                    debug!("test process killed; retrying...");
+                    retries -= 1;
+                    if retries == 0 {
+                        panic!("The test process was killed 3 times in a row; giving up. Last result: {:?}", run_result);
+                    }
+                    thread::sleep(time::Duration::from_secs(1));
+                    run_result = run_launcher_impl(test_env, run_spec);
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+    run_result
+}
+
 fn run_launcher_impl(test_env: &TestEnvironment, run_spec: &LauncherRunSpec) -> Result<LauncherRunResult> {
     debug!("Starting '{}'\n  with args {:?}\n  in '{}'",
            test_env.launcher_path.display(), run_spec.args, test_env.test_root_dir.path().display());
 
-    let stdout_file_path = test_env.test_root_dir.path().join("out.txt");
-    let stderr_file_path = test_env.test_root_dir.path().join("err.txt");
+    let stdout_file_path = &test_env.test_root_dir.path().join("out.txt");
+    let stderr_file_path = &test_env.test_root_dir.path().join("err.txt");
     let project_dir = test_env.project_dir.to_str().unwrap();
     let dump_file_path = test_env.test_root_dir.path().join("output.json");
     let dump_file_path_str = dump_file_path.strip_ns_prefix()?.to_string_checked()?;
@@ -536,11 +590,17 @@ fn run_launcher_impl(test_env: &TestEnvironment, run_spec: &LauncherRunSpec) -> 
         full_env.insert(k, v);
     }
 
+    let stdout_file = File::create(stdout_file_path)
+        .context(format!("Failed to create stdout file at {stdout_file_path:?}"))?;
+
+    let stderr_file = File::create(stderr_file_path)
+        .context(format!("Failed to create stderr file at {stderr_file_path:?}"))?;
+
     let mut launcher_process = Command::new(&test_env.launcher_path)
         .current_dir(test_env.test_root_dir.path())
         .args(full_args)
-        .stdout(Stdio::from(File::create(&stdout_file_path)?))
-        .stderr(Stdio::from(File::create(&stderr_file_path)?))
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
         .envs(full_env)
         .spawn()
         .context("Failed to spawn launcher process")?;
@@ -556,8 +616,8 @@ fn run_launcher_impl(test_env: &TestEnvironment, run_spec: &LauncherRunSpec) -> 
         if let Some(es) = launcher_process.try_wait()? {
             return Ok(LauncherRunResult {
                 exit_status: es,
-                stdout: fs::read_to_string(&stdout_file_path).context("Cannot open stdout file")?,
-                stderr: fs::read_to_string(&stderr_file_path).context("Cannot open stderr file")?,
+                stdout: read_output_file(stdout_file_path).context("Cannot read stdout file")?,
+                stderr: read_output_file(stderr_file_path).context("Cannot read stderr file")?,
                 dump: if run_spec.dump { Some(read_launcher_run_result(&dump_file_path)) } else { None }
             });
         }
@@ -566,13 +626,23 @@ fn run_launcher_impl(test_env: &TestEnvironment, run_spec: &LauncherRunSpec) -> 
     }
 }
 
+fn read_output_file(path: &Path) -> Result<String> {
+    let bytes = fs::read(path).with_context(|| format!("Cannot open {:?}", path))?;
+    if let Ok(string) = String::from_utf8(bytes.to_owned()) {
+        Ok(string)
+    } else {
+        for line in bytes.split(|b| *b == b'\n') {
+            if let Err(e) = String::from_utf8(line.to_owned()) {
+                bail!("{}: {:?} {:?}", e, line, String::from_utf8_lossy(line))
+            }
+        }
+        panic!("Should not reach here");
+    }
+}
+
 fn read_launcher_run_result(path: &Path) -> Result<IntellijMainDumpedLaunchParameters> {
-    let file = File::open(path)?;
-    let mut reader = BufReader::new(file);
-    let mut text = String::new();
-    reader.read_to_string(&mut text)?;
-    let dump: IntellijMainDumpedLaunchParameters = serde_json::from_str(&text)?;
-    Ok(dump)
+    let text = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&text)?)
 }
 
 pub fn test_runtime_selection(result: LauncherRunResult, expected_rt: PathBuf) {

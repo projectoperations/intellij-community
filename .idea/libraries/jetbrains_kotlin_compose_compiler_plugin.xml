@@ -1,0 +1,18 @@
+<component name="libraryTable">
+  <library name="jetbrains.kotlin.compose.compiler.plugin" type="repository">
+    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-compose-compiler-plugin:2.0.20">
+      <verification>
+        <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compose-compiler-plugin/2.0.20/kotlin-compose-compiler-plugin-2.0.20.jar">
+          <sha256sum>79ecd166c37597fefdd31f55a34492637721ec416f53b924bede67b76371754a</sha256sum>
+        </artifact>
+      </verification>
+    </properties>
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compose-compiler-plugin/2.0.20/kotlin-compose-compiler-plugin-2.0.20.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compose-compiler-plugin/2.0.20/kotlin-compose-compiler-plugin-2.0.20-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>

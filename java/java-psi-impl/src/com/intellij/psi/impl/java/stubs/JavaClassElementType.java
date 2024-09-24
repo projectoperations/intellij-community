@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.java.stubs;
 
 import com.intellij.lang.ASTNode;
@@ -30,18 +30,18 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 
-public abstract class JavaClassElementType extends JavaStubElementType<PsiClassStub<?>, PsiClass> {
+public abstract class JavaClassElementType extends JavaStubElementType<PsiClassStub<PsiClass>, PsiClass> {
   JavaClassElementType(@NotNull String id, @NotNull IElementType parentElementType) {
     super(id, parentElementType);
   }
 
   @Override
-  public PsiClass createPsi(@NotNull final PsiClassStub stub) {
+  public PsiClass createPsi(final @NotNull PsiClassStub<PsiClass> stub) {
     return getPsiFactory(stub).createClass(stub);
   }
 
   @Override
-  public PsiClass createPsi(@NotNull final ASTNode node) {
+  public PsiClass createPsi(final @NotNull ASTNode node) {
     if (node instanceof EnumConstantInitializerElement) {
       return new PsiEnumConstantInitializerImpl(node);
     }
@@ -55,9 +55,8 @@ public abstract class JavaClassElementType extends JavaStubElementType<PsiClassS
     return new PsiClassImpl(node);
   }
 
-  @NotNull
   @Override
-  public PsiClassStub createStub(@NotNull final LighterAST tree, @NotNull final LighterASTNode node, final @NotNull StubElement<?> parentStub) {
+  public @NotNull PsiClassStub<PsiClass> createStub(final @NotNull LighterAST tree, final @NotNull LighterASTNode node, final @NotNull StubElement<?> parentStub) {
     boolean isDeprecatedByComment = false;
     boolean isInterface = false;
     boolean isEnum = false;
@@ -145,8 +144,7 @@ public abstract class JavaClassElementType extends JavaStubElementType<PsiClassS
     return new PsiClassStubImpl<>(type, parentStub, qualifiedName, name, baseRef, flags);
   }
 
-  @NotNull
-  private static JavaClassElementType typeForClass(final boolean anonymous, final boolean enumConst, final boolean implicitClass) {
+  private static @NotNull JavaClassElementType typeForClass(final boolean anonymous, final boolean enumConst, final boolean implicitClass) {
     return enumConst
            ? JavaStubElementTypes.ENUM_CONSTANT_INITIALIZER
            : implicitClass ? JavaStubElementTypes.IMPLICIT_CLASS
@@ -168,9 +166,8 @@ public abstract class JavaClassElementType extends JavaStubElementType<PsiClassS
     }
   }
 
-  @NotNull
   @Override
-  public PsiClassStub deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
+  public @NotNull PsiClassStub<PsiClass> deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
     short flags = dataStream.readShort();
     boolean isAnonymous = PsiClassStubImpl.isAnonymous(flags);
     boolean isEnumConst = PsiClassStubImpl.isEnumConstInitializer(flags);
@@ -184,13 +181,13 @@ public abstract class JavaClassElementType extends JavaStubElementType<PsiClassS
         name = typeInfo.getShortTypeText();
       }
       String sourceFileName = dataStream.readNameString();
-      PsiClassStubImpl classStub = new PsiClassStubImpl(type, parentStub, typeInfo, name, null, flags);
+      PsiClassStubImpl<PsiClass> classStub = new PsiClassStubImpl<>(type, parentStub, typeInfo, name, null, flags);
       classStub.setSourceFileName(sourceFileName);
       return classStub;
     }
     else {
       String baseRef = dataStream.readNameString();
-      return new PsiClassStubImpl(type, parentStub, TypeInfo.SimpleTypeInfo.NULL, null, baseRef, flags);
+      return new PsiClassStubImpl<>(type, parentStub, TypeInfo.SimpleTypeInfo.NULL, null, baseRef, flags);
     }
   }
 

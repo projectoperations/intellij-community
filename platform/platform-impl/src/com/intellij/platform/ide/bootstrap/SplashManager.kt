@@ -5,6 +5,7 @@ package com.intellij.platform.ide.bootstrap
 import com.dynatrace.hash4j.hashing.Hashing
 import com.intellij.diagnostic.LoadingState
 import com.intellij.diagnostic.StartUpMeasurer
+import com.intellij.ide.impl.ProjectUtil.getRootFrameForWindow
 import com.intellij.idea.AppMode
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationNamesInfo
@@ -16,22 +17,21 @@ import com.intellij.openapi.wm.impl.FrameBoundsConverter
 import com.intellij.openapi.wm.impl.IdeFrameImpl
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.JreHiDpiUtil
-import com.intellij.ui.Splash
 import com.intellij.ui.icons.HiDPIImage
 import com.intellij.ui.icons.loadImageForStartUp
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.JBHiDPIScaledImage
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.lang.ByteBufferCleaner
 import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.StartupUiUtil
 import kotlinx.coroutines.*
 import sun.awt.image.SunWritableRaster
 import java.awt.*
-import java.awt.event.ComponentAdapter
-import java.awt.event.ComponentEvent
-import java.awt.event.WindowAdapter
-import java.awt.event.WindowEvent
+import java.awt.event.*
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.*
 import java.nio.ByteBuffer
@@ -42,6 +42,7 @@ import java.util.*
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JFrame
 import javax.swing.WindowConstants
+import kotlin.coroutines.coroutineContext
 
 @Volatile
 private var PROJECT_FRAME: JFrame? = null
@@ -58,7 +59,7 @@ private fun isTooLateToShowSplash(): Boolean = !SHOW_SPLASH_LONGER && LoadingSta
 
 internal fun CoroutineScope.scheduleShowSplashIfNeeded(lockSystemDirsJob: Job, initUiScale: Job, appInfoDeferred: Deferred<ApplicationInfo>, args: List<String>) {
   launch(CoroutineName("showSplashIfNeeded")) {
-    if (!AppMode.isLightEdit() && CommandLineArgs.isSplashNeeded(args)) {
+    if (!AppMode.isLightEdit() && !isRealRemoteDevHost(args) && CommandLineArgs.isSplashNeeded(args)) {
       lockSystemDirsJob.join()
       try {
         showSplashIfNeeded(initUiScale = initUiScale, appInfoDeferred = appInfoDeferred)
@@ -67,11 +68,13 @@ internal fun CoroutineScope.scheduleShowSplashIfNeeded(lockSystemDirsJob: Job, i
         throw e
       }
       catch (e: Throwable) {
-        logger<AppStarter>().warn("Cannot show splash", e)
+        logger<Splash>().warn("Cannot show splash", e)
       }
     }
   }
 }
+
+private fun isRealRemoteDevHost(args: List<String>): Boolean = AppMode.isRemoteDevHost() && args.firstOrNull() != AppMode.SPLIT_MODE_COMMAND
 
 private fun CoroutineScope.showSplashIfNeeded(initUiScale: Job, appInfoDeferred: Deferred<ApplicationInfo>) {
   val oldJob = splashJob.get()
@@ -80,6 +83,12 @@ private fun CoroutineScope.showSplashIfNeeded(initUiScale: Job, appInfoDeferred:
   }
 
   val newJob = launch(start = CoroutineStart.LAZY) {
+    if (isTooLateToShowSplash()) {
+      return@launch
+    }
+
+    initUiScale.join()
+
     //if (showLastProjectFrameIfAvailable(initUiDeferred)) {
     //  return@launch
     //}
@@ -94,15 +103,18 @@ private fun CoroutineScope.showSplashIfNeeded(initUiScale: Job, appInfoDeferred:
       return@launch
     }
 
-    initUiScale.join()
-
     val appInfo = appInfoDeferred.await()
+
+    if (isTooLateToShowSplash()) {
+      return@launch
+    }
+
     val image = span("splash preparation") {
       assert(SPLASH_WINDOW == null)
       loadSplashImage(appInfo = appInfo)
     } ?: return@launch
 
-    if (!isActive || isTooLateToShowSplash()) {
+    if (isTooLateToShowSplash()) {
       return@launch
     }
 
@@ -112,7 +124,7 @@ private fun CoroutineScope.showSplashIfNeeded(initUiScale: Job, appInfoDeferred:
       }
 
       val splash = try {
-        Splash(image)
+        Splash(image, isAlwaysOnTop = SHOW_SPLASH_LONGER)
       }
       catch (e: CancellationException) {
         throw e
@@ -121,6 +133,21 @@ private fun CoroutineScope.showSplashIfNeeded(initUiScale: Job, appInfoDeferred:
         logger<Splash>().warn(e)
         return@span
       }
+
+      val deactivationListener = if (SHOW_SPLASH_LONGER) {
+        // Hide if splash or IDE frame was deactivated because of focusing some other window in the OS (not IDE Frame).
+        val listener = AWTEventListener { e ->
+          if (e.id == WindowEvent.WINDOW_DEACTIVATED) {
+            val windowEvent = e as WindowEvent
+            if (getRootFrameForWindow(windowEvent.oppositeWindow) == null) {
+              hideSplash()
+            }
+          }
+        }
+        Toolkit.getDefaultToolkit().addAWTEventListener(listener, AWTEvent.WINDOW_EVENT_MASK)
+        listener
+      }
+      else null
 
       StartUpMeasurer.addInstantEvent("splash shown")
       try {
@@ -148,6 +175,7 @@ private fun CoroutineScope.showSplashIfNeeded(initUiScale: Job, appInfoDeferred:
       }
       catch (ignore: CancellationException) {
         SPLASH_WINDOW = null
+        Toolkit.getDefaultToolkit().removeAWTEventListener(deactivationListener)
         splash.isVisible = false
         splash.dispose()
         StartUpMeasurer.addInstantEvent("splash hidden")
@@ -265,8 +293,15 @@ private fun doShowFrame(savedBounds: Rectangle, backgroundColor: Color, extended
   return frame
 }
 
+@RequiresEdt
+internal fun blockingLoadSplashImage(appInfo: ApplicationInfo): BufferedImage? {
+  return runWithModalProgressBlocking(ModalTaskOwner.guess(), "") {
+    loadSplashImage(appInfo)
+  }
+}
+
 @OptIn(DelicateCoroutinesApi::class)
-internal fun loadSplashImage(appInfo: ApplicationInfo): BufferedImage? {
+internal suspend fun loadSplashImage(appInfo: ApplicationInfo): BufferedImage? {
   val splashImagePath = appInfo.splashImageUrl?.let { if (it.startsWith('/')) it.substring(1) else it } ?: return null
 
   val isJreHiDPIEnabled = JreHiDpiUtil.isJreHiDPIEnabled()
@@ -279,11 +314,15 @@ internal fun loadSplashImage(appInfo: ApplicationInfo): BufferedImage? {
     null
   }
 
+  coroutineContext.ensureActive()
+
   if (file != null) {
     loadImageFromCache(file = file, scale = scale, isJreHiDPIEnabled = isJreHiDPIEnabled)?.let {
       return it
     }
   }
+
+  coroutineContext.ensureActive()
 
   val path = appInfo.splashImageUrl
   val result = doLoadImage(path = splashImagePath, scale = scale, isJreHiDPIEnabled = isJreHiDPIEnabled)
@@ -320,7 +359,7 @@ private fun doLoadImage(path: String, scale: Float, isJreHiDPIEnabled: Boolean):
   return createHiDpiAwareImage(rawImage = resultImage, scale = scale, isJreHiDPIEnabled = isJreHiDPIEnabled)
 }
 
-private fun loadImageFromCache(file: Path, scale: Float, isJreHiDPIEnabled: Boolean): BufferedImage? {
+private suspend fun loadImageFromCache(file: Path, scale: Float, isJreHiDPIEnabled: Boolean): BufferedImage? {
   try {
     return readImage(file = file, scale = scale, isJreHiDPIEnabled = isJreHiDPIEnabled)
   }
@@ -360,15 +399,19 @@ private fun getCacheFile(scale: Float, appInfo: ApplicationInfo, path: String): 
   }
 }
 
-private fun readImage(file: Path, scale: Float, isJreHiDPIEnabled: Boolean): BufferedImage? {
+private suspend fun readImage(file: Path, scale: Float, isJreHiDPIEnabled: Boolean): BufferedImage? {
   val buffer = try {
-    FileChannel.open(file).use { channel ->
-      channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size()).order(ByteOrder.LITTLE_ENDIAN)
+    withContext(Dispatchers.IO) {
+      FileChannel.open(file).use { channel ->
+        channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size()).order(ByteOrder.LITTLE_ENDIAN)
+      }
     }
   }
   catch (ignore: NoSuchFileException) {
     return null
   }
+
+  coroutineContext.ensureActive()
 
   try {
     val intBuffer = buffer.asIntBuffer()

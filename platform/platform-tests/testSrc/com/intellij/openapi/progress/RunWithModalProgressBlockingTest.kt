@@ -4,28 +4,29 @@ package com.intellij.openapi.progress
 import com.intellij.concurrency.TestElement
 import com.intellij.concurrency.TestElementKey
 import com.intellij.concurrency.currentThreadContextOrNull
-import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.asContextElement
-import com.intellij.openapi.application.contextModality
+import com.intellij.concurrency.currentThreadOverriddenContextOrNull
+import com.intellij.openapi.application.*
 import com.intellij.openapi.application.impl.LaterInvocator
 import com.intellij.openapi.application.impl.ModalCoroutineTest
 import com.intellij.openapi.application.impl.processApplicationQueue
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.testFramework.common.timeoutRunBlocking
+import com.intellij.util.concurrency.ImplicitBlockingContextTest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.extension.ExtendWith
 import java.lang.Runnable
 import kotlin.coroutines.ContinuationInterceptor
 
 /**
  * @see WithModalProgressTest
  */
+@ExtendWith(ImplicitBlockingContextTest.Enabler::class)
 class RunWithModalProgressBlockingTest : ModalCoroutineTest() {
 
   @Test
@@ -34,11 +35,11 @@ class RunWithModalProgressBlockingTest : ModalCoroutineTest() {
     withContext(testElement) {
       runWithModalProgressBlockingContext {
         assertSame(testElement, coroutineContext[TestElementKey])
-        assertNull(currentThreadContextOrNull())
+        assertNull(currentThreadOverriddenContextOrNull())
         withContext(Dispatchers.EDT) {
-          assertNull(currentThreadContextOrNull())
+          assertNull(currentThreadOverriddenContextOrNull())
         }
-        assertNull(currentThreadContextOrNull())
+        assertNull(currentThreadOverriddenContextOrNull())
       }
     }
   }
@@ -48,9 +49,9 @@ class RunWithModalProgressBlockingTest : ModalCoroutineTest() {
     withContext(Dispatchers.EDT) {
       assertFalse(LaterInvocator.isInModalContext())
       runWithModalProgressBlocking {
-        assertNull(currentThreadContextOrNull())
+        assertNull(currentThreadOverriddenContextOrNull())
         withContext(Dispatchers.EDT) {
-          assertNull(currentThreadContextOrNull())
+          assertNull(currentThreadOverriddenContextOrNull())
           assertTrue(LaterInvocator.isInModalContext())
           val contextModality = coroutineContext.contextModality()
           assertNotEquals(ModalityState.any(), contextModality)
@@ -81,7 +82,7 @@ class RunWithModalProgressBlockingTest : ModalCoroutineTest() {
   fun rethrow(): Unit = timeoutRunBlocking {
     withContext(Dispatchers.EDT) {
       testRunWithModalProgressBlockingRethrow(object : Throwable() {})
-      testRunWithModalProgressBlockingRethrow(CancellationException()) // manual CE
+      testRunWithModalProgressBlockingRethrowPce(CancellationException()) // manual CE
       testRunWithModalProgressBlockingRethrow(ProcessCanceledException()) // manual PCE
     }
   }
@@ -95,7 +96,7 @@ class RunWithModalProgressBlockingTest : ModalCoroutineTest() {
     assertSame(t, thrown)
   }
 
-  private fun testRunWithModalProgressBlockingRethrow(t: CancellationException) {
+  private fun testRunWithModalProgressBlockingRethrowPce(t: CancellationException) {
     val thrown = assertThrows<CeProcessCanceledException> {
       runWithModalProgressBlocking {
         throw t
@@ -242,7 +243,7 @@ class RunWithModalProgressBlockingTest : ModalCoroutineTest() {
       runWithModalProgressBlocking(ModalTaskOwner.guess(), "") {
         val modality = requireNotNull(currentCoroutineContext().contextModality())
         assertNotEquals(modality, ModalityState.nonModal())
-        assertSame(ModalityState.nonModal(), ModalityState.defaultModalityState())
+        assertSame(modality, ModalityState.defaultModalityState())
         action()
       }
     }
@@ -250,15 +251,17 @@ class RunWithModalProgressBlockingTest : ModalCoroutineTest() {
 
   private suspend fun progressManagerTest(action: suspend () -> Unit) {
     withContext(Dispatchers.EDT) {
-      ProgressManager.getInstance().runProcessWithProgressSynchronously(Runnable {
-        val modality = ModalityState.defaultModalityState()
-        assertNotEquals(modality, ModalityState.nonModal())
-        runBlockingCancellable {
-          assertSame(ModalityState.nonModal(), ModalityState.defaultModalityState())
-          assertSame(modality, currentCoroutineContext().contextModality())
-          action()
-        }
-      }, "", true, null)
+      writeIntentReadAction {
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(Runnable {
+          val modality = ModalityState.defaultModalityState()
+          assertNotEquals(modality, ModalityState.nonModal())
+          runBlockingCancellable {
+            assertSame(currentCoroutineContext().contextModality(), ModalityState.defaultModalityState())
+            assertSame(modality, currentCoroutineContext().contextModality())
+            action()
+          }
+        }, "", true, null)
+      }
     }
   }
 }

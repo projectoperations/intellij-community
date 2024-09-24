@@ -18,7 +18,6 @@ import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
@@ -28,16 +27,13 @@ import java.util.stream.StreamSupport;
 public class JBHtmlEditorKit extends HTMLEditorKit {
   private static final Logger LOG = Logger.getInstance(JBHtmlEditorKit.class);
 
-  @SuppressWarnings("StaticNonFinalField")
-  @ApiStatus.Internal
-  public static boolean DISABLE_TEXT_LAYOUT = false;
-
   private final @NotNull ViewFactory myViewFactory;
   private final @NotNull StyleSheet myStyle;
 
   private final @NotNull HTMLEditorKit.LinkController myLinkController = new MouseExitSupportLinkController();
   private final @NotNull HyperlinkListener myHyperlinkListener = new LinkUnderlineListener();
   private final boolean myDisableLinkedCss;
+  private boolean myUnderlineHoveredHyperlink = true;
 
   private @Nullable CSSFontResolver myFontResolver;
 
@@ -75,6 +71,17 @@ public class JBHtmlEditorKit extends HTMLEditorKit {
   }
 
   /**
+   * Toggle whether hyperlinks are underlined when hovered.
+   *
+   * This is useful if another implementation needs to apply a different style
+   * to hyperlinks when hovered (this can be done by adding a {@link HyperlinkListener}
+   * to the {@link JEditorPane}).
+   */
+  public void setUnderlineHoveredHyperlink(boolean underlineHoveredHyperlink) {
+    myUnderlineHoveredHyperlink = underlineHoveredHyperlink;
+  }
+
+  /**
    * This allows to impact resolution of fonts from CSS attributes of text
    */
   public void setFontResolver(@Nullable CSSFontResolver fontResolver) {
@@ -101,7 +108,7 @@ public class JBHtmlEditorKit extends HTMLEditorKit {
     StyleSheet ss = new StyleSheetCompressionThreshold();
     ss.addStyleSheet(styles);
 
-    HTMLDocument doc = new OurDocument(ss);
+    HTMLDocument doc = new JBHtmlDocument(ss);
     doc.setParser(getParser());
     doc.setAsynchronousLoadPriority(4);
     doc.setTokenThreshold(100);
@@ -135,7 +142,9 @@ public class JBHtmlEditorKit extends HTMLEditorKit {
         pane.removePropertyChangeListener(this);
       }
     });
-    pane.addHyperlinkListener(myHyperlinkListener);
+    if (myUnderlineHoveredHyperlink) {
+      pane.addHyperlinkListener(myHyperlinkListener);
+    }
 
     java.util.List<LinkController> listeners1 = filterLinkControllerListeners(pane.getMouseListeners());
     java.util.List<LinkController> listeners2 = filterLinkControllerListeners(pane.getMouseMotionListeners());
@@ -200,17 +209,11 @@ public class JBHtmlEditorKit extends HTMLEditorKit {
     }
   }
 
-  private final class OurDocument extends HTMLDocument {
-    private OurDocument(StyleSheet styles) {
+  @ApiStatus.Internal
+  public final class JBHtmlDocument extends HTMLDocument {
+    private JBHtmlDocument(StyleSheet styles) {
       super(styles);
-      if (DISABLE_TEXT_LAYOUT) {
-        setDocumentProperties(new Hashtable<>(2) {
-          @Override
-          public synchronized Object get(Object key) {
-            return "i18n".equals(key) ? Boolean.FALSE : super.get(key);
-          }
-        });
-      }
+      TextLayoutUtil.disableTextLayoutIfNeeded(this);
     }
 
     @Override
@@ -229,6 +232,24 @@ public class JBHtmlEditorKit extends HTMLEditorKit {
     public ParserCallback getReader(int pos, int popDepth, int pushDepth, HTML.Tag insertTag) {
       ParserCallback reader = super.getReader(pos, popDepth, pushDepth, insertTag);
       return myDisableLinkedCss ? new CallbackWrapper(reader) : reader;
+    }
+
+    public void tryRunUnderWriteLock(Runnable runnable) {
+      if (getCurrentWriter() == Thread.currentThread()) {
+        runnable.run();
+      } else {
+        try {
+          writeLock();
+        } catch (IllegalStateException e) {
+          // ignore, wrong thread
+          return;
+        }
+        try {
+          runnable.run();
+        } finally {
+          writeUnlock();
+        }
+      }
     }
 
     private static final class CallbackWrapper extends ParserCallback {

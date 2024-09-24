@@ -1,18 +1,19 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.siyeh.ig.bugs;
 
+import com.intellij.codeInsight.options.JavaClassValidator;
 import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.dataFlow.CommonDataflow;
+import com.intellij.codeInspection.options.OptPane;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.java.PsiEmptyExpressionImpl;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
-import com.siyeh.ig.bugs.message.MessageFormatUtil;
-import com.siyeh.ig.callMatcher.CallMatcher;
+import com.siyeh.ig.format.MessageFormatUtil;
 import com.siyeh.ig.psiutils.ConstructionUtils;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -20,14 +21,55 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-import static com.siyeh.ig.callMatcher.CallMatcher.anyOf;
-import static com.siyeh.ig.callMatcher.CallMatcher.staticCall;
-
 public final class IncorrectMessageFormatInspection extends AbstractBaseJavaLocalInspectionTool {
 
-  private static final CallMatcher PATTERN_METHODS = anyOf(
-    staticCall("java.text.MessageFormat", "format").parameterCount(2)
-  );
+  public List<String> customClasses = new ArrayList<>();
+  public List<String> customMethods = new ArrayList<>();
+
+  @Override
+  public @NotNull OptPane getOptionsPane() {
+    return OptPane.pane(
+      OptPane.table(
+        InspectionGadgetsBundle.message("inspection.incorrect.message.custom.classes.methods"),
+        OptPane.column("customClasses", InspectionGadgetsBundle.message("inspection.incorrect.message.custom.classes"),
+                       new JavaClassValidator()),
+        OptPane.column("customMethods", InspectionGadgetsBundle.message("inspection.incorrect.message.custom.methods"))
+      ).description(InspectionGadgetsBundle.message("inspection.incorrect.message.custom.classes.methods.description"))
+    );
+  }
+
+  private boolean isCustomPatternMethodCall(@NotNull PsiMethodCallExpression call) {
+    PsiReferenceExpression methodExpression = call.getMethodExpression();
+
+    String methodName = methodExpression.getReferenceName();
+    if (methodName == null || !customMethods.contains(methodName)) {
+      return false;
+    }
+
+    PsiMethod method = call.resolveMethod();
+    if (method == null) return false;
+    PsiClass containingClass = method.getContainingClass();
+    if (containingClass == null || !customClasses.contains(containingClass.getQualifiedName())) {
+      return false;
+    }
+
+    PsiParameter[] parameters = method.getParameterList().getParameters();
+    if (parameters.length != 2) {
+      return false;
+    }
+
+    PsiType firstArgType = parameters[0].getType();
+    if (!CommonClassNames.JAVA_LANG_STRING.equals(firstArgType.getCanonicalText())) {
+      return false;
+    }
+
+    PsiParameter secondParameter = parameters[1];
+    if (!secondParameter.isVarArgs()) {
+      return false;
+    }
+
+    return true;
+  }
 
   @NotNull
   @Override
@@ -64,7 +106,8 @@ public final class IncorrectMessageFormatInspection extends AbstractBaseJavaLoca
 
       @Override
       public void visitMethodCallExpression(@NotNull PsiMethodCallExpression call) {
-        if (PATTERN_METHODS.test(call)) {
+        if (MessageFormatUtil.PATTERN_METHODS.test(call) ||
+            isCustomPatternMethodCall(call)) {
           List<MessageFormatUtil.MessageFormatPlaceholder> indexes =
             checkStringFormatAndGetIndexes(call.getArgumentList().getExpressions()[0]);
           if (indexes != null) {
@@ -76,12 +119,15 @@ public final class IncorrectMessageFormatInspection extends AbstractBaseJavaLoca
       private void checkIndexes(@NotNull PsiMethodCallExpression call,
                                 @NotNull List<MessageFormatUtil.MessageFormatPlaceholder> indexes) {
         PsiExpression[] expressions = call.getArgumentList().getExpressions();
+        int count = expressions.length;
+        if (count == 2 && expressions[1].getType() instanceof PsiArrayType) {
+          return;
+        }
         for (PsiExpression expression : expressions) {
           if (expression == null || expression instanceof PsiEmptyExpressionImpl) {
             return;
           }
         }
-        int count = call.getArgumentList().getExpressionCount();
         int argumentNumber = count - 1;
         List<Integer> notFoundArguments = new ArrayList<>();
         Set<Integer> usedArgumentIndexes = new HashSet<>();

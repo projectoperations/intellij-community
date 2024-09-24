@@ -2,6 +2,6 @@ package test
 
 internal class User {
     fun main() {
-        val list: List<*> = ArrayList<Any?>()
+        val list: ArrayList<*> = ArrayList<Any?>()
     }
 }

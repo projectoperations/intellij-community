@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff.merge;
 
 import com.intellij.CommonBundle;
@@ -11,8 +11,6 @@ import com.intellij.diff.tools.util.PrevNextDifferenceIterable;
 import com.intellij.diff.util.DiffPlaces;
 import com.intellij.diff.util.DiffUserDataKeys;
 import com.intellij.diff.util.DiffUtil;
-import com.intellij.ide.DataManager;
-import com.intellij.ide.impl.DataManagerImpl;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.Disposable;
@@ -41,7 +39,8 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBEmptyBorder;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.ui.components.BorderLayoutPanel;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -55,6 +54,7 @@ import static com.intellij.diff.util.DiffUtil.recursiveRegisterShortcutSet;
 // TODO: support merge request chains
 // idea - to keep in memory all viewers that were modified (so binary conflict is not the case and OOM shouldn't be too often)
 // suspend() / resume() methods for viewers? To not interfere with MergeRequest lifecycle: single request -> single viewer -> single applyResult()
+@ApiStatus.Internal
 public abstract class MergeRequestProcessor implements Disposable {
   private static final Logger LOG = Logger.getInstance(MergeRequestProcessor.class);
 
@@ -208,7 +208,7 @@ public abstract class MergeRequestProcessor implements Disposable {
         public void actionPerformed(@NotNull AnActionEvent e) {
           resolveAction.actionPerformed(null);
         }
-      }.registerCustomShortcutSet(CommonShortcuts.CTRL_ENTER, getRootPane(), this);
+      }.registerCustomShortcutSet(CommonShortcuts.getCtrlEnter(), getRootPane(), this);
     }
 
     List<Action> leftActions = ContainerUtil.packNullables(applyLeft, applyRight);
@@ -219,14 +219,24 @@ public abstract class MergeRequestProcessor implements Disposable {
     JPanel buttonsPanel = new NonOpaquePanel(new BorderLayout());
     buttonsPanel.setBorder(new JBEmptyBorder(UIUtil.PANEL_REGULAR_INSETS));
 
-    if (leftActions.size() > 0) {
+    if (!leftActions.isEmpty()) {
       buttonsPanel.add(createButtonsPanel(leftActions, rootPane), BorderLayout.WEST);
     }
-    if (rightActions.size() > 0) {
+    if (!rightActions.isEmpty()) {
       buttonsPanel.add(createButtonsPanel(rightActions, rootPane), BorderLayout.EAST);
     }
 
+    BorderLayoutPanel toolbarPanel = createFeedbackToolbarPanel();
+
+    buttonsPanel.add(toolbarPanel, BorderLayout.CENTER);
     myButtonsPanel.setContent(buttonsPanel);
+  }
+
+  private @NotNull BorderLayoutPanel createFeedbackToolbarPanel() {
+    AnAction action = ActionManager.getInstance().getAction("Diff.Conflicts.Feedback");
+    ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar("FeedbackToolbar", (ActionGroup)action, true);
+    actionToolbar.setTargetComponent(myContentPanel.getTargetComponent());
+    return new BorderLayoutPanel().addToRight(actionToolbar.getComponent());
   }
 
   @NotNull
@@ -250,8 +260,6 @@ public abstract class MergeRequestProcessor implements Disposable {
     List<AnAction> contextActions = myContext.getUserData(DiffUserDataKeys.CONTEXT_ACTIONS);
     DiffUtil.addActionBlock(group, contextActions);
 
-    DiffUtil.addActionBlock(group, ActionManager.getInstance().getAction(IdeActions.ACTION_CONTEXT_HELP));
-
     return group;
   }
 
@@ -260,8 +268,7 @@ public abstract class MergeRequestProcessor implements Disposable {
     ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.DIFF_TOOLBAR, group, true);
     toolbar.setShowSeparatorTitles(true);
 
-    DataManager.registerDataProvider(toolbar.getComponent(), myMainPanel);
-    toolbar.setTargetComponent(toolbar.getComponent());
+    toolbar.setTargetComponent(myContentPanel.getTargetComponent());
 
     myToolbarPanel.setContent(toolbar.getComponent());
     recursiveRegisterShortcutSet(group, myMainPanel, null);
@@ -532,49 +539,25 @@ public abstract class MergeRequestProcessor implements Disposable {
   // Helpers
   //
 
-  private class MyPanel extends JPanel implements DataProvider {
+  private class MyPanel extends JPanel implements UiDataProvider {
     MyPanel() {
       super(new BorderLayout());
     }
 
-    @Nullable
     @Override
-    public Object getData(@NotNull @NonNls String dataId) {
-      Object data;
-
-      DataProvider contentProvider = DataManagerImpl.getDataProviderEx(myContentPanel.getTargetComponent());
-      if (contentProvider != null) {
-        data = contentProvider.getData(dataId);
-        if (data != null) return data;
-      }
-
-      if (CommonDataKeys.PROJECT.is(dataId)) {
-        return myProject;
-      }
-      else if (PlatformCoreDataKeys.HELP_ID.is(dataId)) {
-        if (myRequest != null && myRequest.getUserData(DiffUserDataKeys.HELP_ID) != null) {
-          return myRequest.getUserData(DiffUserDataKeys.HELP_ID);
-        }
-        else {
-          return "procedures.vcWithIDEA.commonVcsOps.integrateDiffs.resolveConflict";
-        }
-      }
-      else if (DiffDataKeys.MERGE_VIEWER.is(dataId)) {
-        return myViewer;
-      }
-
-      DataProvider requestProvider = myRequest != null ? myRequest.getUserData(DiffUserDataKeys.DATA_PROVIDER) : null;
-      if (requestProvider != null) {
-        data = requestProvider.getData(dataId);
-        if (data != null) return data;
-      }
+    public void uiDataSnapshot(@NotNull DataSink sink) {
+      sink.set(CommonDataKeys.PROJECT, myProject);
+      String requestHelpId = myRequest == null ? null : myRequest.getUserData(DiffUserDataKeys.HELP_ID);
+      sink.set(PlatformCoreDataKeys.HELP_ID,
+               requestHelpId != null ? requestHelpId :
+               "procedures.vcWithIDEA.commonVcsOps.integrateDiffs.resolveConflict");
+      sink.set(DiffDataKeys.MERGE_VIEWER, myViewer);
 
       DataProvider contextProvider = myContext.getUserData(DiffUserDataKeys.DATA_PROVIDER);
-      if (contextProvider != null) {
-        data = contextProvider.getData(dataId);
-        if (data != null) return data;
-      }
-      return null;
+      DataSink.uiDataSnapshot(sink, contextProvider);
+
+      DataProvider requestProvider = myRequest != null ? myRequest.getUserData(DiffUserDataKeys.DATA_PROVIDER) : null;
+      DataSink.uiDataSnapshot(sink, requestProvider);
     }
   }
 

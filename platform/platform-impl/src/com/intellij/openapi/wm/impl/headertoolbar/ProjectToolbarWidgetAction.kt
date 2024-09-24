@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl.headertoolbar
 
+import com.intellij.icons.AllIcons
 import com.intellij.ide.ProjectWindowCustomizerService
 import com.intellij.ide.RecentProjectListActionProvider
 import com.intellij.ide.RecentProjectsManagerBase
@@ -68,18 +69,7 @@ class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     super.updateCustomComponent(component, presentation)
 
     val widget = component as? ToolbarComboButton ?: return
-
-    widget.text = presentation.text
-    widget.toolTipText = presentation.description
-    widget.leftIcons = emptyList()
     widget.isOpaque = false
-
-    val customizer = ProjectWindowCustomizerService.getInstance()
-    val project = presentation.getClientProperty(projectKey)
-
-    if (project != null && customizer.isAvailable()) {
-      widget.leftIcons = listOf(customizer.getProjectIcon(project))
-    }
   }
 
   override fun update(e: AnActionEvent) {
@@ -88,6 +78,10 @@ class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     e.presentation.setText(projectName, false)
     e.presentation.description = FileUtil.getLocationRelativeToUserHome(project?.guessProjectDir()?.path) ?: projectName
     e.presentation.putClientProperty(projectKey, project)
+    val customizer = ProjectWindowCustomizerService.getInstance()
+    if (project != null && customizer.isAvailable()) {
+      e.presentation.icon = customizer.getProjectIcon(project)
+    }
   }
 
   private fun createPopup(it: Project, step: ListPopupStep<Any>): ListPopup {
@@ -109,7 +103,7 @@ class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     }
 
     val result = JBPopupFactory.getInstance().createListPopup(it, step, renderer)
-    result.setRequestFocus(false)
+
     return result
   }
 
@@ -188,6 +182,17 @@ private class ProjectWidgetRenderer : ListCellRenderer<PopupFactoryImpl.ActionIt
                   font = JBFont.smallOrNewUiMedium()
                   foreground = UIUtil.getLabelInfoForeground()
                 }.component
+            }
+            action.branchName?.let {
+              row {
+                label(it)
+                  .customize(UnscaledGaps(bottom = 4, top = 4))
+                  .applyToComponent {
+                    icon = AllIcons.Vcs.Branch
+                    font = JBFont.smallOrNewUiMedium()
+                    foreground = UIUtil.getLabelInfoForeground()
+                  }.component
+              }
             }
           }
         }

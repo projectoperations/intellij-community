@@ -1,27 +1,36 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins;
 
+import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests;
+import com.intellij.ide.plugins.marketplace.utils.MarketplaceCustomizationService;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
+import com.intellij.openapi.components.impl.stores.ComponentStorageUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.updateSettings.impl.PluginDownloader;
+import com.intellij.openapi.updateSettings.impl.UpdateOptions;
 import com.intellij.openapi.updateSettings.impl.UpdateSettings;
+import com.intellij.openapi.updateSettings.impl.UpdateSettingsProvider;
 import com.intellij.openapi.util.BuildNumber;
+import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.util.Url;
 import com.intellij.util.Urls;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.URLUtil;
 import com.intellij.util.text.VersionComparatorUtil;
+import org.jdom.JDOMException;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -38,23 +47,39 @@ public final class RepositoryHelper {
   private static final String ULTIMATE_MODULE = "com.intellij.modules.ultimate";
 
   /**
-   * Returns a list of configured plugin hosts.
-   * Note that the list always ends with {@code null} element denoting the main plugin repository (Marketplace).
+   * Returns a list of configured custom plugin repository hosts.
    */
-  public static @NotNull List<@Nullable String> getPluginHosts() {
-    var hosts = new ArrayList<>(UpdateSettings.getInstance().getPluginHosts());
+  public static @NotNull List<@NotNull String> getCustomPluginRepositoryHosts() {
+    var hosts = new ArrayList<>(UpdateSettings.getInstance().getStoredPluginHosts());
+
+    var pluginHosts = System.getProperty("idea.plugin.hosts");
+    if (pluginHosts != null) {
+      ContainerUtil.addAll(hosts, pluginHosts.split(";"));
+    }
+
+    hosts.addAll(UpdateSettingsProvider.getRepositoriesFromProviders());
+
     @SuppressWarnings("deprecation") var pluginsUrl = ApplicationInfoEx.getInstanceEx().getBuiltinPluginsUrl();
     if (pluginsUrl != null && !"__BUILTIN_PLUGINS_URL__".equals(pluginsUrl)) {
       hosts.add(pluginsUrl);
     }
+
     pluginsUrl = System.getProperty(CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY);
     if (pluginsUrl != null) {
       hosts.add(pluginsUrl);
     }
-    for (var contributor : CustomPluginRepoContributor.EP_NAME.getExtensionsIfPointIsRegistered()) {
-      hosts.addAll(contributor.getRepoUrls());
-    }
-    hosts.add(null);  // main plugin repository
+
+    ContainerUtil.removeDuplicates(hosts);
+    return hosts;
+  }
+
+  /**
+   * Returns a list of configured plugin hosts.
+   * Note that the list always ends with {@code null} element denoting the main plugin repository (Marketplace).
+   */
+  public static @NotNull List<@Nullable String> getPluginHosts() {
+    List<@Nullable String> hosts = getCustomPluginRepositoryHosts();
+    hosts.add(null); // main plugin repository
     return hosts;
   }
 
@@ -82,7 +107,7 @@ public final class RepositoryHelper {
       if (ApplicationInfoImpl.getShadowInstance().usesJetBrainsPluginRepository()) {
         LOG.error("Using deprecated API for getting plugins from Marketplace");
       }
-      var base = ApplicationInfoImpl.getShadowInstance().getPluginsListUrl();
+      var base = MarketplaceCustomizationService.getInstance().getPluginsListUrl();
       url = Urls.newFromEncoded(base).addParameters(Map.of("uuid", PluginDownloader.getMarketplaceDownloadsUUID()));
       pluginListFile = Paths.get(PathManager.getPluginsPath(), PLUGIN_LIST_FILE);
     }
@@ -152,7 +177,7 @@ public final class RepositoryHelper {
 
   private static boolean isPaidPluginsRequireMarketplacePlugin() {
     var core = PluginManagerCore.findPlugin(PluginManagerCore.CORE_ID);
-    return core == null || !core.modules.contains(PluginId.getId(ULTIMATE_MODULE)) || !ApplicationInfoImpl.getShadowInstance().isVendorJetBrains();
+    return core == null || !core.pluginAliases.contains(PluginId.getId(ULTIMATE_MODULE)) || !ApplicationInfoImpl.getShadowInstance().isVendorJetBrains();
   }
 
   private static void addMarketplacePluginDependencyIfRequired(PluginNode node, boolean isPaidPluginsRequireMarketplacePlugin) {
@@ -193,8 +218,7 @@ public final class RepositoryHelper {
     var ids = new HashSet<PluginId>();
     var result = new ArrayList<PluginNode>();
 
-    for (var host : getPluginHosts()) {
-      if (host == null) continue;
+    for (var host : getCustomPluginRepositoryHosts()) {
       try {
         var plugins = loadPlugins(host, null, indicator);
         for (var plugin : plugins) {
@@ -219,6 +243,26 @@ public final class RepositoryHelper {
     var mpPlugins = MarketplaceRequests.loadLastCompatiblePluginDescriptors(pluginIds);
     var customPlugins = loadPluginsFromCustomRepositories(null).stream().filter(p -> pluginIds.contains(p.getPluginId())).toList();
     return mergePluginsFromRepositories(mpPlugins, customPlugins, true);
+  }
+
+  @ApiStatus.Internal
+  public static void updatePluginHostsFromConfigDir(@NotNull Path oldConfigDir, @NotNull Logger logger) {
+    logger.info("reading plugin repositories from " + oldConfigDir);
+    try {
+      var text = ComponentStorageUtil.loadTextContent(oldConfigDir.resolve("options/updates.xml"));
+      var components = ComponentStorageUtil.loadComponents(JDOMUtil.load(text), null);
+      var element = components.get("UpdatesConfigurable");
+      if (element != null) {
+        var hosts = XmlSerializer.deserialize(element, UpdateOptions.class).getPluginHosts();
+        if (!hosts.isEmpty()) {
+          amendPluginHostsProperty(hosts);
+          logger.info("plugin hosts: " + System.getProperty("idea.plugin.hosts"));
+        }
+      }
+    }
+    catch (InvalidPathException | IOException | JDOMException e) {
+      logger.error("... failed: " + e.getMessage());
+    }
   }
 
   @ApiStatus.Internal

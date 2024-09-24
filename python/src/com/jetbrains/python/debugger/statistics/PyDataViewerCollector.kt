@@ -9,14 +9,36 @@ import com.intellij.openapi.project.Project
 
 object PyDataViewerCollector : CounterUsagesCollector() {
 
-  private val GROUP = EventLogGroup("python.dataview", 2)
+  private val GROUP = EventLogGroup("python.dataview", 4)
 
-  enum class DataType(val typeName: String?) {
+  /* Fields */
+  private val DATA_TYPE_FIELD = EventFields.Enum<DataType>("type")
+  private val DIMENSIONS_FIELD = EventFields.Enum<DataDimensions>("dimensions")
+  private val ROWS_COUNT_FIELD = RoundedIntEventField("rows_count")
+  private val COLUMNS_COUNT_FIELD = RoundedIntEventField("columns_count")
+  private val IS_NEW_TABLE_FIELD = EventFields.Boolean("is_new_table")
+
+  /* Events */
+  private val DATA_OPENED_EVENT = GROUP.registerVarargEvent("data.opened",
+                                                            DATA_TYPE_FIELD,
+                                                            DIMENSIONS_FIELD,
+                                                            ROWS_COUNT_FIELD,
+                                                            COLUMNS_COUNT_FIELD,
+                                                            IS_NEW_TABLE_FIELD)
+  val SLICING_APPLIED_EVENT = GROUP.registerEvent("slicing.applied", IS_NEW_TABLE_FIELD)
+  val FORMATTING_APPLIED_EVENT = GROUP.registerEvent("formatting.applied", IS_NEW_TABLE_FIELD)
+
+  enum class DataType(private val typeName: String?) {
     ARRAY("ndarray"),
     DATAFRAME("DataFrame"),
     GEO_DATAFRAME("GeoDataFrame"),
     SERIES("Series"),
     GEO_SERIES("GeoSeries"),
+    EAGER_TENSOR("EagerTensor"),
+    RESOURCE_VARIABLE("ResourceVariable"),
+    SPARSE_TENSOR("SparseTensor"),
+    TORCH_TENSOR("Tensor"),
+    HF_DATASET("Dataset"),
     UNKNOWN(null);
 
     companion object {
@@ -46,21 +68,29 @@ object PyDataViewerCollector : CounterUsagesCollector() {
     }
   }
 
-  private val typeField = EventFields.Enum<DataType>("type")
-  private val dimensionsField = EventFields.Enum<DataDimensions>("dimensions")
-  private val rowsCountField = RoundedIntEventField("rows_count")
-  private val columnsCountField = RoundedIntEventField("columns_count")
-
-  val dataOpened = GROUP.registerVarargEvent("data.opened", typeField, dimensionsField, rowsCountField, columnsCountField)
-
-  val slicingApplied = GROUP.registerEvent("slicing.applied")
-
   override fun getGroup() = GROUP
 
-  fun logDataOpened(project: Project?, type: String?, dimensions: Int?, rowsCount: Int, columnsCount: Int) {
-    dataOpened.log(project, this.typeField.with(DataType.getDataType(type)),
-                   this.dimensionsField.with(DataDimensions.getDataDimensions(dimensions)),
-                   this.rowsCountField.with(rowsCount),
-                   this.columnsCountField.with(columnsCount))
+  fun logDataOpened(
+    project: Project?,
+    type: String?,
+    dimensions: Int?,
+    rowsCount: Int,
+    columnsCount: Int,
+    isNewTable: Boolean,
+  ) {
+    DATA_OPENED_EVENT.log(project,
+                          DATA_TYPE_FIELD.with(DataType.getDataType(type)),
+                          DIMENSIONS_FIELD.with(DataDimensions.getDataDimensions(dimensions)),
+                          ROWS_COUNT_FIELD.with(rowsCount),
+                          COLUMNS_COUNT_FIELD.with(columnsCount),
+                          IS_NEW_TABLE_FIELD.with(isNewTable))
+  }
+
+  fun logDataSlicingApplied(isNewTable: Boolean) {
+    SLICING_APPLIED_EVENT.log(isNewTable)
+  }
+
+  fun logDataFormattingApplied(isNewTable: Boolean) {
+    FORMATTING_APPLIED_EVENT.log(isNewTable)
   }
 }

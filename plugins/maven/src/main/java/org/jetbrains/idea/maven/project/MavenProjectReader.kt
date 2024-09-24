@@ -50,14 +50,16 @@ class MavenProjectReader(private val myProject: Project) {
 
     val model = myReadHelper.interpolate(basedir, file, readResult.first.model)
 
-    val modelMap: MutableMap<String, String?> = HashMap()
-    modelMap["groupId"] = model.mavenId.groupId
-    modelMap["artifactId"] = model.mavenId.artifactId
-    modelMap["version"] = model.mavenId.version
-    modelMap["build.outputDirectory"] = model.build.outputDirectory
-    modelMap["build.testOutputDirectory"] = model.build.testOutputDirectory
-    modelMap["build.finalName"] = model.build.finalName
-    modelMap["build.directory"] = model.build.directory
+    val modelMap: MutableMap<String, String> = HashMap()
+    val mavenId = model.mavenId
+    val build = model.build
+    mavenId.groupId?.let { modelMap["groupId"] = it }
+    mavenId.artifactId?.let { modelMap["artifactId"] = it }
+    mavenId.version?.let { modelMap["version"] = it }
+    build.outputDirectory?.let { modelMap["build.outputDirectory"] = it }
+    build.testOutputDirectory?.let { modelMap["build.testOutputDirectory"] = it }
+    build.finalName?.let { modelMap["build.finalName"] = it }
+    build.directory?.let { modelMap["build.directory"] = it }
 
     return MavenProjectReaderResult(model,
                                     modelMap,
@@ -92,7 +94,7 @@ class MavenProjectReader(private val myProject: Project) {
       locator,
       problems)
 
-    addSettingsProfiles(generalSettings, modelWithInheritance, alwaysOnProfiles, problems)
+    addSettingsProfiles(file, generalSettings, modelWithInheritance, alwaysOnProfiles, problems)
 
     val basedir = MavenUtil.getBaseDir(file)
 
@@ -106,7 +108,8 @@ class MavenProjectReader(private val myProject: Project) {
     return Pair.create(RawModelReadResult(modelWithProfiles, problems, alwaysOnProfiles), profileApplicationResult.activatedProfiles)
   }
 
-  private suspend fun addSettingsProfiles(generalSettings: MavenGeneralSettings,
+  private suspend fun addSettingsProfiles(projectFile: VirtualFile,
+                                          generalSettings: MavenGeneralSettings,
                                           model: MavenModel,
                                           alwaysOnProfiles: MutableSet<String>,
                                           problems: MutableCollection<MavenProjectProblem>) {
@@ -117,6 +120,7 @@ class MavenProjectReader(private val myProject: Project) {
 
       for (each in generalSettings.effectiveSettingsFiles) {
         collectProfilesFromSettingsXmlOrProfilesXml(each,
+                                                    projectFile,
                                                     "settings",
                                                     false,
                                                     MavenConstants.PROFILE_FROM_SETTINGS_XML,
@@ -207,7 +211,7 @@ class MavenProjectReader(private val myProject: Project) {
           false))
       }
 
-      model = myReadHelper.assembleInheritance(projectPomDir, parentModel, model)
+      model = myReadHelper.assembleInheritance(projectPomDir, parentModel, model, file)
 
       // todo: it is a quick-hack here - we add inherited dummy profiles to correctly collect activated profiles in 'applyProfiles'.
       val profiles = model.profiles
@@ -278,6 +282,7 @@ class MavenProjectReader(private val myProject: Project) {
     val result = MavenModel()
     val xmlProject = readXml(file, problems, MavenProjectProblem.ProblemType.SYNTAX)
     if (xmlProject == null || "project" != xmlProject.name) {
+      MavenLog.LOG.warn("Invalid Maven project model: project '$xmlProject', name '${xmlProject?.name}', file ${file.path}")
       result.packaging = MavenConstants.TYPE_JAR
       return RawModelReadResult(result, problems, alwaysOnProfiles)
     }
@@ -304,7 +309,7 @@ class MavenProjectReader(private val myProject: Project) {
     result.packaging = findChildValueByPath(xmlProject, "packaging", MavenConstants.TYPE_JAR)
     result.name = findChildValueByPath(xmlProject, "name")
 
-    readModelBody(result, result.build, xmlProject)
+    readModelBody(result, result.build, xmlProject, file)
 
     result.profiles = collectProfiles(file, xmlProject, problems, alwaysOnProfiles)
     return RawModelReadResult(result, problems, alwaysOnProfiles)
@@ -389,11 +394,12 @@ class MavenProjectReader(private val myProject: Project) {
                                       problems: MutableCollection<MavenProjectProblem>,
                                       alwaysOnProfiles: MutableSet<String>): List<MavenProfile> {
     val result: MutableList<MavenProfile> = ArrayList()
-    collectProfiles(findChildrenByPath(xmlProject, "profiles", "profile"), result, MavenConstants.PROFILE_FROM_POM)
+    collectProfiles(findChildrenByPath(xmlProject, "profiles", "profile"), result, MavenConstants.PROFILE_FROM_POM, projectFile)
 
     val profilesFile = MavenUtil.findProfilesXmlFile(projectFile)
     if (profilesFile != null) {
       collectProfilesFromSettingsXmlOrProfilesXml(profilesFile,
+                                                  projectFile,
                                                   "profilesXml",
                                                   true,
                                                   MavenConstants.PROFILE_FROM_PROFILES_XML,
@@ -406,6 +412,7 @@ class MavenProjectReader(private val myProject: Project) {
   }
 
   private suspend fun collectProfilesFromSettingsXmlOrProfilesXml(profilesFile: VirtualFile,
+                                                                  projectsFile: VirtualFile,
                                                                   rootElementName: String,
                                                                   wrapRootIfNecessary: Boolean,
                                                                   profilesSource: String,
@@ -422,12 +429,12 @@ class MavenProjectReader(private val myProject: Project) {
     }
 
     val xmlProfiles = findChildrenByPath(rootElement, "profiles", "profile")
-    collectProfiles(xmlProfiles, result, profilesSource)
+    collectProfiles(xmlProfiles, result, profilesSource, projectsFile)
 
     alwaysOnProfiles.addAll(findChildrenValuesByPath(rootElement, "activeProfiles", "activeProfile"))
   }
 
-  private fun collectProfiles(xmlProfiles: List<Element>, result: MutableList<MavenProfile>, source: String) {
+  private fun collectProfiles(xmlProfiles: List<Element>, result: MutableList<MavenProfile>, source: String, projectFile: VirtualFile) {
     for (each in xmlProfiles) {
       val id = findChildValueByPath(each, "id")
       if (id.isNullOrBlank()) continue
@@ -468,7 +475,7 @@ class MavenProjectReader(private val myProject: Project) {
         profile.activation = activation
       }
 
-      readModelBody(profile, profile.build, each)
+      readModelBody(profile, profile.build, each, projectFile)
     }
   }
 
@@ -480,8 +487,8 @@ class MavenProjectReader(private val myProject: Project) {
     return true
   }
 
-  private fun readModelBody(mavenModelBase: MavenModelBase, mavenBuildBase: MavenBuildBase, xmlModel: Element) {
-    mavenModelBase.modules = findChildrenValuesByPath(xmlModel, "modules", "module")
+  private fun readModelBody(mavenModelBase: MavenModelBase, mavenBuildBase: MavenBuildBase, xmlModel: Element, projectFile: VirtualFile) {
+    mavenModelBase.modules = myReadHelper.filterModules(findChildrenValuesByPath(xmlModel, "modules", "module"), projectFile)
     collectProperties(findChildByPath(xmlModel, "properties"), mavenModelBase)
 
     val xmlBuild = findChildByPath(xmlModel, "build")
@@ -547,7 +554,7 @@ class MavenProjectReader(private val myProject: Project) {
         problems.add(MavenProjectProblem.createProblem(file.path, e!!.message, type, false))
       }
 
-      override fun onSyntaxError() {
+      override fun onSyntaxError(message: String, startOffset: Int, endOffset: Int) {
         problems.add(MavenProjectProblem.createSyntaxProblem(file.path, type))
       }
     })

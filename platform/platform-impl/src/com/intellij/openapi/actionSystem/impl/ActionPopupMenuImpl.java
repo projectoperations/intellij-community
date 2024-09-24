@@ -5,6 +5,7 @@ import com.intellij.diagnostic.UILatencyLogger;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.HelpTooltip;
 import com.intellij.ide.IdeEventQueue;
+import com.intellij.internal.inspector.UiInspectorActionUtil;
 import com.intellij.internal.inspector.UiInspectorUtil;
 import com.intellij.internal.statistic.eventLog.events.EventFields;
 import com.intellij.lang.Language;
@@ -51,11 +52,8 @@ final class ActionPopupMenuImpl implements ActionPopupMenu, ApplicationActivatio
                       @NotNull ActionManagerImpl actionManager,
                       @Nullable PresentationFactory factory) {
     if (ActionPlaces.UNKNOWN.equals(place) || place.isEmpty()) {
-      LOG.warn("Please do not use ActionPlaces.UNKNOWN or the empty place. " +
+      LOG.warn("Do not use ActionPlaces.UNKNOWN or the empty string. " +
                "Any string unique enough to deduce the popup menu location will do.", new Throwable("popup menu creation trace"));
-    }
-    else if (!ActionPlaces.isPopupPlace(place)) {
-      LOG.info("isPopupOrMainMenuPlace(" + place + ")==false. Use ActionPlaces.getPopupPlace.");
     }
     myManager = actionManager;
     myMenu = new MyMenu(place, group, factory);
@@ -103,7 +101,8 @@ final class ActionPopupMenuImpl implements ActionPopupMenu, ApplicationActivatio
       BegMenuItemUI.registerMultiChoiceSupport(this, popupMenu -> {
         Utils.updateMenuItems(popupMenu, myContext, myPlace, myPresentationFactory);
       });
-      UiInspectorUtil.registerProvider(this, () -> UiInspectorUtil.collectActionGroupInfo("Menu", myGroup, myPlace));
+      UiInspectorUtil.registerProvider(this, () -> UiInspectorActionUtil.collectActionGroupInfo(
+        "Menu", myGroup, myPlace, myPresentationFactory));
     }
 
     @Override
@@ -151,7 +150,7 @@ final class ActionPopupMenuImpl implements ActionPopupMenu, ApplicationActivatio
     public void addNotify() {
       super.addNotify();
       long time = myPopupTriggeredNanos > 0 ? TimeoutUtil.getDurationMillis(myPopupTriggeredNanos) : -1;
-      PsiFile psiFile = (PsiFile)Utils.getRawDataIfCached(myContext, CommonDataKeys.PSI_FILE.getName());
+      PsiFile psiFile = CommonDataKeys.PSI_FILE.getData(Utils.getCachedOnlyDataContext(myContext));
       Language language = psiFile == null ? null : psiFile.getLanguage();
       boolean coldStart = SEEN_ACTION_GROUPS.add(Objects.hash(myGroup, language));
       UILatencyLogger.ACTION_POPUP_LATENCY.log(EventFields.DurationMs.with(time),
@@ -168,7 +167,7 @@ final class ActionPopupMenuImpl implements ActionPopupMenu, ApplicationActivatio
 
     private void updateChildren(@Nullable RelativePoint point) {
       removeAll();
-      Utils.INSTANCE.fillPopupMenu(myGroup, this, myPresentationFactory, myContext, myPlace, point);
+      Utils.INSTANCE.fillPopupMenu(new ActualActionUiKind.Menu(this, false), myGroup, myPresentationFactory, myContext, myPlace, point);
     }
 
     private void disposeMenu() {

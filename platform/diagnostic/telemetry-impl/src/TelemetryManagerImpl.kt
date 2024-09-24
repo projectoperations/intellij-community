@@ -3,7 +3,6 @@ package com.intellij.platform.diagnostic.telemetry.impl
 
 import com.intellij.diagnostic.ActivityImpl
 import com.intellij.diagnostic.PluginException
-import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.PathManager
@@ -59,10 +58,13 @@ class TelemetryManagerImpl(coroutineScope: CoroutineScope, isUnitTestMode: Boole
     verboseMode = System.getProperty("idea.diagnostic.opentelemetry.verbose")?.toBooleanStrictOrNull() == true
 
     val configurator: OpenTelemetryConfigurator = try {
-      createOpenTelemetryConfigurator(appInfo = ApplicationInfoImpl.getShadowInstance())
+      val appInfo = ApplicationInfoImpl.getShadowInstance()
+      createOpenTelemetryConfigurator(serviceName = ApplicationNamesInfo.getInstance().fullProductName,
+                                      serviceVersion = appInfo.build.asStringWithoutProductCode(),
+                                      serviceNamespace = appInfo.build.productCode)
     }
     catch (e: Throwable) {
-      createOpenTelemetryConfiguratorForPerfTestWithoutApplication()
+      createOpenTelemetryConfigurator(serviceName = "", serviceVersion = "", serviceNamespace = "")
     }
 
     aggregatedMetricExporter = configurator.aggregatedMetricExporter
@@ -165,6 +167,11 @@ class TelemetryManagerImpl(coroutineScope: CoroutineScope, isUnitTestMode: Boole
 
     log.info("OpenTelemetry metrics were flushed")
   }
+
+  @TestOnly
+  override suspend fun resetExporters() {
+    batchSpanProcessor?.reset()
+  }
 }
 
 private class IntelliJTracerImpl(private val scope: Scope, private val otlpService: OtlpService) : IntelliJTracer {
@@ -248,19 +255,16 @@ private fun createSpanExporters(resource: Resource, isUnitTestMode: Boolean = fa
   return spanExporters
 }
 
-private fun createOpenTelemetryConfiguratorForPerfTestWithoutApplication(): OpenTelemetryConfigurator {
-  return createOpenTelemetryConfigurator("", "", "")
-}
-
-private fun createOpenTelemetryConfigurator(serviceName: String,
-                                            serviceVersion: String,
-                                            serviceNamespace: String): OpenTelemetryConfigurator {
+private fun createOpenTelemetryConfigurator(
+  serviceName: String,
+  serviceVersion: String,
+  serviceNamespace: String,
+): OpenTelemetryConfigurator {
   return OpenTelemetryConfigurator(
     sdkBuilder = OpenTelemetrySdk.builder(),
     serviceName = serviceName,
     serviceVersion = serviceVersion,
     serviceNamespace = serviceNamespace,
-    enableMetricsByDefault = true,
     customResourceBuilder = {
       // don't write username to file - it maybe private information
       if (getOtlpEndPoint() != null) {
@@ -270,8 +274,3 @@ private fun createOpenTelemetryConfigurator(serviceName: String,
   )
 }
 
-private fun createOpenTelemetryConfigurator(appInfo: ApplicationInfo): OpenTelemetryConfigurator {
-  return createOpenTelemetryConfigurator(serviceName = ApplicationNamesInfo.getInstance().fullProductName,
-                                         serviceVersion = appInfo.build.asStringWithoutProductCode(),
-                                         serviceNamespace = appInfo.build.productCode)
-}

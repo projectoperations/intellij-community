@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("DuplicatedCode")
 
 package com.intellij.ide.trustedProjects
@@ -26,9 +26,6 @@ import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 
 object TrustedProjectsDialog {
-
-  private val LOG = logger<TrustedProjects>()
-
   /**
    * Shows the "Trust project?" dialog, if the user wasn't asked yet if they trust this project,
    * and sets the project trusted state according to the user choice.
@@ -37,7 +34,7 @@ object TrustedProjectsDialog {
    *   true otherwise, i.e. if the user chose to open (link) the project either in trust or in the safe mode,
    *   or if the confirmation wasn't shown because the project trust state was already known.
    */
-  suspend fun confirmOpeningOrLinkingUntrustedProjectAsync(
+  suspend fun confirmOpeningOrLinkingUntrustedProject(
     projectRoot: Path,
     project: Project?,
     @NlsContexts.DialogTitle title: String,
@@ -49,7 +46,7 @@ object TrustedProjectsDialog {
     val locatedProject = TrustedProjectsLocator.locateProject(projectRoot, project)
     val projectTrustedState = TrustedProjects.getProjectTrustedState(locatedProject)
     if (projectTrustedState == ThreeState.YES) {
-      TrustedProjects.setProjectTrusted(locatedProject, true)
+      TrustedProjects.setProjectTrusted(locatedProject = locatedProject, isTrusted = true)
     }
     if (projectTrustedState != ThreeState.UNSURE) {
       return true
@@ -72,7 +69,7 @@ object TrustedProjectsDialog {
       distrustButtonText -> OpenUntrustedProjectChoice.OPEN_IN_SAFE_MODE
       cancelButtonText, null -> OpenUntrustedProjectChoice.CANCEL
       else -> {
-        LOG.error("Illegal choice $choice")
+        logger<TrustedProjects>().error("Illegal choice $choice")
         return false
       }
     }
@@ -133,60 +130,6 @@ object TrustedProjectsDialog {
     TrustedProjectsStatistics.LOAD_UNTRUSTED_PROJECT_CONFIRMATION_CHOICE.log(project, answer)
 
     return answer
-  }
-
-  @ApiStatus.ScheduledForRemoval
-  @Deprecated("Use async method instead")
-  fun confirmOpeningOrLinkingUntrustedProject(
-    projectRoot: Path,
-    project: Project?,
-    @NlsContexts.DialogTitle title: String,
-    @NlsContexts.DialogMessage message: String,
-    @NlsContexts.Button trustButtonText: String,
-    @NlsContexts.Button distrustButtonText: String,
-    @NlsContexts.Button cancelButtonText: String
-  ): Boolean {
-    val locatedProject = TrustedProjectsLocator.locateProject(projectRoot, project)
-    val projectTrustedState = TrustedProjects.getProjectTrustedState(locatedProject)
-    if (projectTrustedState == ThreeState.YES) {
-      TrustedProjects.setProjectTrusted(locatedProject, true)
-    }
-    if (projectTrustedState != ThreeState.UNSURE) {
-      return true
-    }
-
-    val doNotAskOption = projectRoot.parent?.let(TrustedProjectsDialog::createDoNotAskOptionForLocation)
-    val choice = invokeAndWaitIfNeeded {
-      MessageDialogBuilder.Message(title, message)
-        .buttons(trustButtonText, distrustButtonText, cancelButtonText)
-        .defaultButton(trustButtonText)
-        .focusedButton(distrustButtonText)
-        .doNotAsk(doNotAskOption)
-        .asWarning()
-        .help(TRUSTED_PROJECTS_HELP_TOPIC)
-        .show()
-    }
-
-    val openChoice = when (choice) {
-      trustButtonText -> OpenUntrustedProjectChoice.TRUST_AND_OPEN
-      distrustButtonText -> OpenUntrustedProjectChoice.OPEN_IN_SAFE_MODE
-      cancelButtonText, null -> OpenUntrustedProjectChoice.CANCEL
-      else -> {
-        LOG.error("Illegal choice $choice")
-        return false
-      }
-    }
-
-    if (openChoice == OpenUntrustedProjectChoice.TRUST_AND_OPEN) {
-      TrustedProjects.setProjectTrusted(locatedProject, true)
-    }
-    if (openChoice == OpenUntrustedProjectChoice.OPEN_IN_SAFE_MODE) {
-      TrustedProjects.setProjectTrusted(locatedProject, false)
-    }
-
-    TrustedProjectsStatistics.NEW_PROJECT_OPEN_OR_IMPORT_CHOICE.log(openChoice)
-
-    return openChoice != OpenUntrustedProjectChoice.CANCEL
   }
 
   @ApiStatus.ScheduledForRemoval

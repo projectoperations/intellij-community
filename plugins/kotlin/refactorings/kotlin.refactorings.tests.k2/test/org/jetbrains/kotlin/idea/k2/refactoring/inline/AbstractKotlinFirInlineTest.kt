@@ -14,9 +14,6 @@ import org.jetbrains.kotlin.idea.test.*
 import java.io.File
 
 abstract class AbstractKotlinFirInlineTest : KotlinLightCodeInsightFixtureTestCase() {
-    override fun isFirPlugin(): Boolean {
-        return true
-    }
 
     protected fun doTest(unused: String) {
         IgnoreTests.runTestIfNotDisabledByFileDirective(
@@ -30,7 +27,7 @@ abstract class AbstractKotlinFirInlineTest : KotlinLightCodeInsightFixtureTestCa
 
     protected fun doTestInner(unused: String) {
         val testDataFile = dataFile()
-        val afterFile = dataFile("${fileName()}.after")
+        val afterFile = dataFile("${fileName()}.k2.after").takeIf { it.exists() } ?: dataFile("${fileName()}.after")
 
         val mainFileName = testDataFile.name
         val mainFileBaseName = FileUtil.getNameWithoutExtension(mainFileName)
@@ -54,7 +51,8 @@ abstract class AbstractKotlinFirInlineTest : KotlinLightCodeInsightFixtureTestCa
             else
                 null
 
-            val expectedErrors = InTextDirectivesUtils.findLinesWithPrefixesRemoved(myFixture.file.text, "// ERROR: ")
+            val expectedErrors = InTextDirectivesUtils.findLinesWithPrefixesRemoved(myFixture.file.text, "// ERROR_K2: ").takeIf { it.isNotEmpty() }
+                ?: InTextDirectivesUtils.findLinesWithPrefixesRemoved(myFixture.file.text, "// ERROR: ")
             val inlinePropertyKeepValue = InTextDirectivesUtils.getPrefixedBoolean(myFixture.file.text, "// INLINE_PROPERTY_KEEP: ")
             val settings = KotlinCommonRefactoringSettings.getInstance()
             val oldInlinePropertyKeepValue = settings.INLINE_PROPERTY_KEEP
@@ -66,7 +64,7 @@ abstract class AbstractKotlinFirInlineTest : KotlinLightCodeInsightFixtureTestCa
                         if (!afterFileExists && InTextDirectivesUtils.isDirectiveDefined(myFixture.file.text, IgnoreTests.DIRECTIVES.IGNORE_K2)) {
                             fail("K1 is unable to inline property")
                         }
-                        KotlinTestUtils.assertEqualsToFile(File("${extraFile.path}.after"), extraPsiFile.text)
+                        KotlinTestUtils.assertEqualsToFile(File("${extraFile.path}.k2.after").takeIf { it.exists() } ?: File("${extraFile.path}.after"), extraPsiFile.text)
                     }
                 } catch (e: CommonRefactoringUtil.RefactoringErrorHintException) {
                     assertFalse("Refactoring not available: ${e.message}", afterFileExists)

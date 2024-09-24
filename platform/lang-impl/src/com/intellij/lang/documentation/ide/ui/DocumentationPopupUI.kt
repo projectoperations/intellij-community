@@ -5,10 +5,12 @@ import com.intellij.codeInsight.CodeInsightBundle
 import com.intellij.codeInsight.documentation.DocumentationHtmlUtil
 import com.intellij.codeInsight.documentation.DocumentationHtmlUtil.contentInnerPadding
 import com.intellij.codeInsight.documentation.DocumentationHtmlUtil.contentOuterPadding
+import com.intellij.codeInsight.documentation.DocumentationHtmlUtil.settingsButtonPadding
+import com.intellij.codeInsight.documentation.DocumentationHtmlUtil.spaceBeforeParagraph
 import com.intellij.codeInsight.documentation.DocumentationManager.NEW_JAVADOC_LOCATION_AND_SIZE
 import com.intellij.codeInsight.documentation.ToggleShowDocsOnHoverAction
 import com.intellij.codeInsight.hint.HintManagerImpl.ActionToIgnore
-import com.intellij.ide.DataManager
+import com.intellij.codeInsight.hint.LineTooltipRenderer
 import com.intellij.lang.documentation.ide.actions.*
 import com.intellij.lang.documentation.ide.impl.DocumentationBrowser
 import com.intellij.lang.documentation.ide.impl.DocumentationToolWindowManager
@@ -54,7 +56,7 @@ internal class DocumentationPopupUI(
   val preferableFocusComponent: JComponent get() = ui.editorPane
 
   val coroutineScope: CoroutineScope = CoroutineScope(Job())
-  private val popupUpdateFlow = MutableSharedFlow<String>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+  private val popupUpdateFlow = MutableSharedFlow<PopupUpdateEvent>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
   private lateinit var myPopup: AbstractPopup
 
@@ -88,21 +90,23 @@ internal class DocumentationPopupUI(
     gearActions.addAll(primaryActions)
 
     val corner = toolbarComponent(DefaultActionGroup(editSourceAction, gearActions), editorPane).apply {
-      border = JBUI.Borders.empty(0, 0, contentOuterPadding - 3, contentOuterPadding - 3)
+      border = JBUI.Borders.empty(0, 0, contentOuterPadding - 3, settingsButtonPadding - 5)
     }
     ui.trackDocumentationBackgroundChange(this) {
       corner.background = it
     }
-    component = DocumentationPopupPane(ui.scrollPane).also { pane ->
-      pane.add(scrollPaneWithCorner(this, ui.scrollPane, corner), BorderLayout.CENTER)
-      pane.add(ui.switcherToolbarComponent, BorderLayout.NORTH)
-      updatePaddings(corner)
-      corner.addComponentListener(object : ComponentAdapter() {
-        override fun componentResized(e: ComponentEvent?) {
-          updatePaddings(corner)
-          popupUpdateFlow.tryEmit("toolbar size change")
-        }
-      })
+    val pane = DocumentationPopupPane(ui.scrollPane)
+    pane.add(scrollPaneWithCorner(this, ui.scrollPane, corner), BorderLayout.CENTER)
+    pane.add(ui.switcherToolbarComponent, BorderLayout.NORTH)
+    updatePaddings(corner)
+    corner.addComponentListener(object : ComponentAdapter() {
+      override fun componentResized(e: ComponentEvent?) {
+        updatePaddings(corner)
+        popupUpdateFlow.tryEmit(PopupUpdateEvent.ToolbarSizeChanged)
+      }
+    })
+    component = UiDataProvider.wrapComponent(pane) { sink ->
+      sink[DOCUMENTATION_POPUP] = myPopup
     }
 
     openInToolwindowAction.registerCustomShortcutSet(component, this)
@@ -131,31 +135,20 @@ internal class DocumentationPopupUI(
   fun setPopup(popup: AbstractPopup) {
     Disposer.register(popup, this)
     myPopup = popup
-
-    DataManager.registerDataProvider(component) { dataId ->
-      if (DOCUMENTATION_POPUP.`is`(dataId)) {
-        popup
-      }
-      else {
-        null
-      }
-    }
-
-    val editorPane = ui.editorPane
-    editorPane.setHint(popup)
+    ui.editorPane.setHint(popup)
   }
 
-  fun updatePopup(updater: suspend () -> Unit) {
+  fun updatePopup(updater: suspend (PopupUpdateEvent) -> Unit) {
     coroutineScope.launch(Dispatchers.EDT) {
       popupUpdateFlow.collectLatest {
-        updater()
+        updater(it)
       }
     }
   }
 
   private fun updatePaddings(toolbar: JComponent) {
     ui.locationLabel.border = JBUI.Borders.empty(
-      2, 2 + contentOuterPadding + contentInnerPadding,
+      2 + spaceBeforeParagraph, LineTooltipRenderer.CONTENT_PADDING,
       2 + contentOuterPadding, 2 + (toolbar.width / JBUIScale.scale(1f)).toInt())
     val editorPreferredSize = ui.editorPane.preferredSize
     val viewPanel = ui.scrollPane.viewport.view as JPanel
@@ -163,8 +156,8 @@ internal class DocumentationPopupUI(
         && !ui.locationLabel.isVisible
         && editorPreferredSize.width + toolbar.width > JBUIScale.scale(DocumentationHtmlUtil.docPopupMinWidth)
     ) {
-      viewPanel.border = JBUI.Borders.empty(
-        0, 0, 0, (toolbar.width / JBUIScale.scale(1f)).toInt() - contentOuterPadding - contentInnerPadding - 10)
+      viewPanel.border = JBUI.Borders.emptyRight(
+        (toolbar.width / JBUIScale.scale(1f)).toInt() - contentOuterPadding - contentInnerPadding - 10)
     }
     else {
       viewPanel.border = JBUI.Borders.empty()
@@ -192,7 +185,7 @@ internal class DocumentationPopupUI(
     override fun actionPerformed(e: AnActionEvent) {
       val documentationUI = detachUI()
       myPopup.cancel()
-      DocumentationToolWindowManager.instance(project).showInToolWindow(documentationUI)
+      DocumentationToolWindowManager.getInstance(project).showInToolWindow(documentationUI)
     }
   }
 
@@ -202,7 +195,7 @@ internal class DocumentationPopupUI(
     EDT.assertIsEdt()
     myPopup.addResizeListener(PopupResizeListener(), this)
     val storedSize = DimensionService.getInstance().getSize(NEW_JAVADOC_LOCATION_AND_SIZE, project)
-    if (storedSize != null) {
+    if (storedSize != null && storedSize.width > 50 && storedSize.height > 50) {
       manuallyResized = true
       myPopup.size = storedSize
     }
@@ -216,7 +209,7 @@ internal class DocumentationPopupUI(
   private fun restoreSize() {
     manuallyResized = false
     DimensionService.getInstance().setSize(NEW_JAVADOC_LOCATION_AND_SIZE, null, project)
-    popupUpdateFlow.tryEmit("restore size")
+    popupUpdateFlow.tryEmit(PopupUpdateEvent.RestoreSize)
   }
 
   private inner class PopupResizeListener : Runnable {

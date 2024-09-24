@@ -3,7 +3,6 @@ package org.jetbrains.intellij.build.pycharm
 
 import com.intellij.openapi.application.PathManager
 import com.intellij.platform.buildScripts.testFramework.runTestBuild
-import com.intellij.platform.buildScripts.testFramework.spanName
 import com.intellij.util.io.Compressor
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot
@@ -41,8 +40,8 @@ class PyCharmCommunityBuildTest {
     val homePath = PathManager.getHomeDirFor(javaClass)!!
     val communityHomePath = BuildDependenciesCommunityRoot(homePath.resolve("community"))
     runTestBuild(
-      homePath = communityHomePath.communityRoot,
-      traceSpanName = testInfo.spanName,
+      homeDir = communityHomePath.communityRoot,
+      testInfo = testInfo,
       productProperties = PyCharmCommunityProperties(communityHomePath.communityRoot),
     ) {
       it.classOutDir = System.getProperty(BuildOptions.PROJECT_CLASSES_OUTPUT_DIRECTORY_PROPERTY)

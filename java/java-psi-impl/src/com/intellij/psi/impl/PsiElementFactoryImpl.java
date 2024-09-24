@@ -1,8 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl;
 
 import com.intellij.lang.*;
-import com.intellij.lang.java.lexer.JavaLexer;
 import com.intellij.lang.java.parser.JavaParser;
 import com.intellij.lang.java.parser.JavaParserUtil;
 import com.intellij.lexer.Lexer;
@@ -444,6 +443,26 @@ public final class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl impleme
   }
 
   @Override
+  public @NotNull PsiImportStaticStatement createImportStaticStatementFromText(@NotNull String classFullyQualifiedName, @NotNull String memberName) throws IncorrectOperationException {
+    PsiJavaFile aFile = createDummyJavaFile("import static " + classFullyQualifiedName + "." + memberName + ";");
+    PsiImportStatementBase statement = extractImport(aFile, true);
+    return (PsiImportStaticStatement)CodeStyleManager.getInstance(myManager.getProject()).reformat(statement);
+  }
+
+  @Override
+  public @NotNull PsiImportModuleStatement createImportModuleStatementFromText(@NotNull String moduleName)
+    throws IncorrectOperationException {
+    PsiJavaFile aFile = createDummyJavaFile("import module " + moduleName + ";");
+    PsiImportList importList = aFile.getImportList();
+    if (importList == null) throw new IncorrectOperationException("Can't create module with name: " + moduleName);
+    PsiImportModuleStatement[] statements = importList.getImportModuleStatements();
+    if (statements.length != 1) throw new IncorrectOperationException("Created more than one module with name: " + moduleName);
+    PsiImportModuleStatement statement = statements[0];
+    GeneratedMarkerVisitor.markGenerated(statement); //Don't reformat because there is a chance of infinite recursion
+    return statement;
+  }
+
+  @Override
   public @NotNull PsiParameterList createParameterList(String @NotNull [] names, PsiType @NotNull [] types) throws IncorrectOperationException {
     StringBuilder builder = new StringBuilder();
     builder.append("void method(");
@@ -518,7 +537,7 @@ public final class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl impleme
   @Override
   public @NotNull PsiKeyword createKeyword(@NotNull String keyword, PsiElement context) throws IncorrectOperationException {
     LanguageLevel level = PsiUtil.getLanguageLevel(context);
-    if (!JavaLexer.isKeyword(keyword, level) && !JavaLexer.isSoftKeyword(keyword, level)) {
+    if (!PsiUtil.isKeyword(keyword, level) && !PsiUtil.isSoftKeyword(keyword, level)) {
       throw new IncorrectOperationException("\"" + keyword + "\" is not a keyword.");
     }
     return new LightKeyword(myManager, keyword);
@@ -535,7 +554,8 @@ public final class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl impleme
 
     PsiJavaFile aFile = createDummyJavaFile("import " + aClass.getQualifiedName() + ";");
     PsiImportStatementBase statement = extractImport(aFile, false);
-    return (PsiImportStatement)CodeStyleManager.getInstance(myManager.getProject()).reformat(statement);
+    GeneratedMarkerVisitor.markGenerated(statement);  //Don't reformat because there is a chance of infinite recursion
+    return (PsiImportStatement)statement;
   }
 
   @Override
@@ -549,7 +569,8 @@ public final class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl impleme
 
     PsiJavaFile aFile = createDummyJavaFile("import " + packageName + ".*;");
     PsiImportStatementBase statement = extractImport(aFile, false);
-    return (PsiImportStatement)CodeStyleManager.getInstance(myManager.getProject()).reformat(statement);
+    GeneratedMarkerVisitor.markGenerated(statement); //Don't reformat because there is a chance of infinite recursion
+    return (PsiImportStatement)statement;
   }
 
   @Override
@@ -743,8 +764,7 @@ public final class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl impleme
   }
 
   @Override
-  @NotNull
-  public PsiFragment createStringTemplateFragment(@NotNull String newText, @NotNull IElementType tokenType, @Nullable PsiElement context) {
+  public @NotNull PsiFragment createStringTemplateFragment(@NotNull String newText, @NotNull IElementType tokenType, @Nullable PsiElement context) {
     int index;
     if (tokenType == JavaTokenType.TEXT_BLOCK_TEMPLATE_BEGIN) {
       newText += "}\"\"\"";

@@ -2,46 +2,62 @@
 package org.jetbrains.idea.devkit.run
 
 import com.intellij.compiler.options.MakeProjectStepBeforeRun
+import com.intellij.execution.JavaRunConfigurationBase
 import com.intellij.execution.RunConfigurationExtension
 import com.intellij.execution.application.ApplicationConfiguration
-import com.intellij.execution.configurations.JavaParameters
-import com.intellij.execution.configurations.ParametersList
-import com.intellij.execution.configurations.RunConfigurationBase
-import com.intellij.execution.configurations.RunnerSettings
+import com.intellij.execution.configurations.*
+import com.intellij.execution.scratch.JavaScratchConfiguration
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.service
+import com.intellij.openapi.project.IntelliJProjectUtil
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.platform.ijent.community.buildConstants.*
 import com.intellij.util.PlatformUtils
 import com.intellij.util.lang.UrlClassLoader
 import com.intellij.util.system.CpuArch
 import org.jetbrains.ide.BuiltInServerManager
 import org.jetbrains.idea.devkit.requestHandlers.CompileHttpRequestHandlerToken
-import org.jetbrains.idea.devkit.util.PsiUtil
+import org.jetbrains.idea.devkit.requestHandlers.passDataAboutBuiltInServer
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
 
+@Suppress("SpellCheckingInspection")
 internal class DevKitApplicationPatcher : RunConfigurationExtension() {
-  @Suppress("SpellCheckingInspection")
-  override fun <T : RunConfigurationBase<*>> updateJavaParameters(configuration: T,
-                                                                  javaParameters: JavaParameters,
-                                                                  runnerSettings: RunnerSettings?) {
-    val appConfiguration = configuration as? ApplicationConfiguration ?: return
-    val project = appConfiguration.project
-    if (!PsiUtil.isIdeaProject(project)) {
+  override fun <T : RunConfigurationBase<*>> updateJavaParameters(
+    configuration: T,
+    javaParameters: JavaParameters,
+    runnerSettings: RunnerSettings?,
+  ) {
+    val project = configuration.project
+    if (!IntelliJProjectUtil.isIntelliJPlatformProject(project)) {
+      return
+    }
+    if (configuration !is JavaRunConfigurationBase) {
+      return
+    }
+    if (configuration is JavaScratchConfiguration) {
       return
     }
 
+    val mainClass = configuration.runClass ?: return
+
+    passDataAboutBuiltInServer(javaParameters, project)
     val vmParameters = javaParameters.vmParametersList
-    val isDev = configuration.mainClassName == "org.jetbrains.intellij.build.devServer.DevMainKt"
+    val module = configuration.configurationModule.module ?: return
+    val jdk = JavaParameters.getJdkToRunModule(module, true) ?: return
+    if (!vmParameters.getPropertyValue("intellij.devkit.skip.automatic.add.opens").toBoolean()) {
+      JUnitDevKitPatcher.appendAddOpensWhenNeeded(project, jdk, vmParameters)
+    }
+
+    val isDevBuild = mainClass == "org.jetbrains.intellij.build.devServer.DevMainKt"
     val vmParametersAsList = vmParameters.list
-    if (vmParametersAsList.contains("--add-modules") || (!isDev && configuration.mainClassName != "com.intellij.idea.Main")) {
+    if (vmParametersAsList.contains("--add-modules") || (!isDevBuild && mainClass != "com.intellij.idea.Main")) {
       return
     }
 
-    val module = configuration.configurationModule.module
-    val jdk = JavaParameters.getJdkToRunModule(module, true) ?: return
     if (!vmParameters.hasProperty(JUnitDevKitPatcher.SYSTEM_CL_PROPERTY)) {
       val qualifiedName = "com.intellij.util.lang.PathClassLoader"
       if (JUnitDevKitPatcher.loaderValid(project, module, qualifiedName)) {
@@ -49,8 +65,6 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
         vmParameters.addProperty(UrlClassLoader.CLASSPATH_INDEX_PROPERTY_NAME, "true")
       }
     }
-
-    JUnitDevKitPatcher.appendAddOpensWhenNeeded(project, jdk, vmParameters)
 
     val is17 = javaParameters.jdk?.versionString?.contains("17") == true
     if (!vmParametersAsList.any { it.contains("CICompilerCount") || it.contains("TieredCompilation") }) {
@@ -68,7 +82,9 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
       "-ea",
     )
 
-    vmParameters.addProperty("kotlinx.coroutines.debug.enable.creation.stack.trace", "false")
+    if (runnerSettings is DebuggingRunnerData) {
+      vmParameters.defineProperty("kotlinx.coroutines.debug.enable.creation.stack.trace", "true")
+    }
 
     if (vmParametersAsList.none { it.startsWith("-Xmx") }) {
       vmParameters.add("-Xmx2g")
@@ -79,12 +95,37 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
     if (vmParametersAsList.none { it.startsWith("-XX:ReservedCodeCacheSize") }) {
       vmParameters.add("-XX:ReservedCodeCacheSize=512m")
     }
-
-    if (!isDev) {
-      return
+    if (vmParametersAsList.none { it.startsWith("-Djava.util.zip.use.nio.for.zip.file.access") }) {
+      vmParameters.add("-Djava.util.zip.use.nio.for.zip.file.access=true") // IJPL-149160
     }
 
-    if (appConfiguration.beforeRunTasks.none { it.providerId === MakeProjectStepBeforeRun.ID }) {
+    enableIjentDefaultFsProvider(project, configuration, vmParameters)
+
+    if (isDevBuild) {
+      updateParametersForDevBuild(javaParameters, configuration, project)
+    }
+  }
+
+  private fun enableIjentDefaultFsProvider(
+    project: Project,
+    configuration: JavaRunConfigurationBase,
+    vmParameters: ParametersList,
+  ) {
+    // Enable the IJent file system only when the new default FS provider class is available.
+    // It is required to let actual DevKit plugins work with branches without the FS provider class, like 241.
+    if (JUnitDevKitPatcher.loaderValid(project, null, IJENT_REQUIRED_DEFAULT_NIO_FS_PROVIDER_CLASS)) {
+      val isIjentWslFsEnabled = isIjentWslFsEnabledByDefaultForProduct(vmParameters.getPropertyValue("idea.platform.prefix"))
+      vmParameters.add("-D${IJENT_WSL_FILE_SYSTEM_REGISTRY_KEY}=$isIjentWslFsEnabled")
+      if (isIjentWslFsEnabled) {
+        vmParameters.addAll(MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS)
+        vmParameters.add("-Xbootclasspath/a:${configuration.workingDirectory}/out/classes/production/$IJENT_BOOT_CLASSPATH_MODULE")
+      }
+    }
+  }
+
+  private fun updateParametersForDevBuild(javaParameters: JavaParameters, configuration: JavaRunConfigurationBase, project: Project) {
+    val vmParameters = javaParameters.vmParametersList
+    if (configuration.beforeRunTasks.none { it.providerId === MakeProjectStepBeforeRun.ID }) {
       vmParameters.addProperty("compile.server.port", BuiltInServerManager.getInstance().port.toString())
       vmParameters.addProperty("compile.server.project", project.locationHash)
       vmParameters.addProperty("compile.server.token", service<CompileHttpRequestHandlerToken>().acquireToken())
@@ -113,7 +154,7 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
       val files = try {
         Files.readAllLines(runDir.resolve("core-classpath.txt"))
       }
-      catch (ignore: NoSuchFileException) {
+      catch (_: NoSuchFileException) {
         null
       }
 
@@ -142,6 +183,8 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
 
   override fun isApplicableFor(configuration: RunConfigurationBase<*>): Boolean {
     return configuration is ApplicationConfiguration
+           //use this instead of 'is KotlinRunConfiguration' to avoid having dependency on Kotlin plugin here
+           || configuration.factory?.id == "JetRunConfigurationType"
   }
 }
 
@@ -161,5 +204,7 @@ private fun getIdeSystemProperties(runDir: Path): Map<String, String> {
     // require bundled JNA dispatcher lib
     "jna.nosys" to "true",
     "jna.noclasspath" to "true",
+    "skiko.library.path" to "$libDir/skiko-awt-runtime-all",
+    "compose.swing.render.on.graphics" to "true",
   )
 }

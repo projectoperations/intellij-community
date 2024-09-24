@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.packaging;
 
 import com.google.common.collect.Lists;
@@ -26,6 +26,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
@@ -50,12 +51,11 @@ public class PyPackageManagerImpl extends PyPackageManagerImplBase {
                            true, true, null);
   }
 
-  @NotNull
-  protected String toSystemDependentName(@NotNull final String dirName) {
+  protected @NotNull String toSystemDependentName(final @NotNull String dirName) {
     return FileUtil.toSystemDependentName(dirName);
   }
 
-  protected PyPackageManagerImpl(@NotNull final Sdk sdk) {
+  protected PyPackageManagerImpl(final @NotNull Sdk sdk) {
     super(sdk);
   }
 
@@ -140,9 +140,8 @@ public class PyPackageManagerImpl extends PyPackageManagerImplBase {
   }
 
 
-  @Nullable
   @Override
-  public List<PyPackage> getPackages() {
+  public @Nullable List<PyPackage> getPackages() {
     final List<PyPackage> packages = myPackagesCache;
     return packages != null ? Collections.unmodifiableList(packages) : null;
   }
@@ -171,8 +170,7 @@ public class PyPackageManagerImpl extends PyPackageManagerImplBase {
   }
 
   @Override
-  @NotNull
-  public String createVirtualEnv(@NotNull String destinationDir, boolean useGlobalSite) throws ExecutionException {
+  public @NotNull String createVirtualEnv(@NotNull String destinationDir, boolean useGlobalSite) throws ExecutionException {
     final List<String> args = new ArrayList<>();
     final Sdk sdk = getSdk();
     final LanguageLevel languageLevel = getOrRequestLanguageLevelForSdk(sdk);
@@ -196,10 +194,10 @@ public class PyPackageManagerImpl extends PyPackageManagerImplBase {
       showSdkExecutionException(sdk, e, PySdkBundle.message("python.creating.venv.failed.title"));
     }
 
-    final String binary = PythonSdkUtil.getPythonExecutable(destinationDir);
+    final Path binary =  VirtualEnvReader.getInstance().findPythonInPythonRoot(Paths.get(destinationDir));
     final String binaryFallback = destinationDir + mySeparator + "bin" + mySeparator + "python";
 
-    return (binary != null) ? binary : binaryFallback;
+    return (binary != null) ? binary.toString() : binaryFallback;
   }
 
   /**
@@ -228,15 +226,13 @@ public class PyPackageManagerImpl extends PyPackageManagerImplBase {
     return getPythonProcessResult(helperPath, args, askForSudo, showProgress, parentDir);
   }
 
-  @NotNull
-  private String getPythonProcessResult(@NotNull String path, @NotNull List<String> args, boolean askForSudo,
-                                        boolean showProgress, @Nullable String workingDir) throws ExecutionException {
+  private @NotNull String getPythonProcessResult(@NotNull String path, @NotNull List<String> args, boolean askForSudo,
+                                                 boolean showProgress, @Nullable String workingDir) throws ExecutionException {
     return getPythonProcessResult(path, args, askForSudo, showProgress, workingDir, null);
   }
 
-  @NotNull
-  private String getPythonProcessResult(@NotNull String path, @NotNull List<String> args, boolean askForSudo,
-                                        boolean showProgress, @Nullable String workingDir, @Nullable List<String> pyArgs)
+  private @NotNull String getPythonProcessResult(@NotNull String path, @NotNull List<String> args, boolean askForSudo,
+                                                 boolean showProgress, @Nullable String workingDir, @Nullable List<String> pyArgs)
     throws ExecutionException {
     final ProcessOutput output = getPythonProcessOutput(path, args, askForSudo, showProgress, workingDir, pyArgs);
     final int exitCode = output.getExitCode();
@@ -249,9 +245,8 @@ public class PyPackageManagerImpl extends PyPackageManagerImplBase {
     return output.getStdout();
   }
 
-  @NotNull
-  protected ProcessOutput getPythonProcessOutput(@NotNull String helperPath, @NotNull List<String> args, boolean askForSudo,
-                                                 boolean showProgress, @Nullable String workingDir, @Nullable List<String> pyArgs)
+  protected @NotNull ProcessOutput getPythonProcessOutput(@NotNull String helperPath, @NotNull List<String> args, boolean askForSudo,
+                                                          boolean showProgress, @Nullable String workingDir, @Nullable List<String> pyArgs)
     throws ExecutionException {
     final String homePath = getSdk().getHomePath();
     if (homePath == null) {

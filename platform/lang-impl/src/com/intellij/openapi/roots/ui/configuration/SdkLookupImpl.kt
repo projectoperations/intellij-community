@@ -1,6 +1,7 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.roots.ui.configuration
 
+import com.google.common.annotations.VisibleForTesting
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.application.runReadAction
@@ -16,8 +17,12 @@ import com.intellij.openapi.projectRoots.impl.UnknownMissingSdk
 import com.intellij.openapi.projectRoots.impl.UnknownSdkFixAction
 import com.intellij.openapi.roots.ui.configuration.UnknownSdkResolver.UnknownSdkLookup
 import com.intellij.openapi.roots.ui.configuration.projectRoot.SdkDownloadTracker
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.Consumer
+import com.intellij.util.concurrency.ThreadingAssertions
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Predicate
 import java.util.function.Supplier
@@ -98,6 +103,10 @@ private open class SdkLookupContext(private val params: SdkLookupParameters) {
     override fun onResolveFailed() {
       this@SdkLookupContext.onSdkResolved(null)
     }
+
+    override fun onResolveCancelled() {
+      this@SdkLookupContext.onSdkResolved(null)
+    }
   }
 
   override fun toString(): String = "SdkLookupContext($params)"
@@ -105,23 +114,24 @@ private open class SdkLookupContext(private val params: SdkLookupParameters) {
 
 private val LOG = logger<SdkLookupImpl>()
 
-internal class SdkLookupImpl : SdkLookup {
-  override fun createBuilder(): SdkLookupBuilder = CommonSdkLookupBuilder { service<SdkLookup>().lookup(it) }
+@VisibleForTesting
+@ApiStatus.Internal
+class SdkLookupImpl : SdkLookup {
+  override fun createBuilder(): SdkLookupBuilder = CommonSdkLookupBuilder(lookup = { service<SdkLookup>().lookup(it) })
 
   override fun lookup(lookup: SdkLookupParameters) {
     SdkLookupContextEx(lookup).lookup()
   }
 
+  @RequiresBackgroundThread
   override fun lookupBlocking(lookup: SdkLookupParameters) {
-    ApplicationManager.getApplication().assertIsNonDispatchThread()
-
     object : SdkLookupContextEx(lookup) {
       override fun doWaitSdkDownloadToComplete(sdk: Sdk, rootProgressIndicator: ProgressIndicator): () -> Boolean {
         LOG.warn("It is not possible to wait for SDK download to complete in blocking execution mode. " +
                   "Use another " + SdkLookupDownloadDecision::class.simpleName)
 
         return {
-          ApplicationManager.getApplication().assertIsNonDispatchThread()
+          ThreadingAssertions.assertBackgroundThread()
           onSdkNameResolved(sdk)
 
           ///we do not have a better API on SdkDownloadTracker to wait for a download
@@ -155,20 +165,22 @@ internal class SdkLookupImpl : SdkLookup {
 }
 
 private open class SdkLookupContextEx(lookup: SdkLookupParameters) : SdkLookupContext(lookup) {
+  val lookupReason = lookup.lookupReason
+
   fun lookup() {
     val rootProgressIndicator = resolveProgressIndicator()
 
-    run {
-      val namedSdk = sdkName?.let {
-        runReadAction {
-          when (sdkType) {
-            null -> ProjectJdkTable.getInstance().findJdk(sdkName)
-            else -> ProjectJdkTable.getInstance().findJdk(sdkName, sdkType.name)
-          }
+    val namedSdk = sdkName?.let {
+      ApplicationManager.getApplication().runReadAction(Computable {
+        when (sdkType) {
+          null -> ProjectJdkTable.getInstance().findJdk(sdkName)
+          else -> ProjectJdkTable.getInstance().findJdk(sdkName, sdkType.name)
         }
-      }
+      })
+    }
 
-      if (trySdk(namedSdk, rootProgressIndicator)) return
+    if (trySdk(namedSdk, rootProgressIndicator)) {
+      return
     }
 
     for (sdk : Sdk? in SdkDownloadTracker.getInstance().findDownloadingSdks(sdkName)) {
@@ -391,7 +403,7 @@ private open class SdkLookupContextEx(lookup: SdkLookupParameters) : SdkLookupCo
     resolvers
                         .asSequence()
                         .onEach { indicator.checkCanceled() }
-                        .mapNotNull { it.proposeDownload(unknownSdk, indicator) }
+                        .mapNotNull { it.proposeDownload(unknownSdk, indicator, lookupReason) }
                         .filter { versionFilter?.invoke(it.versionString) != false }
                         .onEach { indicator.checkCanceled() }
                         .filter { onDownloadableSdkSuggested.invoke(it) == SdkLookupDecision.CONTINUE }

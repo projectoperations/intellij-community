@@ -5,19 +5,10 @@
                     interface="org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixRegistrar"
                     dynamic="true"/>
 
-    <extensionPoint qualifiedName="com.intellij.newProjectWizard.buildSystem.kotlin"
-                    interface="org.jetbrains.kotlin.tools.projectWizard.KotlinBuildSystemType" dynamic="true"/>
+    <extensionPoint qualifiedName="org.jetbrains.kotlin.kotlinInjectedFilesAnalysisProvider"
+                    interface="org.jetbrains.kotlin.idea.base.analysis.KotlinIdeInjectedFilesAnalysisPromoter"
+                    dynamic="true">
+    </extensionPoint>
   </extensionPoints>
-
-  <extensions defaultExtensionNs="org.jetbrains.kotlin">
-    <codeinsight.quickfix.registrar implementation="org.jetbrains.kotlin.idea.quickfix.KotlinK2QuickFixRegistrar"/>
-
-    <j2kConverterExtension implementation="org.jetbrains.kotlin.j2k.K2J2KConverterExtension"/>
-  </extensions>
-
-  <extensions defaultExtensionNs="com.intellij">
-    <codeInsight.unresolvedReferenceQuickFixProvider
-            implementation="org.jetbrains.kotlin.idea.codeInsight.KotlinFirUnresolvedReferenceQuickFixProvider"/>
-  </extensions>
 
 </idea-plugin>

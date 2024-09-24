@@ -1,10 +1,11 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.analysis.problemsView.toolWindow
 
 import com.intellij.codeWithMe.ClientId
 import com.intellij.ide.PowerSaveMode
 import com.intellij.ide.TreeExpander
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.ToggleOptionAction.Option
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
@@ -17,10 +18,11 @@ import com.intellij.openapi.fileEditor.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.util.Alarm.ThreadToUse
 import com.intellij.util.SingleAlarm
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.ThreadingAssertions
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.ui.tree.TreeUtil
 import org.jetbrains.annotations.Nls
 import org.jetbrains.concurrency.CancellablePromise
@@ -33,7 +35,7 @@ class HighlightingPanel(project: Project, state: ProblemsViewState)
     const val ID: String = "CurrentFile"
   }
 
-  private val statusUpdateAlarm: SingleAlarm = SingleAlarm({ updateStatus() }, 200, this, ThreadToUse.POOLED_THREAD)
+  private val statusUpdateAlarm: SingleAlarm = SingleAlarm.pooledThreadSingleAlarm(delay = 200, parentDisposable = this) { updateStatus() }
   @Volatile
   private var previousStatus: Status? = null
 
@@ -49,9 +51,9 @@ class HighlightingPanel(project: Project, state: ProblemsViewState)
   override fun getSortFoldersFirst(): Option? = null
   override fun getTreeExpander(): TreeExpander? = null
 
-  override fun getData(dataId: String): Any? {
-    if (CommonDataKeys.VIRTUAL_FILE.`is`(dataId)) return getCurrentFile()
-    return super.getData(dataId)
+  override fun uiDataSnapshot(sink: DataSink) {
+    super.uiDataSnapshot(sink)
+    sink[CommonDataKeys.VIRTUAL_FILE] = getCurrentFile()
   }
 
   override fun getSortBySeverity(): Option? {
@@ -146,6 +148,7 @@ class HighlightingPanel(project: Project, state: ProblemsViewState)
     return null
   }
 
+  @RequiresBackgroundThread
   private fun updateStatus() {
     ApplicationManager.getApplication().assertIsNonDispatchThread()
     val status = ClientId.withClientId(session.clientId) { ReadAction.compute(ThrowableComputable { getCurrentStatus() })}
@@ -163,6 +166,8 @@ class HighlightingPanel(project: Project, state: ProblemsViewState)
     }
   }
 
+  @RequiresBackgroundThread
+  @RequiresReadLock
   private fun getCurrentStatus(): Status {
     ApplicationManager.getApplication().assertIsNonDispatchThread()
     val file = getCurrentFile() ?: return Status(ProblemsViewBundle.message("problems.view.highlighting.no.selected.file"))

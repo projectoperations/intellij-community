@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.imports;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -24,6 +25,12 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/editor/optimizeImports/jvm/allUnderImports")
         public static class AllUnderImports extends AbstractJvmOptimizeImportsTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -68,9 +75,19 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/jvm/allUnderImports/ClassNameConflictWithDefault.kt");
             }
 
+            @TestMetadata("ClassNameConflictWithDefault2.kt")
+            public void testClassNameConflictWithDefault2() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/allUnderImports/ClassNameConflictWithDefault2.kt");
+            }
+
             @TestMetadata("ClassNameConflictWithinDefaultImports.kt")
             public void testClassNameConflictWithinDefaultImports() throws Exception {
                 runTest("testData/editor/optimizeImports/jvm/allUnderImports/ClassNameConflictWithinDefaultImports.kt");
+            }
+
+            @TestMetadata("ClassesFromDefaultImportsDoNotConflictWithJavaUtilImport.kt")
+            public void testClassesFromDefaultImportsDoNotConflictWithJavaUtilImport() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/allUnderImports/ClassesFromDefaultImportsDoNotConflictWithJavaUtilImport.kt");
             }
 
             @TestMetadata("ConflictWithAnnotation.kt")
@@ -81,6 +98,11 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
             @TestMetadata("JavaAnnotationWithValueParameterIsProperlyResolved.kt")
             public void testJavaAnnotationWithValueParameterIsProperlyResolved() throws Exception {
                 runTest("testData/editor/optimizeImports/jvm/allUnderImports/JavaAnnotationWithValueParameterIsProperlyResolved.kt");
+            }
+
+            @TestMetadata("JavaAnnotationWithValueParameterIsProperlyResolved2.kt")
+            public void testJavaAnnotationWithValueParameterIsProperlyResolved2() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/allUnderImports/JavaAnnotationWithValueParameterIsProperlyResolved2.kt");
             }
 
             @TestMetadata("KotlinAnnotationWithSingleArgumentIsProperlyResolved.kt")
@@ -98,6 +120,16 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/jvm/allUnderImports/NameCountSettingWithUnresolvedReference.kt");
             }
 
+            @TestMetadata("NestedClassesFromJavaAreConsideredMembers.kt")
+            public void testNestedClassesFromJavaAreConsideredMembers() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/allUnderImports/NestedClassesFromJavaAreConsideredMembers.kt");
+            }
+
+            @TestMetadata("NestedStaticMembersFromJavaAreConsideredMembers.kt")
+            public void testNestedStaticMembersFromJavaAreConsideredMembers() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/allUnderImports/NestedStaticMembersFromJavaAreConsideredMembers.kt");
+            }
+
             @TestMetadata("PackagesToUseStarImport.kt")
             public void testPackagesToUseStarImport() throws Exception {
                 runTest("testData/editor/optimizeImports/jvm/allUnderImports/PackagesToUseStarImport.kt");
@@ -112,6 +144,12 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/editor/optimizeImports/jvm")
         public static class Uncategorized extends AbstractJvmOptimizeImportsTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -191,6 +229,11 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/jvm/KDocReference.kt");
             }
 
+            @TestMetadata("KDocReference2.kt")
+            public void testKDocReference2() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/KDocReference2.kt");
+            }
+
             @TestMetadata("KT10226.kt")
             public void testKT10226() throws Exception {
                 runTest("testData/editor/optimizeImports/jvm/KT10226.kt");
@@ -236,14 +279,29 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/jvm/SamConstructor.kt");
             }
 
+            @TestMetadata("StaticClassFromSuper.kt")
+            public void testStaticClassFromSuper() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/StaticClassFromSuper.kt");
+            }
+
             @TestMetadata("staticFromJava.kt")
             public void testStaticFromJava() throws Exception {
                 runTest("testData/editor/optimizeImports/jvm/staticFromJava.kt");
             }
 
+            @TestMetadata("StaticFunctionImportFromJavaChildClass.kt")
+            public void testStaticFunctionImportFromJavaChildClass() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/StaticFunctionImportFromJavaChildClass.kt");
+            }
+
             @TestMetadata("StaticMethodFromSuper.kt")
             public void testStaticMethodFromSuper() throws Exception {
                 runTest("testData/editor/optimizeImports/jvm/StaticMethodFromSuper.kt");
+            }
+
+            @TestMetadata("StaticMethodFromSuper_redundantImport.kt")
+            public void testStaticMethodFromSuper_redundantImport() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/StaticMethodFromSuper_redundantImport.kt");
             }
 
             @TestMetadata("ThisAndSuper.kt")
@@ -259,6 +317,11 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
             @TestMetadata("TypeAliasVsUnderlyingClass.kt")
             public void testTypeAliasVsUnderlyingClass() throws Exception {
                 runTest("testData/editor/optimizeImports/jvm/TypeAliasVsUnderlyingClass.kt");
+            }
+
+            @TestMetadata("TypeAliasedConstructor_annotation_volatile.kt")
+            public void testTypeAliasedConstructor_annotation_volatile() throws Exception {
+                runTest("testData/editor/optimizeImports/jvm/TypeAliasedConstructor_annotation_volatile.kt");
             }
 
             @TestMetadata("UnusedImports.kt")
@@ -284,6 +347,12 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/editor/optimizeImports/common/basic")
         public static class Basic extends AbstractJvmOptimizeImportsTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -375,8 +444,38 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/editor/optimizeImports/common/kDoc")
+        public static class KDoc extends AbstractJvmOptimizeImportsTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("extensionForBaseClassViaChildClass.kt")
+            public void testExtensionForBaseClassViaChildClass() throws Exception {
+                runTest("testData/editor/optimizeImports/common/kDoc/extensionForBaseClassViaChildClass.kt");
+            }
+
+            @TestMetadata("unresolvedNameInKDocDoesHoldImports.kt")
+            public void testUnresolvedNameInKDocDoesHoldImports() throws Exception {
+                runTest("testData/editor/optimizeImports/common/kDoc/unresolvedNameInKDocDoesHoldImports.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/editor/optimizeImports/common/kt21515")
         public static class Kt21515 extends AbstractJvmOptimizeImportsTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -410,8 +509,19 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/editor/optimizeImports/common")
         public static class Uncategorized extends AbstractJvmOptimizeImportsTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("AliasedImportFromObject.kt")
+            public void testAliasedImportFromObject() throws Exception {
+                runTest("testData/editor/optimizeImports/common/AliasedImportFromObject.kt");
             }
 
             @TestMetadata("ArrayAccessExpression.kt")
@@ -447,6 +557,16 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
             @TestMetadata("CompanionFunction2.kt")
             public void testCompanionFunction2() throws Exception {
                 runTest("testData/editor/optimizeImports/common/CompanionFunction2.kt");
+            }
+
+            @TestMetadata("CompanionInNestedClass.kt")
+            public void testCompanionInNestedClass() throws Exception {
+                runTest("testData/editor/optimizeImports/common/CompanionInNestedClass.kt");
+            }
+
+            @TestMetadata("CompanionWithInvoke.kt")
+            public void testCompanionWithInvoke() throws Exception {
+                runTest("testData/editor/optimizeImports/common/CompanionWithInvoke.kt");
             }
 
             @TestMetadata("ComponentFunction.kt")
@@ -494,9 +614,29 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/common/DefaultObjectReference.kt");
             }
 
+            @TestMetadata("EnumEntryUsedInsideEnum.kt")
+            public void testEnumEntryUsedInsideEnum() throws Exception {
+                runTest("testData/editor/optimizeImports/common/EnumEntryUsedInsideEnum.kt");
+            }
+
             @TestMetadata("Enums.kt")
             public void testEnums() throws Exception {
                 runTest("testData/editor/optimizeImports/common/Enums.kt");
+            }
+
+            @TestMetadata("ExplicitImportIsNotRemovedToAvoidConflict.kt")
+            public void testExplicitImportIsNotRemovedToAvoidConflict() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ExplicitImportIsNotRemovedToAvoidConflict.kt");
+            }
+
+            @TestMetadata("ExtensionFunWithThisReference.kt")
+            public void testExtensionFunWithThisReference() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ExtensionFunWithThisReference.kt");
+            }
+
+            @TestMetadata("ExtensionFunctionalTypeVal.kt")
+            public void testExtensionFunctionalTypeVal() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ExtensionFunctionalTypeVal.kt");
             }
 
             @TestMetadata("ExtensionFunctionalTypeValFromCompanionObject.kt")
@@ -514,9 +654,84 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/common/ExtensionFunctionalTypeValFromCompanionObjectNonExtCall.kt");
             }
 
+            @TestMetadata("ExtensionFunctionalTypeValFromObject.kt")
+            public void testExtensionFunctionalTypeValFromObject() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ExtensionFunctionalTypeValFromObject.kt");
+            }
+
+            @TestMetadata("ExtensionFunctionalTypeValFromObject_qualified.kt")
+            public void testExtensionFunctionalTypeValFromObject_qualified() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ExtensionFunctionalTypeValFromObject_qualified.kt");
+            }
+
+            @TestMetadata("ExtensionFunctionalTypeVal_qualified.kt")
+            public void testExtensionFunctionalTypeVal_qualified() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ExtensionFunctionalTypeVal_qualified.kt");
+            }
+
+            @TestMetadata("ExtensionFunctionalTypeVal_qualified_regularCall.kt")
+            public void testExtensionFunctionalTypeVal_qualified_regularCall() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ExtensionFunctionalTypeVal_qualified_regularCall.kt");
+            }
+
+            @TestMetadata("ExtensionFunctionalTypeVal_regularCall.kt")
+            public void testExtensionFunctionalTypeVal_regularCall() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ExtensionFunctionalTypeVal_regularCall.kt");
+            }
+
+            @TestMetadata("FunctionImportedFromObjectSuperClass.kt")
+            public void testFunctionImportedFromObjectSuperClass() throws Exception {
+                runTest("testData/editor/optimizeImports/common/FunctionImportedFromObjectSuperClass.kt");
+            }
+
+            @TestMetadata("FunctionalTypeVal.kt")
+            public void testFunctionalTypeVal() throws Exception {
+                runTest("testData/editor/optimizeImports/common/FunctionalTypeVal.kt");
+            }
+
+            @TestMetadata("FunctionalTypeVal_qualified.kt")
+            public void testFunctionalTypeVal_qualified() throws Exception {
+                runTest("testData/editor/optimizeImports/common/FunctionalTypeVal_qualified.kt");
+            }
+
+            @TestMetadata("ImplicitCompanionReceiverInClass.kt")
+            public void testImplicitCompanionReceiverInClass() throws Exception {
+                runTest("testData/editor/optimizeImports/common/ImplicitCompanionReceiverInClass.kt");
+            }
+
+            @TestMetadata("InnerClassConstructor_superType.kt")
+            public void testInnerClassConstructor_superType() throws Exception {
+                runTest("testData/editor/optimizeImports/common/InnerClassConstructor_superType.kt");
+            }
+
+            @TestMetadata("IntUnaryOperatorsAreNotUnresolvedOnLiterals.kt")
+            public void testIntUnaryOperatorsAreNotUnresolvedOnLiterals() throws Exception {
+                runTest("testData/editor/optimizeImports/common/IntUnaryOperatorsAreNotUnresolvedOnLiterals.kt");
+            }
+
             @TestMetadata("InvokeFunction.kt")
             public void testInvokeFunction() throws Exception {
                 runTest("testData/editor/optimizeImports/common/InvokeFunction.kt");
+            }
+
+            @TestMetadata("InvokeFunctionCallWithInvalidArguments.kt")
+            public void testInvokeFunctionCallWithInvalidArguments() throws Exception {
+                runTest("testData/editor/optimizeImports/common/InvokeFunctionCallWithInvalidArguments.kt");
+            }
+
+            @TestMetadata("InvokeFunctionCallWithOverloadAmbiguity.kt")
+            public void testInvokeFunctionCallWithOverloadAmbiguity() throws Exception {
+                runTest("testData/editor/optimizeImports/common/InvokeFunctionCallWithOverloadAmbiguity.kt");
+            }
+
+            @TestMetadata("InvokeFunctionCallWithOverloadAmbiguity_literalReceiver.kt")
+            public void testInvokeFunctionCallWithOverloadAmbiguity_literalReceiver() throws Exception {
+                runTest("testData/editor/optimizeImports/common/InvokeFunctionCallWithOverloadAmbiguity_literalReceiver.kt");
+            }
+
+            @TestMetadata("InvokeOnFunctionalTypeVsUnusedInvokeImport.kt")
+            public void testInvokeOnFunctionalTypeVsUnusedInvokeImport() throws Exception {
+                runTest("testData/editor/optimizeImports/common/InvokeOnFunctionalTypeVsUnusedInvokeImport.kt");
             }
 
             @TestMetadata("IteratorFunction.kt")
@@ -584,9 +799,19 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/common/NestedClassConstructorReferenceThroughTopLevelClass.kt");
             }
 
+            @TestMetadata("NestedClassConstructorReferenceThroughTopLevelClass_redundantImport.kt")
+            public void testNestedClassConstructorReferenceThroughTopLevelClass_redundantImport() throws Exception {
+                runTest("testData/editor/optimizeImports/common/NestedClassConstructorReferenceThroughTopLevelClass_redundantImport.kt");
+            }
+
             @TestMetadata("NestedClassReferenceOutsideClassBody.kt")
             public void testNestedClassReferenceOutsideClassBody() throws Exception {
                 runTest("testData/editor/optimizeImports/common/NestedClassReferenceOutsideClassBody.kt");
+            }
+
+            @TestMetadata("NestedClassReferenceOutsideClassBodyThroughTopLevelClass_redundantImport.kt")
+            public void testNestedClassReferenceOutsideClassBodyThroughTopLevelClass_redundantImport() throws Exception {
+                runTest("testData/editor/optimizeImports/common/NestedClassReferenceOutsideClassBodyThroughTopLevelClass_redundantImport.kt");
             }
 
             @TestMetadata("NestedClassReferenceThroughAlias.kt")
@@ -619,6 +844,11 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/common/ResolvedImportAndUnresolvedReference.kt");
             }
 
+            @TestMetadata("SamConstructor_nestedClass.kt")
+            public void testSamConstructor_nestedClass() throws Exception {
+                runTest("testData/editor/optimizeImports/common/SamConstructor_nestedClass.kt");
+            }
+
             @TestMetadata("SeveralClasses.kt")
             public void testSeveralClasses() throws Exception {
                 runTest("testData/editor/optimizeImports/common/SeveralClasses.kt");
@@ -639,6 +869,31 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
                 runTest("testData/editor/optimizeImports/common/TwoConstructors.kt");
             }
 
+            @TestMetadata("TypeAliasedConstructor.kt")
+            public void testTypeAliasedConstructor() throws Exception {
+                runTest("testData/editor/optimizeImports/common/TypeAliasedConstructor.kt");
+            }
+
+            @TestMetadata("TypeAliasedConstructor_annotation.kt")
+            public void testTypeAliasedConstructor_annotation() throws Exception {
+                runTest("testData/editor/optimizeImports/common/TypeAliasedConstructor_annotation.kt");
+            }
+
+            @TestMetadata("TypeAliasedConstructor_innerClass.kt")
+            public void testTypeAliasedConstructor_innerClass() throws Exception {
+                runTest("testData/editor/optimizeImports/common/TypeAliasedConstructor_innerClass.kt");
+            }
+
+            @TestMetadata("TypeAliasedConstructor_samConstructor.kt")
+            public void testTypeAliasedConstructor_samConstructor() throws Exception {
+                runTest("testData/editor/optimizeImports/common/TypeAliasedConstructor_samConstructor.kt");
+            }
+
+            @TestMetadata("TypeAliasedConstructor_sameName.kt")
+            public void testTypeAliasedConstructor_sameName() throws Exception {
+                runTest("testData/editor/optimizeImports/common/TypeAliasedConstructor_sameName.kt");
+            }
+
             @TestMetadata("UnresolvedImport.kt")
             public void testUnresolvedImport() throws Exception {
                 runTest("testData/editor/optimizeImports/common/UnresolvedImport.kt");
@@ -647,6 +902,11 @@ public abstract class JvmOptimizeImportsTestGenerated extends AbstractJvmOptimiz
             @TestMetadata("UnresolvedImport2.kt")
             public void testUnresolvedImport2() throws Exception {
                 runTest("testData/editor/optimizeImports/common/UnresolvedImport2.kt");
+            }
+
+            @TestMetadata("unusedImportFromObject.kt")
+            public void testUnusedImportFromObject() throws Exception {
+                runTest("testData/editor/optimizeImports/common/unusedImportFromObject.kt");
             }
 
             @TestMetadata("WithAlias.kt")

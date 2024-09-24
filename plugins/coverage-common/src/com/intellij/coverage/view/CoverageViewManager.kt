@@ -1,24 +1,22 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.coverage.view
 
-import com.intellij.coverage.CoverageBundle
 import com.intellij.coverage.CoverageOptionsProvider
 import com.intellij.coverage.CoverageSuitesBundle
-import com.intellij.coverage.actions.ExternalReportImportManager
 import com.intellij.coverage.view.CoverageViewManager.StateBean
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.openapi.wm.ToolWindowAnchor
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.containers.DisposableWrapperList
-import com.intellij.util.ui.ComponentWithEmptyText
+import com.intellij.util.xmlb.annotations.Tag
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 
 @State(name = "CoverageViewManager", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)])
@@ -30,23 +28,6 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
 
   @Volatile
   private var myContentManager: ContentManager? = null
-
-  @RequiresEdt
-  private fun initializeToolWindow(): ContentManager? {
-    if (myProject.isDisposed || !myProject.isOpen) return null
-    val toolWindow = ToolWindowManager.getInstance(myProject).registerToolWindow(TOOLWINDOW_ID) {
-      sideTool = true
-      icon = AllIcons.Toolwindows.ToolWindowCoverage
-      anchor = ToolWindowAnchor.RIGHT
-      stripeTitle = CoverageBundle.messagePointer("coverage.view.title")
-    }
-    toolWindow.helpId = CoverageView.HELP_ID
-    (toolWindow.component as? ComponentWithEmptyText)?.emptyText
-      ?.appendLine(CoverageBundle.message("coverage.import.report.toolwindow.empty.text"), SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) {
-      ExternalReportImportManager.getInstance(myProject).chooseAndOpenSuites()
-    }
-    return toolWindow.contentManager
-  }
 
   override fun getState(): StateBean {
     if (!myViews.isEmpty()) {
@@ -68,8 +49,7 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
   val openedSuite: CoverageSuitesBundle?
     get() {
       val manager = myContentManager ?: return null
-      val selectedContent = manager.selectedContent
-      if (selectedContent == null) return null
+      val selectedContent = manager.selectedContent ?: return null
       return myViews.firstNotNullOfOrNull { (suite, view) -> suite.takeIf { selectedContent === manager.getContent(view) } }
     }
 
@@ -77,8 +57,7 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
   fun activateToolwindow(view: CoverageView) {
     val manager = myContentManager ?: return
     manager.setSelectedContent(manager.getContent(view))
-    val toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(TOOLWINDOW_ID)
-                     ?: error("Coverage toolwindow is not registered")
+    val toolWindow = getToolWindow() ?: error("Coverage toolwindow is not registered")
     toolWindow.activate(null, false)
   }
 
@@ -87,7 +66,7 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
     var coverageView = myViews[suitesBundle]
     val manager = getContentManager() ?: return
     val content = if (coverageView == null) {
-      coverageView = CoverageView(myProject, suitesBundle, stateBean)
+      coverageView = CoverageView(myProject, suitesBundle)
       myViews[suitesBundle] = coverageView
       manager.factory.createContent(coverageView, getDisplayName(suitesBundle), false)
         .also { manager.addContent(it) }
@@ -106,10 +85,11 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
     if (oldView != null) {
       oldView.saveSize()
       runInEdt {
+        Disposer.dispose(oldView)
         val manager = myContentManager ?: return@runInEdt
         val content = manager.getContent(oldView)
         if (content != null) {
-          manager.removeContent(content, false)
+          manager.removeContent(content, true)
         }
       }
     }
@@ -136,42 +116,47 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
     createView(suitesBundle, activate)
   }
 
-  /**
-   * Call to this method initializes the coverage tool window.
-   */
-  @RequiresEdt
   private fun getContentManager(): ContentManager? {
     myContentManager?.also { return it }
-    return initializeToolWindow()?.also { myContentManager = it }
+    return getToolWindow()?.contentManager?.also { myContentManager = it }
   }
 
-  class StateBean {
-    private var myFlattenPackages = false
+  private fun getToolWindow(): ToolWindow? = ToolWindowManager.getInstance(myProject).getToolWindow(TOOLWINDOW_ID)
 
+  class StateBean internal constructor() {
+    private val myListeners = DisposableWrapperList<CoverageViewSettingsListener>()
+    private var myFlattenPackages = false
+    private var myHideFullyCovered = false
+    private var myShowOnlyModified = true
+
+    @ApiStatus.Internal
     @JvmField
     var myAutoScrollToSource: Boolean = false
 
+    @ApiStatus.Internal
     @JvmField
     var myAutoScrollFromSource: Boolean = false
 
+    @ApiStatus.Internal
     @JvmField
     var myColumnSize: List<Int>? = null
 
+    @ApiStatus.Internal
     @JvmField
     var myAscendingOrder: Boolean = true
 
+    @ApiStatus.Internal
     @JvmField
     var mySortingColumn: Int = 0
 
-    private var myHideFullyCovered = false
-    private var myShowOnlyModified = true
+    @ApiStatus.Internal
     var isDefaultFilters: Boolean = true
       private set
 
-    private val myListeners = DisposableWrapperList<CoverageViewSettingsListener>()
-
     var isFlattenPackages: Boolean
+      @ApiStatus.Internal
       get() = myFlattenPackages
+      @ApiStatus.Internal
       set(flattenPackages) {
         if (myFlattenPackages != flattenPackages) {
           myFlattenPackages = flattenPackages
@@ -180,7 +165,9 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
       }
 
     var isHideFullyCovered: Boolean
+      @ApiStatus.Internal
       get() = myHideFullyCovered
+      @ApiStatus.Internal
       set(hideFullyCovered) {
         if (myHideFullyCovered != hideFullyCovered) {
           myHideFullyCovered = hideFullyCovered
@@ -190,7 +177,10 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
       }
 
     var isShowOnlyModified: Boolean
+      @Tag("showOnlyModified_v2")
+      @ApiStatus.Experimental
       get() = myShowOnlyModified
+      @ApiStatus.Experimental
       set(showOnlyModified) {
         if (myShowOnlyModified != showOnlyModified) {
           myShowOnlyModified = showOnlyModified
@@ -199,6 +189,7 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
         }
       }
 
+    @ApiStatus.Internal
     fun addListener(disposable: Disposable, listener: CoverageViewSettingsListener) {
       myListeners.add(listener, disposable)
     }
@@ -206,13 +197,14 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
 
     private fun fireChanged() {
       for (listener in myListeners) {
-        listener.onSettingsChanged(this)
+        listener.onSettingsChanged()
       }
     }
   }
 
+  @ApiStatus.Internal
   fun interface CoverageViewSettingsListener {
-    fun onSettingsChanged(stateBean: StateBean?)
+    fun onSettingsChanged()
   }
 
   companion object {
@@ -224,7 +216,7 @@ class CoverageViewManager(private val myProject: Project) : PersistentStateCompo
     @JvmStatic
     fun getInstanceIfCreated(project: Project): CoverageViewManager? = project.serviceIfCreated()
 
-    fun getDisplayName(suitesBundle: CoverageSuitesBundle): @NlsSafe String? {
+    private fun getDisplayName(suitesBundle: CoverageSuitesBundle): @NlsSafe String? {
       val configuration = suitesBundle.runConfiguration
       return configuration?.name ?: suitesBundle.presentableName
     }

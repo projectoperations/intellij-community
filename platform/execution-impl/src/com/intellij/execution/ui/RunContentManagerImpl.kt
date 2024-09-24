@@ -19,14 +19,13 @@ import com.intellij.execution.ui.layout.impl.DockableGridContainerFactory
 import com.intellij.ide.plugins.DynamicPluginListener
 import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.DataProvider
+import com.intellij.openapi.actionSystem.EdtNoGetDataProvider
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.application.AppUIExecutor
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.rd.util.launchOnUi
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.Key
@@ -163,13 +162,8 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
       toolWindow.component.putClientProperty(ToolWindowContentUi.ALLOW_DND_FOR_TABS, true)
     }
     val contentManager = toolWindow.contentManager
-    contentManager.addDataProvider(object : DataProvider {
-      override fun getData(dataId: String): Any? {
-        if (PlatformCoreDataKeys.HELP_ID.`is`(dataId)) {
-          return executor.helpId
-        }
-        return null
-      }
+    contentManager.addDataProvider(EdtNoGetDataProvider { sink ->
+      sink[PlatformCoreDataKeys.HELP_ID] = executor.helpId
     })
     initToolWindow(executor, toolWindowId, executor.toolWindowIcon, contentManager)
     return contentManager
@@ -264,7 +258,7 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
     val oldDescriptor = chooseReuseContentForDescriptor(contentManager, descriptor, executionId, descriptor.displayName, getReuseCondition(toolWindowId))
     val content: Content?
     if (oldDescriptor == null) {
-      content = createNewContent(descriptor)
+      content = createNewContent(descriptor, executor)
     }
     else {
       content = oldDescriptor.attachedContent!!
@@ -293,15 +287,15 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
         override fun startNotified(event: ProcessEvent) {
           UIUtil.invokeLaterIfNeeded {
             content.icon = getLiveIndicator(descriptor.icon)
+            var toolWindowIcon = toolWindowIdToBaseIcon[toolWindowId]
+            if (ExperimentalUI.isNewUI() && toolWindowIcon is ScalableIcon) {
+              toolWindowIcon = loadIconCustomVersionOrScale(icon = toolWindowIcon, size = 20)
+            }
+            toolWindow!!.setIcon(getLiveIndicator(toolWindowIcon))
           }
           descriptor.iconProperty.afterChange(descriptor) {
             UIUtil.invokeLaterIfNeeded {
               content.icon = getLiveIndicator(it)
-              var icon = toolWindowIdToBaseIcon[toolWindowId]
-              if (ExperimentalUI.isNewUI() && icon is ScalableIcon) {
-                icon = loadIconCustomVersionOrScale(icon = icon, size = 20)
-              }
-              toolWindow!!.setIcon(getLiveIndicator(icon))
             }
           }
         }
@@ -706,11 +700,11 @@ private fun getToolWindowIdForRunner(executor: Executor, descriptor: RunContentD
   return descriptor?.contentToolWindowId ?: executor.toolWindowId
 }
 
-private fun createNewContent(descriptor: RunContentDescriptor): Content {
+private fun createNewContent(descriptor: RunContentDescriptor, executor: Executor): Content {
   val content = ContentFactory.getInstance().createContent(descriptor.component, descriptor.displayName, true)
   content.putUserData(ToolWindow.SHOW_CONTENT_ICON, true)
   if (AdvancedSettings.getBoolean("start.run.configurations.pinned")) content.isPinned = true
-
+  content.icon = descriptor.icon ?: executor.toolWindowIcon
   return content
 }
 

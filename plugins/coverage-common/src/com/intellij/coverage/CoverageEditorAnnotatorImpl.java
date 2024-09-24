@@ -24,6 +24,7 @@ import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -36,6 +37,7 @@ import com.intellij.util.Alarm;
 import com.intellij.util.Function;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import kotlin.ranges.IntRange;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -43,6 +45,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.util.*;
 
+@ApiStatus.Internal
 public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Disposable {
   private static final Logger LOG = Logger.getInstance(CoverageEditorAnnotatorImpl.class);
   public static final Key<List<RangeHighlighter>> COVERAGE_HIGHLIGHTERS = Key.create("COVERAGE_HIGHLIGHTERS");
@@ -54,6 +57,9 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
   private Document myDocument;
   private final Project myProject;
   private volatile LineHistoryMapper myMapper;
+  private final Object myLock = new Object();
+  private Disposable myListenerDisposable;
+  private boolean myIsDisposed;
 
   private final Alarm myUpdateAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
 
@@ -69,7 +75,7 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
     Editor editor = myEditor;
     PsiFile file = myFile;
     Document document = myDocument;
-    if (editor == null || editor.isDisposed() || file == null || document == null) return;
+    if (editor == null || file == null || document == null) return;
     final FileEditorManager fileEditorManager = FileEditorManager.getInstance(myProject);
     removeHighlighters();
 
@@ -85,17 +91,11 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
         fileEditorManager.removeTopComponent(fileEditor, map.get(fileEditor));
       }
     }
-
-    final DocumentListener documentListener = editor.getUserData(COVERAGE_DOCUMENT_LISTENER);
-    if (documentListener != null) {
-      document.removeDocumentListener(documentListener);
-      editor.putUserData(COVERAGE_DOCUMENT_LISTENER, null);
-    }
   }
 
   private synchronized void removeHighlighters() {
     var editor = myEditor;
-    if (editor == null || editor.isDisposed()) return;
+    if (editor == null) return;
     var highlighters = editor.getUserData(COVERAGE_HIGHLIGHTERS);
     if (highlighters != null) {
       for (var highlighter : highlighters) {
@@ -184,6 +184,12 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
         if (mapping == null) return;
         removeHighlighters();
         myUpdateAlarm.cancelAllRequests();
+        synchronized (myLock) {
+          var listenerDisposable = myListenerDisposable;
+          if (listenerDisposable != null) {
+            Disposer.dispose(listenerDisposable);
+          }
+        }
         showCoverage(suite);
       });
     }
@@ -195,34 +201,36 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
     final TreeMap<Integer, String> classNames = new TreeMap<>();
     collectLinesInFile(suite, psiFile, module, oldToNewLineMapping, markupModel, executableLines, classNames);
 
-    if (editor.getUserData(COVERAGE_DOCUMENT_LISTENER) == null) {
-      final DocumentListener documentListener = new DocumentListener() {
-        @Override
-        public void documentChanged(@NotNull final DocumentEvent e) {
-          myMapper.clear();
-          int offset = e.getOffset();
-          final int lineNumber = document.getLineNumber(offset);
-          final int lastLineNumber = document.getLineNumber(offset + e.getNewLength());
-          if (!removeChangedHighlighters(lineNumber, lastLineNumber, document)) return;
-          if (!myUpdateAlarm.isDisposed()) {
-            myUpdateAlarm.addRequest(() -> {
-              Int2IntMap newToOldLineMapping = myMapper.canGetFastMapping() ? myMapper.getNewToOldLineMapping() : null;
-              if (newToOldLineMapping != null) {
-                final int lastLine = Math.min(document.getLineCount() - 1, lastLineNumber);
-                for (int line = lineNumber; line <= lastLine; line++) {
-                  if (!newToOldLineMapping.containsKey(line)) continue;
-                  int oldLineNumber = newToOldLineMapping.get(line);
-                  var lineData = executableLines.get(oldLineNumber);
-                  if (lineData == null) continue;
-                  addHighlighter(markupModel, executableLines, suite, oldLineNumber, line, classNames.get(oldLineNumber));
-                }
+    final DocumentListener documentListener = new DocumentListener() {
+      @Override
+      public void documentChanged(@NotNull final DocumentEvent e) {
+        myMapper.clear();
+        int offset = e.getOffset();
+        final int lineNumber = document.getLineNumber(offset);
+        final int lastLineNumber = document.getLineNumber(offset + e.getNewLength());
+        if (!removeChangedHighlighters(lineNumber, lastLineNumber, document)) return;
+        if (!myUpdateAlarm.isDisposed()) {
+          myUpdateAlarm.addRequest(() -> {
+            Int2IntMap newToOldLineMapping = myMapper.canGetFastMapping() ? myMapper.getNewToOldLineMapping() : null;
+            if (newToOldLineMapping != null) {
+              final int lastLine = Math.min(document.getLineCount() - 1, lastLineNumber);
+              for (int line = lineNumber; line <= lastLine; line++) {
+                if (!newToOldLineMapping.containsKey(line)) continue;
+                int oldLineNumber = newToOldLineMapping.get(line);
+                var lineData = executableLines.get(oldLineNumber);
+                if (lineData == null) continue;
+                addHighlighter(markupModel, executableLines, suite, oldLineNumber, line, classNames.get(oldLineNumber));
               }
-            }, 100);
-          }
+            }
+          }, 100);
         }
-      };
-      document.addDocumentListener(documentListener);
-      editor.putUserData(COVERAGE_DOCUMENT_LISTENER, documentListener);
+      }
+    };
+    synchronized (myLock) {
+      if (!myIsDisposed) {
+        myListenerDisposable = Disposer.newDisposable(this);
+        document.addDocumentListener(documentListener, myListenerDisposable);
+      }
     }
   }
 
@@ -471,6 +479,9 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
 
   @Override
   public void dispose() {
+    synchronized (myLock) {
+      myIsDisposed = true;
+    }
     hideCoverage();
     myEditor = null;
     myDocument = null;

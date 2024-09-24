@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.kotlin.inspections
 
 import com.intellij.codeInspection.IntentionWrapper
@@ -15,22 +15,22 @@ import org.jetbrains.idea.devkit.inspections.LevelType
 import org.jetbrains.idea.devkit.inspections.getLevelType
 import org.jetbrains.idea.devkit.inspections.quickfix.WrapInSupplierQuickFix
 import org.jetbrains.idea.devkit.kotlin.DevKitKotlinBundle
-import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisFromWriteAction
-import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.calls.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.calls.symbol
-import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisFromWriteAction
-import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.symbols.KtConstructorSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KtPropertySymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KtSamConstructorSymbol
-import org.jetbrains.kotlin.analysis.api.types.KtNonErrorClassType
-import org.jetbrains.kotlin.analysis.api.types.KtTypeNullability
+import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaSamConstructorSymbol
+import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.KaTypeNullability
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggestionProvider
+import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameValidatorProvider
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
-import org.jetbrains.kotlin.idea.base.fe10.codeInsight.newDeclaration.Fe10KotlinNewDeclarationNameValidator
 import org.jetbrains.kotlin.idea.intentions.ConvertPropertyToFunctionIntention
 import org.jetbrains.kotlin.idea.refactoring.inline.KotlinInlinePropertyProcessor
 import org.jetbrains.kotlin.psi.*
@@ -48,16 +48,16 @@ internal class KtAppServiceAsStaticFinalFieldOrPropertyVisitorProvider : AppServ
       override fun visitProperty(property: KtProperty) {
         if (property.isVar || !property.isStatic() || !property.hasBackingField()) return
 
-        @OptIn(KtAllowAnalysisOnEdt::class)
+        @OptIn(KaAllowAnalysisOnEdt::class)
         val typeClassElement = allowAnalysisOnEdt {
           analyze(property) {
             // return if it's an explicit constructor call
-            val resolveSymbol = property.initializer?.resolveCall()?.singleFunctionCallOrNull()?.symbol
-            val isConstructorCall = resolveSymbol is KtSamConstructorSymbol || resolveSymbol is KtConstructorSymbol
+            val resolveSymbol = property.initializer?.resolveToCall()?.singleFunctionCallOrNull()?.symbol
+            val isConstructorCall = resolveSymbol is KaSamConstructorSymbol || resolveSymbol is KaConstructorSymbol
             if (isConstructorCall) return
 
             // can be KtClass or PsiClass
-            property.getReturnKtType().withNullability(KtTypeNullability.UNKNOWN).expandedClassSymbol?.psi ?: return
+            property.returnType.withNullability(KaTypeNullability.UNKNOWN).expandedSymbol?.psi ?: return
           }
         }
 
@@ -105,13 +105,13 @@ internal class KtAppServiceAsStaticFinalFieldOrPropertyVisitorProvider : AppServ
   }
 
 
-  @OptIn(KtAllowAnalysisOnEdt::class)
+  @OptIn(KaAllowAnalysisOnEdt::class)
   private fun KtProperty.hasBackingField(): Boolean {
     allowAnalysisOnEdt {
       val property = this
 
       analyze(property) {
-        val propertySymbol = property.getVariableSymbol() as? KtPropertySymbol ?: return false
+        val propertySymbol = property.symbol as? KaPropertySymbol ?: return false
         return propertySymbol.hasBackingField
       }
     }
@@ -129,13 +129,13 @@ private class KtWrapInSupplierQuickFix(ktProperty: KtProperty) : WrapInSupplierQ
     val supplierPropertyName = suggestSupplierPropertyName(element)
 
     // can be called both from EDT and from the preview
-    @OptIn(KtAllowAnalysisOnEdt::class)
+    @OptIn(KaAllowAnalysisOnEdt::class)
     val ktPropertyType = allowAnalysisOnEdt {
-      @OptIn(KtAllowAnalysisFromWriteAction::class)
+      @OptIn(KaAllowAnalysisFromWriteAction::class)
       allowAnalysisFromWriteAction {
         analyze(element) {
-          val returnType = element.getReturnKtType().lowerBoundIfFlexible()
-          (returnType as? KtNonErrorClassType)?.classId
+          val returnType = element.returnType.lowerBoundIfFlexible()
+          (returnType as? KaClassType)?.classId
         }
       }
     }
@@ -169,11 +169,10 @@ private class KtWrapInSupplierQuickFix(ktProperty: KtProperty) : WrapInSupplierQ
   private fun suggestSupplierPropertyName(property: KtProperty): String {
     return KotlinNameSuggester.suggestNameByName(
       defaultSupplierElementName(property),
-      Fe10KotlinNewDeclarationNameValidator(
+      KotlinNameValidatorProvider.getInstance().createNameValidator(
         property.containingClassOrObject ?: property.containingFile,
-        null,
         KotlinNameSuggestionProvider.ValidatorTarget.PROPERTY
-      ),
+      )
     )
   }
 

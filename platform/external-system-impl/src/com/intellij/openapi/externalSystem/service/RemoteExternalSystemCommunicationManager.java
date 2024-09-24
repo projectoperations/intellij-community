@@ -28,7 +28,6 @@ import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkPr
 import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager;
 import com.intellij.openapi.externalSystem.service.remote.ExternalSystemProgressNotificationManagerImpl;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemProgressNotificationManager;
-import com.intellij.openapi.externalSystem.service.remote.wrapper.ExternalSystemFacadeWrapper;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
 import com.intellij.openapi.module.EmptyModuleType;
@@ -47,6 +46,7 @@ import com.intellij.util.concurrency.AtomicFieldUpdater;
 import com.intellij.util.containers.ContainerUtil;
 import kotlin.Unit;
 import kotlin.reflect.full.NoSuchPropertyException;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -61,6 +61,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.intellij.openapi.application.PathManager.getJarPathForClass;
 
+@ApiStatus.Internal
 @Service(Service.Level.APP)
 public final class RemoteExternalSystemCommunicationManager implements ExternalSystemCommunicationManager, Disposable {
   private static final Logger LOG = Logger.getInstance(RemoteExternalSystemCommunicationManager.class);
@@ -244,12 +245,7 @@ public final class RemoteExternalSystemCommunicationManager implements ExternalS
 
   @Override
   public boolean isAlive(@NotNull RemoteExternalSystemFacade facade) {
-    RemoteExternalSystemFacade toCheck = facade;
-    if (facade instanceof ExternalSystemFacadeWrapper) {
-      toCheck = ((ExternalSystemFacadeWrapper)facade).getDelegate();
-
-    }
-    if (toCheck instanceof InProcessExternalSystemFacadeImpl) {
+    if (facade instanceof InProcessExternalSystemFacadeImpl) {
       return false;
     }
     try {

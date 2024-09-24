@@ -24,10 +24,10 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.impl.HashImpl;
-import com.intellij.vcs.log.util.VcsLogUtil;
 import com.intellij.vcsUtil.VcsFileUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import git4idea.GitContentRevision;
+import git4idea.GitUtil;
 import git4idea.branch.GitRebaseParams;
 import git4idea.config.GitExecutable;
 import git4idea.config.GitExecutableManager;
@@ -390,6 +390,7 @@ public class GitImpl extends GitImplBase {
                                                 @NotNull String startPoint,
                                                 boolean force) {
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.BRANCH);
+    h.setSilent(false);
     h.setStdoutSuppressed(false);
     if (force) {
       h.addParameters("-f");
@@ -404,6 +405,7 @@ public class GitImpl extends GitImplBase {
                                                @NotNull String upstreamBranchName,
                                                @NotNull String branchName) {
     GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.BRANCH);
+    h.setSilent(false);
     h.setStdoutSuppressed(false);
     if (GitVersionSpecialty.KNOWS_SET_UPSTREAM_TO.existsIn(repository)) {
       h.addParameters("--set-upstream-to", upstreamBranchName, branchName);
@@ -683,7 +685,7 @@ public class GitImpl extends GitImplBase {
       }
       return runWithEditor(handler, editorHandler);
     }
-    return GitRebaseCommandResult.normal(runCommand(handler));
+    return new GitRebaseCommandResult(runCommand(handler));
   }
 
   @Override
@@ -691,7 +693,7 @@ public class GitImpl extends GitImplBase {
     GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REBASE);
     handler.addParameters("--abort");
     addListeners(handler, listeners);
-    return GitRebaseCommandResult.normal(runCommand(handler));
+    return new GitRebaseCommandResult(runCommand(handler));
   }
 
   @Override
@@ -718,9 +720,7 @@ public class GitImpl extends GitImplBase {
   private @NotNull GitRebaseCommandResult runWithEditor(@NotNull GitLineHandler handler, @NotNull GitRebaseEditorHandler editorHandler) {
     try (GitHandlerRebaseEditorManager ignored = GitHandlerRebaseEditorManager.prepareEditor(handler, editorHandler)) {
       GitCommandResult result = runCommand(handler);
-      if (editorHandler.wasCommitListEditorCancelled()) return GitRebaseCommandResult.cancelledInCommitList(result);
-      if (editorHandler.wasUnstructuredEditorCancelled()) return GitRebaseCommandResult.cancelledInCommitMessage(result);
-      return GitRebaseCommandResult.normal(result);
+      return new GitRebaseCommandResult(result, editorHandler.getEditingResult());
     }
   }
 
@@ -755,7 +755,7 @@ public class GitImpl extends GitImplBase {
     GitCommandResult result = Git.getInstance().runCommand(handler);
     String output = result.getOutputAsJoinedString();
     if (result.success()) {
-      if (VcsLogUtil.HASH_REGEX.matcher(output).matches()) {
+      if (GitUtil.isHashString(output, false)) {
         return HashImpl.build(output);
       }
       else {

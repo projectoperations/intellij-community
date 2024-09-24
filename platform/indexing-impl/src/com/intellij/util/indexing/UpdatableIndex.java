@@ -1,11 +1,12 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.util.indexing;
 
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.Processor;
-import com.intellij.util.indexing.impl.AbstractUpdateData;
+import com.intellij.util.indexing.impl.UpdateData;
 import com.intellij.util.indexing.impl.InputDataDiffBuilder;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -13,10 +14,12 @@ import org.jetbrains.annotations.TestOnly;
 import java.util.Map;
 import java.util.concurrent.locks.ReadWriteLock;
 
+@Internal
 public interface UpdatableIndex<Key, Value, Input, FileIndexMetaData> extends InvertedIndex<Key, Value, Input>{
 
-  boolean processAllKeys(@NotNull Processor<? super Key> processor, @NotNull GlobalSearchScope scope, @Nullable IdFilter idFilter) throws
-                                                                                                                                   StorageException;
+  boolean processAllKeys(@NotNull Processor<? super Key> processor,
+                         @NotNull GlobalSearchScope scope,
+                         @Nullable IdFilter idFilter) throws StorageException;
 
   @NotNull
   ReadWriteLock getLock();
@@ -33,7 +36,8 @@ public interface UpdatableIndex<Key, Value, Input, FileIndexMetaData> extends In
   /**
    * @deprecated use {@linkplain #setIndexedStateForFileOnFileIndexMetaData(int, Object, boolean)}
    */
-  @Deprecated
+  @SuppressWarnings("unused")
+  @Deprecated(forRemoval = true)
   default void setIndexedStateForFileOnFileIndexMetaData(int fileId, @Nullable FileIndexMetaData data) {
     throw new IllegalStateException("Please override setIndexedStateForFileOnFileIndexMetaData(int, FileIndexMetaData, boolean)");
   }
@@ -47,7 +51,8 @@ public interface UpdatableIndex<Key, Value, Input, FileIndexMetaData> extends In
   /**
    * @deprecated use {@linkplain #setIndexedStateForFile(int, IndexedFile, boolean)}
    */
-  @Deprecated
+  @SuppressWarnings("unused")
+  @Deprecated(forRemoval = true)
   default void setIndexedStateForFile(int fileId, @NotNull IndexedFile file) {
     throw new IllegalStateException("Please override setIndexedStateForFile(int, IndexedFile, boolean)");
   }
@@ -72,7 +77,7 @@ public interface UpdatableIndex<Key, Value, Input, FileIndexMetaData> extends In
   @NotNull
   IndexExtension<Key, Value, Input> getExtension();
 
-  void updateWithMap(@NotNull AbstractUpdateData<Key, Value> updateData) throws StorageException;
+  void updateWithMap(@NotNull UpdateData<Key, Value> updateData) throws StorageException;
 
   void setBufferingEnabled(boolean enabled);
 

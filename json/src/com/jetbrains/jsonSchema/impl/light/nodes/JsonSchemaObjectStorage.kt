@@ -17,12 +17,15 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.impl.http.HttpVirtualFile
 import com.intellij.openapi.vfs.impl.http.RemoteFileState
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.util.containers.ConcurrentFactoryMap
 import com.jetbrains.jsonSchema.impl.JsonSchemaObject
+import org.jetbrains.annotations.ApiStatus
 import java.io.InputStream
 
 @Service(Service.Level.PROJECT)
-internal class JsonSchemaObjectStorage {
+@ApiStatus.Internal
+class JsonSchemaObjectStorage {
   companion object {
     @JvmStatic
     fun getInstance(project: Project): JsonSchemaObjectStorage {
@@ -53,7 +56,7 @@ internal class JsonSchemaObjectStorage {
 
   private fun isSupportedSchemaFile(maybeSchemaFile: VirtualFile): Boolean {
     return isSupportedSchemaFileType(maybeSchemaFile.fileType)
-           && !isNotLoadedHttpFile(maybeSchemaFile)
+           && (maybeSchemaFile !is HttpVirtualFile || isLoadedHttpFile(maybeSchemaFile))
   }
 
   private fun isSupportedSchemaFileType(fileType: FileType): Boolean {
@@ -62,12 +65,17 @@ internal class JsonSchemaObjectStorage {
 
   private val supportedFileTypeNames = setOf("JSON", "JSON5", "YAML")
 
-  private fun isNotLoadedHttpFile(maybeHttpFile: VirtualFile): Boolean {
-    return maybeHttpFile is HttpVirtualFile && maybeHttpFile.fileInfo?.state != RemoteFileState.DOWNLOADED
+  private fun isLoadedHttpFile(maybeHttpFile: VirtualFile): Boolean {
+    return maybeHttpFile is HttpVirtualFile && maybeHttpFile.fileInfo?.state == RemoteFileState.DOWNLOADED
   }
 
   private fun VirtualFile.asSchemaId(): SchemaId {
-    return SchemaId(this, this.modificationStamp)
+    return if (this is LightVirtualFile) {
+      SchemaId(this, -1)
+    }
+    else {
+      SchemaId(this, this.modificationStamp)
+    }
   }
 
   private fun createRootSchemaObject(schemaFile: VirtualFile): JsonSchemaObject {

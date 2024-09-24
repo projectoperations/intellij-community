@@ -9,6 +9,7 @@ import com.intellij.ui.util.maximumWidth
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.Nls
 import sun.swing.SwingUtilities2
+import java.awt.Dimension
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.beans.PropertyChangeEvent
@@ -55,7 +56,7 @@ open class AbstractToolbarComboUI : ComponentUI(), PropertyChangeListener {
     g.color = if (c.isEnabled) c.getForeground() else UIUtil.getLabelDisabledForeground()
 
     val baseline = c.getBaseline(c.width, c.height)
-    val text = c.textCutStrategy.calcShownText(fullText, metrics, textRect.width)
+    val text = c.textCutStrategy.calcShownText(fullText, metrics, textRect.width, g)
     val strBounds = metrics.getStringBounds(text, g).getBounds()
     strBounds.setLocation(max(0, (textRect.centerX - strBounds.centerX).toInt()), baseline)
 
@@ -128,5 +129,14 @@ open class AbstractToolbarComboUI : ComponentUI(), PropertyChangeListener {
       res += icon.iconWidth
     }
     return res
+  }
+
+  override fun getMinimumSize(c: JComponent): Dimension {
+    if (c !is AbstractToolbarCombo) return Dimension()
+    val preferredSize = c.preferredSize
+    val metrics = c.getFontMetrics(c.getFont())
+    val currentTextWidth = metrics.stringWidth(c.text ?: "")
+    val minTextWidth = c.textCutStrategy.calcMinTextWidth(c.text ?: "", metrics)
+    return Dimension(preferredSize.width - currentTextWidth + minTextWidth, preferredSize.height)
   }
 }

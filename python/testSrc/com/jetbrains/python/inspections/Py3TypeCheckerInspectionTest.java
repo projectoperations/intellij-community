@@ -472,6 +472,126 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                    """);
   }
 
+  public void testCallableWithTypeGuards() {
+    doTestByText("""
+                   from typing import Any, Callable
+                   from typing_extensions import TypeIs
+                   
+                   def foo(c: Callable[[Any], TypeIs[int]]):
+                      ...
+                   
+                   def is_str(x: Any) -> TypeIs[str]:
+                      ...
+                   
+                   foo(<warning descr="Expected type '(Any) -> TypeIs[int]', got '(x: Any) -> TypeIs[str]' instead">is_str</warning>)
+                   """);
+  }
+
+  public void testCallableWithTypeGuards2() {
+    doTestByText("""
+                   from typing import Any, Callable
+                   from typing_extensions import TypeIs
+                   
+                   def foo(c: Callable[[Any], TypeIs[str]]):
+                      ...
+                   
+                   def is_str(x: Any) -> TypeIs[str]:
+                      ...
+                   
+                   foo(is_str)
+                   """);
+  }
+
+  public void testCallableWithTypeGuards3() {
+    doTestByText("""
+                   from typing import Any, Callable
+                   from typing_extensions import TypeIs
+                   
+                   class B:
+                      ...
+                   
+                   class D(B):
+                      ...
+                   
+                   def foo(c: Callable[[Any], TypeIs[D]]):
+                      ...
+                   
+                   def is_str(x: Any) -> TypeIs[B]:
+                      ...
+                   
+                   foo(<warning descr="Expected type '(Any) -> TypeIs[D]', got '(x: Any) -> TypeIs[B]' instead">is_str</warning>)
+                   """);
+  }
+
+
+  // test is broken, type variable in TypeIs is invariant, so TypeIs[B] and TypeIs[D] are not consistent
+  public void testCallableWithTypeGuards4() {
+    doTestByText("""
+                   from typing import Any, Callable
+                   from typing_extensions import TypeIs
+                   
+                   class B:
+                      ...
+                   
+                   class D(B):
+                      ...
+                   
+                   def foo(c: Callable[[Any], TypeIs[B]]):
+                      ...
+                   
+                   def is_str(x: Any) -> TypeIs[D]:
+                      ...
+                   # should be error here! 
+                   foo(is_str)
+                   """);
+  }
+
+  // test is broken, type variable in TypeIs is invariant, so TypeIs[B] and TypeIs[D] are not consistent
+  public void testCallableBoolean() {
+    doTestByText("""
+                   from typing import Any, Callable
+                   from typing_extensions import TypeIs
+                   
+                   def foo(c: bool):
+                      ...
+                   
+                   def is_int(x: Any) -> TypeIs[int]:
+                      ...
+                   
+                   foo(is_int(1))
+                   """);
+  }
+
+  public void testCallableStr() {
+    doTestByText("""
+                   from typing import Any, Callable
+                   from typing_extensions import TypeIs
+                   
+                   def foo(c: str):
+                      ...
+                   
+                   def is_int(x: Any) -> TypeIs[int]:
+                      ...
+                   
+                   foo(<warning descr="Expected type 'str', got 'TypeIs[int]' instead">is_int(1)</warning>)
+                   """);
+  }
+
+  public void testCallableInt() {
+    doTestByText("""
+                   from typing import Any, Callable
+                   from typing_extensions import TypeIs
+                   
+                   def foo(c: int):
+                      ...
+                   
+                   def is_int(x: Any) -> TypeIs[int]:
+                      ...
+                   
+                   foo(is_int(1))
+                   """);
+  }
+
   // PY-44974
   public void testBitwiseOrUnionNoneIntStrAssignList() {
     doTestByText("bar: None | int | str = <warning descr=\"Expected type 'None | int | str', got 'list[int]' instead\">[42]</warning>");
@@ -985,6 +1105,20 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                                                   pass
                                               g(<warning descr="TypedDict 'B' has missing key: 'x'">{}</warning>)
                                               """));
+  }
+
+  public void testRequiredWithReadOnly() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), () -> doTestByText(
+      """
+        from typing_extensions import TypedDict, Required, NotRequired
+        
+        class Movie(TypedDict):
+            name: ReadOnly[Required[str]]
+            year: NotRequired[int]
+        
+        m: Movie = <warning descr="TypedDict 'Movie' has missing key: 'name'">{"year": 2024}</warning>
+        """
+    ));
   }
 
   // PY-53611
@@ -1962,7 +2096,7 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
       () -> doTestByText("""
 from typing import TypeGuard
 def foo(param: str | int) -> TypeGuard[str]:
-    return <warning descr="Expected type 'bool', got 'str | int' instead">param</warning>
+    return <warning descr="Expected type 'TypeGuard[str]', got 'str | int' instead">param</warning>
       """)
     );
   }
@@ -1980,5 +2114,64 @@ def foo(param: str | int) -> TypeGuard[str]:
   // PY-64124
   public void testExpectedKeywordOnlyParameterMatchedWithRegularParameter() {
     doTest();
+  }
+
+  // PY-55044
+  public void testTypedDictKwargsArgument() {
+    doTestByText("""
+                   from typing import TypedDict, Unpack
+                   
+                   class Movie(TypedDict):
+                       name: str
+                   
+                   def foo(**x: Unpack[Movie]):
+                       pass
+                   
+                   foo(<warning descr="Expected type 'str', got 'int' instead">name=1</warning>)
+                   """);
+  }
+
+  // PY-70528
+  public void testVersionDependentTypeVarTupleInitialization() {
+    doTestByText("""
+                  import sys
+                  
+                  if sys.version_info >= (3, 11):
+                      from typing import TypeVarTuple
+                  else:
+                      from typing_extensions import TypeVarTuple
+                  
+                  PosArgsT = TypeVarTuple("PosArgsT")
+                  """);
+  }
+
+  // PY-23067
+  public void testFunctoolsWraps() {
+    doTestByText("""
+                   import functools
+
+                   class MyClass:
+                     def foo(self, i: int):
+                         pass
+
+                   class Route:
+                       @functools.wraps(MyClass.foo)
+                       def __init__(self):
+                           pass
+
+                   class Router:
+                       @functools.wraps(wrapped=Route.__init__)
+                       def route(self, s: str):
+                           pass
+
+                   router = Router()
+                   router.route(-2)
+                   router.route(<warning descr="Expected type 'int', got 'str' instead">""</warning>)
+                   """);
+  }
+
+  // PY-23067
+  public void testFunctoolsWrapsMultiFile() {
+    doMultiFileTest();
   }
 }

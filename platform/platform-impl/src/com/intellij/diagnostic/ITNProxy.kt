@@ -1,7 +1,6 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diagnostic
 
-import com.intellij.diagnostic.Developer.Companion.NULL
 import com.intellij.errorreport.error.InternalEAPException
 import com.intellij.errorreport.error.NoSuchEAPUserException
 import com.intellij.errorreport.error.UpdateAvailableException
@@ -20,7 +19,6 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.security.CompositeX509TrustManager
 import com.intellij.util.io.DigestUtil.sha1
-import com.intellij.util.io.HttpRequests
 import com.intellij.util.net.NetUtils
 import com.intellij.util.net.ssl.CertificateUtil
 import kotlinx.coroutines.*
@@ -37,7 +35,6 @@ import java.security.KeyStore
 import java.security.cert.CertificateEncodingException
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.util.*
 import java.util.zip.GZIPOutputStream
 import javax.net.ssl.*
 
@@ -48,7 +45,7 @@ internal class ITNProxyCoroutineScopeHolder(coroutineScope: CoroutineScope) {
   val dispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(2)
 
   @JvmField
-  internal val coroutineScope: CoroutineScope = coroutineScope.childScope(dispatcher + CoroutineName("ITNProxy call"))
+  internal val coroutineScope: CoroutineScope = coroutineScope.childScope("ITNProxy call", dispatcher)
 }
 
 internal object ITNProxy {
@@ -56,7 +53,6 @@ internal object ITNProxy {
 
   private const val DEFAULT_USER = "idea_anonymous"
   private const val DEFAULT_PASS = "guest"
-  private const val DEVELOPERS_LIST_URL = "https://ea-report.jetbrains.com/developer/list"
   private const val OLD_THREAD_VIEW_URL = "https://ea.jetbrains.com/browser/ea_reports/"
   private const val NEW_THREAD_VIEW_URL = "https://jb-web.exa.aws.intellij.net/report/"
 
@@ -88,31 +84,16 @@ internal object ITNProxy {
     template
   }
 
-  suspend fun fetchDevelopers(): List<Developer> {
-    val context = currentCoroutineContext()
-    return HttpRequests.request(DEVELOPERS_LIST_URL).connectTimeout(3000).connect { request: HttpRequests.Request ->
-      val developers: MutableList<Developer> = ArrayList()
-      developers.add(NULL)
-      for (line in request.reader.lines()) {
-        val i = line.indexOf('\t')
-        if (i == -1) throw IOException("Protocol error")
-        val id = line.substring(0, i).toInt()
-        val name = line.substring(i + 1)
-        developers.add(Developer(id, name))
-        context.ensureActive()
-      }
-      developers
-    }
-  }
-
   @JvmRecord
-  internal data class ErrorBean(val event: IdeaLoggingEvent,
-                                val comment: String?,
-                                val pluginId: String?,
-                                val pluginName: String?,
-                                val pluginVersion: String?,
-                                val lastActionId: String?,
-                                val previousException: Int)
+  internal data class ErrorBean(
+    val event: IdeaLoggingEvent,
+    val comment: String?,
+    val pluginId: String?,
+    val pluginName: String?,
+    val pluginVersion: String?,
+    val lastActionId: String?,
+    val previousException: Int
+  )
 
   suspend fun sendError(login: String?, password: String?, error: ErrorBean, newThreadPostUrl: String): Int {
     val useDefault = login.isNullOrBlank()
@@ -123,11 +104,7 @@ internal object ITNProxy {
 
   fun getBrowseUrl(threadId: Int): String {
     val isEAPluginInstalled = PluginManagerCore.isPluginInstalled(PluginId.getId(EA_PLUGIN_ID))
-    if (isEAPluginInstalled) {
-      return NEW_THREAD_VIEW_URL + threadId
-    } else {
-      return OLD_THREAD_VIEW_URL + threadId
-    }
+    return (if (isEAPluginInstalled) NEW_THREAD_VIEW_URL else OLD_THREAD_VIEW_URL) + threadId
   }
 
   private val ourSslContext: SSLContext by lazy { initContext() }
@@ -156,7 +133,7 @@ internal object ITNProxy {
     try {
       return response.trim().toInt()
     }
-    catch (ex: NumberFormatException) {
+    catch (_: NumberFormatException) {
       throw InternalEAPException(DiagnosticBundle.message("error.itn.returns.wrong.data"))
     }
   }
@@ -315,7 +292,7 @@ internal object ITNProxy {
           val ca = certificates[certificates.size - 1]
           if (ca is X509Certificate) {
             val cn = CertificateUtil.getCommonName(ca)
-            val digest = sha1().digest(ca.getEncoded())
+            val digest = sha1().digest(ca.encoded)
             val fp = StringBuilder(2 * digest.size)
             for (b in digest) fp.append(Integer.toHexString(b.toInt() and 0xFF))
             if (JB_CA_CN == cn && JB_CA_FP.contentEquals(fp)) {
@@ -324,10 +301,8 @@ internal object ITNProxy {
           }
         }
       }
-      catch (ignored: SSLPeerUnverifiedException) {
-      }
-      catch (ignored: CertificateEncodingException) {
-      }
+      catch (_: SSLPeerUnverifiedException) { }
+      catch (_: CertificateEncodingException) { }
       return false
     }
   }

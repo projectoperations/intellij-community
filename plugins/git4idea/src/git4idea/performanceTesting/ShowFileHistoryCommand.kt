@@ -2,7 +2,10 @@
 package git4idea.performanceTesting
 
 import com.intellij.ide.DataManager
+import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.writeIntentReadAction
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.ui.playback.PlaybackContext
 import com.intellij.openapi.vcs.actions.VcsContextUtil
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager
@@ -31,20 +34,26 @@ class ShowFileHistoryCommand(text: String, line: Int) : PerformanceCommandCorout
 
       val focusedComponent = IdeFocusManager.findInstance().focusOwner
       val dataContext = DataManager.getInstance().getDataContext(focusedComponent)
-      val selectedFiles = VcsContextUtil.selectedFilePaths(dataContext)
+      val selectedFiles = writeIntentReadAction { VcsContextUtil.selectedFilePaths (dataContext) }
+      LOG.info("is active window ${ProjectUtil.getActiveProject()}")
+      LOG.info("Selected file paths ${selectedFiles.size}")
+
       val historyProvider: VcsLogFileHistoryProvider = context.project.getService(VcsLogFileHistoryProvider::class.java)
       if (!historyProvider.canShowFileHistory(selectedFiles, null)) {
         throw RuntimeException("Can't show file history for $selectedFiles")
       }
 
       val mainSpan = PerformanceTestSpan.TRACER.spanBuilder(MAIN_SPAN_NAME).startSpan()
+      LOG.info("$MAIN_SPAN_NAME launched")
       val scope = mainSpan.makeCurrent()
       val firstPackSpan = PerformanceTestSpan.TRACER.spanBuilder(FIRST_PACK_SPAN_NAME).startSpan()
       historyProvider.showFileHistory(selectedFiles, null)
 
       val contentManager = ToolWindowManager.getInstance(context.project).getToolWindow(ChangesViewContentManager.TOOLWINDOW_ID)?.contentManager
       val ui = VcsLogUiHolder.getLogUis(contentManager?.selectedContent?.component!!).single()
+      LOG.info("suspendCancellableCoroutine scheduled")
       suspendCancellableCoroutine { continuation ->
+        LOG.info("suspendCancellableCoroutine launched")
         val listener = object : VcsLogListener {
           override fun onChange(dataPack: VcsLogDataPack, refreshHappened: Boolean) {
             if (!(dataPack as VisiblePack).canRequestMore()) {
@@ -71,5 +80,6 @@ class ShowFileHistoryCommand(text: String, line: Int) : PerformanceCommandCorout
     const val FIRST_PACK_SPAN_NAME = "showFirstPack"
     const val COMMAND_NAME = "showFileHistory"
     const val PREFIX = "${CMD_PREFIX}$COMMAND_NAME"
+    private val LOG = logger<ShowFileHistoryCommand>()
   }
 }

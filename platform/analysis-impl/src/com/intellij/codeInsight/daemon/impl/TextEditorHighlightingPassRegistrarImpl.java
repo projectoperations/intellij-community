@@ -1,8 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeHighlighting.*;
 import com.intellij.codeInsight.daemon.ProblemHighlightFilter;
+import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
@@ -30,6 +31,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
+@ApiStatus.Internal
 public final class TextEditorHighlightingPassRegistrarImpl extends TextEditorHighlightingPassRegistrarEx {
   public static final ExtensionPointName<TextEditorHighlightingPassFactoryRegistrar> EP_NAME = new ExtensionPointName<>("com.intellij.highlightingPassFactory");
 
@@ -141,7 +143,6 @@ public final class TextEditorHighlightingPassRegistrarImpl extends TextEditorHig
           || id == Pass.WOLF
           || id == Pass.LINE_MARKERS
           || id == Pass.SLOW_LINE_MARKERS
-          || id == Pass.WHOLE_FILE_LOCAL_INSPECTIONS
           ) {
         continue;
       }
@@ -161,6 +162,7 @@ public final class TextEditorHighlightingPassRegistrarImpl extends TextEditorHig
                                                                               @NotNull Editor editor,
                                                                               int @NotNull [] passesToIgnore) {
     ApplicationManager.getApplication().assertIsNonDispatchThread();
+    GlobalInspectionContextBase.assertUnderDaemonProgress();
     PsiDocumentManager documentManager = PsiDocumentManager.getInstance(myProject);
     Document document = editor.getDocument();
     PsiFile fileFromDoc = documentManager.getPsiFile(document);
@@ -173,8 +175,7 @@ public final class TextEditorHighlightingPassRegistrarImpl extends TextEditorHig
     PassConfig[] frozenPassConfigs = freezeRegisteredPassFactories();
     List<TextEditorHighlightingPass> result = new ArrayList<>(frozenPassConfigs.length);
     IntList passesRefusedToCreate = new IntArrayList();
-    boolean isDumb = DumbService.getInstance(myProject).isDumb();
-    try (AccessToken ignored = ClientId.withClientId(ClientEditorManager.getClientId(editor))) {
+    try (AccessToken ignored = ClientId.withExplicitClientId(ClientEditorManager.Companion.getClientId(editor))) {
       for (int passId = 1; passId < frozenPassConfigs.length; passId++) {
         PassConfig passConfig = frozenPassConfigs[passId];
         if (passConfig == null) continue;
@@ -182,13 +183,13 @@ public final class TextEditorHighlightingPassRegistrarImpl extends TextEditorHig
           continue;
         }
         TextEditorHighlightingPassFactory factory = passConfig.passFactory;
-        TextEditorHighlightingPass pass = (!isDumb || DumbService.isDumbAware(factory))
+        TextEditorHighlightingPass pass = DumbService.getInstance(myProject).isUsableInCurrentContext(factory)
           && ProblemHighlightFilter.shouldHighlightFile(psiFile) ? factory.createHighlightingPass(psiFile, editor) : null;
-        if (pass == null || isDumb && !DumbService.isDumbAware(pass)) {
+        if (pass == null || !DumbService.getInstance(myProject).isUsableInCurrentContext(pass)) {
           passesRefusedToCreate.add(passId);
         }
         else {
-          // init with editor's colors scheme
+          // init with editor's color scheme
           pass.setColorsScheme(editor.getColorsScheme());
 
           IntList ids = passConfig.completionPredecessorIds.length == 0 ? IntList.of() : new IntArrayList(passConfig.completionPredecessorIds.length);

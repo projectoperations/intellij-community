@@ -2,8 +2,7 @@
 
 package org.jetbrains.kotlin.nj2k
 
-import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.config.ApiVersion
 import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
@@ -17,15 +16,17 @@ abstract class Conversion(val context: NewJ2kConverterContext) {
     val typeFactory: JKTypeFactory
         get() = context.typeFactory
 
-    context(KtAnalysisSession)
+    context(KaSession)
     fun runForEach(treeRoots: Sequence<JKTreeElement>, context: NewJ2kConverterContext) {
         for (root in treeRoots) {
             run(root, context)
         }
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     abstract fun run(treeRoot: JKTreeElement, context: NewJ2kConverterContext)
+
+    open fun isEnabledInBasicMode(): Boolean = true
 
     protected fun <E : JKTreeElement> applyRecursive(element: E, func: (JKTreeElement) -> JKTreeElement): E =
         applyRecursiveWithData(element, data = null) { it, _ -> func(it) }
@@ -44,21 +45,21 @@ val Conversion.moduleApiVersion: ApiVersion
     get() = languageVersionSettings.apiVersion
 
 abstract class RecursiveConversion(context: NewJ2kConverterContext) : Conversion(context) {
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun run(treeRoot: JKTreeElement, context: NewJ2kConverterContext) {
         val root = applyToElement(treeRoot)
         assert(root === treeRoot)
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     abstract fun applyToElement(element: JKTreeElement): JKTreeElement
 
-    context(KtAnalysisSession)
+    context(KaSession)
     protected fun <E : JKTreeElement> recurse(element: E): E = applyRecursive(element) { applyToElement(it) }
 }
 
 abstract class RecursiveConversionWithData<D>(context: NewJ2kConverterContext, private val initialData: D) : Conversion(context) {
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun run(treeRoot: JKTreeElement, context: NewJ2kConverterContext) {
         val root = applyToElement(treeRoot, initialData)
         assert(root === treeRoot)

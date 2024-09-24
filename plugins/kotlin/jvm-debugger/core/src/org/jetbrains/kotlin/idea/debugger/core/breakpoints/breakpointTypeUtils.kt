@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.idea.base.psi.getLineEndOffset
 import org.jetbrains.kotlin.idea.base.psi.getLineNumber
 import org.jetbrains.kotlin.idea.base.psi.getLineStartOffset
+import org.jetbrains.kotlin.idea.debugger.base.util.KotlinDebuggerConstants.INLINE_ONLY_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.idea.debugger.core.findElementAtLine
 import org.jetbrains.kotlin.idea.util.findElementsOfClassInRange
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -24,7 +25,6 @@ import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.endOffset
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
-import org.jetbrains.kotlin.resolve.inline.INLINE_ONLY_ANNOTATION_FQ_NAME
 import kotlin.math.max
 import kotlin.math.min
 
@@ -144,11 +144,8 @@ fun getLambdasAtLineIfAny(file: KtFile, line: Int): List<KtFunction> {
 }
 
 internal fun getLambdasAtLine(file: KtFile, line: Int): List<KtFunction> {
-    val start = file.getLineStartOffset(line)
-    val end = file.getLineEndOffset(line)
-    if (start == null || end == null) {
-        return emptyList()
-    }
+    val start = file.getLineStartOffset(line) ?: return emptyList()
+    val end = file.getLineEndOffset(line) ?: return emptyList()
     val result = mutableSetOf<KtFunction>()
 
     var offset: Int = start

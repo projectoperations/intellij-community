@@ -4,21 +4,22 @@ package org.jetbrains.kotlin.idea.core.script
 
 import com.intellij.ide.scratch.ScratchUtil
 import com.intellij.lang.injection.InjectedLanguageManager
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileSystem
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiRecursiveElementVisitor
-import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.io.URLUtil
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.idea.core.script.ClasspathToVfsConverter.classpathEntryToVfs
 import org.jetbrains.kotlin.idea.core.script.configuration.CompositeScriptConfigurationManager
 import org.jetbrains.kotlin.idea.core.script.configuration.DefaultScriptingSupport
+import org.jetbrains.kotlin.idea.util.application.isUnitTestMode
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.scripting.definitions.ScriptDependenciesProvider
 import org.jetbrains.kotlin.scripting.resolve.ScriptCompilationConfigurationResult
@@ -63,9 +64,7 @@ internal class IdeScriptDependenciesProvider(project: Project) : ScriptDependenc
  * This service also starts indexing of new dependency roots and runs highlighting
  * of opened files when configuration will be loaded or updated.
  */
-interface ScriptConfigurationManager {
-    fun loadPlugins()
-
+interface ScriptConfigurationManager : ScriptDependencyAware {
     /**
      * Get cached configuration for [file] or load it.
      * May return null even configuration was loaded but was not yet applied.
@@ -102,23 +101,10 @@ interface ScriptConfigurationManager {
     ///////////////
     // classpath roots info:
 
-    fun getScriptSdk(file: VirtualFile): Sdk?
-    fun getFirstScriptsSdk(): Sdk?
-
-    fun getScriptDependenciesClassFilesScope(file: VirtualFile): GlobalSearchScope
-
-    fun getScriptDependenciesClassFiles(file: VirtualFile): Collection<VirtualFile>
     fun getScriptDependenciesSourceFiles(file: VirtualFile): Collection<VirtualFile>
-
-    fun getScriptSdkDependenciesClassFiles(file: VirtualFile): Collection<VirtualFile>
-    fun getScriptSdkDependenciesSourceFiles(file: VirtualFile): Collection<VirtualFile>
-
-    fun getAllScriptsDependenciesClassFilesScope(): GlobalSearchScope
-    fun getAllScriptDependenciesSourcesScope(): GlobalSearchScope
-    fun getAllScriptsDependenciesClassFiles(): Collection<VirtualFile>
-    fun getAllScriptDependenciesSources(): Collection<VirtualFile>
     fun getAllScriptsSdkDependenciesClassFiles(): Collection<VirtualFile>
     fun getAllScriptSdkDependenciesSources(): Collection<VirtualFile>
+    fun getScriptDependingOn(dependencies: Collection<String>): VirtualFile?
 
     companion object {
         fun getServiceIfCreated(project: Project): ScriptConfigurationManager? = project.serviceIfCreated()
@@ -137,10 +123,11 @@ interface ScriptConfigurationManager {
         fun updateScriptDependenciesSynchronously(file: PsiFile) {
             // TODO: review the usages of this method
             val defaultScriptingSupport = defaultScriptingSupport(file.project)
-            when(file) {
+            when (file) {
                 is KtFile -> {
                     defaultScriptingSupport.updateScriptDependenciesSynchronously(file)
                 }
+
                 else -> {
                     val project = file.project
                     val injectedLanguageManager = InjectedLanguageManager.getInstance(project)
@@ -149,7 +136,7 @@ interface ScriptConfigurationManager {
                             injectedLanguageManager.enumerate(element) { psi, _ ->
                                 defaultScriptingSupport.updateScriptDependenciesSynchronously(psi)
                             }
-                          super.visitElement(element)
+                            super.visitElement(element)
                         }
                     }.visitFile(file)
                 }
@@ -175,14 +162,15 @@ object ClasspathToVfsConverter {
 
     private val cache = ConcurrentHashMap<String, Pair<FileType, VirtualFile?>>()
 
-    private val Path.fileType: FileType get(){
-        return when {
-          notExists() -> FileType.NOT_EXISTS
-          isDirectory() -> FileType.DIRECTORY
-          isRegularFile() -> FileType.REGULAR_FILE
-          else -> FileType.UNKNOWN
+    private val Path.fileType: FileType
+        get() {
+            return when {
+                notExists() -> FileType.NOT_EXISTS
+                isDirectory() -> FileType.DIRECTORY
+                isRegularFile() -> FileType.REGULAR_FILE
+                else -> FileType.UNKNOWN
+            }
         }
-    }
 
     fun clearCaches() = cache.clear()
 
@@ -191,12 +179,24 @@ object ClasspathToVfsConverter {
         val key = path.pathString
         val newType = path.fileType
 
+        //we cannot use `refreshAndFindFileByPath` under read lock
+        fun VirtualFileSystem.findLocalFileByPath(filePath: String): VirtualFile? {
+            val application = ApplicationManager.getApplication()
+
+            return if (!application.isDispatchThread() && application.isReadAccessAllowed()
+                || isUnitTestMode()
+            ) {
+                findFileByPath(filePath)
+            } else {
+                refreshAndFindFileByPath(filePath)
+            }
+        }
+
         fun compute(filePath: String): Pair<FileType, VirtualFile?> {
-            return newType to when(newType) {
-                FileType.NOT_EXISTS -> null
-                FileType.DIRECTORY -> StandardFileSystems.local()?.refreshAndFindFileByPath(filePath)
-                FileType.REGULAR_FILE -> StandardFileSystems.jar()?.refreshAndFindFileByPath(filePath + URLUtil.JAR_SEPARATOR)
-                FileType.UNKNOWN -> null
+            return newType to when (newType) {
+                FileType.NOT_EXISTS, FileType.UNKNOWN -> null
+                FileType.DIRECTORY -> StandardFileSystems.local()?.findLocalFileByPath(filePath)
+                FileType.REGULAR_FILE -> StandardFileSystems.jar()?.findLocalFileByPath(filePath + URLUtil.JAR_SEPARATOR)
             }
         }
 

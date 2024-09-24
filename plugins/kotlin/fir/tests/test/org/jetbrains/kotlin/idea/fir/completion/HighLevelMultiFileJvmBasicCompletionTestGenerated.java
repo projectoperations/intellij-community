@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.fir.completion;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -19,6 +20,12 @@ import org.junit.runner.RunWith;
 @RunWith(JUnit3RunnerWithInners.class)
 @TestMetadata("../../completion/testData/basic/multifile")
 public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractHighLevelMultiFileJvmBasicCompletionTest {
+    @java.lang.Override
+    @org.jetbrains.annotations.NotNull
+    public final KotlinPluginMode getPluginMode() {
+        return KotlinPluginMode.K2;
+    }
+
     private void runTest(String testDataFilePath) throws Exception {
         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
@@ -46,6 +53,11 @@ public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractH
     @TestMetadata("ClassInExcludedPackage")
     public void testClassInExcludedPackage() throws Exception {
         runTest("../../completion/testData/basic/multifile/ClassInExcludedPackage/");
+    }
+
+    @TestMetadata("ClassInRootPackage")
+    public void testClassInRootPackage() throws Exception {
+        runTest("../../completion/testData/basic/multifile/ClassInRootPackage/");
     }
 
     @TestMetadata("CompleteFunctionWithNoSpecifiedType")
@@ -181,6 +193,11 @@ public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractH
     @TestMetadata("InImportCompanionObjectMembers")
     public void testInImportCompanionObjectMembers() throws Exception {
         runTest("../../completion/testData/basic/multifile/InImportCompanionObjectMembers/");
+    }
+
+    @TestMetadata("InImportEscaped")
+    public void testInImportEscaped() throws Exception {
+        runTest("../../completion/testData/basic/multifile/InImportEscaped/");
     }
 
     @TestMetadata("InImportExtension")
@@ -386,6 +403,21 @@ public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractH
     @TestMetadata("ParameterNameAndTypeNestedClasses")
     public void testParameterNameAndTypeNestedClasses() throws Exception {
         runTest("../../completion/testData/basic/multifile/ParameterNameAndTypeNestedClasses/");
+    }
+
+    @TestMetadata("PreferKotlinClasses")
+    public void testPreferKotlinClasses() throws Exception {
+        runTest("../../completion/testData/basic/multifile/PreferKotlinClasses/");
+    }
+
+    @TestMetadata("PreferKotlinx")
+    public void testPreferKotlinx() throws Exception {
+        runTest("../../completion/testData/basic/multifile/PreferKotlinx/");
+    }
+
+    @TestMetadata("PreferKotlinxFlow")
+    public void testPreferKotlinxFlow() throws Exception {
+        runTest("../../completion/testData/basic/multifile/PreferKotlinxFlow/");
     }
 
     @TestMetadata("PreferMemberToExtension")

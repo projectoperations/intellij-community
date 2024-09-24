@@ -15,7 +15,6 @@ import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.util.Suppressions;
 import com.intellij.util.User32Ex;
-import com.intellij.util.lang.JavaVersion;
 import com.sun.jna.platform.win32.WinDef;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -36,20 +35,28 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import static java.util.Objects.requireNonNullElse;
+import static java.util.Objects.requireNonNullElseGet;
 
 /**
- * The class ensures that only one IDE instance is running on the given pair of configuration/cache directories,
+ * The class ensures that only one IDE instance is running on the given pair of configuration/cache directories
  * and participates in the CLI by passing arguments and relaying back exit codes and error messages.
  */
 final class DirectoryLock {
   static final class CannotActivateException extends Exception {
+    private final @Nullable @Nls String myMessage;
+
     private CannotActivateException(Throwable cause) {
       super(cause);
+      myMessage = null;
+    }
+
+    private CannotActivateException(@NotNull @Nls String message) {
+      myMessage = message;
     }
 
     @Override
     public @Nls String getMessage() {
-      return BootstrapBundle.message("bootstrap.error.cannot.activate.message", getCause().getClass().getSimpleName(), getCause().getMessage());
+      return requireNonNullElseGet(myMessage, () -> BootstrapBundle.message("bootstrap.error.cannot.activate.message", getCause().getClass().getSimpleName(), getCause().getMessage()));
     }
   }
 
@@ -62,9 +69,11 @@ final class DirectoryLock {
 
   private static final Logger LOG = getLogger();
   private static final AtomicInteger COUNT = new AtomicInteger();  // to ensure redirected port file uniqueness in tests
+  private static final long TIMEOUT_MS = Integer.getInteger("ij.dir.lock.timeout", 5_000);
+  private static final List<String> ACK_PACKET = List.of("<<ACK>>");
 
   private static Logger getLogger() {
-    Logger logger = Logger.getInstance(DirectoryLock.class);
+    var logger = Logger.getInstance(DirectoryLock.class);
     if (Boolean.getBoolean("ij.dir.lock.debug")) logger.setLevel(LogLevel.DEBUG);
     return logger;
   }
@@ -76,7 +85,6 @@ final class DirectoryLock {
   private final @Nullable Path myRedirectedPortFile;
   private final Function<List<String>, CliResult> myProcessor;
 
-  private long myTimeoutMs = Integer.getInteger("ij.dir.lock.timeout", 5_000);
   private volatile @Nullable ServerSocketChannel myServerChannel = null;
 
   DirectoryLock(@NotNull Path configPath, @NotNull Path systemPath, @NotNull Function<List<String>, CliResult> processor) {
@@ -104,8 +112,7 @@ final class DirectoryLock {
   private static boolean areUdsSupported(Path file) {
     var fs = file.getFileSystem();
     if (fs.getClass().getModule() != Object.class.getModule()) {
-      if (!System.getProperty("java.vm.vendor", "").contains("JetBrains") ||
-          JavaVersion.current().compareTo(JavaVersion.compose(17, 0, 6, 894, false)) < 0) {
+      if (!System.getProperty("java.vm.vendor", "").contains("JetBrains")) {
         return false;
       }
       try {
@@ -160,10 +167,10 @@ final class DirectoryLock {
       throw new CannotActivateException(e);
     }
 
-    if (LOG.isDebugEnabled()) LOG.debug("Deleting " + myPortFile);
+    if (LOG.isDebugEnabled()) LOG.debug("deleting " + myPortFile);
     Files.deleteIfExists(myPortFile);
     if (myRedirectedPortFile != null) {
-      if (LOG.isDebugEnabled()) LOG.debug("Deleting " + myRedirectedPortFile);
+      if (LOG.isDebugEnabled()) LOG.debug("deleting " + myRedirectedPortFile);
       Files.deleteIfExists(myRedirectedPortFile);
     }
 
@@ -178,7 +185,7 @@ final class DirectoryLock {
     var serverChannel = myServerChannel;
     myServerChannel = null;
     if (serverChannel != null) {
-      if (LOG.isDebugEnabled()) LOG.debug("Cleaning up");
+      if (LOG.isDebugEnabled()) LOG.debug("cleaning up");
       Suppressions.runSuppressing(
         () -> serverChannel.close(),
         () -> {
@@ -195,7 +202,7 @@ final class DirectoryLock {
     }
   }
 
-  private CliResult tryConnect(List<String> args, Path currentDirectory) throws IOException {
+  private CliResult tryConnect(List<String> args, Path currentDirectory) throws IOException, CannotActivateException {
     var pf = myFallbackMode ? StandardProtocolFamily.INET : StandardProtocolFamily.UNIX;
     try (var socketChannel = SocketChannel.open(pf); var selector = Selector.open()) {
       socketChannel.configureBlocking(false);
@@ -217,10 +224,10 @@ final class DirectoryLock {
       if (LOG.isDebugEnabled()) LOG.debug("connecting to " + address);
       socketChannel.register(selector, SelectionKey.OP_CONNECT);
       if (!socketChannel.connect(address)) {
-        if (selector.select(myTimeoutMs) == 0) throw new SocketTimeoutException(BootstrapBundle.message("bootstrap.error.timeout", address));
+        if (selector.select(TIMEOUT_MS) == 0) throw deadEndException(address, 1);
         socketChannel.finishConnect();
       }
-      if (LOG.isDebugEnabled()) LOG.debug("connected to " + address);
+      LOG.debug("... connected");
       socketChannel.register(selector, SelectionKey.OP_READ);
 
       allowActivation();
@@ -230,24 +237,39 @@ final class DirectoryLock {
       request.addAll(args);
       sendLines(socketChannel, request);
 
-      if (selector.select(myTimeoutMs) == 0) {
-        var e = new SocketTimeoutException(BootstrapBundle.message("bootstrap.error.timeout", address));
-        e.addSuppressed(new Exception("response was not received"));
-        throw e;
+      try {
+        if (selector.select(TIMEOUT_MS) == 0) throw deadEndException(address, 2);
+        var ack = receiveLines(socketChannel);
+        if (!ack.equals(ACK_PACKET)) throw new IOException(BootstrapBundle.message("bootstrap.error.malformed.response", ack));
+
+        var response = receiveLines(socketChannel);
+        if (response.size() != 2) throw new IOException(BootstrapBundle.message("bootstrap.error.malformed.response", response));
+        var exitCode = Integer.parseInt(response.get(0));
+        var message = response.get(1);
+        return new CliResult(exitCode, message.isEmpty() ? null : message);
       }
-      var response = readLines(socketChannel);
-      if (response.size() != 2) throw new IOException(BootstrapBundle.message("bootstrap.error.malformed.response", response));
-      var exitCode = Integer.parseInt(response.get(0));
-      var message = response.get(1);
-      return new CliResult(exitCode, message.isEmpty() ? null : message);
+      catch (EOFException e) {
+        LOG.debug(e);
+        throw deadEndException(address, 3);
+      }
     }
+  }
+
+  private CannotActivateException deadEndException(SocketAddress address, int reason) {
+    var remotePID = "?";
+    try {
+      remotePID = String.valueOf(remotePID());
+    }
+    catch (Exception e) {
+      LOG.debug(e);
+    }
+    return new CannotActivateException(BootstrapBundle.message("bootstrap.error.dead.end", remotePID, address, reason, myPortFile));
   }
 
   private void allowActivation() {
     if (SystemInfoRt.isWindows && JnaLoader.isLoaded()) {
       try {
-        var remotePID = Long.parseLong(Files.readString(myLockFile));
-        User32Ex.INSTANCE.AllowSetForegroundWindow(new WinDef.DWORD(remotePID));
+        User32Ex.INSTANCE.AllowSetForegroundWindow(new WinDef.DWORD(remotePID()));
       }
       catch (Throwable t) {
         LOG.debug(t);
@@ -282,17 +304,21 @@ final class DirectoryLock {
       }
       lockDirectory(myLockFile);
     }
-    catch (Exception e) {
+    catch (CannotActivateException e) {
+      dispose(false);
+      throw e;
+    }
+    catch (IOException e) {
       LOG.debug(e);
       dispose(false);
-      throw new CannotActivateException(e);
+      throw new IOException("Cannot lock config directory " + myLockFile.getParent(), e);
     }
 
     new Thread(this::acceptConnections, SERVER_THREAD_NAME).start();
     return null;
   }
 
-  private void lockDirectory(Path lockFile) throws IOException, IllegalStateException {
+  private void lockDirectory(Path lockFile) throws IOException, CannotActivateException {
     IOException first = null;
 
     for (var i = 0; i < LOCK_RETRIES; i++) {
@@ -304,13 +330,13 @@ final class DirectoryLock {
         first = Suppressions.addSuppressed(first, e);
         try {
           try {
-            var otherPid = Long.parseLong(Files.readString(lockFile));
+            var otherPid = remotePID();
             var handle = ProcessHandle.of(otherPid).orElse(null);
             if (handle != null) {
               var command = Path.of(handle.info().command().orElse(""));
               if (command.endsWith(SystemInfoRt.isWindows ? "java.exe" : "java") ||
                   command.endsWith(ApplicationNamesInfo.getInstance().getScriptName() + (SystemInfoRt.isWindows ? "64.exe" : ""))) {
-                throw new IllegalStateException(BootstrapBundle.message("bootstrap.error.still.running", command, Long.toString(otherPid), lockFile), e);
+                throw new CannotActivateException(BootstrapBundle.message("bootstrap.error.still.running", command, Long.toString(otherPid), lockFile));
               }
             }
           }
@@ -345,7 +371,9 @@ final class DirectoryLock {
 
   private void handleConnection(SocketChannel socketChannel) {
     try (socketChannel) {
-      var request = readLines(socketChannel);
+      var request = receiveLines(socketChannel);
+
+      sendLines(socketChannel, ACK_PACKET);
 
       CliResult result;
       try {
@@ -371,10 +399,8 @@ final class DirectoryLock {
     return myRedirectedPortFile;
   }
 
-  @VisibleForTesting
-  DirectoryLock withConnectTimeout(long timeoutMs) {
-    myTimeoutMs = timeoutMs;
-    return this;
+  private long remotePID() throws IOException {
+    return Long.parseLong(Files.readString(myLockFile));
   }
 
   private static void sendLines(SocketChannel socketChannel, List<String> lines) throws IOException {
@@ -389,38 +415,45 @@ final class DirectoryLock {
 
     buffer.putShort(4, (short)buffer.position());
 
+    if (LOG.isDebugEnabled()) LOG.debug("sending: " + lines + ", bytes:" + buffer.position());
     buffer.flip();
     while (buffer.hasRemaining()) {
       socketChannel.write(buffer);
     }
   }
 
-  private static List<String> readLines(SocketChannel socketChannel) throws IOException {
+  private static List<String> receiveLines(SocketChannel socketChannel) throws IOException {
     var buffer = ByteBuffer.allocate(BUFFER_LENGTH);
 
+    buffer.limit(HEADER_LENGTH);
     while (buffer.position() < HEADER_LENGTH) {
       if (socketChannel.read(buffer) < 0) {
         throw new EOFException("Expected " + HEADER_LENGTH + " bytes, got " + buffer.position());
       }
     }
+    var marker = buffer.getInt(0);
+    if (marker != MARKER) throw new StreamCorruptedException("Invalid marker: 0x" + Integer.toHexString(marker));
     var length = buffer.getShort(4);
+    if (LOG.isDebugEnabled()) LOG.debug("receiving: " + length + " bytes");
+    buffer.limit(length);
     while (buffer.position() < length) {
       if (socketChannel.read(buffer) < 0) {
         throw new EOFException("Expected " + length + " bytes, got " + buffer.position());
       }
     }
 
-    buffer.flip();
-    var marker = buffer.getInt();
-    if (marker != MARKER) throw new StreamCorruptedException("Invalid marker: 0x" + Integer.toHexString(marker));
-    buffer.getShort();
-
+    buffer.position(HEADER_LENGTH);
     var lines = new ArrayList<String>();
     while (buffer.hasRemaining()) {
-      length = buffer.getShort();
-      var bytes = new byte[length];
-      buffer.get(bytes);
-      lines.add(new String(bytes, StandardCharsets.UTF_8));
+      var lineLength = buffer.getShort();
+      if (lineLength > 0) {
+        var bytes = new byte[lineLength];
+        buffer.get(bytes);
+        lines.add(new String(bytes, StandardCharsets.UTF_8));
+      }
+      else {
+        lines.add("");
+      }
     }
     return lines;
   }

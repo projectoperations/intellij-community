@@ -1,2 +1,1 @@
-//class
-interface CommandHandler<T extends Command> {}
+interface CommandHandler<T extends Number> {}

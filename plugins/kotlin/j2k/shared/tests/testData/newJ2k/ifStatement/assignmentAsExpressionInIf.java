@@ -1,9 +1,10 @@
 public class SomeClass {
     void doSomeIf(int i) {
-        int a,b,c
-        if (i < 0)
+        int a, b, c;
+        if (i < 0) {
             a = b = i;
-        else
+        } else {
             b = c = i;
+        }
     }
 }

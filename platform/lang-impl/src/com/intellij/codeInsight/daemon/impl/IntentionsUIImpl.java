@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.hint.HintManager;
@@ -7,6 +7,7 @@ import com.intellij.codeInsight.intention.impl.IntentionHintComponent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.LogicalPosition;
+import com.intellij.openapi.editor.impl.ImaginaryEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
@@ -33,7 +34,7 @@ public class IntentionsUIImpl extends IntentionsUI {
   @RequiresEdt
   public void update(@NotNull CachedIntentions cachedIntentions, boolean actionsChanged) {
     Editor editor = cachedIntentions.getEditor();
-    if (editor == null) {
+    if (editor == null || editor instanceof ImaginaryEditor) {
       return;
     }
     if (!ApplicationManager.getApplication().isUnitTestMode() && !editor.getContentComponent().hasFocus()) {
@@ -52,6 +53,7 @@ public class IntentionsUIImpl extends IntentionsUI {
     hide();
     if (!HintManager.getInstance().hasShownHintsThatWillHideByOtherHint(false)
         && visibleArea.contains(xy)
+        && !editor.isViewer()
         && editor.getSettings().isShowIntentionBulb()
         && editor.getCaretModel().getCaretCount() == 1
         && cachedIntentions.showBulb()

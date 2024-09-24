@@ -26,6 +26,8 @@ class MavenCompatibilityProjectImportingTest : MavenImportingTestCase() {
   @JvmField
   var myMavenVersion: String? = null
 
+  override fun runInDispatchThread(): Boolean = false
+
   private fun assumeVersionMoreThan(version: String) {
     Assume.assumeTrue("Version should be more than $version", VersionComparatorUtil.compare(myMavenVersion, version) > 0)
   }
@@ -44,7 +46,7 @@ class MavenCompatibilityProjectImportingTest : MavenImportingTestCase() {
   }
 
   @Before
-  fun before() {
+  fun before() = runBlocking {
     myWrapperTestFixture = MavenWrapperTestFixture(project, myMavenVersion)
     myWrapperTestFixture!!.setUp()
 
@@ -55,7 +57,7 @@ class MavenCompatibilityProjectImportingTest : MavenImportingTestCase() {
   }
 
   @After
-  fun after() {
+  fun after() = runBlocking {
     myWrapperTestFixture!!.tearDown()
   }
 
@@ -87,11 +89,11 @@ class MavenCompatibilityProjectImportingTest : MavenImportingTestCase() {
     val projects = projectsTree.projects
     assertEquals(1, projects.size)
     val mavenProject = projects[0]
-    val extensionProblems = mavenProject.getProblems().filter { "throw!" == it.description }
+    val extensionProblems = mavenProject.problems.filter { "throw!" == it.description }
     assertEquals(extensionProblems.toString(), 1, extensionProblems.size)
     val problem = extensionProblems[0]
     assertEquals(problem.toString(), MavenProjectProblem.ProblemType.STRUCTURE, problem.type)
-    val otherProblems = mavenProject.getProblems().filter { it !== problem }
+    val otherProblems = mavenProject.problems.filter { it !== problem }
     assertTrue(otherProblems.toString(),
                otherProblems.all {
                  it.type == MavenProjectProblem.ProblemType.DEPENDENCY && it.description!!.startsWith("Unresolved plugin")
@@ -270,9 +272,7 @@ class MavenCompatibilityProjectImportingTest : MavenImportingTestCase() {
 
     assertModuleLibDep(mn("project", "module1"), "Maven: org.example:intellijmaventest:1.0")
 
-    /*myWrapperTestFixture.tearDown();
-      myWrapperTestFixture.setUp();*/
-    createModulePom("module1", """
+    val module1 = createModulePom("module1", """
       <parent>
       <groupId>test</groupId>
       <artifactId>project</artifactId>
@@ -288,6 +288,7 @@ class MavenCompatibilityProjectImportingTest : MavenImportingTestCase() {
       </dependencies>
       """.trimIndent()
     )
+    refreshFiles(listOf(module1))
 
     importProjectAsync("""
                     <groupId>test</groupId>
@@ -380,7 +381,10 @@ class MavenCompatibilityProjectImportingTest : MavenImportingTestCase() {
     @get:Parameterized.Parameters(name = "with Maven-{0}")
     val mavenVersions: List<Array<String>>
       get() = listOf(
-        arrayOf("4.0.0-alpha-12"),
+        arrayOf("4.0.0-beta-3"),
+        arrayOf("3.9.9"),
+        arrayOf("3.9.8"),
+        arrayOf("3.9.7"),
         arrayOf("3.9.6"),
         arrayOf("3.9.5"),
         arrayOf("3.9.4"),

@@ -5,6 +5,7 @@ import com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereFoundElementInfo
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereMlService
 import com.intellij.internal.statistic.eventLog.events.EventPair
+import com.intellij.openapi.util.use
 import com.intellij.searchEverywhereMl.ranking.core.SearchEverywhereMLStatisticsCollector.COLLECTED_RESULTS_DATA_KEY
 import com.intellij.searchEverywhereMl.ranking.core.SearchEverywhereMLStatisticsCollector.CONTRIBUTOR_DATA_KEY
 import com.intellij.searchEverywhereMl.ranking.core.SearchEverywhereMLStatisticsCollector.FEATURES_DATA_KEY
@@ -14,6 +15,7 @@ import com.intellij.searchEverywhereMl.ranking.core.features.SearchEverywhereAct
 import com.intellij.searchEverywhereMl.ranking.core.features.SearchEverywhereActionFeaturesProvider.Fields.TEXT_LENGTH_KEY
 import com.intellij.searchEverywhereMl.ranking.core.features.SearchEverywhereContributorFeaturesProvider.Companion.CONTRIBUTOR_INFO_ID
 import com.intellij.searchEverywhereMl.ranking.core.features.SearchEverywhereContributorFeaturesProvider.Companion.CONTRIBUTOR_WEIGHT
+import com.intellij.searchEverywhereMl.ranking.core.features.SearchEverywhereElementFeaturesProvider.Companion.BUFFERED_TIMESTAMP
 import com.intellij.searchEverywhereMl.ranking.core.features.SearchEverywhereGeneralActionFeaturesProvider.Fields.IS_ENABLED
 import com.intellij.searchEverywhereMl.ranking.core.features.SearchEverywhereGeneralActionFeaturesProvider.Fields.IS_HIGH_PRIORITY
 import com.intellij.searchEverywhereMl.ranking.core.features.assert
@@ -30,12 +32,13 @@ import org.junit.runners.JUnit4
 internal class SearchEverywhereMlDiffLoggingTest : SearchEverywhereLoggingTestCase() {
   @Test
   fun `checks with single element that only changed data is recorded`() {
-    val events = underMaskedExtensionPoints {
-      SearchEverywhereMlService.EP_NAME maskedWith listOf(MockSearchEverywhereMlService())
-      SearchEverywhereElementKeyProvider.EP_NAME maskedWith listOf(MockElementKeyForIdProvider())
+    val events = SearchEverywhereMlService.EP_NAME.maskedWith(listOf(MockSearchEverywhereMlService())).use {
+      SearchEverywhereElementKeyProvider.EP_NAME.maskedWith(listOf(MockElementKeyForIdProvider())).use {
 
-      MockSearchEverywhereProvider.SingleActionSearchEverywhere.runSearchAndCollectLogEvents {
-        type("regist")
+        MockSearchEverywhereProvider.SingleActionSearchEverywhere.runSearchAndCollectLogEvents {
+          type("regist")
+        }
+
       }
     }
 
@@ -51,23 +54,21 @@ internal class SearchEverywhereMlDiffLoggingTest : SearchEverywhereLoggingTestCa
   @Test
   fun `check that no diff logging applies between two search everywhere runs`() {
     // This test addresses IDEA-345677
-    val firstSERunEvents = underMaskedExtensionPoints {
-      SearchEverywhereMlService.EP_NAME maskedWith listOf(MockSearchEverywhereMlService())
-      SearchEverywhereElementKeyProvider.EP_NAME maskedWith listOf(MockElementKeyForIdProvider())
-
-      MockSearchEverywhereProvider.SingleActionSearchEverywhere.runSearchAndCollectLogEvents { type("reg") }
+    val firstSERunEvents = SearchEverywhereMlService.EP_NAME.maskedWith(listOf(MockSearchEverywhereMlService())).use {
+      SearchEverywhereElementKeyProvider.EP_NAME.maskedWith(listOf(MockElementKeyForIdProvider())).use {
+        MockSearchEverywhereProvider.SingleActionSearchEverywhere.runSearchAndCollectLogEvents { type("reg") }
+      }
     }
 
-    val secondSERunEvents = underMaskedExtensionPoints {
-      SearchEverywhereMlService.EP_NAME maskedWith listOf(MockSearchEverywhereMlService())
-      SearchEverywhereElementKeyProvider.EP_NAME maskedWith listOf(MockElementKeyForIdProvider())
-
-      MockSearchEverywhereProvider.SingleActionSearchEverywhere.runSearchAndCollectLogEvents { type("reg") }
+    val secondSERunEvents = SearchEverywhereMlService.EP_NAME.maskedWith(listOf(MockSearchEverywhereMlService())).use {
+      SearchEverywhereElementKeyProvider.EP_NAME.maskedWith(listOf(MockElementKeyForIdProvider())).use {
+        MockSearchEverywhereProvider.SingleActionSearchEverywhere.runSearchAndCollectLogEvents { type("reg") }
+      }
     }
 
-    // We expect both first reports to be exactly the same
-    Assertions.assertEquals(firstSERunEvents.firstEventWithCollectedItems().event.data[COLLECTED_RESULTS_DATA_KEY].first(),
-                            secondSERunEvents.firstEventWithCollectedItems().event.data[COLLECTED_RESULTS_DATA_KEY].first())
+    // We expect both first reports to have the same features
+    Assertions.assertEquals(firstSERunEvents.firstEventWithCollectedItems().event.data[COLLECTED_RESULTS_DATA_KEY].first().keys,
+                            secondSERunEvents.firstEventWithCollectedItems().event.data[COLLECTED_RESULTS_DATA_KEY].first().keys)
   }
 
   private fun checkItemFirstReport(event: LogEvent) {
@@ -89,11 +90,18 @@ internal class SearchEverywhereMlDiffLoggingTest : SearchEverywhereLoggingTestCa
   }
 
   private fun checkItemSecondReport(event: LogEvent) {
-    // The second time the item appears in the list, its score and features are exactly the same, thus only ID should be reported
+    // The second time the item appears, the score and features (except for bufferedTimestamp) remain the same,
+    // thus only ID and BUFFERED_TIMESTAMP should be reported.
+
     val collectedItemData = event.event.data[COLLECTED_RESULTS_DATA_KEY].first()
 
-    Assert.assertEquals(1, collectedItemData.keys.size)
-    Assert.assertEquals(ID_KEY.name, collectedItemData.keys.first())
+    Assert.assertEquals(setOf(ID_KEY.name, FEATURES_DATA_KEY.name), collectedItemData.keys.toSet())
+
+    collectedItemData[FEATURES_DATA_KEY]
+      .also {
+        Assert.assertEquals(1, it.keys.size)
+        Assert.assertTrue(it.keys.contains(BUFFERED_TIMESTAMP.name))
+      }
   }
 
   private fun checkItemThirdReport(event: LogEvent) {
@@ -105,14 +113,18 @@ internal class SearchEverywhereMlDiffLoggingTest : SearchEverywhereLoggingTestCa
   }
 
   private fun checkItemFourthReport(event: LogEvent) {
-    // The fourth time, IS_ENABLED feature changes - no other features should be reported
+    // The fourth time, IS_ENABLED and BUFFERED_TIMESTAMPfeature change - no other features should be reported
     val collectedItemData = event.event.data[COLLECTED_RESULTS_DATA_KEY].first()
 
     Assert.assertEquals(listOf(FEATURES_DATA_KEY.name, ID_KEY.name), collectedItemData.keys.toList())
 
     collectedItemData[FEATURES_DATA_KEY]
-      .also { Assert.assertEquals(1, it.keys.size) }
-      .assert(IS_ENABLED, true)
+      .also {
+        Assert.assertEquals(2, it.keys.size)
+        Assert.assertTrue(it.keys.containsAll(listOf(IS_ENABLED.name, BUFFERED_TIMESTAMP.name)))
+        Assert.assertTrue(it[IS_ENABLED.name] == true)
+        Assert.assertNotNull(it[BUFFERED_TIMESTAMP.name])
+      }
   }
 
   class MockSearchEverywhereMlService(private val delegate: SearchEverywhereMlRankingService = SearchEverywhereMlRankingService())
@@ -155,7 +167,7 @@ internal class SearchEverywhereMlDiffLoggingTest : SearchEverywhereLoggingTestCa
     }
 
     private fun SearchEverywhereFoundElementInfoWithMl.copy(element: Any = this.element,
-                                                            sePriority: Int = this.sePriority,
+                                                            sePriority: Int = this.heuristicPriority,
                                                             contributor: SearchEverywhereContributor<*> = this.contributor,
                                                             mlWeight: Double? = this.mlWeight,
                                                             mlFeatures: List<EventPair<*>> = this.mlFeatures) =

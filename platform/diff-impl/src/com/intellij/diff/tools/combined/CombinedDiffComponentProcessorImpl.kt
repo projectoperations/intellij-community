@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff.tools.combined
 
 import com.intellij.diff.*
@@ -16,6 +16,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diff.impl.DiffUsageTriggerCollector
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.FileEditorStateLevel
@@ -28,22 +29,26 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.EventDispatcher
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import org.jetbrains.annotations.ApiStatus
 import java.awt.Dimension
 import javax.swing.JComponent
 
 private val LOG = logger<CombinedDiffComponentProcessor>()
 
+@ApiStatus.Experimental
 interface CombinedDiffManager {
   fun createProcessor(diffPlace: String? = null): CombinedDiffComponentProcessor
 
   companion object {
-    @JvmStatic
     fun getInstance(project: Project): CombinedDiffManager = project.service()
   }
 }
 
-class CombinedDiffComponentProcessorImpl(val model: CombinedDiffModel,
-                                         goToChangeAction: AnAction?) : CombinedDiffComponentProcessor {
+@ApiStatus.Internal
+class CombinedDiffComponentProcessorImpl(
+  val model: CombinedDiffModel,
+  goToChangeAction: AnAction?,
+) : CombinedDiffComponentProcessor {
 
   override val disposable = Disposer.newCheckedDisposable()
 
@@ -98,7 +103,9 @@ class CombinedDiffComponentProcessorImpl(val model: CombinedDiffModel,
     val textEditorProvider = TextEditorProvider.getInstance()
     return CombinedDiffEditorState(
       model.requests.map { it.id }.toSet(),
-      viewer.getCurrentBlockId(),
+      // FULL editor states are requested for actions restoring editor state after close, not by navigation.
+      // We only want to restore the exact block selection when restoring for navigation or undo.
+      if (level != FileEditorStateLevel.FULL) viewer.getCurrentBlockId() else null,
       viewer.getCurrentDiffViewer()?.editors?.map { textEditorProvider.getStateImpl(null, it, level) } ?: listOf()
     )
   }
@@ -110,28 +117,32 @@ class CombinedDiffComponentProcessorImpl(val model: CombinedDiffModel,
     if (model.requests.map { it.id }.toSet() != state.currentBlockIds) return
 
     val textEditorProvider = TextEditorProvider.getInstance()
-    state.activeEditorStates.zip(viewer.getDiffViewerForId(state.activeBlockId)?.editors ?: listOf()) { st, editor ->
-      textEditorProvider.setStateImpl(null, editor, st, true)
+    state.activeEditorStates.zip(state.activeBlockId?.let(viewer::getDiffViewerForId)?.editors ?: listOf()) { st, editor ->
+      textEditorProvider.setStateImpl(project = null, editor = editor, state = st, exactState = true)
     }
 
-    viewer.selectDiffBlock(state.activeBlockId, true)
-    viewer.scrollToCaret()
+    if (state.activeBlockId != null) {
+      viewer.selectDiffBlock(state.activeBlockId, true)
+      viewer.scrollToCaret()
+    }
   }
 
   private fun createCombinedViewer(initialFocusRequest: Boolean): CombinedDiffViewer? {
     val context = model.context
+    if (!DiffUtil.isUserDataFlagSet(COMBINED_DIFF_VIEWER_INITIAL_FOCUS_REQUEST, context)) {
+      context.putUserData(COMBINED_DIFF_VIEWER_INITIAL_FOCUS_REQUEST, initialFocusRequest)
+    }
     val blocks = model.requests.toList()
     val blockToSelect = model.context.getUserData(COMBINED_DIFF_SCROLL_TO_BLOCK)
     if (blocks.isEmpty()) return null
 
-    val blockState = BlockState(blocks.map { it.id }, blockToSelect ?: blocks.first().id) {
-      eventDispatcher.multicaster.onActiveFileChanged()
+    val blockState = BlockState(blocks.map { it.id }, blockToSelect ?: blocks.first().id).apply {
+      addListener({ _, _ -> eventDispatcher.multicaster.onActiveFileChanged() }, disposable)
     }
 
     return CombinedDiffViewer(context, MyBlockListener(), blockState, mainUi.getUiState()).also { viewer ->
       Disposer.register(disposable, viewer)
       context.putUserData(COMBINED_DIFF_VIEWER_KEY, viewer)
-      context.putUserData(COMBINED_DIFF_VIEWER_INITIAL_FOCUS_REQUEST, initialFocusRequest)
       mainUi.setContent(viewer, blockState)
     }
   }
@@ -180,10 +191,12 @@ class CombinedDiffComponentProcessorImpl(val model: CombinedDiffModel,
   }
 
   companion object {
-    private fun buildBlockContent(mainUi: CombinedDiffMainUI,
-                                  context: DiffContext,
-                                  request: DiffRequest,
-                                  blockId: CombinedBlockId): CombinedDiffBlockContent? {
+    private fun buildBlockContent(
+      mainUi: CombinedDiffMainUI,
+      context: DiffContext,
+      request: DiffRequest,
+      blockId: CombinedBlockId,
+    ): CombinedDiffBlockContent? {
       val diffSettings = DiffSettingsHolder.DiffSettings.getSettings(context.getUserData(DiffUserDataKeys.PLACE))
       val diffTools = DiffManagerEx.getInstance().diffTools
       request.putUserData(DiffUserDataKeys.ALIGNED_TWO_SIDED_DIFF, true)
@@ -215,9 +228,11 @@ class CombinedDiffComponentProcessorImpl(val model: CombinedDiffModel,
       return DiffUtil.findToolSubstitutor(tool, context, request) as? FrameDiffTool ?: tool
     }
 
-    private fun getOrderedDiffTools(diffSettings: DiffSettingsHolder.DiffSettings,
-                                    diffTools: List<DiffTool>,
-                                    isUnifiedView: Boolean): List<FrameDiffTool> {
+    private fun getOrderedDiffTools(
+      diffSettings: DiffSettingsHolder.DiffSettings,
+      diffTools: List<DiffTool>,
+      isUnifiedView: Boolean,
+    ): List<FrameDiffTool> {
       return DiffRequestProcessor.getToolOrderFromSettings(diffSettings, diffTools).asSequence()
         .filterIsInstance<FrameDiffTool>()
         .sortedBy {
@@ -240,10 +255,11 @@ class CombinedDiffComponentProcessorImpl(val model: CombinedDiffModel,
   }
 }
 
-data class CombinedDiffEditorState(
+@ApiStatus.Experimental
+internal data class CombinedDiffEditorState(
   val currentBlockIds: Set<CombinedBlockId>,
-  val activeBlockId: CombinedBlockId,
-  val activeEditorStates: List<TextEditorState>
+  val activeBlockId: CombinedBlockId?,
+  val activeEditorStates: List<TextEditorState>,
 ) : FileEditorStateWithPreferredOpenMode {
   override val openMode: FileEditorManagerImpl.OpenMode?
     get() = if (!isDiffInEditor) FileEditorManagerImpl.OpenMode.NEW_WINDOW else null
@@ -256,6 +272,7 @@ data class CombinedDiffEditorState(
   }
 }
 
+@ApiStatus.Experimental
 interface CombinedDiffComponentProcessor : DiffEditorViewer {
   val blocks: List<CombinedBlockProducer>
 

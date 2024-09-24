@@ -6,6 +6,7 @@ package com.intellij.ui.icons
 import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.ui.IconManager
+import com.intellij.ui.NewUiValue
 import com.intellij.ui.scale.DerivedScaleType
 import com.intellij.ui.scale.ScaleContext
 import com.intellij.ui.svg.SvgCacheClassifier
@@ -24,9 +25,10 @@ import javax.swing.Icon
 
 // a reflective path is not supported, a result is not cached
 @ApiStatus.Internal
-fun loadRasterizedIcon(path: String, classLoader: ClassLoader, cacheKey: Int, flags: Int, toolTip: Supplier<String?>?): Icon {
+fun loadRasterizedIcon(path: String, expUIPath: String?, classLoader: ClassLoader, cacheKey: Int, flags: Int, toolTip: Supplier<String?>?): Icon {
   assert(!path.startsWith('/'))
   return CachedImageIcon(loader = RasterizedImageDataLoader(path = path,
+                                                            expUIPath = expUIPath,
                                                             classLoaderRef = WeakReference(classLoader),
                                                             cacheKey = cacheKey,
                                                             flags = flags),
@@ -36,6 +38,7 @@ fun loadRasterizedIcon(path: String, classLoader: ClassLoader, cacheKey: Int, fl
 @Serializable
 private data class RasterizedImageDataLoaderDescriptor(
   @JvmField val path: String,
+  @JvmField val expUIPath: String?,
   @JvmField val pluginId: String,
   @JvmField val moduleId: String?,
   @JvmField val cacheKey: Int,
@@ -43,11 +46,12 @@ private data class RasterizedImageDataLoaderDescriptor(
 ) : ImageDataLoaderDescriptor {
   override fun createIcon(): ImageDataLoader? {
     val classLoader = IconManager.getInstance().getClassLoader(pluginId, moduleId) ?: return null
-    return RasterizedImageDataLoader(path = path, classLoaderRef = WeakReference(classLoader), cacheKey = cacheKey, flags = flags)
+    return RasterizedImageDataLoader(path = path, expUIPath = expUIPath, classLoaderRef = WeakReference(classLoader), cacheKey = cacheKey, flags = flags)
   }
 }
 
 private class RasterizedImageDataLoader(override val path: String,
+                                        override val expUIPath: String?,
                                         private val classLoaderRef: WeakReference<ClassLoader>,
                                         private val cacheKey: Int,
                                         override val flags: Int) : ImageDataLoader {
@@ -58,6 +62,7 @@ private class RasterizedImageDataLoader(override val path: String,
     val pluginInfo = IconManager.getInstance().getPluginAndModuleId(classLoader)
     return RasterizedImageDataLoaderDescriptor(
       path = path,
+      expUIPath = expUIPath,
       pluginId = pluginInfo.first,
       moduleId = pluginInfo.second,
       flags = flags,
@@ -97,6 +102,9 @@ private class RasterizedImageDataLoader(override val path: String,
     val classLoader = classLoaderRef.get() ?: return null
     val patched = transform.patchPath(path = path, classLoader = classLoader)
     if (patched == null) {
+      if (expUIPath != null && NewUiValue.isEnabled()) {
+        return PatchedRasterizedImageDataLoader(path = expUIPath, classLoaderRef = classLoaderRef, flags = flags)
+      }
       return null
     }
 

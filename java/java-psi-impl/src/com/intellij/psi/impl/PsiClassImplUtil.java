@@ -6,6 +6,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
@@ -347,8 +348,19 @@ public final class PsiClassImplUtil {
     private final ConcurrentMap<MemberType, PsiMember[]> myAllMembers;
 
     MemberCache(@NotNull PsiClass psiClass, @NotNull GlobalSearchScope scope) {
+      boolean dumb = DumbService.isDumb(psiClass.getProject());
       myAllSupers = JBTreeTraverser
-        .from((PsiClass c) -> ContainerUtil.mapNotNull(c.getSupers(), s -> PsiSuperMethodUtil.correctClassByScope(s, scope)))
+        .from((PsiClass c) -> ContainerUtil.mapNotNull(c.getSupers(),
+                                                       superOne -> {
+                                                         PsiClass correctedClass = PsiSuperMethodUtil.correctClassByScope(superOne, scope);
+                                                         if (correctedClass == null && dumb) {
+                                                           if (superOne.getContainingFile() instanceof PsiJavaFile &&
+                                                               ((PsiJavaFile)superOne.getContainingFile()).getPackageStatement() == null) {
+                                                             return superOne;
+                                                           }
+                                                         }
+                                                         return correctedClass;
+                                                       }))
         .unique()
         .withRoot(psiClass)
         .toList();
@@ -1131,11 +1143,6 @@ public final class PsiClassImplUtil {
     VirtualFile vfile2 = file2.getViewProvider().getVirtualFile();
     boolean lib1 = fileIndex.isInLibraryClasses(vfile1);
     boolean lib2 = fileIndex2.isInLibraryClasses(vfile2);
-    if (lib1 && lib2) {
-      LanguageLevel ver1 = JavaMultiReleaseUtil.getVersion(vfile1);
-      LanguageLevel ver2 = JavaMultiReleaseUtil.getVersion(vfile2);
-      if (ver1 != ver2) return false;
-    }
 
     //if copy from another project, fileIndex of correct project should be requested
     return (fileIndex.isInSource(vfile1) || lib1) && (fileIndex2.isInSource(vfile2) || lib2);

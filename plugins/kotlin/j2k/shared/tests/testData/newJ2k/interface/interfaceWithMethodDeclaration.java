@@ -1,2 +1,1 @@
-//class
-interface INode {Tag getTag();String toKotlin();}
+interface INode {String tag();String toKotlin();}

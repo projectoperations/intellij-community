@@ -1,8 +1,10 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.internal.statistic.collectors.fus.ui
 
+import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsUtils
+import com.intellij.ide.ui.laf.LafManagerImpl
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.internal.statistic.beans.MetricEvent
 import com.intellij.internal.statistic.eventLog.EventLogGroup
@@ -14,7 +16,7 @@ import com.intellij.openapi.editor.colors.impl.AppEditorFontOptions
 /**
  * @author Konstantin Bulenkov
  */
-class FontSizeInfoUsageCollector : ApplicationUsagesCollector() {
+internal class FontSizeInfoUsageCollector : ApplicationUsagesCollector() {
   private val GROUP = EventLogGroup("ui.fonts", 6)
 
   private val FONT_NAME: StringEventField = EventFields.String(
@@ -55,8 +57,15 @@ class FontSizeInfoUsageCollector : ApplicationUsagesCollector() {
   override fun getMetrics(): Set<MetricEvent> {
     val scheme = EditorColorsManager.getInstance().globalScheme
     val ui = UISettings.getInstance()
+
+    val defaultFont =
+      if (!ui.overrideLafFonts) (LafManager.getInstance() as? LafManagerImpl)?.defaultFont
+      else null
+
     val usages = mutableSetOf(
-      UI_FONT.metric(ui.fontFace, ui.fontSize, ui.fontSize2D),
+      UI_FONT.metric(defaultFont?.family ?: ui.fontFace,
+                     defaultFont?.size ?: ui.fontSize,
+                     defaultFont?.size2D ?: ui.fontSize2D),
       PRESENTATION_MODE_FONT.metric(UISettingsUtils.with(ui).presentationModeFontSize.toInt())
     )
     if (!scheme.isUseAppFontPreferencesInEditor) {

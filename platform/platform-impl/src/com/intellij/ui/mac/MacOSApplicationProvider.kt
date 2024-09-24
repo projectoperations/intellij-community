@@ -53,7 +53,9 @@ internal fun initMacApplication(mainScope: CoroutineScope) {
   desktop.setAboutHandler {
     if (LoadingState.COMPONENTS_LOADED.isOccurred) {
       val project = getProject(useDefault = false)
-      AboutAction.perform(project)
+      WriteIntentReadAction.run {
+        AboutAction.perform(project)
+      }
       ActionsCollector.getInstance().record(project, ActionManager.getInstance().getAction("About"), null, null)
     }
   }
@@ -160,13 +162,15 @@ private fun submit(name: String, scope: CoroutineScope, task: () -> Unit) {
   else {
     ENABLED.set(false)
     scope.launch(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
-      try {
-        LOG.debug("MacMenu: init ", name)
-        task()
-      }
-      finally {
-        LOG.debug("MacMenu: done ", name)
-        ENABLED.set(true)
+      writeIntentReadAction {
+        try {
+          LOG.debug("MacMenu: init ", name)
+          task()
+        }
+        finally {
+          LOG.debug("MacMenu: done ", name)
+          ENABLED.set(true)
+        }
       }
     }
   }

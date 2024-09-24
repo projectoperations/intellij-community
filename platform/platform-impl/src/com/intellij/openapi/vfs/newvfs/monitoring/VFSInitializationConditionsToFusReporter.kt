@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.monitoring
 
+import com.intellij.ide.util.RunOnceUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.vfs.newvfs.persistent.FSRecords
@@ -15,6 +16,12 @@ import kotlin.time.Duration.Companion.nanoseconds
  */
 private class VFSInitializationConditionsToFusReporter : ProjectActivity {
   override suspend fun execute(project: Project) {
+    RunOnceUtil.runOnceForApp(VFSInitializationConditionsToFusReporter::class.java.simpleName) {
+      reportToFUS()
+    }
+  }
+
+  private fun reportToFUS() {
     val vfs = FSRecords.getInstance()
 
     val vfsImplementationVersion = vfs.version
@@ -46,7 +53,6 @@ private class VFSInitializationConditionsToFusReporter : ProjectActivity {
       HAS_ERRORS_IN_PREVIOUS_SESSION -> VFSInitKind.HAS_ERRORS_IN_PREVIOUS_SESSION
 
       SCHEDULED_REBUILD -> VFSInitKind.SCHEDULED_REBUILD
-      RECOVERED_FROM_LOG -> VFSInitKind.RECOVERED_FROM_LOG
 
       NOT_CLOSED_PROPERLY -> VFSInitKind.NOT_CLOSED_PROPERLY
 
@@ -93,9 +99,6 @@ private class VFSInitializationConditionsToFusReporter : ProjectActivity {
 
     /** VFS was loaded from already existing files, with some errors fixed along the way */
     RECOVERED,
-
-    /** VFS caches were recovered from VfsLog, because there were some unrecoverable initialization errors */
-    RECOVERED_FROM_LOG,
 
     /** VFS was cleared and rebuild from scratch because: rebuild marker was found */
     SCHEDULED_REBUILD,

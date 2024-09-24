@@ -9,7 +9,6 @@ import com.intellij.platform.workspace.jps.JpsProjectFileEntitySource.FileInDire
 import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.testFramework.PsiTestUtil
 import kotlinx.coroutines.runBlocking
-import org.junit.Assume
 import org.junit.Test
 import java.io.File
 import java.io.IOException
@@ -163,8 +162,6 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
    */
   @Test
   fun testImportWithAlreadyExistingModuleWithDifferentNameButSameContentRoot() = runBlocking {
-    Assume.assumeTrue(isWorkspaceImport)
-
     val userModuleWithConflictingRoot = createModule("userModuleWithConflictingRoot")
     PsiTestUtil.removeAllRoots(userModuleWithConflictingRoot, null)
     PsiTestUtil.addContentRoot(userModuleWithConflictingRoot, projectRoot)
@@ -186,8 +183,6 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testImportWithAlreadyExistingModuleWithPartiallySameContentRoots() = runBlocking {
-    Assume.assumeTrue(isWorkspaceImport)
-
     val userModuleWithConflictingRoot = createModule("userModuleWithConflictingRoot")
     PsiTestUtil.removeAllRoots(userModuleWithConflictingRoot, null)
     PsiTestUtil.addContentRoot(userModuleWithConflictingRoot, projectRoot)
@@ -234,10 +229,7 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
     assertMavenizedModule("m1")
     assertNotMavenizedModule("userModule")
 
-    //configConfirmationForYesAnswer();
-    MavenProjectLegacyImporter.setAnswerToDeleteObsoleteModulesQuestion(true)
-
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <packaging>pom</packaging>
@@ -515,7 +507,6 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testRecursiveParent() = runBlocking {
-    Assume.assumeTrue(isWorkspaceImport)
     createProjectPom("""
                        <parent>
                          <groupId>org.apache.maven.archetype.test</groupId>
@@ -674,8 +665,6 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testReleaseCompilerPropertyInPerSourceTypeModules() = runBlocking {
-    Assume.assumeTrue(isWorkspaceImport)
-
     importProjectAsync("""
                     <groupId>test</groupId>
                     <artifactId>project</artifactId>
@@ -949,8 +938,8 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testProjectWithMavenConfigCustomUserSettingsXml() = runBlocking {
-    createProjectSubFile(".mvn/maven.config", "-s .mvn/custom-settings.xml")
-    createProjectSubFile(".mvn/custom-settings.xml",
+    val configFile = createProjectSubFile(".mvn/maven.config", "-s .mvn/custom-settings.xml")
+    val settingsFile = createProjectSubFile(".mvn/custom-settings.xml",
                          """
                            <settings>
                                <profiles>
@@ -970,6 +959,7 @@ class StructureImportingTest : MavenMultiVersionImportingTestCase() {
                        <artifactId>${'$'}{projectName}</artifactId>
                        <version>1</version>
                        """.trimIndent())
+    refreshFiles(listOf(configFile, settingsFile))
 
     val settings = mavenGeneralSettings
     settings.setUserSettingsFile("")

@@ -5,7 +5,7 @@ import org.jetbrains.tools.model.updater.GeneratorPreferences.ArtifactMode
 import org.jetbrains.tools.model.updater.impl.*
 
 private const val ktGroup = "org.jetbrains.kotlin"
-private const val BOOTSTRAP_VERSION = "2.0.255-dev-255"
+private const val BOOTSTRAP_VERSION = "2.1.255-dev-255"
 
 // see .idea/jarRepositories.xml
 private val KOTLIN_IDE_DEPS_REPOSITORY = JpsRemoteRepository(
@@ -34,14 +34,13 @@ internal fun generateKotlincLibraries(preferences: GeneratorPreferences, isCommu
     return buildLibraryList(isCommunity) {
         kotlincForIdeWithStandardNaming("kotlinc.allopen-compiler-plugin", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.android-extensions-compiler-plugin", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.high-level-api-fir-tests", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.high-level-api-fir", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.high-level-api-fe10", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.high-level-api", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.high-level-api-impl-base", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.high-level-api-impl-base-tests", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.analysis-api-providers", kotlincCoordinates)
-        kotlincForIdeWithStandardNaming("kotlinc.analysis-project-structure", kotlincCoordinates)
+        kotlincForIdeWithStandardNaming("kotlinc.analysis-api-k2-tests", kotlincCoordinates)
+        kotlincForIdeWithStandardNaming("kotlinc.analysis-api-k2", kotlincCoordinates)
+        kotlincForIdeWithStandardNaming("kotlinc.analysis-api-fe10", kotlincCoordinates)
+        kotlincForIdeWithStandardNaming("kotlinc.analysis-api", kotlincCoordinates)
+        kotlincForIdeWithStandardNaming("kotlinc.analysis-api-impl-base", kotlincCoordinates)
+        kotlincForIdeWithStandardNaming("kotlinc.analysis-api-impl-base-tests", kotlincCoordinates)
+        kotlincForIdeWithStandardNaming("kotlinc.analysis-api-platform-interface", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.symbol-light-classes", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.incremental-compilation-impl-tests", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-build-common-tests", kotlincCoordinates)
@@ -60,6 +59,7 @@ internal fun generateKotlincLibraries(preferences: GeneratorPreferences, isCommu
         kotlincForIdeWithStandardNaming("kotlinc.sam-with-receiver-compiler-plugin", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.assignment-compiler-plugin", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.scripting-compiler-plugin", kotlincCoordinates)
+        kotlincForIdeWithStandardNaming("kotlinc.compose-compiler-plugin", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-jps-common", kotlincCoordinates)
 
         if (!isCommunity) {

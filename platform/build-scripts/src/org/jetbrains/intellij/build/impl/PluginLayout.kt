@@ -7,18 +7,16 @@ import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
 import kotlinx.collections.immutable.*
-import org.jetbrains.annotations.ApiStatus.*
-import org.jetbrains.intellij.build.BuildContext
-import org.jetbrains.intellij.build.JvmArchitecture
-import org.jetbrains.intellij.build.OsFamily
-import org.jetbrains.intellij.build.PluginBundlingRestrictions
+import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.ApiStatus.Obsolete
+import org.jetbrains.annotations.TestOnly
+import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.copyFileToDir
 import java.nio.file.FileSystemException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
-import java.util.function.UnaryOperator
 
 typealias ResourceGenerator = suspend (Path, BuildContext) -> Unit
 
@@ -38,14 +36,28 @@ class PluginLayout private constructor(
 
   private var mainJarName = "$mainJarNameWithoutExtension.jar"
 
+  /** module name to name of the library */
+  @JvmField
+  internal val excludedLibraries: MutableMap<String?, MutableList<String>> = HashMap()
+
+  internal fun excludeProjectLibrary(libraryName: String) {
+    excludedLibraries.computeIfAbsent(null) { ArrayList() }.add(libraryName)
+  }
+
+  @TestOnly
+  fun isLibraryExcluded(name: String): Boolean = excludedLibraries.get(null)?.contains(name) ?: false
+
   var directoryName: String = mainJarNameWithoutExtension
     private set
 
-  var versionEvaluator: VersionEvaluator = object : VersionEvaluator {
-    override fun evaluate(pluginXml: Path, ideBuildVersion: String, context: BuildContext) = ideBuildVersion
-  }
+  var versionEvaluator: PluginVersionEvaluator = PLUGIN_VERSION_AS_IDE
+
+  @Internal
+  @JvmField
+  var rawPluginXmlPatcher: (String, BuildContext) -> String = { s, _ -> s }
 
   var pluginXmlPatcher: (String, BuildContext) -> String = { s, _ -> s }
+
   var directoryNameSetExplicitly: Boolean = false
   var bundlingRestrictions: PluginBundlingRestrictions = PluginBundlingRestrictions.NONE
     internal set
@@ -56,7 +68,9 @@ class PluginLayout private constructor(
   var scrambleSkipStatements: PersistentList<Pair<String, String>> = persistentListOf()
     private set
 
-  var scrambleClasspathPlugins: PersistentList<Pair<String /*plugin name*/, String /*relative path*/>> = persistentListOf()
+  data class ScrambleClasspathPluginEntry(@JvmField val pluginMainModuleName: String, @JvmField val relativePath: String?)
+
+  var scrambleClasspathPlugins: PersistentList<ScrambleClasspathPluginEntry> = persistentListOf()
     private set
 
   var scrambleClasspathFilter: (BuildContext, Path) -> Boolean = { _, _ -> true }
@@ -70,7 +84,13 @@ class PluginLayout private constructor(
   var retainProductDescriptorForBundledPlugin: Boolean = false
   var enableSymlinksAndExecutableResources: Boolean = false
 
+  @JvmField
+  internal var modulesWithExcludedModuleLibraries: Set<String> = persistentSetOf()
+
   internal var resourceGenerators: PersistentList<ResourceGenerator> = persistentListOf()
+    private set
+
+  internal var customAssets: PersistentList<CustomAssetDescriptor> = persistentListOf()
     private set
 
   internal var platformResourceGenerators: PersistentMap<SupportedDistribution, PersistentList<ResourceGenerator>> = persistentMapOf()
@@ -98,8 +118,9 @@ class PluginLayout private constructor(
      * @param mainModuleName name of the module containing META-INF/plugin.xml file of the plugin
      */
     @JvmStatic
-    fun plugin(mainModuleName: String, body: (PluginLayoutSpec) -> Unit): PluginLayout {
-      val layout = PluginLayout(mainModuleName)
+    @Deprecated("Please use pluginAuto")
+    fun plugin(mainModuleName: String, auto: Boolean = false, body: (PluginLayoutSpec) -> Unit): PluginLayout {
+      val layout = PluginLayout(mainModuleName, auto = auto)
 
       val spec = PluginLayoutSpec(layout)
       body(spec)
@@ -113,15 +134,24 @@ class PluginLayout private constructor(
       return layout
     }
 
-    @JvmStatic
-    fun plugin(moduleNames: List<String>, body: (SimplePluginLayoutSpec) -> Unit): PluginLayout {
-      val layout = PluginLayout(mainModule = moduleNames.first())
+    // we cannot break compatibility / risk to change existing plugin dir name
+    fun pluginAutoWithDeprecatedCustomDirName(mainModuleName: String, body: (PluginLayoutSpec) -> Unit): PluginLayout {
+      @Suppress("DEPRECATION")
+      return plugin(mainModuleName, auto = true, body = body)
+    }
+
+    fun pluginAuto(moduleName: String, body: (SimplePluginLayoutSpec) -> Unit): PluginLayout = pluginAuto(listOf(moduleName), body)
+
+    fun pluginAuto(moduleNames: List<String>, body: (SimplePluginLayoutSpec) -> Unit): PluginLayout {
+      val layout = PluginLayout(mainModule = moduleNames.first(), auto = true)
       layout.withModules(moduleNames)
-      body(SimplePluginLayoutSpec(layout))
+      val spec = SimplePluginLayoutSpec(layout)
+      body(spec)
+      layout.bundlingRestrictions = spec.bundlingRestrictions.build()
       return layout
     }
 
-    @JvmStatic
+    @Deprecated("Please use pluginAuto")
     fun plugin(moduleNames: List<String>): PluginLayout {
       val layout = PluginLayout(mainModule = moduleNames.first())
       layout.withModules(moduleNames)
@@ -132,22 +162,12 @@ class PluginLayout private constructor(
      * Project-level library is included in the plugin by default, if not yet included in the platform.
      * Direct main module dependencies in the same module group are included automatically.
      */
-    @Experimental
     fun pluginAuto(moduleNames: List<String>): PluginLayout {
       val layout = PluginLayout(mainModule = moduleNames.first(), auto = true)
       layout.withModules(moduleNames)
       return layout
     }
 
-    @Experimental
-    fun pluginAuto(moduleNames: List<String>, body: (SimplePluginLayoutSpec) -> Unit): PluginLayout {
-      val layout = PluginLayout(mainModule = moduleNames.first(), auto = true)
-      layout.withModules(moduleNames)
-      body(SimplePluginLayoutSpec(layout))
-      return layout
-    }
-
-    @JvmStatic
     fun plugin(mainModule: String): PluginLayout {
       val layout = PluginLayout(mainModule = mainModule)
       layout.withModule(mainModule)
@@ -160,17 +180,30 @@ class PluginLayout private constructor(
            if (bundlingRestrictions == PluginBundlingRestrictions.NONE) "" else ", restrictions: $bundlingRestrictions"
   }
 
-  override fun withModule(moduleName: String) {
+  override fun getRelativeJarPath(moduleName: String): String {
     if (moduleName.endsWith(".jps") || moduleName.endsWith(".rt")) {
       // must be in a separate JAR
-      withModule(moduleName, "${convertModuleNameToFileName(moduleName)}.jar")
+      return "${convertModuleNameToFileName(moduleName)}.jar"
     }
     else {
-      withModule(moduleName, mainJarName)
+      return mainJarName
     }
   }
 
   sealed class PluginLayoutBuilder(@JvmField protected val layout: PluginLayout) : BaseLayoutSpec(layout) {
+    /**
+     * Returns [PluginBundlingRestrictions] instance which can be used to exclude the plugin from some distributions.
+     */
+    val bundlingRestrictions: PluginBundlingRestrictions.Builder = PluginBundlingRestrictions.Builder()
+
+    fun excludeModuleLibrary(libraryName: String, moduleName: String) {
+      layout.excludedLibraries.computeIfAbsent(moduleName) { ArrayList() }.add(libraryName)
+    }
+
+    fun excludeProjectLibrary(libraryName: String) {
+      layout.excludeProjectLibrary(libraryName)
+    }
+
     /**
      * @param resourcePath path to resource file or directory relative to the plugin's main module content root
      * @param relativeOutputPath target path relative to the plugin root directory
@@ -181,6 +214,14 @@ class PluginLayout private constructor(
 
     fun withGeneratedResources(generator: ResourceGenerator) {
       layout.resourceGenerators += generator
+    }
+
+    fun withCustomAsset(lazySourceSupplier: (context: BuildContext) -> LazySource?) {
+      layout.customAssets += object : CustomAssetDescriptor {
+        override suspend fun getSources(context: BuildContext): Sequence<Source>? {
+          return sequenceOf(lazySourceSupplier(context) ?: return null)
+        }
+      }
     }
 
     fun withGeneratedPlatformResources(os: OsFamily, arch: JvmArchitecture, generator: ResourceGenerator) {
@@ -196,10 +237,13 @@ class PluginLayout private constructor(
     fun withResourceFromModule(moduleName: String, resourcePath: String, relativeOutputPath: String) {
       layout.withResourceFromModule(moduleName = moduleName, resourcePath = resourcePath, relativeOutputPath = relativeOutputPath)
     }
+
+    fun withRawPluginXmlPatcher(pluginXmlPatcher: (String, BuildContext) -> String) {
+      layout.rawPluginXmlPatcher = pluginXmlPatcher
+    }
   }
 
-  @Experimental
-  class SimplePluginLayoutSpec(layout: PluginLayout) : PluginLayoutBuilder(layout)
+  class SimplePluginLayoutSpec internal constructor(layout: PluginLayout) : PluginLayoutBuilder(layout)
 
   // as a builder for PluginLayout, that ideally should be immutable
   class PluginLayoutSpec(layout: PluginLayout) : PluginLayoutBuilder(layout) {
@@ -219,11 +263,6 @@ class PluginLayout private constructor(
 
     val mainModule
       get() = layout.mainModule
-
-    /**
-     * Returns [PluginBundlingRestrictions] instance which can be used to exclude the plugin from some distributions.
-     */
-    val bundlingRestrictions: PluginBundlingRestrictions.Builder = PluginBundlingRestrictions.Builder()
 
     var mainJarName: String
       get() = layout.mainJarName
@@ -302,12 +341,8 @@ class PluginLayout private constructor(
      * By default, a version of a plugin is equal to the build number of the IDE it's built with.
      * This method allows specifying custom version evaluator.
      */
-    fun withCustomVersion(versionEvaluator: VersionEvaluator) {
+    fun withCustomVersion(versionEvaluator: PluginVersionEvaluator) {
       layout.versionEvaluator = versionEvaluator
-    }
-
-    fun withPluginXmlPatcher(pluginXmlPatcher: UnaryOperator<String>) {
-      layout.pluginXmlPatcher = { text, _ -> pluginXmlPatcher.apply(text) }
     }
 
     /**
@@ -372,11 +407,15 @@ class PluginLayout private constructor(
      * If scramble tool is not defined, scrambling will not be performed
      * Multiple invocations of this method will add corresponding plugin names to a list of name to be added to scramble classpath
      *
-     * @param pluginName - a name of dependent plugin, whose jars should be added to scramble classpath
+     * @param pluginMainModuleName - a name of the dependent plugin's directory, whose jars should be added to scramble classpath
      * @param relativePath - a directory where jars should be searched (relative to plugin home directory, "lib" by default)
      */
-    fun scrambleClasspathPlugin(pluginName: String, relativePath: String = "lib") {
-      layout.scrambleClasspathPlugins = layout.scrambleClasspathPlugins.add(Pair(pluginName, relativePath))
+    fun scrambleClasspathPlugin(pluginMainModuleName: String) {
+      layout.scrambleClasspathPlugins = layout.scrambleClasspathPlugins.add(ScrambleClasspathPluginEntry(pluginMainModuleName = pluginMainModuleName, relativePath = null))
+    }
+
+    fun scrambleClasspathPlugin(pluginId: String, relativePath: String) {
+      layout.scrambleClasspathPlugins = layout.scrambleClasspathPlugins.add(ScrambleClasspathPluginEntry(pluginMainModuleName = pluginId, relativePath = relativePath))
     }
 
     /**
@@ -444,10 +483,17 @@ class PluginLayout private constructor(
       layout.enableSymlinksAndExecutableResources = true
     }
   }
+}
 
-  interface VersionEvaluator {
-    fun evaluate(pluginXml: Path, ideBuildVersion: String, context: BuildContext): String
-  }
+private val PLUGIN_VERSION_AS_IDE = PluginVersionEvaluator { _, ideBuildVersion, _ -> PluginVersionEvaluatorResult(pluginVersion = ideBuildVersion) }
+
+data class PluginVersionEvaluatorResult(@JvmField val pluginVersion: String, @JvmField val sinceUntil: Pair<String, String>? = null)
+
+/**
+ * Think twice before using this API.
+ */
+fun interface PluginVersionEvaluator {
+  suspend fun evaluate(pluginXmlSupplier: suspend () -> String, ideBuildVersion: String, context: BuildContext): PluginVersionEvaluatorResult
 }
 
 private fun convertModuleNameToFileName(moduleName: String): String = moduleName.removePrefix("intellij.").replace('.', '-')

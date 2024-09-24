@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.intention.impl.preview
 
 import com.intellij.application.options.CodeStyle
@@ -31,33 +31,30 @@ import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.impl.source.PostprocessReformattingAspect
 import com.intellij.util.LocalTimeCounter
 import com.intellij.util.applyIf
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.io.IOException
 import java.lang.ref.Reference
-import java.util.concurrent.Callable
 
-class IntentionPreviewComputable(private val project: Project,
-                                 private val action: IntentionAction,
-                                 private val originalFile: PsiFile,
-                                 private val originalEditor: Editor,
-                                 private val fixOffset: Int) : Callable<IntentionPreviewInfo> {
-  override fun call(): IntentionPreviewInfo {
-    val diffContent = tryCreateDiffContent()
-    if (diffContent != null) {
-      return diffContent
-    }
-    return tryCreateFallbackDescriptionContent()
-  }
+@Internal
+class IntentionPreviewComputable(
+  private val project: Project,
+  private val action: IntentionAction,
+  private val originalFile: PsiFile,
+  private val originalEditor: Editor,
+  private val fixOffset: Int,
+) {
+  fun call(): IntentionPreviewInfo = tryCreateDiffContent() ?: tryCreateFallbackDescriptionContent()
 
   private fun tryCreateFallbackDescriptionContent(): IntentionPreviewInfo {
     val originalAction = IntentionActionDelegate.unwrap(action)
     val actionMetaData = IntentionsMetadataService.getInstance().getMetaData().singleOrNull { md ->
       IntentionActionDelegate.unwrap(md.action).javaClass === originalAction.javaClass
     } ?: return IntentionPreviewInfo.EMPTY
-    return try {
-      IntentionPreviewInfo.Html(actionMetaData.description.text.replace(HTML_COMMENT_REGEX, ""))
+    try {
+      return IntentionPreviewInfo.Html(actionMetaData.description.getText().replace(HTML_COMMENT_REGEX, ""))
     }
-    catch (ex: IOException) {
-      IntentionPreviewInfo.EMPTY
+    catch (_: IOException) {
+      return IntentionPreviewInfo.EMPTY
     }
   }
 
@@ -112,14 +109,6 @@ class IntentionPreviewComputable(private val project: Project,
       psiFileCopy = IntentionPreviewUtils.obtainCopyForPreview(fileToCopy)
       editorCopy = IntentionPreviewEditor(psiFileCopy, originalEditor.settings)
     }
-    if (psiFileCopy.viewProvider.isEventSystemEnabled) {
-      throw IllegalStateException("""Event system in non-physical copy: 
-        |FileType: ${psiFileCopy.fileType}
-        |Language: ${psiFileCopy.language}
-        |FileClass: ${psiFileCopy::class.java}
-        |ActionName: ${action.familyName}
-        |ActionClass: ${ReportingClassSubstitutor.getClassToReport(action)}""".trimMargin())
-    }
     if (fixOffset >= 0) {
       editorCopy.caretModel.moveToOffset(fixOffset)
     }
@@ -138,8 +127,10 @@ class IntentionPreviewComputable(private val project: Project,
     }
     Reference.reachabilityFence(settings)
     val manager = PsiDocumentManager.getInstance(project)
-    manager.commitDocument(editorCopy.document)
-    manager.doPostponedOperationsAndUnblockDocument(editorCopy.document)
+    if (!psiFileCopy.viewProvider.isEventSystemEnabled) {
+      manager.commitDocument(editorCopy.document)
+      manager.doPostponedOperationsAndUnblockDocument(editorCopy.document)
+    }
     return convertResult(info, psiFileCopy, fileToCopy, anotherFile)
   }
   
@@ -162,8 +153,6 @@ class IntentionPreviewComputable(private val project: Project,
           policy = policy)
       }
       IntentionPreviewInfo.EMPTY, IntentionPreviewInfo.FALLBACK_DIFF -> null
-      is IntentionPreviewInfo.CustomDiff -> IntentionPreviewDiffResult.fromCustomDiff(info)
-      is IntentionPreviewInfo.MultiFileDiff -> IntentionPreviewDiffResult.fromMultiDiff(info)
       else -> info
     }
   }
@@ -171,11 +160,9 @@ class IntentionPreviewComputable(private val project: Project,
   private fun getModActionPreview(origFile: PsiFile, origEditor: Editor): IntentionPreviewInfo {
     val unwrapped = action.asModCommandAction() ?: return IntentionPreviewInfo.EMPTY
     var info: IntentionPreviewInfo = IntentionPreviewInfo.EMPTY
-    SideEffectGuard.computeWithoutSideEffects {
-      val context = ActionContext.from(origEditor, origFile).applyIf(fixOffset >= 0) { withOffset(fixOffset) }
-      IntentionPreviewUtils.previewSession(origEditor) {
-        info = unwrapped.generatePreview(context)
-      }
+    val context = ActionContext.from(origEditor, origFile).applyIf(fixOffset >= 0) { withOffset(fixOffset) }
+    IntentionPreviewUtils.previewSession(origEditor) {
+      info = unwrapped.generatePreview(context)
     }
     return convertResult(info, origFile, origFile, false) ?: IntentionPreviewInfo.EMPTY
   }
@@ -209,9 +196,12 @@ class IntentionPreviewComputable(private val project: Project,
       val manager = InjectedLanguageManager.getInstance(project)
       val selectionModel = origEditor.selectionModel
       selectionStart = manager.mapInjectedOffsetToUnescaped(origFile, selectionModel.selectionStart)
-      selectionEnd = if (selectionModel.selectionEnd == selectionModel.selectionStart) selectionStart
-      else
+      selectionEnd = if (selectionModel.selectionEnd == selectionModel.selectionStart) {
+        selectionStart
+      }
+      else {
         manager.mapInjectedOffsetToUnescaped(origFile, selectionModel.selectionEnd)
+      }
       val caretModel = origEditor.caretModel
       caretOffset = when (caretModel.offset) {
         selectionModel.selectionStart -> selectionStart

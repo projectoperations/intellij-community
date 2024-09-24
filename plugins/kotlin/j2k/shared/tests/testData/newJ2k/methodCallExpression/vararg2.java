@@ -1,4 +1,4 @@
-//file
+// !ADD_JAVA_API
 import javaApi.WithVarargConstructor;
 
 import java.lang.String;

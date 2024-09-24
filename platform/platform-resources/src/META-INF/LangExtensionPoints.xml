@@ -31,6 +31,9 @@
     <extensionPoint dynamic="true" name="codeCompletionConfigurable" beanClass="com.intellij.application.options.CodeCompletionConfigurableEP">
       <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable" />
     </extensionPoint>
+    <extensionPoint dynamic="true" name="inlineCompletionConfigurable" beanClass="com.intellij.codeInsight.inline.completion.options.InlineCompletionConfigurableEP">
+      <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable" />
+    </extensionPoint>
     <extensionPoint dynamic="true" name="mlCodeCompletionConfigurable" beanClass="com.intellij.application.options.MLCodeCompletionConfigurableEP">
       <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable" />
     </extensionPoint>
@@ -117,6 +120,11 @@
 
     <extensionPoint name="lang.structureViewExtension" interface="com.intellij.ide.structureView.StructureViewExtension" dynamic="true"/>
 
+    <extensionPoint name="lang.logicalStructureElementsProvider" beanClass="com.intellij.openapi.util.ClassExtensionPoint" dynamic="true">
+      <with attribute="implementationClass" implements="com.intellij.ide.structureView.logical.LogicalStructureElementsProvider"/>
+    </extensionPoint>
+    <extensionPoint name="lang.logicalStructureTreeElementProvider" interface="com.intellij.ide.structureView.logical.LogicalStructureTreeElementProvider" dynamic="true"/>
+
     <extensionPoint name="lang.surroundDescriptor" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.lang.surroundWith.SurroundDescriptor"/>
     </extensionPoint>
@@ -150,7 +158,6 @@
     <extensionPoint name="gotoActionAliasMatcher" interface="com.intellij.ide.util.gotoByName.GotoActionAliasMatcher" dynamic="true"/>
     <extensionPoint name="gotoClassContributor" interface="com.intellij.navigation.ChooseByNameContributor" dynamic="true"/>
     <extensionPoint name="gotoSymbolContributor" interface="com.intellij.navigation.ChooseByNameContributor" dynamic="true"/>
-    <extensionPoint name="gotoPrimeSymbolContributor" interface="com.intellij.navigation.ChooseByNameContributor" dynamic="true"/>
     <extensionPoint name="gotoFileContributor" interface="com.intellij.navigation.ChooseByNameContributor" dynamic="true"/>
     <extensionPoint name="gotoRelatedProvider" interface="com.intellij.navigation.GotoRelatedProvider" dynamic="true"/>
 
@@ -283,7 +290,6 @@
     <extensionPoint name="runDashboardCustomizer" interface="com.intellij.execution.dashboard.RunDashboardCustomizer" dynamic="true"/>
     <extensionPoint name="runDashboardDefaultTypesProvider" interface="com.intellij.execution.dashboard.RunDashboardDefaultTypesProvider" dynamic="true"/>
     <extensionPoint name="runDashboardGroupingRule" interface="com.intellij.execution.dashboard.RunDashboardGroupingRule" dynamic="true"/>
-    <extensionPoint name="runDashboardChecker" interface="com.intellij.execution.dashboard.RunDashboardChecker" dynamic="true"/>
     <extensionPoint name="serviceViewContributor" interface="com.intellij.execution.services.ServiceViewContributor" dynamic="true"/>
 
     <extensionPoint name="hectorComponentProvider" interface="com.intellij.openapi.editor.HectorComponentPanelsProvider" area="IDEA_PROJECT" dynamic="true"/>
@@ -325,9 +331,6 @@
                     interface="com.intellij.codeInsight.navigation.GotoTargetPresentationProvider"/>
 
     <extensionPoint name="navbar" interface="com.intellij.ide.navigationToolbar.NavBarModelExtension" dynamic="true"/>
-    <extensionPoint name="navbarLeftSide" interface="com.intellij.ide.navigationToolbar.NavBarLeftSideExtension" dynamic="true"/>
-
-    <extensionPoint name="navbar.item.provider" interface="com.intellij.ide.navbar.NavBarItemProvider" dynamic="true"/>
 
     <extensionPoint name="lang.symbolSearchTarget" dynamic="true" beanClass="com.intellij.openapi.util.ClassExtensionPoint">
       <with attribute="forClass" implements="com.intellij.model.Symbol"/>
@@ -403,6 +406,10 @@
                     interface="com.intellij.codeInsight.codeVision.CodeVisionProviderFactory"
                     dynamic="true" />
 
+    <extensionPoint name="codeInsight.codeVision.settings.defaults"
+                    interface="com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults"
+                    dynamic="true" />
+
     <extensionPoint qualifiedName="com.intellij.codeInsight.daemonBoundCodeVisionProvider"
                     interface="com.intellij.codeInsight.hints.codeVision.DaemonBoundCodeVisionProvider"
                     dynamic="true" />
@@ -415,8 +422,8 @@
                     beanClass="com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsPreviewLanguage"
                     dynamic="true"/>
 
-    <extensionPoint qualifiedName="com.intellij.refactoring.renameCodeVisionSupport"
-                    interface="com.intellij.refactoring.rename.RenameCodeVisionSupport"
+    <extensionPoint qualifiedName="com.intellij.refactoring.codeVisionSupport"
+                    interface="com.intellij.refactoring.RefactoringCodeVisionSupport"
                     dynamic="true" />
 
     <extensionPoint name="lang.floatingToolbarCustomizer" beanClass="com.intellij.lang.LanguageExtensionPoint"
@@ -443,6 +450,7 @@
     <extensionPoint name="usageContextPanelProvider" interface="com.intellij.usages.UsageContextPanel$Provider" area="IDEA_PROJECT" dynamic="true"/>
     <extensionPoint name="usageViewFactory" interface="com.intellij.usages.impl.UsageViewFactory" dynamic="true"/>
     <extensionPoint name="usageViewElementsListener" interface="com.intellij.usages.impl.UsageViewElementsListener" dynamic="true"/>
+    <extensionPoint name="importBlockRangeProvider" interface="com.intellij.lang.imports.ImportBlockRangeProvider" dynamic="true"/>
 
     <extensionPoint name="treeStructureProvider" interface="com.intellij.ide.projectView.TreeStructureProvider" area="IDEA_PROJECT" dynamic="true"/>
 
@@ -688,5 +696,14 @@
     <extensionPoint qualifiedName="com.intellij.platform.lang.lsWidget.itemsProvider" dynamic="true"
                     interface="com.intellij.platform.lang.lsWidget.LanguageServiceWidgetItemsProvider"/>
     <extensionPoint name="editorSearchAreaProvider" interface="com.intellij.find.impl.livePreview.EditorSearchAreaProvider" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.intentionPopupProvider" dynamic="true"
+                    interface="com.intellij.codeInsight.intention.impl.IntentionPopupProvider"/>
+    <extensionPoint qualifiedName="com.intellij.marketplaceLocalRanker" dynamic="true"
+                    interface="com.intellij.ide.plugins.marketplace.ranking.MarketplaceLocalRanker"/>
+    <extensionPoint qualifiedName="com.intellij.marketplaceTextualFeaturesProvider" dynamic="true"
+                    interface="com.intellij.ide.plugins.marketplace.statistics.features.MarketplaceTextualFeaturesProvider"/>
+    <extensionPoint qualifiedName="com.intellij.mlCompletionFeaturesCollector" dynamic="true" beanClass="com.intellij.lang.LanguageExtensionPoint">
+        <with attribute="implementationClass" implements="com.intellij.codeInsight.inline.completion.features.InlineCompletionFeaturesCollector"/>
+    </extensionPoint>
   </extensionPoints>
 </idea-plugin>

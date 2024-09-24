@@ -27,7 +27,9 @@ import com.jetbrains.python.PyPsiBundle
 import com.jetbrains.python.inspections.PyPackageRequirementsInspection.InstallPackageQuickFix
 import com.jetbrains.python.packaging.PyPIPackageRanking
 import com.jetbrains.python.packaging.PyPackageRequirementsSettings
+import com.jetbrains.python.packaging.common.normalizePackageName
 import com.jetbrains.python.packaging.common.runPackagingOperationOrShowErrorDialog
+import com.jetbrains.python.packaging.getConfirmedPackages
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.createSpecification
 import com.jetbrains.python.packaging.management.runPackagingTool
@@ -42,14 +44,14 @@ import kotlinx.coroutines.launch
 class UnsatisfiedRequirementInspection : LocalInspectionTool() {
 
   override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean, session: LocalInspectionToolSession): PsiElementVisitor {
-    return RequirementsUnresolvedRequirementInspectionVisitor(holder, isOnTheFly, session)
+    return UnsatisfiedRequirementInspectionVisitor(holder, isOnTheFly, session)
   }
 }
 
-private class RequirementsUnresolvedRequirementInspectionVisitor(holder: ProblemsHolder,
-                                                                 onTheFly: Boolean,
-                                                                 session: LocalInspectionToolSession) : RequirementsInspectionVisitor(
-  holder, onTheFly, session) {
+private class UnsatisfiedRequirementInspectionVisitor(holder: ProblemsHolder,
+                                                      onTheFly: Boolean,
+                                                      session: LocalInspectionToolSession) : RequirementsInspectionVisitor(
+  holder, session) {
   override fun visitRequirementsFile(element: RequirementsFile) {
     val module = ModuleUtilCore.findModuleForPsiElement(element)
     val requirementsPath = PyPackageRequirementsSettings.getInstance(module).requirementsPath
@@ -73,8 +75,8 @@ private class RequirementsUnresolvedRequirementInspectionVisitor(holder: Problem
       val project = element.project
       val sdk = project.pythonSdk ?: return
       val packageManager = PythonPackageManager.forSdk(project, sdk)
-      val packages = packageManager.installedPackages.map { it.name }
-      val unsatisfiedRequirements = element.requirements().filter { requirement -> requirement.displayName !in packages }
+      val packages = packageManager.installedPackages.map { normalizePackageName(it.name) }
+      val unsatisfiedRequirements = element.requirements().filter { requirement -> normalizePackageName(requirement.displayName) !in packages }
       unsatisfiedRequirements.forEach { requirement ->
         holder.registerProblem(requirement,
                                PyBundle.message("INSP.requirements.package.not.installed", requirement.displayName),
@@ -95,9 +97,12 @@ class InstallAllRequirementsQuickFix(requirements: List<Requirement>) : LocalQui
   }
 
   override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-    requirements.forEach {
-      InstallRequirementQuickFix.checkAndInstall(project, descriptor, it)
-    }
+    val confirmedPackages = getConfirmedPackages(requirements.mapNotNull { it.element?.displayName })
+    requirements.filter { it.element?.displayName in confirmedPackages }
+      .mapNotNull { it.element }
+      .forEach {
+        InstallRequirementQuickFix.installPackage(project, descriptor, it)
+      }
   }
 
   override fun generatePreview(project: Project, previewDescriptor: ProblemDescriptor): IntentionPreviewInfo {
@@ -122,11 +127,10 @@ class InstallRequirementQuickFix(requirement: Requirement) : LocalQuickFix {
 
     fun checkAndInstall(project: Project, descriptor: ProblemDescriptor, requirement: SmartPsiElementPointer<Requirement>) {
       val req = requirement.element ?: return
-      val versionSpec = if (req is NameReq) req.versionspec?.text else ""
       val name = req.displayName
       val isWellKnownPackage = ApplicationManager.getApplication()
         .getService(PyPIPackageRanking::class.java)
-        .packageRank.containsKey(name)
+        .packageRank.containsKey(normalizePackageName(name))
       val confirmationEnabled = PropertiesComponent.getInstance().getBoolean(CONFIRM_PACKAGE_INSTALLATION_PROPERTY, true)
       if (!isWellKnownPackage && confirmationEnabled) {
         val confirmed = yesNo(PyBundle.message("python.packaging.dialog.title.install.package.confirmation"),
@@ -139,14 +143,19 @@ class InstallRequirementQuickFix(requirement: Requirement) : LocalQuickFix {
         }
       }
 
+      installPackage(project, descriptor, req)
+    }
+
+    fun installPackage(project: Project, descriptor: ProblemDescriptor, requirement: Requirement) {
       val element = descriptor.psiElement
       val file = descriptor.psiElement.containingFile ?: return
       val sdk = ModuleUtilCore.findModuleForPsiElement(element)?.pythonSdk ?: return
       val manager = PythonPackageManager.forSdk(project, sdk)
-
+      val versionSpec = if (requirement is NameReq) requirement.versionspec?.text else ""
+      val name = requirement.displayName
 
       project.service<PyPackagingToolWindowService>().serviceScope.launch(Dispatchers.IO) {
-        manager.installPackage(manager.repositoryManager.createSpecification(name, versionSpec) ?: return@launch)
+        manager.installPackage(manager.repositoryManager.createSpecification(name, versionSpec) ?: return@launch, emptyList<String>())
         DaemonCodeAnalyzer.getInstance(project).restart(file)
       }
     }

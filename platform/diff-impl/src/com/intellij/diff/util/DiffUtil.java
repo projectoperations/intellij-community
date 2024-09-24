@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff.util;
 
 import com.intellij.application.options.CodeStyle;
@@ -13,11 +13,13 @@ import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.contents.EmptyContent;
 import com.intellij.diff.contents.FileContent;
+import com.intellij.diff.editor.DiffEditorTabFilesManager;
 import com.intellij.diff.fragments.DiffFragment;
 import com.intellij.diff.fragments.LineFragment;
 import com.intellij.diff.impl.DiffSettingsHolder.DiffSettings;
 import com.intellij.diff.impl.DiffToolSubstitutor;
 import com.intellij.diff.merge.ConflictType;
+import com.intellij.diff.merge.MergeRequest;
 import com.intellij.diff.requests.ContentDiffRequest;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.tools.util.DiffNotifications;
@@ -59,6 +61,7 @@ import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.impl.EditorComposite;
+import com.intellij.openapi.fileEditor.impl.EditorWindow;
 import com.intellij.openapi.fileEditor.impl.EditorWindowHolder;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorImpl;
 import com.intellij.openapi.fileTypes.*;
@@ -68,10 +71,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.DialogWrapperDialog;
-import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.WindowWrapper;
-import com.intellij.openapi.ui.popup.Balloon;
-import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.HtmlBuilder;
@@ -90,8 +90,8 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ui.*;
-import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.ui.components.JBPanel;
 import com.intellij.ui.components.panels.VerticalLayout;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.util.*;
@@ -104,13 +104,13 @@ import com.intellij.util.ui.JBValue;
 import com.intellij.util.ui.SingleComponentCenteringLayout;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.components.BorderLayoutPanel;
+import com.intellij.util.ui.update.Activatable;
+import com.intellij.util.ui.update.UiNotifyConnector;
 import icons.PlatformDiffImplIcons;
 import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import javax.swing.border.Border;
-import javax.swing.event.HyperlinkEvent;
-import javax.swing.event.HyperlinkListener;
 import java.awt.*;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -122,7 +122,6 @@ import java.util.*;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
 
-import static com.intellij.diff.editor.DiffEditorTabFilesManagerKt.DIFF_OPENED_IN_NEW_WINDOW;
 import static com.intellij.util.ArrayUtilRt.EMPTY_BYTE_ARRAY;
 import static com.intellij.util.ObjectUtils.notNull;
 
@@ -231,7 +230,7 @@ public final class DiffUtil {
     Disposable disposable = ((EditorImpl)editor).getDisposable();
     if (project != null) {
       DiffEditorHighlighterUpdater updater = new DiffEditorHighlighterUpdater(project, disposable, editor, content);
-      updater.updateHighlightersAsync();
+      updater.updateHighlighters();
     }
     else {
       ReadAction
@@ -524,7 +523,8 @@ public final class DiffUtil {
       group.addSeparator();
     }
 
-    AnAction[] children = group.getChildren(null);
+    ActionManager actionManager = ActionManager.getInstance();
+    AnAction[] children = group.getChildren(actionManager);
     for (AnAction action : actions) {
       if (action instanceof Separator ||
           !ArrayUtil.contains(action, children)) {
@@ -564,28 +564,41 @@ public final class DiffUtil {
     return result.wrapWithHtmlBody().toString();
   }
 
-  public static void showSuccessPopup(@NotNull @NlsContexts.PopupContent String message,
-                                      @NotNull RelativePoint point,
-                                      @NotNull Disposable disposable,
-                                      @Nullable Runnable hyperlinkHandler) {
-    HyperlinkListener listener = null;
-    if (hyperlinkHandler != null) {
-      listener = new HyperlinkAdapter() {
-        @Override
-        protected void hyperlinkActivated(@NotNull HyperlinkEvent e) {
-          hyperlinkHandler.run();
-        }
-      };
+  /**
+   * RemDev-friendly UI listener
+   * <p>
+   * {@link UIUtil#markAsShowing} is not firing the events, so the components with delayed intitialization will not function correctly.
+   */
+  public static void runWhenFirstShown(@NotNull JComponent component, @NotNull Runnable runnable) {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
+      runnable.run();
     }
+    else {
+      UiNotifyConnector.doWhenFirstShown(component, runnable);
+    }
+  }
 
-    Color bgColor = MessageType.INFO.getPopupBackground();
+  public static void installShowNotifyListener(@NotNull JComponent component, @NotNull Runnable runnable) {
+    installShowNotifyListener(component, new Activatable() {
+      @Override
+      public void showNotify() {
+        runnable.run();
+      }
+    });
+  }
 
-    Balloon balloon = JBPopupFactory.getInstance()
-      .createHtmlTextBalloonBuilder(message, null, bgColor, listener)
-      .setAnimationCycle(200)
-      .createBalloon();
-    balloon.show(point, Balloon.Position.below);
-    Disposer.register(disposable, balloon);
+  /**
+   * RemDev-friendly UI listener
+   * <p>
+   * {@link UIUtil#markAsShowing} is not firing the events, so the components with delayed intitialization will not function correctly.
+   */
+  public static void installShowNotifyListener(@NotNull JComponent component, @NotNull Activatable activatable) {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
+      activatable.showNotify();
+    }
+    else {
+      UiNotifyConnector.installOn(component, activatable);
+    }
   }
 
   //
@@ -733,7 +746,9 @@ public final class DiffUtil {
     BorderLayoutPanel labelWithIcon = new BorderLayoutPanel();
     JComponent titleLabel = titleCustomizer != null ? titleCustomizer.getLabel()
                                                     : new JBLabel(StringUtil.notNullize(title)).setCopyable(true);
-    labelWithIcon.addToCenter(titleLabel);
+    if (titleLabel != null) {
+      labelWithIcon.addToCenter(titleLabel);
+    }
     if (readOnly) {
       labelWithIcon.addToLeft(new JBLabel(AllIcons.Ide.Readonly));
     }
@@ -802,7 +817,7 @@ public final class DiffUtil {
 
   @NotNull
   public static JComponent createStackedComponents(@NotNull List<? extends JComponent> components, @NotNull JBValue vGap) {
-    JPanel panel = new JPanel(new VerticalLayout(vGap, VerticalLayout.FILL));
+    JPanel panel = new JBPanel<>(new VerticalLayout(vGap, VerticalLayout.FILL));
     for (JComponent component : components) {
       panel.add(component);
     }
@@ -1616,14 +1631,18 @@ public final class DiffUtil {
     EditorWindowHolder holder = UIUtil.getParentOfType(EditorWindowHolder.class, diffComponent);
     if (holder == null) return;
 
-    List<EditorComposite> composites = holder.getEditorWindow().getAllComposites();
-    if (composites.size() == 1) {
-      if (DIFF_OPENED_IN_NEW_WINDOW.get(composites.get(0).getFile(), false)) {
-        Window window = UIUtil.getWindow(diffComponent);
-        if (window != null && !canBeHiddenBehind(window)) {
-          if (window instanceof Frame) {
-            ((Frame)window).setState(Frame.ICONIFIED);
-          }
+    EditorWindow editorWindow = holder.getEditorWindow();
+    List<EditorComposite> composites = editorWindow.getAllComposites();
+    if (composites.size() != 1) return;
+
+    Project project = editorWindow.getManager().getProject();
+    VirtualFile file = composites.get(0).getFile();
+
+    if (DiffEditorTabFilesManager.getInstance(project).isDiffOpenedInWindow(file)) {
+      Window window = UIUtil.getWindow(diffComponent);
+      if (window != null && !canBeHiddenBehind(window)) {
+        if (window instanceof Frame) {
+          ((Frame)window).setState(Frame.ICONIFIED);
         }
       }
     }
@@ -1730,22 +1749,21 @@ public final class DiffUtil {
     return wrapper;
   }
 
+  @NotNull
+  public static <T extends DiffRequest> T addTitleCustomizers(@NotNull T request, @NotNull List<DiffEditorTitleCustomizer> customizers) {
+    request.putUserData(DiffUserDataKeysEx.EDITORS_TITLE_CUSTOMIZER, customizers);
+    return request;
+  }
+
+  @NotNull
+  public static <T extends MergeRequest> T addTitleCustomizers(@NotNull T request, @NotNull List<DiffEditorTitleCustomizer> customizers) {
+    request.putUserData(DiffUserDataKeysEx.EDITORS_TITLE_CUSTOMIZER, customizers);
+    return request;
+  }
+
   //
   // DataProvider
   //
-
-  @Nullable
-  public static Object getData(@Nullable DataProvider provider, @Nullable DataProvider fallbackProvider, @NotNull @NonNls String dataId) {
-    if (provider != null) {
-      Object data = provider.getData(dataId);
-      if (data != null) return data;
-    }
-    if (fallbackProvider != null) {
-      Object data = fallbackProvider.getData(dataId);
-      if (data != null) return data;
-    }
-    return null;
-  }
 
   public static <T> void putDataKey(@NotNull UserDataHolder holder, @NotNull DataKey<T> key, @Nullable T value) {
     DataProvider dataProvider = holder.getUserData(DiffUserDataKeys.DATA_PROVIDER);

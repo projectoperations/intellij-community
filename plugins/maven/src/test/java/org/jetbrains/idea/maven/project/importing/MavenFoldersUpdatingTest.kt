@@ -16,15 +16,12 @@
 package org.jetbrains.idea.maven.project.importing
 
 import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCase
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.externalSystem.service.project.ProjectDataManager
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vcs.changes.VcsIgnoreManager
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.jetbrains.idea.maven.importing.MavenEventsTestHelper
 import org.jetbrains.idea.maven.importing.MavenProjectImporter.Companion.tryUpdateTargetFolders
 import org.jetbrains.idea.maven.importing.MavenRootModelAdapter
@@ -165,12 +162,7 @@ class MavenFoldersUpdatingTest : MavenMultiVersionImportingTestCase() {
 
     updateTargetFolders()
 
-    if (supportsKeepingManualChanges()) {
-      assertSources("project", "target/src")
-    }
-    else {
-      assertSources("project", "src/main/java")
-    }
+    assertSources("project", "src/main/java")
     assertExcludes("project", "target")
   }
 
@@ -228,7 +220,7 @@ class MavenFoldersUpdatingTest : MavenMultiVersionImportingTestCase() {
     })
 
     updateTargetFolders()
-    assertEquals(if (isWorkspaceImport) 0 else 1, count[0])
+    assertEquals(0, count[0])
   }
 
   @Test
@@ -264,8 +256,8 @@ class MavenFoldersUpdatingTest : MavenMultiVersionImportingTestCase() {
     eventsTestHelper.setUp(project)
     try {
       updateTargetFolders()
-      eventsTestHelper.assertRootsChanged(if (isWorkspaceImport) 0 else 1)
-      eventsTestHelper.assertWorkspaceModelChanges(if (isWorkspaceImport) 0 else 1)
+      eventsTestHelper.assertRootsChanged(0)
+      eventsTestHelper.assertWorkspaceModelChanges(0)
 
       // let's add some generated folders, what should be picked up on updateTargetFolders
       File(projectRoot.getPath(), "target/generated-sources/foo/z").mkdirs()
@@ -309,9 +301,7 @@ class MavenFoldersUpdatingTest : MavenMultiVersionImportingTestCase() {
     assertGeneratedSources("project", "target/generated-sources/xxx")
   }
 
-  private suspend fun updateTargetFolders() {
-    withContext(Dispatchers.EDT) {
-      tryUpdateTargetFolders(project)
-    }
+  private fun updateTargetFolders() {
+    tryUpdateTargetFolders(project)
   }
 }

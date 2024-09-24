@@ -1,6 +1,8 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.search;
 
+import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
@@ -27,8 +29,29 @@ public final class FilenameIndex {
   @ApiStatus.Internal
   public static final ID<String, Void> NAME = ID.create("FilenameIndex");
 
+  private FilenameIndex() {
+  }
+
+  private static class CancellationChecker{
+
+    private int iterationNo;
+
+    public void checkCancelled() throws ProcessCanceledException{
+      checkCancelled(iterationNo++);
+    }
+
+    private static final int CHECK_CANCELLED_EACH = 16;
+
+    private static void checkCancelled(int iterationNo) throws ProcessCanceledException {
+      //don't check cancellation on each iteration, since it may affect performance too much -- check each 16th iteration
+      if (iterationNo % CHECK_CANCELLED_EACH == CHECK_CANCELLED_EACH - 1) {
+        ProgressManager.checkCanceled();
+      }
+    }
+  }
+
   public static @NotNull String @NotNull [] getAllFilenames(@NotNull Project project) {
-    Set<String> names = new HashSet<>();
+    Set<String> names = CollectionFactory.createSmallMemoryFootprintSet();
     processAllFileNames((String s) -> {
       names.add(s);
       return true;
@@ -36,20 +59,28 @@ public final class FilenameIndex {
     return ArrayUtilRt.toStringArray(names);
   }
 
-  public static void processAllFileNames(@NotNull Processor<? super String> processor, @NotNull GlobalSearchScope scope, @Nullable IdFilter filter) {
+  public static void processAllFileNames(@NotNull Processor<? super String> processor,
+                                         @NotNull GlobalSearchScope scope,
+                                         @Nullable IdFilter filter) {
+    CancellationChecker cancellationChecker = new CancellationChecker();
     processAllFileNameCharSequences((CharSequence s) -> {
+      cancellationChecker.checkCancelled();
       return processor.process(s.toString());
     }, scope, filter);
   }
 
-  private static void processAllFileNameCharSequences(@NotNull Processor<? super CharSequence> processor, @NotNull GlobalSearchScope scope, @Nullable IdFilter filter) {
+  private static void processAllFileNameCharSequences(@NotNull Processor<? super CharSequence> processor,
+                                                      @NotNull GlobalSearchScope scope,
+                                                      @Nullable IdFilter filter) {
     FileBasedIndex.getInstance().processAllKeys(NAME, processor, scope, filter);
   }
 
   /** @deprecated Use {@link FilenameIndex#getVirtualFilesByName(String, GlobalSearchScope)} */
   @SuppressWarnings("unused")
   @Deprecated
-  public static @NotNull Collection<VirtualFile> getVirtualFilesByName(Project project, @NotNull String name, @NotNull GlobalSearchScope scope) {
+  public static @NotNull Collection<VirtualFile> getVirtualFilesByName(Project project,
+                                                                       @NotNull String name,
+                                                                       @NotNull GlobalSearchScope scope) {
     return getVirtualFilesByName(name, scope);
   }
 
@@ -76,7 +107,9 @@ public final class FilenameIndex {
 
   /** @deprecated Use {@link #getVirtualFilesByName(String, GlobalSearchScope)} **/
   @Deprecated
-  public static @NotNull PsiFile @NotNull [] getFilesByName(@NotNull Project project, @NotNull String name, @NotNull GlobalSearchScope scope) {
+  public static @NotNull PsiFile @NotNull [] getFilesByName(@NotNull Project project,
+                                                            @NotNull String name,
+                                                            @NotNull GlobalSearchScope scope) {
     return (PsiFile[])getFilesByName(project, name, scope, false);
   }
 
@@ -87,7 +120,7 @@ public final class FilenameIndex {
                                            @NotNull Processor<? super PsiFileSystemItem> processor,
                                            @NotNull GlobalSearchScope scope,
                                            @NotNull Project project) {
-    return processFilesByName(name, directories, true, processor, scope, project, null);
+    return processFilesByName(name, directories, processor, scope, project, null);
   }
 
   /** @deprecated Use {@link #processFilesByName(String, boolean, GlobalSearchScope, Processor)} **/
@@ -98,21 +131,9 @@ public final class FilenameIndex {
                                            @NotNull GlobalSearchScope scope,
                                            @NotNull Project project,
                                            @Nullable IdFilter idFilter) {
-    return processFilesByName(name, directories, true, processor, scope, project, idFilter);
-  }
-
-  /** @deprecated Use {@link #processFilesByName(String, boolean, GlobalSearchScope, Processor)} **/
-  @Deprecated(forRemoval = true)
-  public static boolean processFilesByName(@NotNull String name,
-                                           boolean directories,
-                                           boolean caseSensitively,
-                                           @NotNull Processor<? super PsiFileSystemItem> processor,
-                                           @NotNull GlobalSearchScope scope,
-                                           @NotNull Project project,
-                                           @Nullable IdFilter idFilter) {
     PsiManager psiManager = PsiManager.getInstance(project);
-    boolean[] result = { false }; // keep old semantics
-    processFilesByNames(Set.of(name), caseSensitively, scope, idFilter, file -> {
+    boolean[] result = {false}; // keep old semantics
+    processFilesByNames(Set.of(name), true, scope, idFilter, file -> {
       if (!file.isValid()) return true;
       if (directories != file.isDirectory()) return true;
       PsiFileSystemItem psi = directories ? psiManager.findDirectory(file) : psiManager.findFile(file);
@@ -175,11 +196,11 @@ public final class FilenameIndex {
 
   /**
    * Returns all files in the project by extension
-   * @author Konstantin Bulenkov
    *
    * @param project current project
-   * @param ext file extension without leading dot e.q. "txt", "wsdl"
+   * @param ext     file extension without leading dot e.q. "txt", "wsdl"
    * @return all files with provided extension
+   * @author Konstantin Bulenkov
    */
   public static @NotNull Collection<VirtualFile> getAllFilesByExt(@NotNull Project project, @NotNull String ext) {
     return getAllFilesByExt(project, ext, GlobalSearchScope.allScope(project));
@@ -208,9 +229,10 @@ public final class FilenameIndex {
   private static @NotNull Set<VirtualFile> getVirtualFilesByNames(@NotNull Set<String> names,
                                                                   @NotNull GlobalSearchScope scope,
                                                                   @Nullable IdFilter filter) {
-    Set<VirtualFile> files = new HashSet<>();
+    Set<VirtualFile> files = CollectionFactory.createSmallMemoryFootprintSet();
     FileBasedIndex.getInstance().processFilesContainingAnyKey(NAME, names, scope, filter, null, file -> {
       files.add(file);
+      CancellationChecker.checkCancelled(files.size());
       return true;
     });
     return files;

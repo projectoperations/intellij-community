@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.projectRoots.impl.jdkDownloader
 
 import com.intellij.execution.wsl.WSLDistribution
@@ -14,16 +14,25 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.ui.*
 import com.intellij.ui.components.textFieldWithBrowseButton
+import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.panel
+import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.util.system.CpuArch
 import com.intellij.util.text.VersionComparatorUtil
+import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.Nls
+import org.jetbrains.annotations.VisibleForTesting
 import java.awt.Component
 import java.awt.event.ItemEvent
 import java.nio.file.Path
 import java.util.function.Function
-import javax.swing.*
+import javax.swing.ComboBoxModel
+import javax.swing.DefaultComboBoxModel
+import javax.swing.JComponent
 import javax.swing.event.DocumentEvent
 
+@Internal
 class JdkDownloaderModel(
   val versionGroups: List<JdkVersionItem>,
   val defaultItem: JdkItem,
@@ -31,6 +40,7 @@ class JdkDownloaderModel(
   val defaultVersionVendor: JdkVersionVendorItem,
 )
 
+@Internal
 class JdkVersionItem(
   @NlsSafe
   val jdkVersion: String,
@@ -57,6 +67,7 @@ class JdkVersionItem(
   }
 }
 
+@Internal
 class JdkVersionVendorItem(
   val item: JdkItem
 ) {
@@ -122,13 +133,16 @@ private class JdkVersionVendorCombobox: ComboBox<JdkVersionVendorItem>() {
   }
 }
 
-private fun List<JdkVersionVendorItem>.sortedForUI() = this.sortedBy { it.item.product.packagePresentationText.toLowerCase() }
+private fun List<JdkVersionVendorItem>.sortedForUI() = this.sortedBy { it.item.product.packagePresentationText.lowercase() }
 
-fun buildJdkDownloaderModel(allItems: List<JdkItem>): JdkDownloaderModel {
+@VisibleForTesting
+@Internal
+fun buildJdkDownloaderModel(allItems: List<JdkItem>, itemFilter: (JdkItem) -> Boolean = { true }): JdkDownloaderModel {
   @NlsSafe
   fun JdkItem.versionGroupId() = this.presentableMajorVersionString
 
   val groups =  allItems
+    .filter { itemFilter.invoke(it) }
     .groupBy { it.versionGroupId() }
     .mapValues { (jdkVersion, groupItems) ->
       val majorVersion = groupItems.first().jdkMajorVersion
@@ -189,16 +203,6 @@ fun buildJdkDownloaderModel(allItems: List<JdkItem>): JdkDownloaderModel {
   )
 }
 
-private val jdkVersionItemRenderer = object: ColoredListCellRenderer<JdkVersionItem>() {
-  override fun customizeCellRenderer(list: JList<out JdkVersionItem>,
-                                     value: JdkVersionItem?,
-                                     index: Int,
-                                     selected: Boolean,
-                                     hasFocus: Boolean) {
-    append(value?.jdkVersion ?: return, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-  }
-}
-
 internal class JdkDownloaderMergedModel(
   private val mainModel: JdkDownloaderModel,
   private val wslModel: JdkDownloaderModel?,
@@ -219,68 +223,38 @@ internal class JdkDownloadDialog(
   val sdkType: SdkTypeId,
   private val mergedModel: JdkDownloaderMergedModel,
   okActionText: @NlsContexts.Button String = ProjectBundle.message("dialog.button.download.jdk"),
-) : DialogWrapper(project, parentComponent, false, IdeModalityType.PROJECT) {
-  private val panel: JComponent
-  private val versionComboBox : ComboBox<JdkVersionItem>
-  private val vendorComboBox: JdkVersionVendorCombobox
-  private val installDirTextField: TextFieldWithBrowseButton?
-  private val installDirCombo: ComboBox<String>?
-  private val installDirComponent: JComponent
+  val text: @Nls String? = null
+) : DialogWrapper(project, parentComponent, false, IdeModalityType.IDE) {
+  private lateinit var versionComboBox : ComboBox<JdkVersionItem>
+  private val vendorComboBox: JdkVersionVendorCombobox = JdkVersionVendorCombobox()
+
+  private var installDirTextField: TextFieldWithBrowseButton? = null
+  private var installDirCombo: ComboBox<String>? = null
+  private lateinit var installDirComponent: JComponent
 
   private var currentModel : JdkDownloaderModel? = null
 
   private lateinit var selectedItem: JdkItem
   private lateinit var selectedPath: String
 
-  init {
-    title = ProjectBundle.message("dialog.title.download.jdk")
-    setResizable(false)
-
-    versionComboBox = ComboBox()
-    versionComboBox.renderer = jdkVersionItemRenderer
-    versionComboBox.isSwingPopup = false
-
-    vendorComboBox = JdkVersionVendorCombobox()
-
-    if (mergedModel.hasWsl) {
-      installDirCombo = ComboBox<String>()
-      installDirCombo.isEditable = true
-      installDirCombo.initBrowsableEditor(
-        BrowseFolderRunnable(
-          ProjectBundle.message("dialog.title.select.path.to.install.jdk"),
-          null,
-          project,
-          FileChooserDescriptorFactory.createSingleFolderDescriptor(),
-          installDirCombo,
-          TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT
-        ), disposable)
-      installDirCombo.addActionListener {
-        onTargetPathChanged(installDirCombo.editor.item as String)
+  private val panel: DialogPanel = panel {
+    if (text != null) {
+      row {
+        label(text)
       }
-      installDirTextField = null
-      installDirComponent = installDirCombo
-    }
-    else {
-      installDirTextField = textFieldWithBrowseButton(
-        project = project,
-        browseDialogTitle = ProjectBundle.message("dialog.title.select.path.to.install.jdk"),
-        fileChooserDescriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
-      )
-      installDirTextField.onTextChange {
-        onTargetPathChanged(it)
-      }
-      installDirTextField.textField.columns = 36
-      installDirCombo = null
-      installDirComponent = installDirTextField
     }
 
-    vendorComboBox.onActionItemSelected(::onVendorActionItemSelected)
-    vendorComboBox.onSelectionChange(::onVendorSelectionChange)
-    versionComboBox.onSelectionChange(::onVersionSelectionChange)
+    var archiveSizeCell: Cell<*>? = null
 
-    panel = panel {
-      row(ProjectBundle.message("dialog.row.jdk.version")) { cell(versionComboBox).widthGroup("combo") }
-      row(ProjectBundle.message("dialog.row.jdk.vendor")) { cell(vendorComboBox).widthGroup("combo").focused()
+    row(ProjectBundle.message("dialog.row.jdk.version")) {
+      versionComboBox = comboBox(listOf<JdkVersionItem>().toMutableList(), textListCellRenderer { it!!.jdkVersion })
+        .align(AlignX.FILL)
+        .component
+    }
+    row(ProjectBundle.message("dialog.row.jdk.vendor")) {
+      cell(vendorComboBox)
+        .align(AlignX.FILL)
+        .focused()
         .validationInfo {
           val itemArch = CpuArch.fromString(it.item.item.arch)
           when {
@@ -288,14 +262,61 @@ internal class JdkDownloadDialog(
             else -> null
           }
         }
-      }
-      row(ProjectBundle.message("dialog.row.jdk.location")) { cell(installDirComponent) }
+        .apply {
+          vendorComboBox.onSelectionChange {
+            archiveSizeCell?.comment?.text = ProjectBundle.message("dialog.jdk.archive.size", it.item.archiveSizeInMB)
+          }
+        }
     }
+    row(ProjectBundle.message("dialog.row.jdk.location")) {
+      cell(setupContainer())
+        .align(AlignX.FILL)
+        .apply { archiveSizeCell = comment("") }
+    }
+  }
 
-    myOKAction.putValue(Action.NAME, okActionText)
+  init {
+    title = ProjectBundle.message("dialog.title.download.jdk")
+    isResizable = false
+
+    vendorComboBox.onActionItemSelected(::onVendorActionItemSelected)
+    vendorComboBox.onSelectionChange(::onVendorSelectionChange)
+    versionComboBox.onSelectionChange(::onVersionSelectionChange)
+
+    setOKButtonText(okActionText)
 
     setModel(mergedModel.projectWSLDistribution != null)
     init()
+  }
+
+  private fun setupContainer(): JComponent {
+    if (mergedModel.hasWsl) {
+      installDirCombo = ComboBox<String>().apply {
+        isEditable = true
+        initBrowsableEditor(
+          BrowseFolderRunnable(
+            project,
+            FileChooserDescriptorFactory.createSingleFolderDescriptor().withTitle(ProjectBundle.message("dialog.title.select.path.to.install.jdk")),
+            installDirCombo,
+            TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT
+          ), disposable)
+        addActionListener { onTargetPathChanged(editor.item as String) }
+        installDirComponent = this
+      }
+      installDirTextField = null
+    }
+    else {
+      installDirTextField = textFieldWithBrowseButton(
+        project,
+        FileChooserDescriptorFactory.createSingleFolderDescriptor().withTitle(ProjectBundle.message("dialog.title.select.path.to.install.jdk"))
+      ).apply {
+        onTextChange { onTargetPathChanged(it) }
+        textField.columns = 36
+        installDirComponent = this
+      }
+      installDirCombo = null
+    }
+    return installDirComponent
   }
 
   private fun setModel(forWsl: Boolean) {
@@ -345,7 +366,7 @@ internal class JdkDownloadDialog(
     val path = JdkInstaller.getInstance().defaultInstallDir(newVersion, mergedModel.projectWSLDistribution).toString()
     val relativePath = FileUtil.getLocationRelativeToUserHome(path)
     if (installDirTextField != null) {
-      installDirTextField.text = relativePath
+      installDirTextField!!.text = relativePath
     }
     else {
       installDirCombo!!.model = CollectionComboBoxModel(getSuggestedInstallDirs(newVersion), relativePath)
@@ -387,8 +408,6 @@ internal class JdkDownloadDialog(
     if (selectedFile == null) {
       return null
     }
-
-    JdkDownloaderLogger.logSelected(selectedItem)
 
     return selectedItem to selectedFile
   }

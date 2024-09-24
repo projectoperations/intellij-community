@@ -143,6 +143,8 @@ public final class VcsConfiguration implements PersistentStateComponent<VcsConfi
   public boolean SHOW_FILE_HISTORY_AS_TREE = false;
   public boolean GROUP_MULTIFILE_MERGE_BY_DIRECTORY = false;
 
+  public boolean NON_MODAL_COMMIT_POSTPONE_SLOW_CHECKS = true;
+
   private static final int MAX_STORED_MESSAGES = 25;
 
   @Override
@@ -219,22 +221,6 @@ public final class VcsConfiguration implements PersistentStateComponent<VcsConfi
    */
   @Deprecated
   public PerformInBackgroundOption getUpdateOption() {
-    return PerformInBackgroundOption.ALWAYS_BACKGROUND;
-  }
-
-  /**
-   * @deprecated Always start progress in background
-   */
-  @Deprecated(forRemoval = true)
-  public PerformInBackgroundOption getCheckoutOption() {
-    return PerformInBackgroundOption.ALWAYS_BACKGROUND;
-  }
-
-  /**
-   * @deprecated Always start progress in background
-   */
-  @Deprecated(forRemoval = true)
-  public PerformInBackgroundOption getAddRemoveOption() {
     return PerformInBackgroundOption.ALWAYS_BACKGROUND;
   }
 

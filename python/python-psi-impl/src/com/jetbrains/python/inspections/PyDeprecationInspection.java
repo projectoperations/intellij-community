@@ -27,6 +27,7 @@ import com.jetbrains.python.PyPsiBundle;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.PyKnownDecoratorUtil.KnownDecorator;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import com.jetbrains.python.pyi.PyiFile;
 import com.jetbrains.python.pyi.PyiUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,6 +50,17 @@ public final class PyDeprecationInspection extends PyInspection {
     }
 
     @Override
+    public void visitPyBinaryExpression(@NotNull PyBinaryExpression node) {
+      final PsiElement resolveResult = node.getReference(getResolveContext()).resolve();
+      if (resolveResult instanceof PyDeprecatable) {
+        @NlsSafe String deprecationMessage = ((PyDeprecatable)resolveResult).getDeprecationMessage();
+        if (deprecationMessage != null) {
+          registerProblem(node.getPsiOperator(), deprecationMessage, ProblemHighlightType.WARNING);
+        }
+      }
+    }
+
+    @Override
     public void visitPyReferenceExpression(@NotNull PyReferenceExpression node) {
       final PyExceptPart exceptPart = PsiTreeUtil.getParentOfType(node, PyExceptPart.class);
       if (exceptPart != null) {
@@ -62,8 +74,15 @@ public final class PyDeprecationInspection extends PyInspection {
         if (resolveResult != null && element != resolveResult.getContainingFile()) return;
       }
       @NlsSafe String deprecationMessage = null;
-      if (resolveResult instanceof PyFunction) {
-        deprecationMessage = ((PyFunction)resolveResult).getDeprecationMessage();
+      if (resolveResult instanceof PyDeprecatable deprecatable) {
+        deprecationMessage = deprecatable.getDeprecationMessage();
+
+        if (deprecationMessage == null && !(resolveResult.getContainingFile() instanceof PyiFile)) {
+          PsiElement stub = PyiUtil.getPythonStub((PyElement)deprecatable);
+          if (stub instanceof PyDeprecatable stubDeprecatable) {
+            deprecationMessage = stubDeprecatable.getDeprecationMessage();
+          }
+        }
       }
       else if (resolveResult instanceof PyFile) {
         deprecationMessage = ((PyFile)resolveResult).getDeprecationMessage();
@@ -71,45 +90,6 @@ public final class PyDeprecationInspection extends PyInspection {
       if (deprecationMessage != null) {
         ASTNode nameElement = node.getNameElement();
         registerProblem(nameElement == null ? node : nameElement.getPsi(), deprecationMessage, ProblemHighlightType.LIKE_DEPRECATED);
-      }
-    }
-
-    @Override
-    public void visitPyFunction(@NotNull PyFunction node) {
-      super.visitPyFunction(node);
-
-      final PyDecoratorList decoratorList = node.getDecoratorList();
-      if (!LanguageLevel.forElement(node).isPython2() && decoratorList != null) {
-        for (PyDecorator decorator : decoratorList.getDecorators()) {
-          for (KnownDecorator knownDecorator : PyKnownDecoratorUtil.asKnownDecorators(decorator, myTypeEvalContext)) {
-            final KnownDecorator deprecated;
-            final KnownDecorator builtin;
-
-            if (knownDecorator == KnownDecorator.ABC_ABSTRACTPROPERTY) {
-              deprecated = KnownDecorator.ABC_ABSTRACTPROPERTY;
-              builtin = KnownDecorator.PROPERTY;
-            }
-            else if (knownDecorator == KnownDecorator.ABC_ABSTRACTCLASSMETHOD) {
-              deprecated = KnownDecorator.ABC_ABSTRACTCLASSMETHOD;
-              builtin = KnownDecorator.CLASSMETHOD;
-            }
-            else if (knownDecorator == KnownDecorator.ABC_ABSTRACTSTATICMETHOD) {
-              deprecated = KnownDecorator.ABC_ABSTRACTSTATICMETHOD;
-              builtin = KnownDecorator.STATICMETHOD;
-            }
-            else {
-              continue;
-            }
-
-            final KnownDecorator abcAbsMethod = KnownDecorator.ABC_ABSTRACTMETHOD;
-            final String message = PyPsiBundle.message("INSP.deprecation.abc.decorator.deprecated.use.alternative",
-                                                       deprecated.getQualifiedName(),
-                                                       builtin.getQualifiedName(),
-                                                       abcAbsMethod.getQualifiedName());
-
-            registerProblem(decorator, message, ProblemHighlightType.LIKE_DEPRECATED);
-          }
-        }
       }
     }
 

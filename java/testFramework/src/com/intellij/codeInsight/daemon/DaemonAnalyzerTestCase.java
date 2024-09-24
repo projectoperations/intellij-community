@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon;
 
 import com.intellij.codeHighlighting.Pass;
@@ -21,6 +21,7 @@ import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.lang.xml.XMLLanguage;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.command.WriteCommandAction;
@@ -105,6 +106,8 @@ public abstract class DaemonAnalyzerTestCase extends JavaCodeInsightTestCase {
       if (project != null) {
         StartupManager startupManager = project.getServiceIfCreated(StartupManager.class);
         if (startupManager != null) {
+          StartupActivityTestUtil.waitForProjectActivitiesToComplete(project);
+
           ((StartupManagerImpl)startupManager).checkCleared();
         }
         DaemonCodeAnalyzer daemonCodeAnalyzer = project.getServiceIfCreated(DaemonCodeAnalyzer.class);
@@ -246,7 +249,11 @@ public abstract class DaemonAnalyzerTestCase extends JavaCodeInsightTestCase {
                                @NotNull Collection<? extends HighlightInfo> infos,
                                @NotNull String text) {
     PsiFile file = getFile();
-    data.checkLineMarkers(file, DaemonCodeAnalyzerImpl.getLineMarkers(getDocument(file), getProject()), text);
+    ActionUtil.underModalProgress(myProject, "", () -> {
+      //line marker tooltips are called in BGT in production
+      data.checkLineMarkers(file, DaemonCodeAnalyzerImpl.getLineMarkers(getDocument(file), getProject()), text);
+      return null;
+    });
     data.checkResult(file, infos, text);
   }
 
@@ -299,7 +306,6 @@ public abstract class DaemonAnalyzerTestCase extends JavaCodeInsightTestCase {
       toIgnore.add(Pass.LINE_MARKERS);
       toIgnore.add(Pass.SLOW_LINE_MARKERS);
       toIgnore.add(Pass.LOCAL_INSPECTIONS);
-      toIgnore.add(Pass.WHOLE_FILE_LOCAL_INSPECTIONS);
       toIgnore.add(Pass.POPUP_HINTS);
       toIgnore.add(Pass.UPDATE_ALL);
     }
@@ -391,7 +397,7 @@ public abstract class DaemonAnalyzerTestCase extends JavaCodeInsightTestCase {
 
   @NotNull
   public PsiClass createClass(@NotNull @Language("JAVA") String text) throws IOException {
-    return WriteCommandAction.writeCommandAction(getProject()).compute(() -> {
+    VirtualFile classVFile = WriteCommandAction.writeCommandAction(getProject()).compute(() -> {
       final PsiFileFactory factory = PsiFileFactory.getInstance(getProject());
       final PsiJavaFile javaFile = (PsiJavaFile)factory.createFileFromText("a.java", JavaFileType.INSTANCE, text);
       final String qname = javaFile.getClasses()[0].getQualifiedName();
@@ -412,9 +418,13 @@ public abstract class DaemonAnalyzerTestCase extends JavaCodeInsightTestCase {
       VirtualFile vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(file.getCanonicalPath().replace(File.separatorChar, '/'));
       assertNotNull(vFile);
       VfsUtil.saveText(vFile, text);
-      PsiJavaFile psiFile = (PsiJavaFile)myPsiManager.findFile(vFile);
-      assertNotNull(psiFile);
-      return psiFile.getClasses()[0];
+      return vFile;
     });
+
+    IndexingTestUtil.waitUntilIndexesAreReady(getProject());
+    PsiJavaFile psiFile = (PsiJavaFile)myPsiManager.findFile(classVFile);
+    assertNotNull(psiFile);
+
+    return psiFile.getClasses()[0];
   }
 }

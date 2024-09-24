@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "DeprecatedCallableAddReplaceWith", "LiftReturnOrAssignment")
 
 package com.intellij.openapi.util
@@ -50,7 +50,7 @@ internal val fakeComponent: JComponent by lazy { object : JComponent() {} }
 
 /**
  * Provides access to icons used in the UI.
- * Please see [Working with Icons and Images](http://www.jetbrains.org/intellij/sdk/docs/reference_guide/work_with_icons_and_images.html)
+ * Please see [Icons](https://plugins.jetbrains.com/docs/intellij/icons.html)
  * about supported formats, organization, and accessing icons in plugins.
  *
  * @see com.intellij.util.IconUtil
@@ -258,6 +258,7 @@ object IconLoader {
   fun getDisabledIcon(icon: Icon): Icon = getDisabledIcon(icon = icon, disableFilter = null)
 
   @Deprecated("Use com.intellij.ui.svg.colorPatchedIcon")
+  @Internal
   fun colorPatchedIcon(icon: Icon, colorPatcher: SvgElementColorPatcherProvider): Icon {
     return com.intellij.ui.svg.colorPatchedIcon(icon = icon, colorPatcher = colorPatcher)
   }
@@ -265,6 +266,7 @@ object IconLoader {
   /**
    * Creates a new icon with the filter applied.
    */
+  @Internal
   fun filterIcon(icon: Icon, filterSupplier: RgbImageFilterSupplier): Icon {
     val effectiveIcon = if (icon is LazyIcon) icon.getOrComputeIcon() else icon
     if (!checkIconSize(effectiveIcon)) {
@@ -312,19 +314,8 @@ object IconLoader {
    */
   @JvmStatic
   fun getDarkIcon(icon: Icon, dark: Boolean): Icon {
-    if (icon is DarkIconProvider) {
-      return icon.getDarkIcon(dark)
-    }
-
-    // cannot `inline` this call, because we need an object to propagate the needed replacer recursively to the parts of compound icon
-    return object : IconReplacer {
-      override fun replaceIcon(icon: Icon): Icon {
-        if (icon is DarkIconProvider) {
-          return icon.getDarkIcon(dark)
-        }
-        return super.replaceIcon(icon)
-      }
-    }.replaceIcon(icon)
+    val replacer = if (dark) ourDarkReplacer else ourLightReplacer
+    return replacer.replaceIcon(icon)
   }
 
   fun detachClassLoader(classLoader: ClassLoader) {
@@ -336,7 +327,7 @@ object IconLoader {
   @JvmStatic
   fun createLazy(producer: Supplier<out Icon>): Icon = LazyIcon(producer)
 
-  @Deprecated("Do not use")
+  @Deprecated("Unused", ReplaceWith("com.intellij.ui.icons.CachedImageIcon"), DeprecationLevel.ERROR)
   open class CachedImageIcon private constructor(
     loader: ImageDataLoader,
   ) : com.intellij.ui.icons.CachedImageIcon(
@@ -433,4 +424,17 @@ internal class LazyIcon(private val producer: Supplier<out Icon>) : CopyableIcon
   override fun retrieveIcon(): Icon = getOrComputeIcon()
 
   override fun copy(): Icon = copyIcon(icon = getOrComputeIcon(), ancestor = null, deepCopy = false)
+}
+
+private val ourDarkReplacer = DarkReplacer(true)
+private val ourLightReplacer = DarkReplacer(false)
+
+// we need an object to propagate the replacer recursively to all parts of a compound icon
+private class DarkReplacer(val dark: Boolean) : IconReplacer {
+  override fun replaceIcon(icon: Icon): Icon {
+    if (icon is DarkIconProvider) {
+      return icon.getDarkIcon(dark)
+    }
+    return super.replaceIcon(icon)
+  }
 }

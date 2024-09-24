@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.log.ui.frame;
 
 import com.google.common.primitives.Ints;
@@ -29,6 +29,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.StatusText;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.components.BorderLayoutPanel;
 import com.intellij.util.ui.table.ComponentsListFocusTraversalPolicy;
 import com.intellij.vcs.log.VcsFullCommitDetails;
 import com.intellij.vcs.log.VcsLogBundle;
@@ -43,14 +44,12 @@ import com.intellij.vcs.log.ui.AbstractVcsLogUi;
 import com.intellij.vcs.log.ui.VcsLogActionIds;
 import com.intellij.vcs.log.ui.VcsLogColorManager;
 import com.intellij.vcs.log.ui.VcsLogInternalDataKeys;
-import com.intellij.vcs.log.ui.actions.IntelliSortChooserPopupAction;
 import com.intellij.vcs.log.ui.details.CommitDetailsListPanel;
 import com.intellij.vcs.log.ui.details.commit.CommitDetailsPanel;
 import com.intellij.vcs.log.ui.filter.VcsLogFilterUiEx;
 import com.intellij.vcs.log.ui.table.CommitSelectionListener;
 import com.intellij.vcs.log.ui.table.IndexSpeedSearch;
 import com.intellij.vcs.log.ui.table.VcsLogGraphTable;
-import com.intellij.vcs.log.util.BekUtil;
 import com.intellij.vcs.log.util.VcsLogUiUtil;
 import com.intellij.vcs.log.util.VcsLogUtil;
 import com.intellij.vcs.log.visible.VisiblePack;
@@ -68,9 +67,9 @@ import java.util.*;
 
 import static com.intellij.openapi.vfs.VfsUtilCore.toVirtualFileArray;
 import static com.intellij.util.ObjectUtils.notNull;
-import static com.intellij.util.containers.ContainerUtil.getFirstItem;
+import static com.intellij.util.containers.ContainerUtil.getOnlyItem;
 
-public class MainFrame extends JPanel implements DataProvider, Disposable {
+public class MainFrame extends JPanel implements UiDataProvider, Disposable {
   private static final @NonNls String DIFF_SPLITTER_PROPORTION = "vcs.log.diff.splitter.proportion";
   private static final @NonNls String DETAILS_SPLITTER_PROPORTION = "vcs.log.details.splitter.proportion";
   private static final @NonNls String CHANGES_SPLITTER_PROPORTION = "vcs.log.changes.splitter.proportion";
@@ -152,7 +151,7 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
     myNotificationLabel.setBorder(new CompoundBorder(JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0),
                                                      notNull(myNotificationLabel.getBorder(), JBUI.Borders.empty())));
 
-    JComponent toolbars = new JPanel(new BorderLayout());
+    JComponent toolbars = new BorderLayoutPanel();
     toolbars.add(myToolbar, BorderLayout.NORTH);
     toolbars.add(myNotificationLabel, BorderLayout.CENTER);
     JComponent toolbarsAndTable = new JPanel(new BorderLayout());
@@ -233,9 +232,6 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
     String vcsDisplayName = VcsLogUtil.getVcsDisplayName(myLogData.getProject(), myLogData.getLogProviders().values());
     textFilter.getAccessibleContext().setAccessibleName(VcsLogBundle.message("vcs.log.text.filter.accessible.name", vcsDisplayName));
 
-    DefaultActionGroup presentationSettingsGroup = (DefaultActionGroup)actionManager.getAction(VcsLogActionIds.PRESENTATION_SETTINGS_ACTION_GROUP);
-    configureIntelliSortAction(presentationSettingsGroup);
-
     ActionGroup rightCornerGroup = (ActionGroup)Objects.requireNonNull(CustomActionsSchema.getInstance().getCorrectedAction(VcsLogActionIds.TOOLBAR_RIGHT_CORNER_ACTION_GROUP));
     ActionToolbar rightCornerToolbar = actionManager.createActionToolbar(ActionPlaces.VCS_LOG_TOOLBAR_PLACE, rightCornerGroup, true);
     rightCornerToolbar.setTargetComponent(this);
@@ -249,65 +245,44 @@ public class MainFrame extends JPanel implements DataProvider, Disposable {
     return panel;
   }
 
-  private static void configureIntelliSortAction(@NotNull DefaultActionGroup group) {
-    AnAction intelliSortAction = ActionManager.getInstance().getAction(VcsLogActionIds.VCS_LOG_INTELLI_SORT_ACTION);
-    if (BekUtil.isBekEnabled()) {
-      if (BekUtil.isLinearBekEnabled()) {
-        group.replaceAction(intelliSortAction, new IntelliSortChooserPopupAction());
-      }
-    }
-    else {
-      // drop together with com.intellij.vcs.log.util.BekUtil.isBekEnabled
-      group.remove(intelliSortAction);
-    }
-  }
-
   @Override
-  public @Nullable Object getData(@NotNull @NonNls String dataId) {
-    if (VcsDataKeys.CHANGES.is(dataId) || VcsDataKeys.SELECTED_CHANGES.is(dataId)) {
-      return myChangesBrowser.getDirectChanges().toArray(Change.EMPTY_CHANGE_ARRAY);
+  public void uiDataSnapshot(@NotNull DataSink sink) {
+    Collection<VirtualFile> roots = getSelectedRoots();
+    Change[] changes = myChangesBrowser.getDirectChanges().toArray(Change.EMPTY_CHANGE_ARRAY);
+    sink.set(VcsDataKeys.CHANGES, changes);
+    sink.set(VcsDataKeys.SELECTED_CHANGES, changes);
+    sink.set(VcsLogInternalDataKeys.LOG_UI_PROPERTIES, myUiProperties);
+    sink.set(CommonDataKeys.VIRTUAL_FILE_ARRAY, toVirtualFileArray(roots));
+    VirtualFile onlyRoot = getOnlyItem(roots);
+    if (onlyRoot != null) {
+      sink.set(VcsLogInternalDataKeys.LOG_DIFF_HANDLER,
+               myLogData.getLogProvider(onlyRoot).getDiffHandler());
     }
-    else if (VcsLogInternalDataKeys.LOG_UI_PROPERTIES.is(dataId)) {
-      return myUiProperties;
-    }
-    else if (CommonDataKeys.VIRTUAL_FILE_ARRAY.is(dataId)) {
-      Collection<VirtualFile> roots = getSelectedRoots();
-      return toVirtualFileArray(roots);
-    }
-    else if (VcsLogInternalDataKeys.LOG_DIFF_HANDLER.is(dataId)) {
-      Collection<VirtualFile> roots = getSelectedRoots();
-      if (roots.size() != 1) return null;
-      return myLogData.getLogProvider(Objects.requireNonNull(getFirstItem(roots))).getDiffHandler();
-    }
-    else if (VcsLogInternalDataKeys.VCS_LOG_VISIBLE_ROOTS.is(dataId)) {
-      return VcsLogUtil.getAllVisibleRoots(myLogData.getRoots(), myFilterUi.getFilters());
-    }
-    else if (QuickActionProvider.KEY.is(dataId)) {
-      return new QuickActionProvider() {
-        @Override
-        public @NotNull List<AnAction> getActions(boolean originalProvider) {
-          AnAction textFilterAction = ActionUtil.wrap(VcsLogActionIds.VCS_LOG_FOCUS_TEXT_FILTER);
-          textFilterAction.getTemplatePresentation().setText(VcsLogBundle.message("vcs.log.text.filter.action.text"));
-          List<AnAction> actions = new ArrayList<>();
-          actions.add(textFilterAction);
-          actions.addAll(SimpleToolWindowPanel.collectActions(myToolbar));
-          return actions;
-        }
+    sink.set(VcsLogInternalDataKeys.VCS_LOG_VISIBLE_ROOTS,
+             VcsLogUtil.getAllVisibleRoots(myLogData.getRoots(), myFilterUi.getFilters()));
+    sink.set(PlatformCoreDataKeys.HELP_ID, HELP_ID);
+    sink.set(History.KEY, myHistory);
+    sink.set(QuickActionProvider.KEY, new QuickActionProvider() {
+      @Override
+      public @NotNull List<AnAction> getActions(boolean originalProvider) {
+        AnAction textFilterAction = ActionUtil.wrap(VcsLogActionIds.VCS_LOG_FOCUS_TEXT_FILTER);
+        textFilterAction.getTemplatePresentation().setText(VcsLogBundle.message("vcs.log.text.filter.action.text"));
+        List<AnAction> actions = new ArrayList<>();
+        actions.add(textFilterAction);
+        actions.addAll(SimpleToolWindowPanel.collectActions(myToolbar));
+        return actions;
+      }
 
-        @Override
-        public JComponent getComponent() {
-          return MainFrame.this;
-        }
+      @Override
+      public JComponent getComponent() {
+        return MainFrame.this;
+      }
 
-        @Override
-        public @NlsActions.ActionText @Nullable String getName() {
-          return null;
-        }
-      };
-    }
-    else if (PlatformCoreDataKeys.HELP_ID.is(dataId)) return HELP_ID;
-    else if (History.KEY.is(dataId)) return myHistory;
-    return null;
+      @Override
+      public @NlsActions.ActionText @Nullable String getName() {
+        return null;
+      }
+    });
   }
 
   private @NotNull Collection<VirtualFile> getSelectedRoots() {

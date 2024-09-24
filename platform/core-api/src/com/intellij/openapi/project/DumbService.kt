@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.project
 
 import com.intellij.openapi.Disposable
@@ -15,13 +15,12 @@ import com.intellij.openapi.util.*
 import com.intellij.util.ThrowableRunnable
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.messages.Topic
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Obsolete
 import org.jetbrains.annotations.Contract
 import org.jetbrains.annotations.Unmodifiable
+import java.util.*
 import javax.swing.JComponent
 
 /**
@@ -74,11 +73,25 @@ abstract class DumbService {
   abstract fun waitForSmartMode()
 
   /**
-   * Pause the current thread until dumb mode ends, and then run the read action. Indexes are guaranteed to be available inside that read action,
-   * unless this method is already called with read access allowed.
+   * DEPRECATED.
+   *
+   * Use instead:
+   * - [com.intellij.openapi.application.smartReadAction]
+   * - [com.intellij.openapi.application.NonBlockingReadAction] with `inSmartMode` option.
+   *
+   * WARNING: This method does not have any effect if it is called inside another read action.
+   *
+   * Otherwise, it pauses the current thread until dumb mode ends, and then runs the read action.
+   * In this case indexes are guaranteed to be available inside
    *
    * @throws ProcessCanceledException if the project is closed during dumb mode
    */
+  @Deprecated("""
+    This method is dangerous because it does not provide any guaranties if it is called inside another read action.
+    Instead, consider using  
+    - `com.intellij.openapi.application.smartReadAction` 
+    - `NonBlockingReadAction(...).inSmartMode()` 
+  """)
   fun <T> runReadActionInSmartMode(r: Computable<T>): T {
     val result = Ref<T>()
     runReadActionInSmartMode { result.set(r.compute()) }
@@ -94,6 +107,12 @@ abstract class DumbService {
     return tryRunReadActionInSmartMode(task, notification, DumbModeBlockedFunctionality.Other)
   }
 
+  /**
+   * WARNING: this method does not guarantee that Indexes are available if called under read action.
+   *
+   * Consider using [com.intellij.openapi.application.smartReadAction] or
+   * [com.intellij.openapi.application.NonBlockingReadAction] with `inSmartMode` option.
+   */
   fun <T> tryRunReadActionInSmartMode(task: Computable<T>,
                                       notification: @NlsContexts.PopupContent String?,
                                       functionality: DumbModeBlockedFunctionality): T? {
@@ -112,11 +131,25 @@ abstract class DumbService {
   }
 
   /**
-   * Pause the current thread until dumb mode ends, and then run the read action. Indexes are guaranteed to be available inside that read action,
-   * unless this method is already called with read access allowed.
+   * DEPRECATED.
+   *
+   * Use instead:
+   * - [com.intellij.openapi.application.smartReadAction]
+   * - [com.intellij.openapi.application.NonBlockingReadAction] with `inSmartMode` option.
+   *
+   * WARNING: This method does not have any effect if it is called inside another read action.
+   *
+   * Otherwise, it pauses the current thread until dumb mode ends, and then runs the read action.
+   * In this case indexes are guaranteed to be available inside
    *
    * @throws ProcessCanceledException if the project is closed during dumb mode
    */
+  @Deprecated("""
+    This method is dangerous because it does not provide any guaranties if it is called inside another read action.
+    Instead, consider using  
+    - `com.intellij.openapi.application.smartReadAction` 
+    - `NonBlockingReadAction(...).inSmartMode()` 
+  """)
   fun runReadActionInSmartMode(r: Runnable) {
     if (ApplicationManager.getApplication().isReadAccessAllowed) {
       // we can't wait for smart mode to begin (it'd result in a deadlock),
@@ -195,7 +228,7 @@ abstract class DumbService {
       }
       return result
     }
-    return if (collection is List<*>) collection as List<T> else collection.toImmutableList()
+    return if (collection is List<*>) collection as List<T> else collection.toList()
   }
 
   /**
@@ -301,13 +334,12 @@ abstract class DumbService {
    */
   fun withAlternativeResolveEnabled(runnable: Runnable) {
     val isDumb = isDumb
-    val old = isAlternativeResolveEnabled
     if (isDumb) isAlternativeResolveEnabled = true
     try {
       runnable.run()
     }
     finally {
-      if (isDumb) isAlternativeResolveEnabled = old
+      if (isDumb) isAlternativeResolveEnabled = false
     }
   }
 
@@ -318,13 +350,12 @@ abstract class DumbService {
    */
   fun <T, E : Throwable?> computeWithAlternativeResolveEnabled(runnable: ThrowableComputable<T, E>): T {
     val isDumb = isDumb
-    val old = isAlternativeResolveEnabled
     if (isDumb) isAlternativeResolveEnabled = true
     return try {
       runnable.compute()
     }
     finally {
-      if (isDumb) isAlternativeResolveEnabled = old
+      if (isDumb) isAlternativeResolveEnabled = false
     }
   }
 
@@ -335,10 +366,26 @@ abstract class DumbService {
    */
   fun <E : Throwable?> runWithAlternativeResolveEnabled(runnable: ThrowableRunnable<E>) {
     val isDumb = isDumb
-    val old = isAlternativeResolveEnabled
     if (isDumb) isAlternativeResolveEnabled = true
     try {
       runnable.run()
+    }
+    finally {
+      if (isDumb) isAlternativeResolveEnabled = false
+    }
+  }
+
+  /**
+   * Invokes the given runnable with alternative resolve set to `true` if dumb mode is enabled.
+   *
+   * @see isAlternativeResolveEnabled
+   */
+  inline fun <T> withAlternativeResolveEnabled(runnable: () -> T): T {
+    val isDumb = isDumb
+    val old = isAlternativeResolveEnabled
+    if (isDumb) isAlternativeResolveEnabled = true
+    try {
+      return runnable()
     }
     finally {
       if (isDumb) isAlternativeResolveEnabled = old
@@ -403,6 +450,13 @@ abstract class DumbService {
   @ApiStatus.Internal
   abstract fun unsafeRunWhenSmart(runnable: Runnable)
 
+  /**
+   * return true if [thing] can be used in current dumb context, i.e., either the [thing] is [isDumbAware] or the current context is smart; return false otherwise
+   */
+  fun isUsableInCurrentContext(thing: Any) : Boolean {
+    return !isDumb || isDumbAware(thing)
+  }
+
   companion object {
     @JvmField
     @Topic.ProjectLevel
@@ -418,7 +472,7 @@ abstract class DumbService {
       val point = extensionPoint.point
       val size = point.size()
       if (size == 0) {
-        return persistentListOf()
+        return Collections.emptyList()
       }
 
       if (!getInstance(project).isDumb) {

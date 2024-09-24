@@ -21,6 +21,7 @@ import com.intellij.util.containers.JBIterable;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.vcs.commit.EditedCommitNode;
 import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,7 +40,7 @@ import static com.intellij.openapi.vcs.changes.ChangesUtil.getNavigatableArray;
 import static com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode.*;
 
 // TODO: Check if we could extend DnDAwareTree here instead of directly implementing DnDAware
-public abstract class ChangesListView extends ChangesTree implements DataProvider, DnDAware {
+public abstract class ChangesListView extends ChangesTree implements DnDAware {
   private static final Logger LOG = Logger.getInstance(ChangesListView.class);
 
   @NonNls public static final String HELP_ID = "ideaInterface.changes";
@@ -109,98 +110,69 @@ public abstract class ChangesListView extends ChangesTree implements DataProvide
     LOG.warn("rebuildTree() not implemented in " + this, new Throwable());
   }
 
-  @Nullable
   @Override
-  public Object getData(@NotNull String dataId) {
-    if (DATA_KEY.is(dataId)) {
-      return this;
-    }
-    if (VcsDataKeys.CHANGES.is(dataId)) {
-      return getSelectedChanges()
-        .toArray(Change.EMPTY_CHANGE_ARRAY);
-    }
-    if (VcsDataKeys.CHANGE_LEAD_SELECTION.is(dataId)) {
-      return VcsTreeModelData.exactlySelected(this)
-        .iterateUserObjects(Change.class)
-        .toArray(Change.EMPTY_CHANGE_ARRAY);
-    }
-    if (VcsDataKeys.CHANGE_LISTS.is(dataId)) {
-      return VcsTreeModelData.exactlySelected(this)
-        .iterateRawUserObjects(ChangeList.class)
-        .toList().toArray(ChangeList[]::new);
-    }
-    if (VcsDataKeys.FILE_PATHS.is(dataId)) {
-      return VcsTreeModelData.mapToFilePath(VcsTreeModelData.selected(this));
-    }
-    if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId)) {
-      // don't try to delete files when only a changelist node is selected
-      boolean hasSelection = VcsTreeModelData.exactlySelected(this)
-        .iterateRawUserObjects()
-        .filter(userObject -> !(userObject instanceof ChangeList))
-        .isNotEmpty();
-      return hasSelection
-             ? new VirtualFileDeleteProvider()
-             : null;
-    }
-    if (UNVERSIONED_FILE_PATHS_DATA_KEY.is(dataId)) {
-      return getSelectedUnversionedFiles();
-    }
-    if (IGNORED_FILE_PATHS_DATA_KEY.is(dataId)) {
-      return getSelectedIgnoredFiles();
-    }
-    if (VcsDataKeys.MODIFIED_WITHOUT_EDITING_DATA_KEY.is(dataId)) {
-      return getSelectedModifiedWithoutEditing().toList();
-    }
-    if (LOCALLY_DELETED_CHANGES.is(dataId)) {
-      return getSelectedLocallyDeletedChanges().toList();
-    }
-    if (MISSING_FILES_DATA_KEY.is(dataId)) {
-      return getSelectedLocallyDeletedChanges()
-        .map(LocallyDeletedChange::getPath)
-        .toList();
-    }
-    if (PlatformCoreDataKeys.HELP_ID.is(dataId)) {
-      return HELP_ID;
-    }
-    if (PlatformCoreDataKeys.BGT_DATA_PROVIDER.is(dataId)) {
-      DataProvider superProvider = (DataProvider)super.getData(dataId);
-      VcsTreeModelData treeSelection = VcsTreeModelData.selected(this);
-      VcsTreeModelData exactSelection = VcsTreeModelData.exactlySelected(this);
-      return CompositeDataProvider.compose(slowId -> getSlowData(myProject, treeSelection, exactSelection, slowId), superProvider);
-    }
-    return super.getData(dataId);
+  @ApiStatus.Internal
+  public void updateTreeModel(@NotNull DefaultTreeModel model,
+                              @NotNull TreeStateStrategy treeStateStrategy) {
+    super.updateTreeModel(model, treeStateStrategy);
   }
 
-  @Nullable
-  private static Object getSlowData(@NotNull Project project,
-                                    @NotNull VcsTreeModelData treeSelection,
-                                    @NotNull VcsTreeModelData exactSelection,
-                                    @NotNull String slowId) {
-    if (SelectInContext.DATA_KEY.is(slowId)) {
+  @Override
+  public void uiDataSnapshot(@NotNull DataSink sink) {
+    super.uiDataSnapshot(sink);
+    sink.set(DATA_KEY, this);
+    sink.set(VcsDataKeys.CHANGES, getSelectedChanges()
+      .toArray(Change.EMPTY_CHANGE_ARRAY));
+    sink.set(VcsDataKeys.CHANGE_LEAD_SELECTION, VcsTreeModelData.exactlySelected(this)
+      .iterateUserObjects(Change.class)
+      .toArray(Change.EMPTY_CHANGE_ARRAY));
+    sink.set(VcsDataKeys.CHANGE_LISTS, VcsTreeModelData.exactlySelected(this)
+      .iterateRawUserObjects(ChangeList.class)
+      .toList().toArray(ChangeList[]::new));
+    sink.set(VcsDataKeys.FILE_PATHS, VcsTreeModelData.mapToFilePath(VcsTreeModelData.selected(this)));
+    // don't try to delete files when only a changelist node is selected
+    sink.set(PlatformDataKeys.DELETE_ELEMENT_PROVIDER,
+             VcsTreeModelData.exactlySelected(this)
+               .iterateRawUserObjects()
+               .filter(userObject -> !(userObject instanceof ChangeList))
+               .isNotEmpty()
+             ? new VirtualFileDeleteProvider()
+             : null);
+    sink.set(UNVERSIONED_FILE_PATHS_DATA_KEY, getSelectedUnversionedFiles());
+    sink.set(IGNORED_FILE_PATHS_DATA_KEY, getSelectedIgnoredFiles());
+    sink.set(VcsDataKeys.MODIFIED_WITHOUT_EDITING_DATA_KEY, getSelectedModifiedWithoutEditing().toList());
+    sink.set(LOCALLY_DELETED_CHANGES, getSelectedLocallyDeletedChanges().toList());
+    sink.set(MISSING_FILES_DATA_KEY, getSelectedLocallyDeletedChanges()
+      .map(LocallyDeletedChange::getPath)
+      .toList());
+    sink.set(PlatformCoreDataKeys.HELP_ID, HELP_ID);
+
+    VcsTreeModelData treeSelection = VcsTreeModelData.selected(this);
+    VcsTreeModelData exactSelection = VcsTreeModelData.exactlySelected(this);
+    sink.lazy(SelectInContext.DATA_KEY, () -> {
       VirtualFile file = VcsTreeModelData.mapObjectToVirtualFile(exactSelection.iterateRawUserObjects()).first();
       if (file == null) return null;
-      return new FileSelectInContext(project, file, null);
-    }
-    else if (CommonDataKeys.VIRTUAL_FILE_ARRAY.is(slowId)) {
+      return new FileSelectInContext(myProject, file, null);
+    });
+    sink.lazy(CommonDataKeys.VIRTUAL_FILE_ARRAY, () -> {
       return VcsTreeModelData.mapToVirtualFile(treeSelection)
         .toArray(VirtualFile.EMPTY_ARRAY);
-    }
-    if (VcsDataKeys.VIRTUAL_FILES.is(slowId)) {
+    });
+    sink.lazy(VcsDataKeys.VIRTUAL_FILES, () -> {
       return VcsTreeModelData.mapToVirtualFile(treeSelection);
-    }
-    if (CommonDataKeys.NAVIGATABLE.is(slowId)) {
+    });
+    sink.lazy(CommonDataKeys.NAVIGATABLE, () -> {
       VirtualFile file = VcsTreeModelData.mapToNavigatableFile(treeSelection).single();
       return file != null && !file.isDirectory()
-             ? PsiNavigationSupport.getInstance().createNavigatable(project, file, 0)
+             ? PsiNavigationSupport.getInstance().createNavigatable(myProject, file, 0)
              : null;
-    }
-    if (CommonDataKeys.NAVIGATABLE_ARRAY.is(slowId)) {
-      return getNavigatableArray(project, VcsTreeModelData.mapToNavigatableFile(treeSelection));
-    }
-    if (EXACTLY_SELECTED_FILES_DATA_KEY.is(slowId)) {
+    });
+    sink.lazy(CommonDataKeys.NAVIGATABLE_ARRAY, () -> {
+      return getNavigatableArray(myProject, VcsTreeModelData.mapToNavigatableFile(treeSelection));
+    });
+    sink.lazy(EXACTLY_SELECTED_FILES_DATA_KEY, () -> {
       return VcsTreeModelData.mapToExactVirtualFile(exactSelection);
-    }
-    return null;
+    });
   }
 
   @NotNull

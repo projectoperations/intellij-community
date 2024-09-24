@@ -1,6 +1,4 @@
-import java.util.ArrayList;
-import java.util.List;
-
+// IGNORE_K2
 class Boxing {
     void test() {
         Integer i = 0;

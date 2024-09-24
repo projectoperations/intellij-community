@@ -31,7 +31,7 @@ public abstract class MavenMultiVersionImportingTestCase extends MavenImportingT
   @Override
   public boolean runInDispatchThread() { return false; }
 
-  public static final String[] MAVEN_VERSIONS = new String[]{"bundled", "4.0.0-alpha-12"};
+  public static final String[] MAVEN_VERSIONS = new String[]{"bundled", "4.0.0-beta-4"};
   @Parameterized.Parameter(0)
   public String myMavenVersion;
   @Nullable
@@ -40,6 +40,32 @@ public abstract class MavenMultiVersionImportingTestCase extends MavenImportingT
   protected void assumeVersionMoreThan(String version) {
     Assume.assumeTrue("Version should be more than " + version,
                       VersionComparatorUtil.compare(getActualVersion(myMavenVersion), getActualVersion(version)) > 0);
+  }
+
+
+  protected void forMaven3(Runnable r) {
+    String version = getActualVersion(myMavenVersion);
+    if(version.startsWith("3.")) r.run();
+  }
+
+  protected void forMaven4(Runnable r) {
+    String version = getActualVersion(myMavenVersion);
+    if(version.startsWith("4.")) r.run();
+  }
+
+  protected void needFixForMaven4() {
+    String version = getActualVersion(myMavenVersion);
+    Assume.assumeTrue(version.startsWith("3."));
+  }
+
+  protected void assumeMaven3() {
+    String version = getActualVersion(myMavenVersion);
+    Assume.assumeTrue(version.startsWith("3."));
+  }
+
+  protected void assumeMaven4() {
+    String version = getActualVersion(myMavenVersion);
+    Assume.assumeTrue(version.startsWith("4."));
   }
 
   protected void assumeVersionAtLeast(String version) {
@@ -66,6 +92,7 @@ public abstract class MavenMultiVersionImportingTestCase extends MavenImportingT
   protected void setUp() throws Exception {
     super.setUp();
     if ("bundled".equals(myMavenVersion)) {
+      MavenDistributionsCache.resolveEmbeddedMavenHome();
       return;
     }
     myWrapperTestFixture = new MavenWrapperTestFixture(getProject(), myMavenVersion);
@@ -97,6 +124,9 @@ public abstract class MavenMultiVersionImportingTestCase extends MavenImportingT
   @NotNull
   protected String getDefaultPluginVersion(String pluginId) {
     if (pluginId.equals("org.apache.maven:maven-compiler-plugin")) {
+      if (mavenVersionIsOrMoreThan("3.9.7")) {
+        return "3.13.0";
+      }
       if (mavenVersionIsOrMoreThan("3.9.3")) {
         return "3.11.0";
       }

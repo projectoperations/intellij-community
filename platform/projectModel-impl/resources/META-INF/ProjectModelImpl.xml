@@ -27,16 +27,14 @@
                         serviceImplementation="com.intellij.openapi.project.ProjectLocatorImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.roots.libraries.LibraryTablesRegistrar"
                         serviceImplementation="com.intellij.openapi.roots.impl.libraries.LibraryTablesRegistrarImpl"/>
+    <applicationService serviceInterface="com.intellij.workspaceModel.ide.legacyBridge.SourceRootTypeRegistry"
+                        serviceImplementation="com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots.SourceRootTypeRegistryImpl"/>
     <!-- Global Workspace Model -->
     <applicationService serviceInterface="com.intellij.workspaceModel.ide.JpsGlobalModelSynchronizer"
                         serviceImplementation="com.intellij.workspaceModel.ide.impl.jps.serialization.JpsGlobalModelSynchronizerImpl"/>
     <!-- Global Workspace Model Libraries -->
     <applicationService serviceInterface="com.intellij.workspaceModel.ide.legacyBridge.GlobalLibraryTableBridge"
                         serviceImplementation="com.intellij.workspaceModel.ide.impl.legacyBridge.library.GlobalLibraryTableBridgeImpl"/>
-    <!-- Custom Workspace Model Libraries -->
-    <registryKey key="workspace.model.custom.library.bridge" defaultValue="true"
-                 description="Enables new implementation for Custom libraries which works via Workspace Model"
-                 restartRequired="true"/>
     <!-- Global or Custom Workspace Model Libraries -->
     <workspace.bridgeInitializer
       implementation="com.intellij.workspaceModel.ide.impl.legacyBridge.library.GlobalAndCustomLibraryTableBridgeInitializer"/>
@@ -52,6 +50,8 @@
     <projectService serviceInterface="com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndex"
                     serviceImplementation="com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexImpl"/>
     <backgroundPostStartupActivity implementation="com.intellij.workspaceModel.ide.impl.VirtualFileUrlsLazyInitializer"/>
+    <projectService serviceInterface="com.intellij.workspaceModel.ide.legacyBridge.LegacyBridgeJpsEntitySourceFactory"
+                    serviceImplementation="com.intellij.workspaceModel.ide.impl.legacyBridge.LegacyBridgeJpsEntitySourceFactoryImpl"/>
 
     <projectService serviceImplementation="com.intellij.workspaceModel.ide.impl.JpsProjectLoadingManagerImpl"
                     serviceInterface="com.intellij.workspaceModel.ide.JpsProjectLoadingManager"/>
@@ -84,6 +84,10 @@
                  description="Enable additional checks after replaceBySource and applyChangesFrom"/>
     <registryKey key="ide.workspace.model.assertions.on.update" defaultValue="false" restartRequired="false"
                  description="Enable workspace model consistency checking after every update"/>
+    <registryKey key="ide.workspace.model.assertions.on.long.listeners" defaultValue="true" restartRequired="true"
+                 description="Enable workspace model checking for listeners that execute more than 200ms"/>
+    <registryKey key="ide.workspace.model.assertions.bridges.usage" defaultValue="false" restartRequired="true"
+                 description="Enable workspace model checking for accessing bridges from WSM listeners"/>
 
     <postStartupActivity implementation="com.intellij.workspaceModel.ide.impl.WorkspaceEntitiesLifecycleActivity"/>
     <postStartupActivity implementation="com.intellij.workspaceModel.ide.impl.OrphanageActivity"/>

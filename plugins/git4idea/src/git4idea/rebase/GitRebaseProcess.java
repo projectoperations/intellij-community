@@ -53,7 +53,7 @@ import java.util.regex.Pattern;
 
 import static com.intellij.dvcs.DvcsUtil.getShortRepositoryName;
 import static com.intellij.openapi.ui.Messages.getWarningIcon;
-import static com.intellij.openapi.vcs.VcsNotifier.IMPORTANT_ERROR_NOTIFICATION;
+import static com.intellij.util.ObjectUtils.chooseNotNull;
 import static com.intellij.util.ObjectUtils.notNull;
 import static com.intellij.util.containers.ContainerUtil.*;
 import static git4idea.GitActionIdsHolder.Id.*;
@@ -305,12 +305,26 @@ public class GitRebaseProcess {
         }
       }
       else {
-        LOG.info("Error rebasing root " + repoName + ": " + result.getErrorOutputAsJoinedString());
-        showFatalError(result.getErrorOutputAsHtmlString(), repository, somethingRebased, alreadyRebased.keySet());
+        String error = getErrorMessage(rebaseCommandResult, result, repoName);
+        showFatalError(error, repository, somethingRebased, alreadyRebased.keySet());
         GitRebaseStatus.Type type = somethingRebased ? GitRebaseStatus.Type.SUSPENDED : GitRebaseStatus.Type.ERROR;
         return new GitRebaseStatus(type);
       }
     }
+  }
+
+  private static @NotNull @Nls String getErrorMessage(GitRebaseCommandResult rebaseCommandResult,
+                                                      GitCommandResult result,
+                                                      String repoName) {
+    String error;
+    if (rebaseCommandResult.getFailureCause() instanceof VcsException editingFailureCause) {
+      error = editingFailureCause.getMessage();
+    }
+    else {
+      error = result.getErrorOutputAsHtmlString();
+      LOG.info("Error rebasing root " + repoName + ": " + result.getErrorOutputAsJoinedString());
+    }
+    return error;
   }
 
   private @NotNull GitRebaseCommandResult callRebase(@NotNull GitRepository repository,
@@ -392,7 +406,7 @@ public class GitRebaseProcess {
 
   private void notifyNotAllConflictsResolved(@NotNull GitRepository conflictingRepository) {
     String description = GitRebaseUtils.mentionLocalChangesRemainingInStash(mySaver);
-    Notification notification = IMPORTANT_ERROR_NOTIFICATION
+    Notification notification = VcsNotifier.importantNotification()
       .createNotification(GitBundle.message("rebase.notification.conflict.title"), description, NotificationType.WARNING)
       .setDisplayId(GitNotificationIdsHolder.REBASE_STOPPED_ON_CONFLICTS)
       .addAction(createResolveNotificationAction(conflictingRepository))
@@ -415,7 +429,7 @@ public class GitRebaseProcess {
   }
 
   private void showStoppedForEditingMessage() {
-    Notification notification = IMPORTANT_ERROR_NOTIFICATION
+    Notification notification = VcsNotifier.importantNotification()
       .createNotification(GitBundle.message("rebase.notification.editing.title"), "", NotificationType.INFORMATION)
       .setDisplayId(GitNotificationIdsHolder.REBASE_STOPPED_ON_EDITING)
       .addAction(CONTINUE_ACTION)
@@ -436,7 +450,7 @@ public class GitRebaseProcess {
     String title = myRebaseSpec.getOngoingRebase() == null
                    ? GitBundle.message("rebase.notification.failed.rebase.title")
                    : GitBundle.message("rebase.notification.failed.continue.title");
-    Notification notification = IMPORTANT_ERROR_NOTIFICATION
+    Notification notification = VcsNotifier.importantNotification()
       .createNotification(title, descriptionBuilder.toString(), NotificationType.ERROR)
       .setDisplayId(GitNotificationIdsHolder.REBASE_FAILED)
       .addAction(RETRY_ACTION);
@@ -492,11 +506,12 @@ public class GitRebaseProcess {
 
     String upstream = myRebaseSpec.getParams().getUpstream();
     for (GitRepository repository : myRebaseSpec.getAllRepositories()) {
-      if (repository.getCurrentBranchName() == null) {
-        LOG.error("No current branch in " + repository);
+      String currentBranchName = chooseNotNull(repository.getCurrentBranchName(), repository.getCurrentRevision());
+      if (currentBranchName == null) {
+        LOG.error("No current branch or revision in " + repository);
         return true;
       }
-      String rebasingBranch = notNull(myRebaseSpec.getParams().getBranch(), repository.getCurrentBranchName());
+      String rebasingBranch = notNull(myRebaseSpec.getParams().getBranch(), currentBranchName);
       if (isRebasingPublishedCommit(repository, upstream, rebasingBranch)) {
         return askIfShouldRebasePublishedCommit();
       }

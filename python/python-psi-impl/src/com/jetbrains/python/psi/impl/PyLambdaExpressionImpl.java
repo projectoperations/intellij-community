@@ -36,7 +36,7 @@ public class PyLambdaExpressionImpl extends PyElementImpl implements PyLambdaExp
         return type;
       }
     }
-    return new PyFunctionTypeImpl(this);
+    return PyFunctionTypeImpl.create(this, context);
   }
 
 
@@ -68,6 +68,7 @@ public class PyLambdaExpressionImpl extends PyElementImpl implements PyLambdaExp
   @Nullable
   @Override
   public PyType getCallType(@Nullable PyExpression receiver,
+                            @Nullable PyCallSiteExpression pyCallSiteExpression,
                             @NotNull Map<PyExpression, PyCallableParameter> parameters,
                             @NotNull TypeEvalContext context) {
     return context.getReturnType(this);

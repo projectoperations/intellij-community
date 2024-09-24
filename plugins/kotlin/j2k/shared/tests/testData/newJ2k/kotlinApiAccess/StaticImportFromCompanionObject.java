@@ -1,3 +1,4 @@
+// !ADD_KOTLIN_API
 import static kotlinApi.KotlinClass.CONST;
 
 public class C {

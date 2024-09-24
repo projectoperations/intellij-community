@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.concurrency;
 
 import com.intellij.util.Function;
@@ -16,6 +16,8 @@ import java.util.function.Consumer;
  * <p>
  * Please use <a href="https://youtrack.jetbrains.com/articles/IJPL-A-3/Kotlin-Coroutines">Kotlin coroutines</a> instead
  * </p>
+ * <hr>
+ *
  * The Promise represents the eventual completion (or failure) of an asynchronous operation, and its resulting value.
  * <p>
  * A Promise is a proxy for a value not necessarily known when the promise is created.
@@ -89,7 +91,7 @@ public interface Promise<T> {
    * or on promise reject (null as result value will be passed).
    */
   @NotNull
-  Promise<T> onProcessed(@NotNull Consumer<? super T> processed);
+  Promise<T> onProcessed(@NotNull Consumer<? super @Nullable T> processed);
 
   /**
    * Get promise state.

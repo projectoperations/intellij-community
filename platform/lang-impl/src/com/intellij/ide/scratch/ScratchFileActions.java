@@ -27,10 +27,7 @@ import com.intellij.openapi.fileEditor.impl.text.TextEditorState;
 import com.intellij.openapi.fileTypes.*;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Conditions;
-import com.intellij.openapi.util.NlsContexts;
-import com.intellij.openapi.util.NotNullLazyValue;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.NaturalComparator;
@@ -93,7 +90,7 @@ public final class ScratchFileActions {
       boolean enabled = project != null && (
         e.isFromActionToolbar() ||
         ActionPlaces.isMainMenuOrActionSearch(place) ||
-        ActionPlaces.isPopupPlace(place) && e.getData(LangDataKeys.IDE_VIEW) != null);
+        e.isFromContextMenu() && e.getData(LangDataKeys.IDE_VIEW) != null);
 
       e.getPresentation().setEnabledAndVisible(enabled);
       updatePresentationTextAndIcon(e, e.getPresentation());
@@ -224,7 +221,8 @@ public final class ScratchFileActions {
     return context;
   }
 
-  static @Nullable PsiFile doCreateNewScratch(@NotNull Project project, @NotNull ScratchFileCreationHelper.Context context) {
+  @IntellijInternalApi
+  public static @Nullable PsiFile doCreateNewScratch(@NotNull Project project, @NotNull ScratchFileCreationHelper.Context context) {
     if (context.fileExtension == null && context.language != null) {
       LanguageFileType fileType = context.language.getAssociatedFileType();
       if (fileType != null) {
@@ -362,7 +360,7 @@ public final class ScratchFileActions {
     }
 
     protected @Nullable Language fileLanguage(@NotNull Project project,
-                                             @NotNull VirtualFile file) {
+                                              @NotNull VirtualFile file) {
       Language lang = ScratchFileService.getInstance().getScratchesMapping().getMapping(file);
       return lang != null ? lang : LanguageUtil.getLanguageForPsi(project, file);
     }

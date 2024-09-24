@@ -9,10 +9,12 @@ import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationEvent
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.util.EventDispatcher
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 
+@ApiStatus.Internal
 class ExternalSystemProgressNotificationManagerImpl : RemoteObject(), ExternalSystemProgressNotificationManager, RemoteExternalSystemProgressNotificationManager {
   private val dispatcher = EventDispatcher.create(ExternalSystemTaskNotificationListener::class.java)
 
@@ -89,9 +91,11 @@ class ExternalSystemProgressNotificationManagerImpl : RemoteObject(), ExternalSy
   }
 
   private fun forEachListener(action: (ExternalSystemTaskNotificationListener) -> Unit) {
-    LOG.runAndLogException {
-      action.invoke(dispatcher.multicaster)
-      ExternalSystemTaskNotificationListener.EP_NAME.forEachExtensionSafe(action::invoke)
+    ProgressManager.getInstance().executeNonCancelableSection {
+      LOG.runAndLogException {
+        action.invoke(dispatcher.multicaster)
+        ExternalSystemTaskNotificationListener.EP_NAME.forEachExtensionSafe(action::invoke)
+      }
     }
   }
 
@@ -138,12 +142,6 @@ class ExternalSystemProgressNotificationManagerImpl : RemoteObject(), ExternalSy
     override fun onStart(id: ExternalSystemTaskId, workingDir: String?) {
       if (taskId !== ALL_TASKS_KEY && taskId != id) return
       delegate.onStart(id, workingDir)
-    }
-
-    override fun onStart(id: ExternalSystemTaskId) {
-      if (taskId !== ALL_TASKS_KEY && taskId != id) return
-      @Suppress("DEPRECATION")
-      delegate.onStart(id)
     }
 
     override fun onEnvironmentPrepared(id: ExternalSystemTaskId) {

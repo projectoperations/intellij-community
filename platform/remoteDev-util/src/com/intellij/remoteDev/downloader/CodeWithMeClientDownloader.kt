@@ -29,7 +29,7 @@ import com.intellij.remoteDev.util.*
 import com.intellij.util.PlatformUtils
 import com.intellij.util.application
 import com.intellij.util.concurrency.AppExecutorUtil
-import com.intellij.util.concurrency.EdtScheduledExecutorService
+import com.intellij.util.concurrency.EdtScheduler
 import com.intellij.util.io.BaseOutputReader
 import com.intellij.util.io.DigestUtil
 import com.intellij.util.io.HttpRequests
@@ -60,10 +60,10 @@ import java.nio.file.attribute.FileTime
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.*
 import kotlin.math.min
+import kotlin.time.Duration.Companion.seconds
 
 @ApiStatus.Experimental
 object CodeWithMeClientDownloader {
@@ -94,7 +94,7 @@ object CodeWithMeClientDownloader {
   }
 
   private const val minimumClientBuildWithBundledJre = "223.4374"
-  fun isClientWithBundledJre(clientBuildNumber: String) = VersionComparatorUtil.compare(clientBuildNumber, minimumClientBuildWithBundledJre) >= 0
+  fun isClientWithBundledJre(clientBuildNumber: String) = clientBuildNumber.contains("SNAPSHOT") || VersionComparatorUtil.compare(clientBuildNumber, minimumClientBuildWithBundledJre) >= 0
 
   @ApiStatus.Internal
   class DownloadableFileData(
@@ -140,17 +140,17 @@ object CodeWithMeClientDownloader {
     }
   }
 
-  private const val buildNumberPattern = """[0-9]{3}\.(([0-9]+(\.[0-9]+)?)|SNAPSHOT)"""
-  val buildNumberRegex = Regex(buildNumberPattern)
-
   private fun getClientDistributionName(clientBuildVersion: String) = when {
+    clientBuildVersion.contains("SNAPSHOT") -> "JetBrainsClient"
     VersionComparatorUtil.compare(clientBuildVersion, "211.6167") < 0 -> "IntelliJClient"
     VersionComparatorUtil.compare(clientBuildVersion, "213.5318") < 0 -> "CodeWithMeGuest"
     else -> "JetBrainsClient"
   }
 
   fun createSessionInfo(clientBuildVersion: String, jreBuild: String?, unattendedMode: Boolean): JetBrainsClientDownloadInfo {
-    val isSnapshot = "SNAPSHOT" in clientBuildVersion
+    val buildNumber = requireNotNull(BuildNumber.fromStringOrNull(clientBuildVersion)) { "Invalid build version: $clientBuildVersion" }
+
+    val isSnapshot = buildNumber.isSnapshot
     if (isSnapshot) {
       LOG.warn("Thin client download from sources may result in failure due to different sources on host and client, " +
                "don't forget to update your locally built archive")
@@ -164,7 +164,7 @@ object CodeWithMeClientDownloader {
       jreBuild ?: error("JRE build number must be passed for client build number < $clientBuildVersion")
     }
 
-    val hostBuildNumber = buildNumberRegex.find(clientBuildVersion)!!.value
+    val hostBuildNumber = buildNumber.asStringWithoutProductCode()
 
     val platformSuffix = if (jreBuildToDownload != null) when {
       SystemInfo.isLinux && CpuArch.isIntel64() -> "-no-jbr.tar.gz"
@@ -226,6 +226,7 @@ object CodeWithMeClientDownloader {
 
     val sessionInfo = JetBrainsClientDownloadInfo(
       hostBuildNumber = hostBuildNumber,
+      clientBuildNumber = clientBuildNumber, 
       compatibleClientUrl = clientDownloadUrl,
       compatibleJreUrl = jreDownloadUrl,
       downloadPgpPublicKeyUrl = pgpPublicKeyUrl
@@ -247,7 +248,7 @@ object CodeWithMeClientDownloader {
       }
     }
     finally {
-      Files.delete(tempFile)
+      Files.deleteIfExists(tempFile)
     }
   }
 
@@ -346,9 +347,9 @@ object CodeWithMeClientDownloader {
                            progressIndicator: ProgressIndicator): ExtractedJetBrainsClientData {
     ApplicationManager.getApplication().assertIsNonDispatchThread()
 
-    val embeddedClientLauncher = createEmbeddedClientLauncherIfAvailable(sessionInfoResponse.hostBuildNumber)
+    val embeddedClientLauncher = createEmbeddedClientLauncherIfAvailable(sessionInfoResponse.clientBuildNumber)
     if (embeddedClientLauncher != null) {
-      return ExtractedJetBrainsClientData(Path(PathManager.getHomePath()), null, sessionInfoResponse.hostBuildNumber)
+      return ExtractedJetBrainsClientData(Path(PathManager.getHomePath()), null, sessionInfoResponse.clientBuildNumber)
     }
 
     val tempDir = FileUtil.createTempDirectory("jb-cwm-dl", null).toPath()
@@ -359,7 +360,7 @@ object CodeWithMeClientDownloader {
       url = clientUrl,
       tempDir = tempDir,
       cachesDir = config.clientCachesDir,
-      includeInManifest = getJetBrainsClientManifestFilter(sessionInfoResponse.hostBuildNumber),
+      includeInManifest = getJetBrainsClientManifestFilter(sessionInfoResponse.clientBuildNumber),
     )
 
     val jdkUrl = sessionInfoResponse.compatibleJreUrl?.let { URI(it) }
@@ -527,7 +528,7 @@ object CodeWithMeClientDownloader {
       if (!guestSucceeded || !jdkSucceeded) error("Guest or jdk was not downloaded")
 
       LOG.info("Download of guest and jdk succeeded")
-      return ExtractedJetBrainsClientData(clientDir = guestData.targetPath, jreDir = jdkData?.targetPath, version = sessionInfoResponse.hostBuildNumber)
+      return ExtractedJetBrainsClientData(clientDir = guestData.targetPath, jreDir = jdkData?.targetPath, version = sessionInfoResponse.clientBuildNumber)
     }
     catch(e: ProcessCanceledException) {
       LOG.info("Download was canceled")
@@ -732,7 +733,16 @@ object CodeWithMeClientDownloader {
                                          clientVersion: String,
                                          url: String,
                                          lifetime: Lifetime): Lifetime {
-    val parameters = listOf("thinClient", url)
+    return runJetBrainsClientProcess(launcherData, workingDirectory, clientVersion, url, emptyList(),  lifetime)
+  }
+
+  internal fun runJetBrainsClientProcess(launcherData: JetBrainsClientLauncherData,
+                                         workingDirectory: Path,
+                                         clientVersion: String,
+                                         url: String,
+                                         extraArguments: List<String>,
+                                         lifetime: Lifetime): Lifetime {
+    val parameters = listOf("thinClient", url) + extraArguments
     val processLifetimeDef = lifetime.createNested()
 
     val vmOptionsFile = if (SystemInfoRt.isMac) {
@@ -825,7 +835,7 @@ object CodeWithMeClientDownloader {
               if ((System.currentTimeMillis() - lastProcessStartTime) < 10_000 && lifetime.isAlive) {
                 if (attemptCount > 0) {
                   LOG.info("Previous attempt to start guest process failed, will try again in one second")
-                  EdtScheduledExecutorService.getInstance().schedule({ doRunProcess() }, ModalityState.any(), 1, TimeUnit.SECONDS)
+                  EdtScheduler.getInstance().schedule(1.seconds, ModalityState.any()) { doRunProcess() }
                 }
                 else {
                   LOG.warn("Running client process failed after specified number of attempts")

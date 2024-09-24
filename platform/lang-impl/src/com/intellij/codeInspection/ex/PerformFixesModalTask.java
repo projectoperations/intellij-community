@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeInspection.CommonProblemDescriptor;
@@ -32,8 +32,7 @@ import static com.intellij.modcommand.ModCommandExecutor.Result;
 import static com.intellij.openapi.util.text.StringUtil.notNullize;
 
 public abstract class PerformFixesModalTask implements SequentialTask {
-  @NotNull
-  protected final Project myProject;
+  protected final @NotNull Project myProject;
   private final List<CommonProblemDescriptor[]> myDescriptorPacks;
   private final PsiDocumentManager myDocumentManager;
   private final PostprocessReformattingAspect myReformattingAspect;
@@ -68,6 +67,10 @@ public abstract class PerformFixesModalTask implements SequentialTask {
     return true;
   }
 
+  public int getNumberOfSucceededFixes() {
+    return myResultCount.get(Result.SUCCESS);
+  }
+
   public void doRun(ProgressIndicator indicator) {
     indicator.setIndeterminate(false);
     while (!isDone()) {
@@ -80,7 +83,11 @@ public abstract class PerformFixesModalTask implements SequentialTask {
 
   @Override
   public boolean iteration(@NotNull ProgressIndicator indicator) {
-    final Pair<CommonProblemDescriptor, Boolean> pair = nextDescriptor();
+    final @Nullable Pair<CommonProblemDescriptor, Boolean> pair = nextDescriptor();
+    if (pair == null) {
+      return isDone();
+    }
+
     CommonProblemDescriptor descriptor = pair.getFirst();
     boolean shouldDoPostponedOperations = pair.getSecond();
 
@@ -157,15 +164,20 @@ public abstract class PerformFixesModalTask implements SequentialTask {
       .joining("\n");
   }
 
-  private Pair<CommonProblemDescriptor, Boolean> nextDescriptor() {
+  private @Nullable Pair<CommonProblemDescriptor, Boolean> nextDescriptor() {
     CommonProblemDescriptor[] descriptors = myDescriptorPacks.get(myPackIdx);
-    CommonProblemDescriptor descriptor = descriptors[myDescriptorIdx++];
-    boolean shouldDoPostponedOperations = false;
+
+    boolean shouldDoPostponedOperations = myDescriptorIdx == descriptors.length - 1;
+    Pair<CommonProblemDescriptor, Boolean> result =
+      myDescriptorIdx >= descriptors.length
+        ? null
+        : Pair.create(descriptors[myDescriptorIdx++], shouldDoPostponedOperations);
+
     if (myDescriptorIdx == descriptors.length) {
-      shouldDoPostponedOperations = true;
       myPackIdx++;
       myDescriptorIdx = 0;
     }
-    return Pair.create(descriptor, shouldDoPostponedOperations);
+
+    return result;
   }
 }

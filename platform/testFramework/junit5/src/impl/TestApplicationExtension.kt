@@ -17,7 +17,7 @@ import java.time.Duration
 import java.util.concurrent.TimeUnit
 
 @TestOnly
-internal class TestApplicationExtension : BeforeAllCallback, AfterEachCallback {
+class TestApplicationExtension : BeforeAllCallback, AfterEachCallback {
   override fun beforeAll(context: ExtensionContext) {
     context.testApplication().getOrThrow()
   }
@@ -28,7 +28,7 @@ internal class TestApplicationExtension : BeforeAllCallback, AfterEachCallback {
 }
 
 @TestOnly
-private fun ExtensionContext.testApplication(): Result<Unit> {
+fun ExtensionContext.testApplication(): Result<Unit> {
   val store = root.getStore(ExtensionContext.Namespace.GLOBAL)
   val resource = store.getOrComputeIfAbsent("application") {
     TestApplicationResource(initTestApplication())

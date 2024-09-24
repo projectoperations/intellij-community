@@ -7,6 +7,7 @@ import com.intellij.configurationStore.deserializeInto
 import com.intellij.configurationStore.serialize
 import com.intellij.lang.Language
 import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
 import com.intellij.openapi.editor.Editor
@@ -17,8 +18,8 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
-import com.intellij.refactoring.suggested.endOffset
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.psi.util.endOffset
+import com.intellij.psi.util.startOffset
 import com.intellij.util.SmartList
 import com.intellij.util.containers.ConcurrentIntObjectMap
 import com.intellij.util.ui.EDT
@@ -295,6 +296,7 @@ object InlayHintsUtils {
       }
       else {
         // In tests [computeCodeVision] is executed in sync mode on EDT
+        assert(ApplicationManager.getApplication().isUnitTestMode)
         return ReadAction.compute<CodeVisionState, Throwable> {
           return@compute computable.invoke()
         }

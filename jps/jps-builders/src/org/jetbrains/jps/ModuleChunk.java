@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps;
 
 import com.intellij.openapi.util.text.StringUtil;
@@ -12,6 +12,11 @@ import org.jetbrains.jps.model.module.JpsModule;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+/**
+ * Represents a single {@link ModuleBuildTarget} or a set of {@link ModuleBuildTarget} which circularly depend on each other.
+ * Since it isn't possible to compile modules which form a circular dependency one by one, the whole {@link ModuleChunk} is passed to
+ * {@link org.jetbrains.jps.incremental.ModuleLevelBuilder#build} method.
+ */
 public final class ModuleChunk {
   private static final NotNullFunction<JpsModule,String> GET_NAME = dom -> dom.getName();
   private final Set<JpsModule> myModules;
@@ -69,7 +74,10 @@ public final class ModuleChunk {
     return getName();
   }
 
-  public ModuleBuildTarget representativeTarget() {
+  /**
+   * Returns an arbitrary target included in the chunk.
+   */
+  public @NotNull ModuleBuildTarget representativeTarget() {
     return myTargets.iterator().next();
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.util.text;
 
 import com.intellij.ReviseWhenPortedToJDK;
@@ -11,7 +11,9 @@ import com.intellij.util.*;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.text.CharSequenceSubSequence;
 import com.intellij.util.text.MergingCharSequence;
+import kotlin.jvm.internal.Ref;
 import org.jetbrains.annotations.*;
+import org.jetbrains.annotations.ApiStatus.NonExtendable;
 
 import javax.swing.text.MutableAttributeSet;
 import javax.swing.text.html.HTML;
@@ -29,8 +31,18 @@ import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 //TeamCity inherits StringUtil: do not add private constructors!!!
-@SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
-public class StringUtil extends StringUtilRt {
+@SuppressWarnings({"NonFinalUtilityClass", "UtilityClassWithPublicConstructor"})
+@NonExtendable
+public class StringUtil {
+
+  /**
+   * @deprecated do not inherit from this class
+   */
+  @ApiStatus.ScheduledForRemoval
+  @Deprecated
+  public StringUtil() { }
+
+  @SuppressWarnings("UnnecessaryUnicodeEscape")
   public static final String ELLIPSIS = "\u2026";
   public static final String THREE_DOTS = "...";
   public static final String NON_BREAK_SPACE = "\u00A0";
@@ -128,7 +140,7 @@ public class StringUtil extends StringUtilRt {
   @Deprecated
   @ApiStatus.ScheduledForRemoval
   @Contract(pure = true)
-  public static @NotNull <T> Function<T, String> createToStringFunction(@NotNull Class<T> cls) {
+  public static @NotNull <T> Function<T, String> createToStringFunction(@SuppressWarnings("unused") @NotNull Class<T> cls) {
     return Object::toString;
   }
 
@@ -645,7 +657,8 @@ public class StringUtil extends StringUtilRt {
     return StringUtilRt.unquoteString(s, quotationChar);
   }
 
-  private static void unescapeStringCharacters(int length, @NotNull String s, @NotNull StringBuilder buffer) {
+  @ApiStatus.Internal
+  public static void unescapeStringCharacters(int length, @NotNull String s, @NotNull StringBuilder buffer) {
     boolean escaped = false;
     for (int idx = 0; idx < length; idx++) {
       char ch = s.charAt(idx);
@@ -748,7 +761,7 @@ public class StringUtil extends StringUtilRt {
   public static @NotNull String unescapeAnsiStringCharacters(@NotNull String s) {
     StringBuilder buffer = new StringBuilder();
     int length = s.length();
-    int count = 0;
+    int count = 0; // count == -1 if the escape sequence has an arbitrary length
     int radix = 0;
     int suffixLen = 0;
     boolean decode = false;
@@ -824,7 +837,7 @@ public class StringUtil extends StringUtilRt {
             decode = true;
             break;
           case 'x':
-            count = 2;
+            count = -1;
             radix = 0x10;
             suffixLen = 1;
             decode = true;
@@ -847,22 +860,30 @@ public class StringUtil extends StringUtilRt {
         }
         if (decode) {
           decode = false;
-          StringBuilder sb = new StringBuilder(count);
-          for (int pos = idx + suffixLen; pos < length && count > 0; ++pos) {
+          boolean arbitraryLength = count == -1;
+          StringBuilder sb = new StringBuilder(arbitraryLength ? 8 : count);
+          for (int pos = idx + suffixLen; pos < length && (arbitraryLength || count > 0); ++pos) {
             char chl = s.charAt(pos);
             if (!(radix == 0x10 && isHexDigit(chl) || radix == 8 && isOctalDigit(chl))) {
               break;
             }
             sb.append(chl);
-            --count;
+            if (!arbitraryLength) {
+              --count;
+            }
           }
           if (sb.length() != 0) {
             try {
-              long code = Long.parseLong(sb.toString(), radix);
-              //noinspection AssignmentToForLoopParameter
-              idx += sb.length() + suffixLen - 1;
-              // todo: implement UTF-32 support
-              buffer.append((char)code);
+              int code = Integer.parseInt(sb.toString(), radix);
+              if (Character.isValidCodePoint(code)) {
+                //noinspection AssignmentToForLoopParameter
+                idx += sb.length() + suffixLen - 1;
+                // todo: implement UTF-32 support
+                buffer.append(Character.toChars(code));
+              }
+              else {
+                buffer.append('\\').append(ch);
+              }
             }
             catch (NumberFormatException e) {
               buffer.append('\\').append(ch);
@@ -2263,6 +2284,9 @@ public class StringUtil extends StringUtilRt {
     return cp >= '0' && cp <= '9' || cp >= 'a' && cp <= 'z' || cp >= 'A' && cp <= 'Z' || Character.isJavaIdentifierPart(cp);
   }
 
+  /**
+   * @return true iff the string is a valid java identifier (according to JLS 3.8)
+   */
   @Contract(pure = true)
   public static boolean isJavaIdentifier(@NotNull String text) {
     int len = text.length();
@@ -2275,6 +2299,58 @@ public class StringUtil extends StringUtilRt {
       point = text.codePointAt(i);
       if (!isJavaIdentifierPart(point)) return false;
       i += Character.charCount(point);
+    }
+    return true;
+  }
+
+  /**
+   * Checks if the char sequence slice is a valid java identifier (according to JLS 3.8)
+   * @return true exactly iff {@code isJavaIdentifier(str.subSequence(startIncl, endExcl)) == true }
+   */
+  public static boolean isJavaIdentifier(@NotNull CharSequence str, int startIncl, int endExcl) {
+    if (str.length() == 0) return false;
+    Ref.BooleanRef isFirst = new Ref.BooleanRef();
+    isFirst.element = true;
+    return processCodePoints(str, startIncl, endExcl, codePoint -> {
+      if (isFirst.element) {
+        isFirst.element = false;
+        if (!isJavaIdentifierStart(codePoint)) {
+          return false;
+        }
+      } else {
+        if (!isJavaIdentifierPart(codePoint)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  private interface CodePointProcessor {
+    /**
+     * @return true iff should continue
+     */
+    boolean acceptCodePoint(int codePoint);
+  }
+
+
+  private static boolean processCodePoints(@NotNull CharSequence str, int startIncl, int endExcl, CodePointProcessor processor) {
+    int i = startIncl;
+    while (i < endExcl) {
+      char c1 = str.charAt(i++);
+      if (!Character.isHighSurrogate(c1) || i >= endExcl) {
+        if (!processor.acceptCodePoint(c1)) return false;
+      }
+      else {
+        char c2 = str.charAt(i);
+        if (Character.isLowSurrogate(c2)) {
+          i++;
+          if (!processor.acceptCodePoint(Character.toCodePoint(c1, c2))) return false;
+        }
+        else {
+          if (!processor.acceptCodePoint(c2)) return false;
+        }
+      }
     }
     return true;
   }
@@ -2578,8 +2654,7 @@ public class StringUtil extends StringUtilRt {
 
   @Contract(pure = true)
   public static int compare(@Nullable String s1, @Nullable String s2, boolean ignoreCase) {
-    //noinspection StringEquality
-    if (s1 == s2) return 0;
+    if (Strings.areSameInstance(s1, s2)) return 0;
     if (s1 == null) return -1;
     if (s2 == null) return 1;
     return ignoreCase ? s1.compareToIgnoreCase(s2) : s1.compareTo(s2);
@@ -3009,7 +3084,6 @@ public class StringUtil extends StringUtilRt {
 
   @Contract(pure = true)
   public static @NotNull String toHexString(byte @NotNull [] bytes) {
-    @SuppressWarnings("SpellCheckingInspection")
     String digits = "0123456789abcdef";
     StringBuilder sb = new StringBuilder(2 * bytes.length);
     for (byte b : bytes) {
@@ -3138,5 +3212,62 @@ public class StringUtil extends StringUtilRt {
 
   private static boolean isWhitespaceTabOrNewLine(char c) {
     return c == ' ' || c == '\t' || c == '\n';
+  }
+
+  @Contract("null,!null,_ -> false; !null,null,_ -> false; null,null,_ -> true")
+  public static boolean equal(@Nullable CharSequence s1, @Nullable CharSequence s2, boolean caseSensitive) {
+    return StringUtilRt.equal(s1, s2, caseSensitive);
+  }
+
+  @Contract(pure = true)
+  public static @NotNull String convertLineSeparators(@NotNull String text, boolean keepCarriageReturn) {
+    return StringUtilRt.convertLineSeparators(text, keepCarriageReturn);
+  }
+
+  @Contract(pure = true)
+  public static @NotNull CharSequence convertLineSeparators(@NotNull CharSequence text, @NotNull String newSeparator) {
+    return StringUtilRt.convertLineSeparators(text, newSeparator);
+  }
+
+  public static @NotNull String convertLineSeparators(@NotNull String text, @NotNull String newSeparator, int @Nullable [] offsetsToKeep) {
+    return StringUtilRt.convertLineSeparators(text, newSeparator, offsetsToKeep);
+  }
+
+  @NotNull
+  public static String convertLineSeparators(@NotNull String text,
+                                             @NotNull String newSeparator,
+                                             int @Nullable [] offsetsToKeep,
+                                             boolean keepCarriageReturn) {
+    return StringUtilRt.convertLineSeparators(text, newSeparator, offsetsToKeep, keepCarriageReturn);
+  }
+
+  @Contract(pure = true)
+  public static boolean startsWithIgnoreCase(@NotNull String str, int startOffset, @NotNull String prefix) {
+    return StringUtilRt.startsWithIgnoreCase(str, startOffset, prefix);
+  }
+
+  @Contract(pure = true)
+  public static boolean endsWithIgnoreCase(@NotNull CharSequence text, @NotNull CharSequence suffix) {
+    return StringUtilRt.endsWithIgnoreCase(text, suffix);
+  }
+
+  @NotNull
+  @Contract(pure = true)
+  public static String formatFileSize(long fileSize, @NotNull String unitSeparator, int rank) {
+    return StringUtilRt.formatFileSize(fileSize, unitSeparator, rank);
+  }
+
+  /**
+   * @see StringUtilRt#formatFileSize(long, String, int, boolean)
+   */
+  @NotNull
+  @Contract(pure = true)
+  public static String formatFileSize(long fileSize, @NotNull String unitSeparator, int rank, boolean fixedFractionPrecision) {
+    return StringUtilRt.formatFileSize(fileSize, unitSeparator, rank, fixedFractionPrecision);
+  }
+
+  @Contract(pure = true)
+  public static int rankForFileSize(long fileSize) {
+    return StringUtilRt.rankForFileSize(fileSize);
   }
 }

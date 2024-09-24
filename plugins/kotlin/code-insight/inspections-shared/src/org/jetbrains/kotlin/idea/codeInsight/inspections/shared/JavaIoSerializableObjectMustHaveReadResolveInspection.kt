@@ -8,11 +8,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.impl.source.tree.LeafPsiElement
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.buildClassType
-import org.jetbrains.kotlin.analysis.api.scopes.KtScope
-import org.jetbrains.kotlin.analysis.api.symbols.KtClassOrObjectSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KtFunctionLikeSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithVisibility
+import org.jetbrains.kotlin.analysis.api.scopes.KaScope
+import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolVisibility
+import org.jetbrains.kotlin.analysis.api.symbols.markers.KaSymbolWithVisibility
 import org.jetbrains.kotlin.descriptors.Visibilities.Private
 import org.jetbrains.kotlin.descriptors.Visibilities.Protected
 import org.jetbrains.kotlin.descriptors.Visibilities.Public
@@ -60,20 +60,16 @@ private class ImplementReadResolveQuickFix : LocalQuickFix {
 }
 
 private fun KtObjectDeclaration.doesImplementSerializable(): Boolean = analyze(this) {
-    true == (this@doesImplementSerializable.getSymbol() as? KtClassOrObjectSymbol)
-        ?.let(::buildClassType)
-        ?.getAllSuperTypes()
-        ?.any { it.isClassTypeWithClassId(ClassId.fromString(JAVA_IO_SERIALIZABLE_CLASS_ID)) }
+    buildClassType(symbol).isSubtypeOf(ClassId.fromString(JAVA_IO_SERIALIZABLE_CLASS_ID))
 }
 
 private fun KtObjectDeclaration.doesImplementReadResolve(): Boolean = analyze(this) {
-    val classSymbol = this@doesImplementReadResolve.getSymbol() as? KtClassOrObjectSymbol ?: return false
-    fun KtScope.isAnyReadResolve(vararg visibilities: Visibility): Boolean =
-        getCallableSymbols { it.asString() == JAVA_IO_SERIALIZATION_READ_RESOLVE }.any {
-            val functionLikeSymbol = it as? KtFunctionLikeSymbol ?: return@any false
-            val visibility = (it as? KtSymbolWithVisibility)?.visibility
-            visibility in visibilities && functionLikeSymbol.valueParameters.isEmpty() && it.returnType.isAny
+    val classSymbol = this@doesImplementReadResolve.symbol as? KaClassSymbol ?: return false
+    fun KaScope.isAnyReadResolve(vararg visibilities: KaSymbolVisibility): Boolean =
+        callables { it.asString() == JAVA_IO_SERIALIZATION_READ_RESOLVE }.any {
+            val functionLikeSymbol = it as? KaFunctionSymbol ?: return@any false
+            it.visibility in visibilities && functionLikeSymbol.valueParameters.isEmpty() && it.returnType.isAnyType
         }
-    classSymbol.getDeclaredMemberScope().isAnyReadResolve(Public, Private, Protected) ||
-            classSymbol.getMemberScope().isAnyReadResolve(Public, Protected)
+    classSymbol.declaredMemberScope.isAnyReadResolve(KaSymbolVisibility.PUBLIC, KaSymbolVisibility.PRIVATE, KaSymbolVisibility.PROTECTED) ||
+            classSymbol.memberScope.isAnyReadResolve(KaSymbolVisibility.PUBLIC, KaSymbolVisibility.PROTECTED)
 }

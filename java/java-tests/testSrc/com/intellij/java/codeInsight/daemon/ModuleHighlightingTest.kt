@@ -11,12 +11,23 @@ import com.intellij.java.testFramework.fixtures.LightJava9ModulesCodeInsightFixt
 import com.intellij.java.testFramework.fixtures.MultiModuleJava9ProjectDescriptor.ModuleDescriptor
 import com.intellij.java.testFramework.fixtures.MultiModuleJava9ProjectDescriptor.ModuleDescriptor.*
 import com.intellij.java.workspace.entities.JavaModuleSettingsEntity
+import com.intellij.java.workspace.entities.javaSettings
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.ex.temp.TempFileSystem
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.workspace.jps.entities.ModuleId
+import com.intellij.platform.workspace.jps.entities.modifyModuleEntity
+import com.intellij.pom.java.LanguageLevel
 import com.intellij.psi.JavaCompilerConfigurationProxy
 import com.intellij.psi.PsiJavaModule
 import com.intellij.psi.PsiManager
@@ -25,10 +36,14 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.ProjectScope
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.testFramework.DumbModeTestUtils
+import com.intellij.testFramework.IdeaTestUtil
+import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.workspaceModel.updateProjectModel
+import junit.framework.AssertionFailedError
 import junit.framework.TestCase
 import org.assertj.core.api.Assertions.assertThat
 import org.intellij.lang.annotations.Language
+import org.jetbrains.jps.model.java.JavaSourceRootType
 import java.util.jar.JarFile
 
 class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
@@ -45,6 +60,29 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
       test()
     } finally {
       JavaCompilerConfigurationProxy.setAdditionalOptions(project, module, emptyList())
+    }
+  }
+
+  fun testModuleImportDeclarationLevelCheck() {
+    IdeaTestUtil.withLevel(module, LanguageLevel.JDK_23) {
+      highlight("Test.java", """
+        <error descr="Module Import Declarations are not supported at language level '23'">import module java.sql;</error>
+        class Test {}
+      """.trimIndent())
+    }
+  }
+
+  fun testModuleImportDeclarationUnresolvedModule() {
+    IdeaTestUtil.withLevel(module, LanguageLevel.JDK_23_PREVIEW) {
+      addFile("moodule-info.java", "module current.module.name {}")
+      highlight("Test.java", """
+        import module M2;
+        import module current.module.name;
+        import module <error descr="Module is not in dependencies: M3">M3</error>;
+        import module <error descr="Module not found: M4">M4</error>;
+        
+        class Test {}
+      """.trimIndent())
     }
   }
 
@@ -452,7 +490,7 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
 
   fun testPatchingJavaBase() {
     highlight("Main.java", """
-      package <error descr="Package 'lang' exists in another module: java.base">java.lang</error>;
+      package <error descr="Package 'java.lang' exists in another module: java.base">java.lang</error>;
       public class Main {}
     """.trimIndent())
     withCompileArguments(module, "--patch-module=java.base=/src") {
@@ -461,6 +499,45 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
        public class Main {}
      """.trimIndent())
     }
+
+    highlight("Main.java", """
+      package java;
+      public class Main {}
+    """.trimIndent())
+
+    highlight("Main.java", """
+      package java.lang.my;
+      public class Main {}
+    """.trimIndent())
+
+  }
+
+  fun testExcludedSrc() {
+    val sourceRoot = M2.sourceRoot() ?: throw AssertionFailedError("No source root")
+    VfsTestUtil.createFile(sourceRoot, "java/lang/annotation/TestClass.java", """
+      package java.lang.annotation;     
+      public class TestClass { }
+    """.trimIndent())
+    VfsTestUtil.createFile(sourceRoot, "module-info.java", """
+      module java.base { exports exports java.lang.annotation; }
+    """.trimIndent())
+
+    val altSourceRoot = ApplicationManager.getApplication().runWriteAction(Computable<VirtualFile> { M2.createSourceRoot("alt") })
+                        ?: throw AssertionFailedError("No alt-source root")
+    VfsTestUtil.createFile(altSourceRoot, "module-info.java", """
+      module java.base { exports exports java.lang.annotation; }
+    """.trimIndent())
+
+    ApplicationManager.getApplication().runWriteAction {
+      val model = ModuleRootManager.getInstance(ModuleManager.getInstance(project).findModuleByName(M2.moduleName)!!).getModifiableModel()
+      model.contentEntries[0].addExcludeFolder(altSourceRoot)
+      model.commit()
+    }
+
+    highlight("TestClassA.java", """
+      package java.lang.annotation;     
+      public class TestClassA { }
+    """.trimIndent(), M2)
   }
 
   fun testAddReadsDependingOnSourceModule() {
@@ -572,11 +649,11 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
     addFile("module-info.java", "module M6 { requires transitive M7; }", M6)
     addFile("module-info.java", "module M7 { exports pkg.collision7 to M6; }", M7)
     addFile("module-info.java", "module M { requires M2; requires M4; requires M6; requires lib.auto; }")
-    highlight("test1.java", """<error descr="Package 'pkg.collision2' exists in another module: M2">package pkg.collision2;</error>""")
+    highlight("test1.java", """package <error descr="Package 'pkg.collision2' exists in another module: M2">pkg.collision2</error>;""")
     highlight("test2.java", """package pkg.collision4;""")
     highlight("test3.java", """package pkg.collision7;""")
-    highlight("test4.java", """<error descr="Package 'java.util' exists in another module: java.base">package java.util;</error>""")
-    highlight("test5.java", """<error descr="Package 'pkg.lib2' exists in another module: lib.auto">package pkg.lib2;</error>""")
+    highlight("test4.java", """package <error descr="Package 'java.util' exists in another module: java.base">java.util</error>;""")
+    highlight("test5.java", """package <error descr="Package 'pkg.lib2' exists in another module: lib.auto">pkg.lib2</error>;""")
   }
 
   fun testClashingReads1() {
@@ -687,11 +764,11 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
     runWriteActionAndWait {
       WorkspaceModel.getInstance(myFixture.project).updateProjectModel { storage ->
         val moduleEntity = storage.resolve(ModuleId(moduleName)) ?: return@updateProjectModel
-        val javaSettings = JavaModuleSettingsEntity(false, false, moduleEntity.entitySource) {
-          module = moduleEntity
-          manifestAttributes = attributes
+        storage.modifyModuleEntity(moduleEntity) {
+          this.javaSettings = JavaModuleSettingsEntity(false, false, moduleEntity.entitySource) {
+            manifestAttributes = attributes
+          }
         }
-        storage.addEntity(javaSettings)
       }
     }
   }
@@ -720,6 +797,74 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
           private <error descr="Package 'p' is declared in the unnamed module, but module 'M' does not read it">p</error>.C c;
         }
         """.trimIndent())
+  }
+
+  fun testImportModule() {
+    addFile("module-info.java", """
+      module current.module.name { 
+        requires first.module.name; 
+      }""".trimIndent())
+    addFile("module-info.java", """
+      module first.module.name { 
+        requires transitive first.auto.module.name;
+        requires second.auto.module.name;
+      }""".trimIndent(), M2)
+    addFile("module-info.java", "module second.module.name {}", M4)
+
+    addResourceFile(JarFile.MANIFEST_NAME, "Automatic-Module-Name: first.auto.module.name\n", module = M5)
+    addResourceFile(JarFile.MANIFEST_NAME, "Automatic-Module-Name: second.auto.module.name\n", module = M6)
+
+    ModuleRootModificationUtil.addDependency(ModuleManager.getInstance(project).findModuleByName(M2.moduleName)!!,
+                                             ModuleManager.getInstance(project).findModuleByName(M5.moduleName)!!)
+    ModuleRootModificationUtil.addDependency(ModuleManager.getInstance(project).findModuleByName(M2.moduleName)!!,
+                                             ModuleManager.getInstance(project).findModuleByName(M6.moduleName)!!)
+
+
+    IdeaTestUtil.withLevel(module, LanguageLevel.JDK_23_PREVIEW) {
+      highlight("A.java", """
+        import module current.module.name;
+        import module first.module.name;
+        <error descr="Module 'second.module.name' fails to read 'current.module.name'">import module second.module.name;</error>
+        import module first.auto.module.name;
+        <error descr="Module 'second.auto.module.name' fails to read 'current.module.name'">import module second.auto.module.name;</error>
+        
+        public class A {
+        }
+        """.trimIndent())
+    }
+  }
+
+  fun testImportModuleWithoutTopModule() {
+    addFile("module-info.java", """
+      module first.module.name { 
+        requires transitive first.auto.module.name;
+        requires second.auto.module.name;
+      }""".trimIndent(), M2)
+    addFile("module-info.java", "module second.module.name {}", M4)
+    addFile("module-info.java", "module third.module.name {}", M3)
+
+    addResourceFile(JarFile.MANIFEST_NAME, "Automatic-Module-Name: first.auto.module.name\n", module = M5)
+    addResourceFile(JarFile.MANIFEST_NAME, "Automatic-Module-Name: second.auto.module.name\n", module = M6)
+
+    ModuleRootModificationUtil.addDependency(ModuleManager.getInstance(project).findModuleByName(M2.moduleName)!!,
+                                             ModuleManager.getInstance(project).findModuleByName(M5.moduleName)!!)
+    ModuleRootModificationUtil.addDependency(ModuleManager.getInstance(project).findModuleByName(M2.moduleName)!!,
+                                             ModuleManager.getInstance(project).findModuleByName(M6.moduleName)!!)
+
+
+    IdeaTestUtil.withLevel(module, LanguageLevel.JDK_23_PREVIEW) {
+      highlight("A.java", """
+        import module <error descr="Module not found: current.module.name">current.module.name</error>;
+        import module first.module.name;
+        import module second.module.name;
+        import module <error descr="Module is not in dependencies: third.module.name">third.module.name</error>;
+        import module first.auto.module.name;
+        import module second.auto.module.name;
+        
+        public class A {
+        }
+        """.trimIndent())
+    }
   }
 
   fun testAutomaticModuleFromManifestHighlighting() {
@@ -783,9 +928,28 @@ class ModuleHighlightingTest : LightJava9ModulesCodeInsightFixtureTestCase() {
     val available = availableIntentions
       .map { (it.asModCommandAction() ?: IntentionActionDelegate.unwrap(it))::class.java }
       .filter { it.name.startsWith("com.intellij.codeInsight.") &&
-                !(it.name.startsWith("com.intellij.codeInsight.intention.impl.") && it.name.endsWith("Action"))}
+                !(it.name.startsWith("com.intellij.codeInsight.intention.impl.") && it.name.endsWith("Action"))
+                && !it.name.endsWith("DeclarativeHintsTogglingIntention")}
       .map { it.simpleName }
     assertThat(available).describedAs(availableIntentions.toString()).containsExactlyInAnyOrder(*fixes)
+  }
+
+  private fun ModuleDescriptor.createSourceRoot(srcPathPrefix: String): VirtualFile? {
+    val module = ModuleManager.getInstance(project).findModuleByName(moduleName) ?: return null
+    val dummyRoot = VirtualFileManager.getInstance().findFileByUrl("temp:///") ?: return null
+    dummyRoot.refresh(false, false)
+    val srcRoot = dummyRoot.createChildDirectory(this, "${srcPathPrefix}-${this.sourceRootName}");
+    val tempFs: TempFileSystem = srcRoot.getFileSystem() as TempFileSystem
+    for (child in srcRoot.getChildren()) {
+      if (!tempFs.exists(child)) {
+        tempFs.createChildFile(this, srcRoot, child.getName())
+      }
+      child.delete(this);
+    }
+    ModuleRootModificationUtil.updateModel(module) { model ->
+      model.addContentEntry(srcRoot).addSourceFolder(srcRoot, JavaSourceRootType.SOURCE)
+    }
+    return srcRoot
   }
   //</editor-fold>
 }

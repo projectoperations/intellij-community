@@ -32,7 +32,7 @@ from _pydevd_bundle.pydevd_constants import IS_JYTH_LESS25, IS_PYCHARM, get_thre
     clear_cached_thread_id, INTERACTIVE_MODE_AVAILABLE, SHOW_DEBUG_INFO_ENV, \
     IS_PY34_OR_GREATER, IS_PY36_OR_GREATER, \
     IS_PY2, NULL, NO_FTRACE, dummy_excepthook, IS_CPYTHON, GOTO_HAS_RESPONSE, \
-    USE_LOW_IMPACT_MONITORING
+    USE_LOW_IMPACT_MONITORING, HALT_VARIABLE_RESOLVE_THREADS_ON_STEP_RESUME
 from _pydev_bundle import fix_getpass
 from _pydev_bundle import pydev_imports, pydev_log
 from _pydev_bundle._pydev_filesystem_encoding import getfilesystemencoding
@@ -57,18 +57,22 @@ from _pydevd_bundle.pydevd_custom_frames import CustomFramesContainer, custom_fr
 from _pydevd_bundle.pydevd_frame_utils import add_exception_to_frame, remove_exception_from_frame
 from _pydevd_bundle.pydevd_kill_all_pydevd_threads import kill_all_pydev_threads
 from _pydevd_bundle.pydevd_trace_dispatch import (
-    trace_dispatch as _trace_dispatch, global_cache_skips, global_cache_frame_skips, show_tracing_warning)
+    trace_dispatch as _trace_dispatch, show_tracing_warning)
 from _pydevd_frame_eval.pydevd_frame_eval_main import (
-    frame_eval_func, dummy_trace_dispatch, show_frame_eval_warning)
-from _pydevd_bundle.pydevd_pep_669_tracing_wrapper import enable_pep699_monitoring
+    frame_eval_func, clear_thread_local_info, dummy_trace_dispatch,
+    show_frame_eval_warning)
+from _pydevd_bundle.pydevd_pep_669_tracing_wrapper import (
+    enable_pep669_monitoring, restart_events)
 from _pydevd_bundle.pydevd_additional_thread_info import set_additional_thread_info
-from _pydevd_bundle.pydevd_utils import save_main_module, is_current_thread_main_thread
+from _pydevd_bundle.pydevd_utils import save_main_module, is_current_thread_main_thread, \
+    kill_thread
 from pydevd_concurrency_analyser.pydevd_concurrency_logger import ThreadingLogger, AsyncioLogger, send_message, cur_time
 from pydevd_concurrency_analyser.pydevd_thread_wrappers import wrap_threads, wrap_asyncio
 from pydevd_file_utils import get_fullname, rPath, get_package_dir
 import pydev_ipython  # @UnusedImport
 from _pydevd_bundle.pydevd_dont_trace_files import DONT_TRACE
 from pydevd_file_utils import get_abs_path_real_path_and_base_from_frame, NORM_PATHS_AND_BASE_CONTAINER
+from _pydevd_bundle.pydevd_asyncio_provider import get_apply
 
 get_file_type = DONT_TRACE.get
 
@@ -383,7 +387,12 @@ def stoptrace():
 
             kill_all_pydev_threads()
 
+            set_global_debugger(None)
+
         connected = False
+
+    if clear_thread_local_info is not None:
+        clear_thread_local_info()
 
 
 #=======================================================================================================================
@@ -406,7 +415,6 @@ class PyDB(object):
 
     def __init__(self, set_as_global=True):
         if set_as_global:
-            set_global_debugger(self)
             pydevd_tracing.replace_sys_set_trace_func()
 
         self.reader = None
@@ -511,6 +519,26 @@ class PyDB(object):
 
         self._exception_breakpoints_change_callbacks = set()
 
+        self.is_pep669_monitoring_enabled = False
+
+        if USE_LOW_IMPACT_MONITORING:
+            from _pydevd_bundle.pydevd_pep_669_tracing_wrapper import (
+                global_cache_skips, global_cache_frame_skips)
+        else:
+            from _pydevd_bundle.pydevd_trace_dispatch import (
+                global_cache_skips, global_cache_frame_skips)
+
+        self._global_cache_skips = global_cache_skips
+        self._global_cache_frame_skips = global_cache_frame_skips
+
+        self.value_resolve_thread_list = []
+
+        if set_as_global:
+            # All debugger fields need to be initialized first. If they aren't,
+            # there can be instances in a multithreaded environment where the debugger
+            # is accessible but the attempts to access its fields may fail.
+            set_global_debugger(self)
+
     def get_thread_local_trace_func(self):
         try:
             thread_trace_func = self._local_thread_trace_func.thread_trace_func
@@ -529,7 +557,7 @@ class PyDB(object):
         '''
         set_fallback_excepthook()
         if USE_LOW_IMPACT_MONITORING:
-            enable_pep699_monitoring()
+            enable_pep669_monitoring()
             return
         if self.frame_eval_func is not None:
             self.frame_eval_func()
@@ -550,6 +578,12 @@ class PyDB(object):
 
     def disable_tracing(self):
         pydevd_tracing.SetTrace(None)
+
+    def maybe_kill_active_value_resolve_threads(self):
+        if HALT_VARIABLE_RESOLVE_THREADS_ON_STEP_RESUME:
+            for t in self.value_resolve_thread_list:
+                kill_thread(t)
+            self.value_resolve_thread_list = []
 
     def on_breakpoints_changed(self, removed=False):
         '''
@@ -899,8 +933,10 @@ class PyDB(object):
         self.clear_skip_caches()
 
     def clear_skip_caches(self):
-        global_cache_skips.clear()
-        global_cache_frame_skips.clear()
+        self._global_cache_skips.clear()
+        self._global_cache_frame_skips.clear()
+        if USE_LOW_IMPACT_MONITORING:
+            restart_events()
 
     def add_break_on_exception(
         self,
@@ -1311,8 +1347,8 @@ class PyDB(object):
 
         if USE_LOW_IMPACT_MONITORING:
             debugger = get_global_debugger()
-            if debugger:
-                enable_pep699_monitoring()
+            if debugger and not debugger.is_pep669_monitoring_enabled:
+                enable_pep669_monitoring()
         else:
             while frame is not None:
                 try:
@@ -1370,7 +1406,7 @@ class PyDB(object):
 
         if enable_tracing_from_start:
             if USE_LOW_IMPACT_MONITORING:
-                enable_pep699_monitoring()
+                enable_pep669_monitoring()
             else:
                 pydevd_tracing.SetTrace(self.trace_dispatch)
 
@@ -1520,9 +1556,9 @@ class PyDB(object):
         if set_trace:
             self.enable_tracing()
 
-        from _pydevd_bundle.pydevd_asyncio_provider import apply
-        if apply is not None:
-            apply()
+        apply_func = get_apply()
+        if apply_func is not None:
+            apply_func()
 
         return self._exec(is_module, entry_point_fn, module_name, file, globals, locals)
 
@@ -1936,7 +1972,6 @@ def settrace_forked():
     from _pydevd_bundle.pydevd_constants import GlobalDebuggerHolder
     GlobalDebuggerHolder.global_dbg = None
 
-    from _pydevd_frame_eval.pydevd_frame_eval_main import clear_thread_local_info
     host, port = dispatch()
 
     import pydevd_tracing
@@ -2063,6 +2098,9 @@ def main():
     if setup['help']:
         usage()
 
+    if SHOW_DEBUG_INFO_ENV:
+        set_debug(setup)
+
     if setup['print-in-debugger-startup']:
         try:
             pid = ' (pid: %s)' % os.getpid()
@@ -2077,9 +2115,6 @@ def main():
 
 
     pydevd_vm_type.setup_type(setup.get('vm_type', None))
-
-    if SHOW_DEBUG_INFO_ENV:
-        set_debug(setup)
 
     DebugInfoHolder.DEBUG_RECORD_SOCKET_READS = setup.get('DEBUG_RECORD_SOCKET_READS', DebugInfoHolder.DEBUG_RECORD_SOCKET_READS)
     DebugInfoHolder.DEBUG_TRACE_BREAKPOINTS = setup.get('DEBUG_TRACE_BREAKPOINTS', DebugInfoHolder.DEBUG_TRACE_BREAKPOINTS)

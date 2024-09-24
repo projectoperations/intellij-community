@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.legacyBridge.library
 
 import com.intellij.configurationStore.ComponentSerializationUtil
@@ -13,10 +13,7 @@ import com.intellij.openapi.roots.libraries.PersistentLibraryKind
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.workspace.jps.JpsImportedEntitySource
-import com.intellij.platform.workspace.jps.entities.LibraryEntity
-import com.intellij.platform.workspace.jps.entities.LibraryPropertiesEntity
-import com.intellij.platform.workspace.jps.entities.LibraryRoot
-import com.intellij.platform.workspace.jps.entities.libraryProperties
+import com.intellij.platform.workspace.jps.entities.*
 import com.intellij.platform.workspace.jps.serialization.impl.LibraryNameGenerator
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.util.ArrayUtil
@@ -27,7 +24,7 @@ import com.intellij.workspaceModel.ide.impl.legacyBridge.watcher.JarDirectoryDes
 import com.intellij.workspaceModel.ide.toExternalSource
 import java.io.StringReader
 
-class LibraryStateSnapshot(
+internal class LibraryStateSnapshot(
   val libraryEntity: LibraryEntity,
   val storage: EntityStorage,
   val libraryTable: LibraryTable,
@@ -40,8 +37,8 @@ class LibraryStateSnapshot(
 
   private val kindProperties by lazy {
     val customProperties = libraryEntity.libraryProperties
-    val k = customProperties?.libraryType?.let {
-      LibraryKindRegistry.getInstance().findKindById(it) ?: UnknownLibraryKind.getOrCreate(it)
+    val k = libraryEntity.typeId?.let {
+      LibraryKindRegistry.getInstance().findKindById(it.name) ?: UnknownLibraryKind.getOrCreate(it.name)
     } as? PersistentLibraryKind<*>
     val p = loadProperties(k, customProperties)
     k to p
@@ -98,15 +95,13 @@ class LibraryStateSnapshot(
   val externalSource: ProjectModelExternalSource?
     get() = (libraryEntity.entitySource as? JpsImportedEntitySource)?.toExternalSource()
 
-  companion object {
-    private fun collectFiles(libraryEntity: LibraryEntity): Map<Any, FileContainerDescription> = libraryEntity.roots.groupBy { it.type }.mapValues { (_, roots) ->
-      val urls = roots.filter { it.inclusionOptions == LibraryRoot.InclusionOptions.ROOT_ITSELF }.map { it.url }
-      val jarDirs = roots
-        .filter { it.inclusionOptions != LibraryRoot.InclusionOptions.ROOT_ITSELF }
-        .map {
-          JarDirectoryDescription(it.url, it.inclusionOptions == LibraryRoot.InclusionOptions.ARCHIVES_UNDER_ROOT_RECURSIVELY)
-        }
-      FileContainerDescription(urls, jarDirs)
-    }
+  private fun collectFiles(libraryEntity: LibraryEntity): Map<LibraryRootTypeId, FileContainerDescription> = libraryEntity.roots.groupBy { it.type }.mapValues { (_, roots) ->
+    val urls = roots.filter { it.inclusionOptions == LibraryRoot.InclusionOptions.ROOT_ITSELF }.map { it.url }
+    val jarDirs = roots
+      .filter { it.inclusionOptions != LibraryRoot.InclusionOptions.ROOT_ITSELF }
+      .map {
+        JarDirectoryDescription(it.url, it.inclusionOptions == LibraryRoot.InclusionOptions.ARCHIVES_UNDER_ROOT_RECURSIVELY)
+      }
+    FileContainerDescription(urls, jarDirs)
   }
 }

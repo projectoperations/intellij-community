@@ -63,6 +63,9 @@ interface KotlinSearchUsagesSupport {
         fun PsiReference.isUsageInContainingDeclaration(declaration: KtNamedDeclaration): Boolean =
             getInstance(declaration.project).isUsageInContainingDeclaration(this, declaration)
 
+        fun PsiReference.isUsageOfActual(declaration: KtNamedDeclaration): Boolean =
+            getInstance(declaration.project).isUsageOfActual(this, declaration)
+
         fun PsiReference.isExtensionOfDeclarationClassUsage(declaration: KtNamedDeclaration): Boolean =
             getInstance(declaration.project).isExtensionOfDeclarationClassUsage(this, declaration)
 
@@ -109,6 +112,8 @@ interface KotlinSearchUsagesSupport {
             getInstance(psiMethod.project).createConstructorHandle(psiMethod)
     }
 
+    fun isUsageOfActual(reference: PsiReference, declaration: KtNamedDeclaration): Boolean
+
     fun isInvokeOfCompanionObject(psiReference: PsiReference, searchTarget: KtNamedDeclaration): Boolean
 
     fun isCallableOverrideUsage(reference: PsiReference, declaration: KtNamedDeclaration): Boolean
@@ -133,6 +138,7 @@ interface KotlinSearchUsagesSupport {
     fun forceResolveReferences(file: KtFile, elements: List<KtElement>)
 
     fun scriptDefinitionExists(file: PsiFile): Boolean
+    fun findScriptsWithUsages(declaration: KtNamedDeclaration, processor: (KtFile) -> Boolean): Boolean
 
     fun getDefaultImports(file: KtFile): List<ImportPath>
 

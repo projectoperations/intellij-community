@@ -12,8 +12,8 @@ import com.intellij.openapi.util.io.FileUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -68,7 +68,8 @@ public class LocalTargetEnvironment extends TargetEnvironment {
     for (TargetPortBinding targetPortBinding : request.getTargetPortBindings()) {
       int theOnlyPort = targetPortBinding.getTarget();
       if (targetPortBinding.getLocal() != null && !targetPortBinding.getLocal().equals(theOnlyPort)) {
-        throw new UnsupportedOperationException("Local target's TCP port forwarder is not implemented");
+        throw new UnsupportedOperationException("TCP port forwarding for the local target is not implemented. " +
+                                                "Please use the same port number for both local and target ports.");
       }
       myTargetPortBindings.put(targetPortBinding, getResolvedPortBinding(theOnlyPort));
     }
@@ -76,7 +77,8 @@ public class LocalTargetEnvironment extends TargetEnvironment {
     for (LocalPortBinding localPortBinding : request.getLocalPortBindings()) {
       int theOnlyPort = localPortBinding.getLocal();
       if (localPortBinding.getTarget() != null && !localPortBinding.getTarget().equals(theOnlyPort)) {
-        throw new UnsupportedOperationException("Local target's TCP port forwarder is not implemented");
+        throw new UnsupportedOperationException("TCP port forwarding for the local target is not implemented. " +
+                                                "Please use the same port number for both local and target ports.");
       }
       myLocalPortBindings.put(localPortBinding, getResolvedPortBinding(theOnlyPort));
     }
@@ -124,7 +126,7 @@ public class LocalTargetEnvironment extends TargetEnvironment {
 
   @NotNull
   @Override
-  public Process createProcess(@NotNull TargetedCommandLine commandLine, @NotNull ProgressIndicator indicator)  throws ExecutionException {
+  public Process createProcess(@NotNull TargetedCommandLine commandLine, @NotNull ProgressIndicator indicator) throws ExecutionException {
     return createGeneralCommandLine(commandLine).createProcess();
   }
 
@@ -175,15 +177,32 @@ public class LocalTargetEnvironment extends TargetEnvironment {
       myLocalRoot = localRoot;
       myTargetRoot = targetRoot;
       // Checking for local root existence is a workaround for tests like JavaCommandLineTest that check paths of imaginary files.
-      boolean real;
+      myReal = isReal(localRoot, targetRoot);
+    }
+
+    private static boolean isReal(Path localRoot, Path targetRoot) {
+      if (localRoot.equals(targetRoot)) {
+        return false;
+      }
+
+      Path realLocalRoot;
+
       try {
-        real = Files.exists(localRoot) &&
-               !myLocalRoot.toRealPath(LinkOption.NOFOLLOW_LINKS).equals(myTargetRoot.toRealPath(LinkOption.NOFOLLOW_LINKS));
+        realLocalRoot = localRoot.toRealPath(LinkOption.NOFOLLOW_LINKS);
+      }
+      catch (FileNotFoundException e) {
+        return false;
       }
       catch (IOException e) {
-        real = true;
+        return true;
       }
-      myReal = real;
+
+      try {
+        return !realLocalRoot.equals(targetRoot.toRealPath(LinkOption.NOFOLLOW_LINKS));
+      }
+      catch (IOException e) {
+        return true;
+      }
     }
 
     @NotNull

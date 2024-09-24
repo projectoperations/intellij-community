@@ -6,8 +6,7 @@ import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector
 import com.intellij.internal.statistic.utils.StatisticsUtil.roundToPowerOfTwo
-import com.intellij.openapi.application.smartReadAction
-import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ContentIterator
 import com.intellij.openapi.roots.ProjectRootManager
@@ -25,29 +24,29 @@ private class IndexableFilesCollector : ProjectUsagesCollector() {
   override suspend fun collect(project: Project): Set<MetricEvent> {
     val context = coroutineContext
 
-    return smartReadAction(project) {
-      var allIndexableFiles = 0
-      var inContentIndexableFiles = 0
+    var allIndexableFiles = 0
+    var inContentIndexableFiles = 0
 
-      val fileIndex = ProjectRootManager.getInstance(project).fileIndex
-      FileBasedIndex.getInstance().iterateIndexableFiles(ContentIterator { fileOrDir ->
-        if (!context.isActive) {
-          return@ContentIterator false
-        }
+    val fileIndex = ProjectRootManager.getInstance(project).fileIndex
+    FileBasedIndex.getInstance().iterateIndexableFiles(ContentIterator { fileOrDir ->
+      if (!context.isActive) {
+        return@ContentIterator false
+      }
 
-        if (!fileOrDir.isDirectory && !fileIndex.isExcluded(fileOrDir)) {
+      runReadAction {
+        if (fileOrDir.isValid && !fileOrDir.isDirectory && !fileIndex.isExcluded(fileOrDir)) {
           if (fileIndex.isInContent(fileOrDir)) {
             inContentIndexableFiles++
           }
           allIndexableFiles++
         }
-        true
-      }, project, EmptyProgressIndicator())
+      }
+      true
+    }, project, null)
 
-      hashSetOf(
-        ALL_INDEXABLE_FILES.metric(roundToPowerOfTwo(allIndexableFiles)),
-        CONTENT_INDEXABLE_FILES.metric(roundToPowerOfTwo(inContentIndexableFiles))
-      )
-    }
+    return hashSetOf(
+      ALL_INDEXABLE_FILES.metric(roundToPowerOfTwo(allIndexableFiles)),
+      CONTENT_INDEXABLE_FILES.metric(roundToPowerOfTwo(inContentIndexableFiles))
+    )
   }
 }

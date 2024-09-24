@@ -15,7 +15,7 @@
  */
 package com.siyeh.ig.psiutils;
 
-import com.intellij.codeInsight.daemon.impl.analysis.SwitchBlockHighlightingModel;
+import com.intellij.codeInsight.daemon.impl.analysis.PatternsInSwitchBlockHighlightingModel;
 import com.intellij.pom.java.JavaFeature;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
@@ -54,7 +54,8 @@ public final class SwitchUtils {
    * Calculates the number of branches in the specified switch block.
    * When a default case is present the count will be returned as a negative number,
    * e.g. if a switch block contains 4 labeled cases and a default case, it will return -5
-   * @param block  the switch block to count the cases of.
+   *
+   * @param block the switch block to count the cases of.
    * @return a negative number if a default case was encountered.
    */
   public static int calculateBranchCount(@NotNull PsiSwitchBlock block) {
@@ -106,40 +107,65 @@ public final class SwitchUtils {
     return result;
   }
 
-  public static boolean canBeSwitchCase(PsiExpression expression, PsiExpression switchExpression, LanguageLevel languageLevel,
-                                        Set<Object> existingCaseValues, boolean isPatternMatch) {
-    expression = PsiUtil.skipParenthesizedExprDown(expression);
-    if (isPatternMatch) {
-      if (canBePatternSwitchCase(expression, switchExpression)) {
-        final PsiCaseLabelElement pattern = createPatternFromExpression(expression);
-        if (pattern == null) return true;
-        for (Object caseValue : existingCaseValues) {
-          if (caseValue instanceof PsiPattern && JavaPsiPatternUtil.dominates((PsiPattern) caseValue, pattern)) {
-            return false;
-          }
-        }
-        existingCaseValues.add(pattern);
-        return true;
-      } else {
-        return false;
+  /**
+   * Counts the number of unconditional patterns applicable to the provided selector type.
+   *
+   * @param selector the PSI expression for which unconditionally applicable patterns are to be counted
+   * @param existingCaseValues the set of existing case values to check against
+   * @return the number of unconditional patterns applicable to the selector type
+   */
+  public static int countUnconditionalPatterns(@NotNull PsiExpression selector,
+                                               @NotNull Set<Object> existingCaseValues) {
+    PsiType selectorType = selector.getType();
+    if (selectorType == null) return 0;
+    int count = 0;
+    for (Object caseValue : existingCaseValues) {
+      if (caseValue instanceof PsiPattern && JavaPsiPatternUtil.isUnconditionalForType((PsiPattern)caseValue, selectorType)) {
+        count++;
       }
     }
-    if (JavaFeature.STRING_SWITCH.isSufficient(languageLevel)) {
-      final PsiExpression stringSwitchExpression = determinePossibleJdk17SwitchExpression(expression, existingCaseValues);
-      if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(switchExpression, stringSwitchExpression)) {
-        return true;
-      }
+    return count;
+  }
+
+  /**
+   * Determines whether a given expression can be used as a case in a switch statement,
+   * considering the provided language level, existing case values, and whether pattern matching is used.
+   * It doesn't check if this expression has several unconditional patterns.
+   * See {@link SwitchUtils#countUnconditionalPatterns(PsiExpression, Set)}
+   *
+   * @param expression         the expression to be checked
+   * @param switchExpression   the selector used in the switch statement
+   * @param languageLevel      the language level at which the switch statement is being compiled
+   * @param existingCaseValues a set of existing case values to ensure no duplicates
+   * @param isPatternMatch     flag indicating if pattern matching is being used
+   * @return true if the expression can be used as a case in the switch statement; false otherwise
+   */
+  public static boolean canBeSwitchCase(@Nullable PsiExpression expression,
+                                        @NotNull PsiExpression switchExpression,
+                                        @NotNull LanguageLevel languageLevel,
+                                        @NotNull Set<Object> existingCaseValues,
+                                        boolean isPatternMatch) {
+    if (expression == null) return false;
+    expression = PsiUtil.skipParenthesizedExprDown(expression);
+    boolean primitiveTypesInPatternsSufficient = JavaFeature.PRIMITIVE_TYPES_IN_PATTERNS.isSufficient(languageLevel);
+    if (isPatternMatch || primitiveTypesInPatternsSufficient) {
+      boolean patternSwitchCase = canBePatternSwitchCase(expression, switchExpression, existingCaseValues);
+      if (patternSwitchCase) return true;
+      if (!primitiveTypesInPatternsSufficient) return false;
     }
     final EqualityCheck check = EqualityCheck.from(expression);
     if (check != null) {
       final PsiExpression left = check.getLeft();
       final PsiExpression right = check.getRight();
-      if (canBeCaseLabel(left, languageLevel, null)) {
+      if (canBeCaseLabel(left, languageLevel, existingCaseValues)) {
         return EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(switchExpression, right);
       }
-      else if (canBeCaseLabel(right, languageLevel, null)) {
+      else if (canBeCaseLabel(right, languageLevel, existingCaseValues)) {
         return EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(switchExpression, left);
       }
+    }
+    if (primitiveTypesInPatternsSufficient && isComparisonWithPrimitives(expression, switchExpression, existingCaseValues)) {
+      return true;
     }
     if (!(expression instanceof PsiPolyadicExpression polyadicExpression)) {
       return false;
@@ -156,13 +182,136 @@ public final class SwitchUtils {
     }
     else if (operation.equals(JavaTokenType.EQEQ) && operands.length == 2) {
       return (canBeCaseLabel(operands[0], languageLevel, existingCaseValues) &&
+              !isExtendedSwitchSelectorType(operands[1].getType()) &&
               EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(switchExpression, operands[1])) ||
              (canBeCaseLabel(operands[1], languageLevel, existingCaseValues) &&
+              !isExtendedSwitchSelectorType(operands[0].getType()) &&
               EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(switchExpression, operands[0]));
     }
     else {
       return false;
     }
+  }
+
+  /**
+   * Checks whether the given primitive or boxed type is an extended switch with primitive types.
+   *
+   * @param primitiveOrBoxedType the primitive type to check
+   * @return true if the primitive type is an extended primitive type, otherwise false
+   */
+  public static boolean isExtendedSwitchSelectorType(@Nullable PsiType primitiveOrBoxedType) {
+    PsiPrimitiveType primitiveType = PsiPrimitiveType.getOptionallyUnboxedType(primitiveOrBoxedType);
+    if (primitiveType == null) return false;
+    return PsiTypes.booleanType().equals(primitiveType) ||
+           PsiTypes.longType().equals(primitiveType) ||
+           PsiTypes.doubleType().equals(primitiveType) ||
+           PsiTypes.floatType().equals(primitiveType);
+  }
+
+  /**
+   * Checks if the given expression is a comparison with primitives or wrappers for extended switch with primitive types
+   *
+   * @param psiExpression        the expression to check
+   * @param switchExpression     the switch expression to compare with
+   * @param existingCaseValues   a set of existing case values
+   * @return true if the expression is a comparison with primitives, false otherwise
+   */
+  private static boolean isComparisonWithPrimitives(@Nullable PsiExpression psiExpression, @NotNull PsiExpression switchExpression,
+                                                    @NotNull Set<Object> existingCaseValues) {
+    if (!(psiExpression instanceof PsiBinaryExpression psiBinaryExpression)) {
+      return false;
+    }
+    if (!(TypeConversionUtil.isPrimitiveAndNotNullOrWrapper(switchExpression.getType()))) {
+      return false;
+    }
+    if (psiBinaryExpression.getOperationTokenType() != JavaTokenType.EQEQ) {
+      return false;
+    }
+    boolean isEqual = psiBinaryExpression.getOperationTokenType() == JavaTokenType.EQEQ;
+    final PsiExpression left = psiBinaryExpression.getLOperand();
+    final PsiExpression right = psiBinaryExpression.getROperand();
+    if (right == null) return false;
+    if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(switchExpression, right) &&
+        primitiveValueCanBeUsedForComparisonInCase(left, right, isEqual ? existingCaseValues : null)) {
+      return true;
+    }
+    else {
+      if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(switchExpression, left) &&
+          primitiveValueCanBeUsedForComparisonInCase(right, left, isEqual ? existingCaseValues : null)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean primitiveValueCanBeUsedForComparisonInCase(@Nullable PsiExpression value,
+                                                                    @Nullable PsiExpression selector,
+                                                                    @Nullable Set<Object> existingCaseValues) {
+    if (value == null || selector == null) return false;
+    Object o = ExpressionUtils.computeConstantExpression(value);
+    if (o == null) {
+      return false;
+    }
+    if (existingCaseValues != null && existingCaseValues.contains(o)) {
+      return false;
+    }
+    if (existingCaseValues != null) {
+      existingCaseValues.add(o);
+    }
+    PsiType selectorType = selector.getType();
+    PsiType valueType = value.getType();
+    if (selectorType == null || valueType == null) return false;
+    PsiPrimitiveType unwrapped = PsiPrimitiveType.getOptionallyUnboxedType(selectorType);
+    if (unwrapped != null && isExtendedSwitchSelectorType(unwrapped)) {
+      return unwrapped.equals(valueType);
+    }
+    return TypeConversionUtil.isAssignable(selectorType, valueType);
+  }
+
+  private static boolean canBePatternSwitchCase(@Nullable PsiExpression expression,
+                                                @NotNull PsiExpression switchExpression,
+                                                @NotNull Set<Object> existingCaseValues) {
+    if (!canBePatternSwitchCase(expression, switchExpression)) {
+      return false;
+    }
+    if (isNullComparison(expression, switchExpression)) {
+      return existingCaseValues.add(null);
+    }
+    final PsiCaseLabelElement pattern = createPatternFromExpression(expression);
+    if (pattern == null) {
+      if (expression instanceof PsiPolyadicExpression polyadicExpression &&
+          polyadicExpression.getOperationTokenType().equals(JavaTokenType.OROR)) {
+        for (@NotNull PsiElement child : polyadicExpression.getOperands()) {
+          if (!(child instanceof PsiExpression childExpression)) {
+            return false;
+          }
+          if (!canBePatternSwitchCase(childExpression, switchExpression, existingCaseValues)) {
+            return false;
+          }
+          return true;
+        }
+      }
+      return false;
+    }
+    if (VariableAccessUtils.isAnyVariableAssigned(VariableAccessUtils.collectUsedVariables(expression), expression)) {
+      return false;
+    }
+    if (!PsiTreeUtil.findChildrenOfType(expression, PsiDeclarationStatement.class).isEmpty()) {
+      return false;
+    }
+    for (Object caseValue : existingCaseValues) {
+      if (caseValue instanceof PsiPattern && JavaPsiPatternUtil.dominates((PsiPattern)caseValue, pattern)) {
+        return false;
+      }
+    }
+    existingCaseValues.add(pattern);
+    return true;
+  }
+
+  private static boolean isNullComparison(@Nullable PsiExpression expression, @NotNull PsiExpression switchExpression) {
+    if (expression == null) return false;
+    PsiExpression operand = findNullCheckedOperand(expression);
+    return EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(switchExpression, operand);
   }
 
   public static @Nullable PsiCaseLabelElement createPatternFromExpression(@NotNull PsiExpression expression) {
@@ -235,6 +384,9 @@ public final class SwitchUtils {
       }
       return PsiUtil.isAvailable(JavaFeature.PATTERNS_IN_SWITCH, expression);
     }
+    if (JavaFeature.PRIMITIVE_TYPES_IN_PATTERNS.isSufficient(languageLevel) && type instanceof PsiPrimitiveType) {
+      return true;
+    }
     return false;
   }
 
@@ -251,12 +403,6 @@ public final class SwitchUtils {
     expression = PsiUtil.skipParenthesizedExprDown(expression);
     if (expression == null) {
       return null;
-    }
-    if (JavaFeature.STRING_SWITCH.isSufficient(languageLevel)) {
-      final PsiExpression jdk17Expression = determinePossibleJdk17SwitchExpression(expression, null);
-      if (jdk17Expression != null) {
-        return jdk17Expression;
-      }
     }
     final EqualityCheck check = EqualityCheck.from(expression);
     if (check != null) {
@@ -289,6 +435,25 @@ public final class SwitchUtils {
       }
       else if (canBeCaseLabel(rhs, languageLevel, null)) {
         return lhs;
+      }
+    }
+    if (JavaFeature.PRIMITIVE_TYPES_IN_PATTERNS.isSufficient(languageLevel) &&
+        expression instanceof PsiBinaryExpression psiBinaryExpression) {
+      IElementType operationTokenType = psiBinaryExpression.getOperationTokenType();
+      if (!operationTokenType.equals(JavaTokenType.EQEQ) &&
+          !operationTokenType.equals(JavaTokenType.GT) &&
+          !operationTokenType.equals(JavaTokenType.GE) &&
+          !operationTokenType.equals(JavaTokenType.LT) &&
+          !operationTokenType.equals(JavaTokenType.LE)) {
+        return null;
+      }
+      final PsiExpression left = psiBinaryExpression.getLOperand();
+      final PsiExpression right = psiBinaryExpression.getROperand();
+      if (primitiveValueCanBeUsedForComparisonInCase(left, right, null)) {
+        return right;
+      }
+      else if (primitiveValueCanBeUsedForComparisonInCase(right, left, null)) {
+        return left;
       }
     }
     return null;
@@ -328,7 +493,7 @@ public final class SwitchUtils {
       .anyMatch(variable -> !PsiTreeUtil.isAncestor(ifStatement, variable, false));
   }
 
-  public static @Nullable PsiExpression findPatternSwitchExpression(@Nullable PsiExpression expression){
+  public static @Nullable PsiExpression findPatternSwitchExpression(@Nullable PsiExpression expression) {
     expression = PsiUtil.skipParenthesizedExprDown(expression);
     final PsiExpression patternOperand = findPossiblePatternOperand(expression);
     if (patternOperand != null) return patternOperand;
@@ -348,7 +513,7 @@ public final class SwitchUtils {
           if (firstOperand == null || secondOperand == null) {
             return null;
           }
-          if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(firstOperand, secondOperand)){
+          if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(firstOperand, secondOperand)) {
             return firstOperand;
           }
         }
@@ -360,18 +525,24 @@ public final class SwitchUtils {
   @Contract("null, _ -> false")
   public static boolean canBePatternSwitchCase(@Nullable PsiExpression expression, @NotNull PsiExpression switchExpression) {
     if (expression == null) return false;
-    final PsiExpression localSwitchExpression = findPatternSwitchExpression(expression);
+    PsiExpression localSwitchExpression = findPatternSwitchExpression(expression);
+    if (localSwitchExpression == null && expression instanceof PsiPolyadicExpression polyadicExpression) {
+      localSwitchExpression = findSelectorWithComparedPrimitives(polyadicExpression);
+    }
+    if (localSwitchExpression == null) return false;
     return EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(localSwitchExpression, switchExpression);
   }
 
-  public static @Nullable PsiExpression findNullCheckedOperand(PsiExpression expression){
+  public static @Nullable PsiExpression findNullCheckedOperand(PsiExpression expression) {
     if (!(expression instanceof PsiBinaryExpression binaryExpression)) return null;
-    if (! JavaTokenType.EQEQ.equals(binaryExpression.getOperationTokenType())) return null;
+    if (!JavaTokenType.EQEQ.equals(binaryExpression.getOperationTokenType())) return null;
     if (ExpressionUtils.isNullLiteral(binaryExpression.getLOperand())) {
       return binaryExpression.getROperand();
-    } else if(ExpressionUtils.isNullLiteral(binaryExpression.getROperand())) {
+    }
+    else if (ExpressionUtils.isNullLiteral(binaryExpression.getROperand())) {
       return binaryExpression.getLOperand();
-    } else {
+    }
+    else {
       return null;
     }
   }
@@ -425,8 +596,10 @@ public final class SwitchUtils {
       return typeText + " " + name;
     }
     if (expression instanceof PsiPolyadicExpression polyadicExpression) {
+      String textWithPrimitives = getSwitchCaseTextWithComparedPrimitives(polyadicExpression);
+      if (textWithPrimitives != null) return textWithPrimitives;
       final IElementType operationToken = polyadicExpression.getOperationTokenType();
-      if (JavaTokenType.ANDAND.equals(operationToken)){
+      if (JavaTokenType.ANDAND.equals(operationToken)) {
         final PsiExpression[] operands = polyadicExpression.getOperands();
         final PsiExpression instanceOf = ContainerUtil.find(operands, operand -> operand instanceof PsiInstanceOfExpression);
         StringBuilder builder = new StringBuilder();
@@ -444,31 +617,121 @@ public final class SwitchUtils {
     return null;
   }
 
-  private static PsiExpression determinePossibleJdk17SwitchExpression(PsiExpression expression,
-                                                                      Set<Object> existingCaseValues) {
-    final EqualityCheck check = EqualityCheck.from(expression);
-    if (check == null) {
-      return null;
-    }
-    final PsiExpression left = check.getLeft();
-    final PsiExpression right = check.getRight();
-    final Object leftValue = ExpressionUtils.computeConstantExpression(left);
-    if (leftValue!= null) {
-      if (existingCaseValues == null || existingCaseValues.add(leftValue)) {
-        return right;
+  /**
+   * Returns the switch case text with compared primitives.
+   * Example:
+   * i > 1 -> int i2 when i2 > 1
+   * i>1 && i<1 -> int i2 when i2 > 1 && i2 < 1
+   *
+   * @param expression the PsiPolyadicExpression representing the expression to analyze
+   * @return the switch case text with compared primitives, or null if it cannot be generated
+   */
+  @Nullable
+  private static String getSwitchCaseTextWithComparedPrimitives(@NotNull PsiPolyadicExpression expression) {
+    PsiExpression switchSelector = findSelectorWithComparedPrimitives(expression);
+    if (switchSelector == null) return null;
+    PsiType switchSelectorType = switchSelector.getType();
+    if (switchSelectorType == null) return null;
+
+    StringBuilder stringBuilder = new StringBuilder();
+    String name = new VariableNameGenerator(switchSelector, VariableKind.LOCAL_VARIABLE).byType(
+      switchSelectorType).generate(true);
+    String typeText = switchSelectorType.getPresentableText();
+    stringBuilder.append(typeText).append(" ").append(name).append(" when ");
+    for (PsiElement child : expression.getChildren()) {
+      if (child instanceof PsiBinaryExpression childBinaryExpression) {
+        for (PsiElement binaryChild : childBinaryExpression.getChildren()) {
+          if (isSwitchSelector(binaryChild, switchSelector)) {
+            stringBuilder.append(name);
+          }
+          else {
+            stringBuilder.append(binaryChild.getText());
+          }
+        }
+      }
+      else {
+        if (isSwitchSelector(child, switchSelector)) {
+          stringBuilder.append(name);
+        }
+        else {
+          stringBuilder.append(child.getText());
+        }
       }
     }
-    final Object rightValue = ExpressionUtils.computeConstantExpression(right);
-    if (rightValue != null) {
-      if (existingCaseValues == null || existingCaseValues.add(rightValue)) {
-        return left;
-      }
-    }
-    return null;
+    return stringBuilder.toString();
   }
 
-  private static boolean canBeCaseLabel(PsiExpression expression, LanguageLevel languageLevel,
-                                        Set<Object> existingCaseValues) {
+  private static boolean isSwitchSelector(@NotNull PsiElement child, @NotNull PsiExpression selector) {
+    if (child == selector) return true;
+    if (!child.getText().equals(selector.getText())) return false;
+    return child instanceof PsiReferenceExpression childReference &&
+           selector instanceof PsiReferenceExpression selectorReference &&
+           childReference.resolve() instanceof PsiVariable childVariable &&
+           selectorReference.resolve() instanceof PsiVariable selectorVariable &&
+           child.getManager().areElementsEquivalent(childVariable, selectorVariable);
+  }
+
+  private static @Nullable PsiExpression findSelectorWithComparedPrimitives(@NotNull PsiPolyadicExpression expression) {
+    if (!PsiUtil.isAvailable(JavaFeature.PRIMITIVE_TYPES_IN_PATTERNS, expression)) {
+      return null;
+    }
+    IElementType operationTokenType = expression.getOperationTokenType();
+    List<PsiBinaryExpression> binaryExpressions = new ArrayList<>();
+    if (operationTokenType == JavaTokenType.OROR || operationTokenType == JavaTokenType.ANDAND) {
+      for (PsiExpression operand : expression.getOperands()) {
+        if (operand instanceof PsiBinaryExpression psiBinaryExpression) {
+          binaryExpressions.add(psiBinaryExpression);
+        }
+        else {
+          return null;
+        }
+      }
+    }
+    else if (expression instanceof PsiBinaryExpression binaryExpression) {
+      binaryExpressions.add(binaryExpression);
+    }
+    else {
+      return null;
+    }
+    PsiExpression switchSelector = null;
+    for (PsiBinaryExpression binaryExpression : binaryExpressions) {
+      IElementType binaryExpressionOperationTokenType = binaryExpression.getOperationTokenType();
+      if (JavaTokenType.LE.equals(binaryExpressionOperationTokenType) ||
+          JavaTokenType.LT.equals(binaryExpressionOperationTokenType) ||
+          JavaTokenType.GE.equals(binaryExpressionOperationTokenType) ||
+          JavaTokenType.GT.equals(binaryExpressionOperationTokenType)) {
+        PsiExpression lOperand = binaryExpression.getLOperand();
+        PsiExpression rOperand = binaryExpression.getROperand();
+        EquivalenceChecker equivalence = EquivalenceChecker.getCanonicalPsiEquivalence();
+        if (lOperand instanceof PsiReferenceExpression referenceExpression && referenceExpression.resolve() instanceof PsiVariable &&
+            ExpressionUtils.computeConstantExpression(rOperand) != null) {
+          if (switchSelector != null && !equivalence.expressionsAreEquivalent(switchSelector, lOperand)) {
+            return null;
+          }
+          switchSelector = lOperand;
+        }
+        else if (rOperand instanceof PsiReferenceExpression referenceExpression && referenceExpression.resolve() instanceof PsiVariable &&
+                 ExpressionUtils.computeConstantExpression(lOperand) != null) {
+          if (switchSelector != null && !equivalence.expressionsAreEquivalent(switchSelector, rOperand)) {
+            return null;
+          }
+          switchSelector = rOperand;
+        }
+      }
+    }
+    if (switchSelector == null) {
+      return null;
+    }
+    PsiType switchSelectorType = switchSelector.getType();
+    if (switchSelectorType == null || !TypeConversionUtil.isPrimitiveAndNotNullOrWrapper(switchSelectorType)) {
+      return null;
+    }
+    return switchSelector;
+  }
+
+  private static boolean canBeCaseLabel(@Nullable PsiExpression expression,
+                                        @NotNull LanguageLevel languageLevel,
+                                        @Nullable Set<Object> existingCaseValues) {
     if (expression == null) {
       return false;
     }
@@ -480,7 +743,10 @@ public final class SwitchUtils {
     }
     final PsiType type = expression.getType();
     if ((!JavaFeature.STRING_SWITCH.isSufficient(languageLevel) || !TypeUtils.isJavaLangString(type)) &&
-        !PsiTypes.intType().equals(type) && !PsiTypes.shortType().equals(type) && !PsiTypes.byteType().equals(type) && !PsiTypes.charType().equals(type)) {
+        !PsiTypes.intType().equals(type) &&
+        !PsiTypes.shortType().equals(type) &&
+        !PsiTypes.byteType().equals(type) &&
+        !PsiTypes.charType().equals(type)) {
       return false;
     }
     final Object value = ExpressionUtils.computeConstantExpression(expression);
@@ -682,7 +948,7 @@ public final class SwitchUtils {
         boolean isDominated = false;
         for (int j = i + 1; j < unreachableElements.size(); j++) {
           PsiCaseLabelElement nextElement = unreachableElements.get(j);
-          isDominated = SwitchBlockHighlightingModel.PatternsInSwitchBlockHighlightingModel.isDominated(currentElement, nextElement, selectorType);
+          isDominated = PatternsInSwitchBlockHighlightingModel.isDominated(currentElement, nextElement, selectorType);
           if (!isDominated) {
             break;
           }
@@ -735,6 +1001,7 @@ public final class SwitchUtils {
     private final List<PsiExpression> caseExpressions = new ArrayList<>(3);
     private final PsiStatement statement;
     private final boolean elseBranch;
+    private boolean hasPattern;
 
     public IfStatementBranch(PsiStatement branch, boolean elseBranch) {
       statement = branch;
@@ -751,7 +1018,14 @@ public final class SwitchUtils {
     }
 
     public void addCaseExpression(PsiExpression expression) {
+      if (createPatternCaseText(expression) != null) {
+        hasPattern = true;
+      }
       caseExpressions.add(expression);
+    }
+
+    public boolean hasPattern() {
+      return hasPattern;
     }
 
     public PsiStatement getStatement() {

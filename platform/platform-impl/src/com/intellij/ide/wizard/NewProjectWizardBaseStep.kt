@@ -1,7 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.wizard
 
-import com.intellij.ide.IdeBundle
+import com.intellij.ide.IdeBundle.message
 import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logLocationChanged
 import com.intellij.ide.projectWizard.NewProjectWizardCollector.Base.logNameChanged
 import com.intellij.ide.util.installNameGenerators
@@ -43,6 +43,8 @@ class NewProjectWizardBaseStep(parent: NewProjectWizardStep) : AbstractNewProjec
   override var name: String by nameProperty
   override var path: String by pathProperty
 
+  var defaultName: String = "untitled"
+
   internal var bottomGap: Boolean = true
 
   private fun suggestLocation(): Path {
@@ -70,8 +72,8 @@ class NewProjectWizardBaseStep(parent: NewProjectWizardStep) : AbstractNewProjec
 
   private fun suggestUniqueName(): String {
     val moduleNames = findAllModules().map { it.name }.toSet()
-    val path = path.toNioPathOrNull() ?: return "untitled"
-    return FileUtil.createSequentFileName(path.toFile(), "untitled", "") {
+    val path = path.toNioPathOrNull() ?: return defaultName
+    return FileUtil.createSequentFileName(path.toFile(), defaultName, "") {
       !it.exists() && it.name !in moduleNames
     }
   }
@@ -111,11 +113,11 @@ class NewProjectWizardBaseStep(parent: NewProjectWizardStep) : AbstractNewProjec
 
       val locationRow = row(UIBundle.message("label.project.wizard.new.project.location")) {
         val fileChooserDescriptor = FileChooserDescriptorFactory.createSingleLocalFileDescriptor()
+          .withTitle(message("title.select.project.file.directory", context.presentationName))
           .withFileFilter { it.isDirectory }
           .withPathToTextConvertor(::getPresentablePath)
           .withTextToPathConvertor(::getCanonicalPath)
-        val title = IdeBundle.message("title.select.project.file.directory", context.presentationName)
-        textFieldWithBrowseButton(title, context.project, fileChooserDescriptor)
+        textFieldWithBrowseButton(fileChooserDescriptor, context.project)
           .bindText(pathProperty.toUiPathProperty())
           .align(AlignX.FILL)
           .trimmedTextValidation(CHECK_NON_EMPTY, CHECK_DIRECTORY)

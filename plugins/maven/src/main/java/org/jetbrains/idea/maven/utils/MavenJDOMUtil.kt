@@ -5,35 +5,59 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.vfs.CharsetToolkit
-import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.encoding.EncodingRegistry
 import com.intellij.psi.impl.source.parsing.xml.XmlBuilder
 import com.intellij.psi.impl.source.parsing.xml.XmlBuilderDriver
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jdom.Element
 import org.jdom.IllegalNameException
 import java.io.IOException
+import java.nio.charset.Charset
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.*
 
 object MavenJDOMUtil {
   @JvmStatic
   suspend fun read(file: VirtualFile, handler: ErrorHandler?): Element? {
+    val charset = readAction {
+      if (!file.isValid) {
+        MavenLog.LOG.warn("MavenJDOMUtil.read: file ${file.name} is invalid")
+        return@readAction null
+      }
+      file.charset
+    } ?: return null
+
+    val path = Path.of(file.path)
+    return read(path, charset, handler)
+  }
+
+  @JvmStatic
+  suspend fun read(file: Path, charset: Charset, handler: ErrorHandler?): Element? {
     val app = ApplicationManager.getApplication()
     if (app == null || app.isDisposed) {
+      MavenLog.LOG.warn("MavenJDOMUtil.read: app is null or disposed")
       return null
     }
-    val text = readAction {
-      if (!file.isValid) return@readAction null
+    return withContext(Dispatchers.IO) {
       try {
-        VfsUtilCore.loadText(file)
+        Files.newInputStream(file).use { inputStream ->
+          val text = inputStream.bufferedReader(charset).readText()
+          val element = doRead(text, handler)
+          if (element == null) {
+            MavenLog.LOG.warn("MavenJDOMUtil.read: reading result is null for file ${file}, text '$text'")
+          }
+          element
+        }
       }
       catch (e: IOException) {
+        MavenLog.LOG.warn("MavenJDOMUtil.read: file ${file} text is not loaded", e)
         handler?.onReadError(e)
         null
       }
     }
-
-    return if (text == null) null else doRead(text, handler)
   }
 
   @JvmStatic
@@ -103,7 +127,7 @@ object MavenJDOMUtil {
       }
 
       override fun error(message: String, startOffset: Int, endOffset: Int) {
-        handler?.onSyntaxError()
+        handler?.onSyntaxError(message, startOffset, endOffset)
       }
     }
 
@@ -183,6 +207,6 @@ object MavenJDOMUtil {
   interface ErrorHandler {
     fun onReadError(e: IOException?)
 
-    fun onSyntaxError()
+    fun onSyntaxError(message: String, startOffset: Int, endOffset: Int)
   }
 }

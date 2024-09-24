@@ -154,6 +154,12 @@ public final class PyCustomType implements PyClassLikeType {
   @Nullable
   @Override
   public PyClassLikeType getMetaClassType(@NotNull TypeEvalContext context, boolean inherited) {
+    if (inherited) {
+      PyClassLikeType typeToMimic = ContainerUtil.getFirstItem(myTypesToMimic);
+      if (typeToMimic != null) {
+        return typeToMimic.getMetaClassType(context, inherited);
+      }
+    }
     return null;
   }
 
@@ -244,6 +250,21 @@ public final class PyCustomType implements PyClassLikeType {
     for (PyClassLikeType type : myTypesToMimic) {
       type.assertValid(message);
     }
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (!(o instanceof PyCustomType type)) return false;
+    return myInstanceType == type.myInstanceType &&
+           myTypesToMimicAsSuperTypes == type.myTypesToMimicAsSuperTypes &&
+           Objects.equals(myTypesToMimic, type.myTypesToMimic) &&
+           Objects.equals(myQualifiedName, type.myQualifiedName);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(myInstanceType, myTypesToMimicAsSuperTypes, myQualifiedName, myTypesToMimic);
   }
 
 

@@ -14,8 +14,8 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.elementType
 import com.intellij.psi.util.elementsAtOffsetUp
-import com.intellij.refactoring.suggested.endOffset
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.psi.util.endOffset
+import com.intellij.psi.util.startOffset
 import com.intellij.util.LocalFileUrl
 import com.intellij.util.Urls
 import org.intellij.plugins.markdown.MarkdownBundle
@@ -100,7 +100,7 @@ internal class MarkdownCreateLinkAction : ToggleAction(), DumbAware {
   override fun update(event: AnActionEvent) {
     val originalIcon = event.presentation.icon
     super.update(event)
-    if (ActionPlaces.isPopupPlace(event.place)) {
+    if (event.isFromContextMenu) {
       // Restore original icon, as it will be disabled in popups, and we still want to show in GeneratePopup
       event.presentation.icon = originalIcon
     }

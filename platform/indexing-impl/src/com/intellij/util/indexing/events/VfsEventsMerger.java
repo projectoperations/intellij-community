@@ -16,6 +16,7 @@ import com.intellij.util.containers.ConcurrentIntObjectMap;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.*;
 import org.intellij.lang.annotations.MagicConstant;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -32,6 +33,7 @@ import java.util.logging.Formatter;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
+@Internal
 public final class VfsEventsMerger {
   private static final boolean DEBUG = FileBasedIndexEx.TRACE_STUB_INDEX_UPDATES || Boolean.getBoolean("log.index.vfs.events");
   private static final Logger LOG = MyLoggerFactory.getLoggerInstance();
@@ -117,8 +119,8 @@ public final class VfsEventsMerger {
               return false;
             }
           }
-          catch (ProcessCanceledException pce) { // todo remove
-            ((FileBasedIndexEx)FileBasedIndex.getInstance()).getLogger().error(pce);
+          catch (ProcessCanceledException pce) { // todo remove (IJPL-9805)
+            ((FileBasedIndexEx)FileBasedIndex.getInstance()).getLogger().error(new RuntimeException(pce));
             assert false;
           }
         }
@@ -183,8 +185,14 @@ public final class VfsEventsMerger {
     @Override
     public String toString() {
       StringBuilder builder = new StringBuilder();
-      builder.append("file: ").append(file.getPath()).append("; ")
-        .append("operation: ");
+      builder.append("file: ");
+      if (file instanceof VirtualFileWithId fileWithId) {
+        builder.append(fileWithId.getId());
+      }
+      else {
+        builder.append(file.getPath());
+      }
+      builder.append("; ").append("operation: ");
       if ((eventMask & FILE_TRANSIENT_STATE_CHANGED) != 0) builder.append("TRANSIENT_STATE_CHANGE ");
       if ((eventMask & FILE_CONTENT_CHANGED) != 0) builder.append("CONTENT_CHANGE ");
       if ((eventMask & FILE_REMOVED) != 0) builder.append("REMOVE ");
@@ -226,14 +234,14 @@ public final class VfsEventsMerger {
 
   public static void tryLog(@NotNull String eventName, int fileId) {
     tryLog(() -> {
-      return "event=" + eventName +
+      return "e=" + eventName +
              ",id=" + fileId;
     });
   }
 
   public static void tryLog(@NotNull String eventName, @NotNull VirtualFile file, @Nullable Supplier<String> additionalMessage) {
     tryLog(() -> {
-      return "event=" + eventName +
+      return "e=" + eventName +
              (file instanceof VirtualFileWithId fileWithId ? (",id=" + fileWithId.getId()) : (",f=" + file.getPath())) +
              ",flen=" + file.getLength() +
              (additionalMessage == null ? "" : ("," + additionalMessage.get()));
@@ -244,17 +252,17 @@ public final class VfsEventsMerger {
     VirtualFile file = indexedFile.getFile();
 
     tryLog(eventName, file, () -> {
-      String extra = "indexedFile@" + System.identityHashCode(indexedFile);
+      String extra = "f@" + System.identityHashCode(indexedFile);
 
       if (indexedFile instanceof FileContentImpl fileContentImpl) {
-        extra += ",transient=" + fileContentImpl.isTransientContent();
+        extra += ",tr=" + (fileContentImpl.isTransientContent() ? "t" : "f");
       }
 
       if (indexedFile instanceof FileContent fileContent) {
-        extra += ",contentLen(bytes)=" + fileContent.getContent().length;
+        extra += ",contLen(b)=" + fileContent.getContent().length;
         FileType fileType = fileContent.getFileType();
         extra += ",psiLen=" + (fileType instanceof LanguageFileType ? fileContent.getPsiFile().getTextLength() : -1);
-        extra += ",binary=" + fileType.isBinary();
+        extra += ",bin=" + (fileType.isBinary() ? "t" : "f");
       }
 
       if (additionalMessage != null) {

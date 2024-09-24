@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.fir.navigation;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -21,8 +22,19 @@ public abstract class FirGotoTestGenerated extends AbstractFirGotoTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/navigation/gotoClass")
     public static class GotoClass extends AbstractFirGotoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doClassTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("annotationClass.kt")
+        public void testAnnotationClass() throws Exception {
+            runTest("../../idea/tests/testData/navigation/gotoClass/annotationClass.kt");
         }
 
         @TestMetadata("builtInAny.kt")
@@ -33,6 +45,11 @@ public abstract class FirGotoTestGenerated extends AbstractFirGotoTest {
         @TestMetadata("builtInInt.kt")
         public void testBuiltInInt() throws Exception {
             runTest("../../idea/tests/testData/navigation/gotoClass/builtInInt.kt");
+        }
+
+        @TestMetadata("enumClass.kt")
+        public void testEnumClass() throws Exception {
+            runTest("../../idea/tests/testData/navigation/gotoClass/enumClass.kt");
         }
 
         @TestMetadata("enumEntries.kt")
@@ -65,6 +82,11 @@ public abstract class FirGotoTestGenerated extends AbstractFirGotoTest {
             runTest("../../idea/tests/testData/navigation/gotoClass/noImplementationInterface.kt");
         }
 
+        @TestMetadata("object.kt")
+        public void testObject() throws Exception {
+            runTest("../../idea/tests/testData/navigation/gotoClass/object.kt");
+        }
+
         @TestMetadata("simpleClass.kt")
         public void testSimpleClass() throws Exception {
             runTest("../../idea/tests/testData/navigation/gotoClass/simpleClass.kt");
@@ -84,6 +106,12 @@ public abstract class FirGotoTestGenerated extends AbstractFirGotoTest {
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/navigation/gotoSymbol")
     public static class GotoSymbol extends AbstractFirGotoTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doSymbolTest, this, testDataFilePath);
         }

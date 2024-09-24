@@ -10,47 +10,73 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 
 // ContainerUtil requires trove in classpath
+@SuppressWarnings("UnnecessaryFullyQualifiedName")
 public final class CollectionFactory {
+
+  /**
+   * Concurrent weak key:K -> strong value:V map.
+   */
   @Contract(value = " -> new", pure = true)
   public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentWeakMap() {
     return new ConcurrentWeakHashMap<>(0.75f);
   }
 
+  /**
+   * Concurrent weak key:K -> strong value:V map.
+   */
   @Contract(value = "_, -> new", pure = true)
   public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentWeakMap(@NotNull HashingStrategy<? super K> strategy) {
     return new ConcurrentWeakHashMap<>(strategy);
   }
 
+  /**
+   * Concurrent weak key:String -> strong value:V map with case-insensitive hashing strategy.
+   */
   @Contract(value = " -> new", pure = true)
   public static @NotNull <V> ConcurrentMap<@NotNull String, @NotNull V> createConcurrentWeakCaseInsensitiveMap() {
     return new ConcurrentWeakHashMap<>(HashingStrategy.caseInsensitive());
   }
 
+  /**
+   * Concurrent strong key:K -> weak value:V map
+   */
   @Contract(value = " -> new", pure = true)
   public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentWeakValueMap() {
     return new ConcurrentWeakValueHashMap<>(null);
   }
 
+  /**
+   * Concurrent strong key:K -> soft value:V map
+   */
   @Contract(value = " -> new", pure = true)
   public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentSoftValueMap() {
     return new ConcurrentSoftValueHashMap<>(null);
   }
 
+  /**
+   * Create {@link ConcurrentMap} with hard-referenced keys and weak-referenced values.
+   * When the value get garbage-collected, the {@code evictionListener} is (eventually) invoked with this map and the corresponding key
+   */
   @Contract(value = "_ -> new", pure = true)
-  public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentWeakValueMap(
-    @NotNull Consumer<? super K> evictionListener) {
+  public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentWeakValueMap(@NotNull BiConsumer<? super @NotNull ConcurrentMap<K,V>, ? super K> evictionListener) {
     return new ConcurrentWeakValueHashMap<>(evictionListener);
   }
 
+  /**
+   * Create {@link ConcurrentMap} with hard-referenced keys and soft-referenced values.
+   * When the value get garbage-collected, the {@code evictionListener} is (eventually) invoked with this map and the corresponding key
+   */
   @Contract(value = "_ -> new", pure = true)
-  public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentSoftValueMap(
-    @NotNull Consumer<? super K> evictionListener) {
+  public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentSoftValueMap(@NotNull BiConsumer<? super @NotNull ConcurrentMap<K,V>, ? super K> evictionListener) {
     return new ConcurrentSoftValueHashMap<>(evictionListener);
   }
 
+  /**
+   * Concurrent weak key:K -> strong value:V map with identity hashing strategy.
+   */
   @Contract(value = " -> new", pure = true)
   public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentWeakIdentityMap() {
     return new ConcurrentWeakHashMap<>(HashingStrategy.identity());
@@ -68,7 +94,7 @@ public final class CollectionFactory {
   /**
    * Weak keys hard values hash map.
    * Null keys are NOT allowed
-   * Null values are allowed
+   * Null values ARE allowed
    */
   @Contract(value = "_,_,_ -> new", pure = true)
   public static @NotNull <K, V> Map<@NotNull K, V> createWeakMap(int initialCapacity, float loadFactor, @NotNull HashingStrategy<? super K> hashingStrategy) {
@@ -253,16 +279,22 @@ public final class CollectionFactory {
 
   public static @NotNull Set<String> createFilePathLinkedSet() {
     return SystemInfoRt.isFileSystemCaseSensitive
-           ? createSmallMemoryFootprintLinkedSet()
+           ? new LinkedHashSet<>()
            : new ObjectLinkedOpenCustomHashSet<>(FastUtilHashingStrategies.getCaseInsensitiveStringStrategy());
   }
 
+  public static @NotNull Set<String> createFilePathLinkedSet(@NotNull Set<String> source) {
+    return SystemInfoRt.isFileSystemCaseSensitive
+           ? new LinkedHashSet<>(source)
+           : new ObjectLinkedOpenCustomHashSet<>(source, FastUtilHashingStrategies.getCaseInsensitiveStringStrategy());
+  }
+
   /**
-   * Create linked map with key hash strategy according to file system path case sensitivity.
+   * Create a linked map with key hash strategy according to file system path case sensitivity.
    */
   public static @NotNull <V> Map<String, V> createFilePathLinkedMap() {
     return SystemInfoRt.isFileSystemCaseSensitive
-           ? createSmallMemoryFootprintLinkedMap()
+           ? new LinkedHashMap<>()
            : new Object2ObjectLinkedOpenCustomHashMap<>(FastUtilHashingStrategies.getCaseInsensitiveStringStrategy());
   }
 
@@ -311,8 +343,8 @@ public final class CollectionFactory {
 
   /**
    * Returns a linked-keys (i.e. iteration order is the same as the insertion order) {@link Set} implementation with slightly faster access for very big collection (>100K keys) and a bit smaller memory footprint
-   * than {@link HashSet}. Null keys are permitted. Use sparingly only when performance considerations are utterly important;
-   * in all other cases please prefer {@link HashSet}.
+   * than {@link java.util.HashSet}. Null keys are permitted. Use sparingly only when performance considerations are utterly important;
+   * in all other cases please prefer {@link java.util.HashSet}.
    */
   @Contract(value = "-> new", pure = true)
   public static <K> @NotNull Set<K> createSmallMemoryFootprintLinkedSet() {
@@ -321,8 +353,8 @@ public final class CollectionFactory {
 
   /**
    * Returns a {@link Set} implementation with slightly faster access for very big collections (>100K keys) and a bit smaller memory footprint
-   * than {@link HashSet}. Null keys are permitted. Use sparingly only when performance considerations are utterly important;
-   * in all other cases please prefer {@link HashSet}.
+   * than {@link java.util.HashSet}. Null keys are permitted. Use sparingly only when performance considerations are utterly important;
+   * in all other cases please prefer {@link java.util.HashSet}.
    */
   @Contract(value = "-> new", pure = true)
   public static <K> @NotNull Set<K> createSmallMemoryFootprintSet() {
@@ -363,8 +395,13 @@ public final class CollectionFactory {
   public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentSoftMap() {
     return new ConcurrentSoftHashMap<>(null);
   }
+
+  /**
+   * Create {@link ConcurrentMap} with soft-referenced keys and hard-referenced values.
+   * When the key get garbage-collected, the {@code evictionListener} is (eventually) invoked with this map and the corresponding value
+   */
   @Contract(value = "_ -> new", pure = true)
-  public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentSoftMap(@NotNull Consumer<? super V> evictionListener) {
+  public static @NotNull <K, V> ConcurrentMap<@NotNull K, @NotNull V> createConcurrentSoftMap(@NotNull BiConsumer<? super @NotNull ConcurrentMap<K,V>, ? super V> evictionListener) {
     return new ConcurrentSoftHashMap<>(evictionListener);
   }
 

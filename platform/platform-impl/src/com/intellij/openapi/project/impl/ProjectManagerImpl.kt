@@ -1,5 +1,5 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment")
+@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "LoggingSimilarMessage")
 
 package com.intellij.openapi.project.impl
 
@@ -22,7 +22,7 @@ import com.intellij.ide.lightEdit.LightEditUtil
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.startup.impl.StartupManagerImpl
 import com.intellij.ide.trustedProjects.TrustedProjects
-import com.intellij.ide.trustedProjects.TrustedProjectsDialog.confirmOpeningOrLinkingUntrustedProjectAsync
+import com.intellij.ide.trustedProjects.TrustedProjectsDialog.confirmOpeningOrLinkingUntrustedProject
 import com.intellij.ide.trustedProjects.TrustedProjectsLocator
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
@@ -35,6 +35,7 @@ import com.intellij.openapi.application.impl.LaterInvocator
 import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceIfCreated
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
@@ -47,6 +48,7 @@ import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.progress.impl.CoreProgressManager
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.progress.runBlockingModalWithRawProgressReporter
 import com.intellij.openapi.project.*
 import com.intellij.openapi.project.ex.ProjectEx
@@ -70,6 +72,9 @@ import com.intellij.platform.PlatformProjectOpenProcessor.Companion.isLoadedFrom
 import com.intellij.platform.attachToProjectAsync
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.project.PROJECT_ID
+import com.intellij.platform.project.ProjectEntitiesStorage
+import com.intellij.platform.project.ProjectId
 import com.intellij.platform.workspace.jps.JpsMetrics
 import com.intellij.projectImport.ProjectAttachProcessor
 import com.intellij.serviceContainer.ComponentManagerImpl
@@ -77,6 +82,8 @@ import com.intellij.ui.IdeUICustomization
 import com.intellij.util.ArrayUtil
 import com.intellij.util.PathUtilRt
 import com.intellij.util.PlatformUtils.isDataSpell
+import com.intellij.util.concurrency.ThreadingAssertions
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.io.delete
@@ -92,6 +99,7 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
 import kotlin.system.measureTimeMillis
 
@@ -184,32 +192,36 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
 
   override val allExcludedUrls: List<String>
     get() {
-      val callback = getAllExcludedUrlsCallback
-      callback?.run()
+      getAllExcludedUrlsCallback?.run()
       return excludeRootsCache.excludedUrls
     }
 
   override fun dispose() {
-    ApplicationManager.getApplication().assertWriteAccessAllowed()
+    ThreadingAssertions.assertWriteAccess()
     // dispose manually, because TimedReference.dispose() can already be called (in Timed.disposeTimed()) and then default project resurrected
     Disposer.dispose(defaultProject)
   }
 
   override fun loadProject(path: Path): Project {
-    ApplicationManager.getApplication().assertIsNonDispatchThread()
+    return loadProject(path = path, refreshNeeded = true, preloadServices = true)
+  }
 
+  @RequiresBackgroundThread
+  fun loadProject(path: Path, refreshNeeded: Boolean, preloadServices: Boolean): ProjectImpl {
     val project = ProjectImpl(filePath = path, projectName = null, parent = ApplicationManager.getApplication() as ComponentManagerImpl)
+    @Suppress("DEPRECATION")
     val modalityState = CoreProgressManager.getCurrentThreadProgressModality()
-    @Suppress("RAW_RUN_BLOCKING")
-    runBlocking(modalityState.asContextElement()) {
-      initProject(
-        file = path,
-        project = project,
-        isRefreshVfsNeeded = true,
-        preloadServices = true,
-        template = null,
-        isTrustCheckNeeded = false,
-      )
+    runBlockingCancellable {
+      withContext(modalityState.asContextElement()) {
+        initProject(
+          file = path,
+          project = project,
+          isRefreshVfsNeeded = refreshNeeded,
+          preloadServices = preloadServices,
+          template = null,
+          isTrustCheckNeeded = false,
+        )
+      }
     }
     return project
   }
@@ -299,7 +311,9 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       if (project.isDisposed) {
         return@withContext false
       }
-      closeProject(project = project, saveProject = save, checkCanClose = false)
+      writeIntentReadAction {
+        closeProject(project = project, saveProject = save, checkCanClose = false)
+      }
     }
   }
 
@@ -325,13 +339,14 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       "Must not call closeProject() from under write action because fireProjectClosing() listeners must have a chance to do something useful"
     }
 
-    app.assertWriteIntentLockAcquired()
+    ThreadingAssertions.assertWriteIntentReadAccess()
     @Suppress("TestOnlyProblems")
     if (isLight(project)) {
       // if we close the project at the end of the test, just mark it closed;
       // if we are shutting down the entire test framework, proceed to full dispose
       val projectImpl = project as ProjectImpl
       if (!projectImpl.isTemporarilyDisposed) {
+        @Suppress("ForbiddenInSuspectContextMethod")
         app.runWriteAction {
           projectImpl.disposeEarlyDisposable()
           projectImpl.setTemporarilyDisposed(true)
@@ -347,6 +362,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         if (project is ComponentManagerImpl) {
           project.stopServicePreloading()
         }
+        @Suppress("ForbiddenInSuspectContextMethod")
         app.runWriteAction {
           if (project is ProjectImpl) {
             project.disposeEarlyDisposable()
@@ -392,9 +408,9 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       }
     }
 
+    @Suppress("ForbiddenInSuspectContextMethod")
     app.runWriteAction {
       removeFromOpened(project)
-      @Suppress("GrazieInspection")
       if (project is ProjectImpl) {
         // ignore a dispose flag (dispose is passed only via deprecated API that used only by some 3d-party plugins)
         project.disposeEarlyDisposable()
@@ -469,14 +485,12 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
   }
 
   override fun canClose(project: Project): Boolean {
-    if (LOG.isDebugEnabled) {
-      LOG.debug("enter: canClose()")
-    }
+    LOG.debug("enter: canClose()")
 
     for (handler in CLOSE_HANDLER_EP.lazySequence()) {
       try {
         if (!handler.canClose(project)) {
-          LOG.debug("close canceled by $handler")
+          LOG.debug { "close canceled by $handler" }
           return false
         }
       }
@@ -493,7 +507,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         @Suppress("DEPRECATION", "removal")
         val canClose = if (listener is VetoableProjectManagerListener) listener.canClose(project) else listener.canCloseProject(project)
         if (!canClose) {
-          LOG.debug("close canceled by $listener")
+          LOG.debug { "close canceled by $listener" }
           return false
         }
       }
@@ -578,26 +592,19 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         null
       }
     }?.let {
+      withContext(NonCancellable) {
+        cancelProjectOpening(options.project, it)
+      }
       throw it
     }
 
     val continueOpen = span("checkChildProcess") {
-      if (ApplicationManagerEx.isInIntegrationTest()) {
-        // write current PID to file to kill the process if it hangs
-        if (IS_CHILD_PROCESS) {
-          val pid = ProcessHandle.current().pid()
-
-          @Suppress("SpellCheckingInspection")
-          val file = PathManager.getSystemDir().resolve("pids.txt")
-          withContext(Dispatchers.IO) {
-            Files.writeString(file, pid.toString())
-          }
-        }
-      }
-
-      !checkChildProcess(projectStoreBaseDir)
+      !checkChildProcess(projectStoreBaseDir, options)
     }
     if (!continueOpen) {
+      withContext(NonCancellable) {
+        cancelProjectOpening(options.project)
+      }
       return null
     }
 
@@ -616,6 +623,9 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
 
         if (checkExistingProjectOnOpen(projectToClose, options, projectStoreBaseDir)) {
           LOG.info("Project check is not succeeded -> return null")
+          withContext(NonCancellable) {
+            cancelProjectOpening(options.project)
+          }
           return null
         }
       }
@@ -629,83 +639,81 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
   private suspend fun doOpenAsync(options: OpenProjectTask, projectStoreBaseDir: Path): Project? {
     val app = ApplicationManager.getApplication()
     val frameAllocator = if (app.isHeadlessEnvironment || app.isUnitTestMode) {
-      ProjectFrameAllocator(options)
+      HeadlessProjectFrameAllocator()
     }
     else {
-      ProjectUiFrameAllocator(options, projectStoreBaseDir)
+      IdeProjectFrameAllocator(options, projectStoreBaseDir)
     }
 
     val disableAutoSaveToken = SaveAndSyncHandler.getInstance().disableAutoSave()
     var module: Module? = null
     var result: Project? = null
     try {
-      frameAllocator.run { saveTemplateJob, projectInitObserver ->
-        val initFrameEarly = !options.isNewProject && options.beforeOpen == null && options.project == null
-        val project = when {
-          options.project != null -> options.project!!
-          options.isNewProject -> prepareNewProject(options = options,
-                                                    projectStoreBaseDir = projectStoreBaseDir,
-                                                    saveTemplateJob = saveTemplateJob)
-          else -> prepareProject(options = options,
-                                 projectStoreBaseDir = projectStoreBaseDir,
-                                 projectInitObserver = projectInitObserver.takeIf { initFrameEarly })
+      coroutineScope {
+        val initHelper = ProjectInitHelper(this, frameAllocator)
+        val backgroundJob = launch {
+          frameAllocator.runInBackground(initHelper)
         }
-        result = project
-        // must be under try-catch to dispose project on beforeOpen or preparedToOpen callback failures
-        if (options.project == null) {
-          val beforeOpen = options.beforeOpen
-          if (beforeOpen != null && !beforeOpen(project)) {
-            throw CancellationException("beforeOpen callback returned false")
+
+        launch {
+          launch {
+            frameAllocator.run(initHelper)
           }
 
-          if (options.runConfigurators &&
-              (options.isNewProject || ModuleManager.getInstance(project).modules.isEmpty()) ||
-              project.isLoadedFromCacheButHasNoModules()) {
-            module = PlatformProjectOpenProcessor.runDirectoryProjectConfigurators(
-              baseDir = projectStoreBaseDir,
-              project = project,
-              newProject = options.isProjectCreatedWithWizard
-            )
-            options.preparedToOpen?.invoke(module!!)
+          launch {
+            val initFrameEarly = !options.isNewProject && options.beforeOpen == null && options.project == null
+            val project = when {
+              options.project != null -> options.project!!
+              options.isNewProject -> prepareNewProject(options = options,
+                                                        projectStoreBaseDir = projectStoreBaseDir)
+              else -> prepareProject(options = options,
+                                     projectStoreBaseDir = projectStoreBaseDir,
+                                     projectInitHelper = initHelper.takeIf { initFrameEarly })
+            }
+            result = project
+            // must be under try-catch to dispose project on beforeOpen or preparedToOpen callback failures
+            if (options.project == null) {
+              val beforeOpen = options.beforeOpen
+              if (beforeOpen != null && !beforeOpen(project)) {
+                throw CancellationException("beforeOpen callback returned false")
+              }
+
+              if (options.runConfigurators &&
+                  (options.isNewProject || ModuleManager.getInstance(project).modules.isEmpty()) ||
+                  project.isLoadedFromCacheButHasNoModules()) {
+                module = PlatformProjectOpenProcessor.runDirectoryProjectConfigurators(
+                  baseDir = projectStoreBaseDir,
+                  project = project,
+                  newProject = options.isProjectCreatedWithWizard
+                )
+                options.preparedToOpen?.invoke(module!!)
+              }
+            }
+
+            if (!addToOpened(project)) {
+              throw CancellationException("project is already opened")
+            }
+
+            // The project is loaded and is initialized, project services and components can be accessed.
+            // But start-up and post start-up activities are not yet executed.
+            if (!initFrameEarly) {
+              initHelper.launchPreInit(project)
+              initHelper.notifyInit(project)
+            }
+
+            span("project startup") {
+              runInitProjectActivities(project)
+            }
+            initHelper.projectInitTimestamp = System.nanoTime()
           }
-        }
-
-        if (!addToOpened(project)) {
-          throw CancellationException("project is already opened")
-        }
-
-        // The project is loaded and is initialized, project services and components can be accessed.
-        // But start-up and post start-up activities are not yet executed.
-        if (!initFrameEarly && projectInitObserver != null) {
-          projectInitObserver.beforeInitRawProject(project)
-          projectInitObserver.rawProjectDeferred.complete(project)
-        }
-
-        span("project startup") {
-          runInitProjectActivities(project)
+        }.invokeOnCompletion {
+          backgroundJob.cancel()
         }
       }
     }
     catch (e: CancellationException) {
       withContext(NonCancellable) {
-        result?.let { project ->
-          try {
-            try {
-              // cancel async preloading of services as soon as possible
-              (project as ComponentManagerEx).getCoroutineScope().coroutineContext.job.cancelAndJoin()
-            }
-            catch (secondException: Throwable) {
-              e.addSuppressed(secondException)
-            }
-
-            withContext(Dispatchers.EDT) {
-              closeProject(project, saveProject = false, checkCanClose = false)
-            }
-          }
-          catch (secondException: Throwable) {
-            e.addSuppressed(secondException)
-          }
-        }
+        cancelProjectOpening(result, e)
         failedToOpenProject(frameAllocator = frameAllocator, exception = null, options = options)
       }
 
@@ -745,23 +753,46 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     val project = result!!
     if (!app.isUnitTestMode) {
       val openTimestamp = System.currentTimeMillis()
-      (project as ComponentManagerEx).getCoroutineScope().launch {
+      (project as ProjectImpl).getCoroutineScope().launch {
         (RecentProjectsManager.getInstance() as? RecentProjectsManagerBase)?.projectOpened(project, openTimestamp)
         dispatchEarlyNotifications()
       }
     }
 
     if (isRunStartUpActivitiesEnabled(project)) {
-      (StartupManager.getInstance(project) as StartupManagerImpl).runPostStartupActivities()
+      (project.serviceAsync<StartupManager>() as StartupManagerImpl).runPostStartupActivities()
     }
     blockingContext {
       LifecycleUsageTriggerCollector.onProjectOpened(project)
     }
 
-    options.callback?.projectOpened(project, module ?: ModuleManager.getInstance(project).modules[0])
+    options.callback?.projectOpened(project, module ?: ModuleManager.getInstance(project).modules.firstOrNull())
 
     jpsMetrics.endSpan("project.opening")
     return project
+  }
+
+  private suspend fun cancelProjectOpening(project: Project?, e: CancellationException? = null) {
+    if (project == null) return
+
+    try {
+      try {
+        // cancel async preloading of services as soon as possible
+        (project as ProjectImpl).getCoroutineScope().coroutineContext.job.cancelAndJoin()
+      }
+      catch (secondException: Throwable) {
+        e?.addSuppressed(secondException)
+      }
+
+      withContext(Dispatchers.EDT) {
+        writeIntentReadAction {
+          closeProject(project, saveProject = false, checkCanClose = false)
+        }
+      }
+    }
+    catch (secondException: Throwable) {
+      e?.addSuppressed(secondException)
+    }
   }
 
   private suspend fun failedToOpenProject(frameAllocator: ProjectFrameAllocator, exception: Throwable?, options: OpenProjectTask) {
@@ -850,28 +881,37 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     return project
   }
 
-  private suspend fun prepareNewProject(options: OpenProjectTask, projectStoreBaseDir: Path, saveTemplateJob: Job?): Project {
-    withContext(Dispatchers.IO) {
-      removeProjectConfigurationAndCaches(projectStoreBaseDir)
+  private suspend fun prepareNewProject(options: OpenProjectTask, projectStoreBaseDir: Path): Project {
+    return coroutineScope {
+      val template = if (options.useDefaultProjectAsTemplate) defaultProject else null
+      val saveTemplateJob = if (template != null) {
+        launch(CoroutineName("save default project") + Dispatchers.IO) {
+          saveSettings(template, forceSavingAllSettings = true)
+        }
+      }
+      else {
+        null
+      }
+      withContext(Dispatchers.IO) {
+        removeProjectConfigurationAndCaches(projectStoreBaseDir)
+      }
+
+      val project = instantiateProject(projectStoreBaseDir, options)
+      project.putUserData(PlatformProjectOpenProcessor.PROJECT_NEWLY_OPENED, true)
+      saveTemplateJob?.join()
+      initProject(file = projectStoreBaseDir,
+                  project = project,
+                  isRefreshVfsNeeded = options.isRefreshVfsNeeded,
+                  preloadServices = options.preloadServices,
+                  template = template,
+                  isTrustCheckNeeded = false)
+      project
     }
-
-    val project = instantiateProject(projectStoreBaseDir, options)
-    saveTemplateJob?.join()
-    val template = if (options.useDefaultProjectAsTemplate) defaultProject else null
-    initProject(file = projectStoreBaseDir,
-                project = project,
-                isRefreshVfsNeeded = options.isRefreshVfsNeeded,
-                preloadServices = options.preloadServices,
-                template = template,
-                isTrustCheckNeeded = false)
-
-    project.putUserData(PlatformProjectOpenProcessor.PROJECT_NEWLY_OPENED, true)
-    return project
   }
 
   private suspend fun prepareProject(options: OpenProjectTask,
                                      projectStoreBaseDir: Path,
-                                     projectInitObserver: ProjectInitObserver?): Project {
+                                     projectInitHelper: ProjectInitHelper?): Project {
     var conversionResult: ConversionResult? = null
     if (options.runConversionBeforeOpen) {
       val conversionService = (ApplicationManager.getApplication() as ComponentManagerEx)
@@ -889,13 +929,15 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     val project = instantiateProject(projectStoreBaseDir, options)
 
     // template as null here because it is not a new project
-    initProject(file = projectStoreBaseDir,
-                project = project,
-                isRefreshVfsNeeded = options.isRefreshVfsNeeded,
-                preloadServices = options.preloadServices,
-                template = null,
-                projectInitObserver = projectInitObserver,
-                isTrustCheckNeeded = true)
+    initProject(
+      file = projectStoreBaseDir,
+      project = project,
+      isRefreshVfsNeeded = options.isRefreshVfsNeeded,
+      preloadServices = options.preloadServices,
+      template = null,
+      projectInitHelper = projectInitHelper,
+      isTrustCheckNeeded = true,
+    )
 
     if (conversionResult != null && !conversionResult.conversionNotNeeded()) {
       StartupManager.getInstance(project).runAfterOpened {
@@ -907,11 +949,17 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
 
   protected open fun isRunStartUpActivitiesEnabled(project: Project): Boolean = true
 
-  private suspend fun checkExistingProjectOnOpen(projectToClose: Project, options: OpenProjectTask, projectDir: Path?): Boolean {
-    val isValidProject = projectDir != null && ProjectUtilCore.isValidProjectPath(projectDir)
-    if (projectDir != null && ProjectAttachProcessor.canAttachToProject() && !isDataSpell() &&
+  private suspend fun checkExistingProjectOnOpen(projectToClose: Project, options: OpenProjectTask, projectDir: Path): Boolean {
+    if (options.forceReuseFrame) {
+      return !closeAndDisposeKeepingFrame(projectToClose)
+    }
+
+    val isValidProject = ProjectUtilCore.isValidProjectPath(projectDir)
+    val processor = ProjectAttachProcessor.getProcessor(projectToClose, projectDir, options.project)
+    if (processor != null &&
+        !isDataSpell() &&
         (!isValidProject || GeneralSettings.getInstance().confirmOpenNewProject == GeneralSettings.OPEN_PROJECT_ASK)) {
-      when (withContext(Dispatchers.EDT) { ProjectUtil.confirmOpenOrAttachProject() }) {
+      when (withContext(Dispatchers.EDT) { ProjectUtil.confirmOpenOrAttachProject(projectToClose, processor) }) {
         -1 -> {
           return true
         }
@@ -921,6 +969,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
           }
         }
         GeneralSettings.OPEN_PROJECT_SAME_WINDOW_ATTACH -> {
+          processor.beforeAttach(options.project)
           if (attachToProjectAsync(projectToClose = projectToClose, projectDir = projectDir, callback = options.callback)) {
             return true
           }
@@ -929,19 +978,41 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     }
     else {
       val mode = GeneralSettings.getInstance().confirmOpenNewProject
-      if (mode == GeneralSettings.OPEN_PROJECT_SAME_WINDOW_ATTACH && projectDir != null &&
+      if (mode == GeneralSettings.OPEN_PROJECT_SAME_WINDOW_ATTACH &&
           attachToProjectAsync(projectToClose = projectToClose, projectDir = projectDir, callback = options.callback)) {
         return true
       }
 
-      val projectNameValue = options.projectName ?: projectDir?.fileName?.toString() ?: projectDir?.toString()
+      val perProcessSupport = processPerProjectSupport()
+      val projectNameValue = options.projectName ?: projectDir.fileName?.toString() ?: projectDir.toString()
       val exitCode = confirmOpenNewProject(options.copy(projectName = projectNameValue))
       if (exitCode == GeneralSettings.OPEN_PROJECT_SAME_WINDOW) {
         if (!closeAndDisposeKeepingFrame(projectToClose)) {
           return true
         }
+
+        if (!perProcessSupport.canBeOpenedInThisProcess(projectDir)) {
+          perProcessSupport.openInChildProcess(projectDir)
+
+          blockingContext {
+            val app = ApplicationManagerEx.getApplicationEx()
+            app.invokeLater {
+              app.exit(true, true)
+            }
+          }
+
+          return true
+        }
       }
-      else if (exitCode != GeneralSettings.OPEN_PROJECT_NEW_WINDOW) {
+      else if (exitCode == GeneralSettings.OPEN_PROJECT_NEW_WINDOW) {
+        if (!perProcessSupport.canBeOpenedInThisProcess(projectDir)) {
+          perProcessSupport.openInChildProcess(projectDir)
+          return true
+        }
+
+        return false
+      }
+      else {
         // not in a new window
         return true
       }
@@ -953,7 +1024,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
   private suspend fun closeAndDisposeKeepingFrame(project: Project): Boolean {
     return withContext(Dispatchers.EDT) {
       try {
-        blockingContext {
+        writeIntentReadAction {
           (WindowManager.getInstance() as WindowManagerImpl).withFrameReuseEnabled().use {
             closeProject(project, checkCanClose = true)
           }
@@ -991,8 +1062,10 @@ fun CoroutineScope.runInitProjectActivities(project: Project) {
   }
 
   launch(CoroutineName("projectOpened event executing") + Dispatchers.EDT) {
-    @Suppress("DEPRECATION", "removal")
-    ApplicationManager.getApplication().messageBus.syncPublisher(ProjectManager.TOPIC).projectOpened(project)
+    writeIntentReadAction {
+      @Suppress("DEPRECATION", "removal")
+      ApplicationManager.getApplication().messageBus.syncPublisher(ProjectManager.TOPIC).projectOpened(project)
+    }
   }
 
   @Suppress("DEPRECATION")
@@ -1040,9 +1113,7 @@ private fun handleListenerError(e: Throwable, listener: ProjectManagerListener) 
 }
 
 private fun fireProjectClosing(project: Project) {
-  if (LOG.isDebugEnabled) {
-    LOG.debug("enter: fireProjectClosing()")
-  }
+  LOG.debug("enter: fireProjectClosing()")
   try {
     closePublisher.projectClosing(project)
     publisher.projectClosing(project)
@@ -1053,9 +1124,7 @@ private fun fireProjectClosing(project: Project) {
 }
 
 private fun fireProjectClosed(project: Project) {
-  if (LOG.isDebugEnabled) {
-    LOG.debug("projectClosed")
-  }
+  LOG.debug("projectClosed")
 
   LifecycleUsageTriggerCollector.onBeforeProjectClosed(project)
   closePublisher.projectClosed(project)
@@ -1178,19 +1247,50 @@ private fun removeProjectConfigurationAndCaches(projectFile: Path) {
  */
 private suspend fun checkOldTrustedStateAndMigrate(project: Project, projectStoreBaseDir: Path): Boolean {
   // The trusted state will be migrated inside TrustedProjects.isTrustedProject, because now we have project instance.
-  return confirmOpeningOrLinkingUntrustedProjectAsync(
-    projectStoreBaseDir,
-    project,
-    IdeBundle.message("untrusted.project.open.dialog.title", project.name))
+  return confirmOpeningOrLinkingUntrustedProject(
+    projectRoot = projectStoreBaseDir,
+    project = project,
+    title = IdeBundle.message("untrusted.project.open.dialog.title", project.name),
+  )
 }
 
-private suspend fun initProject(file: Path,
-                                project: ProjectImpl,
-                                isRefreshVfsNeeded: Boolean,
-                                preloadServices: Boolean,
-                                template: Project?,
-                                isTrustCheckNeeded: Boolean,
-                                projectInitObserver: ProjectInitObserver? = null) {
+private class ProjectInitHelper(
+  private val cs: CoroutineScope,
+  private val frameAllocator: ProjectFrameAllocator,
+) : ProjectInitObservable {
+  private val preInitProjectDeferred = CompletableDeferred<Project>()
+  private val initProjectDeferred = CompletableDeferred<Project>()
+
+  private val _projectInitTimestamp = AtomicLong(-1)
+  override var projectInitTimestamp: Long
+    get() = _projectInitTimestamp.get()
+    set(value) {
+      _projectInitTimestamp.set(value)
+    }
+
+  override suspend fun awaitProjectPreInit(): Project = preInitProjectDeferred.await()
+
+  override suspend fun awaitProjectInit(): Project = initProjectDeferred.await()
+
+  fun launchPreInit(project: Project): Job = cs.launch {
+    frameAllocator.preInitProject(project)
+    preInitProjectDeferred.complete(project)
+  }
+
+  fun notifyInit(project: Project) {
+    initProjectDeferred.complete(project)
+  }
+}
+
+private suspend fun initProject(
+  file: Path,
+  project: ProjectImpl,
+  isRefreshVfsNeeded: Boolean,
+  preloadServices: Boolean,
+  template: Project?,
+  isTrustCheckNeeded: Boolean,
+  projectInitHelper: ProjectInitHelper? = null,
+) {
   LOG.assertTrue(!project.isDefault)
 
   try {
@@ -1201,6 +1301,10 @@ private suspend fun initProject(file: Path,
     }
 
     project.putUserDataIfAbsent(PROJECT_PATH, file)
+    project.putUserDataIfAbsent(PROJECT_ID, ProjectId.create())
+
+    ProjectEntitiesStorage.getInstance().createEntity(project)
+
     project.registerComponents()
     registerComponentActivity?.end()
 
@@ -1217,19 +1321,23 @@ private suspend fun initProject(file: Path,
     coroutineScope {
       val isTrusted = async { !isTrustCheckNeeded || checkOldTrustedStateAndMigrate(project, file) }
 
-      val beforeComponentCreation = projectInitObserver?.beforeInitRawProject(project)
+      val preInitJob = projectInitHelper?.launchPreInit(project)
+      val workspaceIndexReady = CompletableDeferred<Unit>()
+      launch {
+        workspaceIndexReady.join()
+        projectInitHelper?.notifyInit(project)
+        if (preloadServices) {
+          schedulePreloadServices(project)
+        }
+      }
       projectInitListeners {
-        it.execute(project)
+        it.execute(project = project, workspaceIndexReady = { workspaceIndexReady.complete(Unit) })
       }
 
-      projectInitObserver?.rawProjectDeferred?.complete(project)
-
-      if (preloadServices) {
-        schedulePreloadServices(project)
-      }
+      workspaceIndexReady.complete(Unit)
 
       launch {
-        beforeComponentCreation?.join()
+        preInitJob?.join()
         project.createComponentsNonBlocking()
       }
 
@@ -1255,16 +1363,11 @@ private suspend fun initProject(file: Path,
 }
 
 internal suspend inline fun projectInitListeners(crossinline executor: suspend (ProjectServiceContainerInitializedListener) -> Unit) {
-  val extensionArea = ApplicationManager.getApplication().extensionArea as ExtensionsAreaImpl
-  val ep = extensionArea
+  val ep = (ApplicationManager.getApplication().extensionArea as ExtensionsAreaImpl)
     .getExtensionPoint<ProjectServiceContainerInitializedListener>("com.intellij.projectServiceContainerInitializedListener")
   for (adapter in ep.sortedAdapters) {
     val pluginDescriptor = adapter.pluginDescriptor
-    if (!isCorePlugin(pluginDescriptor) &&
-        !(pluginDescriptor.pluginId.idString == "com.jetbrains.codeWithMe"
-          && adapter.assignableToClassName == "com.jetbrains.rdserver.unattendedHost.UnattendedHostManager\$ProjectAttachActivity")
-        && !(pluginDescriptor.pluginId.idString == "intellij.rider.plugins.cwm"
-          && adapter.assignableToClassName == "com.jetbrains.rdserver.unattendedHost.UnattendedHostManager\$ProjectAttachActivity")) {
+    if (!isCorePlugin(pluginDescriptor)) {
       LOG.error(PluginException("Plugin $pluginDescriptor is not approved to add ${ep.name}", pluginDescriptor.pluginId))
       continue
     }
@@ -1273,32 +1376,33 @@ internal suspend inline fun projectInitListeners(crossinline executor: suspend (
   }
 }
 
-
 @Suppress("DuplicatedCode")
 private suspend fun confirmOpenNewProject(options: OpenProjectTask): Int {
   if (ApplicationManager.getApplication().isUnitTestMode) {
     return GeneralSettings.OPEN_PROJECT_NEW_WINDOW
   }
 
-  var mode = GeneralSettings.getInstance().confirmOpenNewProject
+  var mode = serviceAsync<GeneralSettings>().confirmOpenNewProject
   if (mode == GeneralSettings.OPEN_PROJECT_ASK) {
+    val ideUICustomization = serviceAsync<IdeUICustomization>()
     val message = if (options.projectName == null) {
-      IdeUICustomization.getInstance().projectMessage("prompt.open.project.in.new.frame")
+      ideUICustomization.projectMessage("prompt.open.project.in.new.frame")
     }
     else {
-      IdeUICustomization.getInstance().projectMessage("prompt.open.project.with.name.in.new.frame", options.projectName)
+      ideUICustomization.projectMessage("prompt.open.project.with.name.in.new.frame", options.projectName)
     }
 
     val openInExistingFrame = withContext(Dispatchers.EDT) {
-      blockingContext {
+      //readaction is not enough
+      writeIntentReadAction {
         if (options.isNewProject)
-          MessageDialogBuilder.yesNoCancel(IdeUICustomization.getInstance().projectMessage("title.new.project"), message)
+          MessageDialogBuilder.yesNoCancel(ideUICustomization.projectMessage("title.new.project"), message)
             .yesText(IdeBundle.message("button.existing.frame"))
             .noText(IdeBundle.message("button.new.frame"))
             .doNotAsk(ProjectNewWindowDoNotAskOption())
             .guessWindowAndAsk()
         else
-          MessageDialogBuilder.yesNoCancel(IdeUICustomization.getInstance().projectMessage("title.open.project"), message)
+          MessageDialogBuilder.yesNoCancel(ideUICustomization.projectMessage("title.open.project"), message)
             .yesText(IdeBundle.message("button.existing.frame"))
             .noText(IdeBundle.message("button.new.frame"))
             .doNotAsk(ProjectNewWindowDoNotAskOption())
@@ -1337,7 +1441,7 @@ interface ProjectServiceContainerInitializedListener {
   /**
    * Invoked after container configured.
    */
-  suspend fun execute(project: Project)
+  suspend fun execute(project: Project, workspaceIndexReady: () -> Unit)
 }
 
 @TestOnly
@@ -1370,7 +1474,7 @@ private suspend fun checkTrustedState(projectStoreBaseDir: Path): Boolean {
   }
 
   // check if the project trusted state could be known from the previous IDE version
-  val metaInfo = RecentProjectsManagerBase.getInstanceEx().getProjectMetaInfo(projectStoreBaseDir)
+  val metaInfo = (serviceAsync<RecentProjectsManager>() as RecentProjectsManagerBase).getProjectMetaInfo(projectStoreBaseDir)
   val projectId = metaInfo?.projectWorkspaceId
   val productWorkspaceFile = PathManager.getConfigDir().resolve("workspace").resolve("$projectId.xml")
   if (projectId != null && Files.exists(productWorkspaceFile)) {
@@ -1381,10 +1485,10 @@ private suspend fun checkTrustedState(projectStoreBaseDir: Path): Boolean {
     return true
   }
 
-  return confirmOpeningOrLinkingUntrustedProjectAsync(
-    projectStoreBaseDir,
-    null,
-    IdeBundle.message("untrusted.project.open.dialog.title", projectStoreBaseDir.fileName)
+  return confirmOpeningOrLinkingUntrustedProject(
+    projectRoot = projectStoreBaseDir,
+    project = null,
+    title = IdeBundle.message("untrusted.project.open.dialog.title", projectStoreBaseDir.fileName)
   )
 }
 

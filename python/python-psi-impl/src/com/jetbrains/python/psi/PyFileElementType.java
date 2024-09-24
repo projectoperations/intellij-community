@@ -30,7 +30,6 @@ import com.intellij.util.io.StringRef;
 import com.jetbrains.python.PythonLanguage;
 import com.jetbrains.python.PythonRuntimeService;
 import com.jetbrains.python.parsing.PyParser;
-import com.jetbrains.python.parsing.PythonParser;
 import com.jetbrains.python.parsing.console.PyConsoleParser;
 import com.jetbrains.python.parsing.console.PythonConsoleData;
 import com.jetbrains.python.parsing.console.PythonConsoleLexer;
@@ -61,7 +60,7 @@ public class PyFileElementType extends IStubFileElementType<PyFileStub> {
   @Override
   public int getStubVersion() {
     // Don't forget to update versions of indexes that use the updated stub-based elements
-    return 87;
+    return 94;
   }
 
   @Nullable
@@ -87,8 +86,7 @@ public class PyFileElementType extends IStubFileElementType<PyFileStub> {
       final Lexer lexer = parserDefinition.createLexer(project);
       final PsiParser parser = parserDefinition.createParser(project);
       final PsiBuilder builder = factory.createBuilder(project, node, lexer, language, node.getChars());
-      if (parser instanceof PyParser) {
-        final PythonParser pythonParser = (PythonParser)parser;
+      if (parser instanceof PyParser pythonParser) {
         pythonParser.setLanguageLevel(languageLevel);
       }
       var startTime = System.nanoTime();

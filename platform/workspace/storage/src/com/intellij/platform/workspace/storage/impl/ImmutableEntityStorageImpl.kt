@@ -4,6 +4,7 @@ package com.intellij.platform.workspace.storage.impl
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.diagnostic.telemetry.JPS
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.diagnostic.telemetry.WorkspaceModel
@@ -18,24 +19,23 @@ import com.intellij.platform.workspace.storage.impl.external.ExternalEntityMappi
 import com.intellij.platform.workspace.storage.impl.external.MutableExternalEntityMappingImpl
 import com.intellij.platform.workspace.storage.impl.indices.VirtualFileIndex.MutableVirtualFileIndex.Companion.VIRTUAL_FILE_INDEX_ENTITY_SOURCE_PROPERTY
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentation
-import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.instrumentation.ImmutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.query.StorageQuery
 import com.intellij.platform.workspace.storage.url.MutableVirtualFileUrlIndex
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlIndex
+import com.intellij.util.ConcurrencyUtil
 import com.intellij.util.ExceptionUtil
+import com.intellij.util.Java11Shim
 import com.intellij.util.ObjectUtils
 import com.intellij.util.containers.CollectionFactory
+import com.intellij.util.containers.ConcurrentLongObjectMap
 import io.opentelemetry.api.metrics.Meter
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-@OptIn(EntityStorageInstrumentationApi::class)
 internal data class EntityPointerImpl<E : WorkspaceEntity>(internal val id: EntityId) : EntityPointer<E> {
   override fun resolve(storage: EntityStorage): E? {
     storage as EntityStorageInstrumentation
@@ -58,7 +58,6 @@ internal data class EntityPointerImpl<E : WorkspaceEntity>(internal val id: Enti
 // companion object in EntityStorageSnapshotImpl is initialized too late
 private val entityStorageSnapshotImplInstancesCounter: AtomicLong = AtomicLong()
 
-@OptIn(EntityStorageInstrumentationApi::class)
 internal open class ImmutableEntityStorageImpl(
   override val entitiesByType: ImmutableEntitiesBarrel,
   override val refs: RefsTable,
@@ -75,9 +74,7 @@ internal open class ImmutableEntityStorageImpl(
 
   // I suppose that we can use some kind of array of arrays to get a quicker access (just two accesses by-index)
   // However, it's not implemented currently because I'm not sure about threading.
-  //
-  // ConcurrentLongObjectHashMap can be used here, but it's not accessible from this module
-  private val entityCache: Long2ObjectMap<WorkspaceEntity> = Long2ObjectOpenHashMap() // guarded by entityCache
+  private val entityCache: ConcurrentLongObjectMap<WorkspaceEntity> = Java11Shim.INSTANCE.createConcurrentLongObjectMap()
 
   override fun <T> cached(query: StorageQuery<T>): T {
     return snapshotCache.cached(query, this, null).value
@@ -89,17 +86,19 @@ internal open class ImmutableEntityStorageImpl(
     return if (entity !== NULL_ENTITY) entity as E else null
   }
 
-  override fun <T: WorkspaceEntity> initializeEntity(entityId: EntityId, newInstance: (() -> T)): T {
-    val found = synchronized(entityCache) { entityCache[entityId] }
+  override fun <T : WorkspaceEntity> initializeEntity(entityId: EntityId, newInstance: (() -> T)): T {
+    val found = entityCache[entityId]
+
     if (found != null) {
       @Suppress("UNCHECKED_CAST")
       return found as T
     }
+
     val newData = newInstance()
-    synchronized(entityCache) {
-      entityCache.put(entityId, newData)
-    }
-    return newData
+    val inserted = entityCache.putIfAbsent(entityId, newData) ?: newData
+
+    @Suppress("UNCHECKED_CAST")
+    return inserted as T
   }
 
   companion object {
@@ -124,7 +123,6 @@ internal open class ImmutableEntityStorageImpl(
 }
 
 
-@OptIn(EntityStorageInstrumentationApi::class)
 internal class MutableEntityStorageImpl(
   private val originalSnapshot: ImmutableEntityStorageImpl,
 ) : MutableEntityStorageInstrumentation, AbstractEntityStorage() {
@@ -185,7 +183,7 @@ internal class MutableEntityStorageImpl(
 
   override fun <E : WorkspaceEntity> entities(entityClass: Class<E>): Sequence<E> = getEntitiesTimeMs.addMeasuredTime {
     @Suppress("UNCHECKED_CAST")
-    entitiesByType[entityClass.toClassId()]?.all()?.map { it.wrapAsModifiable(this) } as? Sequence<E> ?: emptySequence()
+    entitiesByType[entityClass.toClassId()]?.all()?.map { it.createEntity(this) } as? Sequence<E> ?: emptySequence()
   }
 
   override fun <E : WorkspaceEntityWithSymbolicId, R : WorkspaceEntity> referrers(
@@ -197,7 +195,7 @@ internal class MutableEntityStorageImpl(
     @Suppress("UNCHECKED_CAST")
     indexes.softLinks.getIdsByEntry(id).asSequence()
       .filter { it.clazz == classId }
-      .map { entityDataByIdOrDie(it).wrapAsModifiable(this) as R }
+      .map { entityDataByIdOrDie(it).createEntity(this) as R }
   }
 
   @Suppress("UNCHECKED_CAST")
@@ -205,7 +203,7 @@ internal class MutableEntityStorageImpl(
     val entityIds = indexes.symbolicIdIndex.getIdsByEntry(id) ?: return@addMeasuredTime null
     val entityData: WorkspaceEntityData<WorkspaceEntity> = entityDataById(entityIds) as? WorkspaceEntityData<WorkspaceEntity>
                                                            ?: return@addMeasuredTime null
-    return@addMeasuredTime entityData.wrapAsModifiable(this) as E?
+    return@addMeasuredTime entityData.createEntity(this) as E?
   }
 
   override fun entitiesBySource(sourceFilter: (EntitySource) -> Boolean): Sequence<WorkspaceEntity> {
@@ -218,35 +216,24 @@ internal class MutableEntityStorageImpl(
         .asSequence()
         .flatMap { source ->
           val entityIds = index.getIdsByEntry(source) ?: error("Entity source $source expected to be in the index")
-          entityIds.asSequence().map { this.entityDataByIdOrDie(it).wrapAsModifiable(this) }
+          entityIds.asSequence().map { this.entityDataByIdOrDie(it).createEntity(this) }
         }
     }
   }
 
-  @Suppress("UNCHECKED_CAST")
-  override fun <T : WorkspaceEntity> addEntity(entity: T): T = addEntityTimeMs.addMeasuredTime {
+  override fun <M : WorkspaceEntity.Builder<T>, T : WorkspaceEntity> addEntity(entity: M): T = addEntityTimeMs.addMeasuredTime {
     try {
       lockWrite()
-      val entityToAdd = if (entity is ModifiableWorkspaceEntityBase<*, *>) {
-        entity as ModifiableWorkspaceEntityBase<T, *>
-      }
-      else {
-        if ((entity as WorkspaceEntityBase).snapshot === this) { // We don't re-add entity from the same store
-          return@addMeasuredTime entity
-        }
-
-        @Suppress("USELESS_CAST") //this is needed to work around a bug in Kotlin compiler (KT-55555)
-        entity.createEntityTreeCopy(true) as ModifiableWorkspaceEntityBase<T, *>
-      }
+      val entityToAdd = entity as ModifiableWorkspaceEntityBase<*, *>
 
       entityToAdd.applyToBuilder(this)
       entityToAdd.changedProperty.clear()
+
+      return@addMeasuredTime this.entityDataByIdOrDie(entityToAdd.id).createEntity(this) as T
     }
     finally {
       unlockWrite()
     }
-
-    return@addMeasuredTime entity
   }
 
   // This should be removed or not extracted into the interface
@@ -255,9 +242,11 @@ internal class MutableEntityStorageImpl(
       lockWrite()
 
       val newEntityData = entity.getEntityData()
+      val immutableEntity = newEntityData.createEntity(this)
+      val symbolicId = (immutableEntity as? WorkspaceEntityWithSymbolicId)?.symbolicId
 
       // Check for persistent id uniqueness
-      assertUniqueSymbolicId(newEntityData)
+      assertUniqueSymbolicId(newEntityData, symbolicId)
 
       entitiesByType.add(newEntityData, entity.getEntityClass().toClassId())
 
@@ -265,24 +254,24 @@ internal class MutableEntityStorageImpl(
       changeLog.addAddEvent(newEntityData.createEntityId(), newEntityData)
 
       // Update indexes
-      indexes.entityAdded(newEntityData)
+      indexes.entityAdded(newEntityData, symbolicId)
     }
     finally {
       unlockWrite()
     }
   }
 
-  private fun <T : WorkspaceEntity> assertUniqueSymbolicId(pEntityData: WorkspaceEntityData<T>) {
-    pEntityData.symbolicId()?.let { symbolicId ->
-      val ids = indexes.symbolicIdIndex.getIdsByEntry(symbolicId)
-      if (ids != null) {
-        // Oh, oh. This symbolic id exists already
-        // Fallback strategy: remove existing entity with all it's references
-        val existingEntityData = entityDataByIdOrDie(ids)
-        val existingEntity = existingEntityData.createEntity(this)
-        removeEntity(existingEntity)
-        LOG.error(
-          """
+  private fun <T : WorkspaceEntity> assertUniqueSymbolicId(pEntityData: WorkspaceEntityData<T>, symbolicId: SymbolicEntityId<*>?) {
+    if (symbolicId == null) return
+    val ids = indexes.symbolicIdIndex.getIdsByEntry(symbolicId)
+    if (ids != null) {
+      // Oh, oh. This symbolic id exists already
+      // Fallback strategy: remove existing entity with all it's references
+      val existingEntityData = entityDataByIdOrDie(ids)
+      val existingEntity = existingEntityData.createEntity(this)
+      removeEntity(existingEntity)
+      LOG.error(
+        """
               addEntity: symbolic id already exists. Replacing entity with the new one.
               Symbolic id: $symbolicId
               
@@ -291,8 +280,7 @@ internal class MutableEntityStorageImpl(
               
               Broken consistency: $brokenConsistency
             """.trimIndent(), SymbolicIdAlreadyExistsException(symbolicId)
-        )
-      }
+      )
     }
   }
 
@@ -324,7 +312,8 @@ internal class MutableEntityStorageImpl(
 
       // Check for persistent id uniqueness
       if (beforeSymbolicId != null) {
-        val newSymbolicId = copiedData.symbolicId()
+        val immutableEntity = modifiableEntity.getEntityData().createEntity(this)
+        val newSymbolicId = if (immutableEntity is WorkspaceEntityWithSymbolicId) immutableEntity.symbolicId else null
         if (newSymbolicId != null) {
           val ids = indexes.symbolicIdIndex.getIdsByEntry(newSymbolicId)
           if (beforeSymbolicId != newSymbolicId && ids != null) {
@@ -357,7 +346,9 @@ internal class MutableEntityStorageImpl(
 
       val updatedEntity = copiedData.createEntity(this)
 
-      this.indexes.updateSymbolicIdIndexes(this, updatedEntity, beforeSymbolicId, copiedData, modifiableEntity)
+      if (modifiableEntity.changedProperty.isNotEmpty()) {
+        this.indexes.updateSymbolicIdIndexes(this, updatedEntity, beforeSymbolicId, copiedData, modifiableEntity)
+      }
 
       updatedEntity
     }
@@ -408,6 +399,12 @@ internal class MutableEntityStorageImpl(
   override fun collectChanges(): Map<Class<*>, List<EntityChange<*>>> = collectChangesTimeMs.addMeasuredTime {
     val res = HashMap<Class<*>, MutableList<EntityChange<*>>>()
 
+    // We keep the Removed-Replaced-Added ordering of the events
+    //
+    // This implemented by adding Removed events at the start, Added events at the end, and Replaced before the Added events.
+    // To know when the Added events are located, we keep track of the index of the first Added event.
+    val firstAddedIndex: HashMap<Class<*>, Int> = hashMapOf()
+
     try {
       lockWrite()
 
@@ -415,18 +412,30 @@ internal class MutableEntityStorageImpl(
         when (change) {
           is ChangeEntry.AddEntity -> {
             val addedEntity = change.entityData.createEntity(this).asBase()
-            res.getOrPut(entityId.clazz.findWorkspaceEntity()) { ArrayList() }.add(EntityChange.Added(addedEntity))
+            val entityInterface = entityId.clazz.findWorkspaceEntity()
+            res.getOrPut(entityInterface) { ArrayList() }.apply {
+              this.add(EntityChange.Added(addedEntity))
+              if (entityInterface !in firstAddedIndex) firstAddedIndex[entityInterface] = this.size - 1
+            }
           }
           is ChangeEntry.RemoveEntity -> {
             val removedData = originalSnapshot.entityDataById(change.id) ?: continue
             val removedEntity = removedData.createEntity(originalSnapshot).asBase()
-            res.getOrPut(entityId.clazz.findWorkspaceEntity()) { ArrayList() }.add(EntityChange.Removed(removedEntity))
+            val entityInterface = entityId.clazz.findWorkspaceEntity()
+            res.getOrPut(entityInterface) { ArrayList() }.apply {
+              this.add(0, EntityChange.Removed(removedEntity)) // Add Removed at the start of the list
+              if (entityInterface in firstAddedIndex) firstAddedIndex[entityInterface] = firstAddedIndex.getValue(entityInterface) + 1
+            }
           }
           is ChangeEntry.ReplaceEntity -> {
             val oldData = originalSnapshot.entityDataById(entityId) ?: continue
             val replacedData = oldData.createEntity(originalSnapshot).asBase()
             val replaceToData = this.entityDataByIdOrDie(entityId).createEntity(this)
-            res.getOrPut(entityId.clazz.findWorkspaceEntity()) { ArrayList() }.add(EntityChange.Replaced(replacedData, replaceToData))
+            val entityInterface = entityId.clazz.findWorkspaceEntity()
+            res.getOrPut(entityInterface) { ArrayList() }.apply {
+              add(firstAddedIndex.getOrDefault(entityInterface, size), EntityChange.Replaced(replacedData, replaceToData))
+              if (entityInterface in firstAddedIndex) firstAddedIndex[entityInterface] = firstAddedIndex.getValue(entityInterface) + 1
+            }
           }
         }
       }
@@ -532,140 +541,168 @@ internal class MutableEntityStorageImpl(
     return@addMeasuredTime snapshot
   }
 
-  override fun replaceChildren(connectionId: ConnectionId, parent: WorkspaceEntity, newChildren: List<WorkspaceEntity>) {
-    when (connectionId.connectionType) {
-      ConnectionId.ConnectionType.ONE_TO_ONE -> {
-        val parentId = parent.asBase().id
-        check(newChildren.size <= 1) { "ONE_TO_ONE connection may have only one child" }
-        val childId = newChildren.singleOrNull()?.asBase()?.id?.asChild()
-        val existingChildId = refs.getChildrenByParent(connectionId, parentId.asParent()).singleOrNull()?.id
-        if (!connectionId.isParentNullable && existingChildId != null && (childId == null || childId.id != existingChildId)) {
-          removeEntityByEntityId(existingChildId)
-        }
-        if (childId != null) {
-          checkCircularDependency(connectionId, childId.id.arrayId, parentId.arrayId, this)
-          val modifications = refs.replaceOneToOneChildOfParent(connectionId, parentId, childId)
-          this.createReplaceEventsForUpdates(modifications, connectionId)
-        }
-        else {
-          val modifications = refs.removeRefsByParent(connectionId, parentId.asParent())
-          this.createReplaceEventsForUpdates(modifications, connectionId)
-        }
-      }
-      ConnectionId.ConnectionType.ONE_TO_MANY -> {
-        val parentId = parent.asBase().id
-        val childrenIds = newChildren.map { it.asBase().id.asChild() }
-        if (!connectionId.isParentNullable) {
-          val existingChildren = refs.getChildrenByParent(connectionId, parentId.asParent()).toMutableSet()
-          childrenIds.forEach {
-            existingChildren.remove(it)
+  override fun replaceChildren(
+    connectionId: ConnectionId,
+    parent: WorkspaceEntity.Builder<out WorkspaceEntity>,
+    newChildren: List<WorkspaceEntity.Builder<out WorkspaceEntity>>
+  ) {
+    try {
+      lockWrite()
+      when (connectionId.connectionType) {
+        ConnectionId.ConnectionType.ONE_TO_ONE -> {
+          val parentId = parent.asBase().id
+          check(newChildren.size <= 1) { "ONE_TO_ONE connection may have only one child" }
+          val childId = newChildren.singleOrNull()?.asBase()?.id?.asChild()
+          val existingChildId = refs.getChildrenByParent(connectionId, parentId.asParent()).singleOrNull()?.id
+          if (!connectionId.isParentNullable && existingChildId != null && (childId == null || childId.id != existingChildId)) {
+            removeEntityByEntityId(existingChildId)
           }
-          existingChildren.forEach { removeEntityByEntityId(it.id) }
+          if (childId != null) {
+            checkCircularDependency(connectionId, childId.id.arrayId, parentId.arrayId, this)
+            val modifications = refs.replaceOneToOneChildOfParent(connectionId, parentId, childId)
+            this.createReplaceEventsForUpdates(modifications, connectionId)
+          }
+          else {
+            val modifications = refs.removeRefsByParent(connectionId, parentId.asParent())
+            this.createReplaceEventsForUpdates(modifications, connectionId)
+          }
         }
+        ConnectionId.ConnectionType.ONE_TO_MANY -> {
+          val parentId = parent.asBase().id
+          val childrenIds = newChildren.map { it.asBase().id.asChild() }
+          if (!connectionId.isParentNullable) {
+            val existingChildren = refs.getChildrenByParent(connectionId, parentId.asParent()).toMutableSet()
+            childrenIds.forEach {
+              existingChildren.remove(it)
+            }
+            existingChildren.forEach { removeEntityByEntityId(it.id) }
+          }
 
-        childrenIds.forEach { checkCircularDependency(connectionId, it.id.arrayId, parentId.arrayId, this) }
-        val modifications = refs.replaceOneToManyChildrenOfParent(connectionId, parentId, childrenIds)
-        this.createReplaceEventsForUpdates(modifications, connectionId)
-      }
-      ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
-        // TODO Why we don't remove old children like in [EntityStorage.updateOneToManyChildrenOfParent]? IDEA-327863
-        //    This is probably a bug.
-        val parentId = parent.asBase().id.asParent()
-        val childrenIds = newChildren.asSequence().map { it.asBase().id.asChild() }
-        childrenIds.forEach { checkCircularDependency(it.id, parentId.id, this) }
-        val modifications = refs.replaceOneToAbstractManyChildrenOfParent(connectionId, parentId, childrenIds)
-        this.createReplaceEventsForUpdates(modifications, connectionId)
-      }
-      ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
-        // TODO Why we don't remove old children like in [EntityStorage.updateOneToManyChildrenOfParent]? IDEA-327863
-        //    This is probably a bug.
-        val parentId = parent.asBase().id.asParent()
-        check(newChildren.size <= 1) { "ABSTRACT_ONE_TO_ONE connection may have only one child" }
-        val childId = newChildren.singleOrNull()?.asBase()?.id?.asChild()
-        if (childId != null) {
-          val modifications = refs.replaceOneToAbstractOneChildOfParent(connectionId, parentId, childId)
+          childrenIds.forEach { checkCircularDependency(connectionId, it.id.arrayId, parentId.arrayId, this) }
+          val modifications = refs.replaceOneToManyChildrenOfParent(connectionId, parentId, childrenIds)
           this.createReplaceEventsForUpdates(modifications, connectionId)
         }
-        else {
-          val operation = refs.removeRefsByParent(connectionId, parentId)
-          this.createReplaceEventsForUpdates(operation, connectionId)
+        ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
+          // TODO Why we don't remove old children like in [EntityStorage.updateOneToManyChildrenOfParent]? IDEA-327863
+          //    This is probably a bug.
+          val parentId = parent.asBase().id.asParent()
+          val childrenIds = newChildren.map { it.asBase().id.asChild() }
+          childrenIds.forEach { checkCircularDependency(it.id, parentId.id, this) }
+          val modifications = refs.replaceOneToAbstractManyChildrenOfParent(connectionId, parentId, childrenIds)
+          this.createReplaceEventsForUpdates(modifications, connectionId)
+        }
+        ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
+          // TODO Why we don't remove old children like in [EntityStorage.updateOneToManyChildrenOfParent]? IDEA-327863
+          //    This is probably a bug.
+          val parentId = parent.asBase().id.asParent()
+          check(newChildren.size <= 1) { "ABSTRACT_ONE_TO_ONE connection may have only one child" }
+          val childId = newChildren.singleOrNull()?.asBase()?.id?.asChild()
+          if (childId != null) {
+            val modifications = refs.replaceOneToAbstractOneChildOfParent(connectionId, parentId, childId)
+            this.createReplaceEventsForUpdates(modifications, connectionId)
+          }
+          else {
+            val operation = refs.removeRefsByParent(connectionId, parentId)
+            this.createReplaceEventsForUpdates(operation, connectionId)
+          }
         }
       }
+    }
+    finally {
+      unlockWrite()
     }
   }
 
-  override fun addChild(connectionId: ConnectionId, parent: WorkspaceEntity?, child: WorkspaceEntity) {
-    when (connectionId.connectionType) {
-      ConnectionId.ConnectionType.ONE_TO_ONE -> {
-        val parentId = parent?.asBase()?.id?.asParent()
-        val childId = child.asBase().id
-        if (!connectionId.isParentNullable && parentId != null) {
-          // If we replace a field in one-to-one connection, the previous entity is automatically removed.
-          val existingChild = getOneChild(connectionId, parent)
-          if (existingChild != null && existingChild != child) {
-            removeEntity(existingChild)
+  override fun addChild(connectionId: ConnectionId, parent: WorkspaceEntity.Builder<out WorkspaceEntity>?, child: WorkspaceEntity.Builder<out WorkspaceEntity>) {
+    try {
+      lockWrite()
+      when (connectionId.connectionType) {
+        ConnectionId.ConnectionType.ONE_TO_ONE -> {
+          val parentId = parent?.asBase()?.id?.asParent()
+          val childId = child.asBase().id
+          if (!connectionId.isParentNullable && parentId != null) {
+            // If we replace a field in one-to-one connection, the previous entity is automatically removed.
+            val existingChild = getOneChildData(connectionId, parent.asBase().id)
+            if (existingChild != null && existingChild.createEntityId() != child.asBase().id) {
+              removeEntityByEntityId(existingChild.createEntityId())
+            }
+          }
+          if (parentId != null) {
+            checkCircularDependency(connectionId, childId.arrayId, parentId.id.arrayId, this)
+            val modifications = refs.replaceOneToOneParentOfChild(connectionId, childId, parentId.id)
+            this.createReplaceEventsForUpdates(modifications, connectionId)
+          }
+          else {
+            // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
+            val modifications = refs.removeOneToOneRefByChild(connectionId, childId)
+            this.createReplaceEventsForUpdates(modifications, connectionId)
           }
         }
-        if (parentId != null) {
-          checkCircularDependency(connectionId, childId.arrayId, parentId.id.arrayId, this)
-          val modifications = refs.replaceOneToOneParentOfChild(connectionId, childId, parentId.id)
-          this.createReplaceEventsForUpdates(modifications, connectionId)
-        }
-        else {
-          // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
-          val modifications = refs.removeOneToOneRefByChild(connectionId, childId)
-          this.createReplaceEventsForUpdates(modifications, connectionId)
-        }
-      }
-      ConnectionId.ConnectionType.ONE_TO_MANY -> {
-        val childId = child.asBase().id.asChild()
-        val parentId = parent?.asBase()?.id?.asParent()
-        if (parentId != null) {
-          checkCircularDependency(connectionId, childId.id.arrayId, parentId.id.arrayId, this)
-          val modifications = refs.replaceOneToManyParentOfChild(connectionId, childId.id, parentId)
-          this.createReplaceEventsForUpdates(modifications, connectionId)
-        }
-        else {
-          // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
-          val modification = refs.removeOneToManyRefsByChild(connectionId, childId)
-          if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
-        }
-      }
-      ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
-        val childId = child.asBase().id.asChild()
-        val parentId = parent?.asBase()?.id?.asParent()
-        if (parentId != null) {
-          checkCircularDependency(childId.id, parentId.id, this)
-          val modifications = refs.replaceOneToAbstractManyParentOfChild(connectionId, childId, parentId)
-          this.createReplaceEventsForUpdates(modifications, connectionId)
-        }
-        else {
-          // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
-          val modification = refs.removeOneToAbstractManyRefsByChild(connectionId, childId)
-          if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
-        }
-      }
-      ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
-        val parentId = parent?.asBase()?.id?.asParent()
-        val childId = child.asBase().id.asChild()
-        if (!connectionId.isParentNullable && parentId != null) {
-          // If we replace a field in one-to-one connection, the previous entity is automatically removed.
-          val existingChild = getOneChild(connectionId, parent)
-          if (existingChild != null && existingChild != child) {
-            removeEntity(existingChild)
+        ConnectionId.ConnectionType.ONE_TO_MANY -> {
+          val childId = child.asBase().id.asChild()
+          val parentId = parent?.asBase()?.id?.asParent()
+          if (parentId != null) {
+            checkCircularDependency(connectionId, childId.id.arrayId, parentId.id.arrayId, this)
+            val modifications = refs.replaceOneToManyParentOfChild(connectionId, childId.id, parentId)
+            this.createReplaceEventsForUpdates(modifications, connectionId)
+          }
+          else {
+            // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
+            val modification = refs.removeOneToManyRefsByChild(connectionId, childId)
+            if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
           }
         }
-        if (parentId != null) {
-          val modifications = refs.replaceOneToAbstractOneParentOfChild(connectionId, childId, parentId)
-          this.createReplaceEventsForUpdates(modifications, connectionId)
+        ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
+          val childId = child.asBase().id.asChild()
+          val parentId = parent?.asBase()?.id?.asParent()
+          if (parentId != null) {
+            checkCircularDependency(childId.id, parentId.id, this)
+            val modifications = refs.replaceOneToAbstractManyParentOfChild(connectionId, childId, parentId)
+            this.createReplaceEventsForUpdates(modifications, connectionId)
+          }
+          else {
+            // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
+            val modification = refs.removeOneToAbstractManyRefsByChild(connectionId, childId)
+            if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
+          }
         }
-        else {
-          // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
-          val modification = refs.removeOneToAbstractOneRefByChild(connectionId, childId)
-          if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
+        ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
+          val parentId = parent?.asBase()?.id?.asParent()
+          val childId = child.asBase().id.asChild()
+          if (!connectionId.isParentNullable && parentId != null) {
+            // If we replace a field in one-to-one connection, the previous entity is automatically removed.
+            val existingChild = getOneChildData(connectionId, parent.asBase().id)
+            if (existingChild != null && existingChild.createEntityId() != child.asBase().id) {
+              removeEntityByEntityId(existingChild.createEntityId())
+            }
+          }
+          if (parentId != null) {
+            val modifications = refs.replaceOneToAbstractOneParentOfChild(connectionId, childId, parentId)
+            this.createReplaceEventsForUpdates(modifications, connectionId)
+          }
+          else {
+            // TODO: Why don't we check if the reference to parent is not null? See IDEA-327863
+            val modification = refs.removeOneToAbstractOneRefByChild(connectionId, childId)
+            if (modification != null) this.createReplaceEventsForUpdates(listOf(modification), connectionId)
+          }
         }
       }
     }
+    finally {
+      unlockWrite()
+    }
+  }
+
+  override fun getOneChildBuilder(connectionId: ConnectionId, parent: WorkspaceEntity.Builder<*>): WorkspaceEntity.Builder<*>? {
+    return getOneChildData(connectionId, (parent as ModifiableWorkspaceEntityBase<*, *>).id)?.wrapAsModifiable(this)
+  }
+
+  override fun getManyChildrenBuilders(connectionId: ConnectionId, parent: WorkspaceEntity.Builder<*>): Sequence<WorkspaceEntity.Builder<*>> {
+    return getManyChildrenData(connectionId, (parent as ModifiableWorkspaceEntityBase<*, *>).id).map { it.wrapAsModifiable(this) }
+  }
+
+  override fun getParentBuilder(connectionId: ConnectionId, child: WorkspaceEntity.Builder<*>): WorkspaceEntity.Builder<*>? {
+    return getParentData(connectionId, (child as ModifiableWorkspaceEntityBase<*, *>).id)?.wrapAsModifiable(this)
   }
 
   override fun hasChanges(): Boolean = changeLog.changeLog.isNotEmpty()
@@ -740,7 +777,11 @@ internal class MutableEntityStorageImpl(
     accumulateEntitiesToRemove(idx, accumulator, entityFilter)
 
     accumulator.forEach { id ->
-      removeSingleEntity(id)
+      removeSingleEntity(
+        id,
+        updateChangelogForChildren = false, // We should not register "change in references" for the chilren because they'll be removed anyway
+        updateChangelogForParents = id == idx, // Same for parents of removed children, except the root entity.
+      )
     }
 
     return true
@@ -753,20 +794,30 @@ internal class MutableEntityStorageImpl(
    *   to avoid leaving storage in an inconsistent state.
    */
   @Suppress("UNCHECKED_CAST")
-  internal fun removeSingleEntity(id: EntityId) {
+  internal fun removeSingleEntity(
+    id: EntityId,
+    updateChangelogForChildren: Boolean,
+    updateChangelogForParents: Boolean,
+  ) {
     // Unlink children
     val originalEntityData = this.getOriginalEntityData(id) as WorkspaceEntityData<WorkspaceEntity>
     val children = refs.getChildrenRefsOfParentBy(id.asParent())
     children.keys.forEach { connectionId ->
       val modifications = refs.removeRefsByParent(connectionId, id.asParent())
-      this.createReplaceEventsForUpdates(modifications, connectionId)
+      LOG.trace { "Perform modifications on children refs for $connectionId: $modifications" }
+      if (updateChangelogForChildren) {
+        this.createReplaceEventsForUpdates(modifications, connectionId)
+      }
     }
 
     // Unlink parents
     val parents = refs.getParentRefsOfChild(id.asChild())
     parents.forEach { (connectionId, parentId) ->
       val modifications = refs.removeParentToChildRef(connectionId, parentId, id.asChild())
-      this.createReplaceEventsForUpdates(modifications, connectionId)
+      LOG.trace { "Perform modifications on parent refs for $connectionId: $modifications" }
+      if (updateChangelogForParents) {
+        this.createReplaceEventsForUpdates(modifications, connectionId)
+      }
     }
 
     // Update indexes and generate changelog entry
@@ -899,7 +950,6 @@ internal class MutableEntityStorageImpl(
   }
 }
 
-@OptIn(EntityStorageInstrumentationApi::class)
 internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
 
   internal abstract val entitiesByType: EntitiesBarrel
@@ -908,8 +958,13 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
 
   internal var brokenConsistency: Boolean = false
 
+  internal var isEventHandling: Boolean = false
+  private val reporterExecutor = ConcurrencyUtil.newSingleThreadExecutor("Workspace Model Reporter Pool")
+
   internal var storageIsAlreadyApplied = false
   internal var applyInfo: String? = null
+
+  private val detectBridgesUsageInListeners = Registry.`is`("ide.workspace.model.assertions.bridges.usage", false)
 
   override fun <E : WorkspaceEntity> entities(entityClass: Class<E>): Sequence<E> {
     @Suppress("UNCHECKED_CAST")
@@ -963,6 +1018,10 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
 
   @Suppress("UNCHECKED_CAST")
   override fun <T> getExternalMapping(identifier: ExternalMappingKey<T>): ExternalEntityMapping<T> {
+    if (detectBridgesUsageInListeners && isEventHandling) {
+      // https://stackoverflow.com/a/26122232
+      reporterExecutor.execute(BridgeAccessThreadAnalyzer(Exception(), identifier as ExternalMappingKey<Any>))
+    }
     val index = indexes.externalMappings[identifier] as? ExternalEntityMappingImpl<T>
     if (index == null) return EmptyExternalEntityMapping as ExternalEntityMapping<T>
     index.setTypedEntityStorage(this)
@@ -995,16 +1054,19 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
   }
 
   override fun getOneChild(connectionId: ConnectionId, parent: WorkspaceEntity): WorkspaceEntity? {
+    return getOneChildData(connectionId, parent.asBase().id)?.createEntity(this)
+  }
+
+  protected fun getOneChildData(connectionId: ConnectionId, parentEntityId: EntityId): WorkspaceEntityData<*>? {
     when (connectionId.connectionType) {
       ConnectionId.ConnectionType.ONE_TO_ONE -> {
-        return refs.getOneToOneChild(connectionId, parent.asBase().id.arrayId) {
-          entityDataByIdOrDie(createEntityId(it, connectionId.childClass)).createEntity(this)
+        return refs.getOneToOneChild(connectionId, parentEntityId.arrayId) {
+          entityDataByIdOrDie(createEntityId(it, connectionId.childClass))
         }
       }
       ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
-        val parentId = parent.asBase().id
-        val childId = refs.getChildrenByParent(connectionId, parentId.asParent()).singleOrNull()?.id ?: return null
-        return entityDataByIdOrDie(childId).createEntity(this)
+        val childId = refs.getChildrenByParent(connectionId, parentEntityId.asParent()).singleOrNull()?.id ?: return null
+        return entityDataByIdOrDie(childId)
       }
       ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY, ConnectionId.ConnectionType.ONE_TO_MANY -> {
         error("This function works only with one-to-one connections")
@@ -1013,19 +1075,20 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
   }
 
   override fun getManyChildren(connectionId: ConnectionId, parent: WorkspaceEntity): Sequence<WorkspaceEntity> {
+    return getManyChildrenData(connectionId, parent.asBase().id).map { it.createEntity(this) }
+  }
+
+  protected fun getManyChildrenData(connectionId: ConnectionId, parentEntityId: EntityId): Sequence<WorkspaceEntityData<*>> {
     when (connectionId.connectionType) {
       ConnectionId.ConnectionType.ONE_TO_MANY -> {
-        val parentId = parent.asBase().id
-        return refs.getChildrenByParent(connectionId, parentId.asParent())
+        return refs.getChildrenByParent(connectionId, parentEntityId.asParent())
           .asSequence()
           .map { entityDataByIdOrDie(it.id) }
-          .map { it.createEntity(this) }
       }
       ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
-        return refs.getChildrenByParent(connectionId, parent.asBase().id.asParent())
+        return refs.getChildrenByParent(connectionId, parentEntityId.asParent())
                  .asSequence()
                  .map { entityDataByIdOrDie(it.id) }
-                 .map { it.createEntity(this) }
       }
       ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE, ConnectionId.ConnectionType.ONE_TO_ONE -> {
         error("This function works only with one-to-many connections")
@@ -1034,27 +1097,55 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
   }
 
   override fun getParent(connectionId: ConnectionId, child: WorkspaceEntity): WorkspaceEntity? {
+    return getParentData(connectionId, child.asBase().id)?.createEntity(this)
+  }
+
+  protected fun getParentData(connectionId: ConnectionId, childEntityId: EntityId): WorkspaceEntityData<*>? {
     when (connectionId.connectionType) {
       ConnectionId.ConnectionType.ONE_TO_ONE -> {
-        return refs.getOneToOneParent(connectionId, child.asBase().id.arrayId) {
+        return refs.getOneToOneParent(connectionId, childEntityId.arrayId) {
           val entityId = createEntityId(it, connectionId.parentClass)
-          entityDataByIdOrDie(entityId).createEntity(this)
+          entityDataByIdOrDie(entityId)
         }
       }
       ConnectionId.ConnectionType.ONE_TO_MANY -> {
-        return refs.getOneToManyParent(connectionId, child.asBase().id.arrayId) {
+        return refs.getOneToManyParent(connectionId, childEntityId.arrayId) {
           val entityId = createEntityId(it, connectionId.parentClass)
-          entityDataByIdOrDie(entityId).createEntity(this)
+          entityDataByIdOrDie(entityId)
         }
       }
       ConnectionId.ConnectionType.ONE_TO_ABSTRACT_MANY -> {
-        return refs.getOneToAbstractManyParent(connectionId, child.asBase().id.asChild())
-          ?.let { entityDataByIdOrDie(it.id).createEntity(this) }
+        return refs.getOneToAbstractManyParent(connectionId, childEntityId.asChild())
+          ?.let { entityDataByIdOrDie(it.id) }
       }
       ConnectionId.ConnectionType.ABSTRACT_ONE_TO_ONE -> {
-        return refs.getOneToAbstractOneParent(connectionId, child.asBase().id.asChild())
-          ?.let { entityDataByIdOrDie(it.id).createEntity(this) }
+        return refs.getOneToAbstractOneParent(connectionId, childEntityId.asChild())
+          ?.let { entityDataByIdOrDie(it.id) }
       }
+    }
+  }
+
+  private class BridgeAccessThreadAnalyzer(private val exception: Exception, private val identifier: ExternalMappingKey<Any>) : Runnable {
+    override fun run() {
+      if (!predefinedBridges.any { identifier.toString().contains(it) }) return
+      val stackTrace = exception.stackTrace
+      //val stackTraceAsString = StringBuilder()
+      for (stackTraceElement in stackTrace) {
+        val elementAsString = stackTraceElement.toString()
+        // Skipping access from GlobalWorkspaceModel
+        if (elementAsString.contains("GlobalWorkspaceModel.onChanged")
+            || elementAsString.contains("GlobalWorkspaceModel.onBeforeChanged")
+            // Skip WorkspaceFileIndex contributors
+            || elementAsString.contains("WorkspaceFileIndexDataImpl.onEntitiesChanged")) {
+          return
+        }
+        //stackTraceAsString.append(stackTrace).append("\n")
+      }
+      LOG.error("Access to the bridge is prohibited during the event handling ", exception)
+    }
+
+    companion object {
+      private val predefinedBridges = listOf("intellij.modules.bridge", "intellij.artifacts.bridge", "intellij.facets.bridge", "intellij.libraries.bridge")
     }
   }
 
@@ -1062,6 +1153,7 @@ internal sealed class AbstractEntityStorage : EntityStorageInstrumentation {
     val LOG = logger<AbstractEntityStorage>()
   }
 }
+
 
 /** This function exposes `brokenConsistency` property to the outside and should be removed along with the property itself */
 public val EntityStorage.isConsistent: Boolean

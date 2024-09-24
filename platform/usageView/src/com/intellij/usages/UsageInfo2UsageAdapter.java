@@ -42,8 +42,6 @@ import java.util.List;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
-import static com.intellij.util.containers.ContainerUtil.*;
-
 public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
                                                UsageInLibrary, UsageInFile, PsiElementUsage,
                                                MergeableUsage,
@@ -55,25 +53,37 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
 
   private final @NotNull UsageInfo myUsageInfo;
   private @NotNull Object myMergedUsageInfos; // contains all merged infos, including myUsageInfo. Either UsageInfo or UsageInfo[]
-  private @Nullable Segment myMergedNavigationRange;
+  private @Nullable SmartPsiFileRange myMergedNavigationRange;
   private final int myLineNumber;
   private final int myOffset;
   private volatile UsageNodePresentation myCachedPresentation;
   @Nullable private final VirtualFile myVirtualFile;
-  private final @Nullable Segment myNavigationRange;
+  private final @Nullable SmartPsiFileRange myNavigationRange;
   private volatile UsageType myUsageType;
 
   private static class ComputedData {
     public final int offset;
     public final int lineNumber;
     public final VirtualFile virtualFile;
-    public final @Nullable Segment navigationRange;
+    public final @Nullable SmartPsiFileRange navigationRange;
+    public final long modificationStamp;
 
-    private ComputedData(int offset, int lineNumber, VirtualFile virtualFile, @Nullable Segment navigationRange) {
+    private ComputedData(int offset, int lineNumber, VirtualFile virtualFile, @Nullable SmartPsiFileRange navigationRange, long stamp) {
       this.offset = offset;
       this.lineNumber = lineNumber;
       this.virtualFile = virtualFile;
       this.navigationRange = navigationRange;
+      this.modificationStamp = stamp;
+    }
+  }
+
+  private static @Nullable SmartPsiFileRange possiblySmart(@Nullable PsiFile psiFile, @Nullable Segment segment) {
+    if (segment == null) return null;
+    if (psiFile != null && segment instanceof TextRange range) {
+      return SmartPointerManager.getInstance(psiFile.getProject()).createSmartPsiFileRangePointer(psiFile, range);
+    }
+    else {
+      return null;
     }
   }
 
@@ -112,14 +122,16 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
           lineNumber = getLineNumber(document, range.getStartOffset());
         }
       }
-      return new ComputedData(offset, lineNumber, virtualFile, navigationRange);
+
+      var modificationStamp = psiFile == null ? -1 : psiFile.getViewProvider().getModificationStamp();
+      return new ComputedData(offset, lineNumber, virtualFile, possiblySmart(psiFile, navigationRange), modificationStamp);
     });
     myOffset = data.offset;
     myLineNumber = data.lineNumber;
     myVirtualFile = data.virtualFile;
     myNavigationRange = data.navigationRange;
     myMergedNavigationRange = data.navigationRange;
-    myModificationStamp = getCurrentModificationStamp();
+    myModificationStamp = data.modificationStamp;
   }
 
   @Override
@@ -302,12 +314,21 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
   public int getNavigationOffset() {
     Document document = getDocument();
     if (document == null) return -1;
-    int offset = myMergedNavigationRange != null ? myMergedNavigationRange.getStartOffset() : -1;
+    int offset = getStartOffset(myMergedNavigationRange);
     if (offset == -1) offset = getUsageInfo().getNavigationOffset();
     if (offset == -1) offset = myOffset;
     if (offset >= document.getTextLength()) {
       int line = Math.max(0, Math.min(myLineNumber, document.getLineCount() - 1));
       offset = document.getLineStartOffset(line);
+    }
+    return offset;
+  }
+
+  private static int getStartOffset(@Nullable SmartPsiFileRange smartPsiFileRange) {
+    int offset = -1;
+    if (smartPsiFileRange != null) {
+      var range = smartPsiFileRange.getRange();
+      offset = range != null ? range.getStartOffset() : -1;
     }
     return offset;
   }
@@ -318,7 +339,7 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
   public Segment getNavigationRange() {
     Document document = getDocument();
     if (document == null) return null;
-    Segment range = myMergedNavigationRange;
+    Segment range = myMergedNavigationRange != null ? myMergedNavigationRange.getRange() : null;
     if (range == null) range = getUsageInfo().getNavigationRange();
     if (range == null) {
       ProperTextRange rangeInElement = getUsageInfo().getRangeInElement();
@@ -392,7 +413,7 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
       for (AdditionalLibraryRootsProvider e : AdditionalLibraryRootsProvider.EP_NAME.getExtensionList()) {
         for (SyntheticLibrary library : e.getAdditionalProjectLibraries(project)) {
           if (library.getSourceRoots().contains(sourcesRoot)) {
-            Condition<VirtualFile> excludeFileCondition = library.getUnitedExcludeCondition();
+            Condition<? super VirtualFile> excludeFileCondition = library.getUnitedExcludeCondition();
             if (excludeFileCondition == null || !excludeFileCondition.value(virtualFile)) {
               list.add(library);
             }
@@ -431,14 +452,35 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
     UsageInfo[] merged = ArrayUtil.mergeArrays(getMergedInfos(), u2.getMergedInfos());
     myMergedUsageInfos = merged.length == 1 ? merged[0] : merged;
     Arrays.sort(getMergedInfos(), BY_NAVIGATION_OFFSET);
-    myMergedNavigationRange =
-      getFirstItem(sorted(packNullables(myMergedNavigationRange, u2.myMergedNavigationRange), Segment.BY_START_OFFSET_THEN_END_OFFSET));
+    myMergedNavigationRange = merge(myMergedNavigationRange, u2.myMergedNavigationRange);
 
     // Invalidate cached presentation, so it'll be updated later
     // Do not reset it to still have something to present
     myModificationStamp = Long.MIN_VALUE;
 
     return true;
+  }
+
+  private static @Nullable SmartPsiFileRange merge(
+    @Nullable SmartPsiFileRange sr1,
+    @Nullable SmartPsiFileRange sr2
+  ) {
+    if (sr1 == null) return sr2;
+    if (sr2 == null) return sr1;
+    var r1 = sr1.getRange();
+    var r2 = sr2.getRange();
+    if (r1 == null) return sr2;
+    if (r2 == null) return sr1;
+    var r1start = r1.getStartOffset();
+    var r2start = r2.getStartOffset();
+    if (r1start != r2start) {
+      return r1start <= r2start ? sr1 : sr2;
+    }
+    else {
+      var r1end = r1.getEndOffset();
+      var r2end = r2.getEndOffset();
+      return r1end <= r2end ? sr1 : sr2;
+    }
   }
 
   @Override
@@ -477,8 +519,8 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
       return byPath;
     }
 
-    int offset = myMergedNavigationRange != null ? myMergedNavigationRange.getStartOffset() : -1;
-    int other = o.myMergedNavigationRange != null ? o.myMergedNavigationRange.getStartOffset() : -1;
+    int offset = getStartOffset(myMergedNavigationRange);
+    int other = getStartOffset(o.myMergedNavigationRange);
 
     return Integer.compare(offset, other);
   }
@@ -522,11 +564,13 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
     return getNotNullCachedPresentation().getText();
   }
 
+  @ApiStatus.Internal
   @Override
   public final @Nullable UsageNodePresentation getCachedPresentation() {
     return myCachedPresentation;
   }
 
+  @ApiStatus.Internal
   @Override
   public final void updateCachedPresentation() {
     if (!ApplicationManager.getApplication().isUnitTestMode()) {
@@ -546,7 +590,7 @@ public class UsageInfo2UsageAdapter implements UsageInModule, UsageInfoAdapter,
     // Presentation is expected to be always externally updated by calling updateCachedPresentation
     // Here we just return cached result because it must be always available for painting or speed search
     UsageNodePresentation cachedPresentation = getCachedPresentation();
-    return cachedPresentation != null ? cachedPresentation : UsageNodePresentation.EMPTY;
+    return cachedPresentation != null ? cachedPresentation : UsageNodePresentation.empty();
   }
 
   @NotNull

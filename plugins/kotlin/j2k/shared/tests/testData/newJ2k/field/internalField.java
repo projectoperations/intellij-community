@@ -1,3 +1,3 @@
 class C {
-Foo f;
+    String f;
 }

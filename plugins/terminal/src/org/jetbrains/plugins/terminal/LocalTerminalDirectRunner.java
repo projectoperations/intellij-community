@@ -4,9 +4,11 @@ package org.jetbrains.plugins.terminal;
 import com.intellij.execution.CommandLineUtil;
 import com.intellij.execution.configuration.EnvironmentVariablesData;
 import com.intellij.execution.process.LocalPtyOptions;
+import com.intellij.execution.process.ProcessService;
 import com.intellij.execution.wsl.WslPath;
 import com.intellij.ide.impl.TrustedProjects;
 import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PathMacroManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -35,6 +37,7 @@ import kotlin.jvm.functions.Function0;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.terminal.block.TerminalUsageLocalStorage;
 import org.jetbrains.plugins.terminal.fus.TerminalUsageTriggerCollector;
 import org.jetbrains.plugins.terminal.shell_integration.CommandBlockIntegration;
 import org.jetbrains.plugins.terminal.util.ShellIntegration;
@@ -240,20 +243,32 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
     boolean isBlockTerminal = isBlockTerminalEnabled() && shellIntegration != null && shellIntegration.getCommandBlockIntegration() != null;
     TerminalUsageTriggerCollector.triggerLocalShellStarted(myProject, command, isBlockTerminal);
 
+    if (isBlockTerminal) {
+      String curVersionString = ApplicationInfo.getInstance().getBuild().asStringWithoutProductCodeAndSnapshot();
+      TerminalUsageLocalStorage.getInstance().getState().setBlockTerminalUsedLastVersion(curVersionString);
+    }
+
     try {
       long startNano = System.nanoTime();
-      PtyProcessBuilder builder = new PtyProcessBuilder(command)
-        .setEnvironment(envs)
-        .setDirectory(workingDir)
-        .setInitialColumns(initialTermSize != null ? initialTermSize.getColumns() : null)
-        .setInitialRows(initialTermSize != null ? initialTermSize.getRows() : null)
-        .setUseWinConPty(LocalPtyOptions.shouldUseWinConPty());
-      PtyProcess process = builder.start();
+      PtyProcess process = (PtyProcess)ProcessService.getInstance().startPtyProcess(
+        command,
+        workingDir,
+        envs,
+        LocalPtyOptions.defaults().builder()
+          .initialColumns(initialTermSize != null ? initialTermSize.getColumns() : -1)
+          .initialRows(initialTermSize != null ? initialTermSize.getRows() : -1)
+          .useWinConPty(LocalPtyOptions.shouldUseWinConPty())
+          .build(),
+        null,
+        false,
+        false,
+        false
+      );
       LOG.info("Started " + process.getClass().getName() + " in " + TimeoutUtil.getDurationMillis(startNano) + " ms from "
                + stringifyProcessInfo(command, workingDir, initialTermSize, envs, !LOG.isDebugEnabled()));
       return process;
     }
-    catch (IOException e) {
+    catch (Exception e) {
       throw new ExecutionException("Failed to start " + stringifyProcessInfo(command, workingDir, initialTermSize, envs, false), e);
     }
   }
@@ -488,6 +503,13 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
       // Pretend to be Fig.io terminal to avoid it breaking IntelliJ shell integration:
       // at startup it runs a sub-shell without IntelliJ shell integration
       envs.put("FIG_TERM", "1");
+      // CodeWhisperer runs a nested shell unavailable for injecting IntelliJ shell integration.
+      // Zsh and Bash are affected although these shell integrations are installed differently.
+      // We need to either change how IntelliJ injects shell integrations to support nested shells
+      // or disable running a nested shell by CodeWhisperer. Let's do the latter:
+      envs.put("PROCESS_LAUNCHED_BY_CW", "1");
+      // The same story as the above. Amazon Q is a renamed CodeWhisperer. So, they also renamed the env variables.
+      envs.put("PROCESS_LAUNCHED_BY_Q", "1");
     }
 
     CommandBlockIntegration commandIntegration = integration != null ? integration.getCommandBlockIntegration() : null;
@@ -523,7 +545,8 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
   public static boolean isBlockTerminalSupported(@NotNull String shellName) {
     if (isPowerShell(shellName)) {
       return SystemInfo.isWin11OrNewer && Registry.is(BLOCK_TERMINAL_POWERSHELL_WIN11_REGISTRY, false) ||
-             SystemInfo.isWin10OrNewer && !SystemInfo.isWin11OrNewer && Registry.is(BLOCK_TERMINAL_POWERSHELL_WIN10_REGISTRY, false);
+             SystemInfo.isWin10OrNewer && !SystemInfo.isWin11OrNewer && Registry.is(BLOCK_TERMINAL_POWERSHELL_WIN10_REGISTRY, false) ||
+             SystemInfo.isUnix && Registry.is(BLOCK_TERMINAL_POWERSHELL_UNIX_REGISTRY, false);
     }
     return shellName.equals(BASH_NAME)
            || SystemInfo.isMac && shellName.equals(SH_NAME)

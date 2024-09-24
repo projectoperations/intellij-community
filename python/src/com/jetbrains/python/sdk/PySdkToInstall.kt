@@ -8,6 +8,7 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.impl.ProjectJdkImpl
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.UserDataHolder
+import com.intellij.openapi.util.Version
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.util.text.StringUtil
@@ -15,7 +16,10 @@ import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.jetbrains.python.PyBundle
-import com.jetbrains.python.sdk.installer.ReleaseInstaller
+import com.jetbrains.python.sdk.installer.BinaryInstallation
+import com.jetbrains.python.sdk.installer.installBinary
+import com.jetbrains.python.sdk.installer.toResourcePreview
+import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.CalledInAny
 
 val LOGGER = Logger.getInstance(PySdkToInstall::class.java)
@@ -23,26 +27,23 @@ val LOGGER = Logger.getInstance(PySdkToInstall::class.java)
 @CalledInAny
 fun getSdksToInstall(): List<PySdkToInstall> {
   return PySdkToInstallManager.getAvailableVersionsToInstall().map {
-    PySdkToInstall(it.value.first, it.value.second)
+    PySdkToInstall(it.value)
   }
 }
 
 @RequiresEdt
-fun installSdkIfNeeded(sdk: Sdk?, module: Module?, existingSdks: List<Sdk>): Sdk? {
-  return sdk.let { if (it is PySdkToInstall) it.install(module) { detectSystemWideSdks(module, existingSdks) } else it }
-}
-
-@RequiresEdt
-fun installSdkIfNeeded(sdk: Sdk?, module: Module?, existingSdks: List<Sdk>, context: UserDataHolder): Sdk? {
-  return sdk.let { if (it is PySdkToInstall) it.install(module) { detectSystemWideSdks(module, existingSdks, context) } else it }
-}
+fun installSdkIfNeeded(sdk: Sdk, module: Module?, existingSdks: List<Sdk>, context: UserDataHolder? = null): Result<Sdk> =
+  if (sdk is PySdkToInstall) sdk.install(module) {
+    context?.let { detectSystemWideSdks(module, existingSdks, context) } ?: detectSystemWideSdks(module, existingSdks)
+  }
+  else Result.success(sdk)
 
 
 /**
  * Generic PySdkToInstall. Compatible with all OS / CpuArch.
  */
-class PySdkToInstall(val installer: ReleaseInstaller, val release: Release)
-  : ProjectJdkImpl(release.title, PythonSdkType.getInstance(), "", release.version.toString()) {
+class PySdkToInstall(val installation: BinaryInstallation)
+  : ProjectJdkImpl(installation.release.title, PythonSdkType.getInstance(), "", installation.release.version) {
 
   /**
    * Customize [renderer], which is typically either [com.intellij.ui.ColoredListCellRenderer] or [com.intellij.ui.ColoredTreeCellRenderer].
@@ -50,7 +51,7 @@ class PySdkToInstall(val installer: ReleaseInstaller, val release: Release)
   @CalledInAny
   fun renderInList(renderer: SimpleColoredComponent) {
     renderer.append(name)
-    val preview = installer.getPreview(release)
+    val preview = installation.toResourcePreview()
     renderer.append(" ${preview.description}", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)  // NON-NLS
     renderer.icon = AllIcons.Actions.Download
   }
@@ -58,7 +59,7 @@ class PySdkToInstall(val installer: ReleaseInstaller, val release: Release)
   @CalledInAny
   @NlsContexts.DialogMessage
   fun getInstallationWarning(@NlsContexts.Button defaultButtonName: String): String {
-    val preview = installer.getPreview(release)
+    val preview = installation.toResourcePreview()
     val fileSize = StringUtil.formatFileSize(preview.size)
     return HtmlBuilder()
       .append(PyBundle.message("python.sdk.executable.not.found.header"))
@@ -71,7 +72,15 @@ class PySdkToInstall(val installer: ReleaseInstaller, val release: Release)
   }
 
   @RequiresEdt
-  fun install(module: Module?, systemWideSdksDetector: () -> List<PyDetectedSdk>): PyDetectedSdk? {
-    return PySdkToInstallManager.install(this, module, systemWideSdksDetector)
+  @Internal
+  fun install(module: Module?, systemWideSdksDetector: () -> List<PyDetectedSdk>): Result<PyDetectedSdk> {
+    val project = module?.project
+    return installBinary(installation, project) {
+      PySdkToInstallManager.findInstalledSdk(
+        languageLevel = Version.parseVersion(installation.release.version).toLanguageLevel(),
+        project = project,
+        systemWideSdksDetector = systemWideSdksDetector
+      )
+    }
   }
 }

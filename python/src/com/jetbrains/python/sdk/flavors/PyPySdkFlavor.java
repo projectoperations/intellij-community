@@ -1,17 +1,16 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.flavors;
 
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.PatternUtil;
-import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.icons.PythonIcons;
+import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.io.File;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -42,13 +41,12 @@ public final class PyPySdkFlavor extends PythonSdkFlavor<PyFlavorData.Empty> {
   }
 
   @Override
-  public boolean isValidSdkPath(@NotNull File file) {
-    return StringUtil.toLowerCase(FileUtilRt.getNameWithoutExtension(file.getName())).startsWith("pypy");
+  public boolean isValidSdkPath(@NotNull String pathStr) {
+    return StringUtil.toLowerCase(FileUtilRt.getNameWithoutExtension(pathStr)).startsWith("pypy");
   }
 
-  @Nullable
   @Override
-  public String getVersionStringFromOutput(@NotNull String output) {
+  public @Nullable String getVersionStringFromOutput(@NotNull String output) {
     final List<String> lines = Arrays.asList(StringUtil.splitByLines(output));
     final String version = PatternUtil.getFirstMatch(lines, VERSION_RE);
     final String pythonVersion = PatternUtil.getFirstMatch(lines, PYTHON_VERSION_RE);
@@ -70,15 +68,13 @@ public final class PyPySdkFlavor extends PythonSdkFlavor<PyFlavorData.Empty> {
     return "--version";
   }
 
-  @NotNull
   @Override
-  public String getName() {
+  public @NotNull String getName() {
     return "PyPy";
   }
 
-  @NotNull
   @Override
-  public LanguageLevel getLanguageLevel(@NotNull Sdk sdk) {
+  public @NotNull LanguageLevel getLanguageLevel(@NotNull Sdk sdk) {
     final String versionString = sdk.getVersionString();
     if (versionString != null) {
       final Matcher matcher = VERSION_STRING_RE.matcher(versionString);

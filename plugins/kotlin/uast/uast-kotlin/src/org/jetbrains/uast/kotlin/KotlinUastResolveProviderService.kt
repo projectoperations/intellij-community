@@ -1,9 +1,9 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.uast.kotlin
 
 import com.intellij.psi.*
-import org.jetbrains.kotlin.analysis.api.types.KtTypeNullability
+import org.jetbrains.kotlin.analysis.api.types.KaTypeNullability
 import org.jetbrains.kotlin.asJava.toLightAnnotation
 import org.jetbrains.kotlin.asJava.toLightElements
 import org.jetbrains.kotlin.builtins.createFunctionType
@@ -149,17 +149,16 @@ interface KotlinUastResolveProviderService : BaseKotlinUastResolveProviderServic
 
         val parameters = if (includeExplicitParameters) functionDescriptor.explicitParameters else functionDescriptor.valueParameters
 
-        return parameters.map { p ->
+        return parameters.map { param ->
+            val type = param.type.toPsiType(parent, ktLambdaExpression, PsiTypeConversionConfiguration.create(ktLambdaExpression))
             KotlinUParameter(
                 UastKotlinPsiParameterBase(
-                    name = p.name.asString(),
-                    type = p.type.toPsiType(parent, ktLambdaExpression, PsiTypeConversionConfiguration.create(ktLambdaExpression)),
+                    name = param.name.asString(),
                     parent = ktLambdaExpression,
-                    ktOrigin = ktLambdaExpression,
-                    language = ktLambdaExpression.language,
-                    isVarArgs = p.isVararg,
-                    ktDefaultValue = null
-                ),
+                    isVarArgs = param.isVararg,
+                    ktDefaultValue = null,
+                    ktOrigin = ktLambdaExpression
+                ) { type },
                 null,
                 parent
             )
@@ -448,10 +447,16 @@ interface KotlinUastResolveProviderService : BaseKotlinUastResolveProviderServic
         return ktType.toPsiType(source, ktExpression, PsiTypeConversionConfiguration.create(ktExpression))
     }
 
+    private inline fun <reified T : DeclarationDescriptor> getDescriptor(ktDeclaration: KtDeclaration): T? {
+        return ktDeclaration.analyze()[BindingContext.DECLARATION_TO_DESCRIPTOR, ktDeclaration] as? T
+    }
+
+    private fun getType(ktDeclaration: KtDeclaration): KotlinType? {
+        return getDescriptor<CallableDescriptor>(ktDeclaration)?.returnType
+    }
+
     override fun getType(ktDeclaration: KtDeclaration, source: UElement): PsiType? {
-        val returnType = (ktDeclaration.analyze()[BindingContext.DECLARATION_TO_DESCRIPTOR, ktDeclaration] as? CallableDescriptor)
-            ?.returnType
-            ?: return null
+        val returnType = getType(ktDeclaration) ?: return null
         return returnType.toPsiType(
             source,
             ktDeclaration,
@@ -460,10 +465,6 @@ interface KotlinUastResolveProviderService : BaseKotlinUastResolveProviderServic
                 isBoxed = returnType.isMarkedNullable,
             )
         )
-    }
-
-    private fun getType(ktDeclaration: KtDeclaration): KotlinType? {
-        return (ktDeclaration.analyze()[BindingContext.DECLARATION_TO_DESCRIPTOR, ktDeclaration] as? CallableDescriptor)?.returnType
     }
 
     override fun getType(
@@ -528,14 +529,18 @@ interface KotlinUastResolveProviderService : BaseKotlinUastResolveProviderServic
                 returnType.nullability() != TypeNullability.NOT_NULL
     }
 
-    override fun nullability(psiElement: PsiElement): KtTypeNullability? {
+    override fun nullability(psiElement: PsiElement): KaTypeNullability? {
         return getTargetType(psiElement)?.nullability()?.let {
             when (it) {
-                TypeNullability.NOT_NULL -> KtTypeNullability.NON_NULLABLE
-                TypeNullability.NULLABLE -> KtTypeNullability.NULLABLE
-                TypeNullability.FLEXIBLE -> KtTypeNullability.UNKNOWN
+                TypeNullability.NOT_NULL -> KaTypeNullability.NON_NULLABLE
+                TypeNullability.NULLABLE -> KaTypeNullability.NULLABLE
+                TypeNullability.FLEXIBLE -> KaTypeNullability.UNKNOWN
             }
         }
+    }
+
+    override fun modality(ktDeclaration: KtDeclaration): Modality? {
+        return getDescriptor<MemberDescriptor>(ktDeclaration)?.modality
     }
 
     private fun getTargetType(annotatedElement: PsiElement): KotlinType? {

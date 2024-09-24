@@ -56,7 +56,6 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.MultiMap;
 import com.intellij.util.ui.EDT;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -74,8 +73,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
 
   private OverrideImplementUtil() { }
 
-  @NotNull
-  static List<MethodImplementor> getImplementors() {
+  static @NotNull List<MethodImplementor> getImplementors() {
     return MethodImplementor.EXTENSION_POINT_NAME.getExtensionList();
   }
 
@@ -88,8 +86,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
    * @param toCopyJavaDoc true if copy JavaDoc from method declaration
    * @return list of method prototypes
    */
-  @NotNull
-  public static List<PsiMethod> overrideOrImplementMethod(@NotNull PsiClass aClass, @NotNull PsiMethod method, boolean toCopyJavaDoc) throws IncorrectOperationException {
+  public static @NotNull List<PsiMethod> overrideOrImplementMethod(@NotNull PsiClass aClass, @NotNull PsiMethod method, boolean toCopyJavaDoc) throws IncorrectOperationException {
     final PsiClass containingClass = method.getContainingClass();
     LOG.assertTrue(containingClass != null);
     PsiSubstitutor substitutor = aClass.isInheritor(containingClass, true)
@@ -122,12 +119,11 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     return superClass != null && !superClass.isInterface();
   }
 
-  @NotNull
-  public static List<PsiMethod> overrideOrImplementMethod(@NotNull PsiClass aClass,
-                                                          @NotNull PsiMethod method,
-                                                          @NotNull PsiSubstitutor substitutor,
-                                                          boolean toCopyJavaDoc,
-                                                          boolean insertOverrideIfPossible) throws IncorrectOperationException {
+  public static @NotNull List<PsiMethod> overrideOrImplementMethod(@NotNull PsiClass aClass,
+                                                                   @NotNull PsiMethod method,
+                                                                   @NotNull PsiSubstitutor substitutor,
+                                                                   boolean toCopyJavaDoc,
+                                                                   boolean insertOverrideIfPossible) throws IncorrectOperationException {
     if (!method.isValid() || !substitutor.isValid()) return Collections.emptyList();
 
     List<PsiMethod> results = new ArrayList<>();
@@ -157,8 +153,6 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
       }
       Consumer<PsiMethod> decorator = createDefaultDecorator(aClass, method, toCopyJavaDoc, insertOverrideIfPossible);
       decorator.consume(result);
-      //result can be annotated in different order, let's reorder annotations in order as method has
-      reorderAnnotations(result, method);
       results.add(result);
     }
 
@@ -167,119 +161,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     return results;
   }
 
-
-  private record AnnotationOrder(@NotNull MultiMap<String, Integer> beforeKeywords, PsiKeyword firstKeyword,
-                                 @NotNull MultiMap<String, Integer> afterKeywords, PsiKeyword lastKeyword,
-                                 @NotNull Set<String> notUsed) {
-
-  }
-
-  /**
-   * Reorders the annotations of the given resultMethod based on the order of annotations in the sourceMethod.
-   * Support two places: before all keywords or after all keywords.
-   *
-   * @param resultMethod the method whose annotations should be reordered
-   * @param sourceMethod the method from which the order of annotations should be taken
-   */
-  private static void reorderAnnotations(PsiMethod resultMethod, PsiMethod sourceMethod) {
-    AnnotationOrder resultOrder = getAnnotationOrder(resultMethod);
-    AnnotationOrder sourceOrder = getAnnotationOrder(sourceMethod);
-    if (sourceOrder.firstKeyword == null || sourceOrder.lastKeyword == null) return;
-    PsiModifierList modifierList = resultMethod.getModifierList();
-    PsiElement[] toAddBefore = new PsiElement[sourceOrder.beforeKeywords.size()];
-    PsiElement[] toAddAfter = new PsiElement[sourceOrder.afterKeywords.size()];
-    for (PsiElement element : modifierList.getChildren()) {
-      if (element instanceof PsiAnnotation) {
-        String text = element.getText();
-        if (resultOrder.notUsed.contains(text) || sourceOrder.notUsed.contains(text)) {
-          continue;
-        }
-        if (sourceOrder.beforeKeywords().containsKey(text)) {
-          Collection<Integer> indexes = sourceOrder.beforeKeywords.get(text);
-          if (!indexes.isEmpty()) {
-            Iterator<Integer> iterator = indexes.iterator();
-            Integer next = iterator.next();
-            iterator.remove();
-            toAddBefore[next] = element.copy();
-            element.delete();
-          }
-        }
-        if (sourceOrder.afterKeywords().containsKey(text)) {
-          Collection<Integer> indexes = sourceOrder.afterKeywords.get(text);
-          if (!indexes.isEmpty()) {
-            Iterator<Integer> iterator = indexes.iterator();
-            Integer next = iterator.next();
-            iterator.remove();
-            toAddAfter[next] = element.copy();
-            element.delete();
-          }
-        }
-      }
-    }
-    for (int i = toAddBefore.length - 1; i >= 0; i--) {
-      PsiElement element = toAddBefore[i];
-      if (element == null) {
-        continue;
-      }
-      PsiElement[] children = modifierList.getChildren();
-      if (children.length == 0) {
-        modifierList.add(element);
-      }
-      else {
-        modifierList.addBefore(element, children[0]);
-      }
-    }
-    for (PsiElement element : toAddAfter) {
-      if (element == null) {
-        continue;
-      }
-      PsiElement[] children = modifierList.getChildren();
-      if (children.length == 0) {
-        modifierList.add(element);
-      }
-      else {
-        modifierList.addAfter(element, children[children.length - 1]);
-      }
-    }
-  }
-
-  @NotNull
-  private static AnnotationOrder getAnnotationOrder(@NotNull PsiMethod method) {
-    MultiMap<String, Integer> beforeKeywords = MultiMap.create();
-    int sizeBefore = 0;
-    PsiKeyword firstKeyword = null;
-
-    MultiMap<String, Integer> afterKeywords = MultiMap.create();
-    int sizeAfter = 0;
-    PsiKeyword lastKeyword = null;
-    Set<String> notUsed = new HashSet<>();
-    @NotNull PsiElement @NotNull [] children = method.getModifierList().getChildren();
-    for (int i = 0, length = children.length; i < length; i++) {
-      PsiElement element = children[i];
-      if (element instanceof PsiAnnotation annotation) {
-        String text = annotation.getText();
-        if (firstKeyword == null) {
-          beforeKeywords.putValue(text, sizeBefore++);
-        }
-        else {
-          afterKeywords.putValue(text, sizeAfter++);
-        }
-      }
-      else if (element instanceof PsiKeyword keyword) {
-        if (firstKeyword == null) {
-          firstKeyword = keyword;
-        }
-        lastKeyword = keyword;
-        sizeAfter = 0;
-        notUsed.addAll(afterKeywords.keySet());
-        afterKeywords.clear();
-      }
-    }
-    return new AnnotationOrder(beforeKeywords, firstKeyword, afterKeywords, lastKeyword, notUsed);
-  }
-
-  @NotNull
-  private static PsiClass copyClass(@NotNull PsiClass aClass) {
+  private static @NotNull PsiClass copyClass(@NotNull PsiClass aClass) {
     Object marker = new Object();
     PsiTreeUtil.mark(aClass, marker);
     PsiElement copy = aClass.getContainingFile().copy();
@@ -288,20 +170,18 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     return (PsiClass)copyClass;
   }
 
-  @NotNull
-  public static Consumer<PsiMethod> createDefaultDecorator(@NotNull PsiClass aClass,
-                                                           @NotNull PsiMethod method,
-                                                           final boolean toCopyJavaDoc,
-                                                           final boolean insertOverrideIfPossible) {
+  public static @NotNull Consumer<PsiMethod> createDefaultDecorator(@NotNull PsiClass aClass,
+                                                                    @NotNull PsiMethod method,
+                                                                    final boolean toCopyJavaDoc,
+                                                                    final boolean insertOverrideIfPossible) {
     return result -> decorateMethod(aClass, method, toCopyJavaDoc, insertOverrideIfPossible, result);
   }
 
-  @NotNull
-  public static PsiMethod decorateMethod(@NotNull PsiClass aClass,
-                                          @NotNull PsiMethod method,
-                                          boolean toCopyJavaDoc,
-                                          boolean insertOverrideIfPossible,
-                                          @NotNull PsiMethod result) {
+  public static @NotNull PsiMethod decorateMethod(@NotNull PsiClass aClass,
+                                                  @NotNull PsiMethod method,
+                                                  boolean toCopyJavaDoc,
+                                                  boolean insertOverrideIfPossible,
+                                                  @NotNull PsiMethod result) {
     PsiUtil.setModifierProperty(result, PsiModifier.ABSTRACT, aClass.isInterface() && method.hasModifierProperty(PsiModifier.ABSTRACT));
     PsiUtil.setModifierProperty(result, PsiModifier.NATIVE, false);
 
@@ -377,6 +257,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
       AddAnnotationPsiFix.addPhysicalAnnotationIfAbsent(Override.class.getName(), PsiNameValuePair.EMPTY_ARRAY, method.getModifierList());
     }
     OverrideImplementsAnnotationsHandler.repeatAnnotationsFromSource(overridden, targetClass, method);
+    GenerateMembersUtil.sortModifiers(method, overridden);
   }
 
   public static void annotate(@NotNull PsiMethod result, @NotNull String fqn, String @NotNull ... annosToRemove) throws IncorrectOperationException {
@@ -387,22 +268,20 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     }
   }
 
-  @NotNull
-  public static List<PsiGenerationInfo<PsiMethod>> overrideOrImplementMethods(@NotNull PsiClass aClass,
-                                                                              @NotNull Collection<? extends PsiMethodMember> candidates,
-                                                                              boolean toCopyJavaDoc,
-                                                                              boolean toInsertAtOverride)
+  public static @NotNull List<PsiGenerationInfo<PsiMethod>> overrideOrImplementMethods(@NotNull PsiClass aClass,
+                                                                                       @NotNull Collection<? extends PsiMethodMember> candidates,
+                                                                                       boolean toCopyJavaDoc,
+                                                                                       boolean toInsertAtOverride)
     throws IncorrectOperationException {
     List<CandidateInfo> candidateInfos = ContainerUtil.map(candidates, s -> new CandidateInfo(s.getElement(), s.getSubstitutor()));
     final List<PsiMethod> methods = overrideOrImplementMethodCandidates(aClass, candidateInfos, toCopyJavaDoc, toInsertAtOverride);
     return convert2GenerationInfos(methods);
   }
 
-  @NotNull
-  public static List<PsiMethod> overrideOrImplementMethodCandidates(@NotNull PsiClass aClass,
-                                                                     @NotNull Collection<? extends CandidateInfo> candidates,
-                                                                     boolean toCopyJavaDoc,
-                                                                     boolean insertOverrideWherePossible) throws IncorrectOperationException {
+  public static @NotNull List<PsiMethod> overrideOrImplementMethodCandidates(@NotNull PsiClass aClass,
+                                                                             @NotNull Collection<? extends CandidateInfo> candidates,
+                                                                             boolean toCopyJavaDoc,
+                                                                             boolean insertOverrideWherePossible) throws IncorrectOperationException {
     List<PsiMethod> result = new ArrayList<>();
     for (CandidateInfo candidateInfo : candidates) {
       PsiMethod method = (PsiMethod)candidateInfo.getElement();
@@ -413,18 +292,15 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     return result;
   }
 
-  @NotNull
-  public static List<PsiGenerationInfo<PsiMethod>> convert2GenerationInfos(@NotNull Collection<? extends PsiMethod> methods) {
+  public static @NotNull List<PsiGenerationInfo<PsiMethod>> convert2GenerationInfos(@NotNull Collection<? extends PsiMethod> methods) {
     return ContainerUtil.map(methods, s -> createGenerationInfo(s));
   }
 
-  @NotNull
-  public static PsiGenerationInfo<PsiMethod> createGenerationInfo(@NotNull PsiMethod s) {
+  public static @NotNull PsiGenerationInfo<PsiMethod> createGenerationInfo(@NotNull PsiMethod s) {
     return createGenerationInfo(s, true);
   }
 
-  @NotNull
-  private static PsiGenerationInfo<PsiMethod> createGenerationInfo(@NotNull PsiMethod s, boolean mergeIfExists) {
+  private static @NotNull PsiGenerationInfo<PsiMethod> createGenerationInfo(@NotNull PsiMethod s, boolean mergeIfExists) {
     for (MethodImplementor implementor : getImplementors()) {
       final GenerationInfo info = implementor.createGenerationInfo(s, mergeIfExists);
       if (info instanceof PsiGenerationInfo) {
@@ -435,13 +311,11 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     return new PsiGenerationInfo<>(s);
   }
 
-  @NotNull
-  private static String callSuper(@NotNull PsiMethod superMethod, @NotNull PsiMethod overriding, PsiClass targetClass) {
+  private static @NotNull String callSuper(@NotNull PsiMethod superMethod, @NotNull PsiMethod overriding, PsiClass targetClass) {
     return callSuper(superMethod, overriding, targetClass, true);
   }
 
-  @NotNull
-  private static String callSuper(@NotNull PsiMethod superMethod, @NotNull PsiMethod overriding, PsiClass targetClass, boolean prependReturn) {
+  private static @NotNull String callSuper(@NotNull PsiMethod superMethod, @NotNull PsiMethod overriding, PsiClass targetClass, boolean prependReturn) {
     @NonNls StringBuilder buffer = new StringBuilder();
     if (prependReturn && !superMethod.isConstructor() && !PsiTypes.voidType().equals(superMethod.getReturnType())) {
       buffer.append("return ");
@@ -615,8 +489,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     }
   }
 
-  @Nullable
-  public static JavaOverrideImplementMemberChooserContainer prepareChooser(@NotNull PsiClass aClass, boolean toImplement) {
+  public static @Nullable JavaOverrideImplementMemberChooserContainer prepareChooser(@NotNull PsiClass aClass, boolean toImplement) {
     PsiUtilCore.ensureValid(aClass);
     Collection<CandidateInfo> candidates = getMethodsToOverrideImplement(aClass, toImplement);
     Collection<CandidateInfo> secondary =
@@ -628,9 +501,8 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
   /**
    * @deprecated use {@link OverrideImplementUtil#showJavaOverrideImplementChooser(Editor, PsiElement, boolean, Collection, Collection, java.util.function.Consumer)}
    */
-  @Deprecated
-  @Nullable
-  public static MemberChooser<PsiMethodMember> showOverrideImplementChooser(@NotNull Editor editor,
+  @Deprecated(forRemoval = true)
+  public static @Nullable MemberChooser<PsiMethodMember> showOverrideImplementChooser(@NotNull Editor editor,
                                                                             @NotNull PsiElement aClass,
                                                                             final boolean toImplement,
                                                                             @NotNull Collection<CandidateInfo> candidates,
@@ -643,9 +515,8 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
    * It is used only for backward compatibility.
    * @deprecated use {@link OverrideImplementUtil#showJavaOverrideImplementChooser(Editor, PsiElement, boolean, Collection, Collection, java.util.function.Consumer)}
    */
-  @Deprecated
-  @Nullable
-  public static JavaOverrideImplementMemberChooser showJavaOverrideImplementChooser(@NotNull Editor editor,
+  @Deprecated(forRemoval = true)
+  public static @Nullable JavaOverrideImplementMemberChooser showJavaOverrideImplementChooser(@NotNull Editor editor,
                                                                                     @NotNull PsiElement aClass,
                                                                                     final boolean toImplement,
                                                                                     @NotNull Collection<CandidateInfo> candidates,
@@ -682,8 +553,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
   /**
    * Must be called on EDT thread
    */
-  @Nullable
-  private static JavaOverrideImplementMemberChooser showJavaOverrideImplementChooser(@Nullable JavaOverrideImplementMemberChooserContainer container,
+  private static @Nullable JavaOverrideImplementMemberChooser showJavaOverrideImplementChooser(@Nullable JavaOverrideImplementMemberChooserContainer container,
                                                                                      @NotNull Editor editor,
                                                                                      @NotNull PsiElement aClass) {
     if (container == null) {
@@ -702,11 +572,10 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     return chooser;
   }
 
-  @Nullable
-  private static JavaOverrideImplementMemberChooserContainer prepareJavaOverrideImplementChooser(@NotNull PsiElement aClass,
-                                                                                                 boolean toImplement,
-                                                                                                 @NotNull Collection<CandidateInfo> candidates,
-                                                                                                 @NotNull Collection<CandidateInfo> secondary) {
+  private static @Nullable JavaOverrideImplementMemberChooserContainer prepareJavaOverrideImplementChooser(@NotNull PsiElement aClass,
+                                                                                                           boolean toImplement,
+                                                                                                           @NotNull Collection<CandidateInfo> candidates,
+                                                                                                           @NotNull Collection<CandidateInfo> secondary) {
     Computable<JavaOverrideImplementMemberChooserContainer> computable = () -> {
       if (toImplement) {
         for (Iterator<CandidateInfo> iterator = candidates.iterator(); iterator.hasNext(); ) {
@@ -737,7 +606,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
                                                             @NotNull MemberChooser<PsiMethodMember> chooser) {
     final JComponent preferredFocusedComponent = chooser.getPreferredFocusedComponent();
 
-    @NonNls final String s = toImplement ? "OverrideMethods" : "ImplementMethods";
+    final @NonNls String s = toImplement ? "OverrideMethods" : "ImplementMethods";
     final Shortcut shortcut = KeymapUtil.getPrimaryShortcut(s);
 
     if (shortcut instanceof KeyboardShortcut) {
@@ -835,8 +704,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     }
   }
 
-  @Nullable
-  public static PsiElement getDefaultAnchorToOverrideOrImplement(@NotNull PsiClass aClass, @NotNull PsiMethod baseMethod, @NotNull PsiSubstitutor substitutor){
+  public static @Nullable PsiElement getDefaultAnchorToOverrideOrImplement(@NotNull PsiClass aClass, @NotNull PsiMethod baseMethod, @NotNull PsiSubstitutor substitutor){
     PsiMethod prevBaseMethod = PsiTreeUtil.getPrevSiblingOfType(baseMethod, PsiMethod.class);
     while(prevBaseMethod != null) {
       String name = prevBaseMethod.isConstructor() ? aClass.getName() : prevBaseMethod.getName();
@@ -867,8 +735,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     return null;
   }
 
-  @NotNull
-  public static List<PsiGenerationInfo<PsiMethod>> overrideOrImplement(@NotNull PsiClass psiClass, @NotNull PsiMethod baseMethod) throws IncorrectOperationException {
+  public static @NotNull List<PsiGenerationInfo<PsiMethod>> overrideOrImplement(@NotNull PsiClass psiClass, @NotNull PsiMethod baseMethod) throws IncorrectOperationException {
     FileEditorManager fileEditorManager = FileEditorManager.getInstance(baseMethod.getProject());
     List<PsiGenerationInfo<PsiMethod>> results = new ArrayList<>();
     try {
@@ -893,8 +760,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     }
   }
 
-  @Nullable
-  public static PsiClass getContextClass(Project project, @NotNull Editor editor, @NotNull PsiFile file, boolean allowInterface) {
+  public static @Nullable PsiClass getContextClass(Project project, @NotNull Editor editor, @NotNull PsiFile file, boolean allowInterface) {
     int offset = editor.getCaretModel().getOffset();
     PsiElement element = file.findElementAt(offset);
     do {
@@ -915,9 +781,8 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
   }
 
 
-  @NotNull
-  public static List<PsiMethod> overrideOrImplementMethodCandidates(@NotNull PsiClass aClass, @NotNull Collection<? extends CandidateInfo> candidatesToImplement,
-                                                                    boolean copyJavadoc) throws IncorrectOperationException {
+  public static @NotNull List<PsiMethod> overrideOrImplementMethodCandidates(@NotNull PsiClass aClass, @NotNull Collection<? extends CandidateInfo> candidatesToImplement,
+                                                                             boolean copyJavadoc) throws IncorrectOperationException {
     boolean insert =
       JavaCodeStyleSettings.getInstance(aClass.getContainingFile()).INSERT_OVERRIDE_ANNOTATION;
     return overrideOrImplementMethodCandidates(aClass, candidatesToImplement, copyJavadoc, insert);

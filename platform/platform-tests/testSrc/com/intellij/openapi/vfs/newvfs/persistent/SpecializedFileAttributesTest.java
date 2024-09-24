@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.openapi.vfs.newvfs.FileAttribute;
@@ -7,6 +7,7 @@ import com.intellij.openapi.vfs.newvfs.persistent.SpecializedFileAttributes.IntF
 import com.intellij.openapi.vfs.newvfs.persistent.SpecializedFileAttributes.LongFileAttributeAccessor;
 import com.intellij.openapi.vfs.newvfs.persistent.SpecializedFileAttributes.ShortFileAttributeAccessor;
 import com.intellij.openapi.vfs.newvfs.persistent.mapped.MappedFileStorageHelper;
+import com.intellij.platform.util.io.storages.StorageTestingUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -120,7 +121,7 @@ public class SpecializedFileAttributesTest {
     for (int i = 0; i < ENOUGH_VALUES; i++) {
       int valueToWrite = rnd.nextInt();
       accessor.write(fileId, valueToWrite);
-      try (var stream = vfs.readAttributeWithLock(fileId, TEST_INT_ATTRIBUTE)) {
+      try (var stream = vfs.readAttribute(fileId, TEST_INT_ATTRIBUTE)) {
         int readBack = stream.readInt();
         assertEquals(valueToWrite, readBack,
                      "Value written via attributeAccessor must be read back as is via regular readAttribute()");
@@ -164,7 +165,7 @@ public class SpecializedFileAttributesTest {
     for (int i = 0; i < ENOUGH_VALUES; i++) {
       short valueToWrite = (short)rnd.nextInt(Short.MIN_VALUE, Short.MAX_VALUE);
       accessor.write(fileId, valueToWrite);
-      try (var stream = vfs.readAttributeWithLock(fileId, TEST_SHORT_ATTRIBUTE)) {
+      try (var stream = vfs.readAttribute(fileId, TEST_SHORT_ATTRIBUTE)) {
         short readBack = stream.readShort();
         assertEquals(valueToWrite, readBack,
                      "Value written via attributeAccessor must be read back as is via regular readAttribute()");
@@ -210,7 +211,7 @@ public class SpecializedFileAttributesTest {
     for (int i = 0; i < ENOUGH_VALUES; i++) {
       long valueToWrite = rnd.nextLong();
       accessor.write(fileId, valueToWrite);
-      try (var stream = vfs.readAttributeWithLock(fileId, TEST_LONG_ATTRIBUTE)) {
+      try (var stream = vfs.readAttribute(fileId, TEST_LONG_ATTRIBUTE)) {
         long readBack = stream.readLong();
         assertEquals(valueToWrite, readBack,
                      "Value written via attributeAccessor must be read back as is via regular readAttribute()");

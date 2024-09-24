@@ -78,7 +78,7 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
       ModuleGroupTestsKt.renameModule(module, "mainModule")
 
       def communityHomePath = Paths.get(PathManager.getHomePathFor(GroovyCompilerTestCase.class),"community")
-      def javaHomePath = JdkDownloader.getJdkHome(new BuildDependenciesCommunityRoot(communityHomePath))
+      def javaHomePath = JdkDownloader.getJdkHome(new BuildDependenciesCommunityRoot(communityHomePath), null, null)
       def javaHome = javaHomePath.toAbsolutePath().toString()
       javaHome = StringUtil.trimEnd(StringUtil.trimEnd(javaHome, '/'), '/jre')
       VfsRootAccess.allowRootAccess(testRootDisposable, javaHome)
@@ -277,4 +277,8 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
     assert messages.find { it.category == CompilerMessageCategory.ERROR }
   }
 
+  protected static void shouldSucceed(Closure<List<CompilerMessage>> action) {
+    def messages = action()
+    assert !messages.find { it.category == CompilerMessageCategory.ERROR }
+  }
 }

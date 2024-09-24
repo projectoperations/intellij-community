@@ -9,13 +9,14 @@ import com.intellij.lang.LanguageNamesValidation;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.lang.refactoring.NamesValidator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
 import com.intellij.spellchecker.SpellCheckerManager;
-import com.intellij.spellchecker.quickfixes.SpellCheckerQuickFix;
 import com.intellij.spellchecker.tokenizer.*;
 import com.intellij.spellchecker.util.SpellCheckerBundle;
 import com.intellij.util.Consumer;
@@ -30,7 +31,7 @@ import java.util.Set;
 import static com.intellij.codeInspection.options.OptPane.checkbox;
 import static com.intellij.codeInspection.options.OptPane.pane;
 
-public final class SpellCheckingInspection extends LocalInspectionTool {
+public final class SpellCheckingInspection extends LocalInspectionTool implements DumbAware {
   public static final String SPELL_CHECKING_INSPECTION_TOOL_NAME = "SpellCheckingInspection";
 
   @Override
@@ -46,8 +47,9 @@ public final class SpellCheckingInspection extends LocalInspectionTool {
   }
 
   private static SpellcheckingStrategy getSpellcheckingStrategy(@NotNull PsiElement element, @NotNull Language language) {
+    DumbService dumbService = DumbService.getInstance(element.getProject());
     for (SpellcheckingStrategy strategy : LanguageSpellchecking.INSTANCE.allForLanguage(language)) {
-      if (strategy.isMyContext(element)) {
+      if (dumbService.isUsableInCurrentContext(strategy) && strategy.isMyContext(element)) {
         return strategy;
       }
     }
@@ -139,15 +141,16 @@ public final class SpellCheckingInspection extends LocalInspectionTool {
     tokenizer.tokenize(element, consumer);
   }
 
-  private static void addBatchDescriptor(PsiElement element,
+  private static void addBatchDescriptor(@NotNull PsiElement element,
                                          @NotNull TextRange textRange,
+                                         @NotNull String word,
                                          @NotNull ProblemsHolder holder) {
-    SpellCheckerQuickFix[] fixes = SpellcheckingStrategy.getDefaultBatchFixes(element);
+    var fixes = SpellcheckingStrategy.getDefaultBatchFixes(element, textRange, word);
     ProblemDescriptor problemDescriptor = createProblemDescriptor(element, textRange, fixes, false);
     holder.registerProblem(problemDescriptor);
   }
 
-  private static void addRegularDescriptor(PsiElement element, @NotNull TextRange textRange, @NotNull ProblemsHolder holder,
+  private static void addRegularDescriptor(@NotNull PsiElement element, @NotNull TextRange textRange, @NotNull ProblemsHolder holder,
                                            boolean useRename, String wordWithTypo) {
     SpellcheckingStrategy strategy = getSpellcheckingStrategy(element, element.getLanguage());
 
@@ -240,7 +243,7 @@ public final class SpellCheckingInspection extends LocalInspectionTool {
         }
         else {
           myAlreadyChecked.add(word);
-          addBatchDescriptor(myElement, range, myHolder);
+          addBatchDescriptor(myElement, range, word, myHolder);
         }
       }
     }

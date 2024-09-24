@@ -4,15 +4,15 @@ package org.jetbrains.kotlin.nj2k.conversions
 
 import com.intellij.psi.PsiField
 import com.intellij.psi.PsiMethod
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.j2k.Nullability.NotNull
 import org.jetbrains.kotlin.nj2k.*
 import org.jetbrains.kotlin.nj2k.externalCodeProcessing.JKFieldDataFromJava
 import org.jetbrains.kotlin.nj2k.externalCodeProcessing.JKPhysicalMethodData
 import org.jetbrains.kotlin.nj2k.tree.*
+import org.jetbrains.kotlin.nj2k.tree.Visibility.PRIVATE
+import org.jetbrains.kotlin.nj2k.tree.Mutability.*
 import org.jetbrains.kotlin.nj2k.tree.Modality.FINAL
-import org.jetbrains.kotlin.nj2k.tree.Mutability.IMMUTABLE
-import org.jetbrains.kotlin.nj2k.tree.Mutability.MUTABLE
 import org.jetbrains.kotlin.nj2k.tree.OtherModifier.STATIC
 import org.jetbrains.kotlin.nj2k.types.JKJavaArrayType
 import org.jetbrains.kotlin.nj2k.types.arrayInnerType
@@ -20,7 +20,7 @@ import org.jetbrains.kotlin.nj2k.types.isStringType
 import org.jetbrains.kotlin.nj2k.types.updateNullabilityRecursively
 
 class ClassMemberConversion(context: NewJ2kConverterContext) : RecursiveConversion(context) {
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun applyToElement(element: JKTreeElement): JKTreeElement {
         when (element) {
             is JKMethodImpl -> element.convert()
@@ -29,7 +29,7 @@ class ClassMemberConversion(context: NewJ2kConverterContext) : RecursiveConversi
         return recurse(element)
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun JKMethodImpl.convert() {
         removeStaticModifierFromAnonymousClassMember()
 
@@ -53,7 +53,8 @@ class ClassMemberConversion(context: NewJ2kConverterContext) : RecursiveConversi
             }
         }
 
-        psi<PsiMethod>()?.let { psiMethod ->
+        if (isExternallyAccessible()) {
+            val psiMethod = psi<PsiMethod>() ?: return
             context.externalCodeProcessor.addMember(JKPhysicalMethodData(psiMethod))
         }
     }
@@ -78,13 +79,35 @@ class ClassMemberConversion(context: NewJ2kConverterContext) : RecursiveConversi
         }
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun JKField.convert() {
         removeStaticModifierFromAnonymousClassMember()
-        mutability = if (modality == FINAL) IMMUTABLE else MUTABLE
+        val hasMutableAnnotation = annotationList.annotations.any { MUTABLE_ANNOTATIONS.contains(it.classSymbol.fqName) }
+        mutability = when {
+            modality == FINAL -> IMMUTABLE
+            hasMutableAnnotation -> MUTABLE
+            mutability != UNKNOWN -> mutability
+            else -> UNKNOWN
+        }
         modality = FINAL
-        psi<PsiField>()?.let { psiField ->
+
+        if (isExternallyAccessible()) {
+            val psiField = psi<PsiField>() ?: return
             context.externalCodeProcessor.addMember(JKFieldDataFromJava(psiField))
         }
+    }
+
+    private fun JKDeclaration.isExternallyAccessible(): Boolean {
+        require(this is JKVisibilityOwner)
+        val container = parentOfType<JKClass>() ?: return false
+        if (container.visibility == PRIVATE) return false
+        if (container.isLocalClass()) return false
+        if (this is JKMethod && visibility == PRIVATE) {
+            // This condition does not apply to private fields, that may be later merged
+            // with public accessors, and so become public Kotlin properties
+            return false
+        }
+
+        return true
     }
 }

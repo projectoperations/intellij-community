@@ -1,7 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs;
 
 import com.intellij.notification.*;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.Cancellation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NlsContexts.NotificationContent;
 import com.intellij.openapi.util.NlsContexts.NotificationTitle;
@@ -18,14 +20,63 @@ import static com.intellij.util.ui.UIUtil.BR;
 import static com.intellij.util.ui.UIUtil.LINE_SEPARATOR;
 
 public class VcsNotifier {
+  /**
+   * @deprecated Use {@link #toolWindowNotification()} instead
+   */
+  @Deprecated
   public static final NotificationGroup NOTIFICATION_GROUP_ID =
-    NotificationGroupManager.getInstance().getNotificationGroup("Vcs Messages");
+    Cancellation.forceNonCancellableSectionInClassInitializer(() -> toolWindowNotification());
+
+  /**
+   * @deprecated Use {@link #importantNotification()} instead
+   */
+  @Deprecated
   public static final NotificationGroup IMPORTANT_ERROR_NOTIFICATION =
-    NotificationGroupManager.getInstance().getNotificationGroup("Vcs Important Messages");
+    Cancellation.forceNonCancellableSectionInClassInitializer(() -> importantNotification());
+
+  /**
+   * @deprecated Use {@link #standardNotification()} instead
+   */
+  @Deprecated
   public static final NotificationGroup STANDARD_NOTIFICATION =
-    NotificationGroupManager.getInstance().getNotificationGroup("Vcs Notifications");
+    Cancellation.forceNonCancellableSectionInClassInitializer(() -> standardNotification());
+
+  /**
+   * @deprecated Use {@link #silentNotification()} instead
+   */
+  @Deprecated
   public static final NotificationGroup SILENT_NOTIFICATION =
-    NotificationGroupManager.getInstance().getNotificationGroup("Vcs Silent Notifications");
+    Cancellation.forceNonCancellableSectionInClassInitializer(() -> silentNotification());
+
+
+  /**
+   * {@link NotificationDisplayType#TOOL_WINDOW} balloon shown near the {@link com.intellij.openapi.wm.ToolWindowId#VCS} toolwindow button
+   */
+  public static @NotNull NotificationGroup toolWindowNotification() {
+    return NotificationGroupManager.getInstance().getNotificationGroup("Vcs Messages");
+  }
+
+  /**
+   * {@link NotificationDisplayType#BALLOON} notification that is hidden automatically.
+   */
+  public static @NotNull NotificationGroup standardNotification() {
+    return NotificationGroupManager.getInstance().getNotificationGroup("Vcs Notifications");
+  }
+
+  /**
+   * {@link NotificationDisplayType#STICKY_BALLOON} notification that is NOT hidden automatically on timer
+   */
+  public static @NotNull NotificationGroup importantNotification() {
+    return NotificationGroupManager.getInstance().getNotificationGroup("Vcs Important Messages");
+  }
+
+  /**
+   * {@link NotificationDisplayType#NONE} notification, that is visible in 'Notifications' toolwindow, but does not produce a balloon.
+   */
+  public static @NotNull NotificationGroup silentNotification() {
+    return NotificationGroupManager.getInstance().getNotificationGroup("Vcs Silent Notifications");
+  }
+
 
   protected final @NotNull Project myProject;
 
@@ -39,6 +90,7 @@ public class VcsNotifier {
 
   @NotNull
   public Notification notify(@NotNull Notification notification) {
+    if (myProject.isDisposed()) Logger.getInstance(VcsNotifier.class).warn("Project is already disposed: " + notification);
     notification.notify(myProject);
     return notification;
   }
@@ -64,7 +116,7 @@ public class VcsNotifier {
                                   @NotificationTitle @NotNull String title,
                                   @NotificationContent @NotNull String message,
                                   boolean showDetailsAction) {
-    Notification notification = createNotification(IMPORTANT_ERROR_NOTIFICATION, displayId, title, message, NotificationType.ERROR, null);
+    Notification notification = createNotification(importantNotification(), displayId, title, message, NotificationType.ERROR, null);
     if (showDetailsAction) {
       addShowDetailsAction(myProject, notification);
     }
@@ -79,7 +131,7 @@ public class VcsNotifier {
   public Notification notifyError(@NotificationTitle @NotNull String title,
                                   @NotificationContent @NotNull String message,
                                   @Nullable NotificationListener listener) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, null, title, message, NotificationType.ERROR, listener);
+    return notify(importantNotification(), null, title, message, NotificationType.ERROR, listener);
   }
 
   @NotNull
@@ -87,7 +139,7 @@ public class VcsNotifier {
                                   @NotificationTitle @NotNull String title,
                                   @NotificationContent @NotNull String message,
                                   @Nullable NotificationListener listener) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, displayId, title, message, NotificationType.ERROR, listener);
+    return notify(importantNotification(), displayId, title, message, NotificationType.ERROR, listener);
   }
 
   @NotNull
@@ -95,7 +147,7 @@ public class VcsNotifier {
                                   @NotificationTitle @NotNull String title,
                                   @NotificationContent @NotNull String message,
                                   NotificationAction... actions) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, displayId, title, message, NotificationType.ERROR, actions);
+    return notify(importantNotification(), displayId, title, message, NotificationType.ERROR, actions);
   }
 
   @NotNull
@@ -109,7 +161,7 @@ public class VcsNotifier {
   @NotNull
   public Notification notifyWeakError(@NonNls @Nullable String displayId,
                                       @NotificationContent @NotNull String message) {
-    return notify(NOTIFICATION_GROUP_ID, displayId, "", message, NotificationType.ERROR);
+    return notify(toolWindowNotification(), displayId, "", message, NotificationType.ERROR);
   }
 
   @SuppressWarnings("UnusedReturnValue")
@@ -117,7 +169,7 @@ public class VcsNotifier {
   public Notification notifyWeakError(@NonNls @Nullable String displayId,
                                       @NotificationTitle @NotNull String title,
                                       @NotificationContent @NotNull String message) {
-    return notify(NOTIFICATION_GROUP_ID, displayId, title, message, NotificationType.ERROR);
+    return notify(toolWindowNotification(), displayId, title, message, NotificationType.ERROR);
   }
 
   /**
@@ -126,7 +178,7 @@ public class VcsNotifier {
   @Deprecated(forRemoval = true)
   @NotNull
   public Notification notifySuccess(@NotificationContent @NotNull String message) {
-    return notify(NOTIFICATION_GROUP_ID, null, "", message, NotificationType.INFORMATION);
+    return notify(toolWindowNotification(), null, "", message, NotificationType.INFORMATION);
   }
 
   /**
@@ -136,14 +188,14 @@ public class VcsNotifier {
   @NotNull
   public Notification notifySuccess(@NotificationTitle @NotNull String title,
                                     @NotificationContent @NotNull String message) {
-    return notify(NOTIFICATION_GROUP_ID, null, title, message, NotificationType.INFORMATION);
+    return notify(toolWindowNotification(), null, title, message, NotificationType.INFORMATION);
   }
 
   @NotNull
   public Notification notifySuccess(@NonNls @Nullable String displayId,
                                     @NotificationTitle @NotNull String title,
                                     @NotificationContent @NotNull String message) {
-    return notify(NOTIFICATION_GROUP_ID, displayId, title, message, NotificationType.INFORMATION);
+    return notify(toolWindowNotification(), displayId, title, message, NotificationType.INFORMATION);
   }
 
   /**
@@ -154,7 +206,7 @@ public class VcsNotifier {
   public Notification notifySuccess(@NotificationTitle @NotNull String title,
                                     @NotificationContent @NotNull String message,
                                     @Nullable NotificationListener listener) {
-    return notify(NOTIFICATION_GROUP_ID, null, title, message, NotificationType.INFORMATION, listener);
+    return notify(toolWindowNotification(), null, title, message, NotificationType.INFORMATION, listener);
   }
 
   @NotNull
@@ -162,7 +214,7 @@ public class VcsNotifier {
                                     @NotificationTitle @NotNull String title,
                                     @NotificationContent @NotNull String message,
                                     @Nullable NotificationListener listener) {
-    return notify(NOTIFICATION_GROUP_ID, displayId, title, message, NotificationType.INFORMATION, listener);
+    return notify(toolWindowNotification(), displayId, title, message, NotificationType.INFORMATION, listener);
   }
 
   /**
@@ -173,7 +225,7 @@ public class VcsNotifier {
   public Notification notifyImportantInfo(@NotificationTitle @NotNull String title,
                                           @NotificationContent @NotNull String message,
                                           @Nullable NotificationListener listener) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, null, title, message, NotificationType.INFORMATION, listener);
+    return notify(importantNotification(), null, title, message, NotificationType.INFORMATION, listener);
   }
 
   @NotNull
@@ -181,14 +233,14 @@ public class VcsNotifier {
                                           @NotificationTitle @NotNull String title,
                                           @NotificationContent @NotNull String message,
                                           @Nullable NotificationListener listener) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, displayId, title, message, NotificationType.INFORMATION, listener);
+    return notify(importantNotification(), displayId, title, message, NotificationType.INFORMATION, listener);
   }
 
   @NotNull
   public Notification notifyImportantInfo(@NonNls @Nullable String displayId,
                                           @NotificationTitle @NotNull String title,
                                           @NotificationContent @NotNull String message) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, displayId, title, message, NotificationType.INFORMATION);
+    return notify(importantNotification(), displayId, title, message, NotificationType.INFORMATION);
   }
 
   /**
@@ -213,7 +265,7 @@ public class VcsNotifier {
                                  @NotificationTitle @NotNull String title,
                                  @NotificationContent @NotNull String message,
                                  @Nullable NotificationListener listener) {
-    return notify(NOTIFICATION_GROUP_ID, displayId, title, message, NotificationType.INFORMATION, listener);
+    return notify(toolWindowNotification(), displayId, title, message, NotificationType.INFORMATION, listener);
   }
 
   @NotNull
@@ -226,7 +278,7 @@ public class VcsNotifier {
   @NotNull
   public Notification notifyMinorWarning(@NonNls @Nullable String displayId,
                                          @NotificationContent @NotNull String message) {
-    return notify(STANDARD_NOTIFICATION, displayId, "", message, NotificationType.WARNING, (NotificationListener)null);
+    return notify(standardNotification(), displayId, "", message, NotificationType.WARNING, (NotificationListener)null);
   }
 
   @NotNull
@@ -234,7 +286,7 @@ public class VcsNotifier {
                                          @NotificationTitle @NotNull String title,
                                          @NotificationContent @NotNull String message,
                                          NotificationAction... actions) {
-    return notify(STANDARD_NOTIFICATION, displayId, title, message, NotificationType.WARNING, actions);
+    return notify(standardNotification(), displayId, title, message, NotificationType.WARNING, actions);
   }
 
   @NotNull
@@ -242,7 +294,7 @@ public class VcsNotifier {
                                          @NotificationTitle @NotNull String title,
                                          @NotificationContent @NotNull String message,
                                          @Nullable NotificationListener listener) {
-    return notify(STANDARD_NOTIFICATION, displayId, title, message, NotificationType.WARNING, listener);
+    return notify(standardNotification(), displayId, title, message, NotificationType.WARNING, listener);
   }
 
   /**
@@ -252,7 +304,7 @@ public class VcsNotifier {
   @NotNull
   public Notification notifyWarning(@NotificationTitle @NotNull String title,
                                     @NotificationContent @NotNull String message) {
-    return notify(NOTIFICATION_GROUP_ID, null, title, message, NotificationType.WARNING);
+    return notify(toolWindowNotification(), null, title, message, NotificationType.WARNING);
   }
 
   @SuppressWarnings("UnusedReturnValue")
@@ -269,14 +321,14 @@ public class VcsNotifier {
                                     @NotificationTitle @NotNull String title,
                                     @NotificationContent @NotNull String message,
                                     NotificationAction... actions) {
-    return notify(NOTIFICATION_GROUP_ID, displayId, title, message, NotificationType.WARNING, actions);
+    return notify(toolWindowNotification(), displayId, title, message, NotificationType.WARNING, actions);
   }
 
   @NotNull
   public Notification notifyImportantWarning(@NonNls @Nullable String displayId,
                                              @NotificationTitle @NotNull String title,
                                              @NotificationContent @NotNull String message) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, displayId, title, message, NotificationType.WARNING);
+    return notify(importantNotification(), displayId, title, message, NotificationType.WARNING);
   }
 
   @NotNull
@@ -295,7 +347,7 @@ public class VcsNotifier {
   public Notification notifyImportantWarning(@NotificationTitle @NotNull String title,
                                              @NotificationContent @NotNull String message,
                                              @Nullable NotificationListener listener) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, null, title, message, NotificationType.WARNING, listener);
+    return notify(importantNotification(), null, title, message, NotificationType.WARNING, listener);
   }
 
   @NotNull
@@ -303,7 +355,7 @@ public class VcsNotifier {
                                              @NotificationTitle @NotNull String title,
                                              @NotificationContent @NotNull String message,
                                              @Nullable NotificationListener listener) {
-    return notify(IMPORTANT_ERROR_NOTIFICATION, displayId, title, message, NotificationType.WARNING, listener);
+    return notify(importantNotification(), displayId, title, message, NotificationType.WARNING, listener);
   }
 
   @NotNull
@@ -318,7 +370,7 @@ public class VcsNotifier {
                                       @NotificationTitle @NotNull String title,
                                       @NotificationContent @NotNull String message,
                                       NotificationAction... actions) {
-    return notify(STANDARD_NOTIFICATION, displayId, title, message, NotificationType.INFORMATION, actions);
+    return notify(standardNotification(), displayId, title, message, NotificationType.INFORMATION, actions);
   }
 
   @NotNull
@@ -327,7 +379,7 @@ public class VcsNotifier {
                                       @NotificationTitle @NotNull String title,
                                       @NotificationContent @NotNull String message,
                                       NotificationAction... actions) {
-    return notify(sticky ? IMPORTANT_ERROR_NOTIFICATION : STANDARD_NOTIFICATION,
+    return notify(sticky ? importantNotification() : standardNotification(),
                   displayId, title, message, NotificationType.INFORMATION, actions);
   }
 
@@ -335,19 +387,19 @@ public class VcsNotifier {
   public Notification logInfo(@Nullable @NonNls String displayId,
                               @NotificationTitle @NotNull String title,
                               @NotificationContent @NotNull String message) {
-    return notify(SILENT_NOTIFICATION, displayId, title, message, NotificationType.INFORMATION);
+    return notify(silentNotification(), displayId, title, message, NotificationType.INFORMATION);
   }
 
-  public void showNotificationAndHideExisting(@NotNull Notification notificationToShow,
-                                              @NotNull Class<? extends Notification> klass) {
-    hideAllNotificationsByType(klass);
+  public void showNotificationAndHideExisting(@NotNull Notification notificationToShow) {
+    String displayId = notificationToShow.getDisplayId();
+    if (displayId != null ) hideAllNotificationsById(displayId);
     notificationToShow.notify(myProject);
   }
 
-  public void hideAllNotificationsByType(@NotNull Class<? extends Notification> klass) {
+  public void hideAllNotificationsById(@NotNull String displayId) {
     NotificationsManager notificationsManager = NotificationsManager.getNotificationsManager();
-    for (Notification notification : notificationsManager.getNotificationsOfType(klass, myProject)) {
-      notification.expire();
+    for (Notification notification : notificationsManager.getNotificationsOfType(Notification.class, myProject)) {
+      if (displayId.equals(notification.getDisplayId())) notification.expire();
     }
   }
 

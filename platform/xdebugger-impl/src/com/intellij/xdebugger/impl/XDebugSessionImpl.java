@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl;
 
 import com.intellij.execution.configurations.RunConfiguration;
@@ -14,7 +14,6 @@ import com.intellij.execution.ui.*;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationGroup;
 import com.intellij.notification.NotificationGroupManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -28,9 +27,11 @@ import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
+import com.intellij.platform.util.coroutines.CoroutineScopeKt;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.SmartList;
+import com.intellij.util.concurrency.annotations.RequiresReadLock;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.*;
@@ -41,7 +42,7 @@ import com.intellij.xdebugger.frame.XSuspendContext;
 import com.intellij.xdebugger.frame.XValueMarkerProvider;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
 import com.intellij.xdebugger.impl.breakpoints.*;
-import com.intellij.xdebugger.impl.evaluate.quick.common.ValueLookupManager;
+import com.intellij.xdebugger.impl.evaluate.ValueLookupManagerController;
 import com.intellij.xdebugger.impl.frame.XValueMarkers;
 import com.intellij.xdebugger.impl.frame.XWatchesViewImpl;
 import com.intellij.xdebugger.impl.inline.DebuggerInlayListener;
@@ -50,11 +51,15 @@ import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl;
 import com.intellij.xdebugger.impl.ui.XDebugSessionData;
 import com.intellij.xdebugger.impl.ui.XDebugSessionTab;
 import com.intellij.xdebugger.impl.ui.XDebuggerUIConstants;
+import com.intellij.xdebugger.impl.util.BringDebuggeeInForegroundUtilsKt;
 import com.intellij.xdebugger.stepping.XSmartStepIntoHandler;
 import com.intellij.xdebugger.stepping.XSmartStepIntoVariant;
+import kotlin.coroutines.EmptyCoroutineContext;
+import kotlinx.coroutines.CoroutineScope;
 import kotlinx.coroutines.flow.FlowKt;
 import kotlinx.coroutines.flow.StateFlow;
 import kotlinx.coroutines.flow.StateFlowKt;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -66,10 +71,10 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+@ApiStatus.Internal
 public final class XDebugSessionImpl implements XDebugSession {
   private static final Logger LOG = Logger.getInstance(XDebugSessionImpl.class);
   private static final Logger PERFORMANCE_LOG = Logger.getInstance("#com.intellij.xdebugger.impl.XDebugSessionImpl.performance");
-  private static final NotificationGroup BP_NOTIFICATION_GROUP = NotificationGroupManager.getInstance().getNotificationGroup("Breakpoint hit");
 
   // TODO[eldar] needed to workaround nullable myAlternativeSourceHandler.
   private static final StateFlow<Boolean> ALWAYS_FALSE_STATE = FlowKt.asStateFlow(StateFlowKt.MutableStateFlow(false));
@@ -95,6 +100,7 @@ public final class XDebugSessionImpl implements XDebugSession {
   private final AtomicReference<Pair<XBreakpoint<?>, XSourcePosition>> myActiveNonLineBreakpoint = new AtomicReference<>();
   private final EventDispatcher<XDebugSessionListener> myDispatcher = EventDispatcher.create(XDebugSessionListener.class);
   private final Project myProject;
+  private final CoroutineScope myCoroutineScope;
   private final @Nullable ExecutionEnvironment myEnvironment;
   private final AtomicBoolean myStopped = new AtomicBoolean();
   private boolean myPauseActionSupported;
@@ -110,8 +116,10 @@ public final class XDebugSessionImpl implements XDebugSession {
   private long myUserRequestStart;
   private String myUserRequestAction;
 
-  public XDebugSessionImpl(@NotNull ExecutionEnvironment environment, @NotNull XDebuggerManagerImpl debuggerManager) {
-    this(environment, debuggerManager, environment.getRunProfile().getName(), environment.getRunProfile().getIcon(), false, null);
+  public XDebugSessionImpl(@NotNull ExecutionEnvironment environment,
+                           @NotNull XDebuggerManagerImpl debuggerManager) {
+    this(environment, debuggerManager, environment.getRunProfile().getName(), environment.getRunProfile().getIcon(), false,
+         null);
   }
 
   public XDebugSessionImpl(@Nullable ExecutionEnvironment environment,
@@ -120,13 +128,15 @@ public final class XDebugSessionImpl implements XDebugSession {
                            @Nullable Icon icon,
                            boolean showTabOnSuspend,
                            @Nullable RunContentDescriptor contentToReuse) {
+    myCoroutineScope = CoroutineScopeKt.childScope(debuggerManager.getCoroutineScope(), "XDebugSession " + sessionName,
+                                                   EmptyCoroutineContext.INSTANCE, true);
     myEnvironment = environment;
     mySessionName = sessionName;
     myDebuggerManager = debuggerManager;
     myShowTabOnSuspend = new AtomicBoolean(showTabOnSuspend);
     myProject = debuggerManager.getProject();
     myExecutionPointManager = debuggerManager.getExecutionPointManager();
-    ValueLookupManager.getInstance(myProject).startListening();
+    ValueLookupManagerController.getInstance(myProject).startListening();
     DebuggerInlayListener.getInstance(myProject).startListening();
     myIcon = icon;
 
@@ -310,6 +320,11 @@ public final class XDebugSessionImpl implements XDebugSession {
     if (myDebugProcess.checkCanInitBreakpoints()) {
       initBreakpoints();
     }
+    if (myDebugProcess instanceof XDebugProcessDebuggeeInForeground debuggeeInForeground &&
+        debuggeeInForeground.isBringingToForegroundApplicable()) {
+      BringDebuggeeInForegroundUtilsKt.start(debuggeeInForeground, this, 1000);
+    }
+
 
     myDebugProcess.getProcessHandler().addProcessListener(new ProcessAdapter() {
       @Override
@@ -333,9 +348,9 @@ public final class XDebugSessionImpl implements XDebugSession {
     rebuildViews();
   }
 
+  @RequiresReadLock
   @Override
   public void initBreakpoints() {
-    ApplicationManager.getApplication().assertReadAccessAllowed();
     LOG.assertTrue(!breakpointsInitialized);
     breakpointsInitialized = true;
 
@@ -436,6 +451,11 @@ public final class XDebugSessionImpl implements XDebugSession {
     return myValueMarkers;
   }
 
+  @ApiStatus.Internal
+  public CoroutineScope getCoroutineScope() {
+    return myCoroutineScope;
+  }
+
   @SuppressWarnings("unchecked") //need to compile under 1.8, please do not remove before checking
   private static XBreakpointType getBreakpointTypeClass(final XBreakpointHandler handler) {
     return XDebuggerUtil.getInstance().findBreakpointType(handler.getBreakpointTypeClass());
@@ -499,8 +519,8 @@ public final class XDebugSessionImpl implements XDebugSession {
     }
   }
 
+  @RequiresReadLock
   public boolean isBreakpointActive(@NotNull XBreakpoint<?> b) {
-    ApplicationManager.getApplication().assertReadAccessAllowed();
     return !areBreakpointsMuted() && b.isEnabled() && !isInactiveSlaveBreakpoint(b) && !((XBreakpointBase<?, ?, ?>)b).isDisposed();
   }
 
@@ -524,9 +544,9 @@ public final class XDebugSessionImpl implements XDebugSession {
     myDispatcher.removeListener(listener);
   }
 
+  @RequiresReadLock
   @Override
   public void setBreakpointMuted(boolean muted) {
-    ApplicationManager.getApplication().assertReadAccessAllowed();
     if (areBreakpointsMuted() == muted) return;
     mySessionData.setBreakpointsMuted(muted);
     if (!myBreakpointsDisabled) {
@@ -599,8 +619,8 @@ public final class XDebugSessionImpl implements XDebugSession {
     myDebugProcess.startPausing();
   }
 
+  @RequiresReadLock
   private void processAllBreakpoints(final boolean register, final boolean temporary) {
-    ApplicationManager.getApplication().assertReadAccessAllowed();
     for (XBreakpointHandler<?> handler : myDebugProcess.getBreakpointHandlers()) {
       processBreakpoints(handler, register, temporary);
     }
@@ -831,7 +851,7 @@ public final class XDebugSessionImpl implements XDebugSession {
       }
     }
 
-    BP_NOTIFICATION_GROUP
+    NotificationGroupManager.getInstance().getNotificationGroup("Breakpoint hit")
       .createNotification(XDebuggerBundle.message("xdebugger.breakpoint.reached"), MessageType.INFO)
       .notify(getProject());
 
@@ -1029,6 +1049,8 @@ public final class XDebugSessionImpl implements XDebugSession {
     synchronized (myRegisteredBreakpoints) {
       myRegisteredBreakpoints.clear();
     }
+
+    kotlinx.coroutines.CoroutineScopeKt.cancel(myCoroutineScope, null);
   }
 
   private void removeBreakpointListeners() {

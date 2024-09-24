@@ -77,6 +77,12 @@ class TypeInferenceTest extends TypeInferenceTestBase {
     assertNull(ref.type)
   }
 
+  void testCircularMap() {
+    RecursionManager.disableMissedCacheAssertions(testRootDisposable)
+    GrReferenceExpression ref = ((GrReferenceExpression) configureByFile("${getTestName(true)}/A.groovy").element)
+    assertNotNull(ref.type.internalCanonicalText)
+  }
+
   void testClosure() {
     GrReferenceExpression ref = (GrReferenceExpression)configureByFile("closure/A.groovy").element
     assertNotNull(ref.type)
@@ -92,6 +98,12 @@ class TypeInferenceTest extends TypeInferenceTestBase {
     RecursionManager.disableMissedCacheAssertions(testRootDisposable)
     GrReferenceExpression ref = (GrReferenceExpression)configureByFile("closure2/A.groovy").element
     assertTrue(ref.type.equalsToText("int"))
+  }
+
+  void testClosureWithUndefinedValues() {
+    RecursionManager.disableMissedCacheAssertions(testRootDisposable)
+    GrReferenceExpression ref = (GrReferenceExpression)configureByFile("${getTestName(true)}/A.groovy").element
+    assertNotNull(ref.type)
   }
 
   void 'test binding from inside closure'() {

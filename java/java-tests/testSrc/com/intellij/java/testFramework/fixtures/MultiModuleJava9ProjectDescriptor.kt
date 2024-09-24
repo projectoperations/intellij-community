@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.testFramework.fixtures
 
 import com.intellij.openapi.application.ex.PathManagerEx
@@ -32,7 +32,7 @@ object MultiModuleJava9ProjectDescriptor : DefaultLightProjectDescriptor() {
     M2("light_idea_test_m2", sourceRootName = "src_m2"),
     M3("light_idea_test_m3", sourceRootName = "src_m3"),
     M4("light_idea_test_m4", sourceRootName = "src_m4"),
-    M5("light_idea_test_m5", sourceRootName = "src_m5"),
+    M5("light_idea_test_m5", sourceRootName = "src_m5", resourceRootName = "res_m5"),
     M6("light_idea_test_m6", sourceRootName = "src_m6", resourceRootName = "res_m6"),
     M7("light_idea_test_m7", sourceRootName = "src_m7"),
     M8("light_idea_test_m8", sourceRootName = "src_m8"),
@@ -128,23 +128,20 @@ object MultiModuleJava9ProjectDescriptor : DefaultLightProjectDescriptor() {
     }
     if (descriptor.sourceRootName != null) {
       val sourceRoot = createSourceRoot(module, descriptor.sourceRootName)
-      registerSourceRoot(module.project, sourceRoot)
       model.addContentEntry(sourceRoot).addSourceFolder(sourceRoot, JavaSourceRootType.SOURCE)
     }
     if (descriptor.testRootName != null) {
       val testRoot = createSourceRoot(module, descriptor.testRootName)
-      registerSourceRoot(module.project, testRoot)
       model.addContentEntry(testRoot).addSourceFolder(testRoot, JavaSourceRootType.TEST_SOURCE)
     }
     if (descriptor.resourceRootName != null) {
       val resourceRoot = createSourceRoot(module, descriptor.resourceRootName)
-      registerSourceRoot(module.project, resourceRoot)
       model.addContentEntry(resourceRoot).addSourceFolder(resourceRoot, JavaResourceRootType.RESOURCE)
     }
   }
 
   fun cleanupSourceRoots() = runWriteAction {
-    ModuleDescriptor.values().asSequence()
+    ModuleDescriptor.entries.asSequence()
       .flatMap { sequenceOf(if (it !== ModuleDescriptor.MAIN) it.sourceRoot() else null, it.testRoot(), it.resourceRoot()) }
       .filterNotNull()
       .flatMap { it.children.asSequence() }

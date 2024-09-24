@@ -270,6 +270,9 @@ public class DefaultInspectionToolResultExporter implements InspectionToolResult
           element.addContent(fingerprintElement);
         }
       }
+      if (descriptor instanceof ExportedInspectionsResultModifier) {
+        ((ExportedInspectionsResultModifier)descriptor).modifyResult(element);
+      }
     }
     catch (ProcessCanceledException e) {
       throw e;
@@ -458,17 +461,12 @@ public class DefaultInspectionToolResultExporter implements InspectionToolResult
     }
 
     checkFromSameFile(refElement, descriptors);
-    if (filterSuppressed) {
-      if (myContext.getOutputPath() == null || !(myToolWrapper instanceof LocalInspectionToolWrapper)
-          || this instanceof AggregateResultsExporter) {
-        myProblemElements.put(refElement, descriptors);
-      }
-      else {
-        addLocalInspectionProblem(refElement, descriptors);
-      }
+    if (myContext.getOutputPath() == null || !(myToolWrapper instanceof LocalInspectionToolWrapper)
+        || this instanceof AggregateResultsExporter) {
+      myProblemElements.put(refElement, descriptors);
     }
     else {
-      myProblemElements.put(refElement, descriptors);
+      addLocalInspectionProblem(refElement, descriptors);
     }
   }
 

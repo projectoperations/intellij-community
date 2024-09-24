@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package icons;
 
 import com.intellij.ui.IconManager;
@@ -10,15 +10,14 @@ import javax.swing.*;
  * NOTE THIS FILE IS AUTO-GENERATED
  * DO NOT EDIT IT BY HAND, run "Generate icon classes" configuration instead
  */
+@org.jetbrains.annotations.ApiStatus.Internal
 public final class PlatformDebuggerImplIcons {
   private static @NotNull Icon load(@NotNull String path, int cacheKey, int flags) {
     return IconManager.getInstance().loadRasterizedIcon(path, PlatformDebuggerImplIcons.class.getClassLoader(), cacheKey, flags);
   }
 
   public static final class Actions {
-    /** 16x16 */ public static final @NotNull Icon Force_run_to_cursor = load("icons/actions/force_run_to_cursor.svg", -1320997109, 2);
-    /** 16x16 */ public static final @NotNull Icon Force_step_into = load("icons/actions/force_step_into.svg", 155614706, 2);
-    /** 16x16 */ public static final @NotNull Icon Force_step_over = load("icons/actions/force_step_over.svg", 795507244, 2);
+    /** 16x16 */ public static final @NotNull Icon DebuggerSync = load("icons/actions/debuggerSync.svg", -370007676, 2);
   }
 
   public static final class MemoryView {

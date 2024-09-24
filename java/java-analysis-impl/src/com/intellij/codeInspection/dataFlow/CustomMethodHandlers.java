@@ -43,7 +43,8 @@ import static com.siyeh.ig.callMatcher.CallMatcher.*;
 public final class CustomMethodHandlers {
   private static final CallMatcher CONSTANT_CALLS = anyOf(
     exactInstanceCall(JAVA_LANG_STRING, "contains", "indexOf", "startsWith", "endsWith", "lastIndexOf", "length", "trim",
-                 "substring", "equals", "equalsIgnoreCase", "charAt", "codePointAt", "compareTo", "replace"),
+                      "substring", "equals", "equalsIgnoreCase", "charAt", "codePointAt", "compareTo", "replace", "strip",
+                      "stripLeading", "stripTrailing", "isBlank"),
     staticCall(JAVA_LANG_STRING, "valueOf").parameterCount(1),
     staticCall(JAVA_LANG_MATH, "abs", "sqrt", "min", "max", "addExact", "absExact", "subtractExact", "multiplyExact",
                "incrementExact", "decrementExact", "toIntExact", "negateExact", "sin", "cos", "tan", "asin", "acos", "atan", "cbrt",
@@ -124,6 +125,8 @@ public final class CustomMethodHandlers {
   private static final CallMapper<CustomMethodHandler> CUSTOM_METHOD_HANDLERS = new CallMapper<CustomMethodHandler>()
     .register(instanceCall(JAVA_LANG_STRING, "indexOf", "lastIndexOf"),
               toValue((args, memState, factory, method) -> indexOf(args.myQualifier, memState, factory, STRING_LENGTH)))
+    .register(instanceCall(JAVA_LANG_STRING, "trim", "strip", "stripLeading", "stripTrailing"),
+              toValue((args, memState, factory, method) -> shorterOrEqualString(args.myQualifier, memState, factory)))
     .register(instanceCall(JAVA_UTIL_LIST, "indexOf", "lastIndexOf"),
               toValue((args, memState, factory, method) -> indexOf(args.myQualifier, memState, factory, COLLECTION_SIZE)))
     .register(staticCall(JAVA_LANG_MATH, "abs").parameterTypes("int"),
@@ -362,6 +365,14 @@ public final class CustomMethodHandlers {
     return intRange(LongRangeSet.range(-1, range.max() - 1));
   }
 
+  private static @NotNull DfType shorterOrEqualString(DfaValue qualifier,
+                                                      DfaMemoryState memState,
+                                                      DfaValueFactory factory) {
+    DfaValue length = STRING_LENGTH.createValue(factory, qualifier);
+    LongRangeSet range = DfIntType.extractRange(memState.getDfType(length));
+    return STRING_LENGTH.asDfType(intRange(LongRangeSet.range(0, range.max())));
+  }
+
   private static @Nullable DfaValue copyOfArray(DfaCallArguments arguments,
                                                 DfaValueFactory factory,
                                                 PsiMethod method) {
@@ -556,7 +567,7 @@ public final class CustomMethodHandlers {
   private static @NotNull DfType objectGetClass(DfaCallArguments arguments, DfaMemoryState state, DfaValueFactory factory, PsiMethod method) {
     DfaValue qualifier = arguments.myQualifier;
     TypeConstraint fact = TypeConstraint.fromDfType(state.getDfType(qualifier));
-    if (fact instanceof TypeConstraint.Exact) {
+    if (fact instanceof TypeConstraint.Exact && !(fact instanceof TypeConstraints.ExactSubclass)) {
       PsiType qualifierType = fact.getPsiType(factory.getProject());
       PsiType classType = method.getReturnType();
       if (classType != null && qualifierType != null) {

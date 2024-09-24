@@ -2,6 +2,8 @@
 package com.intellij.xdebugger.impl.inline;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorCustomElementRenderer;
 import com.intellij.openapi.editor.Inlay;
@@ -18,6 +20,8 @@ import com.intellij.openapi.ui.GraphicsConfig;
 import com.intellij.ui.SimpleColoredText;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.paint.EffectPainter;
+import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.ui.DebuggerColors;
@@ -26,6 +30,7 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.concurrent.ExecutorService;
 
 import static com.intellij.openapi.editor.colors.EditorColors.REFERENCE_HYPERLINK_COLOR;
 import static com.intellij.xdebugger.impl.inline.InlineDebugRenderer.INDENT;
@@ -33,6 +38,12 @@ import static com.intellij.xdebugger.impl.inline.InlineDebugRenderer.NAME_VALUE_
 
 @ApiStatus.Internal
 public abstract class InlineDebugRendererBase implements EditorCustomElementRenderer {
+
+  private static final ExecutorService inExecutionPointRepainterExecutor =
+    AppExecutorUtil.createBoundedApplicationPoolExecutor("InlineDebugRenderer in Execution Point Repainter", 1);
+
+  public boolean isInExecutionPointCached;
+
   protected int myRemoveXCoordinate = Integer.MAX_VALUE;
   protected int myTextStartXCoordinate;
   protected boolean isHovered = false;
@@ -40,6 +51,20 @@ public abstract class InlineDebugRendererBase implements EditorCustomElementRend
   @Override
   public void paint(@NotNull Inlay inlay, @NotNull Graphics g, @NotNull Rectangle r, @NotNull TextAttributes textAttributes) {
     EditorImpl editor = (EditorImpl)inlay.getEditor();
+
+    ReadAction
+      .nonBlocking(this::calculateIsInExecutionPoint)
+      .finishOnUiThread(ModalityState.stateForComponent(editor.getComponent()),
+                        freshValue -> {
+                          if (freshValue != isInExecutionPointCached) {
+                            isInExecutionPointCached = freshValue;
+                            inlay.repaint();
+                          }
+                        })
+      .coalesceBy(inlay)
+      .expireWith(inlay)
+      .submit(inExecutionPointRepainterExecutor);
+
     TextAttributes inlineAttributes = getAttributes(editor);
     if (inlineAttributes == null || inlineAttributes.getForegroundColor() == null) return;
 
@@ -192,7 +217,7 @@ public abstract class InlineDebugRendererBase implements EditorCustomElementRend
   abstract public SimpleColoredText getPresentation();
 
   private TextAttributes getAttributes(Editor editor) {
-    TextAttributesKey key = isInExecutionPointHighlight() ? DebuggerColors.INLINED_VALUES_EXECUTION_LINE : DebuggerColors.INLINED_VALUES;
+    TextAttributesKey key = isInExecutionPointCached ? DebuggerColors.INLINED_VALUES_EXECUTION_LINE : DebuggerColors.INLINED_VALUES;
     EditorColorsScheme scheme = editor.getColorsScheme();
     TextAttributes inlinedAttributes = scheme.getAttributes(key);
 
@@ -201,7 +226,7 @@ public abstract class InlineDebugRendererBase implements EditorCustomElementRend
       hoveredInlineAttr.copyFrom(inlinedAttributes);
 
       Color hoveredAndSelectedColor = scheme.getAttributes(DebuggerColors.EXECUTIONPOINT_ATTRIBUTES).getForegroundColor();
-      Color foregroundColor = isInExecutionPointHighlight()
+      Color foregroundColor = isInExecutionPointCached
                               ? hoveredAndSelectedColor
                               : scheme.getAttributes(REFERENCE_HYPERLINK_COLOR).getForegroundColor();
 
@@ -226,5 +251,6 @@ public abstract class InlineDebugRendererBase implements EditorCustomElementRend
 
   abstract public boolean isErrorMessage();
 
-  abstract public boolean isInExecutionPointHighlight();
+  @RequiresBackgroundThread
+  abstract protected boolean calculateIsInExecutionPoint();
 }

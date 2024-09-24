@@ -1,22 +1,22 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.debugger.test
 
 import com.intellij.debugger.DebuggerManagerEx
 import com.intellij.debugger.DefaultDebugEnvironment
 import com.intellij.debugger.engine.DebugProcessImpl
-import com.intellij.debugger.impl.*
+import com.intellij.debugger.impl.DebuggerSession
+import com.intellij.debugger.impl.DescriptorTestCase
+import com.intellij.debugger.impl.GenericDebuggerRunnerSettings
+import com.intellij.debugger.impl.OutputChecker
 import com.intellij.debugger.settings.DebuggerSettings
 import com.intellij.execution.ExecutionTestCase
-import com.intellij.execution.configurations.JavaCommandLineState
 import com.intellij.execution.configurations.JavaParameters
 import com.intellij.execution.executors.DefaultDebugExecutor
 import com.intellij.execution.process.ProcessAdapter
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessOutputTypes
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder
-import com.intellij.execution.target.TargetEnvironmentRequest
-import com.intellij.execution.target.TargetedCommandLineBuilder
 import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.application.runReadAction
@@ -30,6 +30,7 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiFile
+import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.runInEdtAndGet
 import com.intellij.util.ThrowableRunnable
 import com.intellij.util.containers.addIfNotNull
@@ -37,6 +38,7 @@ import com.intellij.xdebugger.XDebugSession
 import org.jetbrains.kotlin.config.*
 import org.jetbrains.kotlin.fileClasses.JvmFileClassUtil
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinMainFunctionDetector
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode
 import org.jetbrains.kotlin.idea.base.plugin.artifacts.TestKotlinArtifacts
 import org.jetbrains.kotlin.idea.base.psi.classIdIfNonLocal
 import org.jetbrains.kotlin.idea.base.test.IgnoreTests
@@ -54,12 +56,10 @@ import org.jetbrains.kotlin.idea.test.KotlinBaseTest.TestFile
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils.*
 import org.jetbrains.kotlin.idea.test.TestFiles.TestFileFactory
 import org.jetbrains.kotlin.idea.test.TestFiles.createTestFiles
-import org.jetbrains.kotlin.idea.test.util.checkPluginIsCorrect
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtTreeVisitorVoid
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
-import org.jetbrains.kotlin.test.TargetBackend
 import org.junit.ComparisonFailure
 import java.io.File
 
@@ -69,7 +69,10 @@ internal const val COMMON_SOURCES_DIR = "commonSrc"
 internal const val SCRIPT_SOURCES_DIR = "scripts"
 internal const val JVM_MODULE_NAME_START = "jvm"
 
-abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCase {
+abstract class KotlinDescriptorTestCase : DescriptorTestCase(),
+                                          IgnorableTestCase,
+                                          ExpectedPluginModeProvider {
+
     private lateinit var testAppDirectory: File
     private lateinit var jvmSourcesOutputDirectory: File
     private lateinit var commonSourcesOutputDirectory: File
@@ -91,6 +94,7 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
     private var logPropagator: LogPropagator? = null
 
     private var oldValues: OldValuesStorage? = null
+    private val vmAttacher = VmAttacher.getInstance()
 
     override fun runBare(testRunnable: ThrowableRunnable<Throwable>) {
         testAppDirectory = tmpDir("debuggerTestSources")
@@ -105,59 +109,31 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
             println("Test is skipped for K2 code")
             return
         }
-        if (isK2Plugin) {
-            IgnoreTests.runTestIfNotDisabledByFileDirective(
+
+        when (pluginMode) {
+            KotlinPluginMode.K2 -> IgnoreTests.runTestIfNotDisabledByFileDirective(
                 dataFile().toPath(),
                 getK2IgnoreDirective(),
                 directivePosition = IgnoreTests.DirectivePosition.LAST_LINE_IN_FILE
             ) {
                 super.runBare(testRunnable)
             }
-        } else {
-            super.runBare(testRunnable)
-        }
 
+            KotlinPluginMode.K1 -> super.runBare(testRunnable)
+        }
     }
 
     protected open fun getK2IgnoreDirective(): String = IgnoreTests.DIRECTIVES.IGNORE_K2
 
-    var originalUseIrBackendForEvaluation = true
-    private var originalDisableFallbackToOldEvaluator = false
-
-    private fun registerEvaluatorBackend() {
-        val useIrBackendForEvaluation = Registry.get("debugger.kotlin.evaluator.use.new.jvm.ir.backend")
-        originalUseIrBackendForEvaluation = useIrBackendForEvaluation.asBoolean()
-
-        val isJvmIrBackend = fragmentCompilerBackend() == FragmentCompilerBackend.JVM_IR
-        useIrBackendForEvaluation.setValue(isJvmIrBackend)
-
-        if (isJvmIrBackend) {
-            val disableFallbackToOldEvaluator = Registry.get("debugger.kotlin.evaluator.disable.fallback.to.old.backend")
-            originalDisableFallbackToOldEvaluator = disableFallbackToOldEvaluator.asBoolean()
-            disableFallbackToOldEvaluator.setValue(true)
-        }
-    }
-
-    private fun restoreEvaluatorBackend() {
-        Registry.get("debugger.kotlin.evaluator.use.new.jvm.ir.backend")
-            .setValue(originalUseIrBackendForEvaluation)
-        Registry.get("debugger.kotlin.evaluator.disable.fallback.to.old.backend")
-            .setValue(originalDisableFallbackToOldEvaluator)
-    }
-
-    protected open val isK2Plugin: Boolean get() = false
-
     protected open val compileWithK2: Boolean get() = false
 
-    override fun setUp() {
-        super.setUp()
+    protected open val useInlineScopes: Boolean get() = false
 
-        registerEvaluatorBackend()
+    override fun setUp() {
+        setUpWithKotlinPlugin { super.setUp() }
 
         KotlinEvaluator.LOG_COMPILATIONS = true
         logPropagator = LogPropagator(::systemLogger).apply { attach() }
-        checkPluginIsCorrect(isK2Plugin)
-        atDebuggerTearDown { restoreEvaluatorBackend() }
         atDebuggerTearDown { logPropagator = null }
         atDebuggerTearDown { logPropagator?.detach() }
         atDebuggerTearDown { detachLibraries() }
@@ -165,6 +141,9 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
         atDebuggerTearDown { invokeAndWaitIfNeeded { oldValues?.revertValues() } }
         atDebuggerTearDown { KotlinEvaluator.LOG_COMPILATIONS = false }
         atDebuggerTearDown { restoreIdeCompilerSettings() }
+
+        vmAttacher.setUp()
+        atDebuggerTearDown { vmAttacher.tearDown() }
     }
 
     protected fun dataFile(fileName: String): File = File(getTestDataPath(), fileName)
@@ -175,20 +154,7 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
 
     fun getTestDataPath(): String = getTestsRoot(this::class.java)
 
-    enum class FragmentCompilerBackend {
-        JVM,
-        JVM_IR
-    }
-
-    open fun fragmentCompilerBackend() = FragmentCompilerBackend.JVM_IR
-
     open fun lambdasGenerationScheme() = JvmClosureGenerationScheme.CLASS
-
-    protected open fun targetBackend(): TargetBackend =
-        when (fragmentCompilerBackend()) {
-            FragmentCompilerBackend.JVM -> TargetBackend.JVM_IR_WITH_OLD_EVALUATOR
-            FragmentCompilerBackend.JVM_IR -> TargetBackend.JVM_IR_WITH_IR_EVALUATOR
-        }
 
     protected open fun configureProjectByTestFiles(testFiles: List<TestFileWithModule>, testAppDirectory: File) {
     }
@@ -208,6 +174,7 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
         configureProjectByTestFiles(testFiles, testAppDirectory)
 
         val preferences = DebuggerPreferences(myProject, wholeFileContents)
+        configureRegistry(preferences)
 
         invokeAndWaitIfNeeded {
             oldValues = SettingsMutators.mutate(preferences)
@@ -225,7 +192,12 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
 
         val compilerFacility = createDebuggerTestCompilerFacility(
             testFiles, jvmTarget,
-            TestCompileConfiguration(lambdasGenerationScheme(), languageVersion, enabledLanguageFeatures)
+            TestCompileConfiguration(
+                lambdasGenerationScheme(),
+                languageVersion,
+                enabledLanguageFeatures,
+                useInlineScopes
+            )
         )
 
         compileLibrariesAndTestSources(preferences, compilerFacility)
@@ -238,7 +210,6 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
         ).apply { createAdditionalBreakpoints(wholeFileContents) }
 
         createLocalProcess(mainClassName)
-        configureRegistry(preferences)
         doMultiFileTest(testFiles, preferences)
     }
 
@@ -280,6 +251,8 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
         )
         sourcesKtFiles =
             compilerFacility.creatKtFiles(jvmSourcesOutputDirectory, commonSourcesOutputDirectory, scriptSourcesOutputDirectory)
+
+        IndexingTestUtil.waitUntilIndexesAreReady(project)
     }
 
     // Provide a hook for subclasses to compile additional libraries.
@@ -287,7 +260,7 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
     }
 
     protected open fun getMainClassName(compilerFacility: DebuggerTestCompilerFacility): String {
-        if (!isK2Plugin) {
+        if (pluginMode == KotlinPluginMode.K1) {
             // Although the implementation below is frontend-agnostic, K1 tests seem to depend on resolution ordering.
             // Some evaluation tests fail if not all files are analyzed at this point.
             return compilerFacility.analyzeAndFindMainClass(sourcesKtFiles.jvmKtFiles)
@@ -349,27 +322,8 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
             .runProfile(MockConfiguration(myProject))
             .build()
 
-        val javaCommandLineState: JavaCommandLineState = object : JavaCommandLineState(environment) {
-            override fun createJavaParameters() = javaParameters
-
-            override fun createTargetedCommandLine(request: TargetEnvironmentRequest): TargetedCommandLineBuilder {
-                return getJavaParameters().toCommandLine(request)
-            }
-        }
-
-        val debugParameters =
-            RemoteConnectionBuilder(
-                debuggerRunnerSettings.LOCAL,
-                debuggerRunnerSettings.transport,
-                debuggerRunnerSettings.debugPort
-            )
-                .checkValidity(true)
-                .asyncAgent(true)
-                .create(javaCommandLineState.javaParameters)
-
-        val env = javaCommandLineState.environment
-        env.putUserData(DefaultDebugEnvironment.DEBUGGER_TRACE_MODE, traceMode)
-        val debuggerSession = attachVirtualMachine(javaCommandLineState, env, debugParameters, false)
+        environment.putUserData(DefaultDebugEnvironment.DEBUGGER_TRACE_MODE, traceMode)
+        val debuggerSession = vmAttacher.attachVirtualMachine(this, javaParameters, environment)
 
         val processHandler = debuggerSession.process.processHandler
         debuggerSession.process.addProcessListener(object : ProcessAdapter() {
@@ -408,13 +362,7 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
     abstract fun doMultiFileTest(files: TestFiles, preferences: DebuggerPreferences)
 
     override fun initOutputChecker(): OutputChecker {
-        return KotlinOutputChecker(
-            getTestDataPath(),
-            testAppPath,
-            appOutputPath,
-            targetBackend(),
-            getExpectedOutputFile()
-        )
+        return KotlinOutputChecker(getTestDataPath(), testAppPath, appOutputPath, getExpectedOutputFile())
     }
 
     override fun setUpModule() {
@@ -520,6 +468,7 @@ abstract class KotlinDescriptorTestCase : DescriptorTestCase(), IgnorableTestCas
 
     protected fun getExpectedOutputFile(): File {
         val extensions = sequenceOf(
+            ".scopes.out".takeIf { useInlineScopes },
             ".k2.out".takeIf { compileWithK2 },
             ".indy.out".takeIf { lambdasGenerationScheme() == JvmClosureGenerationScheme.INDY },
             ".out",

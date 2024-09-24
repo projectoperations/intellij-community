@@ -13,6 +13,7 @@ import com.intellij.debugger.engine.evaluation.*;
 import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
 import com.intellij.debugger.engine.evaluation.expression.UnsupportedExpressionException;
+import com.intellij.debugger.engine.evaluation.statistics.JavaDebuggerEvaluatorStatisticsCollector;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
@@ -26,6 +27,7 @@ import com.intellij.debugger.statistics.DebuggerStatistics;
 import com.intellij.debugger.ui.impl.watch.CompilingEvaluatorImpl;
 import com.intellij.debugger.ui.overhead.OverheadProducer;
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.IndexNotReadyException;
@@ -42,6 +44,7 @@ import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.ThreeState;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
@@ -53,8 +56,10 @@ import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.XDebuggerHistoryManager;
 import com.intellij.xdebugger.impl.XDebuggerUtilImpl;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase;
+import com.intellij.xdebugger.impl.breakpoints.XBreakpointUtil;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
 import com.intellij.xdebugger.impl.breakpoints.ui.XBreakpointActionsPanel;
+import com.intellij.xdebugger.impl.ui.tree.nodes.XEvaluationOrigin;
 import com.sun.jdi.*;
 import com.sun.jdi.event.LocatableEvent;
 import com.sun.jdi.request.EventRequest;
@@ -69,11 +74,13 @@ import org.jetbrains.java.debugger.breakpoints.properties.JavaBreakpointProperti
 import javax.swing.*;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-public abstract class Breakpoint<P extends JavaBreakpointProperties> implements FilteredRequestor, ClassPrepareRequestor, OverheadProducer {
+public abstract class Breakpoint<P extends JavaBreakpointProperties> implements FilteredRequestor, ClassPrepareRequestor, OverheadProducer, InternalDebugLoggingRequestor {
+  private static final ExecutorService RELOAD_EXECUTOR = AppExecutorUtil.createBoundedApplicationPoolExecutor("Breakpoint reload", 1);
   public static final Key<Breakpoint<?>> DATA_KEY = Key.create("JavaBreakpoint");
   private static final Key<Long> HIT_COUNTER = Key.create("HIT_COUNTER");
 
@@ -83,6 +90,8 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
 
   @NonNls private static final String LOG_MESSAGE_OPTION_NAME = "LOG_MESSAGE";
   protected boolean myCachedVerifiedState = false;
+
+  private boolean myIsDebugLogBreakpoint;
 
   protected Breakpoint(@NotNull Project project, XBreakpoint<P> xBreakpoint) {
     myProject = project;
@@ -143,11 +152,16 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
   public void customizeRenderer(SimpleColoredComponent renderer) {
     if (myXBreakpoint != null) {
       renderer.setIcon(myXBreakpoint.getType().getEnabledIcon());
+      try (AccessToken ignore = SlowOperations.knownIssue("IJPL-162794")) {
+        renderer.append(XBreakpointUtil.getShortText(myXBreakpoint));
+      }
     }
     else {
       renderer.setIcon(AllIcons.Debugger.Db_set_breakpoint);
+      try (AccessToken ignore = SlowOperations.knownIssue("IJPL-162794")) {
+        renderer.append(getDisplayName());
+      }
     }
-    renderer.append(getDisplayName());
   }
 
   @Override
@@ -213,7 +227,8 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
   void scheduleReload() {
     ReadAction.nonBlocking(this::reload)
       .coalesceBy(myProject, this)
-      .submit(AppExecutorUtil.getAppExecutorService());
+      .expireWith(myProject)
+      .submit(RELOAD_EXECUTOR);
   }
 
   /**
@@ -270,9 +285,9 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
   }
 
   protected void createOrWaitPrepare(final DebugProcessImpl debugProcess, @NotNull final SourcePosition classPosition) {
+    long startTimeNs = System.nanoTime();
     debugProcess.getRequestsManager().callbackOnPrepareClasses(this, classPosition);
     if (debugProcess.getVirtualMachineProxy().canBeModified() && !isObsolete()) {
-      long startTimeNs = System.nanoTime();
       List<ReferenceType> classes = debugProcess.getPositionManager().getAllClasses(classPosition);
       long timeMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTimeNs);
       DebuggerStatistics.logBreakpointInstallSearchOverhead(this, timeMs);
@@ -358,16 +373,19 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
         }
 
         TextWithImports logMessage = getLogMessage();
+        ExpressionEvaluator evaluator = null;
         try {
           SourcePosition position = ContextUtil.getSourcePosition(context);
           PsiElement element = ContextUtil.getContextElement(context, position);
-          ExpressionEvaluator evaluator = DebuggerInvocationUtil.commitAndRunReadAction(myProject,
+          evaluator = DebuggerInvocationUtil.commitAndRunReadAction(myProject,
             () -> EvaluatorCache.cacheOrGet("LogMessageEvaluator", event.request(), element, logMessage, () ->
               createExpressionEvaluator(myProject, element, position, logMessage, this::createLogMessageCodeFragment)));
           Value eval = evaluator.evaluate(context);
+          JavaDebuggerEvaluatorStatisticsCollector.logEvaluationResult(myProject, evaluator, true, XEvaluationOrigin.BREAKPOINT_LOG);
           buf.append(eval instanceof VoidValue ? "void" : DebuggerUtils.getValueAsString(context, eval));
         }
         catch (EvaluateException e) {
+          JavaDebuggerEvaluatorStatisticsCollector.logEvaluationResult(myProject, evaluator, false, XEvaluationOrigin.BREAKPOINT_LOG);
           buf.append(JavaDebuggerBundle.message("error.unable.to.evaluate.expression"))
             .append(" \"").append(logMessage).append("\"")
             .append(" : ").append(e.getMessage());
@@ -393,10 +411,10 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
   public boolean evaluateCondition(final EvaluationContextImpl context, LocatableEvent event) throws EvaluateException {
     DebugProcessImpl debugProcess = context.getDebugProcess();
     if (isCountFilterEnabled() && !isConditionEnabled()) {
-      debugProcess.getVirtualMachineProxy().suspend();
+      context.getSuspendContext().getVirtualMachineProxy().suspend();
       debugProcess.getRequestsManager().deleteRequest(this);
       createRequest(debugProcess);
-      debugProcess.getVirtualMachineProxy().resume();
+      context.getSuspendContext().getVirtualMachineProxy().resume();
     }
 
     StackFrameProxyImpl frame = context.getFrameProxy();
@@ -440,9 +458,10 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
         }
       }
 
+      ExpressionEvaluator evaluator = null;
       try {
         SourcePosition contextSourcePosition = ContextUtil.getSourcePosition(context);
-        ExpressionEvaluator evaluator = DebuggerInvocationUtil.commitAndRunReadAction(myProject, () -> {
+        evaluator = DebuggerInvocationUtil.commitAndRunReadAction(myProject, () -> {
           // IMPORTANT: calculate context psi element basing on the location where the exception
           // has been hit, not on the location where it was set. (For line breakpoints these locations are the same, however,
           // for method, exception and field breakpoints these locations differ)
@@ -452,10 +471,12 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
                                            () -> createExpressionEvaluator(myProject,
                                                                            contextPsiElement,
                                                                            contextSourcePosition,
-                                                                           condition,
+                                                                             condition,
                                                                            this::createConditionCodeFragment));
         });
-        if (!DebuggerUtilsEx.evaluateBoolean(evaluator, context)) {
+        boolean evaluationResult = DebuggerUtilsEx.evaluateBoolean(evaluator, context);
+        JavaDebuggerEvaluatorStatisticsCollector.logEvaluationResult(myProject, evaluator, true, XEvaluationOrigin.BREAKPOINT_CONDITION);
+        if (!evaluationResult) {
           return false;
         }
       }
@@ -463,6 +484,7 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
         if (ex.getCause() instanceof VMDisconnectedException) {
           return false;
         }
+        JavaDebuggerEvaluatorStatisticsCollector.logEvaluationResult(myProject, evaluator, false, XEvaluationOrigin.BREAKPOINT_CONDITION);
         throw EvaluateExceptionUtil.createEvaluateException(
           JavaDebuggerBundle.message("error.failed.evaluating.breakpoint.condition", condition, ex.getMessage())
         );
@@ -799,5 +821,14 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
 
   protected void fireBreakpointChanged() {
     ((XBreakpointBase<?, ?, ?>)myXBreakpoint).fireBreakpointChanged();
+  }
+
+  public void setIsDebugLogBreakpoint(boolean isDebugLogBreakpoint) {
+    myIsDebugLogBreakpoint = isDebugLogBreakpoint;
+  }
+
+  @Override
+  public boolean isDebugLogBreakpoint() {
+    return myIsDebugLogBreakpoint;
   }
 }

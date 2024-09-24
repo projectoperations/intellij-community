@@ -14,15 +14,14 @@ import org.jetbrains.plugins.gradle.frameworkSupport.buildscript.GradleBuildScri
 import org.jetbrains.plugins.gradle.frameworkSupport.settingsScript.GradleSettingScriptBuilder
 import org.jetbrains.plugins.gradle.testFramework.configuration.TestFilesConfiguration
 
-
-fun settingsScript(
+private fun settingsScript(
   useKotlinDsl: Boolean = false,
   configure: GradleSettingScriptBuilder<*>.() -> Unit
 ) = GradleSettingScriptBuilder.create(useKotlinDsl)
   .apply(configure)
   .generate()
 
-fun buildScript(
+private fun buildScript(
   gradleVersion: GradleVersion,
   useKotlinDsl: Boolean = false,
   configure: GradleBuildScriptBuilder<*>.() -> Unit

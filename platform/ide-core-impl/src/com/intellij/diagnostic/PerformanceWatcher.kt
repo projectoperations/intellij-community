@@ -3,7 +3,6 @@ package com.intellij.diagnostic
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
-import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.NonNls
 import java.nio.file.Path
@@ -12,7 +11,11 @@ abstract class PerformanceWatcher {
   interface Snapshot {
     fun logResponsivenessSinceCreation(activityName: @NonNls String)
 
+    fun logResponsivenessSinceCreation(activityName: @NonNls String, spanName: String?)
+
     fun getLogResponsivenessSinceCreationMessage(activityName: @NonNls String): String?
+
+    fun getLogResponsivenessSinceCreationMessage(activityName: @NonNls String, spanName: String?): String?
   }
 
   companion object {
@@ -82,13 +85,6 @@ abstract class PerformanceWatcher {
 
   @Internal
   abstract fun edtEventFinished()
-
-  @Deprecated("use {@link #dumpThreads(String, boolean, boolean)} instead",
-              ReplaceWith("dumpThreads(pathPrefix = pathPrefix, appendMillisecondsToFileName = appendMillisecondsToFileName, stripDump = false)"))
-  @ApiStatus.ScheduledForRemoval
-  fun dumpThreads(pathPrefix: String, appendMillisecondsToFileName: Boolean): Path? {
-    return dumpThreads(pathPrefix = pathPrefix, appendMillisecondsToFileName = appendMillisecondsToFileName, stripDump = false)
-  }
 
   /**
    * @param stripDump if set to true, then some information in the dump that is considered useless for debugging

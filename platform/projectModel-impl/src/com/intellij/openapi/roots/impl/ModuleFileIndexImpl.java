@@ -3,6 +3,7 @@ package com.intellij.openapi.roots.impl;
 
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -46,8 +47,14 @@ public class ModuleFileIndexImpl extends FileIndexBase implements ModuleFileInde
       Collection<VirtualFile> recursiveRoots = new HashSet<>();
       Collection<VirtualFile> nonRecursiveRoots = new SmartList<>();
       index.visitFileSets(new WorkspaceFileSetVisitor() {
+        private int visitedCount = 0;
+
         @Override
         public void visitIncludedRoot(@NotNull WorkspaceFileSet fileSet) {
+          visitedCount++;
+          if (visitedCount % 100 == 0) {
+            ProgressManager.checkCanceled();
+          }
           if (!(fileSet instanceof WorkspaceFileSetWithCustomData<?>) || !isInContent((WorkspaceFileSetWithCustomData<?>)fileSet)) {
             return;
           }

@@ -1,21 +1,22 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.startup.importSettings.providers.vscode
 
-import com.intellij.ide.startup.importSettings.db.KnownColorSchemes
 import com.intellij.ide.startup.importSettings.db.KnownKeymaps
 import com.intellij.ide.startup.importSettings.db.KnownLafs
 import com.intellij.ide.startup.importSettings.db.WindowsEnvVariables
 import com.intellij.ide.startup.importSettings.models.Settings
+import com.intellij.ide.startup.importSettings.transfer.backend.db.KnownColorSchemes
 import com.intellij.ide.startup.importSettings.transfer.backend.providers.vscode.parsers.*
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.SystemInfoRt
+import kotlinx.coroutines.CoroutineScope
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.time.Duration
 import java.time.Instant
 
-class VSCodeSettingsProcessor {
+class VSCodeSettingsProcessor(private val scope: CoroutineScope) {
   companion object {
     private val homeDirectory = System.getProperty("user.home")
 
@@ -40,7 +41,20 @@ class VSCodeSettingsProcessor {
     private val timeAfterLastModificationToConsiderTheInstanceRecent = Duration.ofHours(365 * 24) // one year
   }
 
-  fun willDetectAtLeastSomething(): Boolean = generalSettingsFile.exists()
+  fun willDetectAtLeastSomething(): Boolean {
+    if (generalSettingsFile.exists())
+      return true
+
+    if (!pluginsDirectory.exists() || !pluginsDirectory.isDirectory)
+      return false
+    val pluginsDirEntries = pluginsDirectory.listFiles() ?: return false  // no extensions and config file
+
+    for (pluginDirEntry in pluginsDirEntries) {
+      if (pluginDirEntry.isDirectory)
+        return true
+    }
+    return false
+  }
 
   fun isInstanceRecentEnough(): Boolean {
     try {
@@ -72,7 +86,7 @@ class VSCodeSettingsProcessor {
       GeneralSettingsParser(settings).process(generalSettingsFile)
     }
     if (database.exists()) {
-      StateDatabaseParser(settings).process(database)
+      StateDatabaseParser(scope, settings).process(database)
     }
 
     return settings

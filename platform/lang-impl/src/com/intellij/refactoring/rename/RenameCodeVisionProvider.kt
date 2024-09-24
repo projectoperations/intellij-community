@@ -6,20 +6,22 @@ import com.intellij.codeInsight.codeVision.settings.PlatformCodeVisionIds
 import com.intellij.codeInsight.codeVision.ui.model.CodeVisionPredefinedActionEntry
 import com.intellij.codeInsight.codeVision.ui.model.TextCodeVisionEntry
 import com.intellij.codeInsight.hints.InlayHintsUtils
+import com.intellij.codeInsight.hints.codeVision.CodeVisionFusCollector
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.command.UndoConfirmationPolicy
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts
-import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.findPsiFile
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.PsiRecursiveElementVisitor
 import com.intellij.refactoring.RefactoringBundle
+import com.intellij.refactoring.RefactoringCodeVisionSupport
 import com.intellij.refactoring.suggested.REFACTORING_DATA_KEY
 import com.intellij.refactoring.suggested.SuggestedRenameData
 import com.intellij.refactoring.suggested.performSuggestedRefactoring
@@ -40,6 +42,7 @@ class RenameCodeVisionProvider : CodeVisionProvider<Unit> {
     providerId: String,
   ) : TextCodeVisionEntry(text, providerId, AllIcons.Actions.SuggestedRefactoringBulb, tooltip, tooltip, listOf()), CodeVisionPredefinedActionEntry {
     override fun onClick(editor: Editor) {
+      CodeVisionFusCollector.refactoringPerformed(CodeVisionFusCollector.Refactorings.Rename)
       val mouseEvent = this.getUserData(codeVisionEntryMouseEventKey)
       CommandProcessor.getInstance().executeCommand(project, {
         performSuggestedRefactoring(project,
@@ -67,7 +70,7 @@ class RenameCodeVisionProvider : CodeVisionProvider<Unit> {
   private fun getCodeVisionState(editor: Editor, project: Project): CodeVisionState {
     val file = editor.virtualFile?.findPsiFile(project)
 
-    if (file != null && !RenameCodeVisionSupport.isEnabledFor(file.fileType)) {
+    if (file != null && !RefactoringCodeVisionSupport.isRenameCodeVisionEnabled(file.fileType)) {
       return CodeVisionState.READY_EMPTY
     }
 
@@ -76,9 +79,9 @@ class RenameCodeVisionProvider : CodeVisionProvider<Unit> {
                       ?: return CodeVisionState.READY_EMPTY
 
     if (refactoring is SuggestedRenameData) {
-      if (refactoring.oldName == refactoring.declaration.name) return CodeVisionState.READY_EMPTY
+      if (refactoring.oldName == refactoring.newName) return CodeVisionState.READY_EMPTY
       val text = RefactoringBundle.message("rename.code.vision.text")
-      val tooltip = RefactoringBundle.message("suggested.refactoring.rename.popup.text", refactoring.oldName, refactoring.declaration.name)
+      val tooltip = RefactoringBundle.message("suggested.refactoring.rename.popup.text", refactoring.oldName, refactoring.newName)
       return CodeVisionState.Ready(listOf(
         refactoring.declaration.textRange to RenameCodeVisionEntry(project, text, tooltip, id)
       ))
@@ -99,11 +102,6 @@ class RenameCodeVisionProvider : CodeVisionProvider<Unit> {
     visitor.renamedElement?.let { editor.putUserData(REFACTORING_DATA_KEY, SuggestedRenameData(it, "foo")) }
   }
 
-  override fun handleClick(editor: Editor, textRange: TextRange, entry: CodeVisionEntry) {
-    RenameCodeVisionCollector.inlayHintClicked()
-    super.handleClick(editor, textRange, entry)
-  }
-
   override val name: String
     get() = RefactoringBundle.message("rename.code.vision.label")
   override val relativeOrderings: List<CodeVisionRelativeOrdering>
@@ -114,4 +112,10 @@ class RenameCodeVisionProvider : CodeVisionProvider<Unit> {
     get() = ID
   override val groupId: String
     get() = PlatformCodeVisionIds.RENAME.key
+
+  override fun isAvailableFor(project: Project): Boolean {
+    return FileTypeManager.getInstance().registeredFileTypes.any {
+      RefactoringCodeVisionSupport.isRenameCodeVisionEnabled(it)
+    }
+  }
 }

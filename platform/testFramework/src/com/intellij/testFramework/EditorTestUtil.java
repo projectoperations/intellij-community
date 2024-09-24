@@ -46,12 +46,12 @@ import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.encoding.EncodingManager;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
+import com.intellij.platform.testFramework.core.FileComparisonFailedError;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.rt.execution.junit.FileComparisonFailure;
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
 import com.intellij.util.SmartList;
 import com.intellij.util.ThrowableRunnable;
@@ -60,6 +60,7 @@ import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import junit.framework.TestCase;
+import kotlin.Unit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -72,6 +73,7 @@ import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
 
+import static com.intellij.openapi.application.ActionsKt.invokeAndWaitIfNeeded;
 import static org.junit.Assert.*;
 
 /**
@@ -133,6 +135,12 @@ public final class EditorTestUtil {
     else if (assertActionIsEnabled) {
       fail("Action " + action + " is disabled");
     }
+  }
+
+  public static boolean checkActionIsEnabled(@NotNull Editor editor, @NotNull AnAction action) {
+    AnActionEvent event = AnActionEvent.createFromAnAction(action, null, "", createEditorContext(editor));
+    ActionUtil.performDumbAwareUpdate(action, event, false);
+    return event.getPresentation().isEnabled();
   }
 
   @NotNull
@@ -318,6 +326,19 @@ public final class EditorTestUtil {
     return !model.getRegisteredSoftWraps().isEmpty();
   }
 
+  @TestOnly
+  public static void releaseAllEditors() {
+    invokeAndWaitIfNeeded(null, () -> {
+      EditorFactory editorFactory = EditorFactory.getInstance();
+      for (Editor editor : editorFactory.getAllEditors()) {
+        if (!editor.isDisposed()) {
+          editorFactory.releaseEditor(editor);
+        }
+      }
+      return Unit.INSTANCE;
+    });
+  }
+
   public static void setEditorVisibleSize(Editor editor, int widthInChars, int heightInChars) {
     setEditorVisibleSizeInPixels(editor,
                                  widthInChars * EditorUtil.getSpaceWidth(Font.PLAIN, editor),
@@ -488,7 +509,7 @@ public final class EditorTestUtil {
         String actual = CaretAndSelectionMarkup.renderActualState(editor);
         if (expectedFilePath != null) {
           if (!expected.equals(actual)) {
-            throw new FileComparisonFailure(e.getMessage(), expected, actual, expectedFilePath);
+            throw new FileComparisonFailedError(e.getMessage(), expected, actual, expectedFilePath);
           }
         } else {
           assertEquals(e.getMessage(), expected, actual);

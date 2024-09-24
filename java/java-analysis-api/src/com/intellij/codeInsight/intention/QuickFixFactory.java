@@ -385,7 +385,7 @@ public abstract class QuickFixFactory {
   public abstract IntentionAction createCreateGetterOrSetterFix(boolean createGetter, boolean createSetter, @NotNull PsiField field);
 
   @NotNull
-  public abstract LocalQuickFixAndIntentionActionOnPsiElement createRenameToIgnoredFix(@NotNull PsiNamedElement namedElement, boolean useElementNameAsSuffix);
+  public abstract IntentionAction createRenameToIgnoredFix(@NotNull PsiVariable namedElement, boolean useElementNameAsSuffix);
 
   @NotNull
   public abstract IntentionAction createEnableOptimizeImportsOnTheFlyFix();
@@ -404,6 +404,12 @@ public abstract class QuickFixFactory {
 
   @NotNull
   public abstract IntentionAction createSafeDeleteFix(@NotNull PsiElement element);
+
+  /**
+   * @param method method to delete
+   * @return a fix to remove private method, possibly along with called methods unused elsewhere
+   */
+  public abstract @NotNull ModCommandAction createDeletePrivateMethodFix(@NotNull PsiMethod method);
 
   public abstract @NotNull List<@NotNull LocalQuickFix> registerOrderEntryFixes(@NotNull PsiReference reference,
                                                                                 @NotNull List<? super IntentionAction> registrar);
@@ -467,6 +473,17 @@ public abstract class QuickFixFactory {
                                                                          @NotNull Map<PsiType, Set<List<PsiType>>> branches,
                                                                          @NotNull List<? extends PsiCaseLabelElement> elements);
 
+  @Nullable
+  public abstract IntentionAction createAddMissingSealedClassBranchesFixWithNull(@NotNull PsiSwitchBlock switchBlock,
+                                                                                           @NotNull Set<String> missingCases,
+                                                                                           @NotNull List<String> allNames);
+
+  @Nullable
+  public abstract IntentionAction createAddMissingBooleanPrimitiveBranchesFix(@NotNull PsiSwitchBlock block);
+
+  @Nullable
+  public abstract IntentionAction createAddMissingBooleanPrimitiveBranchesFixWithNull(@NotNull PsiSwitchBlock block);
+
   @NotNull
   public abstract IntentionAction createAddSwitchDefaultFix(@NotNull PsiSwitchBlock switchBlock, @Nullable String message);
 
@@ -486,9 +503,9 @@ public abstract class QuickFixFactory {
   public abstract IntentionAction createAddEmptyRecordHeaderFix(@NotNull PsiClass record);
 
   @NotNull
-  public abstract IntentionAction createCreateFieldFromParameterFix();
+  public abstract IntentionAction createCreateFieldFromParameterFix(@NotNull PsiParameter parameter);
   @NotNull
-  public abstract IntentionAction createAssignFieldFromParameterFix();
+  public abstract IntentionAction createAssignFieldFromParameterFix(@NotNull PsiParameter parameter);
 
   @NotNull
   public abstract IntentionAction createFillPermitsListFix(@NotNull PsiIdentifier classIdentifier);
@@ -515,13 +532,6 @@ public abstract class QuickFixFactory {
   public abstract @NotNull IntentionAction createSealClassFromPermitsListFix(@NotNull PsiClass classFromPermitsList);
 
   public abstract @NotNull IntentionAction createRemoveDuplicateExtendsAction(@NotNull String className);
-
-  /**
-   * @deprecated error elements are not provided anymore for members declared out of class.
-   * Now they are members of an implicitly declared class and can be moved as usual members.
-   */
-  @Deprecated
-  public abstract @NotNull IntentionAction createMoveMemberIntoClassFix(@NotNull PsiErrorElement errorElement);
 
   /**
    * Creates a fix that changes the type of the receiver parameter

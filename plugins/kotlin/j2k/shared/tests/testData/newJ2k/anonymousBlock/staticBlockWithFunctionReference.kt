@@ -4,5 +4,9 @@ import java.util.function.Function
 
 object ConvertTest {
     var test: Function<CharArray, String> =
-        Function { chars: CharArray? -> String(chars!!) }
+        Function { value: CharArray? ->
+            String(
+                value!!
+            )
+        }
 }

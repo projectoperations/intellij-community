@@ -6,6 +6,7 @@ import com.esotericsoftware.kryo.kryo5.objenesis.instantiator.ObjectInstantiator
 import com.esotericsoftware.kryo.kryo5.serializers.DefaultSerializers
 import com.google.common.collect.HashBiMap
 import com.google.common.collect.HashMultimap
+import com.intellij.platform.workspace.storage.ConnectionId
 import com.intellij.platform.workspace.storage.EntityTypesResolver
 import com.intellij.platform.workspace.storage.impl.*
 import com.intellij.platform.workspace.storage.impl.ImmutableEntitiesBarrel
@@ -24,7 +25,6 @@ import com.intellij.platform.workspace.storage.impl.serialization.TypeInfo
 import com.intellij.platform.workspace.storage.impl.serialization.serializer.*
 import com.intellij.platform.workspace.storage.metadata.model.*
 import com.intellij.platform.workspace.storage.metadata.model.PropertyMetadata
-import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.util.SmartList
 import com.intellij.util.containers.BidirectionalMultiMap
 import com.intellij.util.containers.ContainerUtil
@@ -58,6 +58,8 @@ internal class StorageClassesRegistrar(
 
     // Prohibited structure. See serializer for details
     kryo.register(Int2IntOpenHashMap::class.java, Int2IntOpenHashMapSerializer())
+
+    kryo.register(serializerUtil.virtualFileUrlImplementationClass, serializerUtil.getVirtualFileUrlSerializer())
 
     kryo.register(EntityId::class.java, serializerUtil.getEntityIdSerializer())
     kryo.register(HashMultimap::class.java, HashMultimapSerializer())
@@ -102,7 +104,6 @@ internal class StorageClassesRegistrar(
   }
 
   private fun registerDefaultSerializers(kryo: Kryo) {
-    kryo.addDefaultSerializer(VirtualFileUrl::class.java, serializerUtil.getVirtualFileUrlSerializer())
     kryo.addDefaultSerializer(List::class.java, DefaultListSerializer::class.java)
     kryo.addDefaultSerializer(Set::class.java, DefaultSetSerializer::class.java)
     kryo.addDefaultSerializer(Map::class.java, DefaultMapSerializer::class.java)
@@ -165,7 +166,7 @@ internal class StorageClassesRegistrar(
   }
 
   private fun registerKotlinCollectionsInKotlinPlugin(kryo: Kryo) {
-    val classLoader = typesResolver.getClassLoader(kotlinPluginId)
+    val classLoader = typesResolver.getClassLoader(kotlinPluginId, null)
     if (classLoader != null) {
       kotlinCollectionsToRegistrar.forEach {
         val classInKotlinPlugin = classLoader.loadClass(it.name)

@@ -10,8 +10,12 @@ abstract class JKVisitor {
     open fun visitClass(klass: JKClass) = visitDeclaration(klass)
     open fun visitVariable(variable: JKVariable) = visitDeclaration(variable)
     open fun visitLocalVariable(localVariable: JKLocalVariable) = visitVariable(localVariable)
-    open fun visitForLoopVariable(forLoopVariable: JKForLoopVariable) = visitVariable(forLoopVariable)
+    open fun visitForLoopParameter(forLoopParameter: JKForLoopParameter) = visitParameter(forLoopParameter)
     open fun visitParameter(parameter: JKParameter) = visitVariable(parameter)
+    open fun visitDestructuringDeclaration(destructuringDeclaration: JKKtDestructuringDeclaration) = visitVariable(destructuringDeclaration)
+    open fun visitDestructuringDeclarationEntry(destructuringDeclarationEntry: JKKtDestructuringDeclarationEntry) =
+        visitVariable(destructuringDeclarationEntry)
+
     open fun visitEnumConstant(enumConstant: JKEnumConstant) = visitVariable(enumConstant)
     open fun visitTypeParameter(typeParameter: JKTypeParameter) = visitDeclaration(typeParameter)
     open fun visitMethod(method: JKMethod) = visitDeclaration(method)
@@ -75,6 +79,7 @@ abstract class JKVisitor {
     open fun visitPrefixExpression(prefixExpression: JKPrefixExpression) = visitUnaryExpression(prefixExpression)
     open fun visitPostfixExpression(postfixExpression: JKPostfixExpression) = visitUnaryExpression(postfixExpression)
     open fun visitQualifiedExpression(qualifiedExpression: JKQualifiedExpression) = visitExpression(qualifiedExpression)
+    open fun visitArrayAccessExpression(arrayAccessExpression: JKArrayAccessExpression) = visitExpression(arrayAccessExpression)
     open fun visitParenthesizedExpression(parenthesizedExpression: JKParenthesizedExpression) = visitExpression(parenthesizedExpression)
     open fun visitTypeCastExpression(typeCastExpression: JKTypeCastExpression) = visitExpression(typeCastExpression)
     open fun visitLiteralExpression(literalExpression: JKLiteralExpression) = visitExpression(literalExpression)

@@ -14,17 +14,17 @@ import com.intellij.openapi.vfs.findOrCreateDirectory
 import com.intellij.testFramework.closeOpenedProjectsIfFailAsync
 import com.intellij.testFramework.common.runAll
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
-import com.intellij.testFramework.fixtures.SdkTestFixture
 import com.intellij.testFramework.fixtures.TempDirTestFixture
 import com.intellij.testFramework.openProjectAsync
 import com.intellij.testFramework.utils.vfs.getDirectory
 import kotlinx.coroutines.runBlocking
 import org.gradle.util.GradleVersion
-import org.jetbrains.plugins.gradle.service.project.open.linkAndRefreshGradleProject
+import org.jetbrains.plugins.gradle.service.project.open.linkAndSyncGradleProject
 import org.jetbrains.plugins.gradle.testFramework.fixtures.GradleTestFixture
-import org.jetbrains.plugins.gradle.testFramework.fixtures.GradleTestFixtureFactory
-import org.jetbrains.plugins.gradle.testFramework.fixtures.tracker.ESListenerLeakTracker
 import org.jetbrains.plugins.gradle.testFramework.fixtures.tracker.OperationLeakTracker
+import org.jetbrains.plugins.gradle.testFramework.util.awaitGradleOpenProjectConfiguration
+import org.jetbrains.plugins.gradle.testFramework.util.awaitGradleProjectConfiguration
+import org.jetbrains.plugins.gradle.tooling.JavaVersionRestriction
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import org.jetbrains.plugins.gradle.util.getGradleProjectReloadOperation
 import org.junit.jupiter.api.Assertions
@@ -33,14 +33,14 @@ class GradleTestFixtureImpl(
   private val className: String,
   private val methodName: String,
   override val gradleVersion: GradleVersion,
+  private val javaVersionRestriction: JavaVersionRestriction
 ) : GradleTestFixture {
 
-  private lateinit var listenerLeakTracker: ESListenerLeakTracker
   private lateinit var reloadLeakTracker: OperationLeakTracker
 
   private lateinit var testDisposable: Disposable
 
-  private lateinit var sdkFixture: SdkTestFixture
+  private lateinit var gradleJvmFixture: GradleJvmTestFixture
   private lateinit var fileFixture: TempDirTestFixture
 
   override lateinit var testRoot: VirtualFile
@@ -48,17 +48,15 @@ class GradleTestFixtureImpl(
   override lateinit var gradleJvm: String
 
   override fun setUp() {
-    listenerLeakTracker = ESListenerLeakTracker()
-    listenerLeakTracker.setUp()
-
     reloadLeakTracker = OperationLeakTracker { getGradleProjectReloadOperation(it) }
     reloadLeakTracker.setUp()
 
     testDisposable = Disposer.newDisposable()
 
-    sdkFixture = GradleTestFixtureFactory.getFixtureFactory().createGradleJvmTestFixture(gradleVersion)
-    sdkFixture.setUp()
-    gradleJvm = sdkFixture.getSdk().name
+    gradleJvmFixture = GradleJvmTestFixture(gradleVersion, javaVersionRestriction)
+    gradleJvmFixture.setUp()
+    gradleJvmFixture.installProjectSettingsConfigurator()
+    gradleJvm = gradleJvmFixture.gradleJvm
 
     fileFixture = IdeaTestFixtureFactory.getFixtureFactory().createTempDirTestFixture()
     fileFixture.setUp()
@@ -74,31 +72,28 @@ class GradleTestFixtureImpl(
   override fun tearDown() {
     runAll(
       { fileFixture.tearDown() },
-      { sdkFixture.tearDown() },
+      { gradleJvmFixture.tearDown() },
       { Disposer.dispose(testDisposable) },
-      { reloadLeakTracker.tearDown() },
-      { listenerLeakTracker.tearDown() }
+      { reloadLeakTracker.tearDown() }
     )
   }
 
-  override suspend fun openProject(relativePath: String, wait: Boolean): Project {
+  override suspend fun openProject(relativePath: String, numProjectSyncs: Int): Project {
     val projectRoot = testRoot.getDirectory(relativePath)
-    return closeOpenedProjectsIfFailAsync {
-      awaitAnyGradleProjectReload(wait = wait) {
-        openProjectAsync(projectRoot, UnlinkedProjectStartupActivity())
-      }
+    return awaitOpenProjectConfiguration(numProjectSyncs) {
+      openProjectAsync(projectRoot, UnlinkedProjectStartupActivity())
     }
   }
 
   override suspend fun linkProject(project: Project, relativePath: String) {
     val projectRoot = testRoot.getDirectory(relativePath)
-    awaitAnyGradleProjectReload(wait = true) {
-      linkAndRefreshGradleProject(projectRoot.path, project)
+    awaitProjectConfiguration(project) {
+      linkAndSyncGradleProject(project, projectRoot)
     }
   }
 
   override suspend fun reloadProject(project: Project, relativePath: String, configure: ImportSpecBuilder.() -> Unit) {
-    awaitAnyGradleProjectReload(wait = true) {
+    awaitProjectConfiguration(project) {
       ExternalSystemUtil.refreshProject(
         testRoot.getDirectory(relativePath).path,
         ImportSpecBuilder(project, GradleConstants.SYSTEM_ID)
@@ -107,14 +102,17 @@ class GradleTestFixtureImpl(
     }
   }
 
-  override suspend fun <R> awaitAnyGradleProjectReload(wait: Boolean, action: suspend () -> R): R {
-    if (!wait) {
-      return action()
-    }
-    return reloadLeakTracker.withAllowedOperationAsync(1) {
-      org.jetbrains.plugins.gradle.testFramework.util.awaitAnyGradleProjectReload {
-        action()
+  override suspend fun awaitOpenProjectConfiguration(numProjectSyncs: Int, openProject: suspend () -> Project): Project {
+    return closeOpenedProjectsIfFailAsync {
+      reloadLeakTracker.withAllowedOperationAsync(numProjectSyncs) {
+        awaitGradleOpenProjectConfiguration(openProject)
       }
+    }
+  }
+
+  override suspend fun <R> awaitProjectConfiguration(project: Project, numProjectSyncs: Int, action: suspend () -> R): R {
+    return reloadLeakTracker.withAllowedOperationAsync(numProjectSyncs) {
+      awaitGradleProjectConfiguration(project, action)
     }
   }
 

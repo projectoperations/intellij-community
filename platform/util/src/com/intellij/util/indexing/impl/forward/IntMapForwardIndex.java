@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing.impl.forward;
 
 import com.intellij.util.io.EnumeratorIntegerDescriptor;
@@ -53,10 +53,7 @@ public final class IntMapForwardIndex implements IntForwardIndex, MeasurableInde
 
   @Override
   public int keysCountApproximately() {
-    if (myPersistentMap instanceof MeasurableIndexStore) {
-      return ((MeasurableIndexStore)myPersistentMap).keysCountApproximately();
-    }
-    return KEYS_COUNT_UNKNOWN;
+    return MeasurableIndexStore.keysCountApproximatelyIfPossible(myPersistentMap);
   }
 
   @Override
@@ -68,5 +65,10 @@ public final class IntMapForwardIndex implements IntForwardIndex, MeasurableInde
   @Override
   public void close() throws IOException {
     myPersistentMap.close();
+  }
+
+  @Override
+  public boolean isClosed() {
+    return myPersistentMap.isClosed();
   }
 }

@@ -2,58 +2,109 @@
 
 package org.jetbrains.kotlin.idea.completion.lookups
 
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
-import org.jetbrains.kotlin.analysis.api.renderer.types.KtTypeRenderer
-import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KtTypeRendererForSource
-import org.jetbrains.kotlin.analysis.api.renderer.types.renderers.KtUsualClassTypeRenderer
-import org.jetbrains.kotlin.analysis.api.signatures.KtFunctionLikeSignature
-import org.jetbrains.kotlin.analysis.api.signatures.KtVariableLikeSignature
-import org.jetbrains.kotlin.analysis.api.symbols.*
-import org.jetbrains.kotlin.analysis.api.types.KtErrorType
-import org.jetbrains.kotlin.analysis.api.types.KtFunctionalType
-import org.jetbrains.kotlin.analysis.api.types.KtType
+import org.jetbrains.annotations.NonNls
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.renderer.types.KaExpandedTypeRenderingMode
+import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.signatures.KaVariableSignature
+import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.types.KaErrorType
+import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.renderer.render
 import org.jetbrains.kotlin.types.Variance
 
 internal object CompletionShortNamesRenderer {
-    context(KtAnalysisSession)
-    fun renderFunctionParameters(function: KtFunctionLikeSignature<*>): String {
-        return function.valueParameters.joinToString(", ", "(", ")") { renderFunctionParameter(it) }
-    }
 
-    context(KtAnalysisSession)
-    fun renderFunctionalTypeParameters(functionalType: KtFunctionalType): String =
-        functionalType.parameterTypes.joinToString(separator = ", ", prefix = "(", postfix = ")") {
-            it.render(rendererVerbose, position = Variance.INVARIANT)
-        }
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
+    fun renderFunctionalTypeParameters(functionalType: KaFunctionType): String = functionalType.parameterTypes.joinToString(
+        prefix = "(",
+        postfix = ")",
+    ) { it.renderVerbose() }
 
-    context(KtAnalysisSession)
-    fun renderVariable(variable: KtVariableLikeSignature<*>): String {
+    context(KaSession)
+    fun renderVariable(variable: KaVariableSignature<*>): String {
         return renderReceiver(variable)
     }
 
-    context(KtAnalysisSession)
-    private fun renderReceiver(variable: KtVariableLikeSignature<*>): String {
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
+    private fun renderReceiver(variable: KaVariableSignature<*>): String {
         val receiverType = variable.receiverType ?: return ""
-        return receiverType.render(rendererVerbose, position = Variance.INVARIANT) + "."
+        return receiverType.renderVerbose() + "."
     }
 
-    context(KtAnalysisSession)
-    private fun renderFunctionParameter(parameter: KtVariableLikeSignature<KtValueParameterSymbol>): String =
-        "${if (parameter.symbol.isVararg) "vararg " else ""}${parameter.name.asString()}: ${
-            parameter.returnType.renderNonErrorOrUnsubstituted(parameter.symbol.returnType)
-        }${if (parameter.symbol.hasDefaultValue) " = ..." else ""}"
+    context(KaSession)
+    fun renderFunctionParameters(
+        parameters: List<KaVariableSignature<KaValueParameterSymbol>>,
+        trailingFunctionType: KaFunctionType? = null,
+    ): @NonNls String = StringBuffer().apply {
+        val newParameters = if (trailingFunctionType != null)
+            parameters.dropLast(1).takeUnless { it.isEmpty() }
+        else
+            parameters
 
-    val renderer = KtTypeRendererForSource.WITH_SHORT_NAMES
+        newParameters?.joinTo(
+            buffer = this,
+            prefix = "(",
+            postfix = ")",
+        ) { renderFunctionParameter(it) }
+
+        if (trailingFunctionType != null) {
+            append(" { ")
+            appendParameter(
+                parameterName = parameters.last().name,
+                parameterType = trailingFunctionType
+            )
+            append(" }")
+        }
+    }.toString()
+
+    context(KaSession)
+    private fun <A : Appendable> A.renderFunctionParameter(
+        parameter: KaVariableSignature<KaValueParameterSymbol>,
+    ): @NonNls String = StringBuffer().apply {
+        val symbol = parameter.symbol
+
+        if (symbol.isVararg) {
+            append("vararg ")
+        }
+        appendParameter(
+            parameterName = parameter.name,
+            parameterType = parameter.returnType.takeUnless { it is KaErrorType } ?: symbol.returnType,
+        )
+
+        if (symbol.hasDefaultValue) {
+            append(" = ...")
+        }
+    }.toString()
+
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
+    private fun <A : Appendable> A.appendParameter(
+        parameterName: Name,
+        parameterType: KaType,
+    ): A = apply {
+        append(parameterName.render())
+        append(": ")
+        append(parameterType.renderVerbose())
+    }
+
+    @KaExperimentalApi
+    val renderer = KaTypeRendererForSource.WITH_SHORT_NAMES
+
+    @KaExperimentalApi
     val rendererVerbose = renderer.with {
-        usualClassTypeRenderer = KtUsualClassTypeRenderer.AS_CLASS_TYPE_WITH_TYPE_ARGUMENTS_VERBOSE
+        expandedTypeRenderingMode = KaExpandedTypeRenderingMode.RENDER_ABBREVIATED_TYPE_WITH_EXPANDED_TYPE_COMMENT
     }
 }
 
-context(KtAnalysisSession)
-internal fun KtType.renderNonErrorOrUnsubstituted(
-    unsubstituted: KtType,
-    renderer: KtTypeRenderer = CompletionShortNamesRenderer.rendererVerbose
-): String {
-    val typeToRender = this.takeUnless { it is KtErrorType } ?: unsubstituted
-    return typeToRender.render(renderer, position = Variance.INVARIANT)
-}
+context(KaSession)
+@KaExperimentalApi
+internal fun KaType.renderVerbose(): @NonNls String = render(
+    renderer = CompletionShortNamesRenderer.rendererVerbose,
+    position = Variance.INVARIANT,
+)

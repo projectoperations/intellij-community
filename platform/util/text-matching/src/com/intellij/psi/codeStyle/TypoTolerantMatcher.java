@@ -12,14 +12,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.BitSet;
-import java.util.Iterator;
 import java.util.List;
 
 final class TypoTolerantMatcher extends MinusculeMatcher {
-
-  //heuristics: 15 can take 10-20 ms in some cases, while 10 works in 1-5 ms
-  private static final int TYPO_AWARE_PATTERN_LIMIT = 13;
-
   private final char[] myPattern;
   private final String myHardSeparators;
   private final NameUtil.MatchingCaseSensitivity myOptions;
@@ -213,11 +208,6 @@ final class TypoTolerantMatcher extends MinusculeMatcher {
     return fragments != null && isStartMatch(fragments);
   }
 
-  public static boolean isStartMatch(@NotNull Iterable<? extends TextRange> fragments) {
-    Iterator<? extends TextRange> iterator = fragments.iterator();
-    return !iterator.hasNext() || iterator.next().getStartOffset() == 0;
-  }
-
   @Override
   public boolean matches(@NotNull String name) {
     return matchingFragments(name) != null;
@@ -236,9 +226,6 @@ final class TypoTolerantMatcher extends MinusculeMatcher {
     boolean ascii = AsciiUtils.isAscii(name);
     FList<TextRange> ranges = new Session(name, false, ascii).matchingFragments();
     if (ranges != null) return ranges;
-
-    //do not apply typo aware matching for long patterns, it can take too much time
-    if (myPattern.length > TYPO_AWARE_PATTERN_LIMIT) return null;
 
     return new Session(name, true, ascii).matchingFragments();
   }
@@ -684,13 +671,13 @@ final class TypoTolerantMatcher extends MinusculeMatcher {
   public @NonNls String toString() {
     return "TypoTolerantMatcher{myPattern=" + new String(myPattern) + ", myOptions=" + myOptions + '}';
   }
-  
+
   private record ErrorWithIndex(int index, Error error) {}
 
   private static class ErrorState {
     private final @Nullable ErrorState myBase;
     private final int myDeriveIndex;
-    
+
     private BitSet myAffected;
     private int myAllAffectedAfter = Integer.MAX_VALUE;
     private List<ErrorWithIndex> myErrors;
@@ -816,7 +803,7 @@ final class TypoTolerantMatcher extends MinusculeMatcher {
 
       return null;
     }
-    
+
     private int numMisses(int end) {
       int numMisses = 0;
       if (myErrors != null && end > 0) {

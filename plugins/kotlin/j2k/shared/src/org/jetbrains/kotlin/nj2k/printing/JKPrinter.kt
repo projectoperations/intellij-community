@@ -3,7 +3,7 @@
 package org.jetbrains.kotlin.nj2k.printing
 
 import com.intellij.openapi.project.Project
-import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider.Companion.isK2Mode
 import org.jetbrains.kotlin.j2k.Nullability
 import org.jetbrains.kotlin.nj2k.JKElementInfoStorage
 import org.jetbrains.kotlin.nj2k.JKImportStorage
@@ -109,12 +109,13 @@ class JKPrinter(
     private val symbolRenderer = JKSymbolRenderer(importStorage, project)
 
     private fun JKType.renderTypeInfo() {
-        if (KotlinPluginModeProvider.isK2Mode()) return
+        if (isK2Mode()) return
         this@JKPrinter.print(elementInfoStorage.getOrCreateInferenceLabelForElement(this).render())
     }
 
-    fun renderType(type: JKType, owner: JKTreeElement? = null) {
+    fun renderType(type: JKType, owner: JKTreeElement? = null, renderTypeParameters: Boolean = true) {
         if (type is JKNoType) return
+
         if (type is JKCapturedType) {
             when (val wildcard = type.wildcardType) {
                 is JKVarianceTypeParameterType -> {
@@ -128,7 +129,9 @@ class JKPrinter(
             }
             return
         }
+
         type.renderTypeInfo()
+
         when (type) {
             is JKClassType -> {
                 renderSymbol(type.classReference, owner)
@@ -151,7 +154,8 @@ class JKPrinter(
 
             else -> this.print("Unit /* TODO: ${type::class} */")
         }
-        if (type is JKParametrizedType && type.parameters.isNotEmpty()) {
+
+        if (type is JKParametrizedType && type.parameters.isNotEmpty() && renderTypeParameters) {
             par(ParenthesisKind.ANGLE) {
                 renderList(type.parameters, renderElement = { renderType(it) })
             }

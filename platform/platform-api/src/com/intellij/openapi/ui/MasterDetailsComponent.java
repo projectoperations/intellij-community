@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.ui;
 
 import com.intellij.CommonBundle;
@@ -37,9 +37,6 @@ import java.util.List;
 import java.util.*;
 import java.util.function.Predicate;
 
-/**
- * @author anna
- */
 public abstract class MasterDetailsComponent implements Configurable, DetailsComponent.Facade, MasterDetails {
   protected static final Logger LOG = Logger.getInstance(MasterDetailsComponent.class);
 
@@ -520,9 +517,11 @@ public abstract class MasterDetailsComponent implements Configurable, DetailsCom
   public @Nullable Object getSelectedObject() {
     final TreePath selectionPath = myTree.getSelectionPath();
     if (selectionPath != null && selectionPath.getLastPathComponent() instanceof MyNode node) {
-      final NamedConfigurable configurable = node.getConfigurable();
-      LOG.assertTrue(configurable != null, "already disposed");
-      return configurable.getEditableObject();
+      NamedConfigurable<?> configurable = node.getConfigurable();
+      if (configurable == null) {
+        LOG.error("already disposed");
+      }
+      return configurable == null ? null : configurable.getEditableObject();
     }
     return null;
   }

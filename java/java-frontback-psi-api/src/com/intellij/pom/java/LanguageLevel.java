@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.pom.java;
 
 import com.intellij.core.JavaPsiBundle;
@@ -61,14 +61,15 @@ public enum LanguageLevel {
   JDK_21_PREVIEW(JavaPsiBundle.messagePointer("jdk.21.preview.language.level.description"), 21),
   JDK_22(JavaPsiBundle.messagePointer("jdk.22.language.level.description"), 22),
   JDK_22_PREVIEW(JavaPsiBundle.messagePointer("jdk.22.preview.language.level.description"), 22),
-  JDK_X(JavaPsiBundle.messagePointer("jdk.X.language.level.description"), 23),
-
+  JDK_23(JavaPsiBundle.messagePointer("jdk.23.language.level.description"), 23),
+  JDK_23_PREVIEW(JavaPsiBundle.messagePointer("jdk.23.preview.language.level.description"), 23),
+  JDK_X(JavaPsiBundle.messagePointer("jdk.X.language.level.description"), 24),
   ;
 
   /**
    * Should point to the latest released JDK.
    */
-  public static final LanguageLevel HIGHEST = JDK_21;
+  public static final LanguageLevel HIGHEST = JDK_23;
 
   private final Supplier<@Nls String> myPresentableText;
   private final JavaVersion myVersion;
@@ -78,20 +79,30 @@ public enum LanguageLevel {
     Stream.of(values()).filter(ver -> !ver.isPreview())
       .collect(Collectors.toMap(ver -> ver.myVersion.feature, Function.identity()));
 
+  /**
+   * Construct the language level for a supported Java version
+   * 
+   * @param presentableTextSupplier a supplier that returns the language level description
+   * @param major the major version number. Whether the version is a preview version is determined by the enum constant name
+   */
   LanguageLevel(Supplier<@Nls String> presentableTextSupplier, int major) {
-    this(presentableTextSupplier, major, false);
-  }
-
-  LanguageLevel(int major) {
-    this(JavaPsiBundle.messagePointer("jdk.unsupported.preview.language.level.description", major), major, true);
-  }
-
-  LanguageLevel(Supplier<@Nls String> presentableTextSupplier, int major, boolean unsupported) {
     myPresentableText = presentableTextSupplier;
     myVersion = JavaVersion.compose(major);
-    myUnsupported = unsupported;
+    myUnsupported = false;
     myPreview = name().endsWith("_PREVIEW") || name().endsWith("_X");
-    if (myUnsupported && !myPreview) {
+  }
+
+  /**
+   * Construct the language level for an unsupported Java version
+   * 
+   * @param major the major version number. Unsupported Java version is always a preview version
+   */
+  LanguageLevel(int major) {
+    myPresentableText = JavaPsiBundle.messagePointer("jdk.unsupported.preview.language.level.description", major);
+    myVersion = JavaVersion.compose(major);
+    myUnsupported = true;
+    myPreview = true;
+    if (!name().endsWith("_PREVIEW")) {
       throw new IllegalArgumentException("Only preview versions could be unsupported: " + name());
     }
   }
@@ -175,7 +186,11 @@ public enum LanguageLevel {
     if (this == JDK_X) {
       return "X";
     }
-    return feature() + (isPreview() ? "-preview" : "");
+    int feature = feature();
+    if (feature < 5) {
+      return "1." + feature;
+    }
+    return feature + (isPreview() ? "-preview" : "");
   }
 
   /** See {@link JavaVersion#parse(String)} for supported formats. */

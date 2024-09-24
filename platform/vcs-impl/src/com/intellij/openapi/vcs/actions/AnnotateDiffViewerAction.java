@@ -1,9 +1,10 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.diff.DiffContext;
 import com.intellij.diff.DiffContextEx;
 import com.intellij.diff.DiffExtension;
+import com.intellij.diff.DiffVcsDataKeys;
 import com.intellij.diff.FrameDiffTool.DiffViewer;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.contents.FileContent;
@@ -45,7 +46,6 @@ import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.impl.BackgroundableActionLock;
 import com.intellij.openapi.vcs.impl.UpToDateLineNumberProviderImpl;
 import com.intellij.openapi.vcs.impl.VcsBackgroundableActions;
-import com.intellij.diff.DiffVcsDataKeys;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.ui.BalloonLayoutData;
@@ -54,6 +54,7 @@ import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.ObjectUtils;
 import com.intellij.vcs.AnnotationProviderEx;
 import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -61,7 +62,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.Objects;
 
-public class AnnotateDiffViewerAction {
+@ApiStatus.Internal
+public final class AnnotateDiffViewerAction {
   private static final Logger LOG = Logger.getInstance(AnnotateDiffViewerAction.class);
   private static class Holder {
     private static final Key<boolean[]> ANNOTATIONS_SHOWN_KEY = Key.create("Diff.AnnotateAction.AnnotationShown");
@@ -163,7 +165,7 @@ public class AnnotateDiffViewerAction {
 
           VcsException exception = loader.getException();
           if (exception != null) {
-            Notification notification = VcsNotifier.IMPORTANT_ERROR_NOTIFICATION
+            Notification notification = VcsNotifier.importantNotification()
               .createNotification(VcsBundle.message("notification.title.cant.load.annotations"), exception.getMessage(), NotificationType.ERROR)
               .setDisplayId(VcsNotificationIdsHolder.CANNOT_LOAD_ANNOTATIONS);
             showNotification(viewer, notification);
@@ -288,7 +290,8 @@ public class AnnotateDiffViewerAction {
     };
   }
 
-  public static class MyDiffExtension extends DiffExtension {
+  @ApiStatus.Internal
+  public static final class MyDiffExtension extends DiffExtension {
     @Override
     public void onViewerCreated(@NotNull DiffViewer diffViewer, @NotNull DiffContext context, @NotNull DiffRequest request) {
       if (diffViewer instanceof DiffViewerBase viewer) {
@@ -798,7 +801,8 @@ public class AnnotateDiffViewerAction {
     }
   }
 
-  public static class Provider implements AnnotateToggleAction.Provider {
+  @ApiStatus.Internal
+  public static final class Provider implements AnnotateToggleAction.Provider {
     @Override
     public boolean isEnabled(AnActionEvent e) {
       return AnnotateDiffViewerAction.isEnabled(e);

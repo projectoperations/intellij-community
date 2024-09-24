@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.cache;
 
 import com.intellij.lang.LighterAST;
@@ -7,6 +7,7 @@ import com.intellij.lang.LighterASTTokenNode;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.JavaTokenType;
+import com.intellij.psi.impl.compiled.SignatureParsing;
 import com.intellij.psi.impl.java.stubs.impl.PsiClassStubImpl;
 import com.intellij.psi.impl.source.tree.JavaElementType;
 import com.intellij.psi.impl.source.tree.LightTreeUtil;
@@ -18,6 +19,7 @@ import com.intellij.psi.tree.TokenSet;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,6 +32,7 @@ import static com.intellij.util.BitUtil.isSet;
 /**
  * Represents a type encoded inside a stub tree
  */
+@ApiStatus.Internal
 public /*sealed*/ abstract class TypeInfo {
   private static final int HAS_TYPE_ANNOTATIONS = 0x80;
 
@@ -43,8 +46,7 @@ public /*sealed*/ abstract class TypeInfo {
     ourIndexFrequentType = new String[]{
       "",
       "boolean", "byte", "char", "double", "float", "int", "long", "null", "short", "void",
-      CommonClassNames.JAVA_LANG_OBJECT_SHORT, CommonClassNames.JAVA_LANG_OBJECT,
-      CommonClassNames.JAVA_LANG_STRING_SHORT, CommonClassNames.JAVA_LANG_STRING
+      CommonClassNames.JAVA_LANG_OBJECT, CommonClassNames.JAVA_LANG_STRING
     };
 
     ourFrequentTypeIndex = new Object2IntOpenHashMap<>();
@@ -121,8 +123,7 @@ public /*sealed*/ abstract class TypeInfo {
      */
     ELLIPSIS,
     BOOLEAN("boolean"), BYTE("byte"), CHAR("char"), DOUBLE("double"), FLOAT("float"), INT("int"), LONG("long"), SHORT("short"),
-    VOID("void"),
-    OBJECT("Object"), STRING("String"), WILDCARD("?");
+    VOID("void"), WILDCARD("?");
 
     private final @Nullable String text;
 
@@ -241,10 +242,14 @@ public /*sealed*/ abstract class TypeInfo {
       sb.append(">");
       return sb.toString();
     }
+    
+    String jvmName() {
+      return myOuter == null ? myName.replace('.', '/') : myOuter.jvmName() + "$" + myName;
+    }
 
     @Override
-    public int innerDepth() {
-      return myOuter != null ? myOuter.innerDepth() + 1 : 0;
+    public int innerDepth(SignatureParsing.@NotNull TypeInfoProvider provider) {
+      return myOuter != null && !provider.isKnownStatic(jvmName()) ? myOuter.innerDepth(provider) + 1 : 0;
     }
 
     public @NotNull RefTypeInfo withComponents(@NotNull List<TypeInfo> components) {
@@ -269,7 +274,7 @@ public /*sealed*/ abstract class TypeInfo {
     /**
      * @return outer type; null if this type is not an inner type
      */
-    public @Nullable TypeInfo outerType() {
+    public @Nullable RefTypeInfo outerType() {
       return myOuter;
     }
   }
@@ -313,7 +318,7 @@ public /*sealed*/ abstract class TypeInfo {
   /**
    * @return depth of the inner type (how many enclosing types it has)
    */
-  public int innerDepth() {
+  public int innerDepth(SignatureParsing.@NotNull TypeInfoProvider provider) {
     return 0;
   }
 
@@ -353,8 +358,7 @@ public /*sealed*/ abstract class TypeInfo {
   /**
    * @return short type representation (unqualified name without generic parameters)
    */
-  @NotNull
-  public String getShortTypeText() {
+  public @NotNull String getShortTypeText() {
     return text(true);
   }
 
@@ -369,16 +373,17 @@ public /*sealed*/ abstract class TypeInfo {
   /**
    * @return return type of the constructor (null-type)
    */
-  @NotNull
-  public static TypeInfo createConstructorType() {
+  public static @NotNull TypeInfo createConstructorType() {
     return TypeInfo.SimpleTypeInfo.NULL;
   }
 
   /**
    * @return type created from {@link LighterAST}
+   * @param tree tree structure
+   * @param element element (variable, parameter, field, method, etc.) to create a type for.
+   * @param parentStub parent stub element for context
    */
-  @NotNull
-  public static TypeInfo create(@NotNull LighterAST tree, @NotNull LighterASTNode element, StubElement<?> parentStub) {
+  public static @NotNull TypeInfo create(@NotNull LighterAST tree, @NotNull LighterASTNode element, StubElement<?> parentStub) {
     int arrayCount = 0;
 
     LighterASTNode typeElement = null;
@@ -412,19 +417,18 @@ public /*sealed*/ abstract class TypeInfo {
       typeInfo = typeInfo.arrayOf();
     }
     byte[] prefix = new byte[arrayCount];
-    Arrays.fill(prefix, TypeAnnotationContainer.Collector.ARRAY_ELEMENT);
-    TypeAnnotationContainer.Collector collector = new TypeAnnotationContainer.Collector(typeInfo);
+    Arrays.fill(prefix, ExplicitTypeAnnotationContainer.Collector.ARRAY_ELEMENT);
+    ExplicitTypeAnnotationContainer.Collector collector = new ExplicitTypeAnnotationContainer.Collector(typeInfo);
     collectAnnotations(typeInfo, collector, tree, typeElement, prefix);
     collector.install();
     return typeInfo;
   }
 
   private static void collectAnnotations(@NotNull TypeInfo info,
-                                         @NotNull TypeAnnotationContainer.Collector collector,
+                                         @NotNull ExplicitTypeAnnotationContainer.Collector collector,
                                          @NotNull LighterAST tree,
                                          @NotNull LighterASTNode element,
                                          byte @NotNull [] prefix) {
-    // TODO: support bounds, generics and enclosing types
     int arrayCount = 0;
     List<LighterASTNode> children = tree.getChildren(element);
     for (LighterASTNode child : children) {
@@ -440,14 +444,17 @@ public /*sealed*/ abstract class TypeInfo {
       if (tokenType == JavaTokenType.EXTENDS_KEYWORD || tokenType == JavaTokenType.SUPER_KEYWORD) {
         bound = true;
       }
-      if (tokenType == JavaElementType.TYPE && info instanceof DerivedTypeInfo) {
+      else if (tokenType == JavaElementType.JAVA_CODE_REFERENCE && info instanceof RefTypeInfo) {
+        collectAnnotationsFromReference((RefTypeInfo)info, collector, tree, child, prefix);
+      }
+      else if (tokenType == JavaElementType.TYPE && info instanceof DerivedTypeInfo) {
         byte[] newPrefix;
         if (bound) {
           newPrefix = Arrays.copyOf(prefix, prefix.length + 1);
-          newPrefix[prefix.length] = TypeAnnotationContainer.Collector.WILDCARD_BOUND;
+          newPrefix[prefix.length] = ExplicitTypeAnnotationContainer.Collector.WILDCARD_BOUND;
         } else {
           newPrefix = Arrays.copyOf(prefix, prefix.length + arrayCount);
-          Arrays.fill(newPrefix, prefix.length, newPrefix.length, TypeAnnotationContainer.Collector.ARRAY_ELEMENT);
+          Arrays.fill(newPrefix, prefix.length, newPrefix.length, ExplicitTypeAnnotationContainer.Collector.ARRAY_ELEMENT);
         }
         collectAnnotations(((DerivedTypeInfo)info).child(), collector, tree, child, newPrefix);
       }
@@ -457,8 +464,44 @@ public /*sealed*/ abstract class TypeInfo {
       else if (tokenType == JavaElementType.ANNOTATION) {
         String anno = LightTreeUtil.toFilteredString(tree, child, null);
         byte[] typePath = Arrays.copyOf(prefix, prefix.length + nestingLevel);
-        Arrays.fill(typePath, prefix.length, typePath.length, TypeAnnotationContainer.Collector.ARRAY_ELEMENT);
+        Arrays.fill(typePath, prefix.length, typePath.length, ExplicitTypeAnnotationContainer.Collector.ARRAY_ELEMENT);
         collector.add(typePath, anno);
+      }
+    }
+  }
+
+  private static void collectAnnotationsFromReference(@NotNull RefTypeInfo info,
+                                                      ExplicitTypeAnnotationContainer.@NotNull Collector collector,
+                                                      @NotNull LighterAST tree,
+                                                      @NotNull LighterASTNode child,
+                                                      byte @NotNull [] prefix) {
+    List<LighterASTNode> refChildren = tree.getChildren(child);
+    for (LighterASTNode refChild : refChildren) {
+      IElementType refTokenType = refChild.getTokenType();
+      if (refTokenType == JavaElementType.JAVA_CODE_REFERENCE) {
+        RefTypeInfo outerType = info.outerType();
+        if (outerType != null) {
+          byte[] newPrefix = Arrays.copyOf(prefix, prefix.length + 1);
+          newPrefix[prefix.length] = ExplicitTypeAnnotationContainer.Collector.ENCLOSING_CLASS;
+          collectAnnotationsFromReference(outerType, collector, tree, refChild, newPrefix);
+        }
+      }
+      else if (refTokenType == JavaElementType.REFERENCE_PARAMETER_LIST) {
+        List<LighterASTNode> subTypes = LightTreeUtil.getChildrenOfType(tree, refChild, JavaElementType.TYPE);
+        if (!subTypes.isEmpty()) {
+          for (int i = 0; i < subTypes.size(); i++) {
+            TypeInfo componentInfo = info.genericComponent(i);
+            if (componentInfo != null) {
+              byte[] newPrefix = Arrays.copyOf(prefix, prefix.length + 2);
+              newPrefix[prefix.length] = ExplicitTypeAnnotationContainer.Collector.TYPE_ARGUMENT;
+              newPrefix[prefix.length + 1] = (byte)i;
+              collectAnnotations(componentInfo, collector, tree, subTypes.get(i), newPrefix);
+            }
+          }
+        }
+      }
+      else if (refTokenType == JavaElementType.ANNOTATION) {
+        collector.add(prefix, LightTreeUtil.toFilteredString(tree, refChild, null));
       }
     }
   }
@@ -468,9 +511,8 @@ public /*sealed*/ abstract class TypeInfo {
                     JavaTokenType.DOUBLE_KEYWORD, JavaTokenType.FLOAT_KEYWORD, JavaTokenType.SHORT_KEYWORD,
                     JavaTokenType.BOOLEAN_KEYWORD, JavaTokenType.BYTE_KEYWORD, JavaTokenType.VOID_KEYWORD);
 
-  @NotNull
-  private static TypeInfo fromTypeElement(@NotNull LighterAST tree,
-                                          @NotNull LighterASTNode typeElement) {
+  private static @NotNull TypeInfo fromTypeElement(@NotNull LighterAST tree,
+                                                   @NotNull LighterASTNode typeElement) {
     TypeInfo info = null;
     TypeKind derivedKind = null;
     for (LighterASTNode child : tree.getChildren(typeElement)) {
@@ -551,15 +593,14 @@ public /*sealed*/ abstract class TypeInfo {
    * Instead, create the type structure explicitly, using the corresponding constructors of {@link SimpleTypeInfo}, {@link RefTypeInfo} and
    * {@link DerivedTypeInfo}.
    */
-  @NotNull
+  @ApiStatus.ScheduledForRemoval
   @Deprecated
-  public static TypeInfo fromString(@Nullable String text, boolean ellipsis) {
+  public static @NotNull TypeInfo fromString(@Nullable String text, boolean ellipsis) {
     TypeInfo typeInfo = fromString(text);
     return ellipsis ? typeInfo.withEllipsis() : typeInfo;
   }
 
-  @NotNull
-  public static TypeInfo fromString(@Nullable String text) {
+  public static @NotNull TypeInfo fromString(@Nullable String text) {
     if (text == null) return TypeInfo.SimpleTypeInfo.NULL;
     TypeKind kind = TEXT_TO_KIND.get(text);
     if (kind != null) {
@@ -617,8 +658,7 @@ public /*sealed*/ abstract class TypeInfo {
     return new RefTypeInfo(text);
   }
 
-  @NotNull
-  public static TypeInfo readTYPE(@NotNull StubInputStream record) throws IOException {
+  public static @NotNull TypeInfo readTYPE(@NotNull StubInputStream record) throws IOException {
     int flags = record.readByte() & 0xFF;
     boolean hasTypeAnnotations = isSet(flags, HAS_TYPE_ANNOTATIONS);
     int kindOrdinal = clear(flags, HAS_TYPE_ANNOTATIONS);
@@ -660,12 +700,12 @@ public /*sealed*/ abstract class TypeInfo {
       default:
         info = kind.isReference() ? new RefTypeInfo(Objects.requireNonNull(kind.text)) : new SimpleTypeInfo(kind);
     }
-    info.setTypeAnnotations(hasTypeAnnotations ? TypeAnnotationContainer.readTypeAnnotations(record) : TypeAnnotationContainer.EMPTY);
+    info.setTypeAnnotations(hasTypeAnnotations ? ExplicitTypeAnnotationContainer.readTypeAnnotations(record) : TypeAnnotationContainer.EMPTY);
     return info;
   }
 
   public static void writeTYPE(@NotNull StubOutputStream dataStream, @NotNull TypeInfo typeInfo) throws IOException {
-    boolean hasTypeAnnotations = typeInfo.myTypeAnnotations != null && !typeInfo.myTypeAnnotations.isEmpty();
+    boolean hasTypeAnnotations = typeInfo.myTypeAnnotations instanceof ExplicitTypeAnnotationContainer;
     dataStream.writeByte(typeInfo.kind.ordinal() | (hasTypeAnnotations ? HAS_TYPE_ANNOTATIONS : 0));
 
     if (typeInfo instanceof DerivedTypeInfo) {
@@ -688,7 +728,7 @@ public /*sealed*/ abstract class TypeInfo {
       }
     }
     if (hasTypeAnnotations) {
-      TypeAnnotationContainer.writeTypeAnnotations(dataStream, typeInfo.myTypeAnnotations);
+      ExplicitTypeAnnotationContainer.writeTypeAnnotations(dataStream, (ExplicitTypeAnnotationContainer)typeInfo.myTypeAnnotations);
     }
   }
 
@@ -696,14 +736,12 @@ public /*sealed*/ abstract class TypeInfo {
    * @return type text without annotations
    * @deprecated Use simply {@link TypeInfo#text()}
    */
-  @Nullable
   @Deprecated
-  public static String createTypeText(@NotNull TypeInfo typeInfo) {
+  public static @Nullable String createTypeText(@NotNull TypeInfo typeInfo) {
     return typeInfo.text();
   }
 
-  @NotNull
-  public static String internFrequentType(@NotNull String type) {
+  public static @NotNull String internFrequentType(@NotNull String type) {
     int frequentIndex = (type.length() < 32 && (ourTypeLengthMask & (1 << type.length())) != 0) ? ourFrequentTypeIndex.getInt(type) : 0;
     return frequentIndex == 0 ? StringUtil.internEmptyString(type) : ourIndexFrequentType[frequentIndex];
   }

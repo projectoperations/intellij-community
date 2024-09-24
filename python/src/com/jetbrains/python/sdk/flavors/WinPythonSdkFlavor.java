@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.flavors;
 
 import com.google.common.collect.ImmutableMap;
@@ -25,6 +25,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 
+import static com.jetbrains.python.sdk.PythonSdkUtilKtKt.tryResolvePath;
 import static com.jetbrains.python.sdk.WinAppxToolsKt.getAppxFiles;
 import static com.jetbrains.python.sdk.WinAppxToolsKt.getAppxProduct;
 
@@ -33,8 +34,7 @@ import static com.jetbrains.python.sdk.WinAppxToolsKt.getAppxProduct;
  * <a href="https://www.python.org/dev/peps/pep-0514/">PEP 514</a>
  */
 public class WinPythonSdkFlavor extends CPythonSdkFlavor<PyFlavorData.Empty> {
-  @NotNull
-  private static final String[] REG_ROOTS = {"HKEY_LOCAL_MACHINE", "HKEY_CURRENT_USER"};
+  private static final @NotNull String[] REG_ROOTS = {"HKEY_LOCAL_MACHINE", "HKEY_CURRENT_USER"};
   /**
    * There may be a lot of python files in APPX folder. We do not need "w" files, but may need "python[version]?.exe"
    */
@@ -47,11 +47,9 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor<PyFlavorData.Empty> {
     ImmutableMap.of("Python", "python.exe",
                     "IronPython", "ipy.exe");
 
-  @NotNull
-  private final SynchronizedClearableLazy<Set<String>> myRegistryCache =
+  private final @NotNull SynchronizedClearableLazy<Set<String>> myRegistryCache =
     new SynchronizedClearableLazy<>(() -> findInRegistry(getWinRegistryService()));
-  @NotNull
-  private final SynchronizedClearableLazy<Set<String>> myAppxCache = new SynchronizedClearableLazy<>(
+  private final @NotNull SynchronizedClearableLazy<Set<String>> myAppxCache = new SynchronizedClearableLazy<>(
     WinPythonSdkFlavor::getPythonsFromStore);
 
   public static WinPythonSdkFlavor getInstance() {
@@ -69,10 +67,10 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor<PyFlavorData.Empty> {
   }
 
   @Override
-  public @NotNull Collection<@NotNull Path> suggestLocalHomePaths(@Nullable final Module module, @Nullable final UserDataHolder context) {
+  public @NotNull Collection<@NotNull Path> suggestLocalHomePaths(final @Nullable Module module, final @Nullable UserDataHolder context) {
     Set<String> candidates = new TreeSet<>();
     findInCandidatePaths(candidates, "python.exe", "jython.bat", "pypy.exe");
-    findInstallations(candidates, "python.exe", PythonHelpersLocator.getHelpersRoot().getParent());
+    findInstallations(candidates, "python.exe", PythonHelpersLocator.getCommunityHelpersRoot().getParent().toString());
     return ContainerUtil.map(candidates, Path::of);
   }
 
@@ -90,33 +88,33 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor<PyFlavorData.Empty> {
   public boolean sdkSeemsValid(@NotNull Sdk sdk,
                                PyFlavorData.@NotNull Empty flavorData,
                                @Nullable TargetEnvironmentConfiguration targetConfig) {
-    if (super.sdkSeemsValid(sdk, flavorData, targetConfig)) {
-      return true;
-    }
-    if (targetConfig != null) {
+    if (super.sdkSeemsValid(sdk, flavorData, targetConfig) || targetConfig != null) {
       // non-local, cant check for appx
       return true;
     }
-    var path = sdk.getHomePath();
-    return path != null && isLocalPathValidPython(Path.of(path));
+
+    var path = tryResolvePath(sdk.getHomePath());
+    return path != null && isLocalPathValidPython(path);
   }
 
   @Override
-  public boolean isValidSdkHome(@NotNull final String path) {
-    if (super.isValidSdkHome(path)) {
+  public boolean isValidSdkPath(final @NotNull String pathStr) {
+    if (super.isValidSdkPath(pathStr)) {
       return true;
     }
 
-    return isLocalPathValidPython(Path.of(path));
+    var path = tryResolvePath(pathStr);
+    return path != null && isLocalPathValidPython(path);
   }
 
   private boolean isLocalPathValidPython(@NotNull Path path) {
-    if (myAppxCache.getValue().contains(path.toString())) {
+    String pathStr = path.toString();
+    if (myAppxCache.getValue().contains(pathStr)) {
       return true;
     }
 
     String product = getAppxProduct(path);
-    return product != null && product.contains(APPX_PRODUCT) && isValidSdkPath(path.toFile());
+    return product != null && product.contains(APPX_PRODUCT) && isValidSdkPath(pathStr);
   }
 
   @Override
@@ -126,12 +124,11 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor<PyFlavorData.Empty> {
   }
 
 
-  void findInRegistry(@NotNull final Collection<String> candidates) {
+  void findInRegistry(final @NotNull Collection<String> candidates) {
     candidates.addAll(myRegistryCache.getValue());
   }
 
-  @NotNull
-  protected WinRegistryService getWinRegistryService() {
+  protected @NotNull WinRegistryService getWinRegistryService() {
     return ApplicationManager.getApplication().getService(WinRegistryService.class);
   }
 
@@ -156,13 +153,11 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor<PyFlavorData.Empty> {
     }
   }
 
-  @NotNull
-  private static Set<String> getPythonsFromStore() {
+  private static @NotNull Set<String> getPythonsFromStore() {
     return ContainerUtil.map2Set(getAppxFiles(APPX_PRODUCT, PYTHON_EXE), file -> file.toAbsolutePath().toString());
   }
 
-  @NotNull
-  private static Set<String> findInRegistry(@NotNull WinRegistryService registryService) {
+  private static @NotNull Set<String> findInRegistry(@NotNull WinRegistryService registryService) {
     final Set<String> result = new HashSet<>();
 
     /*

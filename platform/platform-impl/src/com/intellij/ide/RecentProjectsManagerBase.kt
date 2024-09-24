@@ -8,7 +8,9 @@ import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.impl.ProjectUtil.isSameProject
 import com.intellij.ide.impl.ProjectUtilCore
+import com.intellij.ide.impl.ProjectUtilService
 import com.intellij.ide.lightEdit.LightEdit
+import com.intellij.ide.vcs.RecentProjectsBranchesProvider
 import com.intellij.idea.AppMode
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.application.*
@@ -18,6 +20,7 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.advanced.AdvancedSettings
+import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectCloseListener
 import com.intellij.openapi.project.ProjectManager
@@ -25,6 +28,7 @@ import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.project.impl.OpenProjectImplOptions
 import com.intellij.openapi.project.impl.createNewProjectFrameProducer
 import com.intellij.openapi.project.impl.frame
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.ModificationTracker
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.registry.Registry
@@ -32,6 +36,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.*
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer
 import com.intellij.project.stateStore
@@ -60,7 +65,6 @@ import kotlin.collections.Map.Entry
 import kotlin.collections.component1
 import kotlin.collections.component2
 import kotlin.io.path.invariantSeparatorsPathString
-import kotlin.io.path.isDirectory
 import kotlin.time.Duration.Companion.milliseconds
 
 private val LOG = logger<RecentProjectsManager>()
@@ -76,14 +80,23 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   RecentProjectsManager, PersistentStateComponent<RecentProjectManagerState>, ModificationTracker {
   companion object {
     const val MAX_PROJECTS_IN_MAIN_MENU: Int = 6
+    private val TEMPORARY_PROJECT_KEY = Key.create<Boolean>("RecentProjectManager.TemporaryProject")
 
     @JvmStatic
     fun getInstanceEx(): RecentProjectsManagerBase = RecentProjectsManager.getInstance() as RecentProjectsManagerBase
 
-    @JvmStatic
-    fun isFileSystemPath(path: String): Boolean {
-      return path.indexOf('/') != -1 || path.indexOf('\\') != -1
+    internal fun isFileSystemPath(path: String): Boolean = path.indexOf('/') != -1 || path.indexOf('\\') != -1
+
+    /**
+     * Indicates that the project shouldn't be added to the recent projects list. 
+     * This function must be called before the project is opened, e.g., in [com.intellij.ide.impl.OpenProjectTaskBuilder.beforeInit].
+     */
+    @Internal
+    fun markProjectAsTemporary(project: Project) {
+      project.putUserData(TEMPORARY_PROJECT_KEY, true)
     }
+
+    private fun isTemporaryProject(project: Project) = project.getUserData(TEMPORARY_PROJECT_KEY) == true
   }
 
   private val modCounter = LongAdder()
@@ -118,7 +131,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
 
   final override fun getState(): RecentProjectManagerState = state
 
-  fun getProjectMetaInfo(projectStoreBaseDir: Path): RecentProjectMetaInfo? {
+  internal fun getProjectMetaInfo(projectStoreBaseDir: Path): RecentProjectMetaInfo? {
     val path = getProjectPath(projectStoreBaseDir) ?: return null
     synchronized(stateLock) {
       return state.additionalInfo.get(path)
@@ -231,6 +244,10 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   }
 
   fun markPathRecent(path: String, project: Project): RecentProjectMetaInfo {
+    if (isTemporaryProject(project)) {
+      return RecentProjectMetaInfo()
+    }
+    
     synchronized(stateLock) {
       for (group in state.groups) {
         if (group.markProjectFirst(path)) {
@@ -261,10 +278,21 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
   }
 
+  /**
+   * No-op if [path] is already present in recent projects
+   */
   fun addRecentPath(path: String, info: RecentProjectMetaInfo) {
     synchronized(stateLock) {
-      state.additionalInfo.put(path, info)
-      modCounter.increment()
+      val presentInfo = state.additionalInfo.putIfAbsent(path, info)
+      if (presentInfo == null) modCounter.increment()
+    }
+  }
+
+  fun updateRecentMetadata(project: Project, metaInfoUpdater: RecentProjectMetaInfo.() -> Unit) {
+    val projectPath = getProjectPath(project) ?: return
+    synchronized(stateLock) {
+      val currentProjectMetaInfo = state.additionalInfo.get(projectPath) ?: return
+      metaInfoUpdater(currentProjectMetaInfo)
     }
   }
 
@@ -280,8 +308,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
 
   @TestOnly
   fun openProjectSync(projectFile: Path, openProjectOptions: OpenProjectTask): Project? {
-    @Suppress("RAW_RUN_BLOCKING")
-    return runBlocking { openProject(projectFile, openProjectOptions) }
+    return runBlockingMaybeCancellable { openProject(projectFile, openProjectOptions) }
   }
 
   open suspend fun openProject(projectFile: Path, options: OpenProjectTask): Project? {
@@ -301,7 +328,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       projectManager.openProjects.firstOrNull { isSameProject(projectFile = projectFile, project = it) }?.let { project ->
         FUSProjectHotStartUpMeasurer.reportAlreadyOpenedProject()
         withContext(Dispatchers.EDT) {
-          ProjectUtil.focusProjectWindow(project = project)
+          ProjectUtilService.getInstance(project).focusProjectWindow()
         }
         return project
       }
@@ -318,7 +345,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   }
 
   override fun setActivationTimestamp(project: Project, timestamp: Long) {
-    if (disableUpdatingRecentInfo.get()) {
+    if (disableUpdatingRecentInfo.get() || isTemporaryProject(project)) {
       return
     }
 
@@ -347,7 +374,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   }
 
   internal suspend fun projectOpened(project: Project, openTimestamp: Long) {
-    if (disableUpdatingRecentInfo.get() || LightEdit.owns(project)) {
+    if (disableUpdatingRecentInfo.get() || LightEdit.owns(project) || isTemporaryProject(project)) {
       return
     }
 
@@ -416,6 +443,10 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
   }
 
+  fun getCurrentBranchName(path: String): String? {
+    return RecentProjectsBranchesProvider.getCurrentBranch(path)
+  }
+
   fun getProjectName(path: String): String {
     nameCache.get(path)?.let {
       return it
@@ -426,8 +457,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
     check(nameResolveRequests.tryEmit(Unit))
 
-    val name = PathUtilRt.getFileName(path)
-    return if (path.endsWith(".ipr")) FileUtilRt.getNameWithoutExtension(name) else name
+    return getProjectNameOnlyByPath(path).nameOnlyByProjectPath
   }
 
   fun forceReopenProjects() {
@@ -537,7 +567,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
           ideFrame.title = it
         }
 
-        IdeRootPane.customizeRawFrame(ideFrame)
+        CustomWindowHeaderUtil.customizeRawFrame(ideFrame)
         ideFrame.isVisible = true
         val task = Pair(path, OpenProjectTask {
           forceOpenInNewFrame = true
@@ -826,6 +856,10 @@ private fun readProjectName(path: String): String {
     return path
   }
 
+  if (path.endsWith(".ipr")) {
+    return FileUtilRt.getNameWithoutExtension(path)
+  }
+
   val file = try {
     Path.of(path)
   }
@@ -833,15 +867,7 @@ private fun readProjectName(path: String): String {
     return path
   }
 
-  if (!file.isDirectory()) {
-    val fileName = file.fileName
-    if (fileName != null) {
-      return FileUtilRt.getNameWithoutExtension(fileName.toString())
-    }
-  }
-
-  val projectDir = file.resolve(Project.DIRECTORY_STORE_FOLDER)
-  return JpsPathUtil.readProjectName(projectDir) ?: JpsPathUtil.getDefaultProjectName(projectDir)
+  return JpsPathUtil.readProjectName(file.resolve(Project.DIRECTORY_STORE_FOLDER)) ?: PathUtilRt.getFileName(path)
 }
 
 private fun getLastProjectFrameInfoFile() = appSystemDir.resolve("lastProjectFrameInfo")
@@ -891,3 +917,12 @@ private fun validateRecentProjects(modCounter: LongAdder, map: MutableMap<String
     modCounter.increment()
   }
 }
+
+internal fun getProjectNameOnlyByPath(path: String): ProjectNameOnlyByPath {
+  val name = PathUtilRt.getFileName(path)
+  return ProjectNameOnlyByPath(if (path.endsWith(".ipr")) FileUtilRt.getNameWithoutExtension(name) else name)
+}
+
+@JvmInline
+@Internal
+value class ProjectNameOnlyByPath(val nameOnlyByProjectPath: String)

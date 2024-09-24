@@ -18,6 +18,7 @@ import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.protobuf.ProtoBuf
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.net.ConnectException
 import java.nio.ByteBuffer
 import java.time.ZoneOffset
@@ -34,9 +35,11 @@ fun getOtlpEndPoint(): String? {
 internal class OtlpService private constructor() {
   private val spans = Channel<ActivityImpl?>(capacity = Channel.UNLIMITED)
 
-  internal val utc = ((ZonedDateTime.now(ZoneOffset.UTC).toInstant().toEpochMilli() / 1000) - 1672531200).toInt()
+  @JvmField
+  internal val utc: Int = ((ZonedDateTime.now(ZoneOffset.UTC).toInstant().toEpochMilli() / 1000) - 1672531200).toInt()
 
-  internal val traceIdSalt = System.identityHashCode(spans).toLong() shl 32 or (System.identityHashCode(this).toLong() and 0xffffffffL)
+  @JvmField
+  internal val traceIdSalt: Long = System.identityHashCode(spans).toLong() shl 32 or (System.identityHashCode(this).toLong() and 0xffffffffL)
 
   @OptIn(ExperimentalCoroutinesApi::class)
   fun process(coroutineScope: CoroutineScope,
@@ -171,14 +174,13 @@ internal class OtlpService private constructor() {
   }
 
   companion object {
-    private val instance = SynchronizedClearableLazy {
-      return@SynchronizedClearableLazy OtlpService()
-    }
+    private val instance = SynchronizedClearableLazy(::OtlpService)
 
     fun getInstance(): OtlpService = instance.value
   }
 }
 
+@Internal
 fun computeTraceId(span: ActivityImpl): ByteArray {
   val otlpService = OtlpService.getInstance()
   val traceIdSalt = otlpService.traceIdSalt
@@ -197,6 +199,7 @@ fun computeTraceId(span: ActivityImpl): ByteArray {
   return byteBuffer.array()
 }
 
+@Internal
 fun computeSpanId(span: ActivityImpl): ByteArray {
   val byteBuffer = ByteBuffer.allocate(8)
   byteBuffer.putInt((span.start / 1_000_000).toInt())

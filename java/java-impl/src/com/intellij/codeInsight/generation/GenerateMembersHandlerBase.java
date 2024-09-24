@@ -56,7 +56,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
   }
 
   @Override
-  public final void invoke(@NotNull final Project project, @NotNull final Editor editor, @NotNull PsiFile file) {
+  public final void invoke(final @NotNull Project project, final @NotNull Editor editor, @NotNull PsiFile file) {
     if (!EditorModificationUtil.checkModificationAllowed(editor)) return;
     if (!FileDocumentManager.getInstance().requestWriting(editor.getDocument(), project)) {
       return;
@@ -232,10 +232,9 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
                                                             boolean copyJavadocCheckbox,
                                                             Project project) {
     MemberChooser<ClassMember> chooser =
-      new MemberChooser<>(members, allowEmptySelection, true, project, getHeaderPanel(project), getOptionControls()) {
-        @Nullable
+      new MemberChooser<>(members, allowEmptySelection, true, project, getHeaderPanel(project), getOptionControls(project)) {
         @Override
-        protected String getHelpId() {
+        protected @Nullable String getHelpId() {
           return GenerateMembersHandlerBase.this.getHelpId();
         }
       };
@@ -244,9 +243,12 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     return chooser;
   }
 
-  @Nullable
-  protected JComponent getHeaderPanel(Project project) {
+  protected @Nullable JComponent getHeaderPanel(Project project) {
     return null;
+  }
+
+  protected JComponent @Nullable [] getOptionControls(@Nullable Project project) {
+    return getOptionControls();
   }
 
   protected JComponent @Nullable [] getOptionControls() {
@@ -257,8 +259,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     return null;
   }
 
-  @NotNull
-  protected List<? extends GenerationInfo> generateMemberPrototypes(PsiClass aClass, ClassMember[] members) throws IncorrectOperationException {
+  protected @NotNull List<? extends GenerationInfo> generateMemberPrototypes(PsiClass aClass, ClassMember[] members) throws IncorrectOperationException {
     ArrayList<GenerationInfo> array = new ArrayList<>();
     for (ClassMember member : members) {
       GenerationInfo[] prototypes = generateMemberPrototypes(aClass, member);

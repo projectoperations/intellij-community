@@ -1,18 +1,24 @@
-<idea-plugin package="org.jetbrains.kotlin.idea.gradleJava">
+<idea-plugin package="org.jetbrains.kotlin.idea.gradleJava" xmlns:xi="http://www.w3.org/2001/XInclude">
+  <id>kotlin.gradle.gradle-java</id>
+  <vendor>JetBrains</vendor>
+
   <dependencies>
     <plugin id="org.jetbrains.plugins.gradle"/>
     <module name="kotlin.gradle.gradle-tooling"/>
     <module name="kotlin.gradle.gradle"/>
     <module name="kotlin.gradle.code-insight-common"/>
     <module name="kotlin.project-wizard.idea"/>
+    <module name="kotlin.base.external-build-system"/>
   </dependencies>
+
+  <xi:include href="kotlin.gradle.gradle-java.k1.xml" includeUnless="idea.kotlin.plugin.use.k2"/>
+  <xi:include href="kotlin.gradle.gradle-java.k2.xml" includeIf="idea.kotlin.plugin.use.k2"/>
 
   <projectListeners>
     <listener
             class="org.jetbrains.kotlin.idea.gradleJava.scripting.ProjectGradleSettingsListener"
             topic="org.jetbrains.plugins.gradle.settings.GradleSettingsListener"/>
   </projectListeners>
-
 
   <extensionPoints>
     <extensionPoint
@@ -24,7 +30,20 @@
             qualifiedName="org.jetbrains.kotlin.mppProjectResolve"
             interface="org.jetbrains.kotlin.idea.gradleJava.configuration.mpp.KotlinMppGradleProjectResolverExtension"
             dynamic="true"/>
+
+    <extensionPoint
+            qualifiedName="org.jetbrains.kotlin.idea.gradleJava.kotlinMultiplatformProducersProvider"
+            interface="org.jetbrains.kotlin.idea.gradleJava.extensions.KotlinMultiplatformCommonProducersProvider"
+            dynamic="true"/>
   </extensionPoints>
+
+  <extensions defaultExtensionNs="org.jetbrains.kotlin.idea.base.externalSystem">
+    <kotlinBuildSystemFacade implementation="org.jetbrains.kotlin.idea.gradleJava.KotlinGradleBuildSystemFacade"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="org.jetbrains.kotlin">
+    <libraryVersionProvider implementation="org.jetbrains.kotlin.idea.gradleJava.KotlinGradlePluginLibraryVersionProvider"/>
+  </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
 
@@ -50,10 +69,10 @@
 
     <orderEnumerationHandlerFactory implementation="org.jetbrains.kotlin.idea.gradleJava.execution.KotlinGradleOrderEnumerationHandler$Factory" order="first"/>
 
-    <projectModelContributor implementation="org.jetbrains.kotlin.idea.gradleJava.scripting.importing.KotlinDslScriptModelContributor"/>
+    <syncContributor implementation="org.jetbrains.kotlin.idea.gradleJava.scripting.importing.KotlinDslScriptSyncContributor"/>
 
     <executionEnvironmentProvider implementation="org.jetbrains.kotlin.idea.gradleJava.execution.KotlinGradleAppEnvProvider"/>
-    <initScriptGenerator implementation="org.jetbrains.kotlin.idea.gradleJava.execution.KotlinMPGradleInitScriptGenerator"/>
+    <initScriptGenerator implementation="org.jetbrains.kotlin.idea.gradleJava.execution.KotlinMppGradleInitScriptGenerator"/>
     <buildTasksProvider implementation="org.jetbrains.kotlin.idea.gradleJava.execution.KotlinMPPBuildTasksProvider"/>
   </extensions>
 
@@ -81,6 +100,9 @@
     <runConfigurationProducer implementation="org.jetbrains.kotlin.idea.gradleJava.run.KotlinMultiplatformJvmRunConfigurationProducer" order="first"/>
     <runConfigurationProducer implementation="org.jetbrains.kotlin.idea.gradleJava.run.KotlinJvmTestMethodGradleConfigurationProducer"/>
     <runConfigurationProducer implementation="org.jetbrains.kotlin.idea.gradleJava.run.KotlinMultiplatformJvmTestMethodGradleConfigurationProducer"/>
+    <runConfigurationProducer implementation="org.jetbrains.kotlin.idea.gradleJava.run.KotlinGradleTaskRunConfigurationProducer"/>
+    <runLineMarkerContributor implementationClass="org.jetbrains.kotlin.idea.gradleJava.run.KotlinGradleTaskRunLineMarkerProvider"
+                              id="kotlinGradleTaskRunLineMarkerProvider" language="kotlin"/>
     <runConfigurationProducer implementation="org.jetbrains.kotlin.idea.gradleJava.testing.js.KotlinMultiplatformJsTestClassGradleConfigurationProducer"/>
     <runConfigurationProducer implementation="org.jetbrains.kotlin.idea.gradleJava.testing.js.KotlinMultiplatformJsTestMethodGradleConfigurationProducer"/>
     <runConfigurationProducer implementation="org.jetbrains.kotlin.idea.gradleJava.testing.native.KotlinMultiplatformNativeTestClassGradleConfigurationProducer"/>
@@ -108,7 +130,8 @@
 
     <gradleModelFacade implementation="org.jetbrains.kotlin.idea.gradleJava.inspections.DefaultGradleModelFacade"/>
 
-    <scriptDefinitionContributor implementation="org.jetbrains.kotlin.idea.gradleJava.scripting.GradleScriptDefinitionsContributor" order="first"/>
+    <scriptDependenciesSource implementation="org.jetbrains.kotlin.idea.gradleJava.scripting.GradleScriptDependenciesSource"/>
+    <scriptReloadActionAvailability implementation="org.jetbrains.kotlin.idea.gradleJava.scripting.GradleScriptReloadActionAvailability"/>
 
     <scriptAdditionalIdeaDependenciesProvider implementation="org.jetbrains.kotlin.idea.gradleJava.scripting.GradleScriptAdditionalIdeaDependenciesProvider"/>
 
@@ -138,12 +161,21 @@
     <extrasSerialization implementation="org.jetbrains.kotlin.idea.gradleJava.configuration.serialize.KotlinGradlePluginExtrasSerializationService"/>
   </extensions>
 
+  <extensions defaultExtensionNs="org.jetbrains.kotlin.idea.gradleJava">
+    <kotlinMultiplatformProducersProvider implementation="org.jetbrains.kotlin.idea.gradleJava.testing.KotlinMultiplatformAllInDirectoryConfigurationProducer"/>
+    <kotlinMultiplatformProducersProvider implementation="org.jetbrains.kotlin.idea.gradleJava.testing.KotlinMultiplatformAllInPackageConfigurationProducer"/>
+    <kotlinMultiplatformProducersProvider implementation="org.jetbrains.kotlin.idea.gradleJava.testing.common.KotlinMultiplatformCommonTestClassGradleConfigurationProducer"/>
+    <kotlinMultiplatformProducersProvider implementation="org.jetbrains.kotlin.idea.gradleJava.testing.common.KotlinMultiplatformCommonTestMethodGradleConfigurationProducer"/>
+  </extensions>
+
   <extensions defaultExtensionNs="org.jetbrains.kotlin.idea.gradleTooling">
     <serialization.IdeaKotlinSerializationContext implementation="org.jetbrains.kotlin.idea.gradleJava.configuration.serialize.IntellijIdeaKotlinSerializationContext"/>
   </extensions>
 
-  <actions>
-    <action id="LoadConfigurationAction" class="org.jetbrains.kotlin.idea.gradleJava.scripting.LoadConfigurationAction">
+  <actions resource-bundle="messages.KotlinIdeaGradleBundle">
+    <action id="LoadKtGradleConfiguration"
+            class="org.jetbrains.kotlin.idea.gradleJava.scripting.LoadKtGradleConfigurationAction"
+            icon="org.jetbrains.kotlin.idea.KotlinIcons.LOAD_SCRIPT_CONFIGURATION">
       <add-to-group group-id="ExternalSystem.ProjectRefreshActionGroup" anchor="first"/>
     </action>
   </actions>

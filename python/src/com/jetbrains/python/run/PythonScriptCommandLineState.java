@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.run;
 
 import com.intellij.execution.DefaultExecutionResult;
@@ -62,10 +62,9 @@ public class PythonScriptCommandLineState extends PythonCommandLineState {
   }
 
   @Override
-  @Nullable
-  public ExecutionResult execute(Executor executor,
-                                 PythonProcessStarter processStarter,
-                                 CommandLinePatcher... patchers) throws ExecutionException {
+  public @Nullable ExecutionResult execute(Executor executor,
+                                           PythonProcessStarter processStarter,
+                                           CommandLinePatcher... patchers) throws ExecutionException {
     Project project = myConfig.getProject();
 
     if (myConfig.showCommandLineAfterwards() && !emulateTerminal()) {
@@ -80,7 +79,7 @@ public class PythonScriptCommandLineState extends PythonCommandLineState {
         return super.execute(executor, processStarter, ArrayUtil.append(patchers, new CommandLinePatcher() {
           @Override
           public void patchCommandLine(GeneralCommandLine commandLine) {
-            commandLine.getParametersList().getParamsGroup(PythonCommandLineState.GROUP_DEBUGGER).addParameterAt(1, "--cmd-line");
+            commandLine.getParametersList().getParamsGroup(GROUP_DEBUGGER).addParameterAt(1, "--cmd-line");
           }
         }));
       }
@@ -179,9 +178,8 @@ public class PythonScriptCommandLineState extends PythonCommandLineState {
     final ExecutionConsole console = executionResult.getExecutionConsole();
     if (console instanceof ConsoleView) {
       ((ConsoleView)console).addMessageFilter(new Filter() {
-        @Nullable
         @Override
-        public Result applyFilter(@NotNull String line, int entireLength) {
+        public @Nullable Result applyFilter(@NotNull String line, int entireLength) {
           int position = line.indexOf(INPUT_FILE_MESSAGE);
           if (position >= 0) {
             VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(filePath));
@@ -211,10 +209,6 @@ public class PythonScriptCommandLineState extends PythonCommandLineState {
    * @see com.intellij.terminal.ProcessHandlerTtyConnector
    */
   private boolean emulateTerminal() {
-    if (PythonSdkUtil.isRemote(getSdk()) && !Registry.is("python.use.targets.api")) {
-      // do not allow to emulate terminal for legacy non-target remote interpreters logic
-      return false;
-    }
     return myConfig.emulateTerminal();
   }
 

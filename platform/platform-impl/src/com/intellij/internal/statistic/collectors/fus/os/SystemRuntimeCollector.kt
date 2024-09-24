@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.internal.statistic.collectors.fus.os
 
+import com.dynatrace.hash4j.hashing.Hashing
 import com.intellij.diagnostic.VMOptions
 import com.intellij.internal.DebugAttachDetector
 import com.intellij.internal.statistic.beans.MetricEvent
@@ -22,13 +23,17 @@ import com.intellij.util.lang.JavaVersion
 import com.intellij.util.system.CpuArch
 import com.intellij.util.ui.UIUtil
 import com.sun.management.OperatingSystemMXBean
+import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.*
+import kotlin.io.path.name
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+@ApiStatus.Internal
 class SystemRuntimeCollector : ApplicationUsagesCollector() {
   private val COLLECTORS = listOf("Serial", "Parallel", "CMS", "G1", "Z", "Shenandoah", "Epsilon", "Other")
   private val ARCHITECTURES = listOf("x86", "x86_64", "arm64", "other", "unknown")
@@ -36,8 +41,9 @@ class SystemRuntimeCollector : ApplicationUsagesCollector() {
   private val VM_OPTIONS = listOf("Xmx", "Xms", "SoftRefLRUPolicyMSPerMB", "ReservedCodeCacheSize")
   private val SYSTEM_PROPERTIES = listOf("splash", "nosplash")
   private val RENDERING_PIPELINES = listOf("Metal", "OpenGL")
+  private val REPORTED_OSVMS = listOf("none", "xen", "kvm", "vmware", "hyperv")
 
-  private val GROUP: EventLogGroup = EventLogGroup("system.runtime", 17)
+  private val GROUP: EventLogGroup = EventLogGroup("system.runtime", 20)
   private val CORES: EventId1<Int> = GROUP.registerEvent(
     "cores", EventFields.BoundedInt("value", intArrayOf(1, 2, 4, 6, 8, 12, 16, 20, 24, 32, 64)))
   private val MEMORY_SIZE: EventId1<Int> = GROUP.registerEvent(
@@ -51,7 +57,12 @@ class SystemRuntimeCollector : ApplicationUsagesCollector() {
   private val SYSTEM_PROPERTY: EventId2<String?, Boolean> =
     GROUP.registerEvent("jvm.client.properties", String("name", SYSTEM_PROPERTIES), Boolean("value"))
   private val DEBUG_AGENT: EventId1<Boolean> = GROUP.registerEvent("debug.agent", EventFields.Enabled)
+  private val AGENTS_COUNT: EventId2<Int, Int> = GROUP.registerEvent("agents.count", Int("java_agents"), Int("native_agents"))
+  private val AGENT_PRESENCE_C1: EventId1<Boolean> = GROUP.registerEvent("agent.presence.c1", EventFields.Enabled) // IJPL-856
+  private val AGENT_PRESENCE_C2: EventId1<Boolean> = GROUP.registerEvent("agent.presence.c2", EventFields.Enabled) // IJPL-148313
+  private val ADD_OPENS_PRESENCE_1: EventId1<Boolean> = GROUP.registerEvent("add.opens.presence.1", EventFields.Enabled) // IJPL-148271
   private val RENDERING: EventId1<String?> = GROUP.registerEvent("rendering.pipeline", String("name", RENDERING_PIPELINES))
+  private val OSVM: EventId1<String> = GROUP.registerEvent("os.vm", String("name", REPORTED_OSVMS + listOf("unknown", "other")))
 
   override fun getGroup(): EventLogGroup = GROUP
 
@@ -91,9 +102,29 @@ class SystemRuntimeCollector : ApplicationUsagesCollector() {
       result += SYSTEM_PROPERTY.metric(property.key, property.value.toBoolean())
     }
 
-    result += DEBUG_AGENT.metric(DebugAttachDetector.isDebugEnabled())
+    result += collectAgentMetrics()
+
+    result += getOsVirtualization()
 
     return result
+  }
+
+  /**
+   * Try to detect if we are running inside a virtual machine.
+   * Supported only in JBR.
+   * JBR-6769
+   */
+  private fun getOsVirtualization(): MetricEvent {
+    val osvm = System.getProperty("intellij.os.virtualization")?.lowercase()
+    return if (osvm == null) {
+      OSVM.metric("unknown") // value not provided
+    }
+    else if (REPORTED_OSVMS.contains(osvm)) {
+      OSVM.metric(osvm)
+    }
+    else {
+      OSVM.metric("other") // some other vm, for future
+    }
   }
 
   private fun getPhysicalMemoryAndSwapSize(): Pair<Int, Int>? {
@@ -175,4 +206,62 @@ class SystemRuntimeCollector : ApplicationUsagesCollector() {
       .map { it to System.getProperty(it) }
       .filter { it.second != null }
       .toMap()
+
+  private fun collectAgentMetrics(): Set<MetricEvent> {
+    var nativeAgents = 0
+    var javaAgents = 0
+    var isAgentPresentC1 = false
+    var isAgentPresentC2 = false
+    var isAddOpensPresent1 = false
+
+    for (arg in ManagementFactory.getRuntimeMXBean().inputArguments) {
+      if (arg.startsWith("-javaagent:")) {
+        javaAgents++
+        if (calculateAgentSignature(arg).intersect(setOf("936efb883204705f")).isNotEmpty()) {
+          isAgentPresentC1 = true
+        }
+        if (calculateAgentSignature(arg, 2).intersect(setOf("40af82251280c73", "37ae04aadf5604b")).isNotEmpty()) {
+          isAgentPresentC2 = true
+        }
+      }
+      if (arg.startsWith("-agentlib:") || arg.startsWith("-agentpath:")) {
+        nativeAgents++
+      }
+      if (arg.startsWith("--add-opens=")) {
+        if (komihash(arg.lowercase().removePrefix("--add-opens=").substringBefore("=")) in setOf("fa09d342a2180e7", "99ae514e0c40bd7e")) {
+          isAddOpensPresent1 = true
+        }
+      }
+    }
+
+    return buildSet {
+      add(DEBUG_AGENT.metric(DebugAttachDetector.isDebugEnabled()))
+      add(AGENTS_COUNT.metric(javaAgents, nativeAgents))
+      addAll(
+        listOf(
+          AGENT_PRESENCE_C1 to isAgentPresentC1,
+          AGENT_PRESENCE_C2 to isAgentPresentC2,
+          ADD_OPENS_PRESENCE_1 to isAddOpensPresent1
+        )
+          .filter { it.second }
+          .map { (event, _) -> event.metric(true) }
+      )
+    }
+  }
+
+  private fun calculateAgentSignature(arg: String, depth: Int = 1): Set<String> {
+    val pathString = arg.removePrefix("-javaagent:").substringBefore("=")
+    val tokens: Set<String> = runCatching {
+      var path = Path.of(pathString)
+      val result = mutableSetOf<String>()
+      repeat(depth) {
+        result.add(path.name)
+        path = path.parent ?: return@runCatching result
+      }
+      result
+    }.getOrDefault(setOf(pathString))
+    return tokens.map(::komihash).toSet()
+  }
+
+  private fun komihash(value: String): String = Hashing.komihash5_0().hashStream().putString(value).asLong.toULong().toString(16)
 }

@@ -4,7 +4,7 @@ import org.jetbrains.annotations.Nullable;
 class A {
     @NotNull
     Object foo(String s) {
-        System.out.println("s = " + s);
+        System.out.println(s);
         return "";
     }
 
@@ -15,7 +15,7 @@ class A {
 
     @Nullable
     Object bar(String s) {
-        System.out.println("s = " + s);
+        System.out.println(s);
         return s == null ? "" : null;
     }
 
@@ -25,7 +25,7 @@ class A {
     }
 
     public @Nullable Object bar1(String s) {
-        System.out.println("s = " + s);
+        System.out.println(s);
         return s == null ? "" : null;
     }
 
@@ -39,6 +39,6 @@ class A {
     }
 
     public void f(int p) {
-        System.out.println("p = " + p);
+        System.out.println(p);
     }
 }

@@ -1,18 +1,18 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.workspace.storage.testEntities.entities
 
 import com.intellij.platform.workspace.storage.DummyParentEntitySource
 import com.intellij.platform.workspace.storage.EntitySource
+import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 
 data class SampleEntitySource(val name: String) : EntitySource
-object MySource : EntitySource {
-  override fun toString(): String = "MySource"
-}
+data object MySource : EntitySource
 
-object AnotherSource : EntitySource {
-  override fun toString(): String = "AnotherSource"
-}
+data object AnotherSource : EntitySource
 
-object MyDummyParentSource : DummyParentEntitySource {
-  override fun toString(): String = "DummyParent"
+data object MyDummyParentSource : DummyParentEntitySource
+
+class VFUEntitySource(private val vfu: VirtualFileUrl) : EntitySource {
+  override val virtualFileUrl: VirtualFileUrl
+    get() = vfu
 }

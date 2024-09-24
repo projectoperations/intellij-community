@@ -117,7 +117,8 @@ class KotlinGradleSourceSetDataService : AbstractProjectDataService<GradleSource
             KotlinJpsPluginSettings.importKotlinJpsVersionFromExternalBuildSystem(
                 project,
                 maxCompilerVersion.rawVersion,
-                isDelegatedToExtBuild = GradleProjectSettings.isDelegatedBuildEnabled(project, projectData?.linkedExternalProjectPath)
+                isDelegatedToExtBuild = GradleProjectSettings.isDelegatedBuildEnabled(project, projectData?.linkedExternalProjectPath),
+                externalSystemId = GradleConstants.GRADLE_NAME
             )
         }
     }
@@ -198,7 +199,8 @@ class KotlinGradleLibraryDataService : AbstractProjectDataService<LibraryData, V
 
         val NON_JVM_LIBRARY_KINDS: List<PersistentLibraryKind<*>> = listOf(
             KotlinJavaScriptLibraryKind,
-            KotlinWasmLibraryKind,
+            KotlinWasmJsLibraryKind,
+            KotlinWasmWasiLibraryKind,
             KotlinNativeLibraryKind,
             KotlinCommonLibraryKind
         )
@@ -273,7 +275,8 @@ fun configureFacetByGradleModule(
         platform = platform,
         modelsProvider = modelsProvider,
         //TODO ychernyshev: compute additionalVisibleModuleNames for all modules at once to avoid square complexity
-        additionalVisibleModuleNames = sourceSetName?.let { getAdditionalVisibleModuleNames(moduleNode, it) }.orEmpty()
+        additionalVisibleModuleNames = sourceSetName?.let { getAdditionalVisibleModuleNames(moduleNode, it) }.orEmpty(),
+        pureKotlinSourceFolders = kotlinGradleProjectData?.pureKotlinSourceFolders?.toList() ?: emptyList()
     )
 
     if (sourceSetNode == null) {

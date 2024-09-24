@@ -1,3 +1,4 @@
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.source;
 
 import com.intellij.lang.*;
@@ -40,6 +41,7 @@ public interface BasicJavaElementType {
   IElementType BASIC_IMPORT_LIST = new IJavaElementType("IMPORT_LIST");
   IElementType BASIC_IMPORT_STATEMENT = new IJavaElementType("IMPORT_STATEMENT");
   IElementType BASIC_IMPORT_STATIC_STATEMENT = new IJavaElementType("IMPORT_STATIC_STATEMENT");
+  IElementType BASIC_IMPORT_MODULE_STATEMENT = new IJavaElementType("IMPORT_MODULE_STATEMENT");
   IElementType BASIC_MODIFIER_LIST = new IJavaElementType("MODIFIER_LIST");
   IElementType BASIC_ANNOTATION = new IJavaElementType("ANNOTATION");
   IElementType BASIC_NAME_VALUE_PAIR = new IJavaElementType("NAME_VALUE_PAIR", true);
@@ -249,10 +251,10 @@ public interface BasicJavaElementType {
   final class JavaDummyElementType extends ILazyParseableElementType implements ICompositeElementType, ParentProviderElementType {
     private static final Set<IElementType> PARENT_ELEMENT_TYPES = Collections.singleton(BASIC_DUMMY_ELEMENT);
     private final Function<LanguageLevel, JavaDocLexer> javaDocLexer;
-    private final Function<LanguageLevel, BasicJavaLexer> javaLexer;
+    private final Function<LanguageLevel, ? extends Lexer> javaLexer;
 
     public JavaDummyElementType(@NotNull Function<LanguageLevel, JavaDocLexer> lexer,
-                                @NotNull Function<LanguageLevel, BasicJavaLexer> javaLexer) {
+                                @NotNull Function<LanguageLevel, Lexer> javaLexer) {
       super("DUMMY_ELEMENT", JavaLanguage.INSTANCE);
       javaDocLexer = lexer;
       this.javaLexer = javaLexer;

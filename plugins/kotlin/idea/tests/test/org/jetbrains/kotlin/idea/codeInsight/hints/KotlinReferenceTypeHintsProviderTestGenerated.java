@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.codeInsight.hints;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -19,6 +20,12 @@ import org.junit.runner.RunWith;
 @RunWith(JUnit3RunnerWithInners.class)
 @TestMetadata("testData/codeInsight/hints/types")
 public class KotlinReferenceTypeHintsProviderTestGenerated extends AbstractKotlinReferenceTypeHintsProviderTest {
+    @java.lang.Override
+    @org.jetbrains.annotations.NotNull
+    public final KotlinPluginMode getPluginMode() {
+        return KotlinPluginMode.K1;
+    }
+
     private void runTest(String testDataFilePath) throws Exception {
         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
@@ -71,6 +78,11 @@ public class KotlinReferenceTypeHintsProviderTestGenerated extends AbstractKotli
     @TestMetadata("Destructuring.kt")
     public void testDestructuring() throws Exception {
         runTest("testData/codeInsight/hints/types/Destructuring.kt");
+    }
+
+    @TestMetadata("EmptyFunctionalType.kt")
+    public void testEmptyFunctionalType() throws Exception {
+        runTest("testData/codeInsight/hints/types/EmptyFunctionalType.kt");
     }
 
     @TestMetadata("EnumEntry.kt")
@@ -128,6 +140,11 @@ public class KotlinReferenceTypeHintsProviderTestGenerated extends AbstractKotli
         runTest("testData/codeInsight/hints/types/JavaFQName.kt");
     }
 
+    @TestMetadata("JavaNonNullableArray.kt")
+    public void testJavaNonNullableArray() throws Exception {
+        runTest("testData/codeInsight/hints/types/JavaNonNullableArray.kt");
+    }
+
     @TestMetadata("LambdaReturnType.kt")
     public void testLambdaReturnType() throws Exception {
         runTest("testData/codeInsight/hints/types/LambdaReturnType.kt");
@@ -136,6 +153,11 @@ public class KotlinReferenceTypeHintsProviderTestGenerated extends AbstractKotli
     @TestMetadata("LocalVariable.kt")
     public void testLocalVariable() throws Exception {
         runTest("testData/codeInsight/hints/types/LocalVariable.kt");
+    }
+
+    @TestMetadata("LongLongClassNames.kt")
+    public void testLongLongClassNames() throws Exception {
+        runTest("testData/codeInsight/hints/types/LongLongClassNames.kt");
     }
 
     @TestMetadata("LoopParameter.kt")
@@ -161,6 +183,11 @@ public class KotlinReferenceTypeHintsProviderTestGenerated extends AbstractKotli
     @TestMetadata("ParameterType.kt")
     public void testParameterType() throws Exception {
         runTest("testData/codeInsight/hints/types/ParameterType.kt");
+    }
+
+    @TestMetadata("PrivateAnonymousObject.kt")
+    public void testPrivateAnonymousObject() throws Exception {
+        runTest("testData/codeInsight/hints/types/PrivateAnonymousObject.kt");
     }
 
     @TestMetadata("PropertyType.kt")

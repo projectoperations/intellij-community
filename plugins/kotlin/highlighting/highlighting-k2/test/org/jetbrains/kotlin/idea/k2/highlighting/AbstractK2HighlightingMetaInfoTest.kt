@@ -1,18 +1,62 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.highlighting
 
-import org.jetbrains.kotlin.idea.highlighter.AbstractHighlightingMetaInfoTest
-import org.jetbrains.kotlin.idea.test.ProjectDescriptorWithStdlibSources
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.platform.workspace.storage.MutableEntityStorage
+import com.intellij.psi.PsiFile
+import com.intellij.testFramework.LightProjectDescriptor
+import com.intellij.testFramework.registerExtension
 import org.jetbrains.kotlin.idea.base.test.IgnoreTests
 import org.jetbrains.kotlin.idea.base.test.InTextDirectivesUtils
+import org.jetbrains.kotlin.idea.core.script.SCRIPT_DEPENDENCIES_SOURCES
+import org.jetbrains.kotlin.idea.core.script.k2.ScriptDependenciesData
+import org.jetbrains.kotlin.idea.gradleJava.scripting.GradleScriptDependenciesSource
+import org.jetbrains.kotlin.idea.gradleJava.scripting.GradleScriptModel
+import org.jetbrains.kotlin.idea.highlighter.AbstractHighlightingMetaInfoTest
+import org.jetbrains.kotlin.idea.test.Directives
+import org.jetbrains.kotlin.idea.test.ProjectDescriptorWithStdlibSources
+import org.jetbrains.kotlin.idea.test.kmp.KMPProjectDescriptorTestUtilities
+import org.jetbrains.kotlin.idea.test.kmp.KMPTest
+import org.jetbrains.kotlin.idea.test.kmp.KMPTestPlatform
+import org.jetbrains.kotlin.psi.KtFile
 import java.io.File
 
-abstract class AbstractK2HighlightingMetaInfoTest : AbstractHighlightingMetaInfoTest() {
-    private val HIGHLIGHTING_FIR_EXTENSION = "highlighting.fir"
+abstract class AbstractK2HighlightingMetaInfoTest : AbstractHighlightingMetaInfoTest(), KMPTest {
 
-    override fun isFirPlugin(): Boolean = true
+    @Deprecated("Use HIGHLIGHTING_K2_EXTENSION")
+    protected val HIGHLIGHTING_FIR_EXTENSION = "highlighting.fir"
+    protected val HIGHLIGHTING_K2_EXTENSION = "highlighting.k2"
 
     override fun getDefaultProjectDescriptor() = ProjectDescriptorWithStdlibSources.getInstanceWithStdlibSources()
+
+    override fun doMultiFileTest(files: List<PsiFile>, globalDirectives: Directives) {
+        val psiFile = files.first()
+        if (psiFile is KtFile && psiFile.isScript()) {
+            val dependenciesSource = object : GradleScriptDependenciesSource(project) {
+                override suspend fun updateModules(
+                    dependencies: ScriptDependenciesData,
+                    storage: MutableEntityStorage?) {
+                    //do nothing because adding modules is not permitted in light tests
+                }
+            }
+
+            project.registerExtension(SCRIPT_DEPENDENCIES_SOURCES, dependenciesSource, testRootDisposable)
+
+            val script = GradleScriptModel(psiFile.virtualFile)
+            runWithModalProgressBlocking(project, "Testing") {
+                dependenciesSource.updateDependenciesAndCreateModules(setOf(script))
+            }
+        }
+
+        super.doMultiFileTest(files, globalDirectives)
+    }
+
+    override fun getProjectDescriptor(): LightProjectDescriptor =
+        KMPProjectDescriptorTestUtilities.createKMPProjectDescriptor(testPlatform)
+            ?: super.getProjectDescriptor()
+
+    override val testPlatform: KMPTestPlatform
+        get() = KMPTestPlatform.Unspecified
 
     override fun highlightingFileNameSuffix(testKtFile: File): String {
         val fileContent = testKtFile.readText()
@@ -20,7 +64,7 @@ abstract class AbstractK2HighlightingMetaInfoTest : AbstractHighlightingMetaInfo
         return if (InTextDirectivesUtils.isDirectiveDefined(fileContent, IgnoreTests.DIRECTIVES.FIR_IDENTICAL)) {
             super.highlightingFileNameSuffix(testKtFile)
         } else {
-            HIGHLIGHTING_FIR_EXTENSION
+            HIGHLIGHTING_K2_EXTENSION
         }
     }
 
@@ -30,14 +74,15 @@ abstract class AbstractK2HighlightingMetaInfoTest : AbstractHighlightingMetaInfo
         IgnoreTests.runTestIfNotDisabledByFileDirective(
             testKtFile.toPath(),
             disableTestDirective = IgnoreTests.DIRECTIVES.IGNORE_K2,
-            additionalFilesExtensions = arrayOf(HIGHLIGHTING_EXTENSION, HIGHLIGHTING_FIR_EXTENSION)
+            additionalFilesExtensions = arrayOf(HIGHLIGHTING_EXTENSION, HIGHLIGHTING_K2_EXTENSION)
         ) {
             // warnings are not supported yet
             super.doTest(unused)
 
-            IgnoreTests.cleanUpIdenticalFirTestFile(
+            IgnoreTests.cleanUpIdenticalK2TestFile(
                 originalTestFile = testKtFile.getExpectedHighlightingFile(HIGHLIGHTING_EXTENSION),
-                firTestFile = testKtFile.getExpectedHighlightingFile(HIGHLIGHTING_FIR_EXTENSION),
+                k2Extension = IgnoreTests.FileExtension.FIR,
+                k2TestFile = testKtFile.getExpectedHighlightingFile(HIGHLIGHTING_K2_EXTENSION),
                 additionalFileToMarkFirIdentical = testKtFile
             )
         }

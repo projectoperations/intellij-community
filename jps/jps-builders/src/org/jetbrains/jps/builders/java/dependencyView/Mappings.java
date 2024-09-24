@@ -13,11 +13,13 @@ import it.unimi.dsi.fastutil.ints.IntConsumer;
 import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.builders.storage.BuildDataCorruptedException;
+import org.jetbrains.jps.incremental.Utils;
 import org.jetbrains.jps.incremental.relativizer.PathRelativizerService;
-import org.jetbrains.jps.incremental.storage.PathStringDescriptor;
+import org.jetbrains.jps.incremental.storage.PathStringDescriptors;
 import org.jetbrains.jps.javac.Iterators;
 import org.jetbrains.jps.service.JpsServiceManager;
 import org.jetbrains.org.objectweb.asm.ClassReader;
@@ -36,6 +38,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 // not final - used by Gosu plugin
+@ApiStatus.Internal
 public class Mappings {
   private static final Logger LOG = Logger.getInstance(Mappings.class);
   private boolean myProcessConstantsIncrementally = true;
@@ -53,6 +56,9 @@ public class Mappings {
   private final boolean myIsDelta;
   private boolean myIsDifferentiated = false;
   private boolean myIsRebuild = false;
+  private long myTotalDifferentiateTime;
+  private long myTotalIntegrateTime;
+
 
   private final IntSet myChangedClasses;
   private final Set<File> myChangedFiles;
@@ -110,7 +116,7 @@ public class Mappings {
     createImplementation();
   }
 
-  public Mappings(final File rootDir, PathRelativizerService relativizer) throws IOException {
+  public Mappings(final File rootDir, @NotNull PathRelativizerService relativizer) throws IOException {
     myLock = new Object();
     myIsDelta = false;
     myChangedClasses = null;
@@ -163,7 +169,7 @@ public class Mappings {
           DependencyContext.getTableFile(myRootDir, SHORT_NAMES), EnumeratorIntegerDescriptor.INSTANCE
         );
         myRelativeSourceFilePathToClasses = new ObjectObjectPersistentMultiMaplet<String, ClassFileRepr>(
-          DependencyContext.getTableFile(myRootDir, SOURCE_TO_CLASS), PathStringDescriptor.INSTANCE, new ClassFileReprExternalizer(myContext),
+          DependencyContext.getTableFile(myRootDir, SOURCE_TO_CLASS), PathStringDescriptors.createPathStringDescriptor(), new ClassFileReprExternalizer(myContext),
           () -> new HashSet<>(5, DEFAULT_SET_LOAD_FACTOR)
         ) {
           @Override
@@ -173,7 +179,7 @@ public class Mappings {
           }
         };
         myClassToRelativeSourceFilePath = new IntObjectPersistentMultiMaplet<>(
-          DependencyContext.getTableFile(myRootDir, CLASS_TO_SOURCE), EnumeratorIntegerDescriptor.INSTANCE, PathStringDescriptor.INSTANCE, fileCollectionFactory
+          DependencyContext.getTableFile(myRootDir, CLASS_TO_SOURCE), EnumeratorIntegerDescriptor.INSTANCE, PathStringDescriptors.createPathStringDescriptor(), fileCollectionFactory
         );
       }
     }
@@ -1957,12 +1963,10 @@ public class Mappings {
             debug("Signature changed ", signatureChanged);
 
             final boolean extendsChanged = superClassChanged && !diff.extendsAdded();
-            final boolean interfacesRemoved = interfacesChanged && !diff.interfaces().removed().isEmpty();
 
             debug("Extends changed: ", extendsChanged);
-            debug("Interfaces removed: ", interfacesRemoved);
 
-            myFuture.affectSubclasses(changedClass.name, myAffectedFiles, state.myAffectedUsages, state.myDependants, extendsChanged || interfacesRemoved || signatureChanged, myCompiledFiles, null);
+            myFuture.affectSubclasses(changedClass.name, myAffectedFiles, state.myAffectedUsages, state.myDependants, extendsChanged || interfacesChanged || signatureChanged, myCompiledFiles, null);
 
             if (extendsChanged && directDeps != null) {
               final TypeRepr.ClassType excClass = TypeRepr.createClassType(myContext, changedClass.name);
@@ -2364,6 +2368,8 @@ public class Mappings {
           return true;
         }
 
+        long start = System.currentTimeMillis();
+
         debug("Begin of Differentiate:");
         debug("Easy mode: ", myEasyMode);
 
@@ -2470,6 +2476,7 @@ public class Mappings {
             // some of them may not have been compiled in this round, so such files should be considered unchanged
             myDelta.myChangedFiles.retainAll(myFilesToCompile);
           }
+          myTotalDifferentiateTime += (System.currentTimeMillis() - start);
         }
       }
     }
@@ -2654,6 +2661,7 @@ public class Mappings {
 
   public void integrate(final Mappings delta) {
     synchronized (myLock) {
+      long start = System.currentTimeMillis();
       try {
         assert (delta.isDifferentiated());
 
@@ -2840,6 +2848,7 @@ public class Mappings {
       }
       finally {
         delta.close();
+        myTotalIntegrateTime += (System.currentTimeMillis() - start);
       }
     }
   }
@@ -3010,6 +3019,9 @@ public class Mappings {
           }
           myContext = null;
         }
+
+        LOG.info("Mappings total differentiate linear time " + Utils.formatDuration(myTotalDifferentiateTime));
+        LOG.info("Mappings total integrate     linear time " + Utils.formatDuration(myTotalIntegrateTime));
       }
     }
     if (error != null) {

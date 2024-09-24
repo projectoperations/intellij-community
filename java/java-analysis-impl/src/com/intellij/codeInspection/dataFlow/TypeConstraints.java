@@ -26,16 +26,16 @@ public final class TypeConstraints {
   /**
    * Top constraint (no restriction; any non-primitive value satisfies this)
    */
-  public static final TypeConstraint TOP = new TopConstraint();
+  public static final @NotNull TypeConstraint TOP = new TopConstraint();
   /**
    * Bottom constraint (no actual type satisfies this)
    */
-  public static final TypeConstraint BOTTOM = new BottomConstraint();
+  public static final @NotNull TypeConstraint BOTTOM = new BottomConstraint();
 
   /**
    * Exactly java.lang.Object class
    */
-  public static final Exact EXACTLY_OBJECT = new ExactObject();
+  public static final @NotNull Exact EXACTLY_OBJECT = new ExactObject();
 
   @Nullable
   private static Exact createExact(@NotNull PsiType type) {
@@ -193,7 +193,7 @@ public final class TypeConstraints {
       }
       return PsiType.getJavaLangObject(aClass.getManager(), aClass.getResolveScope());
     }
-    return psiType.rawType();
+    return psiType;
   }
 
   @NotNull
@@ -353,11 +353,7 @@ public final class TypeConstraints {
 
     @Override
     public @NotNull Exact convert(TypeConstraintFactory factory) {
-      String qualifiedName = classDef.getQualifiedName();
-      if (qualifiedName != null) {
-        return factory.create(qualifiedName);
-      }
-      return unresolved(classDef.toString());
+      return factory.create(classDef);
     }
 
     @Override
@@ -486,6 +482,12 @@ public final class TypeConstraints {
     @Override
     public @NotNull Exact convert(TypeConstraintFactory factory) {
       return new ExactSubclass(myId, ContainerUtil.map2Array(mySupers, Exact.class, ex -> ex.convert(factory)));
+    }
+
+    @Override
+    public @Nullable PsiType getPsiType(Project project) {
+      PsiType[] types = StreamEx.of(mySupers).map(st -> st.getPsiType(project)).distinct().toArray(PsiType.EMPTY_ARRAY);
+      return types.length == 0 ? null : PsiIntersectionType.createIntersection(types);
     }
 
     @Override
@@ -661,6 +663,15 @@ public final class TypeConstraints {
 
   @FunctionalInterface
   public interface TypeConstraintFactory {
+    @NotNull
+    default Exact create(@NotNull ClassDef def) {
+      String qualifiedName = def.getQualifiedName();
+      if (qualifiedName != null) {
+        return create(qualifiedName);
+      }
+      return unresolved(def.toString());
+    }
+    
     @NotNull Exact create(@NotNull String fqn);
   }
 

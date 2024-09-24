@@ -10,7 +10,6 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.impl.AbstractDroppableStripe
-import com.intellij.openapi.wm.impl.IdeRootPane
 import com.intellij.openapi.wm.impl.LayoutData
 import com.intellij.openapi.wm.impl.SquareStripeButton
 import com.intellij.ui.ComponentUtil
@@ -26,6 +25,7 @@ import javax.accessibility.AccessibleContext
 import javax.accessibility.AccessibleRole
 import javax.swing.JComponent
 import javax.swing.border.Border
+import kotlin.math.max
 
 @ApiStatus.Internal
 abstract class ToolWindowToolbar(private val isPrimary: Boolean, val anchor: ToolWindowAnchor) : JBPanel<ToolWindowToolbar>() {
@@ -65,6 +65,12 @@ abstract class ToolWindowToolbar(private val isPrimary: Boolean, val anchor: Too
 
   fun updateResizeState(toolbar: ToolWindowToolbar?) {
     myResizeManager.updateState(toolbar)
+  }
+
+  fun updateNamedState() {
+    if (isVisible && ResizeStripeManager.isShowNames()) {
+      myResizeManager.updateNamedState()
+    }
   }
 
   open fun createBorder():Border = JBUI.Borders.empty()
@@ -132,6 +138,7 @@ abstract class ToolWindowToolbar(private val isPrimary: Boolean, val anchor: Too
                           paneId: String,
                           override val anchor: ToolWindowAnchor,
                           override val split: Boolean = false) : AbstractDroppableStripe(paneId, VerticalFlowLayout(0, 0)) {
+    var bottomAnchorDropAreaComponent: JComponent? = null
     override val isNewStripes: Boolean
       get() = true
 
@@ -176,7 +183,7 @@ abstract class ToolWindowToolbar(private val isPrimary: Boolean, val anchor: Too
       }
       if (anchor == ToolWindowAnchor.BOTTOM) {
         val rootBounds = Rectangle(rootPane.locationOnScreen, rootPane.size)
-        val toolWindowHeight = getFirstVisibleToolWindowSize(false)
+        val toolWindowHeight = max(getFirstVisibleToolWindowSize(false), height + JBUI.scale(40))
         val bounds = Rectangle(rootBounds.x, rootBounds.y + rootBounds.height - toolWindowHeight - getStatusBarHeight(),
                                rootBounds.width / 2, toolWindowHeight)
         if (split) {
@@ -224,8 +231,7 @@ abstract class ToolWindowToolbar(private val isPrimary: Boolean, val anchor: Too
         return Rectangle(locationOnScreen.x  - toolWindowSize, locationOnScreen.y, toolWindowSize, size.height)
       }
       if (anchor == ToolWindowAnchor.BOTTOM) {
-        val rootPane = rootPane
-        val pane = if (rootPane is IdeRootPane) rootPane.getToolWindowPane() else rootPane
+        val pane = bottomAnchorDropAreaComponent ?: rootPane
         val rootBounds = Rectangle(pane.locationOnScreen, pane.size)
         val toolWindowHeight = getFirstVisibleToolWindowSize(false)
         return Rectangle(rootBounds.x, rootBounds.y + rootBounds.height - toolWindowHeight, rootBounds.width, toolWindowHeight)

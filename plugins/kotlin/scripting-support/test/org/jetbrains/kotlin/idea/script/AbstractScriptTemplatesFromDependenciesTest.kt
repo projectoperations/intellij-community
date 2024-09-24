@@ -2,7 +2,7 @@
 
 package org.jetbrains.kotlin.idea.script
 
-import com.intellij.ide.projectView.actions.MarkRootActionBase
+import com.intellij.ide.projectView.actions.MarkRootsManager
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.module.JavaModuleType
 import com.intellij.openapi.module.Module
@@ -19,10 +19,7 @@ import com.intellij.testFramework.PsiTestUtil
 import com.intellij.util.io.ZipUtil
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.kotlin.idea.base.test.InTextDirectivesUtils
-import org.jetbrains.kotlin.idea.core.script.ScriptDefinitionContributor
-import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners
-import org.jetbrains.kotlin.idea.test.KotlinTestUtils
-import org.jetbrains.kotlin.idea.test.addDependency
+import org.jetbrains.kotlin.idea.test.*
 import org.jetbrains.kotlin.test.util.jarRoot
 import org.jetbrains.kotlin.test.util.projectLibrary
 import org.junit.runner.RunWith
@@ -33,10 +30,15 @@ import java.util.zip.ZipOutputStream
 import kotlin.io.path.invariantSeparatorsPathString
 
 @RunWith(JUnit3RunnerWithInners::class)
-abstract class AbstractScriptTemplatesFromDependenciesTest : HeavyPlatformTestCase() {
+abstract class AbstractScriptTemplatesFromDependenciesTest : HeavyPlatformTestCase(),
+                                                             ExpectedPluginModeProvider {
 
     companion object {
         private const val testFileName = "test.kts"
+    }
+
+    override fun setUp() {
+        setUpWithKotlinPlugin { super.setUp() }
     }
 
     fun doTest(path: String) {
@@ -61,7 +63,7 @@ abstract class AbstractScriptTemplatesFromDependenciesTest : HeavyPlatformTestCa
                 ?.map { folder ->
                     ModuleRootManager.getInstance(module).modifiableModel.apply {
                         val vFile = VfsUtil.findFileByIoFile(folder, true)!!
-                        MarkRootActionBase.findContentEntry(this, vFile)?.addExcludeFolder(vFile)
+                        MarkRootsManager.findContentEntry(this, vFile)?.addExcludeFolder(vFile)
                         runWriteAction { this@apply.commit() }
                     }
 
@@ -84,7 +86,7 @@ abstract class AbstractScriptTemplatesFromDependenciesTest : HeavyPlatformTestCa
 
         checkRoots(fileText, roots)
 
-        val provider = ScriptDefinitionContributor.find<ScriptTemplatesFromDependenciesProvider>(project)
+        val provider = ScriptTemplatesFromDependenciesProvider.getInstance(project)
             ?: error("Cannot find ScriptTemplatesFromDependenciesProvider")
 
         val (templates, classpath) = provider.getTemplateClassPath(roots.toList())

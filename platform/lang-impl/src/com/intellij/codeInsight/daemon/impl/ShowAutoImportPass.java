@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeHighlighting.Pass;
@@ -18,6 +18,9 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ex.MarkupModelEx;
+import com.intellij.openapi.editor.impl.EditorImpl;
+import com.intellij.openapi.editor.impl.ImaginaryEditor;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -108,7 +111,7 @@ public final class ShowAutoImportPass extends TextEditorHighlightingPass {
 
       int caretOffset = myEditor.getCaretModel().getOffset();
       importUnambiguousImports();
-      if (isImportHintEnabled()) {
+      if (isImportHintEnabled() && !(myEditor instanceof ImaginaryEditor)) {
         List<HighlightInfo> visibleHighlights = getVisibleHighlights(myVisibleRange, myProject, myEditor, hasDirtyTextRange);
         // sort by distance to the caret
         visibleHighlights.sort(Comparator.comparingInt(info -> Math.abs(info.getActualStartOffset() - caretOffset)));
@@ -127,9 +130,9 @@ public final class ShowAutoImportPass extends TextEditorHighlightingPass {
     ThreadingAssertions.assertEventDispatchThread();
     try (AccessToken ignore = SlowOperations.knownIssue("IDEA-335057, EA-843299")) {
       if (!mayAutoImportNow(myFile, true, ThreeState.UNSURE)) return;
-    }
-    for (BooleanSupplier autoImportAction : autoImportActions) {
-      autoImportAction.getAsBoolean();
+      for (BooleanSupplier autoImportAction : autoImportActions) {
+        autoImportAction.getAsBoolean();
+      }
     }
   }
 
@@ -160,14 +163,19 @@ public final class ShowAutoImportPass extends TextEditorHighlightingPass {
                                                                    boolean isDirty) {
     List<HighlightInfo> highlights = new ArrayList<>();
     int offset = editor.getCaretModel().getOffset();
+    MarkupModelEx markupModelEx = editor instanceof EditorImpl ? ((EditorImpl)editor).getFilteredDocumentMarkupModel() : null;
     DaemonCodeAnalyzerEx.processHighlights(editor.getDocument(), project, null, visibleRange.getStartOffset(), visibleRange.getEndOffset(), info -> {
       //no changes after escape => suggest imports under caret only
       if (!isDirty && !info.containsOffset(offset, true)) {
         return true;
       }
-      if (info.hasHint() && !editor.getFoldingModel().isOffsetCollapsed(info.startOffset)) {
-        highlights.add(info);
+      if (!info.hasHint() || editor.getFoldingModel().isOffsetCollapsed(info.startOffset)) {
+        return true;
       }
+      if (markupModelEx != null && info.getHighlighter() != null && !markupModelEx.containsHighlighter(info.getHighlighter())) {
+        return true;
+      }
+      highlights.add(info);
       return true;
     });
     return highlights;

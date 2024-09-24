@@ -1,19 +1,20 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
-package org.jetbrains.kotlin.idea.completion.contributors
+package org.jetbrains.kotlin.idea.completion.impl.k2.contributors
 
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.openapi.module.Module
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import com.intellij.psi.util.parents
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.completion.FirCompletionSessionParameters
 import org.jetbrains.kotlin.idea.completion.KeywordCompletion
-import org.jetbrains.kotlin.idea.completion.context.*
 import org.jetbrains.kotlin.idea.completion.contributors.keywords.OverrideKeywordHandler
 import org.jetbrains.kotlin.idea.completion.contributors.keywords.ReturnKeywordHandler
 import org.jetbrains.kotlin.idea.completion.contributors.keywords.SuperKeywordHandler
 import org.jetbrains.kotlin.idea.completion.contributors.keywords.ThisKeywordHandler
+import org.jetbrains.kotlin.idea.completion.impl.k2.context.FirBasicCompletionContext
+import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.keywords.ActualKeywordHandler
 import org.jetbrains.kotlin.idea.completion.implCommon.keywords.BreakContinueKeywordHandler
 import org.jetbrains.kotlin.idea.completion.keywords.CompletionKeywordHandlerProvider
 import org.jetbrains.kotlin.idea.completion.keywords.CompletionKeywordHandlers
@@ -28,11 +29,13 @@ import org.jetbrains.kotlin.psi.KtContainerNode
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtExpressionWithLabel
 import org.jetbrains.kotlin.psi.KtLabelReferenceExpression
-import org.jetbrains.kotlin.psi.psiUtil.parentsWithSelf
 import org.jetbrains.kotlin.util.match
 
-internal class FirKeywordCompletionContributor(basicContext: FirBasicCompletionContext, priority: Int) :
-    FirCompletionContributorBase<KotlinRawPositionContext>(basicContext, priority) {
+internal class FirKeywordCompletionContributor(
+    basicContext: FirBasicCompletionContext,
+    priority: Int = 0,
+) : FirCompletionContributorBase<KotlinRawPositionContext>(basicContext, priority) {
+
     private val keywordCompletion = KeywordCompletion(object : KeywordCompletion.LanguageVersionSettingProvider {
         override fun getLanguageVersionSetting(element: PsiElement) = element.languageVersionSettings
         override fun getLanguageVersionSetting(module: Module) = module.languageVersionSettings
@@ -40,17 +43,16 @@ internal class FirKeywordCompletionContributor(basicContext: FirBasicCompletionC
 
     private val resolveDependentCompletionKeywordHandlers = ResolveDependentCompletionKeywordHandlerProvider(basicContext)
 
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun complete(
         positionContext: KotlinRawPositionContext,
         weighingContext: WeighingContext,
         sessionParameters: FirCompletionSessionParameters,
     ) {
         val expression = when (positionContext) {
-            is KotlinSimpleNameReferencePositionContext -> positionContext.reference.expression.let {
-                it.parentsWithSelf.match(KtLabelReferenceExpression::class, KtContainerNode::class, last = KtExpressionWithLabel::class)
-                    ?: it
-            }
+            is KotlinLabelReferencePositionContext -> positionContext.nameExpression.let { label -> getExpressionWithLabel(label) ?: label }
+
+            is KotlinSimpleNameReferencePositionContext -> positionContext.reference.expression
 
             is KotlinTypeConstraintNameInWhereClausePositionContext, is KotlinIncorrectPositionContext, is KotlinClassifierNamePositionContext ->
                 error("keyword completion should not be called for ${positionContext::class.simpleName}")
@@ -63,8 +65,10 @@ internal class FirKeywordCompletionContributor(basicContext: FirBasicCompletionC
         completeWithResolve(expression ?: positionContext.position, expression, weighingContext)
     }
 
+    private fun getExpressionWithLabel(label: KtLabelReferenceExpression): KtExpressionWithLabel? =
+        label.parents(withSelf = false).match(KtContainerNode::class, last = KtExpressionWithLabel::class)
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun completeWithResolve(position: PsiElement, expression: KtExpression?, weighingContext: WeighingContext) {
         complete(position) { lookupElement, keyword ->
             val lookups = DefaultCompletionKeywordHandlerProvider.getHandlerForKeyword(keyword)
@@ -88,11 +92,12 @@ internal class FirKeywordCompletionContributor(basicContext: FirBasicCompletionC
 
 private class ResolveDependentCompletionKeywordHandlerProvider(
     basicContext: FirBasicCompletionContext
-) : CompletionKeywordHandlerProvider<KtAnalysisSession>() {
+) : CompletionKeywordHandlerProvider<KaSession>() {
     override val handlers = CompletionKeywordHandlers(
         ReturnKeywordHandler,
         BreakContinueKeywordHandler(KtTokens.CONTINUE_KEYWORD),
         BreakContinueKeywordHandler(KtTokens.BREAK_KEYWORD),
+        ActualKeywordHandler(basicContext),
         OverrideKeywordHandler(basicContext),
         ThisKeywordHandler(basicContext),
         SuperKeywordHandler,

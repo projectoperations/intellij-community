@@ -4,6 +4,7 @@ package com.intellij.coverage.view
 import com.intellij.coverage.CoverageIntegrationBaseTest
 import com.intellij.coverage.CoverageSuitesBundle
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.ui.tree.StructureTreeModel
@@ -12,6 +13,8 @@ import com.intellij.util.ui.tree.TreeUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.jetbrains.concurrency.await
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
@@ -19,6 +22,10 @@ import javax.swing.JTree
 
 @RunWith(JUnit4::class)
 class CoverageTreeTest : CoverageIntegrationBaseTest() {
+  @Before
+  fun init() {
+    registerCoverageToolWindow(myProject)
+  }
 
   @Test
   fun `test ij coverage tree contains elements`() = testCoverageSuiteTree(loadFullSuite(), false, """
@@ -68,21 +75,20 @@ class CoverageTreeTest : CoverageIntegrationBaseTest() {
   }
 
   private fun testCoverageSuiteTree(suite: CoverageSuitesBundle, expected: String): Unit = runBlocking {
+    val stateBean = CoverageViewManager.getInstance(myProject).stateBean
+    stateBean.isShowOnlyModified = false
     openSuiteAndWait(suite)
 
-
-    val stateBean = CoverageViewManager.getInstance(myProject).stateBean
-    val treeStructure = CoverageViewTreeStructure(project, suite, stateBean)
+    val treeStructure = CoverageViewTreeStructure(project, suite)
     val disposable = Disposer.newDisposable()
     val model = StructureTreeModel(treeStructure, null, Invoker.forEventDispatchThread(disposable), disposable)
 
     withContext(Dispatchers.EDT) {
-      val tree = JTree(model)
-      TreeUtil.expandAll(tree)
+      val tree = writeIntentReadAction { JTree(model) }
+      TreeUtil.promiseExpandAll(tree).await()
       PlatformTestUtil.assertTreeEqual(tree, expected)
       Disposer.dispose(disposable)
+      closeSuite(suite)
     }
-
-    closeSuite(suite)
   }
 }

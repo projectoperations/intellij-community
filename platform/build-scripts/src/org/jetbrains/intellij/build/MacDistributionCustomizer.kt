@@ -1,15 +1,13 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
-import com.intellij.util.SystemProperties
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.plus
 import org.jetbrains.intellij.build.impl.support.RepairUtilityBuilder
 import java.nio.file.Path
 import java.util.function.Predicate
 
-abstract class MacDistributionCustomizer {
+open class MacDistributionCustomizer {
   companion object {
     /**
      * Pass 'true' to this system property to produce an additional .dmg and .sit archives for macOS without Runtime.
@@ -100,12 +98,7 @@ abstract class MacDistributionCustomizer {
   /**
    * If `true`, `*.ipr` files will be associated with the product in `Info.plist`.
    */
-  var associateIpr = false
-
-  /**
-   * Enables the use of the new cross-platform launcher (which loads launch data from `product-info.json` instead of `Info.plist`).
-   */
-  var useXPlatLauncher = true
+  var associateIpr: Boolean = false
 
   /**
    * Filter for files that is going to be put to `<distribution>/bin` directory.
@@ -125,10 +118,7 @@ abstract class MacDistributionCustomizer {
   /**
    * If `true`, a separate *-[org.jetbrains.intellij.build.impl.MacDistributionBuilder.NO_RUNTIME_SUFFIX].dmg artifact without a runtime will be produced.
    */
-  var buildArtifactWithoutRuntime = SystemProperties.getBooleanProperty(BUILD_ARTIFACT_WITHOUT_RUNTIME,
-                                                                        SystemProperties.getBooleanProperty(
-                                                                          "artifact.mac.no.jdk",
-                                                                          false))
+  var buildArtifactWithoutRuntime = System.getProperty(BUILD_ARTIFACT_WITHOUT_RUNTIME)?.toBoolean() ?: System.getProperty("artifact.mac.no.jdk").toBoolean()
 
   /**
    * Application bundle name (`<name>.app`).
@@ -144,20 +134,15 @@ abstract class MacDistributionCustomizer {
    */
   open fun getCustomIdeaProperties(appInfo: ApplicationInfoProperties): Map<String, String> = emptyMap()
 
-  @Deprecated("Please migrate the build script to Kotlin and override `copyAdditionalFiles`")
-  open fun copyAdditionalFiles(context: BuildContext, targetDir: Path) { }
-
   /**
    * Override this method to copy additional files to the macOS distribution of the product.
    */
   open suspend fun copyAdditionalFiles(context: BuildContext, targetDir: Path, arch: JvmArchitecture) {
-    @Suppress("DEPRECATION")
-    copyAdditionalFiles(context, targetDir)
     RepairUtilityBuilder.bundle(context, OsFamily.MACOS, arch, targetDir)
   }
 
-  open fun generateExecutableFilesPatterns(context: BuildContext, includeRuntime: Boolean, arch: JvmArchitecture): List<String> {
-    val basePatterns = persistentListOf(
+  open fun generateExecutableFilesPatterns(context: BuildContext, includeRuntime: Boolean, arch: JvmArchitecture): Sequence<String> {
+    val basePatterns = sequenceOf(
       "bin/*.sh",
       "plugins/**/*.sh",
       "bin/fsnotifier",
@@ -166,9 +151,12 @@ abstract class MacDistributionCustomizer {
       "MacOS/*"
     )
 
-    val rtPatterns =
-      if (includeRuntime) context.bundledRuntime.executableFilesPatterns(OsFamily.MACOS, context.productProperties.runtimeDistribution)
-      else emptyList()
+    val rtPatterns = if (includeRuntime) {
+      context.bundledRuntime.executableFilesPatterns(OsFamily.MACOS, context.productProperties.runtimeDistribution)
+    }
+    else {
+      emptySequence()
+    }
 
     return basePatterns +
            rtPatterns +

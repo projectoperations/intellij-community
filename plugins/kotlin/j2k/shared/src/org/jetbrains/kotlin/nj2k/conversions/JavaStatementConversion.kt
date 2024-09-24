@@ -1,17 +1,27 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.nj2k.conversions
 
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.j2k.Nullability.NotNull
 import org.jetbrains.kotlin.nj2k.*
 import org.jetbrains.kotlin.nj2k.tree.*
 import org.jetbrains.kotlin.nj2k.types.JKJavaDisjunctionType
 import org.jetbrains.kotlin.nj2k.types.isNull
+import org.jetbrains.kotlin.nj2k.types.isStringType
 import org.jetbrains.kotlin.nj2k.types.updateNullability
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
 
+/**
+ * Converts Java-specific statements to Kotlin statements:
+ *   * `assert` statement
+ *   * `synchronized` statement
+ *   * Try-with-resources or `try` with multiple `catch` blocks
+ *   * A so-called "guard clause" of the form
+ *   `if (param == null) throw new IllegalArgumentException("error message")` to a more idiomatic Kotlin
+ *   `requireNotNull` call (disabled in basic mode)
+ */
 class JavaStatementConversion(context: NewJ2kConverterContext) : RecursiveConversion(context) {
-    context(KtAnalysisSession)
+    context(KaSession)
     override fun applyToElement(element: JKTreeElement): JKTreeElement {
         if (element !is JKStatement) return recurse(element)
         return recurse(
@@ -19,6 +29,7 @@ class JavaStatementConversion(context: NewJ2kConverterContext) : RecursiveConver
                 is JKJavaAssertStatement -> convertAssert(element)
                 is JKJavaSynchronizedStatement -> convertSynchronized(element)
                 is JKJavaTryStatement -> convertTry(element)
+                is JKIfElseStatement -> convertGuardStatement(element)
                 else -> element
             }
         )
@@ -36,7 +47,7 @@ class JavaStatementConversion(context: NewJ2kConverterContext) : RecursiveConver
             if (element.description is JKStubExpression) null
             else JKLambdaExpression(JKExpressionStatement(element::description.detached()))
 
-        val expressionComparedToNull = assertion.expressionComparedToNull()
+        val expressionComparedToNull = assertion.expressionComparedToNull(isNegated = true)
             ?: return kotlinAssert(assertion, messageExpression, symbolProvider).asStatement().withFormattingFrom(element)
         val referencedVariable = (expressionComparedToNull as? JKFieldAccessExpression)?.identifier?.target as? JKLocalVariable
         val checkNotNullSymbol = symbolProvider.provideMethodSymbol("kotlin.checkNotNull")
@@ -48,7 +59,8 @@ class JavaStatementConversion(context: NewJ2kConverterContext) : RecursiveConver
             referencedVariable.initializer = JKCallExpressionImpl(
                 checkNotNullSymbol,
                 arguments,
-                expressionType = initializerType?.updateNullability(NotNull)
+                expressionType = initializerType?.updateNullability(NotNull),
+                canMoveLambdaOutsideParentheses = true
             )
 
             // effectively delete the original statement, since the assertion was merged into the variable declaration above
@@ -58,7 +70,8 @@ class JavaStatementConversion(context: NewJ2kConverterContext) : RecursiveConver
         // Otherwise, leave the variable declaration untouched and do an inplace replacement of the assertion
         return JKCallExpressionImpl(
             checkNotNullSymbol,
-            arguments = listOfNotNull(expressionComparedToNull.detached(assertion), messageExpression).toArgumentList()
+            arguments = listOfNotNull(expressionComparedToNull.detached(assertion), messageExpression).toArgumentList(),
+            canMoveLambdaOutsideParentheses = true
         ).asStatement().withFormattingFrom(element)
     }
 
@@ -75,9 +88,10 @@ class JavaStatementConversion(context: NewJ2kConverterContext) : RecursiveConver
         return statements.subList(declarationIndex + 1, expressionIndex).all { it.isEmpty() }
     }
 
-    private fun JKExpression.expressionComparedToNull(): JKExpression? {
+    private fun JKExpression.expressionComparedToNull(isNegated: Boolean = false): JKExpression? {
         if (this !is JKBinaryExpression) return null
-        if (operator.token.text != "!=") return null
+        if (isNegated && operator.token.text != "!=") return null
+        if (!isNegated && operator.token.text != "==") return null
 
         val left = left
         val right = right
@@ -93,7 +107,8 @@ class JavaStatementConversion(context: NewJ2kConverterContext) : RecursiveConver
         return JKExpressionStatement(
             JKCallExpressionImpl(
                 symbolProvider.provideMethodSymbol("kotlin.synchronized"),
-                JKArgumentList(element.lockExpression, lambdaBody)
+                JKArgumentList(element.lockExpression, lambdaBody),
+                canMoveLambdaOutsideParentheses = true
             ).withFormattingFrom(element)
         )
     }
@@ -167,4 +182,85 @@ class JavaStatementConversion(context: NewJ2kConverterContext) : RecursiveConver
                 tryStatement.catchSections.flatMap(::convertCatchSection)
             )
         ).withFormattingFrom(tryStatement)
+
+    /**
+     * Replaces some if-then-throw statements with calls to `require` or `check`. For example, a statement like
+     * `if (enabled) throw new IllegalArgumentException("must be enabled")` would become `requireNotNull(s1) { "must be enabled" }`.
+     *
+     * This conversion is analogous to `ReplaceGuardClauseWithFunctionCallInspection` and is disabled in basic mode.
+     */
+    private fun convertGuardStatement(ifElseStatement: JKIfElseStatement): JKStatement {
+        if (context.settings.basicMode) return ifElseStatement
+
+        val thenExpression = ifElseStatement.thenBranch.statements.singleOrNull() ?: return ifElseStatement
+        if (thenExpression !is JKExpressionStatement) return ifElseStatement
+
+        val thrownExpression = thenExpression.expression.safeAs<JKThrowExpression>()?.exception ?: return ifElseStatement
+        if (thrownExpression !is JKNewExpression || thrownExpression.arguments.arguments.size > 1) {
+            return ifElseStatement
+        }
+
+        val expressionComparedToNull = ifElseStatement.condition.expressionComparedToNull()
+        val exceptionName = thrownExpression.identifier?.name
+        val correspondingMethodName = when (exceptionName) {
+            "IllegalArgumentException" -> if (expressionComparedToNull != null) "kotlin.requireNotNull" else "kotlin.require"
+            "IllegalStateException" -> if (expressionComparedToNull != null) "kotlin.checkNotNull" else "kotlin.check"
+            else -> return ifElseStatement
+        }
+        val exceptionArgument = thrownExpression.arguments.arguments.firstOrNull()
+        if (exceptionArgument != null && exceptionArgument.value.calculateType(typeFactory)?.isStringType() != true) {
+            return ifElseStatement
+        }
+
+        val messageExpression = if (exceptionArgument == null) null else
+            JKLambdaExpression(JKExpressionStatement(exceptionArgument::value.detached()))
+        val methodCallSymbol = symbolProvider.provideMethodSymbol(correspondingMethodName)
+
+        val originalCondition = ifElseStatement::condition.detached()
+        val negatedCondition = if (originalCondition is JKPrefixExpression && originalCondition.operator.token.text == "!") {
+            val conditionExpression = originalCondition::expression.detached()
+            if (conditionExpression is JKParenthesizedExpression) {
+                // now that the `!` prefix has been removed, clean up any superfluous parentheses
+                conditionExpression::expression.detached()
+            } else {
+                conditionExpression
+            }
+        } else {
+            JKPrefixExpression(
+                originalCondition.parenthesizeIfCompoundExpression(),
+                JKKtOperatorImpl(JKOperatorToken.EXCL, typeFactory.types.boolean)
+            )
+        }.withFormattingFrom(originalCondition)
+
+        val newCallExpression = if (expressionComparedToNull != null && ifElseStatement.elseBranch.isEmpty()) {
+            JKCallExpressionImpl(
+                methodCallSymbol,
+                listOfNotNull(
+                    expressionComparedToNull.detached(ifElseStatement.condition),
+                    messageExpression
+                ).toArgumentList(),
+                canMoveLambdaOutsideParentheses = true
+            )
+        } else {
+            JKCallExpressionImpl(
+                methodCallSymbol,
+                listOfNotNull(negatedCondition, messageExpression).toArgumentList(),
+                canMoveLambdaOutsideParentheses = true
+            )
+        }.asStatement()
+
+        val elseBranch = ifElseStatement::elseBranch.detached()
+        return if (elseBranch.isEmpty()) {
+            newCallExpression
+        } else {
+            val statements = if (elseBranch is JKBlockStatement) {
+                // any newlines that should follow the else block will be attached to the new parent block statement
+                elseBranch.statements.last().lineBreaksAfter = 0
+                listOf(newCallExpression) + elseBranch.statements.map { it.detached(elseBranch.block) }
+            } else {
+                listOf(newCallExpression, elseBranch)
+            }
+            JKBlockStatementWithoutBrackets(statements).withFormattingFrom(ifElseStatement)
+        }.withFormattingFrom(ifElseStatement)
+    }
 }

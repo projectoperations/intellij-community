@@ -10,25 +10,23 @@ import com.intellij.patterns.PsiJavaPatterns
 import com.intellij.patterns.StandardPatterns
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.ProcessingContext
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo
 import org.jetbrains.kotlin.idea.completion.api.CompletionDummyIdentifierProviderService
-import org.jetbrains.kotlin.idea.completion.context.FirBasicCompletionContext
-import org.jetbrains.kotlin.idea.completion.contributors.FirCompletionContributorFactory
+import org.jetbrains.kotlin.idea.completion.impl.k2.Completions
+import org.jetbrains.kotlin.idea.completion.impl.k2.context.FirBasicCompletionContext
 import org.jetbrains.kotlin.idea.completion.weighers.Weighers
 import org.jetbrains.kotlin.idea.util.positionContext.*
 import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.platform.isMultiPlatform
 import org.jetbrains.kotlin.psi.KtDeclaration
-import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtProperty
-import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 
 class KotlinFirCompletionContributor : CompletionContributor() {
     init {
@@ -89,29 +87,14 @@ private object KotlinFirCompletionProvider : CompletionProvider<CompletionParame
 
         analyzeInContext(basicContext, positionContext) {
             recordOriginalFile(basicContext)
-            complete(basicContext, positionContext, resultController)
-        }
-    }
-
-
-    context(KtAnalysisSession)
-    private fun complete(
-        basicContext: FirBasicCompletionContext,
-        positionContext: KotlinRawPositionContext,
-        resultController: PolicyController,
-    ) {
-        val factory = FirCompletionContributorFactory(basicContext, resultController)
-        with(Completions) {
-            val weighingContext = createWeighingContext(basicContext, positionContext)
-            val sessionParameters = FirCompletionSessionParameters(basicContext, positionContext)
-            complete(factory, positionContext, weighingContext, sessionParameters)
+            Completions.complete(basicContext, positionContext, resultController)
         }
     }
 
     private inline fun analyzeInContext(
         basicContext: FirBasicCompletionContext,
         positionContext: KotlinRawPositionContext,
-        action: KtAnalysisSession.() -> Unit
+        action: KaSession.() -> Unit
     ) {
         analyze(basicContext.fakeKtFile) {
             when (positionContext) {
@@ -124,14 +107,14 @@ private object KotlinFirCompletionProvider : CompletionProvider<CompletionParame
         }
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun recordOriginalFile(basicCompletionContext: FirBasicCompletionContext) {
         val originalFile = basicCompletionContext.originalKtFile
         val fakeFile = basicCompletionContext.fakeKtFile
         fakeFile.recordOriginalKtFile(originalFile)
     }
 
-    context(KtAnalysisSession)
+    context(KaSession)
     private fun recordOriginalDeclaration(basicContext: FirBasicCompletionContext, declaration: KtDeclaration) {
         try {
             declaration.recordOriginalDeclaration(PsiTreeUtil.findSameElementInCopy(declaration, basicContext.originalKtFile))
@@ -188,8 +171,8 @@ private object KotlinFirCompletionProvider : CompletionProvider<CompletionParame
 }
 
 internal data class FirCompletionSessionParameters(
-    private val basicContext: FirBasicCompletionContext,
-    private val positionContext: KotlinRawPositionContext,
+    val basicContext: FirBasicCompletionContext,
+    val positionContext: KotlinRawPositionContext,
 ) {
     private val languageVersionSettings = basicContext.project.languageVersionSettings
     val excludeEnumEntries: Boolean = !languageVersionSettings.supportsFeature(LanguageFeature.EnumEntries)

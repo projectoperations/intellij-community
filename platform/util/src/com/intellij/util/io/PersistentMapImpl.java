@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.io;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -13,10 +13,10 @@ import com.intellij.util.containers.SLRUCache;
 import com.intellij.util.io.PersistentHashMapValueStorage.CreationTimeOptions;
 import com.intellij.util.io.stats.PersistentHashMapStatistics;
 import com.intellij.util.io.stats.StorageStatsRegistrar;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.*;
 
 import java.io.DataInputStream;
-import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -54,6 +54,7 @@ import java.util.stream.Stream;
  * e.g., in case Value is non-negative integer the value can be stored
  * directly in storage used for offset and in case of btree enumerator directly in btree leaf.
  **/
+@Internal
 public final class PersistentMapImpl<Key, Value> implements PersistentMapBase<Key, Value> {
   private static final Logger LOG = Logger.getInstance(PersistentMapImpl.class);
 
@@ -244,9 +245,7 @@ public final class PersistentMapImpl<Key, Value> implements PersistentMapBase<Ke
    * @return empty map with exactly the same configuration as this map was created with, but based on the given path
    */
   public PersistentMapImpl<Key, Value> deriveEmptyMap(@NotNull Path path) throws IOException {
-    return myOptions.with(() -> {
-      return new PersistentMapImpl<>(myBuilder.copyWithFile(path));
-    });
+    return myOptions.with(() -> new PersistentMapImpl<>(myBuilder.copyWithFile(path)));
   }
 
   @Override
@@ -595,12 +594,7 @@ public final class PersistentMapImpl<Key, Value> implements PersistentMapBase<Ke
     getReadLock().lock();
     try {
       flushAppendCache();
-      return myEnumerator.processAllDataObject(processor, new PersistentEnumeratorBase.DataFilter() {
-        @Override
-        public boolean accept(final int id) throws IOException {
-          return readValueId(id) != NULL_ADDR;
-        }
-      });
+      return myEnumerator.processAllDataObject(processor, id -> readValueId(id) != NULL_ADDR);
     }
     catch (ClosedStorageException ex) {
       throw ex;
@@ -689,12 +683,7 @@ public final class PersistentMapImpl<Key, Value> implements PersistentMapBase<Ke
     }
 
     if (myValueStorage.performChunksCompaction(readResult.chunksCount)) {
-      long newValueOffset = myValueStorage.compactChunks(new AppendablePersistentMap.ValueDataAppender() {
-        @Override
-        public void append(@NotNull DataOutput out) throws IOException {
-          myValueExternalizer.save(out, valueRead);
-        }
-      }, readResult);
+      long newValueOffset = myValueStorage.compactChunks(out -> myValueExternalizer.save(out, valueRead), readResult);
 
       myEnumerator.lockStorageWrite();
       try {
@@ -916,7 +905,7 @@ public final class PersistentMapImpl<Key, Value> implements PersistentMapBase<Ke
   }
 
   // make it visible for tests
-  @ApiStatus.Internal
+  @Internal
   public void compact() throws IOException {
     if (!isCompactionSupported()) throw new IncorrectOperationException();
     getWriteLock().lock();
@@ -997,7 +986,7 @@ public final class PersistentMapImpl<Key, Value> implements PersistentMapBase<Ke
     }
   }
 
-  @ApiStatus.Internal
+  @Internal
   public boolean isCompactionSupported() {
     return !myIsReadOnly && !myIntMapping;
   }
@@ -1020,9 +1009,7 @@ public final class PersistentMapImpl<Key, Value> implements PersistentMapBase<Ke
     if (parentFile == null) return ArrayUtil.EMPTY_FILE_ARRAY;
     Path fileName = fileFromDirectory.getFileName();
     try (Stream<Path> children = Files.list(parentFile)) {
-      return children.filter(p -> {
-        return p.getFileName().toString().startsWith(fileName.toString());
-      }).map(p -> p.toFile()).toArray(File[]::new);
+      return children.filter(p -> p.getFileName().toString().startsWith(fileName.toString())).map(Path::toFile).toArray(File[]::new);
     }
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing;
 
 import com.intellij.concurrency.ConcurrentCollectionFactory;
@@ -11,6 +11,7 @@ import com.intellij.util.indexing.impl.perFileVersion.AutoRefreshingOnVfsCloseRe
 import com.intellij.util.indexing.impl.perFileVersion.IntFileAttribute;
 import it.unimi.dsi.fastutil.ints.IntArraySet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
@@ -25,33 +26,33 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /**
  * A file has three indexed states (per particular index): indexed (with particular index_stamp which monotonically increases), outdated and (trivial) unindexed.
  * <ul>
- *   <li>If index version is advanced or we rebuild it then index_stamp is advanced, we rebuild everything.</li>
- *   <li>If we get remove file event -> we should remove all indexed state from indices data for it (if state is nontrivial)
+ *   <li>If the index version is advanced, or we rebuild it, then index_stamp is advanced, we rebuild everything.</li>
+ *   <li>If we get a remove file event, then we should remove all indexed state from indices data for it (if state is nontrivial)
  *  * and set its indexed state to outdated.</li>
- *   <li>If we get other event we set indexed state to outdated.</li>
+ *   <li>If we get another event we set indexed state to outdated.</li>
  * </ul>
  */
+@Internal
 public final class IndexingStamp {
   static final long INDEX_DATA_OUTDATED_STAMP = -2L;
   static final long HAS_NO_INDEXED_DATA_STAMP = 0L;
 
   private IndexingStamp() { }
 
-  @NotNull
-  public static FileIndexingState isFileIndexedStateCurrent(int fileId, @NotNull ID<?, ?> indexName) {
+  public static @NotNull FileIndexingState isFileIndexedStateCurrent(int fileId, @NotNull ID<?, ?> indexName) {
     try {
       long stamp = getIndexStamp(fileId, indexName);
       if (stamp == HAS_NO_INDEXED_DATA_STAMP) return FileIndexingState.NOT_INDEXED;
       return stamp == IndexVersion.getIndexCreationStamp(indexName) ? FileIndexingState.UP_TO_DATE : FileIndexingState.OUT_DATED;
     }
     catch (RuntimeException e) {
-      final Throwable cause = e.getCause();
-      if (!(cause instanceof IOException)) {
-        throw e; // in case of IO exceptions consider file unindexed
+      Throwable cause = e.getCause();
+      if (cause instanceof IOException) {
+        // in case of IO exceptions, consider the file unindexed
+        return FileIndexingState.OUT_DATED;
       }
+      throw e;
     }
-
-    return FileIndexingState.OUT_DATED;
   }
 
   public static void setFileIndexedStateCurrent(int fileId, @NotNull ID<?, ?> id, boolean isProvidedByInfrastructureExtension) {
@@ -69,8 +70,8 @@ public final class IndexingStamp {
 
   private static final int INDEXING_STAMP_CACHE_CAPACITY = SystemProperties.getIntProperty("index.timestamp.cache.size", 100);
   //MAYBE RC: do we still need in-memory cache (fileId->Timestamps)? With new fast-attributes + fast enumerator
-  //          access may be fast enough even without caching -- or, at least, it may be worth to cache enumerator
-  //          records (which is 100-1000 records at max) _only_
+  //          access may be fast enough even without caching -- or, at least, it may be worth caching enumerator
+  //          records (which are 100-1000 records at max) _only_
   private static final ConcurrentIntObjectMap<Timestamps> ourTimestampsCache =
     ConcurrentCollectionFactory.createConcurrentIntObjectMap();
   private static final BlockingQueue<Integer> ourFinishedFiles = new ArrayBlockingQueue<>(INDEXING_STAMP_CACHE_CAPACITY);
@@ -79,7 +80,7 @@ public final class IndexingStamp {
     new AutoRefreshingOnVfsCloseRef<>(IndexingStamp::createStorage);
 
   // Read lock is used to flush caches. Write lock is to wait until all threads have finished flushing.
-  // This is kind of abuse of RW lock. The goal ot to allow concurrent execution of flushCache(int finishedFile) from different threads.
+  // This is kind of abuse of RW lock. The goal is to allow concurrent execution of flushCache(int finishedFile) from different threads.
   private static final ReadWriteLock flushLock = new ReentrantReadWriteLock();
 
   private static IndexingStampStorage createStorage(FSRecordsImpl unused) {
@@ -110,8 +111,7 @@ public final class IndexingStamp {
     storage.invoke().writeTimestamps(fileId, TimestampsImmutable.EMPTY);
   }
 
-  @NotNull
-  private static Timestamps createOrGetTimeStamp(int id) {
+  private static @NotNull Timestamps createOrGetTimeStamp(int id) {
     return getTimestamp(id, true);
   }
 

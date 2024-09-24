@@ -7,6 +7,7 @@ import com.intellij.codeInsight.hint.HintUtil
 import com.intellij.codeInsight.hints.InlayHintsUtils
 import com.intellij.codeInsight.hints.InlayPresentationFactory
 import com.intellij.codeInsight.hints.InlayPresentationFactory.*
+import com.intellij.openapi.client.ClientSystemInfo
 import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
 import com.intellij.openapi.editor.Editor
@@ -15,12 +16,11 @@ import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.colors.EditorColors.REFERENCE_HYPERLINK_COLOR
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.util.NlsContexts
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.psi.util.startOffset
 import com.intellij.ui.LightweightHint
 import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.ApiStatus
@@ -118,8 +118,26 @@ class PresentationFactory(private val editor: Editor) : InlayPresentationFactory
     return DynamicInsetPresentation(rounding, offsetFromTopProvider)
   }
 
+  @ApiStatus.Internal
+  @Contract(pure = true)
+  fun roundWithBackgroundAndNoInset(base: InlayPresentation): InlayPresentation {
+    val rounding = withInlayAttributes(RoundWithBackgroundPresentation(base, 8, 8))
+    return DynamicInsetPresentation(rounding, offsetFromTopProvider)
+  }
+
+  @ApiStatus.Internal
+  @Contract(pure = true)
+  fun offsetFromTopForSmallText(base: InlayPresentation) = DynamicInsetPresentation(base, offsetFromTopProvider)
+
   @Contract(pure = true)
   override fun icon(icon: Icon): IconPresentation = IconPresentation(icon, editor.component)
+
+  @ApiStatus.Internal
+  @Contract(pure = true)
+  fun scaledIcon(icon: Icon, scaleFactor: Float): InlayPresentation
+  {
+    return ScaledIconWithCustomFactorPresentation(textMetricsStorage, false, icon, editor.component, scaleFactor)
+  }
 
   @Contract(pure = true)
   override fun smallScaledIcon(icon: Icon): InlayPresentation
@@ -399,7 +417,7 @@ class PresentationFactory(private val editor: Editor) : InlayPresentationFactory
                                       WithAttributesPresentation.AttributesFlags().withIsDefault(true))
   }
 
-  private fun isControlDown(e: MouseEvent): Boolean = (SystemInfo.isMac && e.isMetaDown) || e.isControlDown
+  private fun isControlDown(e: MouseEvent): Boolean = (ClientSystemInfo.isMac() && e.isMetaDown) || e.isControlDown
 
   @Contract(pure = true)
   fun withTooltip(@NlsContexts.HintText tooltip: String, base: InlayPresentation): InlayPresentation = when {

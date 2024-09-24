@@ -1,19 +1,30 @@
 // Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.markdown.ui.preview.jcef
 
+import com.intellij.ide.ui.UISettingsListener
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.BaseProjectDirectories
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.ui.popup.Balloon
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.UserDataHolder
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.components.JBLoadingPanel
+import com.intellij.ui.components.JBViewport
+import com.intellij.ui.components.Magnificator
 import com.intellij.ui.jcef.JBCefApp
+import com.intellij.ui.jcef.JBCefClient
 import com.intellij.ui.jcef.JCEFHtmlPanel
-import com.intellij.util.SlowOperations
 import com.intellij.util.application
 import com.intellij.util.net.NetUtils
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collectLatest
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefRequestHandlerAdapter
@@ -25,25 +36,32 @@ import org.intellij.markdown.html.HtmlGenerator
 import org.intellij.plugins.markdown.extensions.MarkdownBrowserPreviewExtension
 import org.intellij.plugins.markdown.extensions.MarkdownConfigurableExtension
 import org.intellij.plugins.markdown.settings.MarkdownPreviewSettings
-import org.intellij.plugins.markdown.ui.actions.changeFontSize
+import org.intellij.plugins.markdown.settings.MarkdownSettingsConfigurable.Companion.fontSizeOptions
 import org.intellij.plugins.markdown.ui.preview.*
+import org.intellij.plugins.markdown.ui.preview.MarkdownUpdateHandler.PreviewRequest
 import org.intellij.plugins.markdown.ui.preview.jcef.impl.*
+import org.intellij.plugins.markdown.ui.preview.jcef.zoomIndicator.PreviewZoomIndicatorManager
+import org.intellij.plugins.markdown.util.MarkdownApplicationScope
+import org.intellij.plugins.markdown.util.MarkdownPluginScope
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
+import java.awt.BorderLayout
+import java.awt.Point
 import java.net.URL
+import javax.swing.JComponent
+import kotlin.math.round
+import kotlin.time.Duration.Companion.milliseconds
 
 class MarkdownJCEFHtmlPanel(
-  private val _project: Project?,
-  private val _virtualFile: VirtualFile?
-): JCEFHtmlPanel(isOffScreenRendering(), null, null), MarkdownHtmlPanelEx, UserDataHolder by UserDataHolderBase() {
-  constructor(): this(null, null)
+  private val project: Project?,
+  private val virtualFile: VirtualFile?
+) : JCEFHtmlPanel(isOffScreenRendering(), null, null), MarkdownHtmlPanelEx, UserDataHolder by UserDataHolderBase() {
+  constructor() : this(null, null)
 
   private val pageBaseName = "markdown-preview-index-${hashCode()}.html"
 
-  private var projectRoot: VirtualFile? = null
-  private val fileSchemeResourcesProcessor: ResourceProvider
-
   private val resourceProvider = MyAggregatingResourceProvider()
-  private val browserPipe = JcefBrowserPipeImpl(
+  private val browserPipe: BrowserPipe = JcefBrowserPipeImpl(
     this,
     injectionAllowedUrls = listOf(PreviewStaticServer.getStaticUrl(resourceProvider, pageBaseName))
   )
@@ -81,6 +99,8 @@ class MarkdownJCEFHtmlPanel(
     styles.map { PreviewStaticServer.getStaticUrl(resourceProvider, it) }
   )
 
+  private val updateHandler = MarkdownUpdateHandler.Debounced()
+
   private fun buildIndexContent(): String {
     // language=HTML
     return """
@@ -97,39 +117,35 @@ class MarkdownJCEFHtmlPanel(
     """
   }
 
-  private fun loadIndexContent() {
+  private suspend fun loadIndexContent() {
     reloadExtensions()
-    loadURL(PreviewStaticServer.getStaticUrl(resourceProvider, pageBaseName))
+    waitForPageLoad(PreviewStaticServer.getStaticUrl(resourceProvider, pageBaseName))
   }
 
-  @Volatile
-  private var delayedContent: String? = null
-  private var firstUpdate = true
   private var previousRenderClosure: String = ""
 
-  init {
-    if (_virtualFile != null && _project != null) {
-      // Will be fixed in IDEA-340851
-      SlowOperations.allowSlowOperations<Throwable> {
-        projectRoot = ProjectFileIndex.getInstance(_project).getContentRootForFile(_virtualFile)
-      }
-    }
-    fileSchemeResourcesProcessor = FileSchemeResourcesProcessor(_virtualFile, projectRoot)
+  private val coroutineScope = project?.let(MarkdownPluginScope::createChildScope) ?: MarkdownApplicationScope.createChildScope()
 
+  private val projectRoot = coroutineScope.async(context = Dispatchers.Default) {
+    if (virtualFile != null && project != null) {
+      BaseProjectDirectories.getInstance(project).getBaseDirectoryFor(virtualFile)
+    }
+    else null
+  }
+
+  private val panelComponent by lazy { createComponent() }
+
+  override fun getComponent(): JComponent {
+    return panelComponent
+  }
+
+  init {
     Disposer.register(browserPipe) { currentExtensions.forEach(Disposer::dispose) }
     Disposer.register(this, browserPipe)
     Disposer.register(this, PreviewStaticServer.instance.registerResourceProvider(resourceProvider))
-    Disposer.register(this, PreviewStaticServer.instance.registerResourceProvider(fileSchemeResourcesProcessor))
+
     jbCefClient.addRequestHandler(MyFilteringRequestHandler(), cefBrowser, this)
-    browserPipe.subscribe(JcefBrowserPipeImpl.WINDOW_READY_EVENT, object : BrowserPipe.Handler {
-      override fun processMessageReceived(data: String): Boolean {
-        delayedContent?.let {
-          cefBrowser.executeJavaScript(it, null, 0)
-          delayedContent = null
-        }
-        return false
-      }
-    })
+    jbCefClient.setProperty(JBCefClient.Properties.JS_QUERY_POOL_SIZE, 20)
 
     browserPipe.subscribe(SET_SCROLL_EVENT, object : BrowserPipe.Handler {
       override fun processMessageReceived(data: String): Boolean {
@@ -141,11 +157,42 @@ class MarkdownJCEFHtmlPanel(
     connection.subscribe(MarkdownPreviewSettings.ChangeListener.TOPIC, MarkdownPreviewSettings.ChangeListener { settings ->
       changeFontSize(settings.state.fontSize)
     })
+    connection.subscribe(UISettingsListener.TOPIC, UISettingsListener { settings ->
+      val scale = settings.currentIdeScale
+      // language=JavaScript
+      val code = """
+      |(function() {
+      |  const styles = document.querySelector(":root").style;
+      |  styles.setProperty("${PreviewLAFThemeStyles.Variables.Scale}", "${scale}");
+      |})();
+      """.trimMargin()
+      executeJavaScript(code)
+    })
 
-    loadIndexContent()
+    coroutineScope.launch {
+      val projectRoot = projectRoot.await()
+      val fileSchemeResourcesProcessor = createFileSchemeResourcesProcessor(projectRoot)
+
+      loadIndexContent()
+      updateHandler.requests.collectLatest { request ->
+        when (request) {
+          is PreviewRequest.Update -> {
+            val (html, initialScrollOffset, document) = request
+            val baseFile = document?.parent
+            val builder = IncrementalDOMBuilder(html, baseFile, projectRoot, fileSchemeResourcesProcessor)
+            val renderClosure = builder.generateRenderClosure()
+            updateDom(renderClosure, initialScrollOffset, previousRenderClosure.isEmpty())
+          }
+          is PreviewRequest.ReloadWithOffset -> {
+            loadIndexContent()
+            updateDom(previousRenderClosure, request.offset, firstUpdate = true)
+          }
+        }
+      }
+    }
   }
 
-  private fun updateDom(renderClosure: String, initialScrollOffset: Int) {
+  private suspend fun updateDom(renderClosure: String, initialScrollOffset: Int, firstUpdate: Boolean) {
     previousRenderClosure = renderClosure
     // language=JavaScript
     val scrollCode = when {
@@ -155,40 +202,46 @@ class MarkdownJCEFHtmlPanel(
     // language=JavaScript
     val code = """
       (function() {
-        const action = () => {
-          console.time("incremental-dom-patch");
-          const render = $previousRenderClosure;
-          // noinspection JSCheckFunctionSignatures
-          IncrementalDOM.patch(document.body, () => render());
-          $scrollCode
-          if (IncrementalDOM.notifications.afterPatchListeners) {
-            IncrementalDOM.notifications.afterPatchListeners.forEach(listener => listener());
+        return new Promise( resolve => {
+          const action = () => {
+            console.time("incremental-dom-patch");
+            const render = $renderClosure;
+            // noinspection JSCheckFunctionSignatures
+            IncrementalDOM.patch(document.body, () => render());
+            $scrollCode
+            if (IncrementalDOM.notifications.afterPatchListeners) {
+              IncrementalDOM.notifications.afterPatchListeners.forEach(listener => listener());
+            }
+            console.timeEnd("incremental-dom-patch");
+          };
+          if (document.readyState === "loading" || document.readyState === "uninitialized") {
+            document.addEventListener("DOMContentLoaded", () => action(), { once: true });
+          } else {
+            action();
           }
-          console.timeEnd("incremental-dom-patch");
-        };
-        if (document.readyState === "loading" || document.readyState === "uninitialized") {
-          document.addEventListener("DOMContentLoaded", () => action(), { once: true });
-        } else {
-          action();
-        }
+          resolve();
+        });
       })();
-    """
-    delayedContent = code
-    executeJavaScript(code)
+    """.trimIndent()
+    executeCancellableJavaScript(code)
   }
 
   override fun setHtml(html: String, initialScrollOffset: Int, document: VirtualFile?) {
-    val baseFile = document?.parent
-    val builder = IncrementalDOMBuilder(html, baseFile, projectRoot, fileSchemeResourcesProcessor)
-    updateDom(builder.generateRenderClosure(), initialScrollOffset)
-    firstUpdate = false
+    updateHandler.setContent(html, initialScrollOffset, document)
+  }
+
+  @ApiStatus.Internal
+  @TestOnly
+  suspend fun setHtmlAndWait(html: String) {
+    loadIndexContent()
+
+    val builder = IncrementalDOMBuilder(html, null, null, null)
+    val renderClosure = readAction { builder.generateRenderClosure() }
+    updateDom(renderClosure, 0, false)
   }
 
   override fun reloadWithOffset(offset: Int) {
-    delayedContent = null
-    firstUpdate = true
-    loadIndexContent()
-    updateDom(previousRenderClosure, offset)
+    updateHandler.reloadWithOffset(offset)
   }
 
   override fun dispose() {
@@ -197,6 +250,7 @@ class MarkdownJCEFHtmlPanel(
     }
     currentExtensions = emptyList()
     scrollListeners.clear()
+    coroutineScope.cancel()
     super.dispose()
   }
 
@@ -204,16 +258,16 @@ class MarkdownJCEFHtmlPanel(
   override fun getBrowserPipe(): BrowserPipe = browserPipe
 
   @ApiStatus.Experimental
-  override fun getProject(): Project? = _project
+  override fun getProject(): Project? = project
 
   @ApiStatus.Experimental
-  override fun getVirtualFile(): VirtualFile? = _virtualFile
+  override fun getVirtualFile(): VirtualFile? = virtualFile
 
   override fun addScrollListener(listener: MarkdownHtmlPanel.ScrollListener) {
     scrollListeners.add(listener)
   }
 
-  override fun removeScrollListener(listener: MarkdownHtmlPanel.ScrollListener?) {
+  override fun removeScrollListener(listener: MarkdownHtmlPanel.ScrollListener) {
     scrollListeners.remove(listener)
   }
 
@@ -225,6 +279,76 @@ class MarkdownJCEFHtmlPanel(
     val horizontal = JBCefApp.normalizeScaledSize(horizontalUnits)
     val vertical = JBCefApp.normalizeScaledSize(verticalUnits)
     executeJavaScript("window.scrollController?.scrollBy($horizontal, $vertical)")
+  }
+
+  private var previewInnerComponent: JComponent? = null
+  private val TEMPORARY_FONT_SIZE = Key.create<Int>("Markdown.Preview.FontSize")
+
+  private fun createComponent(): JComponent {
+    previewInnerComponent = super.getComponent()
+    if (project == null || virtualFile == null) return previewInnerComponent!!
+
+    val panel = JBLoadingPanel(BorderLayout(), this)
+
+    previewInnerComponent!!.putClientProperty(Magnificator.CLIENT_PROPERTY_KEY, object: Magnificator {
+      override fun magnify(scale: Double, at: Point): Point {
+        val currentSize = this@MarkdownJCEFHtmlPanel.getTemporaryFontSize() ?: PreviewLAFThemeStyles.defaultFontSize
+        var fontSize = round(currentSize * scale).toInt()
+        fontSize = maxOf(fontSize, fontSizeOptions.first())
+        fontSize = minOf(fontSize, fontSizeOptions.last())
+        changeFontSize(fontSize, temporary = true)
+
+        return at
+      }
+    })
+
+    previewInnerComponent!!.addPropertyChangeListener(TEMPORARY_FONT_SIZE.toString()) {
+      val balloon = project.service<PreviewZoomIndicatorManager>().createOrGetBalloon(this@MarkdownJCEFHtmlPanel)
+      balloon?.show(RelativePoint.getSouthOf(previewInnerComponent!!), Balloon.Position.below)
+    }
+
+    coroutineScope.async(context = Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+      panel.startLoading()
+      val viewPort = JBViewport()
+      viewPort.add(previewInnerComponent)
+      panel.add(viewPort)
+      projectRoot.await()
+      panel.stopLoading()
+    }
+    return panel
+  }
+
+  fun getTemporaryFontSize() = getUserData(TEMPORARY_FONT_SIZE)
+
+  /**
+   * @param size Unscaled font size.
+   */
+  internal fun changeFontSize(size: Int, temporary: Boolean = false) {
+    if (temporary) {
+      val previousSize = getUserData(TEMPORARY_FONT_SIZE) ?: PreviewLAFThemeStyles.defaultFontSize
+      putUserData(TEMPORARY_FONT_SIZE, size)
+      previewInnerComponent?.firePropertyChange(TEMPORARY_FONT_SIZE.toString(), previousSize, size)
+    } else {
+      putUserData(TEMPORARY_FONT_SIZE, null)
+    }
+
+    val scaled = JBCefApp.normalizeScaledSize(size)
+    // language=JavaScript
+    val code = """
+    |(function() {
+    |  const styles = document.querySelector(":root").style;
+    |  styles.setProperty("${PreviewLAFThemeStyles.Variables.FontSize}", "${scaled}px");
+    |})();
+    """.trimMargin()
+    executeJavaScript(code)
+  }
+
+  private fun createFileSchemeResourcesProcessor(projectRoot: VirtualFile?): ResourceProvider? {
+    if (projectRoot == null) return null
+
+    val fileSchemeResourcesProcessor = FileSchemeResourcesProcessor(virtualFile, projectRoot)
+    Disposer.register(this@MarkdownJCEFHtmlPanel, PreviewStaticServer.instance.registerResourceProvider(fileSchemeResourcesProcessor))
+    return fileSchemeResourcesProcessor
   }
 
   private inner class MyAggregatingResourceProvider : ResourceProvider {
@@ -245,16 +369,8 @@ class MarkdownJCEFHtmlPanel(
     }
   }
 
-  private inner class MyFilteringRequestHandler: CefRequestHandlerAdapter() {
-    override fun getResourceRequestHandler(
-      browser: CefBrowser?,
-      frame: CefFrame?,
-      request: CefRequest,
-      isNavigation: Boolean,
-      isDownload: Boolean,
-      requestInitiator: String?,
-      disableDefaultHandling: BoolRef?
-    ): CefResourceRequestHandler? {
+  private inner class MyFilteringRequestHandler : CefRequestHandlerAdapter() {
+    override fun getResourceRequestHandler(browser: CefBrowser?, frame: CefFrame?, request: CefRequest, isNavigation: Boolean, isDownload: Boolean, requestInitiator: String?, disableDefaultHandling: BoolRef?): CefResourceRequestHandler? {
       if (Registry.`is`("markdown.experimental.allow.external.requests", true)) {
         return null
       }
@@ -312,7 +428,7 @@ class MarkdownJCEFHtmlPanel(
 
     private fun isOffScreenRendering(): Boolean = Registry.`is`("ide.browser.jcef.markdownView.osr.enabled")
 
-    private object ProhibitingResourceRequestHandler: CefResourceRequestHandlerAdapter() {
+    private object ProhibitingResourceRequestHandler : CefResourceRequestHandlerAdapter() {
       override fun onBeforeResourceLoad(browser: CefBrowser?, frame: CefFrame?, request: CefRequest): Boolean {
         return true
       }

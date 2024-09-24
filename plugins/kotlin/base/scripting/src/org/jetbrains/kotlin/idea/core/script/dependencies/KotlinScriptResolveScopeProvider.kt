@@ -2,11 +2,8 @@
 
 package org.jetbrains.kotlin.idea.core.script.dependencies
 
-import com.intellij.ide.IdeBundle
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.NonPhysicalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.ex.dummy.DummyFileSystem
 import com.intellij.psi.PsiManager
 import com.intellij.psi.ResolveScopeProvider
 import com.intellij.psi.search.DelegatingGlobalSearchScope
@@ -17,56 +14,19 @@ import org.jetbrains.kotlin.idea.base.scripting.projectStructure.ScriptModuleInf
 import org.jetbrains.kotlin.idea.base.util.isUnderKotlinSourceRootTypes
 import org.jetbrains.kotlin.idea.base.util.module
 import org.jetbrains.kotlin.idea.compilerAllowsAnyScriptsInSourceRoots
-import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
+import org.jetbrains.kotlin.idea.core.script.ScriptDependencyAware
 import org.jetbrains.kotlin.idea.core.script.scriptingDebugLog
 import org.jetbrains.kotlin.idea.hasNoExceptionsToBeUnderSourceRoot
 import org.jetbrains.kotlin.idea.isEnabled
 import org.jetbrains.kotlin.idea.util.isKotlinFileType
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
+import org.jetbrains.kotlin.scripting.definitions.ScriptDependenciesProvider
 import org.jetbrains.kotlin.scripting.definitions.findScriptDefinition
-import java.io.IOException
-import java.io.OutputStream
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
 import kotlin.script.experimental.api.isStandalone
 
-class KotlinScriptSearchScope(project: Project, baseScope: GlobalSearchScope) : DelegatingGlobalSearchScope(project, baseScope) {
-    override fun contains(file: VirtualFile): Boolean {
-        return when (file) {
-            KotlinScriptMarkerFileSystem.rootFile -> true
-            else -> super.contains(file)
-        }
-    }
-}
-
-object KotlinScriptMarkerFileSystem : DummyFileSystem(), NonPhysicalFileSystem {
-    override fun getProtocol() = "kotlin-script-dummy"
-
-    val rootFile = object : VirtualFile() {
-        override fun getFileSystem() = this@KotlinScriptMarkerFileSystem
-
-        override fun getName() = "root"
-        override fun getPath() = "/$name"
-
-        override fun getLength(): Long = 0
-        override fun isWritable() = false
-        override fun isDirectory() = true
-        override fun isValid() = true
-
-        override fun getParent() = null
-        override fun getChildren(): Array<VirtualFile> = emptyArray()
-
-        override fun getTimeStamp(): Long = -1
-        override fun refresh(asynchronous: Boolean, recursive: Boolean, postRunnable: Runnable?) {}
-
-        override fun contentsToByteArray() = throw IOException(IdeBundle.message("file.read.error", url))
-        override fun getInputStream() = throw IOException(IdeBundle.message("file.read.error", url))
-
-        override fun getOutputStream(requestor: Any?, newModificationStamp: Long, newTimeStamp: Long): OutputStream {
-            throw IOException(IdeBundle.message("file.write.error", url))
-        }
-    }
-}
+class KotlinScriptSearchScope(project: Project, baseScope: GlobalSearchScope) : DelegatingGlobalSearchScope(project, baseScope)
 
 class KotlinScriptResolveScopeProvider : ResolveScopeProvider() {
 
@@ -97,7 +57,7 @@ class KotlinScriptResolveScopeProvider : ResolveScopeProvider() {
         return ktFile.calculateScopeForStandaloneScript(file, project)
     }
 
-    private fun KtFile.isStandaloneScript() = moduleInfoOrNull is ScriptModuleInfo // not ModuleSourceInfo (production|test)
+    private fun KtFile.isStandaloneScript(): Boolean = moduleInfoOrNull is ScriptModuleInfo // not ModuleSourceInfo (production|test)
 
     private fun KtFile.getScopeAccordingToLanguageFeature(
         file: VirtualFile,
@@ -150,9 +110,8 @@ class KotlinScriptResolveScopeProvider : ResolveScopeProvider() {
     }
 
     private fun KtFile.isStandaloneScriptByDesign(project: Project, definition: ScriptDefinition): Boolean {
-        val configurationManager = ScriptConfigurationManager.getInstance(project)
-        val configuration = configurationManager.getConfiguration(this)?.configuration
-                            ?: definition.compilationConfiguration
+        val configuration = ScriptDependenciesProvider.getInstance(project)?.getScriptConfiguration(this)?.configuration
+            ?: definition.compilationConfiguration
         val isStandalone = configuration[ScriptCompilationConfiguration.isStandalone] == true
         debugLog { "standalone-by-design: $isStandalone" }
         return isStandalone
@@ -160,7 +119,8 @@ class KotlinScriptResolveScopeProvider : ResolveScopeProvider() {
 
     private fun KtFile.calculateScopeForStandaloneScript(file: VirtualFile, project: Project): KotlinScriptSearchScope {
         val vFile = virtualFile ?: viewProvider.virtualFile
-        val dependenciesScope = ScriptConfigurationManager.getInstance(project).getScriptDependenciesClassFilesScope(vFile)
+        val dependenciesScope =
+            ScriptDependencyAware.getInstance(project).getScriptDependenciesClassFilesScope(vFile)
         debugLog { "=> standalone" }
         return KotlinScriptSearchScope(project, GlobalSearchScope.fileScope(project, file).uniteWith(dependenciesScope))
     }

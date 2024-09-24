@@ -10,19 +10,22 @@ import com.intellij.ui.dsl.builder.bindItem
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.jetbrains.python.PyBundle.message
-import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
+import com.jetbrains.python.newProjectWizard.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.psi.LanguageLevel
-import com.jetbrains.python.sdk.add.WslContext
-import com.jetbrains.python.sdk.add.target.conda.condaSupportedLanguages
+import com.jetbrains.python.sdk.ModuleOrProject
+import com.jetbrains.python.sdk.conda.condaSupportedLanguages
 import com.jetbrains.python.sdk.flavors.conda.NewCondaEnvRequest
 import com.jetbrains.python.statistics.InterpreterCreationMode
-import com.jetbrains.python.statistics.InterpreterTarget
 import com.jetbrains.python.statistics.InterpreterType
-import java.io.File
+import com.jetbrains.python.ui.flow.bindText
+import com.jetbrains.python.util.ErrorSink
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import java.nio.file.Path
+import kotlin.io.path.name
 
-class CondaNewEnvironmentCreator(presenter: PythonAddInterpreterPresenter) : PythonAddEnvironment(presenter) {
+class CondaNewEnvironmentCreator(model: PythonMutableTargetAddInterpreterModel, private val projectPath: StateFlow<Path>?, private val errorSink:ErrorSink) : PythonNewEnvironmentCreator(model) {
 
-  private val envName = propertyGraph.property("")
   private lateinit var pythonVersion: ObservableMutableProperty<LanguageLevel>
   private lateinit var versionComboBox: ComboBox<LanguageLevel>
 
@@ -35,34 +38,40 @@ class CondaNewEnvironmentCreator(presenter: PythonAddInterpreterPresenter) : Pyt
           .component
       }
       row(message("sdk.create.custom.conda.env.name")) {
-        textField()
-          .bindText(envName)
+        val envName = textField()
+          .bindText(model.state.newCondaEnvName)
+        if (projectPath != null) {
+          envName.bindText(projectPath.map { it.name })
+        }
       }
 
-      executableSelector(state.condaExecutable,
+      executableSelector(model.state.condaExecutable,
                          validationRequestor,
-                         message("sdk.create.conda.executable.path"),
-                         message("sdk.create.conda.missing.text"))
-        .displayLoaderWhen(presenter.detectingCondaExecutable, scope = presenter.scope, uiContext = presenter.uiContext)
+                         message("sdk.create.custom.venv.executable.path", "conda"),
+                         message("sdk.create.custom.venv.missing.text", "conda"),
+                         createInstallCondaFix(model, errorSink))
+        .displayLoaderWhen(model.condaEnvironmentsLoading, scope = model.scope, uiContext = model.uiContext)
     }
   }
 
   override fun onShown() {
-    envName.set(state.projectPath.get().substringAfterLast(File.separator))
+    model.state.newCondaEnvName.set(model.projectPath.value.name)
   }
 
-  override fun getOrCreateSdk(): Sdk? {
-    return presenter.createCondaEnvironment(NewCondaEnvRequest.EmptyNamedEnv(pythonVersion.get(), envName.get()))
+  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): Result<Sdk> {
+    return model.createCondaEnvironment(NewCondaEnvRequest.EmptyNamedEnv(pythonVersion.get(), model.state.newCondaEnvName.get()))
   }
 
   override fun createStatisticsInfo(target: PythonInterpreterCreationTargets): InterpreterStatisticsInfo {
-    val statisticsTarget = if (presenter.projectLocationContext is WslContext) InterpreterTarget.TARGET_WSL else target.toStatisticsField()
+    //val statisticsTarget = if (presenter.projectLocationContext is WslContext) InterpreterTarget.TARGET_WSL else target.toStatisticsField()
+    val statisticsTarget = target.toStatisticsField() // todo fix for wsl
     return InterpreterStatisticsInfo(InterpreterType.CONDAVENV,
                                      statisticsTarget,
                                      false,
                                      false,
                                      false,
-                                     presenter.projectLocationContext is WslContext,
+      //presenter.projectLocationContext is WslContext,
+                                     false, // todo fix for wsl
                                      InterpreterCreationMode.CUSTOM)
   }
 }

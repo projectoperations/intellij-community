@@ -38,6 +38,7 @@ import org.jetbrains.plugins.gradle.settings.GradleSettings;
 import org.jetbrains.plugins.gradle.tooling.annotation.TargetVersions;
 import org.jetbrains.plugins.gradle.util.GradleModuleDataKt;
 import org.jetbrains.plugins.gradle.util.GradleUtil;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import static com.intellij.openapi.roots.DependencyScope.COMPILE;
@@ -134,10 +135,13 @@ public class GradleCompositeImportingTest extends GradleImportingTestCase {
 
     importProject();
 
-    DataNode<ModuleData> data = GradleUtil.findGradleModuleData(getModule("my-app"));
+    DataNode<ModuleData> myAppData = GradleUtil.findGradleModuleData(getModule("my-app"));
 
-    assertFalse(GradleModuleDataKt.isBuildSrcModule(data.getData()));
-    assertTrue(GradleModuleDataKt.isIncludedBuild(data.getData()));
+    assertFalse(GradleModuleDataKt.isBuildSrcModule(myAppData.getData()));
+    assertTrue(GradleModuleDataKt.isIncludedBuild(myAppData.getData()));
+
+    DataNode<ModuleData> buildSrcData = GradleUtil.findGradleModuleData(getModule("adhoc.buildSrc"));
+    assertTrue(GradleModuleDataKt.isBuildSrcModule(buildSrcData.getData()));
   }
 
   @Test
@@ -628,6 +632,7 @@ public class GradleCompositeImportingTest extends GradleImportingTestCase {
   }
 
   @Test
+  @Ignore
   public void testIdeCompositeBuild() throws Exception {
     createSettingsFile("rootProject.name='rootProject'\n");
     // generate Gradle wrapper files for the test

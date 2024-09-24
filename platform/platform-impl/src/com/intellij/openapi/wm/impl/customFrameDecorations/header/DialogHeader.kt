@@ -1,15 +1,15 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl.customFrameDecorations.header
 
+import com.intellij.ide.ui.UISettings
 import com.intellij.openapi.util.NlsContexts
-import com.intellij.openapi.wm.impl.IdeRootPane
-import com.intellij.openapi.wm.impl.customFrameDecorations.CustomFrameTitleButtons
+import com.intellij.openapi.wm.impl.customFrameDecorations.frameButtons.CustomFrameButtons
+import com.intellij.openapi.wm.impl.customFrameDecorations.frameButtons.LinuxCustomFrameButtons
+import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil.hideNativeLinuxTitle
 import com.intellij.util.ui.GridBag
+import com.intellij.util.ui.JBSwingUtilities
 import com.intellij.util.ui.JBUI
-import java.awt.Dialog
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
-import java.awt.Window
+import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.beans.PropertyChangeListener
@@ -33,7 +33,7 @@ internal class DialogHeader(window: Window) : CustomHeader(window) {
     val gb = GridBag().setDefaultFill(GridBagConstraints.VERTICAL).setDefaultAnchor(GridBagConstraints.WEST)
     add(productIcon, gb.next())
     add(titleLabel, gb.next().fillCell().weightx(1.0))
-    createButtonsPane()?.let { add(it.getView(), gb.next().anchor(GridBagConstraints.EAST)) }
+    createButtonsPane()?.let { add(it.getContent(), gb.next().anchor(GridBagConstraints.EAST)) }
   }
 
   private val dragListener = object : MouseAdapter() { //passing events to OS handler to make it draggable
@@ -87,7 +87,11 @@ internal class DialogHeader(window: Window) : CustomHeader(window) {
     }
   }
 
-  private fun createButtonsPane(): CustomFrameTitleButtons? {
-    return if (IdeRootPane.hideNativeLinuxTitle) CustomFrameTitleButtons.create(createCloseAction(this)) else null
+  override fun getComponentGraphics(g: Graphics?): Graphics {
+    return JBSwingUtilities.runGlobalCGTransform(this, super.getComponentGraphics(g))
+  }
+
+  private fun createButtonsPane(): CustomFrameButtons? {
+    return if (hideNativeLinuxTitle(UISettings.shadowInstance)) LinuxCustomFrameButtons.create(createCloseAction(this)) else null
   }
 }

@@ -13,6 +13,8 @@
     <stubIndex implementation="org.jetbrains.kotlin.idea.stubindex.KotlinFunctionShortNameIndex"/>
     <stubIndex implementation="org.jetbrains.kotlin.idea.stubindex.KotlinTypeAliasShortNameIndex"/>
     <stubIndex implementation="org.jetbrains.kotlin.idea.stubindex.KotlinSuperClassIndex"/>
+    <stubIndex implementation="org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelExpectFunctionFqNameIndex"/>
+    <stubIndex implementation="org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelExpectPropertyFqNameIndex"/>
     <stubIndex implementation="org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelFunctionFqnNameIndex"/>
     <stubIndex implementation="org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelPropertyFqnNameIndex"/>
     <stubIndex implementation="org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelTypeAliasFqNameIndex"/>
@@ -46,7 +48,7 @@
     <fileBasedIndex implementation="org.jetbrains.kotlin.idea.vfilefinder.KotlinJvmModuleAnnotationsIndex"/>
     <fileBasedIndex implementation="org.jetbrains.kotlin.idea.vfilefinder.KotlinBuiltInsMetadataIndex"/>
     <fileBasedIndex implementation="org.jetbrains.kotlin.idea.vfilefinder.KotlinStdlibIndex"/>
-    <fileBasedIndex implementation="org.jetbrains.kotlin.idea.vfilefinder.KotlinShortClassNameFileIndex"/>
+    <fileBasedIndex implementation="org.jetbrains.kotlin.idea.vfilefinder.KlibMetaFileIndex"/>
     <fileBasedIndex implementation="org.jetbrains.kotlin.idea.base.indices.names.KotlinTopLevelCallableByPackageShortNameIndex"/>
     <fileBasedIndex implementation="org.jetbrains.kotlin.idea.base.indices.names.KotlinTopLevelClassLikeDeclarationByPackageShortNameIndex"/>
     <fileBasedIndex implementation="org.jetbrains.kotlin.idea.base.indices.names.KotlinBinaryRootToPackageIndex"/>
@@ -56,10 +58,6 @@
     <idIndexer filetype="Kotlin" implementationClass="org.jetbrains.kotlin.idea.search.KotlinIdIndexer"/>
     <todoIndexer filetype="Kotlin" implementationClass="org.jetbrains.kotlin.idea.search.KotlinTodoIndexer"/>
     <indexPatternBuilder implementation="org.jetbrains.kotlin.idea.search.KotlinIndexPatternBuilder"/>
-
-    <projectService
-            serviceInterface="org.jetbrains.kotlin.resolve.lazy.declarations.DeclarationProviderFactoryService"
-            serviceImplementation="org.jetbrains.kotlin.idea.stubindex.resolve.PluginDeclarationProviderFactoryService"/>
 
     <applicationService
             serviceInterface="org.jetbrains.kotlin.psi.stubs.elements.StubIndexService"
@@ -83,9 +81,6 @@
     <registryKey key="kotlin.indices.timing.threshold.batch"
                  defaultValue="5000"
                  description="Time threshold in ms to report slow index batch (processAll-like) access" />
-    <registryKey key="kotlin.indices.short.names.filtering.enabled" defaultValue="true"
-                 description="Filter irrelevant Kotlin FQNames by short name index"
-                 restartRequired="true"/>
 
     <notificationGroup
             id="Recover Kotlin Indices"

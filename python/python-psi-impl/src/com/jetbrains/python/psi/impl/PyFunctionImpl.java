@@ -6,7 +6,6 @@ import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.LocalSearchScope;
@@ -17,13 +16,11 @@ import com.intellij.psi.util.*;
 import com.intellij.ui.IconManager;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyStubElementTypes;
-import com.jetbrains.python.ast.impl.PyUtilCore;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
@@ -48,7 +45,9 @@ import static com.intellij.openapi.util.text.StringUtil.notNullize;
 import static com.jetbrains.python.ast.PyAstFunction.Modifier.CLASSMETHOD;
 import static com.jetbrains.python.ast.PyAstFunction.Modifier.STATICMETHOD;
 import static com.jetbrains.python.psi.PyUtil.as;
+import static com.jetbrains.python.psi.PyUtil.getGenericTypeForClass;
 import static com.jetbrains.python.psi.impl.PyCallExpressionHelper.interpretAsModifierWrappingCall;
+import static com.jetbrains.python.psi.impl.PyDeprecationUtilKt.extractDeprecationMessageFromDecorator;
 
 public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements PyFunction {
 
@@ -151,7 +150,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
     for (PyTypeProvider typeProvider : PyTypeProvider.EP_NAME.getExtensionList()) {
       final Ref<PyType> returnTypeRef = typeProvider.getReturnType(this, context);
       if (returnTypeRef != null) {
-        return derefType(returnTypeRef, typeProvider);
+        return PyTypingTypeProvider.removeNarrowedTypeIfNeeded(derefType(returnTypeRef, typeProvider));
       }
     }
 
@@ -165,7 +164,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
         inferredType = getReturnStatementType(context);
       }
     }
-    return PyTypingTypeProvider.toAsyncIfNeeded(this, inferredType);
+    return PyTypingTypeProvider.removeNarrowedTypeIfNeeded(PyTypingTypeProvider.toAsyncIfNeeded(this, inferredType));
   }
 
   @Override
@@ -188,7 +187,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
     }
     allMappedParameters.putAll(mappedExplicitParameters);
 
-    return getCallType(receiver, allMappedParameters, context);
+    return getCallType(receiver, callSite, allMappedParameters, context);
   }
 
   private static @Nullable PyType derefType(@NotNull Ref<PyType> typeRef, @NotNull PyTypeProvider typeProvider) {
@@ -201,21 +200,31 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
 
   @Override
   public @Nullable PyType getCallType(@Nullable PyExpression receiver,
+                                      @Nullable PyCallSiteExpression callSiteExpression,
                                       @NotNull Map<PyExpression, PyCallableParameter> parameters,
                                       @NotNull TypeEvalContext context) {
-    return analyzeCallType(PyUtil.getReturnTypeToAnalyzeAsCallType(this, context), receiver, parameters, context);
+    return analyzeCallType(PyUtil.getReturnTypeToAnalyzeAsCallType(this, context), receiver, callSiteExpression, parameters, context);
   }
 
   private @Nullable PyType analyzeCallType(@Nullable PyType type,
                                            @Nullable PyExpression receiver,
+                                           @Nullable PyCallSiteExpression callSiteExpression,
                                            @NotNull Map<PyExpression, PyCallableParameter> parameters,
                                            @NotNull TypeEvalContext context) {
     if (PyTypeChecker.hasGenerics(type, context)) {
       final var substitutions = PyTypeChecker.unifyGenericCall(receiver, parameters, context);
       if (substitutions != null) {
+        PyClass containingClass = getContainingClass();
+        if (containingClass != null && type instanceof PySelfType) {
+          PyType genericType = getGenericTypeForClass(context, containingClass);
+          if (genericType != null) {
+            type = genericType;
+          }
+        }
         final var substitutionsWithUnresolvedReturnGenerics =
           PyTypeChecker.getSubstitutionsWithUnresolvedReturnGenerics(getParameters(context), type, substitutions, context);
-        type = PyTypeChecker.substitute(type, substitutionsWithUnresolvedReturnGenerics, context);
+        final var substitutionsWithDefaults = PyTypeChecker.getSubstitutionsWithDefaults(substitutionsWithUnresolvedReturnGenerics);
+        type = PyTypeChecker.substitute(type, substitutionsWithDefaults, context);
       }
       else {
         type = null;
@@ -227,7 +236,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
     if (type != null && isDynamicallyEvaluated(parameters.values(), context)) {
       type = PyUnionType.createWeakType(type);
     }
-    return type;
+    return PyNarrowedType.Companion.bindIfNeeded(type, callSiteExpression);
   }
 
   @Override
@@ -352,7 +361,17 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
     if (stub != null) {
       return stub.getDeprecationMessage();
     }
-    return PyFunction.super.getDeprecationMessage();
+    return extractDeprecationMessage();
+  }
+
+  @Nullable
+  public String extractDeprecationMessage() {
+    String deprecationMessageFromDecorator = extractDeprecationMessageFromDecorator(this);
+    if (deprecationMessageFromDecorator != null) {
+      return deprecationMessageFromDecorator;
+    }
+    PyStatementList statementList = getStatementList();
+    return PyFunction.extractDeprecationMessage(Arrays.asList(statementList.getStatements()));
   }
 
   @Override
@@ -363,7 +382,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
         return type;
       }
     }
-    return new PyFunctionTypeImpl(this);
+    return PyFunctionTypeImpl.create(this, context);
   }
 
   @Override

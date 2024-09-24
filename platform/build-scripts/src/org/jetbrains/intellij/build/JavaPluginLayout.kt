@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
 import org.jetbrains.intellij.build.impl.LibraryPackMode
@@ -9,20 +9,19 @@ object JavaPluginLayout {
   const val MAIN_FRONTEND_MODULE_NAME = "intellij.java.frontend"
 
   fun javaPlugin(addition: ((PluginLayout.PluginLayoutSpec) -> Unit)? = null): PluginLayout {
-    return PluginLayout.plugin(MAIN_MODULE_NAME) { spec ->
+    return PluginLayout.plugin(MAIN_MODULE_NAME, auto = true) { spec ->
       spec.directoryName = "java"
-
       spec.mainJarName = "java-impl.jar"
 
       spec.excludeFromModule("intellij.java.resources.en", "search/searchableOptions.xml")
+
+      spec.withProjectLibrary("netty-codec-protobuf", "netty-codec-protobuf.jar")
 
       spec.withModule("intellij.platform.jps.build.launcher", "jps-launcher.jar")
       spec.withModule("intellij.platform.jps.build", "jps-builders.jar")
       spec.withModule("intellij.platform.jps.build.javac.rt", "jps-builders-6.jar")
       spec.withModule("intellij.java.aetherDependencyResolver", "aether-dependency-resolver.jar")
       spec.withModule("intellij.java.jshell.protocol", "jshell-protocol.jar")
-      spec.withModule("intellij.java.resources")
-      spec.withModule("intellij.java.resources.en")
 
       for (moduleName in listOf(
         "intellij.java.compiler.antTasks",
@@ -50,7 +49,6 @@ object JavaPluginLayout {
         "intellij.java.uast.ide",
       ))
 
-      @Suppress("SpellCheckingInspection")
       for (moduleName in listOf(
         "intellij.java.frontback.impl",
         "intellij.java.frontback.psi",
@@ -62,6 +60,7 @@ object JavaPluginLayout {
       spec.withModules(listOf(
         "intellij.java.compiler.impl",
         "intellij.java.debugger.impl",
+        "intellij.java.terminal",
         "intellij.java.debugger.memory.agent",
         "intellij.java.execution.impl",
         "intellij.java.ui",
@@ -80,10 +79,7 @@ object JavaPluginLayout {
         "intellij.java.impl.refactorings",
         "intellij.jsp.spi",
         "intellij.java.uast",
-        "intellij.java.structuralSearch",
         "intellij.java.typeMigration",
-        "intellij.java.featuresTrainer",
-        "intellij.java.performancePlugin"
       ))
 
       spec.withModuleLibrary("debugger-agent", "intellij.java.debugger.agent.holder", "rt")
@@ -100,13 +96,15 @@ object JavaPluginLayout {
       // explicitly pack jshell-frontend and sa-jdwp as a separate JARs
       spec.withModuleLibrary("jshell-frontend", "intellij.java.execution.impl", "jshell-frontend.jar")
       spec.withModuleLibrary("sa-jdwp", "intellij.java.debugger.impl", "sa-jdwp.jar")
+      spec.withModule("intellij.java.compiler.charts.jps", "jps/java-compiler-charts-jps.jar")
 
       spec.withResourceArchive("../jdkAnnotations", "lib/resources/jdkAnnotations.jar")
 
       addition?.invoke(spec)
+
+      spec.excludeProjectLibrary("jetbrains-annotations-java5")
     }
   }
-
 
   /**
    * A special plugin for JetBrains Client

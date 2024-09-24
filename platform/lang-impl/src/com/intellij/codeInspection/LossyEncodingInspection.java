@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection;
 
 import com.intellij.ide.DataManager;
@@ -7,7 +7,6 @@ import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.lang.properties.charset.Native2AsciiCharset;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.PlatformCoreDataKeys;
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -35,7 +34,6 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.awt.*;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.*;
@@ -46,16 +44,12 @@ import java.util.Set;
 
 public final class LossyEncodingInspection extends LocalInspectionTool {
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
+  public @Nls @NotNull String getGroupDisplayName() {
     return InspectionsBundle.message("group.names.internationalization.issues");
   }
 
   @Override
-  @NonNls
-  @NotNull
-  public String getShortName() {
+  public @NonNls @NotNull String getShortName() {
     return "LossyEncoding";
   }
 
@@ -113,10 +107,8 @@ public final class LossyEncodingInspection extends LocalInspectionTool {
     if (!goodCharsets.isEmpty()) {
       Charset goodCharset = goodCharsets.get(0);
       fixes.add(new LocalQuickFix() {
-        @Nls
-        @NotNull
         @Override
-        public String getFamilyName() {
+        public @Nls @NotNull String getFamilyName() {
           return InspectionsBundle.message("reload.file.encoding.family.name", goodCharset.displayName());
         }
 
@@ -135,10 +127,8 @@ public final class LossyEncodingInspection extends LocalInspectionTool {
         }
       });
       fixes.add(new LocalQuickFix() {
-        @Nls
-        @NotNull
         @Override
-        public String getFamilyName() {
+        public @Nls @NotNull String getFamilyName() {
           return InspectionsBundle.message("set.project.encoding.family.name", goodCharset.displayName());
         }
 
@@ -280,9 +270,8 @@ public final class LossyEncodingInspection extends LocalInspectionTool {
       super(file);
     }
 
-    @NotNull
     @Override
-    public String getText() {
+    public @NotNull String getText() {
       return InspectionsBundle.message("reload.in.another.encoding.text");
     }
 
@@ -307,15 +296,13 @@ public final class LossyEncodingInspection extends LocalInspectionTool {
       return false;
     }
 
-    @NotNull
     @Override
-    public String getText() {
+    public @NotNull String getText() {
       return getFamilyName();
     }
 
-    @NotNull
     @Override
-    public String getFamilyName() {
+    public @NotNull String getFamilyName() {
       return InspectionsBundle.message("change.encoding.fix.family.name");
     }
 
@@ -326,19 +313,17 @@ public final class LossyEncodingInspection extends LocalInspectionTool {
                        @NotNull PsiElement startElement,
                        @NotNull PsiElement endElement) {
       VirtualFile virtualFile = file.getVirtualFile();
-
-      DataContext dataContext = createDataContext(editor, editor == null ? null : editor.getComponent(), virtualFile, project);
+      DataContext dataContext = createDataContext(project, editor, virtualFile);
       ListPopup popup = new ChangeFileEncodingAction().createPopup(dataContext, null);
       if (popup != null) {
         popup.showInBestPositionFor(dataContext);
       }
     }
 
-    @NotNull
-    static DataContext createDataContext(@Nullable Editor editor, Component component, VirtualFile selectedFile, @NotNull Project project) {
+    static @NotNull DataContext createDataContext(@NotNull Project project, @Nullable Editor editor, @Nullable VirtualFile selectedFile) {
+      DataContext parent = editor == null ? null : DataManager.getInstance().getDataContext(editor.getContentComponent());
       return SimpleDataContext.builder()
-        .setParent(DataManager.getInstance().getDataContext(component))
-        .add(PlatformCoreDataKeys.CONTEXT_COMPONENT, editor == null ? null : editor.getComponent())
+        .setParent(parent)
         .add(CommonDataKeys.PROJECT, project)
         .add(CommonDataKeys.VIRTUAL_FILE, selectedFile)
         .build();

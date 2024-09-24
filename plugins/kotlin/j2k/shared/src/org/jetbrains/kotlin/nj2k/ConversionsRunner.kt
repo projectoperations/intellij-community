@@ -2,8 +2,7 @@
 
 package org.jetbrains.kotlin.nj2k
 
-import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider
 import org.jetbrains.kotlin.j2k.J2kConverterExtension
 import org.jetbrains.kotlin.j2k.J2kConverterExtension.Kind.K1_NEW
@@ -11,7 +10,7 @@ import org.jetbrains.kotlin.j2k.J2kConverterExtension.Kind.K2
 import org.jetbrains.kotlin.nj2k.tree.JKTreeRoot
 
 object ConversionsRunner {
-    context(KtAnalysisSession)
+    context(KaSession)
     fun doApply(
         trees: List<JKTreeRoot>,
         context: NewJ2kConverterContext,
@@ -22,11 +21,19 @@ object ConversionsRunner {
         val applyingConversionsMessage: String = KotlinNJ2KBundle.message("j2k.applying.conversions")
 
         for ((conversionIndex, conversion) in conversions.withIndex()) {
+            if (context.settings.basicMode && !conversion.isEnabledInBasicMode()) {
+                continue
+            }
+
             val treeSequence = trees.asSequence().onEachIndexed { index, _ ->
                 updateProgress(conversionIndex, conversions.size, index, applyingConversionsMessage)
             }
 
-            conversion.runForEach(treeSequence, context)
+            try {
+                conversion.runForEach(treeSequence, context)
+            } catch (ignored: UninitializedPropertyAccessException) {
+                // This should only happen on copy-pasting broken (incomplete) code
+            }
         }
     }
 }

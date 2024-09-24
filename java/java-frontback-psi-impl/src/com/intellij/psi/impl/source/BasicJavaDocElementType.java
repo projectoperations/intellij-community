@@ -5,6 +5,7 @@ import com.intellij.lang.Language;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.lang.java.lexer.BasicJavaLexer;
 import com.intellij.lang.java.lexer.JavaDocLexer;
+import com.intellij.lang.java.lexer.JavaTypeEscapeLexer;
 import com.intellij.lang.java.parser.BasicJavaDocParser;
 import com.intellij.lang.java.parser.BasicJavaParser;
 import com.intellij.lang.java.parser.BasicJavaParserUtil;
@@ -43,6 +44,8 @@ public interface BasicJavaDocElementType {
   IElementType BASIC_DOC_TYPE_HOLDER = new IJavaDocElementType("DOC_TYPE_HOLDER");
 
   IElementType BASIC_DOC_COMMENT = new IJavaDocElementType("DOC_COMMENT");
+  IElementType BASIC_DOC_MARKDOWN_CODE_BLOCK = new IJavaDocElementType("DOC_CODE_BLOCK");
+  IElementType BASIC_DOC_MARKDOWN_REFERENCE_LINK = new IJavaDocElementType("DOC_REFERENCE_LINK");
 
   ParentAwareTokenSet BASIC_ALL_JAVADOC_ELEMENTS = ParentAwareTokenSet.create(
     BASIC_DOC_TAG, BASIC_DOC_INLINE_TAG, BASIC_DOC_METHOD_OR_FIELD_REF, BASIC_DOC_PARAMETER_REF, BASIC_DOC_TAG_VALUE_ELEMENT,
@@ -123,11 +126,11 @@ public interface BasicJavaDocElementType {
 
     private final @NotNull Supplier<? extends BasicJavaParser> myJavaThinParser;
     private final Function<LanguageLevel, JavaDocLexer> javaDocLexer;
-    private final Function<LanguageLevel, BasicJavaLexer> javaLexer;
+    private final Function<LanguageLevel, JavaTypeEscapeLexer> javaLexer;
 
     public DocTypeHolderElementType(@NotNull Supplier<? extends BasicJavaParser> parser,
                                     @NotNull Function<LanguageLevel, JavaDocLexer> docLexerFunction,
-                                    @NotNull Function<LanguageLevel, BasicJavaLexer> javaLexer) {
+                                    @NotNull Function<LanguageLevel, JavaTypeEscapeLexer> javaLexer) {
       super("DOC_TYPE_HOLDER", BASIC_DOC_TYPE_HOLDER);
       this.myJavaThinParser = parser;
       this.javaDocLexer = docLexerFunction;

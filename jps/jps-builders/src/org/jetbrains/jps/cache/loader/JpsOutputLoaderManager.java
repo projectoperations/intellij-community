@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.cache.loader;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -36,6 +36,8 @@ import org.jetbrains.jps.model.java.JpsJavaProjectExtension;
 import org.jetbrains.jps.util.JpsPathUtil;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -196,8 +198,8 @@ public final class JpsOutputLoaderManager {
       deletionSpeed = systemOpsStatistic.getDeletionSpeedBytesPerSec();
     }
 
-    int approximateSizeToDelete = projectModulesCount * PROJECT_MODULE_SIZE_DISK_BYTES;
-    int approximateDownloadSize = projectModulesCount * PROJECT_MODULE_DOWNLOAD_SIZE_BYTES + AVERAGE_CACHE_SIZE_BYTES;
+    long approximateSizeToDelete = ((long)projectModulesCount) * PROJECT_MODULE_SIZE_DISK_BYTES;
+    long approximateDownloadSize = ((long)projectModulesCount) * PROJECT_MODULE_DOWNLOAD_SIZE_BYTES + AVERAGE_CACHE_SIZE_BYTES;
     long expectedDownloadTimeSec = approximateDownloadSize / systemOpsStatistic.getConnectionSpeedBytesPerSec();
     long expectedDecompressionTimeSec = approximateDownloadSize / decompressionSpeed;
     long expectedDeleteTimeSec = approximateSizeToDelete / deletionSpeed;
@@ -271,9 +273,9 @@ public final class JpsOutputLoaderManager {
     return true;
   }
 
-  private <T> CompletableFuture<LoaderStatus> initLoaders(String commitId, int totalDownloads,
-                                                          Map<String, Map<String, BuildTargetState>> commitSourcesState,
-                                                          Map<String, Map<String, BuildTargetState>> currentSourcesState) {
+  private CompletableFuture<LoaderStatus> initLoaders(String commitId, int totalDownloads,
+                                                      Map<String, Map<String, BuildTargetState>> commitSourcesState,
+                                                      Map<String, Map<String, BuildTargetState>> currentSourcesState) {
     JpsLoaderContext loaderContext =
       JpsLoaderContext.createNewContext(totalDownloads, myCanceledStatus, commitId, myNettyClient, commitSourcesState, currentSourcesState);
     List<JpsOutputLoader<?>> loaders = getLoaders();
@@ -349,12 +351,13 @@ public final class JpsOutputLoaderManager {
     try {
       long startTime = System.currentTimeMillis();
       BuildFSState fsState = new BuildFSState(false);
-      final File dataStorageRoot = Utils.getDataStorageRoot(myProjectPath);
-      if (!dataStorageRoot.exists() || !new File(dataStorageRoot, FS_STATE_FILE).exists()) {
+      Path dataStorageRoot = Utils.getDataStorageRoot(myProjectPath).toPath();
+      if (!Files.exists(dataStorageRoot) || !Files.exists(dataStorageRoot.resolve(FS_STATE_FILE))) {
         // invoked the very first time for this project
         buildRunner.setForceCleanCaches(true);
         LOG.info("Storage files are absent");
       }
+
       projectDescriptor = buildRunner.load(MessageHandler.DEAF, dataStorageRoot, fsState);
       long contextInitializationTime = System.currentTimeMillis() - startTime;
       LOG.info("Time spend to context initialization: " + contextInitializationTime);

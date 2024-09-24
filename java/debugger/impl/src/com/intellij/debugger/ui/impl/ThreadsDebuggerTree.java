@@ -88,12 +88,12 @@ public class ThreadsDebuggerTree extends DebuggerTree {
       }
       final DebuggerContextImpl context = mySession.getContextManager().getContext();
       final SuspendContextImpl suspendContext = context.getSuspendContext();
-      final ThreadReferenceProxyImpl suspendContextThread = suspendContext != null ? suspendContext.getThread() : null;
+      final ThreadReferenceProxyImpl suspendContextThread = suspendContext != null ? suspendContext.getEventThread() : null;
 
       final boolean showGroups = ThreadsViewSettings.getInstance().SHOW_THREAD_GROUPS;
       try {
         final ThreadReferenceProxyImpl currentThread = ThreadsViewSettings.getInstance().SHOW_CURRENT_THREAD ? suspendContextThread : null;
-        final VirtualMachineProxyImpl vm = debugProcess.getVirtualMachineProxy();
+        final VirtualMachineProxyImpl vm = suspendContext != null ? suspendContext.getVirtualMachineProxy() : debugProcess.getVirtualMachineProxy();
 
         final EvaluationContextImpl evaluationContext = suspendContext != null ? getDebuggerContext().createEvaluationContext() : null;
         final NodeManagerImpl nodeManager = getNodeFactory();

@@ -19,6 +19,8 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
 import com.intellij.psi.impl.source.tree.LeafPsiElement
+import com.intellij.psi.util.elementType
+import com.intellij.psi.util.parentsOfType
 import com.intellij.xdebugger.XSourcePosition
 import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint
@@ -50,7 +52,12 @@ class KotlinLineBreakpointType :
         position: XSourcePosition,
         element: PsiElement?,
         lambdaOrdinal: Int
-    ) : LineJavaBreakpointVariant(position, element, lambdaOrdinal)
+    ) : LineJavaBreakpointVariant(position, element, lambdaOrdinal) {
+        override fun isLowPriority(firstLineElement: PsiElement?): Boolean {
+            // Dot at the beginning is the sign of a multi-line statement, lower the line breakpoint priority.
+            return firstLineElement.elementType == KtTokens.DOT
+        }
+    }
 
     inner class KotlinBreakpointVariant(
         position: XSourcePosition,
@@ -68,7 +75,7 @@ class KotlinLineBreakpointType :
         if (properties == null || properties is JavaLineBreakpointProperties) {
             if (position is KotlinReentrantSourcePosition) {
                 return false
-            } else if (properties != null && (properties as JavaLineBreakpointProperties).lambdaOrdinal == null) {
+            } else if (properties != null && (properties as JavaLineBreakpointProperties).isAllPositions) {
                 return true
             }
 
@@ -87,7 +94,7 @@ class KotlinLineBreakpointType :
             when {
                 element is KtDestructuringDeclaration ->
                     ApplicabilityResult.MAYBE_YES
-                element.getContainingMethod().isInlineOnlyDeclaration() ->
+                element.getContainingMethod().isInsideInlineOnlyDeclaration() ->
                     ApplicabilityResult.DEFINITELY_NO
                 element.isClosingBraceInMethod() ->
                     ApplicabilityResult.MAYBE_YES
@@ -131,9 +138,10 @@ class KotlinLineBreakpointType :
         }
 
         lambdas.forEachIndexed { ordinal, lambda ->
-            val positionImpl = XSourcePositionImpl.createByElement(lambda)
+            val element = lambda.bodyExpression?.takeIf { it.textLength > 0 } ?: lambda
+            val positionImpl = XSourcePositionImpl.createByElement(element)
             if (positionImpl != null) {
-                result.add(LambdaJavaBreakpointVariant(positionImpl, lambda, ordinal))
+                result.add(LambdaJavaBreakpointVariant(positionImpl, element, ordinal))
             }
         }
 
@@ -185,8 +193,8 @@ class KotlinLineBreakpointType :
 private val LineBreakpoint<*>.javaBreakpointProperties
     get() = xBreakpoint?.properties as? JavaBreakpointProperties<*>
 
-private fun PsiElement?.isInlineOnlyDeclaration(): Boolean =
-    this is KtCallableDeclaration && isInlineOnly()
+private fun PsiElement?.isInsideInlineOnlyDeclaration(): Boolean =
+    this != null && parentsOfType<KtCallableDeclaration>(withSelf = true).any { it.isInlineOnly() }
 
 private fun PsiElement.isClosingBraceInMethod(): Boolean {
     if (this is LeafPsiElement && node.elementType === KtTokens.RBRACE) {

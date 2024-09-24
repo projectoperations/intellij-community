@@ -7,7 +7,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
-import java.util.function.Consumer;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.BiConsumer;
 
 /**
  * Concurrent strong key:K -> weak value:V map
@@ -17,7 +18,7 @@ import java.util.function.Consumer;
  */
 final class ConcurrentWeakValueHashMap<K,V> extends ConcurrentRefValueHashMap<K,V> {
 
-  ConcurrentWeakValueHashMap(@Nullable Consumer<? super K> evictionListener) {
+  ConcurrentWeakValueHashMap(@Nullable BiConsumer<? super @NotNull ConcurrentMap<K,V>, ? super K> evictionListener) {
     super(evictionListener);
   }
 

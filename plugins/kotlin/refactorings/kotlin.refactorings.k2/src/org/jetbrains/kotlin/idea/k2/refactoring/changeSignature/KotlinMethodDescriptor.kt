@@ -1,60 +1,83 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.changeSignature
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.readAction
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.refactoring.changeSignature.MethodDescriptor.ReadWriteOption
-import org.jetbrains.kotlin.analysis.api.KtAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.lifetime.allowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithVisibility
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggestionProvider
+import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.refactoring.changeSignature.KotlinModifiableMethodDescriptor
 import org.jetbrains.kotlin.idea.refactoring.changeSignature.KotlinValVar
 import org.jetbrains.kotlin.idea.refactoring.changeSignature.toValVar
+import org.jetbrains.kotlin.idea.search.ExpectActualUtils
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import org.jetbrains.kotlin.types.Variance
 
-class KotlinMethodDescriptor(private val callable: KtNamedDeclaration) :
-    KotlinModifiableMethodDescriptor<KotlinParameterInfo, Visibility> {
+class KotlinMethodDescriptor(c: KtNamedDeclaration) : KotlinModifiableMethodDescriptor<KotlinParameterInfo, Visibility> {
+    private val callable: KtNamedDeclaration = findTargetCallable(c)
 
-    @OptIn(KtAllowAnalysisOnEdt::class)
+    private fun findTargetCallable(c: KtNamedDeclaration): KtNamedDeclaration {
+
+        fun getCallable(): KtNamedDeclaration = (ExpectActualUtils.liftToExpected(c) ?: c) as KtNamedDeclaration
+
+        return if (ApplicationManager.getApplication().isDispatchThread && !ApplicationManager.getApplication().isWriteAccessAllowed) {
+            runWithModalProgressBlocking(
+                c.project, KotlinBundle.message("fix.change.signature.prepare")
+            ) { readAction { getCallable() } }
+        } else {
+            getCallable()
+        }
+    }
+
+    @OptIn(KaAllowAnalysisOnEdt::class, KaExperimentalApi::class)
     internal val oldReturnType: String = allowAnalysisOnEdt {
         analyze(callable) {
-            (callable as? KtCallableDeclaration)?.getReturnKtType()?.render(position = Variance.INVARIANT) ?: ""
+            (callable as? KtCallableDeclaration)?.returnType?.render(position = Variance.INVARIANT) ?: ""
         }
     }
 
-    @OptIn(KtAllowAnalysisOnEdt::class)
+    @OptIn(KaAllowAnalysisOnEdt::class, KaExperimentalApi::class)
     internal val oldReceiverType: String? = allowAnalysisOnEdt {
         analyze(callable) {
-            (callable as? KtCallableDeclaration)?.receiverTypeReference?.getKtType()?.render(position = Variance.INVARIANT)
+            (callable as? KtCallableDeclaration)?.receiverTypeReference?.type?.render(position = Variance.INVARIANT)
         }
     }
 
-    @OptIn(KtAllowAnalysisOnEdt::class)
+    @OptIn(KaAllowAnalysisOnEdt::class)
     override var receiver: KotlinParameterInfo? = (callable as? KtCallableDeclaration)?.receiverTypeReference?.let {
         allowAnalysisOnEdt {
             analyze(callable) {
-                val ktType = it.getKtType()
+                val ktType = it.type
                 val nameValidator = KotlinDeclarationNameValidator(
                     callable,
                     true,
                     KotlinNameSuggestionProvider.ValidatorTarget.VARIABLE,
-                    this,
                 )
                 val receiverName = with(KotlinNameSuggester()) {
                     suggestTypeNames(ktType).map { typeName ->
-                        KotlinNameSuggester.suggestNameByName(typeName, nameValidator)
+                        KotlinNameSuggester.suggestNameByName(typeName) { nameValidator.validate(it) }
                     }
                 }.firstOrNull() ?: "receiver"
 
                 KotlinParameterInfo(
-                    0, KotlinTypeInfo(ktType.render(position = Variance.INVARIANT), callable), receiverName,
-                    KotlinValVar.None, null, false, null, callable
+                    originalIndex = 0,
+                    originalType = KotlinTypeInfo(ktType, callable),
+                    name = receiverName,
+                    valOrVar = KotlinValVar.None,
+                    defaultValueForCall = null,
+                    defaultValueAsDefaultParameter = false,
+                    defaultValue = null,
+                    context = callable
                 )
             }
         }
@@ -63,7 +86,7 @@ class KotlinMethodDescriptor(private val callable: KtNamedDeclaration) :
     private val parameters: MutableList<KotlinParameterInfo>
 
     init {
-        @OptIn(KtAllowAnalysisOnEdt::class)
+        @OptIn(KaAllowAnalysisOnEdt::class)
         parameters = allowAnalysisOnEdt {
             analyze(callable) {
                 val params = mutableListOf< KotlinParameterInfo>()
@@ -71,10 +94,14 @@ class KotlinMethodDescriptor(private val callable: KtNamedDeclaration) :
                 (callable as? KtCallableDeclaration)
                     ?.valueParameters?.forEach { p ->
                         val parameterInfo = KotlinParameterInfo(
-                            params.size, KotlinTypeInfo(p.getReturnKtType().render(position = Variance.INVARIANT), callable),
-                            p.name!!,
-                            p.valOrVarKeyword.toValVar(),
-                            p.defaultValue, p.defaultValue != null, p.defaultValue, callable
+                            originalIndex = params.size,
+                            originalType = KotlinTypeInfo(p.returnType, callable),
+                            name = p.name ?: "",
+                            valOrVar = p.valOrVarKeyword.toValVar(),
+                            defaultValueForCall = p.defaultValue,
+                            defaultValueAsDefaultParameter = p.defaultValue != null,
+                            defaultValue = p.defaultValue,
+                            context = callable
                         )
                         params.add(parameterInfo)
                     }
@@ -95,10 +122,10 @@ class KotlinMethodDescriptor(private val callable: KtNamedDeclaration) :
         return (callable as? KtCallableDeclaration)?.valueParameters?.size ?: 0
     }
 
-    @OptIn(KtAllowAnalysisOnEdt::class)
+    @OptIn(KaAllowAnalysisOnEdt::class, KaExperimentalApi::class)
     private val _visibility = allowAnalysisOnEdt {
         analyze(callable) {
-            (callable.getSymbol() as? KtSymbolWithVisibility)?.visibility ?: Visibilities.Public
+            callable.symbol.compilerVisibility
         }
     }
 

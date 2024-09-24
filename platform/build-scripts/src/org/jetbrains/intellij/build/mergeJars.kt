@@ -14,128 +14,13 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.PathMatcher
 import java.util.zip.Deflater
+import kotlin.io.path.name
 
-const val UTIL_JAR: String = "util.jar"
-const val PLATFORM_LOADER_JAR: String = "platform-loader.jar"
-const val UTIL_RT_JAR: String = "util_rt.jar"
-const val UTIL_8_JAR: String = "util-8.jar"
+private const val listOfEntitiesFileName = "META-INF/listOfEntities.txt"
 
-sealed interface Source {
-  var size: Int
-  var hash: Long
-
-  val filter: ((String) -> Boolean)?
-    get() = null
-}
-
-private val USER_HOME = Path.of(System.getProperty("user.home"))
-val MAVEN_REPO: Path = USER_HOME.resolve(".m2/repository")
-
-internal val isWindows: Boolean = System.getProperty("os.name").startsWith("windows", ignoreCase = true)
 
 fun interface DistributionFileEntryProducer {
   fun consume(size: Int, hash: Long, targetFile: Path): DistributionFileEntry
-}
-
-data class ZipSource(
-  @JvmField val file: Path,
-  @JvmField val excludes: List<Regex> = emptyList(),
-  @JvmField val isPreSignedAndExtractedCandidate: Boolean = false,
-  @JvmField val optimizeConfigId: String? = null,
-  @JvmField val distributionFileEntryProducer: DistributionFileEntryProducer?,
-) : Source, Comparable<ZipSource> {
-  override var size: Int = 0
-  override var hash: Long = 0
-
-  override fun compareTo(other: ZipSource): Int {
-    return if (isWindows) file.toString().compareTo(other.file.toString()) else file.compareTo(other.file)
-  }
-
-  override fun toString(): String {
-    val shortPath = when {
-      file.startsWith(MAVEN_REPO) -> MAVEN_REPO.relativize(file).toString()
-      file.startsWith(USER_HOME) -> "~/" + USER_HOME.relativize(file)
-      else -> file.toString()
-    }
-    return "zip(file=$shortPath)"
-  }
-
-  override fun equals(other: Any?): Boolean {
-    if (this === other) return true
-    if (other !is ZipSource) return false
-
-    if (file != other.file) return false
-    if (excludes != other.excludes) return false
-    if (isPreSignedAndExtractedCandidate != other.isPreSignedAndExtractedCandidate) return false
-    if (filter != other.filter) return false
-
-    return true
-  }
-
-  override fun hashCode(): Int {
-    var result = file.hashCode()
-    result = 31 * result + excludes.hashCode()
-    result = 31 * result + isPreSignedAndExtractedCandidate.hashCode()
-    result = 31 * result + (filter?.hashCode() ?: 0)
-    return result
-  }
-}
-
-data class DirSource(@JvmField val dir: Path,
-                     @JvmField val excludes: List<PathMatcher> = emptyList(),
-                     @JvmField val prefix: String = "",
-                     @JvmField val removeModuleInfo: Boolean = true) : Source {
-  override var size: Int = 0
-  override var hash: Long = 0
-
-  var exist: Boolean? = null
-
-  override fun toString(): String {
-    val shortPath = if (dir.startsWith(USER_HOME)) "~/${USER_HOME.relativize(dir)}" else dir.toString()
-    return "dir(dir=$shortPath, excludes=${excludes.size})"
-  }
-
-  override fun equals(other: Any?): Boolean {
-    if (this === other) return true
-    if (other !is DirSource) return false
-
-    if (dir != other.dir) return false
-    if (excludes != other.excludes) return false
-    if (prefix != other.prefix) return false
-    if (removeModuleInfo != other.removeModuleInfo) return false
-
-    return true
-  }
-
-  override fun hashCode(): Int {
-    var result = dir.hashCode()
-    result = 31 * result + excludes.hashCode()
-    result = 31 * result + prefix.hashCode()
-    result = 31 * result + removeModuleInfo.hashCode()
-    return result
-  }
-}
-
-data class InMemoryContentSource(@JvmField val relativePath: String, @JvmField val data: ByteArray) : Source {
-  override var size: Int = 0
-  override var hash: Long = 0
-
-  override fun toString() = "inMemory(relativePath=$relativePath)"
-
-  override fun equals(other: Any?): Boolean {
-    if (this === other) return true
-    if (other !is InMemoryContentSource) return false
-
-    if (relativePath != other.relativePath) return false
-    if (!data.contentEquals(other.data)) return false
-    return true
-  }
-
-  override fun hashCode(): Int {
-    var result = relativePath.hashCode()
-    result = 31 * result + data.contentHashCode()
-    return result
-  }
 }
 
 internal interface NativeFileHandler {
@@ -150,87 +35,37 @@ suspend fun buildJar(targetFile: Path, sources: List<Source>, compress: Boolean 
   buildJar(targetFile = targetFile, sources = sources, compress = compress, nativeFileHandler = null)
 }
 
-internal suspend fun buildJar(targetFile: Path,
-                              sources: List<Source>,
-                              compress: Boolean = false,
-                              notify: Boolean = true,
-                              nativeFileHandler: NativeFileHandler? = null) {
+internal suspend fun buildJar(
+  targetFile: Path,
+  sources: List<Source>,
+  compress: Boolean = false,
+  notify: Boolean = true,
+  nativeFileHandler: NativeFileHandler? = null,
+) {
   val packageIndexBuilder = if (compress) null else PackageIndexBuilder()
   writeNewFile(targetFile) { outChannel ->
-    ZipFileWriter(channel = outChannel,
-                  deflater = if (compress) Deflater(Deflater.DEFAULT_COMPRESSION, true) else null).use { zipCreator ->
+    ZipFileWriter(
+      channel = outChannel,
+      deflater = if (compress) Deflater(Deflater.DEFAULT_COMPRESSION, true) else null,
+      zipIndexWriter = ZipIndexWriter(indexWriter = packageIndexBuilder?.indexWriter)
+    ).use { zipCreator ->
       val uniqueNames = HashMap<String, Path>()
+
+      val filesToMerge = mutableListOf<CharSequence>()
 
       for (source in sources) {
         val positionBefore = zipCreator.channelPosition
-        when (source) {
-          is DirSource -> {
-            val archiver = ZipArchiver(zipCreator, fileAdded = {
-              if (uniqueNames.putIfAbsent(it, source.dir) == null && (!source.removeModuleInfo || it != "module-info.class")) {
-                packageIndexBuilder?.addFile(it)
-                true
-              }
-              else {
-                false
-              }
-            })
-            val normalizedDir = source.dir.toAbsolutePath().normalize()
-            archiver.setRootDir(normalizedDir, source.prefix)
-            archiveDir(startDir = normalizedDir, archiver = archiver, excludes = source.excludes.takeIf(List<PathMatcher>::isNotEmpty))
-          }
-
-          is InMemoryContentSource -> {
-            if (uniqueNames.putIfAbsent(source.relativePath, Path.of(source.relativePath)) != null) {
-              throw IllegalStateException("in-memory source must always be first " +
-                                          "(targetFile=$targetFile, source=${source.relativePath}, sources=${sources.joinToString()})")
-            }
-
-            packageIndexBuilder?.addFile(source.relativePath)
-            zipCreator.uncompressedData(source.relativePath, source.data.size) {
-              it.put(source.data)
-            }
-          }
-
-          is ZipSource -> {
-            val sourceFile = source.file
-            try {
-              //if (source.optimizeConfigId != null) {
-              //  TraceManager.spanBuilder("optimize").setAttribute("library", source.optimizeConfigId).useWithoutActiveScope {
-              //    val tempDir = optimizeLibraryContext!!.tempDir
-              //    val suffix = System.nanoTime().toString(Character.MAX_RADIX)
-              //    sourceFile = tempDir.resolve("${source.optimizeConfigId}-$suffix.jar")
-              //    val mappingFile = tempDir.resolve("${source.optimizeConfigId}-${System.nanoTime().toString(Character.MAX_RADIX)}.jar")
-              //    try {
-              //      optimizeLibrary(name = source.optimizeConfigId,
-              //                      input = source.file,
-              //                      output = sourceFile,
-              //                      javaHome = optimizeLibraryContext.javaHome.toString(),
-              //                      mapping = mappingFile)
-              //      zipCreator.file("${source.optimizeConfigId}.map.txt", mappingFile)
-              //    }
-              //    finally {
-              //      Files.deleteIfExists(mappingFile)
-              //    }
-              //  }
-              //}
-
-              handleZipSource(source = source,
-                              sourceFile = sourceFile,
-                              nativeFileHandler = nativeFileHandler,
-                              uniqueNames = uniqueNames,
-                              sources = sources,
-                              packageIndexBuilder = packageIndexBuilder,
-                              zipCreator = zipCreator,
-                              compress = compress)
-            }
-            finally {
-              @Suppress("KotlinConstantConditions")
-              if (sourceFile !== source.file) {
-                Files.deleteIfExists(sourceFile)
-              }
-            }
-          }
-        }
+        writeSource(
+          source = source,
+          zipCreator = zipCreator,
+          uniqueNames = uniqueNames,
+          packageIndexBuilder = packageIndexBuilder,
+          targetFile = targetFile,
+          sources = sources,
+          nativeFileHandler = nativeFileHandler,
+          compress = compress,
+          filesToMerge = filesToMerge,
+        )
 
         if (notify) {
           source.size = (zipCreator.channelPosition - positionBefore).toInt()
@@ -238,19 +73,131 @@ internal suspend fun buildJar(targetFile: Path,
         }
       }
 
+      if (filesToMerge.isNotEmpty()) {
+        zipCreator.uncompressedData(nameString = listOfEntitiesFileName, data = filesToMerge.joinToString("\n") { it.trim() })
+      }
+
       packageIndexBuilder?.writePackageIndex(zipCreator)
     }
   }
 }
 
-private suspend fun handleZipSource(source: ZipSource,
-                                    sourceFile: Path,
-                                    nativeFileHandler: NativeFileHandler?,
-                                    uniqueNames: MutableMap<String, Path>,
-                                    sources: List<Source>,
-                                    packageIndexBuilder: PackageIndexBuilder?,
-                                    zipCreator: ZipFileWriter,
-                                    compress: Boolean) {
+private suspend fun writeSource(
+  source: Source,
+  zipCreator: ZipFileWriter,
+  uniqueNames: HashMap<String, Path>,
+  packageIndexBuilder: PackageIndexBuilder?,
+  targetFile: Path,
+  sources: List<Source>,
+  nativeFileHandler: NativeFileHandler?,
+  compress: Boolean,
+  filesToMerge: MutableList<CharSequence>,
+) {
+  val indexWriter = packageIndexBuilder?.indexWriter
+  when (source) {
+    is DirSource -> {
+      val archiver = ZipArchiver(zipCreator = zipCreator, fileAdded = { name, file ->
+        if (name == listOfEntitiesFileName) {
+          filesToMerge.add(Files.readString(file))
+          false
+        }
+        else if (uniqueNames.putIfAbsent(name, source.dir) == null && (!source.removeModuleInfo || name != "module-info.class")) {
+          packageIndexBuilder?.addFile(name)
+          true
+        }
+        else {
+          false
+        }
+      })
+      val normalizedDir = source.dir.toAbsolutePath().normalize()
+      archiver.setRootDir(normalizedDir, source.prefix)
+      indexWriter
+      archiveDir(
+        startDir = normalizedDir,
+        addFile = { archiver.addFile(it)},
+        excludes = source.excludes.takeIf(List<PathMatcher>::isNotEmpty)
+      )
+    }
+
+    is InMemoryContentSource -> {
+      if (uniqueNames.putIfAbsent(source.relativePath, Path.of(source.relativePath)) != null) {
+        throw IllegalStateException("in-memory source must always be first (targetFile=$targetFile, source=${source.relativePath}, sources=${sources.joinToString()})")
+      }
+
+      packageIndexBuilder?.addFile(source.relativePath)
+      zipCreator.uncompressedData(
+        nameString = source.relativePath,
+        maxSize = source.data.size,
+        dataWriter = {
+          it.writeBytes(source.data)
+        },
+      )
+    }
+
+    is FileSource -> {
+      if (uniqueNames.putIfAbsent(source.relativePath, Path.of(source.relativePath)) != null) {
+        throw IllegalStateException("fileSource source must always be first (targetFile=$targetFile, source=${source.relativePath}, sources=${sources.joinToString()})")
+      }
+
+      packageIndexBuilder?.addFile(source.relativePath)
+      zipCreator.file(file = source.file, nameString = source.relativePath)
+    }
+
+    is ZipSource -> {
+      val sourceFile = source.file
+      try {
+        handleZipSource(
+          source = source,
+          sourceFile = sourceFile,
+          nativeFileHandler = nativeFileHandler,
+          uniqueNames = uniqueNames,
+          sources = sources,
+          packageIndexBuilder = packageIndexBuilder,
+          zipCreator = zipCreator,
+          compress = compress,
+          targetFile = targetFile,
+          filesToMerge = filesToMerge,
+        )
+      }
+      finally {
+        @Suppress("KotlinConstantConditions")
+        if (sourceFile !== source.file) {
+          Files.deleteIfExists(sourceFile)
+        }
+      }
+    }
+
+    is LazySource -> {
+      for (subSource in source.getSources()) {
+        require(subSource !== source)
+        writeSource(
+          source = subSource,
+          zipCreator = zipCreator,
+          uniqueNames = uniqueNames,
+          packageIndexBuilder = packageIndexBuilder,
+          targetFile = targetFile,
+          sources = sources,
+          nativeFileHandler = nativeFileHandler,
+          compress = compress,
+          filesToMerge = filesToMerge
+        )
+      }
+    }
+  }
+}
+
+private suspend fun handleZipSource(
+  source: ZipSource,
+  sourceFile: Path,
+  nativeFileHandler: NativeFileHandler?,
+  uniqueNames: MutableMap<String, Path>,
+  sources: List<Source>,
+  packageIndexBuilder: PackageIndexBuilder?,
+  zipCreator: ZipFileWriter,
+  compress: Boolean,
+  targetFile: Path,
+  filesToMerge: MutableList<CharSequence>,
+) {
   val nativeFiles = if (nativeFileHandler == null) {
     null
   }
@@ -265,6 +212,24 @@ private suspend fun handleZipSource(source: ZipSource,
   // FileChannel is strongly required because only FileChannel provides `read(ByteBuffer dst, long position)` method -
   // ability to read data without setting channel position, as setting channel position will require synchronization
   suspendAwareReadZipFile(sourceFile) { name, dataSupplier ->
+    if (name == listOfEntitiesFileName) {
+      filesToMerge.add(Charsets.UTF_8.decode(dataSupplier()))
+      return@suspendAwareReadZipFile
+    }
+
+    fun writeZipData(data: ByteBuffer) {
+      if (compress) {
+        zipCreator.compressedData(name, data)
+      }
+      else {
+        zipCreator.uncompressedData(nameString = name, data = data)
+      }
+    }
+
+    if (checkCoverageAgentManifest(name = name, sourceFile = sourceFile, targetFile = targetFile, dataSupplier = dataSupplier, writeData = ::writeZipData)) {
+      return@suspendAwareReadZipFile
+    }
+
     val filter = source.filter
     val isIncluded = if (filter == null) {
       checkNameForZipSource(name = name, excludes = source.excludes, includeManifest = sources.size == 1)
@@ -273,57 +238,86 @@ private suspend fun handleZipSource(source: ZipSource,
       filter(name)
     }
 
-    if (isIncluded && !isDuplicated(uniqueNames, name, sourceFile)) {
-      if (nativeFileHandler?.isNative(name) == true) {
-        if (source.isPreSignedAndExtractedCandidate) {
-          nativeFiles!!.value.add(name)
-        }
-        else {
-          packageIndexBuilder?.addFile(name)
+    if (!isIncluded || isDuplicated(uniqueNames = uniqueNames, name = name, sourceFile = sourceFile)) {
+      return@suspendAwareReadZipFile
+    }
 
-          // sign it
-          val file = nativeFileHandler.sign(name, dataSupplier)
-          if (file == null) {
-            if (compress) {
-              zipCreator.compressedData(name, dataSupplier())
-            }
-            else {
-              zipCreator.uncompressedData(name, dataSupplier())
-            }
-          }
-          else {
-            zipCreator.file(name, file)
-            Files.delete(file)
-          }
-        }
+    if (nativeFileHandler?.isNative(name) == true) {
+      if (source.isPreSignedAndExtractedCandidate) {
+        nativeFiles!!.value.add(name)
       }
       else {
         packageIndexBuilder?.addFile(name)
 
-        val data = dataSupplier()
-        if (compress) {
-          zipCreator.compressedData(name, data)
+        // sign it
+        val file = nativeFileHandler.sign(name, dataSupplier)
+        if (file == null) {
+          val data = dataSupplier()
+          writeZipData(data)
         }
         else {
-          zipCreator.uncompressedData(name, data)
+          zipCreator.file(name, file)
+          Files.delete(file)
         }
       }
+    }
+    else {
+      packageIndexBuilder?.addFile(name)
+
+      val data = dataSupplier()
+      writeZipData(data)
     }
   }
 }
 
+/**
+ * Coverage agent uses the Boot-Class-Path jar attribute to instrument class from any class loader.
+ * For the correct work, it is required that the attribute value is the same as the simple jar name.
+ * Here the attribute value is replaced with the target jar name.
+ */
+private fun checkCoverageAgentManifest(
+  name: String,
+  sourceFile: Path,
+  targetFile: Path,
+  dataSupplier: () -> ByteBuffer,
+  writeData: (ByteBuffer) -> Unit,
+): Boolean {
+  if (name != "META-INF/MANIFEST.MF") {
+    return false
+  }
+
+  val coveragePlatformAgentModuleName = "intellij.platform.coverage.agent"
+  if (!targetFile.name.contains(coveragePlatformAgentModuleName)) {
+    return false
+  }
+
+  val agentPrefix = "intellij-coverage-agent"
+  if (!sourceFile.name.startsWith(agentPrefix)) {
+    return false
+  }
+
+  val manifestContent = Charsets.UTF_8.decode(dataSupplier()).let {
+    val bootAttribute = "Boot-Class-Path:"
+    it.replace("$bootAttribute $agentPrefix-\\d+(\\.\\d+)*\\.jar".toRegex(), "$bootAttribute $coveragePlatformAgentModuleName.jar")
+  }
+  writeData(ByteBuffer.wrap(manifestContent.toByteArray()))
+  return true
+}
+
 private fun isDuplicated(uniqueNames: MutableMap<String, Path>, name: String, sourceFile: Path): Boolean {
   val old = uniqueNames.putIfAbsent(name, sourceFile) ?: return false
-  Span.current().addEvent("$name is duplicated and ignored", Attributes.of(
+  Span.current().addEvent(
+    "$name is duplicated and ignored", Attributes.of(
     AttributeKey.stringKey("firstSource"), old.toString(),
     AttributeKey.stringKey("secondSource"), sourceFile.toString(),
-  ))
+  )
+  )
   return true
 }
 
 @Suppress("SpellCheckingInspection")
 private fun getIgnoredNames(): Set<String> {
-  val set = HashSet<String>()
+  val set = mutableListOf<String>()
   // compilation cache on TC
   set.add(".hash")
   set.add("classpath.index")
@@ -365,8 +359,8 @@ private fun getIgnoredNames(): Set<String> {
   @Suppress("SpellCheckingInspection")
   set.add(".gitkeep")
   set.add(INDEX_FILENAME)
-  for (originalName in listOf("NOTICE", "README", "LICENSE", "DEPENDENCIES", "CHANGES", "THIRD_PARTY_LICENSES", "COPYING")) {
-    for (name in listOf(originalName, originalName.lowercase())) {
+  for (originalName in sequenceOf("NOTICE", "README", "LICENSE", "DEPENDENCIES", "CHANGES", "THIRD_PARTY_LICENSES", "COPYING")) {
+    for (name in sequenceOf(originalName, originalName.lowercase())) {
       set.add(name)
       set.add("$name.txt")
       set.add("$name.md")
@@ -377,6 +371,11 @@ private fun getIgnoredNames(): Set<String> {
   }
   set.add("kotlinx/coroutines/debug/internal/ByteBuddyDynamicAttach.class")
   set.add("kotlin/coroutines/jvm/internal/DebugProbesKt.class")
+  /**
+   * merging build politic breaks Graal VM Truffle-based plugins in an inconsistant way, so it's better
+   * to provide a correctly merged version in plugin.
+   */
+  set.add("META-INF/services/com.oracle.truffle.api.TruffleLanguage${'$'}Provider")
   return java.util.Set.copyOf(set)
 }
 

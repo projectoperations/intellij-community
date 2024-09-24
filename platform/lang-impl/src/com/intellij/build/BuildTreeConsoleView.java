@@ -1,9 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.build;
 
 import com.intellij.build.events.*;
 import com.intellij.build.events.impl.FailureResultImpl;
 import com.intellij.build.events.impl.SkippedResultImpl;
+import com.intellij.codeWithMe.ClientId;
 import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.execution.actions.ClearConsoleAction;
 import com.intellij.execution.filters.Filter;
@@ -13,7 +14,6 @@ import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.execution.ui.ExecutionConsole;
-import com.intellij.icons.AllIcons;
 import com.intellij.ide.CommonActionsManager;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.OccurenceNavigator;
@@ -23,7 +23,6 @@ import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.ide.util.treeView.NodeRenderer;
-import com.intellij.idea.ActionsBundle;
 import com.intellij.lang.LangBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
@@ -31,15 +30,13 @@ import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.ClientEditorManager;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.LogicalPosition;
+import com.intellij.openapi.editor.actions.ScrollToTheEndToolbarAction;
 import com.intellij.openapi.editor.actions.ToggleUseSoftWrapsToolbarAction;
-import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.progress.util.ProgressIndicatorWithDelayedPresentation;
-import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.io.FileUtil;
@@ -102,8 +99,8 @@ import static com.intellij.util.ui.UIUtil.*;
 public final class BuildTreeConsoleView implements ConsoleView, DataProvider, BuildConsoleView, Filterable<ExecutionNode>, OccurenceNavigator {
   private static final Logger LOG = Logger.getInstance(BuildTreeConsoleView.class);
 
-  @NonNls private static final String TREE = "tree";
-  @NonNls private static final String SPLITTER_PROPERTY = "BuildView.Splitter.Proportion";
+  private static final @NonNls String TREE = "tree";
+  private static final @NonNls String SPLITTER_PROPERTY = "BuildView.Splitter.Proportion";
   private final JPanel myPanel = new JPanel();
   private final Map<Object, ExecutionNode> nodesMap = new ConcurrentHashMap<>();
 
@@ -484,12 +481,11 @@ public final class BuildTreeConsoleView implements ConsoleView, DataProvider, Bu
     }
   }
 
-  @NotNull
-  private ExecutionNode addAsPresentableEventNode(@NotNull PresentableBuildEvent event,
-                                                  @NotNull Set<? super ExecutionNode> structureChanged,
-                                                  @Nullable ExecutionNode parentNode,
-                                                  @NotNull Object eventId,
-                                                  @NotNull ExecutionNode buildProgressRootNode) {
+  private @NotNull ExecutionNode addAsPresentableEventNode(@NotNull PresentableBuildEvent event,
+                                                           @NotNull Set<? super ExecutionNode> structureChanged,
+                                                           @Nullable ExecutionNode parentNode,
+                                                           @NotNull Object eventId,
+                                                           @NotNull ExecutionNode buildProgressRootNode) {
     ExecutionNode executionNode = new ExecutionNode(myProject, parentNode, parentNode == buildProgressRootNode, this::isCorrectThread);
     BuildEventPresentationData presentationData = event.getPresentationData();
     executionNode.applyFrom(presentationData);
@@ -972,7 +968,7 @@ public final class BuildTreeConsoleView implements ConsoleView, DataProvider, Bu
       tree.addTreeSelectionListener(e -> {
         if (Disposer.isDisposed(myView)) return;
         TreePath path = e.getPath();
-        if (path == null || !e.isAddedPath()) {
+        if (path == null) {
           return;
         }
         TreePath selectionPath = tree.getSelectionPath();
@@ -1002,16 +998,17 @@ public final class BuildTreeConsoleView implements ConsoleView, DataProvider, Bu
       invokeLaterIfNeeded(() -> myToolbar.updateActionsImmediately());
     }
 
-    @NotNull
-    private DefaultActionGroup createDefaultTextConsoleToolbar() {
+    private @NotNull DefaultActionGroup createDefaultTextConsoleToolbar() {
       DefaultActionGroup textConsoleToolbarActionGroup = new DefaultActionGroup();
       textConsoleToolbarActionGroup.add(new ToggleUseSoftWrapsToolbarAction(SoftWrapAppliancePlaces.CONSOLE) {
         @Override
         protected @Nullable Editor getEditor(@NotNull AnActionEvent e) {
-          return ConsoleViewHandler.this.getEditor();
+          var editor = ConsoleViewHandler.this.getEditor();
+          if (editor == null) return null;
+          return ClientEditorManager.getClientEditor(editor, ClientId.getCurrentOrNull());
         }
       });
-      textConsoleToolbarActionGroup.add(new ScrollEditorToTheEndAction(this));
+      textConsoleToolbarActionGroup.add(new ScrollToTheEndToolbarAction(getEditor()));
       textConsoleToolbarActionGroup.add(new ClearConsoleAction());
       return textConsoleToolbarActionGroup;
     }
@@ -1204,43 +1201,6 @@ public final class BuildTreeConsoleView implements ConsoleView, DataProvider, Bu
     @Override
     public @NotNull String getPreviousOccurenceActionName() {
       return IdeBundle.message("action.previous.problem");
-    }
-  }
-
-  private static final class ScrollEditorToTheEndAction extends ToggleAction implements DumbAware {
-    private final @NotNull ConsoleViewHandler myConsoleViewHandler;
-
-    ScrollEditorToTheEndAction(@NotNull ConsoleViewHandler handler) {
-      super(ActionsBundle.message("action.EditorConsoleScrollToTheEnd.text"), null, AllIcons.RunConfigurations.Scroll_down);
-      myConsoleViewHandler = handler;
-    }
-
-    @Override
-    public boolean isSelected(@NotNull AnActionEvent e) {
-      Editor editor = myConsoleViewHandler.getEditor();
-      if (editor == null) return false;
-      Document document = editor.getDocument();
-      return document.getLineCount() == 0 || document.getLineNumber(editor.getCaretModel().getOffset()) == document.getLineCount() - 1;
-    }
-
-    @Override
-    public @NotNull ActionUpdateThread getActionUpdateThread() {
-      return ActionUpdateThread.EDT;
-    }
-
-    @Override
-    public void setSelected(@NotNull AnActionEvent e, boolean state) {
-      Editor editor = myConsoleViewHandler.getEditor();
-      if (editor == null) return;
-      if (state) {
-        EditorUtil.scrollToTheEnd(editor);
-      }
-      else {
-        int lastLine = Math.max(0, editor.getDocument().getLineCount() - 1);
-        LogicalPosition currentPosition = editor.getCaretModel().getLogicalPosition();
-        LogicalPosition position = new LogicalPosition(Math.max(0, Math.min(currentPosition.line, lastLine - 1)), currentPosition.column);
-        editor.getCaretModel().moveToLogicalPosition(position);
-      }
     }
   }
 

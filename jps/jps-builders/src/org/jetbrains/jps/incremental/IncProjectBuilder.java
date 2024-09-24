@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.incremental;
 
+import com.intellij.concurrency.ContextAwareRunnable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
@@ -13,10 +14,10 @@ import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FileCollectionFactory;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ModuleChunk;
-import org.jetbrains.jps.TimingLog;
 import org.jetbrains.jps.api.BuildParametersKeys;
 import org.jetbrains.jps.api.CanceledStatus;
 import org.jetbrains.jps.api.GlobalOptions;
@@ -43,6 +44,7 @@ import org.jetbrains.jps.javac.JavacMain;
 import org.jetbrains.jps.model.java.JpsJavaExtensionService;
 import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerConfiguration;
 import org.jetbrains.jps.model.module.JpsModule;
+import org.jetbrains.jps.model.serialization.impl.TimingLog;
 import org.jetbrains.jps.service.SharedThreadPool;
 import org.jetbrains.jps.util.JpsPathUtil;
 
@@ -67,9 +69,7 @@ import java.util.stream.Collectors;
 
 import static org.jetbrains.jps.builders.java.JavaBuilderUtil.isDepGraphEnabled;
 
-/**
- * @author Eugene Zhuravlev
- */
+@ApiStatus.Internal
 public final class IncProjectBuilder {
   private static final Logger LOG = Logger.getInstance(IncProjectBuilder.class);
 
@@ -211,10 +211,11 @@ public final class IncProjectBuilder {
     checkRebuildRequired(scope);
     rebuildRequiredSpan.complete();
 
+    BuildDataManager dataManager = myProjectDescriptor.dataManager;
     final LowMemoryWatcher memWatcher = LowMemoryWatcher.register(() -> {
       JavacMain.clearCompilerZipFileCache();
-      myProjectDescriptor.dataManager.flush(false);
-      myProjectDescriptor.getProjectStamps().getStampStorage().force();
+      dataManager.flush(false);
+      dataManager.clearCache();
     });
 
     final CleanupTempDirectoryExtension cleaner = CleanupTempDirectoryExtension.getInstance();
@@ -235,8 +236,8 @@ public final class IncProjectBuilder {
       Tracer.Span buildSpan = Tracer.start("IncProjectBuilder.runBuild");
       runBuild(context, forceCleanCaches);
       buildSpan.complete();
-      myProjectDescriptor.dataManager.saveVersion();
-      myProjectDescriptor.dataManager.reportUnhandledRelativizerPaths();
+      dataManager.saveVersion();
+      dataManager.reportUnhandledRelativizerPaths();
       sourcesState.reportSourcesState();
       reportRebuiltModules(context);
       reportUnprocessedChanges(context);
@@ -300,10 +301,11 @@ public final class IncProjectBuilder {
   }
 
   private void checkRebuildRequired(final CompileScope scope) throws RebuildRequestedException {
+    boolean isDebugEnabled = LOG.isDebugEnabled();
     if (myIsTestMode || isAutoBuild()) {
       // do not use the heuristic in tests in order to properly test all cases
       // automatic builds should not cause start full project rebuilds to avoid situations when rebuild is not expected by user
-      if (LOG.isDebugEnabled()) {
+      if (isDebugEnabled) {
         LOG.debug("Rebuild heuristic: skipping the check; isTestMode = " + myIsTestMode + "; isAutoBuild = " + isAutoBuild());
       }
       return;
@@ -311,7 +313,7 @@ public final class IncProjectBuilder {
     final BuildTargetsState targetsState = myProjectDescriptor.getTargetsState();
     final long timeThreshold = targetsState.getLastSuccessfulRebuildDuration() * 95 / 100; // 95% of last registered clean rebuild time
     if (timeThreshold <= 0) {
-      if (LOG.isDebugEnabled()) {
+      if (isDebugEnabled) {
         LOG.debug("Rebuild heuristic: no stats available");
       }
       return;
@@ -320,13 +322,13 @@ public final class IncProjectBuilder {
     // checking only JavaModuleBuildTargetType because these target types directly correspond to project modules
     for (BuildTargetType<?> type : JavaModuleBuildTargetType.ALL_TYPES) {
       if (!scope.isBuildIncrementally(type)) {
-        if (LOG.isDebugEnabled()) {
+        if (isDebugEnabled) {
           LOG.debug("Rebuild heuristic: skipping the check because rebuild is forced for targets of type " + type.getTypeId());
         }
         return;
       }
       if (!scope.isAllTargetsOfTypeAffected(type)) {
-        if (LOG.isDebugEnabled()) {
+        if (isDebugEnabled) {
           LOG.debug("Rebuild heuristic: skipping the check because some targets are excluded from compilation scope, e.g. targets of type " + type.getTypeId());
         }
         return;
@@ -341,7 +343,7 @@ public final class IncProjectBuilder {
         return allTargetsAffected.contains(target.getTargetType()) || scope.isAffected(target);
       }
     });
-    if (LOG.isDebugEnabled()) {
+    if (isDebugEnabled) {
       LOG.debug("Rebuild heuristic: estimated build time / timeThreshold : " + estimatedWorkTime + " / " + timeThreshold);
     }
 
@@ -367,7 +369,7 @@ public final class IncProjectBuilder {
       if (!targetIndex.isDummy(target)) {
         final long avgTimeToBuild = targetsState.getAverageBuildTime(target.getTargetType());
         if (avgTimeToBuild > 0) {
-          // 1. in general case this time should include dependency analysis and cache update times
+          // 1. in general case, this time should include dependency analysis and cache update times
           // 2. need to check isAffected() since some targets (like artifacts) may be unaffected even for rebuild
           if (targetsState.getTargetConfiguration(target).isTargetDirty(projectDescriptor) && isAffected.test(target)) {
             estimatedBuildTime += avgTimeToBuild;
@@ -431,11 +433,10 @@ public final class IncProjectBuilder {
 
   private static void flushContext(CompileContext context) {
     if (context != null) {
-      final ProjectDescriptor pd = context.getProjectDescriptor();
-      pd.getProjectStamps().getStampStorage().force();
-      pd.dataManager.flush(false);
+      context.getProjectDescriptor().dataManager.flush(false);
     }
-    final ExternalJavacManager server = ExternalJavacManager.KEY.get(context);
+
+    ExternalJavacManager server = ExternalJavacManager.KEY.get(context);
     if (server != null) {
       server.stop();
       ExternalJavacManager.KEY.set(context, null);
@@ -550,7 +551,6 @@ public final class IncProjectBuilder {
       }
       context.processMessage(new ProgressMessage(JpsBuildBundle.message("progress.message.finished.saving.caches")));
     }
-
   }
 
   private void sendElapsedTimeMessages(CompileContext context) {
@@ -645,33 +645,20 @@ public final class IncProjectBuilder {
       LOG.info("Cleaned output directories in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - cleanStart) + " ms");
       if (cleanCaches) {
         try {
-          projectDescriptor.getProjectStamps().getStampStorage().clean();
+          projectDescriptor.dataManager.clean(myAsyncTasks::add);
         }
         catch (IOException e) {
           if (ex == null) {
-            ex = new ProjectBuildException(JpsBuildBundle.message("build.message.error.cleaning.timestamps.storage"), e);
+            ex = new ProjectBuildException(JpsBuildBundle.message("build.message.error.cleaning.compiler.storages"), e);
           }
           else {
-            LOG.info("Error cleaning timestamps storage", e);
+            LOG.info("Error cleaning compiler storages", e);
           }
         }
         finally {
-          try {
-            projectDescriptor.dataManager.clean(myAsyncTasks::add);
-          }
-          catch (IOException e) {
-            if (ex == null) {
-              ex = new ProjectBuildException(JpsBuildBundle.message("build.message.error.cleaning.compiler.storages"), e);
-            }
-            else {
-              LOG.info("Error cleaning compiler storages", e);
-            }
-          }
-          finally {
-            projectDescriptor.fsState.clearAll();
-            if (ex != null) {
-              throw ex;
-            }
+          projectDescriptor.fsState.clearAll();
+          if (ex != null) {
+            throw ex;
           }
         }
       }
@@ -686,32 +673,34 @@ public final class IncProjectBuilder {
     }
   }
 
-  private void cleanOutputOfStaleTargets(BuildTargetType<?> type, CompileContext context) {
-    List<Pair<String, Integer>> targetIds = myProjectDescriptor.dataManager.getTargetsState().getStaleTargetIds(type);
-    if (targetIds.isEmpty()) return;
+  private void cleanOutputOfStaleTargets(BuildTargetType<?> targetType, CompileContext context) {
+    BuildDataManager dataManager = myProjectDescriptor.dataManager;
+    List<Pair<String, Integer>> targetIds = dataManager.getTargetsState().getStaleTargetIds(targetType);
+    if (targetIds.isEmpty()) {
+      return;
+    }
 
     context.processMessage(new ProgressMessage(JpsBuildBundle.message("progress.message.cleaning.old.output.directories")));
     for (Pair<String, Integer> ids : targetIds) {
-      String stringId = ids.first;
+      String targetId = ids.first;
       try {
         SourceToOutputMappingImpl mapping = null;
         try {
-          mapping = myProjectDescriptor.dataManager.createSourceToOutputMapForStaleTarget(type, stringId);
-          clearOutputFiles(context, mapping, type, ids.second);
+          mapping = dataManager.createSourceToOutputMapForStaleTarget(targetType, targetId);
+          clearOutputFiles(context, mapping, targetType, ids.second);
         }
         finally {
           if (mapping != null) {
             mapping.close();
           }
         }
-        FileUtil.delete(myProjectDescriptor.dataManager.getDataPaths().getTargetDataRoot(type, stringId));
-        myProjectDescriptor.dataManager.getTargetsState().cleanStaleTarget(type, stringId);
+        dataManager.cleanStaleTarget(targetType, targetId);
       }
       catch (IOException e) {
         LOG.warn(e);
         myMessageDispatcher.processMessage(new CompilerMessage("", BuildMessage.Kind.WARNING,
                                                                JpsBuildBundle.message("build.message.failed.to.delete.output.files.from.obsolete.0.target.1",
-                                                                                      stringId, e.toString())));
+                                                                                      targetId, e.toString())));
       }
     }
   }
@@ -723,28 +712,96 @@ public final class IncProjectBuilder {
     registerTargetsWithClearedOutput(context, Collections.singletonList(target));
   }
 
-  private static void clearOutputFiles(CompileContext context,
-                                       SourceToOutputMapping mapping,
-                                       BuildTargetType<?> targetType,
-                                       int targetId) throws IOException {
-    Set<File> dirsToDelete = targetType instanceof ModuleBasedBuildTargetType<?> ? FileCollectionFactory.createCanonicalFileSet() : null;
-    OutputToTargetRegistry outputToTargetRegistry = context.getProjectDescriptor().dataManager.getOutputToTargetRegistry();
-    for (String srcPath : mapping.getSources()) {
-      final Collection<String> outs = mapping.getOutputs(srcPath);
-      if (outs != null && !outs.isEmpty()) {
-        List<String> deletedPaths = new ArrayList<>();
-        for (String out : outs) {
-          BuildOperations.deleteRecursively(out, deletedPaths, dirsToDelete);
+  private boolean processDeletedPaths(CompileContext context, final Set<? extends BuildTarget<?>> targets) throws ProjectBuildException {
+    boolean doneSomething = false;
+    try {
+      // cleanup outputs
+      final Map<BuildTarget<?>, Collection<String>> targetToRemovedSources = new HashMap<>();
+
+      Set<File> dirsToDelete = FileCollectionFactory.createCanonicalFileSet();
+      for (BuildTarget<?> target : targets) {
+        Collection<String> deletedPaths = myProjectDescriptor.fsState.getAndClearDeletedPaths(target);
+        if (deletedPaths.isEmpty()) {
+          continue;
         }
-        outputToTargetRegistry.removeMapping(outs, targetId);
-        if (!deletedPaths.isEmpty()) {
-          context.processMessage(new FileDeletedEvent(deletedPaths));
+
+        targetToRemovedSources.put(target, deletedPaths);
+        if (isTargetOutputCleared(context, target)) {
+          continue;
+        }
+        final int buildTargetId = context.getProjectDescriptor().getTargetsState().getBuildTargetId(target);
+        final boolean shouldPruneEmptyDirs = target instanceof ModuleBasedTarget;
+        BuildDataManager dataManager = context.getProjectDescriptor().dataManager;
+        final SourceToOutputMapping sourceToOutputStorage = dataManager.getSourceToOutputMap(target);
+        final ProjectBuilderLogger logger = context.getLoggingManager().getProjectBuilderLogger();
+        // actually delete outputs associated with removed paths
+        final Collection<String> pathsForIteration;
+        if (myIsTestMode) {
+          // ensure predictable order in test logs
+          pathsForIteration = new ArrayList<>(deletedPaths);
+          Collections.sort((List<String>)pathsForIteration);
+        }
+        else {
+          pathsForIteration = deletedPaths;
+        }
+        for (String deletedSource : pathsForIteration) {
+          // deleting outputs corresponding to a non-existing source
+          Collection<String> outputs = sourceToOutputStorage.getOutputs(deletedSource);
+          if (outputs != null && !outputs.isEmpty()) {
+            List<String> deletedOutputPaths = new ArrayList<>();
+            OutputToTargetMapping outputToSourceRegistry = dataManager.getOutputToTargetMapping();
+            for (String output : outputToSourceRegistry.removeTargetAndGetSafeToDeleteOutputs(outputs, buildTargetId, sourceToOutputStorage)) {
+              final boolean deleted = BuildOperations.deleteRecursively(output, deletedOutputPaths, shouldPruneEmptyDirs ? dirsToDelete : null);
+              if (deleted) {
+                doneSomething = true;
+              }
+            }
+            if (!deletedOutputPaths.isEmpty()) {
+              if (logger.isEnabled()) {
+                logger.logDeletedFiles(deletedOutputPaths);
+              }
+              context.processMessage(new FileDeletedEvent(deletedOutputPaths));
+            }
+          }
+
+          if (target instanceof ModuleBuildTarget) {
+            // check if the deleted source was associated with a form
+            OneToManyPathMapping sourceToFormMap = dataManager.getSourceToFormMap(target);
+            Collection<String> boundForms = sourceToFormMap.getOutputs(deletedSource);
+            if (boundForms != null) {
+              for (String formPath : boundForms) {
+                final File formFile = new File(formPath);
+                if (formFile.exists()) {
+                  FSOperations.markDirty(context, CompilationRound.CURRENT, formFile);
+                }
+              }
+              sourceToFormMap.remove(deletedSource);
+            }
+          }
         }
       }
-    }
-    if (dirsToDelete != null) {
+      if (!targetToRemovedSources.isEmpty()) {
+        final Map<BuildTarget<?>, Collection<String>> existing = Utils.REMOVED_SOURCES_KEY.get(context);
+        if (existing != null) {
+          for (Map.Entry<BuildTarget<?>, Collection<String>> entry : existing.entrySet()) {
+            final Collection<String> paths = targetToRemovedSources.get(entry.getKey());
+            if (paths != null) {
+              paths.addAll(entry.getValue());
+            }
+            else {
+              targetToRemovedSources.put(entry.getKey(), entry.getValue());
+            }
+          }
+        }
+        Utils.REMOVED_SOURCES_KEY.set(context, targetToRemovedSources);
+      }
+
       FSOperations.pruneEmptyDirs(context, dirsToDelete);
     }
+    catch (IOException e) {
+      throw new ProjectBuildException(e);
+    }
+    return doneSomething;
   }
 
   private static void registerTargetsWithClearedOutput(CompileContext context, Collection<? extends BuildTarget<?>> targets) {
@@ -942,15 +999,14 @@ public final class IncProjectBuilder {
     }
   }
 
-  private static void runTasks(CompileContext context, final List<? extends BuildTask> tasks) throws ProjectBuildException {
+  private static void runTasks(@NotNull CompileContext context, @NotNull List<? extends BuildTask> tasks) throws ProjectBuildException {
     for (BuildTask task : tasks) {
       task.build(context);
     }
   }
 
-  private void buildChunks(final CompileContextImpl context, BuildProgress buildProgress) throws ProjectBuildException {
+  private void buildChunks(@NotNull CompileContextImpl context, @NotNull BuildProgress buildProgress) throws ProjectBuildException {
     try {
-
       boolean compileInParallel = isParallelBuild();
       if (compileInParallel && MAX_BUILDER_THREADS <= 1) {
         LOG.info("Switched off parallel compilation because maximum number of builder threads is less than 2. Set '"
@@ -964,14 +1020,15 @@ public final class IncProjectBuilder {
       }
       else {
         // non-parallel build
-        final ProjectDescriptor pd = context.getProjectDescriptor();
-        final Runnable flushCommand = Utils.asCountedRunnable(FLUSH_INVOCATIONS_TO_SKIP, () -> pd.dataManager.flush(true));
-        for (BuildTargetChunk chunk : pd.getBuildTargetIndex().getSortedTargetChunks(context)) {
+        ProjectDescriptor projectDescriptor = context.getProjectDescriptor();
+        BuildDataManager dataManager = projectDescriptor.dataManager;
+        final Runnable flushCommand = Utils.asCountedRunnable(FLUSH_INVOCATIONS_TO_SKIP, () -> dataManager.flush(true));
+        for (BuildTargetChunk chunk : projectDescriptor.getBuildTargetIndex().getSortedTargetChunks(context)) {
           try {
             buildChunkIfAffected(context, context.getScope(), chunk, buildProgress);
           }
           finally {
-            pd.dataManager.closeSourceToOutputStorages(Collections.singleton(chunk));
+            dataManager.closeSourceToOutputStorages(chunk);
             flushCommand.run();
           }
         }
@@ -1015,12 +1072,14 @@ public final class IncProjectBuilder {
       }
     }
 
-    public List<BuildChunkTask> markAsFinishedAndGetNextReadyTasks() {
-      List<BuildChunkTask> nextTasks = new SmartList<>();
+     @Nullable List<BuildChunkTask> getNextReadyTasks() {
+      List<BuildChunkTask> nextTasks = null;
       for (BuildChunkTask task : myTasksDependsOnThis) {
         int dependenciesCount = task.myNotBuildDependenciesCount.decrementAndGet();
-
         if (dependenciesCount == 0) {
+          if (nextTasks == null) {
+            nextTasks = new SmartList<>();
+          }
           nextTasks.add(task);
         }
       }
@@ -1029,16 +1088,10 @@ public final class IncProjectBuilder {
   }
 
   private final class BuildParallelizer {
-    private final ExecutorService myParallelBuildExecutor = AppExecutorUtil.createCustomPriorityQueueBoundedApplicationPoolExecutor(
-      "IncProjectBuilder Executor Pool", SharedThreadPool.getInstance(), MAX_BUILDER_THREADS, (o1, o2) -> {
-      int p1 = o1 instanceof RunnableWithPriority ? ((RunnableWithPriority)o1).priority : 1;
-      int p2 = o1 instanceof RunnableWithPriority ? ((RunnableWithPriority)o2).priority : 1;
-      return Integer.compare(p2, p1);
-    });
     private final CompileContext myContext;
     private final BuildProgress myBuildProgress;
     private final AtomicReference<Throwable> myException = new AtomicReference<>();
-    private final CountDownLatch myTasksCountDown;
+    private final CountDownLatch taskCountDown;
     private final List<BuildChunkTask> myTasks;
     private final Runnable myFlushCommand;
 
@@ -1078,7 +1131,6 @@ public final class IncProjectBuilder {
       }
       collectTaskDependantsSpan.complete();
 
-
       Tracer.Span prioritisationSpan = Tracer.start("IncProjectBuilder.prioritisation");
       // bitset stores indexes of transitively dependant tasks
       HashMap<BuildChunkTask, BitSet> chunkToTransitive = new HashMap<>();
@@ -1099,7 +1151,7 @@ public final class IncProjectBuilder {
       }
       prioritisationSpan.complete();
 
-      myTasksCountDown = new CountDownLatch(myTasks.size());
+      taskCountDown = new CountDownLatch(myTasks.size());
       span.complete();
     }
 
@@ -1110,10 +1162,21 @@ public final class IncProjectBuilder {
           initialTasks.add(task);
         }
       }
-      queueTasks(initialTasks);
 
+      @NotNull ExecutorService parallelBuildExecutor =
+        AppExecutorUtil.createCustomPriorityQueueBoundedApplicationPoolExecutor(
+          "IncProjectBuilder Executor Pool",
+          SharedThreadPool.getInstance(),
+          MAX_BUILDER_THREADS,
+          (o1, o2) -> {
+            int p1 = o1 instanceof RunnableWithPriority ? ((RunnableWithPriority)o1).priority : 1;
+            int p2 = o1 instanceof RunnableWithPriority ? ((RunnableWithPriority)o2).priority : 1;
+            return Integer.compare(p2, p1);
+          });
+
+      queueTasks(initialTasks, LOG.isDebugEnabled(), parallelBuildExecutor);
       try {
-        myTasksCountDown.await();
+        taskCountDown.await();
       }
       catch (InterruptedException e) {
         LOG.info(e);
@@ -1128,29 +1191,29 @@ public final class IncProjectBuilder {
       }
     }
 
-    private void queueTasks(List<BuildChunkTask> tasks) {
-      if (tasks.isEmpty()) return;
-      ArrayList<BuildChunkTask> sorted = new ArrayList<>(tasks);
-      sorted.sort(Comparator.comparingLong(BuildChunkTask::getScore).reversed());
+    private void queueTasks(List<BuildChunkTask> tasks, boolean isDebugLogEnabled, @NotNull ExecutorService parallelBuildExecutor) {
+      BuildChunkTask[] sorted = tasks.toArray(new BuildChunkTask[0]);
+      Arrays.sort(sorted, Comparator.comparingLong(BuildChunkTask::getScore).reversed());
 
-      if (LOG.isDebugEnabled()) {
-        final List<BuildTargetChunk> chunksToLog = new ArrayList<>();
+      if (isDebugLogEnabled) {
+        List<BuildTargetChunk> chunksToLog = new ArrayList<>(sorted.length);
         for (BuildChunkTask task : sorted) {
           chunksToLog.add(task.getChunk());
         }
-        final StringBuilder logBuilder = new StringBuilder("Queuing " + chunksToLog.size() + " chunks in parallel: ");
+        StringBuilder logBuilder = new StringBuilder().append("Queuing ").append(chunksToLog.size()).append(" chunks in parallel: ");
         chunksToLog.sort(Comparator.comparing(BuildTargetChunk::toString));
         for (BuildTargetChunk chunk : chunksToLog) {
           logBuilder.append(chunk.toString()).append("; ");
         }
         LOG.debug(logBuilder.toString());
       }
+
       for (BuildChunkTask task : sorted) {
-        queueTask(task);
+        queueTask(task, isDebugLogEnabled, parallelBuildExecutor);
       }
     }
 
-    private abstract class RunnableWithPriority implements Runnable {
+    private abstract class RunnableWithPriority implements Runnable, ContextAwareRunnable {
       public final int priority;
 
       RunnableWithPriority(int priority) {
@@ -1158,9 +1221,9 @@ public final class IncProjectBuilder {
       }
     }
 
-    private void queueTask(final BuildChunkTask task) {
-      final CompileContext chunkLocalContext = createContextWrapper(myContext);
-      myParallelBuildExecutor.execute(new RunnableWithPriority(task.getScore()) {
+    private void queueTask(@NotNull BuildChunkTask task, boolean isDebugLogEnabled, @NotNull ExecutorService parallelBuildExecutor) {
+      CompileContext chunkLocalContext = createContextWrapper(myContext);
+      parallelBuildExecutor.execute(new RunnableWithPriority(task.getScore()) {
         @Override
         public void run() {
           try {
@@ -1170,10 +1233,8 @@ public final class IncProjectBuilder {
               }
             }
             finally {
-              Tracer.Span flush = Tracer.start("flushing");
-              myProjectDescriptor.dataManager.closeSourceToOutputStorages(Collections.singletonList(task.getChunk()));
+              myProjectDescriptor.dataManager.closeSourceToOutputStorages(task.getChunk());
               myFlushCommand.run();
-              flush.complete();
             }
           }
           catch (Throwable e) {
@@ -1181,12 +1242,18 @@ public final class IncProjectBuilder {
             LOG.info(e);
           }
           finally {
-            LOG.debug("Finished compilation of " + task.getChunk().toString());
-            myTasksCountDown.countDown();
-            List<BuildChunkTask> nextTasks;
-            nextTasks = task.markAsFinishedAndGetNextReadyTasks();
-            if (!nextTasks.isEmpty()) {
-              queueTasks(nextTasks);
+            try {
+              if (isDebugLogEnabled) {
+                LOG.debug("Finished compilation of " + task.getChunk().toString());
+              }
+
+              List<BuildChunkTask> nextTasks = task.getNextReadyTasks();
+              if (nextTasks != null && !nextTasks.isEmpty()) {
+                queueTasks(nextTasks, isDebugLogEnabled, parallelBuildExecutor);
+              }
+            }
+            finally {
+              taskCountDown.countDown();
             }
           }
         }
@@ -1310,8 +1377,12 @@ public final class IncProjectBuilder {
               // Change of only one input of *.kotlin_module files didn't trigger recompilation of all inputs in old behaviour.
               // Now it does. It isn't yet obvious whether it is right or wrong behaviour. Let's leave old behaviour for a
               // while for safety and keeping kotlin incremental JPS tests green
-              List<String> filteredOuts =
-                ContainerUtil.filter(outs, out -> !"kotlin_module".equals(StringUtil.substringAfterLast(out, ".")));
+              List<String> filteredOuts = new ArrayList<>();
+              for (String out : outs) {
+                if (!"kotlin_module".equals(StringUtil.substringAfterLast(out, "."))) {
+                  filteredOuts.add(out);
+                }
+              }
               affectedOutputs.addAll(filteredOuts);
             }
           }
@@ -1322,10 +1393,11 @@ public final class IncProjectBuilder {
 
     if (!affectedOutputs.isEmpty()) {
       for (SourceToOutputMapping srcToOut : mappings) {
-        for (String src : srcToOut.getSources()) {
+        for (SourceToOutputMappingCursor cursor = srcToOut.cursor(); cursor.hasNext(); ) {
+          String src = cursor.next();
           if (!affectedSources.contains(src)) {
-            for (Iterator<String> it = srcToOut.getOutputsIterator(src); it.hasNext(); ) {
-              if (affectedOutputs.contains(it.next())) {
+            for (String out : cursor.getOutputPaths()) {
+              if (affectedOutputs.contains(out)) {
                 FSOperations.markDirtyIfNotDeleted(context, CompilationRound.CURRENT, new File(src));
                 break;
               }
@@ -1453,97 +1525,29 @@ public final class IncProjectBuilder {
     myMessageDispatcher.processMessage(new BuildingTargetProgressMessage(targets, event));
   }
 
-  private boolean processDeletedPaths(CompileContext context, final Set<? extends BuildTarget<?>> targets) throws ProjectBuildException {
-    boolean doneSomething = false;
-    try {
-      // cleanup outputs
-      final Map<BuildTarget<?>, Collection<String>> targetToRemovedSources = new HashMap<>();
-
-      Set<File> dirsToDelete = FileCollectionFactory.createCanonicalFileSet();
-      for (BuildTarget<?> target : targets) {
-        final Collection<String> deletedPaths = myProjectDescriptor.fsState.getAndClearDeletedPaths(target);
-        if (deletedPaths.isEmpty()) {
-          continue;
+  private static void clearOutputFiles(CompileContext context,
+                                       SourceToOutputMapping mapping,
+                                       BuildTargetType<?> targetType,
+                                       int targetId) throws IOException {
+    Set<File> dirsToDelete = targetType instanceof ModuleBasedBuildTargetType<?> ? FileCollectionFactory.createCanonicalFileSet() : null;
+    OutputToTargetMapping outputToTargetRegistry = context.getProjectDescriptor().dataManager.getOutputToTargetMapping();
+    for (SourceToOutputMappingCursor cursor = mapping.cursor(); cursor.hasNext(); ) {
+      cursor.next();
+      String [] outs = cursor.getOutputPaths();
+      if (outs.length > 0) {
+        List<String> deletedPaths = new ArrayList<>();
+        for (String out : outs) {
+          BuildOperations.deleteRecursively(out, deletedPaths, dirsToDelete);
         }
-        targetToRemovedSources.put(target, deletedPaths);
-        if (isTargetOutputCleared(context, target)) {
-          continue;
-        }
-        final int buildTargetId = context.getProjectDescriptor().getTargetsState().getBuildTargetId(target);
-        final boolean shouldPruneEmptyDirs = target instanceof ModuleBasedTarget;
-        final SourceToOutputMapping sourceToOutputStorage = context.getProjectDescriptor().dataManager.getSourceToOutputMap(target);
-        final ProjectBuilderLogger logger = context.getLoggingManager().getProjectBuilderLogger();
-        // actually delete outputs associated with removed paths
-        final Collection<String> pathsForIteration;
-        if (myIsTestMode) {
-          // ensure predictable order in test logs
-          pathsForIteration = new ArrayList<>(deletedPaths);
-          Collections.sort((List<String>)pathsForIteration);
-        }
-        else {
-          pathsForIteration = deletedPaths;
-        }
-        for (String deletedSource : pathsForIteration) {
-          // deleting outputs corresponding to non-existing source
-          final Collection<String> outputs = sourceToOutputStorage.getOutputs(deletedSource);
-          if (outputs != null && !outputs.isEmpty()) {
-            List<String> deletedOutputPaths = new ArrayList<>();
-            final OutputToTargetRegistry outputToSourceRegistry = context.getProjectDescriptor().dataManager.getOutputToTargetRegistry();
-            for (String output : outputToSourceRegistry.getSafeToDeleteOutputs(outputs, buildTargetId)) {
-              final boolean deleted = BuildOperations.deleteRecursively(output, deletedOutputPaths, shouldPruneEmptyDirs ? dirsToDelete : null);
-              if (deleted) {
-                doneSomething = true;
-              }
-            }
-            for (String outputPath : outputs) {
-              outputToSourceRegistry.removeMapping(outputPath, buildTargetId);
-            }
-            if (!deletedOutputPaths.isEmpty()) {
-              if (logger.isEnabled()) {
-                logger.logDeletedFiles(deletedOutputPaths);
-              }
-              context.processMessage(new FileDeletedEvent(deletedOutputPaths));
-            }
-          }
-
-          if (target instanceof ModuleBuildTarget) {
-            // check if deleted source was associated with a form
-            final OneToManyPathsMapping sourceToFormMap = context.getProjectDescriptor().dataManager.getSourceToFormMap();
-            final Collection<String> boundForms = sourceToFormMap.getState(deletedSource);
-            if (boundForms != null) {
-              for (String formPath : boundForms) {
-                final File formFile = new File(formPath);
-                if (formFile.exists()) {
-                  FSOperations.markDirty(context, CompilationRound.CURRENT, formFile);
-                }
-              }
-              sourceToFormMap.remove(deletedSource);
-            }
-          }
+        outputToTargetRegistry.removeMappings(Arrays.asList(outs), targetId, mapping);
+        if (!deletedPaths.isEmpty()) {
+          context.processMessage(new FileDeletedEvent(deletedPaths));
         }
       }
-      if (!targetToRemovedSources.isEmpty()) {
-        final Map<BuildTarget<?>, Collection<String>> existing = Utils.REMOVED_SOURCES_KEY.get(context);
-        if (existing != null) {
-          for (Map.Entry<BuildTarget<?>, Collection<String>> entry : existing.entrySet()) {
-            final Collection<String> paths = targetToRemovedSources.get(entry.getKey());
-            if (paths != null) {
-              paths.addAll(entry.getValue());
-            }
-            else {
-              targetToRemovedSources.put(entry.getKey(), entry.getValue());
-            }
-          }
-        }
-        Utils.REMOVED_SOURCES_KEY.set(context, targetToRemovedSources);
-      }
-
+    }
+    if (dirsToDelete != null) {
       FSOperations.pruneEmptyDirs(context, dirsToDelete);
     }
-    catch (IOException e) {
-      throw new ProjectBuildException(e);
-    }
-    return doneSomething;
   }
 
   // return true if changed something, false otherwise
@@ -1651,14 +1655,14 @@ public final class IncProjectBuilder {
             }
             finally {
               outputConsumer.setCurrentBuilderName(null);
-              final boolean moreToCompile = JavaBuilderUtil.updateMappingsOnRoundCompletion(context, dirtyFilesHolder, chunk);
-              if (moreToCompile) {
-                nextPassRequired = true;
-              }
             }
           }
         }
         finally {
+          final boolean moreToCompile = JavaBuilderUtil.updateMappingsOnRoundCompletion(context, dirtyFilesHolder, chunk);
+          if (moreToCompile) {
+            nextPassRequired = true;
+          }
           JavaBuilderUtil.clearDataOnRoundCompletion(context);
         }
       }

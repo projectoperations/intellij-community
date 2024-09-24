@@ -7,6 +7,7 @@ import com.intellij.platform.feedback.dialog.CommonFeedbackSystemData
 import com.intellij.platform.feedback.dialog.showFeedbackSystemInfoDialog
 import com.intellij.platform.feedback.dialog.uiBlocks.*
 import com.intellij.platform.feedback.impl.notification.ThanksForFeedbackNotification
+import org.jetbrains.kotlin.onboarding.DescriptionBlockWithHint
 import org.jetbrains.kotlin.onboarding.FeedbackBundle
 
 class K2FeedbackDialog(
@@ -15,7 +16,7 @@ class K2FeedbackDialog(
 ) : BlockBasedFeedbackDialogWithEmail<CommonFeedbackSystemData>(project, forTest) {
 
     /** Increase the additional number when feedback format is changed */
-    override val myFeedbackJsonVersion: Int = super.myFeedbackJsonVersion + 1
+    override val myFeedbackJsonVersion: Int = super.myFeedbackJsonVersion + 2
 
     override val zendeskTicketTitle: String = "K2 in-IDE Feedback"
     override val zendeskFeedbackType: String = "K2 in-IDE Feedback"
@@ -36,7 +37,10 @@ class K2FeedbackDialog(
     override val myTitle: String = FeedbackBundle.message("dialog.k2.satisfaction.top.title")
     override val myBlocks: List<FeedbackBlock> = listOf(
         TopLabelBlock(FeedbackBundle.message("dialog.k2.satisfaction.title")),
-        DescriptionBlock(FeedbackBundle.message("dialog.k2.satisfaction.description")),
+        DescriptionBlockWithHint(
+            myLabel = FeedbackBundle.message("dialog.k2.satisfaction.description"),
+            myHint = FeedbackBundle.message("dialog.k2.satisfaction.description.hint")
+        ),
         RatingBlock(
             FeedbackBundle.message("dialog.k2.satisfaction.performance.rating.label"),
             "performance_rating"

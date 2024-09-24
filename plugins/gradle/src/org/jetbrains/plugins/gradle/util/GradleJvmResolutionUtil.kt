@@ -40,6 +40,8 @@ fun setupGradleJvm(project: Project, projectSettings: GradleProjectSettings, gra
     resolutionContext.canUseJavaHomeJdk() -> projectSettings.gradleJvm = ExternalSystemJdkUtil.USE_JAVA_HOME
     else -> getGradleJvmLookupProvider(project, projectSettings)
       .newLookupBuilder()
+      .withProject(project)
+      .withLookupReason(GradleBundle.message("gradle.jvm.resolution.lookup.reason", gradleVersion.version))
       .withVersionFilter {
         val javaVersion = JavaVersion.tryParse(it)
         javaVersion != null &&

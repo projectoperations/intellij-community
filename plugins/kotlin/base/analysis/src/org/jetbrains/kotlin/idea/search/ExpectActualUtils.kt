@@ -2,10 +2,19 @@
 package org.jetbrains.kotlin.idea.search
 
 import com.intellij.openapi.module.Module
-import org.jetbrains.kotlin.idea.base.psi.isExpectDeclaration
+import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiNamedElement
+import com.intellij.psi.search.GlobalSearchScope
+import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
+import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
+import org.jetbrains.kotlin.idea.search.ideaExtensions.KotlinReferencesSearchOptions
+import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelExpectFunctionFqNameIndex
+import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelExpectPropertyFqNameIndex
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtDeclaration
+import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtParameter
+import org.jetbrains.kotlin.psi.psiUtil.hasActualModifier
 
 object ExpectActualUtils {
     fun KtDeclaration.expectedDeclarationIfAny(): KtDeclaration? =
@@ -29,5 +38,32 @@ object ExpectActualUtils {
         val expect = liftToExpected(classOrObject) ?: return listOf(classOrObject)
         val actuals = expect.actualsForExpected()
         return listOf(expect) + actuals
+    }
+
+    fun getElementToSearch(
+        kotlinOptions: KotlinReferencesSearchOptions,
+        unwrappedElement: PsiNamedElement
+    ): PsiNamedElement = if (kotlinOptions.searchForExpectedUsages && unwrappedElement is KtDeclaration && unwrappedElement.hasActualModifier()) {
+        unwrappedElement.expectedDeclarationIfAny() as? PsiNamedElement
+    } else {
+        null
+    } ?: unwrappedElement
+
+    fun collectTopLevelExpectDeclarations(project: Project, modules: List<KaModule>): List<KtNamedDeclaration> {
+        val searchScope = GlobalSearchScope.union(modules.map { module -> module.contentScope })
+
+        val indexes = listOf(
+            KotlinTopLevelExpectFunctionFqNameIndex,
+            KotlinTopLevelExpectPropertyFqNameIndex,
+        )
+
+        return indexes.flatMap { index ->
+            index.getAllElements(
+                project,
+                searchScope,
+                keyFilter = { true },
+                valueFilter = { true }
+            )
+        }
     }
 }

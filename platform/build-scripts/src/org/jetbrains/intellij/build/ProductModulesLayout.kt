@@ -5,14 +5,9 @@ package org.jetbrains.intellij.build
 
 import it.unimi.dsi.fastutil.Hash
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenCustomHashSet
-import kotlinx.collections.immutable.PersistentList
-import kotlinx.collections.immutable.PersistentSet
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.persistentSetOf
-import org.jetbrains.annotations.ApiStatus
+import kotlinx.collections.immutable.*
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
-import java.util.function.BiConsumer
 
 /**
  * Default bundled plugins for all products.
@@ -37,8 +32,11 @@ class ProductModulesLayout {
    * These are the names of the main modules (which contain META-INF/plugin.xml).
    * They belong to the plugins that need to be included with the product.
    * You can find the layouts of these bundled plugins in the [pluginLayouts] list.
+   * 
+   * This property can be used for writing only. 
+   * If you need to read the list of plugins which should be bundled, use [BuildContext.bundledPluginModules] instead.  
    */
-  var bundledPluginModules: MutableList<String> = DEFAULT_BUNDLED_PLUGINS.toMutableList()
+  var bundledPluginModules: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS
 
   /**
    * Main module names (containing META-INF/plugin.xml) of the plugins which aren't bundled with the product but may be installed
@@ -80,18 +78,11 @@ class ProductModulesLayout {
   /**
    * Additional customizations of platform JARs. **This is a temporary property added to keep layout of some products.**
    */
-  internal var platformLayoutSpec = persistentListOf<(PlatformLayout, BuildContext) -> Unit>()
+  internal var platformLayoutSpec = persistentListOf<suspend (PlatformLayout, BuildContext) -> Unit>()
+    private set
 
-  @Deprecated("PlatformLayout should be immutable", replaceWith = ReplaceWith("addPlatformSpec"))
-  @ApiStatus.ScheduledForRemoval
-  fun addPlatformCustomizer(customizer: BiConsumer<PlatformLayout, BuildContext>) {
-    platformLayoutSpec = platformLayoutSpec.add { layout, context ->
-      customizer.accept(layout, context)
-    }
-  }
-
-  fun addPlatformSpec(customizer: (PlatformLayout, BuildContext) -> Unit) {
-    platformLayoutSpec = platformLayoutSpec.add(customizer)
+  fun addPlatformSpec(customizer: suspend (PlatformLayout, BuildContext) -> Unit) {
+    platformLayoutSpec += customizer
   }
 
   fun excludeModuleOutput(module: String, path: String) {
@@ -101,12 +92,6 @@ class ProductModulesLayout {
   fun excludeModuleOutput(module: String, path: Collection<String>) {
     moduleExcludes.computeIfAbsent(module) { mutableListOf() }.addAll(path)
   }
-
-  /**
-   * Names of the modules which classpath will be used to build searchable options index <br>
-   * //todo get rid of this property and automatically include all platform and plugin modules to the classpath when building searchable options index
-   */
-  var mainModules: List<String> = emptyList()
 
   /**
    * If `true` a special xml descriptor in custom plugin repository format will be generated for [pluginModulesToPublish] plugins.
@@ -139,6 +124,7 @@ class ProductModulesLayout {
   var excludedModuleNames: PersistentSet<String> = persistentSetOf()
 }
 
+// the set is ordered (Linked)
 internal fun createPluginLayoutSet(expectedSize: Int): MutableSet<PluginLayout> {
   return ObjectLinkedOpenCustomHashSet(expectedSize, object : Hash.Strategy<PluginLayout?> {
     override fun hashCode(layout: PluginLayout?): Int {

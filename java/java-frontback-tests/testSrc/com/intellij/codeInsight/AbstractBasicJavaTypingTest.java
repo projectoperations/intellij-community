@@ -5,10 +5,9 @@ import com.intellij.openapi.command.undo.UndoManager;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
-import com.intellij.openapi.roots.LanguageLevelProjectExtension;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.PsiDocumentManager;
+import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 import org.jetbrains.annotations.NotNull;
@@ -175,12 +174,44 @@ public abstract class AbstractBasicJavaTypingTest extends BasePlatformTestCase {
     setLanguageLevel(LanguageLevel.JDK_21_PREVIEW);
     doTest('}');
   }
-  
+
+  public void testCloseBracesAfterSwitchRule() {
+    setLanguageLevel(LanguageLevel.JDK_21);
+    doTest('{');
+  }
+
+  public void testCloseBracesAfterSwitchRuleNewLine() {
+    setLanguageLevel(LanguageLevel.JDK_21);
+    doTest('{');
+  }
+
+  public void testCloseBracesAfterSwitchRuleNewLine2() {
+    setLanguageLevel(LanguageLevel.JDK_21);
+    doTest('{');
+  }
+
+  public void testCloseBracesAfterSwitchRule2ThrowStatement() {
+    setLanguageLevel(LanguageLevel.JDK_21);
+    doTest('{');
+  }
+
+  public void testCloseBracesAfterSwitchRule2Expression() {
+    setLanguageLevel(LanguageLevel.JDK_21);
+    doTest('{');
+  }
+
+  public void testCloseBracesAfterSwitchRule3Expression() {
+    setLanguageLevel(LanguageLevel.JDK_21);
+    doTest('{');
+  }
+
+  public void testCloseBracesAfterSwitchRule3ExpressionOldLine() {
+    setLanguageLevel(LanguageLevel.JDK_21);
+    doTest('{');
+  }
+
   protected void setLanguageLevel(@NotNull LanguageLevel level) {
-    LanguageLevelProjectExtension extension = LanguageLevelProjectExtension.getInstance(getProject());
-    LanguageLevel prev = extension.getLanguageLevel();
-    extension.setLanguageLevel(level);
-    Disposer.register(myFixture.getTestRootDisposable(), () -> extension.setLanguageLevel(prev));
+    IdeaTestUtil.setProjectLanguageLevel(getProject(), level, myFixture.getTestRootDisposable());
   }
 
   protected void doTest(char c) {

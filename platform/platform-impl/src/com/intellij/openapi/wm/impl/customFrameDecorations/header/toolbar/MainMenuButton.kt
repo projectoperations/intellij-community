@@ -1,7 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl.customFrameDecorations.header.toolbar
 
-import com.intellij.icons.ExpUiIcons
+import com.intellij.icons.AllIcons
 import com.intellij.ide.DataManager
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.lightEdit.LightEditCompatible
@@ -24,8 +24,7 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.impl.IdeFrameImpl
 import com.intellij.platform.ide.menu.IdeJMenuBar
-import com.intellij.platform.ide.menu.IdeMainMenuActionGroup
-import com.intellij.platform.ide.menu.collectGlobalMenu
+import com.intellij.platform.ide.menu.createIdeMainMenuActionGroup
 import com.intellij.ui.ComponentUtil
 import com.intellij.ui.popup.PopupFactoryImpl
 import com.intellij.ui.popup.list.ListPopupImpl
@@ -41,6 +40,7 @@ import java.awt.Dimension
 import java.awt.event.ActionEvent
 import java.awt.event.HierarchyEvent
 import java.awt.event.KeyEvent
+import java.lang.Runnable
 import javax.swing.*
 
 private val LOG = logger<MainMenuButton>()
@@ -94,9 +94,6 @@ class MainMenuButton(coroutineScope: CoroutineScope) {
       finally {
         uninstall()
       }
-    }
-    collectGlobalMenu(coroutineScope) { globalMenuPresent ->
-      button.isVisible = !globalMenuPresent
     }
   }
 
@@ -157,7 +154,7 @@ class MainMenuButton(coroutineScope: CoroutineScope) {
   @ApiStatus.Internal
   inner class ShowMenuAction : LightEditCompatible, DumbAwareAction(
     IdeBundle.messagePointer("main.toolbar.menu.button"),
-    ExpUiIcons.General.WindowsMenu_20x20) {
+    AllIcons.General.WindowsMenu_20x20) {
 
     override fun actionPerformed(e: AnActionEvent) {
       if (expandableMenu?.isEnabled() == true) {
@@ -170,7 +167,7 @@ class MainMenuButton(coroutineScope: CoroutineScope) {
 
   fun showPopup(context: DataContext, actionToShow: AnAction? = null) {
     @Suppress("SSBasedInspection")
-    val mainMenu = runBlocking { IdeMainMenuActionGroup() } ?: return
+    val mainMenu = runBlocking { createIdeMainMenuActionGroup() } ?: return
     val popup = JBPopupFactory.getInstance()
       .createActionGroupPopup(null, mainMenu, context, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, true,
                               ActionPlaces.MAIN_MENU)
@@ -192,7 +189,7 @@ class MainMenuButton(coroutineScope: CoroutineScope) {
     }
   }
 
-  private inner class ShowSubMenuAction(actionMenu: ActionMenu) : AbstractAction() {
+  private inner class ShowSubMenuAction(private val actionMenu: ActionMenu) : AbstractAction() {
 
     private val actionToShow = actionMenu.anAction
     private val keyStroke = KeyStroke.getKeyStroke(actionMenu.mnemonic, KeyEvent.ALT_DOWN_MASK)
@@ -202,7 +199,7 @@ class MainMenuButton(coroutineScope: CoroutineScope) {
     override fun actionPerformed(e: ActionEvent?) {
       if (!UISettings.getInstance().disableMnemonics) {
         if (expandableMenu?.isEnabled() == true) {
-          expandableMenu!!.switchState(actionToShow)
+          expandableMenu!!.switchState(actionMenu)
         } else {
           val component = IdeFocusManager.getGlobalInstance().focusOwner ?: button
           showPopup(DataManager.getInstance().getDataContext(component), actionToShow)

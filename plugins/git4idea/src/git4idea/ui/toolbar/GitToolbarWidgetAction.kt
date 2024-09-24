@@ -1,12 +1,14 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.ui.toolbar
 
-import com.intellij.icons.ExpUiIcons
+import com.intellij.dvcs.repo.VcsRepositoryManager
+import com.intellij.icons.AllIcons
 import com.intellij.ide.impl.isTrusted
-import com.intellij.ide.ui.customization.CustomActionsSchema
-import com.intellij.ide.ui.customization.groupContainsAction
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.ex.ActionUtil
+import com.intellij.openapi.components.serviceAsync
+import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
@@ -15,8 +17,10 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.wm.impl.ExpandableComboAction
-import com.intellij.openapi.wm.impl.ToolbarComboButton
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.ui.RowIcon
 import com.intellij.ui.util.maximumWidth
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import git4idea.GitVcs
 import git4idea.branch.GitBranchSyncStatus
 import git4idea.branch.GitBranchUtil
@@ -25,47 +29,55 @@ import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
 import git4idea.ui.branch.GitCurrentBranchPresenter
 import git4idea.ui.branch.popup.GitBranchesTreePopup
+import git4idea.ui.toolbar.GitToolbarWidgetAction.GitWidgetState
 import icons.DvcsImplIcons
 import javax.swing.Icon
 import javax.swing.JComponent
 
-private val REPOSITORY_KEY = Key.create<GitRepository>("git-widget-repository")
-private val SYNC_STATUS_KEY = Key.create<GitBranchSyncStatus>("git-widget-branch-sync-status")
+private val GIT_WIDGET_STATE_KEY = Key.create<GitWidgetState>("git-widget-state")
 
-private val WIDGET_ICON: Icon = ExpUiIcons.General.Vcs
+private val WIDGET_ICON: Icon = AllIcons.General.Vcs
 
 private const val GIT_WIDGET_PLACEHOLDER_KEY = "git-widget-placeholder"
 
 internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
 
-  private val actionsWithIncomingOutgoingEnabled = GitToolbarActions.isEnabledAndVisible()
-
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
   override fun createPopup(event: AnActionEvent): JBPopup? {
     val project = event.project ?: return null
-    val repository = event.presentation.getClientProperty(REPOSITORY_KEY)
+    val state = event.presentation.getClientProperty(GIT_WIDGET_STATE_KEY)
 
-    val popup: JBPopup = if (repository != null) {
-      GitBranchesTreePopup.create(project, repository)
+    if (state is GitWidgetState.Repo) {
+      return GitBranchesTreePopup.create(project, state.repository)
+    }
+
+    if (state is GitWidgetState.GitVcs) {
+      val repo = runWithModalProgressBlocking(project, GitBundle.message("action.Git.Loading.Branches.progress")) {
+        project.serviceAsync<VcsRepositoryManager>().ensureUpToDate()
+        coroutineToIndicator {
+          GitBranchUtil.guessWidgetRepository(project, event.dataContext)
+        }
+      }
+      if (repo != null) {
+        return GitBranchesTreePopup.create(project, repo)
+      }
+    }
+
+    updatePlaceholder(project, null)
+
+    val group = if (project.isTrusted()) {
+      ActionManager.getInstance().getAction("Vcs.ToolbarWidget.CreateRepository") as ActionGroup
     }
     else {
-      updatePlaceholder(project, null)
-
-      val group = if (project.isTrusted()) {
-        ActionManager.getInstance().getAction("Vcs.ToolbarWidget.CreateRepository") as ActionGroup
-      }
-      else {
-        @Suppress("DialogTitleCapitalization")
-        val separator = Separator(GitBundle.message("action.main.toolbar.git.project.not.trusted.separator.text"))
-        val trustProjectAction = ActionManager.getInstance().getAction("ShowTrustProjectDialog")
-        DefaultActionGroup(separator, trustProjectAction)
-      }
-      val place = ActionPlaces.getPopupPlace(ActionPlaces.VCS_TOOLBAR_WIDGET)
-      JBPopupFactory.getInstance()
-        .createActionGroupPopup(null, group, event.dataContext, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, true, place)
+      @Suppress("DialogTitleCapitalization")
+      val separator = Separator(GitBundle.message("action.main.toolbar.git.project.not.trusted.separator.text"))
+      val trustProjectAction = ActionManager.getInstance().getAction("ShowTrustProjectDialog")
+      DefaultActionGroup(separator, trustProjectAction)
     }
-    return popup
+    val place = ActionPlaces.getPopupPlace(ActionPlaces.VCS_TOOLBAR_WIDGET)
+    return JBPopupFactory.getInstance()
+      .createActionGroupPopup(null, group, event.dataContext, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, true, place)
   }
 
   override fun createCustomComponent(presentation: Presentation, place: String): JComponent {
@@ -73,29 +85,7 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
   }
 
   override fun updateCustomComponent(component: JComponent, presentation: Presentation) {
-    val widget = component as? ToolbarComboButton ?: return
-    widget.text = presentation.text
-    widget.toolTipText = presentation.description
-    widget.leftIcons = listOfNotNull(presentation.icon)
-    val schema = CustomActionsSchema.getInstance()
-
-    val rightIcons = mutableListOf<Icon>()
-
-    val syncStatus = presentation.getClientProperty(SYNC_STATUS_KEY)
-
-    val showIncoming = !actionsWithIncomingOutgoingEnabled
-                       || !groupContainsAction("MainToolbarNewUI", "main.toolbar.git.update.project", schema)
-    if (showIncoming && syncStatus?.incoming == true) {
-      rightIcons.add(DvcsImplIcons.Incoming)
-    }
-
-    val showOutgoing = !actionsWithIncomingOutgoingEnabled
-                       || !groupContainsAction("MainToolbarNewUI", "main.toolbar.git.push", schema)
-    if (showOutgoing && syncStatus?.outgoing == true) {
-      rightIcons.add(DvcsImplIcons.Outgoing)
-    }
-
-    widget.rightIcons = rightIcons
+    super.updateCustomComponent(component, presentation)
   }
 
   override fun update(e: AnActionEvent) {
@@ -106,20 +96,21 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
       return
     }
 
-    val gitRepository = GitBranchUtil.guessWidgetRepository(project, e.dataContext)
-    val state = getWidgetState(project, gitRepository)
-
-    if (gitRepository != null && gitRepository != e.presentation.getClientProperty(REPOSITORY_KEY)) {
-      GitVcsSettings.getInstance(project).setRecentRoot(gitRepository.root.path)
+    val state = getWidgetState(project, e.dataContext)
+    if (state is GitWidgetState.Repo) {
+      if (state != e.presentation.getClientProperty(GIT_WIDGET_STATE_KEY)) {
+        GitVcsSettings.getInstance(project).setRecentRoot(state.repository.root.path)
+      }
     }
-    e.presentation.putClientProperty(REPOSITORY_KEY, gitRepository)
+    e.presentation.putClientProperty(GIT_WIDGET_STATE_KEY, state)
+    var syncStatus: GitBranchSyncStatus? = null
 
     when (state) {
+      GitWidgetState.NotActivated,
       GitWidgetState.OtherVcs -> {
         e.presentation.isEnabledAndVisible = false
         return
       }
-
       GitWidgetState.NoVcs -> {
         val placeholder = getPlaceholder(project)
         with(e.presentation) {
@@ -129,7 +120,15 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
           description = GitBundle.message("git.toolbar.widget.no.repo.tooltip")
         }
       }
-
+      is GitWidgetState.GitVcs -> {
+        val placeholder = getPlaceholder(project)
+        with(e.presentation) {
+          isEnabledAndVisible = true
+          text = placeholder ?: GitBundle.message("git.toolbar.widget.no.loaded.repo")
+          icon = WIDGET_ICON
+          description = null
+        }
+      }
       is GitWidgetState.Repo -> {
         with(e.presentation) {
           isEnabledAndVisible = true
@@ -138,9 +137,25 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
           icon = presentation.icon ?: WIDGET_ICON
           text = presentation.text.also { updatePlaceholder(project, it) }
           description = presentation.description
-          putClientProperty(SYNC_STATUS_KEY, presentation.syncStatus)
+          syncStatus = presentation.syncStatus
         }
       }
+    }
+
+    if (!GitMainToolbar.showIncomingOutgoing) {
+      val rightIcons = mutableListOf<Icon>()
+      if (syncStatus?.incoming == true) {
+        rightIcons.add(DvcsImplIcons.Incoming)
+      }
+      if (syncStatus?.outgoing == true) {
+        rightIcons.add(DvcsImplIcons.Outgoing)
+      }
+      e.presentation.putClientProperty(ActionUtil.SECONDARY_ICON, when {
+        rightIcons.isNotEmpty() -> RowIcon(*rightIcons.toTypedArray())
+        else -> null
+      })
+    } else {
+      e.presentation.putClientProperty(ActionUtil.SECONDARY_ICON, null)
     }
   }
 
@@ -154,26 +169,31 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     private fun getPlaceholder(project: Project): @NlsSafe String? =
       PropertiesComponent.getInstance(project).getValue(GIT_WIDGET_PLACEHOLDER_KEY)
 
-    fun getWidgetState(project: Project, gitRepository: GitRepository?): GitWidgetState {
+    @RequiresBackgroundThread
+    fun getWidgetState(project: Project, dataContext: DataContext): GitWidgetState {
+      val vcsManager = ProjectLevelVcsManager.getInstance(project)
+      if (!vcsManager.areVcsesActivated()) return GitWidgetState.NotActivated
+
+      val gitRepository = GitBranchUtil.guessWidgetRepository(project, dataContext)
       if (gitRepository != null) {
         return GitWidgetState.Repo(gitRepository)
       }
 
-      val allVcss = ProjectLevelVcsManager.getInstance(project).allActiveVcss
-
-      return when {
-        allVcss.isEmpty() -> GitWidgetState.NoVcs
-        allVcss.any { it.keyInstanceMethod != GitVcs.getKey() } -> GitWidgetState.OtherVcs
-        else -> GitWidgetState.NoVcs
+      val allVcss = vcsManager.allActiveVcss
+      when {
+        allVcss.isEmpty() -> return GitWidgetState.NoVcs
+        allVcss.any { it.keyInstanceMethod == GitVcs.getKey() } -> return GitWidgetState.GitVcs
+        else -> return GitWidgetState.OtherVcs
       }
     }
   }
 
   internal sealed class GitWidgetState {
+    object NotActivated : GitWidgetState()
     object NoVcs : GitWidgetState()
+    object OtherVcs : GitWidgetState()
+    object GitVcs : GitWidgetState()
 
     class Repo(val repository: GitRepository) : GitWidgetState()
-
-    object OtherVcs : GitWidgetState()
   }
 }

@@ -8,7 +8,6 @@ import com.intellij.openapi.ui.OptionAction
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.util.Weighted
 import com.intellij.ui.UIBundle
-import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import java.awt.Color
 import java.awt.event.ActionEvent
@@ -48,6 +47,7 @@ open class JBOptionButton(action: Action?, options: Array<Action>?) : JButton(ac
   val isSimpleButton: Boolean get() = options.isNullOrEmpty()
 
   var addSeparator: Boolean = true
+  var hideDisabledOptions: Boolean = false
   var selectFirstItem: Boolean = true
   var popupBackgroundColor: Color? = null
   var showPopupYOffset: Int = 6
@@ -65,12 +65,6 @@ open class JBOptionButton(action: Action?, options: Array<Action>?) : JButton(ac
   fun togglePopup(): Unit = getUI().togglePopup()
   fun showPopup(actionToSelect: Action? = null, ensureSelection: Boolean = true): Unit = getUI().showPopup(actionToSelect, ensureSelection)
   fun closePopup(): Unit = getUI().closePopup()
-
-  @Deprecated("Use setOptions(Action[]) instead", ReplaceWith("setOptions(options)"))
-  @ApiStatus.ScheduledForRemoval
-  fun updateOptions(options: Array<Action>?) {
-    this.options = options
-  }
 
   companion object {
     const val PROP_OPTIONS: String = "OptionActions"

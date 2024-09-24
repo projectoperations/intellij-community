@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.codeInsight.CodeInsightBundle;
@@ -9,9 +9,13 @@ import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.modcommand.Presentation;
 import com.intellij.modcommand.PsiUpdateModCommandAction;
 import com.intellij.openapi.editor.ex.DocumentEx;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiComment;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiWhiteSpace;
+import com.intellij.psi.SyntaxTraverser;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.containers.JBIterable;
 import org.jetbrains.annotations.NotNull;
@@ -20,14 +24,13 @@ import org.jetbrains.annotations.Nullable;
 import static com.intellij.openapi.editor.actions.lists.DefaultListSplitJoinContextKt.isComma;
 
 
-public final class FlipCommaIntention extends PsiUpdateModCommandAction<PsiElement> {
+public final class FlipCommaIntention extends PsiUpdateModCommandAction<PsiElement> implements DumbAware {
   public FlipCommaIntention() {
     super(PsiElement.class);
   }
   
-  @NotNull
   @Override
-  public String getFamilyName() {
+  public @NotNull String getFamilyName() {
     return CodeInsightBundle.message("intention.family.name.flip");
   }
 
@@ -121,8 +124,7 @@ public final class FlipCommaIntention extends PsiUpdateModCommandAction<PsiEleme
     return element;
   }
 
-  @NotNull
-  private static JBIterable<PsiElement> getSiblings(PsiElement element, boolean fwd) {
+  private static @NotNull JBIterable<PsiElement> getSiblings(PsiElement element, boolean fwd) {
     SyntaxTraverser.ApiEx<PsiElement> api = fwd ? SyntaxTraverser.psiApi() : SyntaxTraverser.psiApiReversed();
     api.next(element);
     JBIterable<PsiElement> flatSiblings = JBIterable.generate(element, api::next).skip(1);
@@ -137,8 +139,7 @@ public final class FlipCommaIntention extends PsiUpdateModCommandAction<PsiEleme
     return !StringUtil.collapseWhiteSpace(e.getText()).isEmpty();
   }
 
-  @Nullable
-  private static PsiElement smartAdvance(PsiElement element, boolean fwd) {
+  private static @Nullable PsiElement smartAdvance(PsiElement element, boolean fwd) {
     final PsiElement candidate = getSiblings(element, fwd).filter(e -> isFlippable(e)).first();
     if (candidate != null && isBrace(candidate)) return null;
     return candidate;

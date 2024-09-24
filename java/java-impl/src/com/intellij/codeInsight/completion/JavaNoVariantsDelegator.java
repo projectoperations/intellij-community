@@ -6,6 +6,7 @@ import com.intellij.codeInsight.TailTypes;
 import com.intellij.codeInsight.completion.JavaCompletionUtil.JavaLookupElementHighlighter;
 import com.intellij.codeInsight.completion.impl.BetterPrefixMatcher;
 import com.intellij.codeInsight.completion.impl.CamelHumpMatcher;
+import com.intellij.codeInsight.completion.scope.JavaCompletionProcessor;
 import com.intellij.codeInsight.lookup.AutoCompletionPolicy;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.TailTypeDecorator;
@@ -31,7 +32,7 @@ import static com.intellij.patterns.PsiJavaPatterns.psiElement;
 
 public final class JavaNoVariantsDelegator extends CompletionContributor implements DumbAware {
   @Override
-  public void fillCompletionVariants(@NotNull final CompletionParameters parameters, @NotNull final CompletionResultSet result) {
+  public void fillCompletionVariants(final @NotNull CompletionParameters parameters, final @NotNull CompletionResultSet result) {
     ResultTracker tracker = new ResultTracker(result) {
       @Override
       public void consume(CompletionResult plainResult) {
@@ -227,8 +228,11 @@ public final class JavaNoVariantsDelegator extends CompletionContributor impleme
     }
 
     PrefixMatcher qMatcher = new CamelHumpMatcher(referenceName);
+    JavaCompletionProcessor.Options options =
+      JavaCompletionProcessor.Options.DEFAULT_OPTIONS.withFilterStaticAfterInstance(parameters.getInvocationCount() <= 1)
+        .withInstantiableOnly(false);
     Set<LookupElement> plainVariants =
-      JavaSmartCompletionContributor.completeReference(qualifier, qualifier, filter, true, true, parameters, qMatcher);
+      JavaCompletionUtil.processJavaReference(qualifier, qualifier, filter, options, qMatcher::prefixMatches, parameters);
 
     Project project = qualifier.getProject();
     PsiResolveHelper helper = JavaPsiFacade.getInstance(project).getResolveHelper();

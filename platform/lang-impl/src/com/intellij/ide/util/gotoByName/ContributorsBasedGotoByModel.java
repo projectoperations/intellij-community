@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.util.gotoByName;
 
 import com.intellij.concurrency.JobLauncher;
@@ -151,16 +151,8 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     return ArrayUtilRt.toStringArray(allNames);
   }
 
-  private List<ChooseByNameContributor> filterDumb(List<ChooseByNameContributor> contributors) {
-    if (!DumbService.getInstance(myProject).isDumb()) return contributors;
-    List<ChooseByNameContributor> answer = new ArrayList<>(contributors.size());
-    for (ChooseByNameContributor contributor : contributors) {
-      if (DumbService.isDumbAware(contributor)) {
-        answer.add(contributor);
-      }
-    }
-
-    return answer;
+  private List<ChooseByNameContributor> filterDumb(List<? extends ChooseByNameContributor> contributors) {
+    return ContainerUtil.filter(contributors, contributor -> DumbService.getInstance(myProject).isUsableInCurrentContext(contributor));
   }
 
   public Object @NotNull [] getElementsByName(@NotNull String name,
@@ -255,7 +247,7 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
    *  which {@link #acceptItem(NavigationItem)} returns {@code true}.
    */
   @Override
-  public Object @NotNull [] getElementsByName(@NotNull final String name, final boolean checkBoxState, @NotNull final String pattern) {
+  public Object @NotNull [] getElementsByName(final @NotNull String name, final boolean checkBoxState, final @NotNull String pattern) {
     return getElementsByName(name, FindSymbolParameters.wrap(pattern, myProject, checkBoxState), new ProgressIndicatorBase());
   }
 
@@ -300,8 +292,7 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     return pattern;
   }
 
-  @NotNull
-  public Project getProject() {
+  public @NotNull Project getProject() {
     return myProject;
   }
 }

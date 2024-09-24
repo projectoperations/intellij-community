@@ -1,7 +1,6 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.jsonSchema;
 
-import com.intellij.idea.HardwareAgentRequired;
 import com.intellij.json.JsonFileType;
 import com.intellij.json.psi.JsonFile;
 import com.intellij.json.psi.JsonObject;
@@ -12,7 +11,7 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
-import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.tools.ide.metrics.benchmark.Benchmark;
 import com.intellij.util.ThrowableRunnable;
 import com.jetbrains.jsonSchema.impl.JsonSchemaVersion;
 import com.jetbrains.jsonSchema.impl.inspections.JsonSchemaComplianceInspection;
@@ -26,7 +25,6 @@ import java.util.Collections;
 
 import static com.jetbrains.jsonSchema.JsonSchemaHighlightingTestBase.registerJsonSchema;
 
-@HardwareAgentRequired
 public class JsonSchemaPerformanceTest extends JsonSchemaHeavyAbstractTest {
   public static final String BASE_PATH = "/tests/testData/jsonSchema/performance/";
 
@@ -46,7 +44,7 @@ public class JsonSchemaPerformanceTest extends JsonSchemaHeavyAbstractTest {
   private void doTestAzurePerformance(boolean useNewImplementation) throws IOException {
     Registry.get("json.schema.object.v2").setValue(useNewImplementation);
 
-    PlatformTestUtil.newPerformanceTest("Highlight azure json by schema", () -> {
+    Benchmark.newBenchmark("Highlight azure json by schema", () -> {
       myFixture.enableInspections(JsonSchemaComplianceInspection.class);
       myFixture.enableInspections(JsonSchemaRefReferenceInspection.class);
       myFixture.enableInspections(JsonSchemaDeprecationInspection.class);
@@ -58,17 +56,14 @@ public class JsonSchemaPerformanceTest extends JsonSchemaHeavyAbstractTest {
   }
 
   public void testSwaggerHighlighting() {
-    doPerformanceTest(35_000, "swagger");
+    doPerformanceTest("swagger");
   }
 
   public void testTsLintSchema() {
-    doPerformanceTest(20_000, "tslint-schema");
+    doPerformanceTest("tslint-schema");
   }
 
-  private void doPerformanceTest(int expectedMs, String jsonFileNameWithoutExtension) {
-    myFixture.configureByFiles("/" + jsonFileNameWithoutExtension + ".json");
-    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue(); // process VFS events before perf test
-
+  private void doPerformanceTest(String jsonFileNameWithoutExtension) {
     final ThrowableRunnable<Exception> test = () -> skeleton(new Callback() {
       @Override
       public void registerSchemes() {
@@ -81,7 +76,10 @@ public class JsonSchemaPerformanceTest extends JsonSchemaHeavyAbstractTest {
 
       @Override
       public void configureFiles() {
-        // files have been configured before the performance test started to not influence the results
+        myFixture.enableInspections(JsonSchemaComplianceInspection.class);
+        myFixture.enableInspections(JsonSchemaRefReferenceInspection.class);
+        myFixture.enableInspections(JsonSchemaDeprecationInspection.class);
+        myFixture.configureByFiles("/" + jsonFileNameWithoutExtension + ".json");
       }
 
       @Override
@@ -89,14 +87,13 @@ public class JsonSchemaPerformanceTest extends JsonSchemaHeavyAbstractTest {
         myFixture.doHighlighting();
       }
     });
-    PlatformTestUtil.newPerformanceTest(getTestName(false), test).start();
+    Benchmark.newBenchmark(getTestName(false), test).attempts(5).start();
   }
 
-
   public void testEslintHighlightingPerformance() {
-    myFixture.configureByFile(getTestName(true) + "/.eslintrc.json");
-    PsiFile psiFile = myFixture.getFile();
-    PlatformTestUtil.newPerformanceTest(getTestName(true), () -> {
+    Benchmark.newBenchmark(getTestName(true), () -> {
+      PsiFile psiFile = myFixture.configureByFile(getTestName(true) + "/.eslintrc.json");
+
       for (int i = 0; i < 10; i++) {
         myFixture.doHighlighting();
 

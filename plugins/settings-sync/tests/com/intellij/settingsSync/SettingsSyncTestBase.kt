@@ -4,37 +4,33 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.testFramework.ApplicationRule
-import com.intellij.testFramework.DisposableRule
-import com.intellij.testFramework.TemporaryDirectory
-import com.intellij.testFramework.TestLoggerFactory
+import com.intellij.testFramework.common.DEFAULT_TEST_TIMEOUT
+import com.intellij.testFramework.common.timeoutRunBlocking
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.util.io.createDirectories
 import com.intellij.util.io.write
-import org.junit.After
-import org.junit.Assert.*
-import org.junit.Before
-import org.junit.Rule
-import org.junit.rules.RuleChain
+import kotlinx.coroutines.CoroutineScope
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 
 internal val TIMEOUT_UNIT = TimeUnit.SECONDS
 
+@TestApplication
 internal abstract class SettingsSyncTestBase {
 
   companion object {
     val LOG = logger<SettingsSyncTestBase>()
   }
-
-  private val appRule = ApplicationRule()
-  private val tempDirManager = TemporaryDirectory()
-  private val disposableRule = DisposableRule()
-  @Rule @JvmField val ruleChain: RuleChain = RuleChain.outerRule(tempDirManager).around(appRule).around(disposableRule)
-
-  @Rule @JvmField val logger = TestLoggerFactory.createTestWatcher()
 
   protected lateinit var application: ApplicationImpl
   protected lateinit var configDir: Path
@@ -42,13 +38,13 @@ internal abstract class SettingsSyncTestBase {
   protected lateinit var updateChecker: SettingsSyncUpdateChecker
   protected lateinit var bridge: SettingsSyncBridge
 
-  protected val disposable: Disposable get() = disposableRule.disposable
+  @TestDisposable
+  protected lateinit var disposable: Disposable
   protected val settingsSyncStorage: Path get() = configDir.resolve("settingsSync")
 
-  @Before
-  fun setup() {
+  @BeforeEach
+  fun setup(@TempDir mainDir: Path) {
     application = ApplicationManager.getApplication() as ApplicationImpl
-    val mainDir = tempDirManager.createDir()
     configDir = mainDir.resolve("rootconfig").createDirectories()
 
     SettingsSyncLocalSettings.getInstance().state.reset()
@@ -58,7 +54,7 @@ internal abstract class SettingsSyncTestBase {
       TestRemoteCommunicator()
     }
     else {
-      MockRemoteCommunicator()
+      MockRemoteCommunicator().apply {this.isConnected = true  }
     }
 
     val serverState = remoteCommunicator.checkServerState()
@@ -68,14 +64,27 @@ internal abstract class SettingsSyncTestBase {
     }
   }
 
-  @After
+  @AfterEach
   fun cleanup() {
+    remoteCommunicator.deleteAllFiles()
     if (::bridge.isInitialized) {
       bridge.waitForAllExecuted()
+      bridge.stop()
     }
-
-    remoteCommunicator.deleteAllFiles()
   }
+
+  protected fun <T> timeoutRunBlockingAndStopBridge(
+    timeout: Duration = DEFAULT_TEST_TIMEOUT,
+    coroutineName: String? = null,
+    action: suspend CoroutineScope.() -> T,
+  ): T {
+    return timeoutRunBlocking(timeout, coroutineName) {
+      val retval = action()
+      cleanup()
+      retval
+    }
+  }
+
 
   protected fun writeToConfig(build: SettingsSnapshotBuilder.() -> Unit) {
     val builder = SettingsSnapshotBuilder()
@@ -87,26 +96,33 @@ internal abstract class SettingsSyncTestBase {
   }
 
   protected fun assertFileWithContent(expectedContent: String, file: Path) {
-    assertTrue("File $file does not exist", file.exists())
-    assertEquals("File $file has unexpected content", expectedContent, file.readText())
+    assertTrue(file.exists(), "File $file does not exist")
+    assertEquals(expectedContent, file.readText(), "File $file has unexpected content")
+  }
+
+  protected fun assertIdeCrossSync(expectedIdeCrossSyncState: Boolean?) {
+    val actualIdeCrossSyncState = remoteCommunicator.ideCrossSyncState()
+
+    assertEquals(expectedIdeCrossSyncState, actualIdeCrossSyncState, "Unexpected IDE cross sync state $actualIdeCrossSyncState, expected $actualIdeCrossSyncState")
   }
 
   protected fun assertServerSnapshot(build: SettingsSnapshotBuilder.() -> Unit) {
     val pushedSnapshot = remoteCommunicator.getVersionOnServer()
-    assertNotNull("Nothing has been pushed", pushedSnapshot)
+    assertNotNull(pushedSnapshot, "Nothing has been pushed")
     pushedSnapshot!!.assertSettingsSnapshot {
       build()
     }
   }
 
   protected fun executeAndWaitUntilPushed(testExecution: () -> Unit): SettingsSnapshot {
-    return remoteCommunicator.awaitForPush(testExecution)
+    val snapshot = remoteCommunicator.awaitForPush {
+      testExecution()
+      bridge.waitForAllExecuted()
+    }
+    return snapshot
   }
 }
 
-internal fun SettingsSyncBridge.waitForAllExecuted() {
-  this.waitForAllExecuted(getDefaultTimeoutInSeconds(), TIMEOUT_UNIT)
-}
 
 internal fun CountDownLatch.wait(): Boolean {
   return this.await(getDefaultTimeoutInSeconds(), TIMEOUT_UNIT)
@@ -114,4 +130,4 @@ internal fun CountDownLatch.wait(): Boolean {
 
 private fun isTestingAgainstRealCloudServer() = System.getenv("SETTINGS_SYNC_TEST_CLOUD") == "real"
 
-private fun getDefaultTimeoutInSeconds(): Long = 10
+private fun getDefaultTimeoutInSeconds(): Long = 2

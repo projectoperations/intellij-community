@@ -12,7 +12,7 @@ import com.intellij.openapi.application.ex.PathManagerEx
 import com.intellij.openapi.components.PathMacroMap
 import com.intellij.openapi.components.impl.ModulePathMacroManager
 import com.intellij.openapi.components.impl.ProjectPathMacroManager
-import com.intellij.openapi.components.stateStore
+import com.intellij.openapi.components.impl.stores.stateStore
 import com.intellij.openapi.module.impl.UnloadedModulesNameHolderImpl
 import com.intellij.openapi.project.ExternalStorageConfigurationManager
 import com.intellij.openapi.util.JDOMUtil
@@ -21,14 +21,10 @@ import com.intellij.openapi.util.io.systemIndependentPath
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
-import com.intellij.platform.workspace.jps.JpsFileEntitySource
-import com.intellij.platform.workspace.jps.JpsGlobalFileEntitySource
-import com.intellij.platform.workspace.jps.JpsProjectConfigLocation
-import com.intellij.platform.workspace.jps.JpsProjectFileEntitySource
+import com.intellij.platform.workspace.jps.*
 import com.intellij.platform.workspace.jps.entities.LibraryEntity
 import com.intellij.platform.workspace.jps.serialization.impl.*
 import com.intellij.platform.workspace.storage.*
-import com.intellij.platform.workspace.storage.impl.url.toVirtualFileUrl
 import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi
 import com.intellij.platform.workspace.storage.instrumentation.MutableEntityStorageInstrumentation
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
@@ -43,16 +39,16 @@ import com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModel
 import junit.framework.AssertionFailedError
 import kotlinx.coroutines.CoroutineScope
 import org.jdom.Element
+import org.jetbrains.annotations.TestOnly
 import org.jetbrains.jps.model.serialization.JDomSerializationUtil
-import org.jetbrains.jps.model.serialization.PathMacroUtil
 import org.jetbrains.jps.util.JpsPathUtil
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import java.io.File
 import java.nio.file.Files
-import java.nio.file.Path
 import java.util.function.Supplier
 import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.io.path.Path
 
 internal val sampleDirBasedProjectFile = File(PathManagerEx.getCommunityHomePath(), "jps/model-serialization/testData/sampleProject")
 internal val sampleFileBasedProjectFile = File(PathManagerEx.getCommunityHomePath(),
@@ -74,7 +70,7 @@ internal data class LoadedProjectData(
 
 internal fun copyAndLoadProject(originalProjectFile: File,
                                 virtualFileManager: VirtualFileUrlManager,
-                                unloadedModuleNameHolder: com.intellij.platform.workspace.jps.UnloadedModulesNameHolder = com.intellij.platform.workspace.jps.UnloadedModulesNameHolder.DUMMY,
+                                unloadedModuleNameHolder: UnloadedModulesNameHolder = UnloadedModulesNameHolder.DUMMY,
                                 checkConsistencyAfterLoading: Boolean = true,
                                 externalStorageConfigurationManager: ExternalStorageConfigurationManager? = null): LoadedProjectData {
   val (projectDir, originalProjectDir) = copyProjectFiles(originalProjectFile)
@@ -108,7 +104,7 @@ internal fun loadProject(configLocation: JpsProjectConfigLocation,
                          originalBuilder: MutableEntityStorage,
                          orphanage: MutableEntityStorage,
                          virtualFileManager: VirtualFileUrlManager,
-                         unloadedModuleNameHolder: com.intellij.platform.workspace.jps.UnloadedModulesNameHolder = com.intellij.platform.workspace.jps.UnloadedModulesNameHolder.DUMMY,
+                         unloadedModuleNameHolder: UnloadedModulesNameHolder = UnloadedModulesNameHolder.DUMMY,
                          unloadedEntitiesBuilder: MutableEntityStorage = MutableEntityStorage.create(),
                          fileInDirectorySourceNames: FileInDirectorySourceNames = FileInDirectorySourceNames.empty(),
                          externalStorageConfigurationManager: ExternalStorageConfigurationManager? = null,
@@ -129,9 +125,19 @@ internal fun loadProject(configLocation: JpsProjectConfigLocation,
   }
 }
 
+@TestOnly
 fun JpsProjectSerializersImpl.saveAllEntities(storage: EntityStorage, configLocation: JpsProjectConfigLocation) {
   val writer = JpsFileContentWriterImpl(configLocation)
   saveAllEntities(storage, writer)
+  val modulePathMapping = this.moduleSerializers.keys.filterIsInstance<ExternalModuleImlFileEntitiesSerializer>()
+    .associate { it.fileUrl.url to it.modulePath.path }
+  writer.writeFiles(modulePathMapping)
+}
+
+@TestOnly
+fun JpsProjectSerializersImpl.saveAffectedEntities(storage: EntityStorage, affectedEntitySources: Set<EntitySource>, configLocation: JpsProjectConfigLocation) {
+  val writer = JpsFileContentWriterImpl(configLocation)
+  saveAffectedEntities(storage, affectedEntitySources, writer)
   val modulePathMapping = this.moduleSerializers.keys.filterIsInstance<ExternalModuleImlFileEntitiesSerializer>()
     .associate { it.fileUrl.url to it.modulePath.path }
   writer.writeFiles(modulePathMapping)
@@ -249,17 +255,6 @@ fun JpsProjectSerializersImpl.checkConsistency(configLocation: JpsProjectConfigL
 internal fun File.asConfigLocation(virtualFileManager: VirtualFileUrlManager): JpsProjectConfigLocation = toConfigLocation(toPath(),
                                                                                                                            virtualFileManager)
 
-internal fun toConfigLocation(file: Path, virtualFileManager: VirtualFileUrlManager): JpsProjectConfigLocation {
-  if (FileUtil.extensionEquals(file.fileName.toString(), "ipr")) {
-    val iprFile = file.toVirtualFileUrl(virtualFileManager)
-    return JpsProjectConfigLocation.FileBased(iprFile, iprFile.parent!!)
-  }
-  else {
-    val projectDir = file.toVirtualFileUrl(virtualFileManager)
-    return JpsProjectConfigLocation.DirectoryBased(projectDir, projectDir.append(PathMacroUtil.DIRECTORY_STORE_NAME))
-  }
-}
-
 internal class JpsFileContentWriterImpl(private val configLocation: JpsProjectConfigLocation) : JpsFileContentWriter {
   private val urlToComponents = LinkedHashMap<String, LinkedHashMap<String, Element?>>()
   private val XML_PROLOG = """<?xml version="1.0" encoding="UTF-8"?>""".toByteArray()
@@ -367,7 +362,7 @@ internal class CollectingErrorReporter : ErrorReporter {
 internal fun checkSaveProjectAfterChange(originalProjectFile: File,
                                          changedFilesDirectoryName: String?,
                                          change: (MutableEntityStorage, MutableEntityStorage, MutableEntityStorage, JpsProjectConfigLocation) -> Unit,
-                                         unloadedModuleNameHolder: com.intellij.platform.workspace.jps.UnloadedModulesNameHolder = com.intellij.platform.workspace.jps.UnloadedModulesNameHolder.DUMMY,
+                                         unloadedModuleNameHolder: UnloadedModulesNameHolder = UnloadedModulesNameHolder.DUMMY,
                                          virtualFileManager: VirtualFileUrlManager,
                                          testDir: String,
                                          checkConsistencyAfterLoading: Boolean = true,
@@ -382,8 +377,8 @@ internal fun checkSaveProjectAfterChange(originalProjectFile: File,
   val changedSources = changesList.flatMapTo(HashSet()) { changes ->
     changes.flatMap { change ->
       when (change) {
-        is EntityChange.Added -> listOf(change.entity)
-        is EntityChange.Removed -> listOf(change.entity)
+        is EntityChange.Added -> listOf(change.newEntity)
+        is EntityChange.Removed -> listOf(change.oldEntity)
         is EntityChange.Replaced -> listOf(change.oldEntity, change.newEntity)
       }
     }.map { it.entitySource }
@@ -420,56 +415,64 @@ internal fun copyAndLoadGlobalEntities(originalFile: String? = null,
                                        testDir: File,
                                        parentDisposable: Disposable,
                                        action: (JpsGlobalFileEntitySource, JpsGlobalFileEntitySource) -> Unit) {
-  val optionsFolder = testDir.resolve("options")
-  PathManager.setExplicitConfigPath(testDir.absolutePath)
-  ApplicationManager.getApplication().stateStore.setPath(testDir.toPath())
-  ApplicationManager.getApplication().stateStore.clearCaches()
-  JpsGlobalModelSynchronizerImpl.runWithGlobalEntitiesLoadingEnabled {
-    // Copy original file before loading
-    if (originalFile != null) {
-      val globalEntitiesFolder = File(PathManagerEx.getCommunityHomePath(),
-                                      "platform/workspace/jps/tests/testData/serialization/global/$originalFile")
-      FileUtil.copyDir(globalEntitiesFolder, optionsFolder)
-    }
+  val stateStore = ApplicationManager.getApplication().stateStore
+  val oldConfigPath = PathManager.getConfigPath()
+  try {
+    PathManager.setExplicitConfigPath(testDir.absolutePath)
+    stateStore.setPath(testDir.toPath())
+    stateStore.clearCaches()
 
-    // Reinitialize application level services
-    val application = ApplicationManager.getApplication()
-    val coroutineScope = CoroutineScope(EmptyCoroutineContext)
-    ApplicationManager.getApplication().replaceService(JpsGlobalModelSynchronizer::class.java,
-                                                       JpsGlobalModelSynchronizerImpl(coroutineScope),
-                                                       parentDisposable)
-    ApplicationManager.getApplication().replaceService(GlobalWorkspaceModel::class.java, GlobalWorkspaceModel(), parentDisposable)
+    val optionsFolder = testDir.resolve("options")
+    JpsGlobalModelSynchronizerImpl.runWithGlobalEntitiesLoadingEnabled {
+      // Copy original file before loading
+      if (originalFile != null) {
+        val globalEntitiesFolder = File(PathManagerEx.getCommunityHomePath(),
+                                        "platform/workspace/jps/tests/testData/serialization/global/$originalFile")
+        FileUtil.copyDir(globalEntitiesFolder, optionsFolder)
+      }
 
-    // Entity source for global entities
-    val virtualFileManager = GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager()
-    val globalLibrariesFile = virtualFileManager.getOrCreateFromUri("$testDir/options/applicationLibraries.xml")
-    val libraryEntitySource = JpsGlobalFileEntitySource(globalLibrariesFile)
+      // Reinitialize application level services
+      val application = ApplicationManager.getApplication()
+      val coroutineScope = CoroutineScope(EmptyCoroutineContext)
+      ApplicationManager.getApplication().replaceService(JpsGlobalModelSynchronizer::class.java,
+                                                         JpsGlobalModelSynchronizerImpl(coroutineScope),
+                                                         parentDisposable)
+      ApplicationManager.getApplication().replaceService(GlobalWorkspaceModel::class.java, GlobalWorkspaceModel(), parentDisposable)
 
-    val globalSdkFile = virtualFileManager.getOrCreateFromUri("$testDir/options/jdk.table.xml")
-    val sdkEntitySource = JpsGlobalFileEntitySource(globalSdkFile)
-    action(libraryEntitySource, sdkEntitySource)
+      // Entity source for global entities
+      val virtualFileManager = GlobalWorkspaceModel.getInstance().getVirtualFileUrlManager()
+      val globalLibrariesFile = virtualFileManager.getOrCreateFromUrl("$testDir/options/applicationLibraries.xml")
+      val libraryEntitySource = JpsGlobalFileEntitySource(globalLibrariesFile)
 
-    // Save current state and check it's expected
-    if (expectedFile != null) {
-      application.invokeAndWait { saveDocumentsAndProjectsAndApp(true) }
-      val globalEntitiesFolder = File(PathManagerEx.getCommunityHomePath(),
-                                      "platform/workspace/jps/tests/testData/serialization/global/$expectedFile")
-      val entityStorage = GlobalWorkspaceModel.getInstance().entityStorage.current
-      if (entityStorage.entities(LibraryEntity::class.java).toList().isEmpty()) {
-        optionsFolder.assertMatches(directoryContentOf(globalEntitiesFolder.toPath()),
-                                    filePathFilter = { it.contains("jdk.table.xml")})
-      } else {
-        optionsFolder.assertMatches(directoryContentOf(globalEntitiesFolder.toPath()),
-                                    filePathFilter = { it.contains("applicationLibraries.xml") })
+      val globalSdkFile = virtualFileManager.getOrCreateFromUrl("$testDir/options/jdk.table.xml")
+      val sdkEntitySource = JpsGlobalFileEntitySource(globalSdkFile)
+      action(libraryEntitySource, sdkEntitySource)
+
+      // Save current state and check it's expected
+      if (expectedFile != null) {
+        application.invokeAndWait { saveDocumentsAndProjectsAndApp(true) }
+        val globalEntitiesFolder = File(PathManagerEx.getCommunityHomePath(),
+                                        "platform/workspace/jps/tests/testData/serialization/global/$expectedFile")
+        val entityStorage = GlobalWorkspaceModel.getInstance().entityStorage.current
+        if (entityStorage.entities(LibraryEntity::class.java).toList().isEmpty()) {
+          optionsFolder.assertMatches(directoryContentOf(globalEntitiesFolder.toPath()),
+                                      filePathFilter = { it.contains("jdk.table.xml") })
+        }
+        else {
+          optionsFolder.assertMatches(directoryContentOf(globalEntitiesFolder.toPath()),
+                                      filePathFilter = { it.contains("applicationLibraries.xml") })
+        }
       }
     }
   }
-
-  ApplicationManager.getApplication().stateStore.clearCaches()
-  PathManager.setExplicitConfigPath(null)
+  finally {
+    PathManager.setExplicitConfigPath(oldConfigPath)
+    stateStore.setPath(Path(oldConfigPath))
+    stateStore.clearCaches()
+  }
 }
 
-internal fun unloadedHolder(unloaded: String): com.intellij.platform.workspace.jps.UnloadedModulesNameHolder {
+internal fun unloadedHolder(unloaded: String): UnloadedModulesNameHolder {
   val unloadedModuleNames = StringUtil.split(unloaded, ",").toSet()
   return UnloadedModulesNameHolderImpl(unloadedModuleNames)
 }

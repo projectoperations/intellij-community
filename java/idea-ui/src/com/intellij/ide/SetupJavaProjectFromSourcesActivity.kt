@@ -16,6 +16,7 @@ import com.intellij.notification.*
 import com.intellij.notification.impl.NotificationIdsHolder
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.ExtensionNotApplicableException
@@ -31,7 +32,7 @@ import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.ex.JavaSdkUtil
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider
 import com.intellij.openapi.roots.ui.configuration.ProjectSettingsService
-import com.intellij.openapi.roots.ui.configuration.findAndSetupSdk
+import com.intellij.openapi.roots.ui.configuration.lookupAndSetupSdkBlocking
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.*
@@ -201,16 +202,18 @@ private suspend fun setupFromSources(project: Project, projectDir: VirtualFile) 
   }
 
   withContext(Dispatchers.EDT) {
-    builder.commit(project)
+    writeIntentReadAction {
+      builder.commit(project)
 
-    val compileOutput = if (projectPath.endsWith('/')) "${projectPath}out" else "$projectPath/out"
-    setCompilerOutputPath(project, compileOutput)
+      val compileOutput = if (projectPath.endsWith('/')) "${projectPath}out" else "$projectPath/out"
+      setCompilerOutputPath(project, compileOutput)
+    }
   }
 
   val modules = ModuleManager.getInstance(project).modules
   if (modules.any { ModuleType.get(it) is JavaModuleType }) {
     coroutineToIndicator {
-      findAndSetupSdk(project, ProgressManager.getGlobalProgressIndicator(), JavaSdk.getInstance()) {
+      lookupAndSetupSdkBlocking(project, ProgressManager.getGlobalProgressIndicator(), JavaSdk.getInstance()) {
         JavaSdkUtil.applyJdkToProject(project, it)
       }
     }

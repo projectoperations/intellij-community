@@ -8,11 +8,15 @@ import com.intellij.lang.logging.JvmLoggerFieldDelegate
 import com.intellij.psi.*
 import com.intellij.psi.statistics.StatisticsInfo
 import com.intellij.psi.util.parentOfType
+import com.intellij.ui.logging.JvmLoggingConfigurable.Companion.LOG_MAX_NAME_LENGTH
 
 class JvmLoggerLookupElement(private val logger: JvmLogger, private val place: PsiClass) : LookupElement(), JavaCompletionStatistician.CustomStatisticsInfoProvider {
   val typeName: String = logger.loggerTypeName
+  val typeId: String = logger.id
 
-  override fun getLookupString(): String = JvmLoggerFieldDelegate.LOGGER_IDENTIFIER
+  override fun getLookupString(): String {
+    return logger.getLogFieldName(place)?.take(LOG_MAX_NAME_LENGTH) ?: JvmLoggerFieldDelegate.LOGGER_IDENTIFIER
+  }
 
   override fun handleInsert(context: InsertionContext) {
     val loggerText = logger.createLogger(context.project, place) ?: return
@@ -35,7 +39,7 @@ class JvmLoggerLookupElement(private val logger: JvmLogger, private val place: P
     if (resolved == null || !PsiManager.getInstance(context.project).areElementsEquivalent(place, containingClass)) {
       val factory = JavaPsiFacade.getElementFactory(context.project)
       val className = place.qualifiedName ?: return
-      val staticRefExpression = factory.createExpressionFromText("$className.${JvmLoggerFieldDelegate.LOGGER_IDENTIFIER}", place)
+      val staticRefExpression = factory.createExpressionFromText("$className.${lookupString}", place)
       element.replace(staticRefExpression)
     }
   }

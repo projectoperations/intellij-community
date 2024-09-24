@@ -30,14 +30,20 @@ import static com.jetbrains.python.debugger.PyDebugValueGroupsKt.*;
 
 public class PyDebugValue extends XNamedValue {
   protected static final Logger LOG = Logger.getInstance(PyDebugValue.class);
+  private static final String ARRAY = "Array";
   private static final String DATA_FRAME = "DataFrame";
   private static final String SERIES = "Series";
   private static final Map<String, String> EVALUATOR_POSTFIXES = ImmutableMap.of(
-    "ndarray", "Array",
+    "ndarray", ARRAY,
+    "EagerTensor", ARRAY,
+    "ResourceVariable", ARRAY,
+    "SparseTensor", ARRAY,
+    "Tensor", ARRAY,
     DATA_FRAME, DATA_FRAME,
     SERIES, SERIES,
     "GeoDataFrame", DATA_FRAME,
-    "GeoSeries", SERIES
+    "GeoSeries", SERIES,
+    "Dataset", DATA_FRAME
   );
   private static final int MAX_ITEMS_TO_HANDLE = 100;
   public static final int MAX_VALUE = 256;
@@ -235,8 +241,9 @@ public class PyDebugValue extends XNamedValue {
     }
     else {
       myParent.buildExpression(result);
-      if (("dict".equals(myParent.getType()) || "list".equals(myParent.getType()) || "tuple".equals(myParent.getType())) &&
-          !isLen(myName)) {
+      if (("dict".equals(myParent.getType()) || "list".equals(myParent.getType()) || "tuple".equals(myParent.getType())
+           || "NestedOrderedDict".equals(myParent.getType()) || "DatasetDict".equals(myParent.getType())
+          ) && !isLen(myName)) {
         result.append('[').append(removeLeadingZeros(removeId(myName))).append(']');
       }
       else if (("set".equals(myParent.getType())) && !isLen(myName)) {

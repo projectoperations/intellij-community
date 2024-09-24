@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.actionSystem;
 
 import org.jetbrains.annotations.ApiStatus;
@@ -19,8 +19,6 @@ import static com.intellij.openapi.util.NlsActions.ActionText;
  * Represents a group of actions.
  *
  * @see com.intellij.openapi.actionSystem.DefaultActionGroup
- * @see com.intellij.openapi.actionSystem.CheckedActionGroup
- * @see com.intellij.openapi.actionSystem.CompactActionGroup
  */
 public abstract class ActionGroup extends AnAction {
   public static final ActionGroup EMPTY_GROUP = new ActionGroup() {
@@ -119,8 +117,11 @@ public abstract class ActionGroup extends AnAction {
    *
    * @see #getActionUpdateThread()
    */
+  @ApiStatus.OverrideOnly
   public abstract AnAction @NotNull [] getChildren(@Nullable AnActionEvent e);
 
+  /** @deprecated Use {@link DefaultActionGroup#getChildren(ActionManager)} instead or avoid altogether */
+  @Deprecated(forRemoval = true)
   public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e, @NotNull ActionManager actionManager) {
     return getChildren(null);
   }
@@ -141,10 +142,11 @@ public abstract class ActionGroup extends AnAction {
   }
 
   /**
-   * Allows the group to intercept and transform its expanded content.
+   * Allows the group to intercept and transform its expanded visible children.
    */
-  public @NotNull List<AnAction> postProcessVisibleChildren(@NotNull List<? extends AnAction> visibleChildren,
-                                                            @NotNull UpdateSession updateSession) {
+  public @NotNull List<? extends @NotNull AnAction> postProcessVisibleChildren(
+    @NotNull AnActionEvent e,
+    @NotNull List<? extends @NotNull AnAction> visibleChildren) {
     return Collections.unmodifiableList(visibleChildren);
   }
 

@@ -22,6 +22,7 @@ import com.intellij.openapi.keymap.Keymap
 import com.intellij.openapi.keymap.KeymapManagerListener
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.keymap.ex.KeymapManagerEx
+import com.intellij.openapi.keymap.impl.ui.KeymapSchemeManager
 import com.intellij.openapi.options.ExternalizableSchemeAdapter
 import com.intellij.openapi.options.SchemeState
 import com.intellij.openapi.options.ShowSettingsUtil
@@ -39,6 +40,7 @@ import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jdom.Element
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentMap
 import javax.swing.KeyStroke
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -78,24 +80,37 @@ open class KeymapImpl @JvmOverloads constructor(@field:Volatile private var data
 
   override fun getSchemeState(): SchemeState? = schemeState
 
+  @Volatile
+  private var initMap: ConcurrentMap<String, List<Shortcut>>? = null
+
+
   private val actionIdToShortcuts = SynchronizedClearableLazy<MutableMap<String, List<Shortcut>>> {
+    if (initMap != null) {
+      return@SynchronizedClearableLazy initMap!!
+    }
+    initMap = ConcurrentHashMap()
+    val shortcutsMap = initMap!!
+
     val actionManager = ActionManagerEx.getInstanceEx()
-    val actionIdToShortcuts = ConcurrentHashMap<String, List<Shortcut>>()
+    if (dataHolder == null) {
+      logger<KeymapImpl>().info("Data Holder is null!!!!", Throwable())
+    }
 
     dataHolder?.let {
       dataHolder = null
       readExternal(keymapElement = it.read(),
                    actionBinding = { id -> actionManager.getActionBinding(id) },
-                   actionIdToShortcuts = actionIdToShortcuts)
+                   actionIdToShortcuts = shortcutsMap)
     }
 
     // only after pendingInit we can use the name (it is set by readExternal)
     if (actionManager is ActionManagerImpl) {
       doInitShortcuts(operations = actionManager.getKeymapPendingOperations(name),
-                      actionIdToShortcuts = actionIdToShortcuts,
+                      actionIdToShortcuts = shortcutsMap,
                       actionBinding = { actionManager.getActionBinding(it) })
     }
-    actionIdToShortcuts
+    initMap = null
+    shortcutsMap
   }
 
   private val keymapManager by lazy { KeymapManagerEx.getInstanceEx()!! }
@@ -577,7 +592,11 @@ open class KeymapImpl @JvmOverloads constructor(@field:Volatile private var data
     }
 
     val actionIds = HashSet<String>()
-    val skipInserts = SystemInfo.isMac && (ApplicationManager.getApplication() == null || !ApplicationManager.getApplication().isUnitTestMode)
+
+    val skipInserts = KeymapSchemeManager.FILTER.test(this)
+                      && SystemInfo.isMac
+                      && (ApplicationManager.getApplication() == null || !ApplicationManager.getApplication().isUnitTestMode)
+
     for (actionElement in keymapElement.children) {
       if (actionElement.name != ACTION) {
         throw InvalidDataException("unknown element: $actionElement; Keymap's name=$name")

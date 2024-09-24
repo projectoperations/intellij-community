@@ -2,8 +2,9 @@
 package com.intellij.platform.settings
 
 import com.intellij.openapi.components.ComponentManager
-import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.util.xmlb.SettingsInternalApi
+import kotlinx.serialization.json.JsonElement
 import org.jetbrains.annotations.ApiStatus.*
 import java.nio.file.Path
 import java.util.*
@@ -22,39 +23,33 @@ interface SettingsController {
   fun <T : Any> setItem(key: SettingDescriptor<T>, value: T?)
 
   @Internal
-  @IntellijInternalApi
   fun createStateStorage(collapsedPath: String, file: Path): Any?
 
   @Internal
-  @IntellijInternalApi
   fun createChild(container: ComponentManager): SettingsController?
 
   @Internal
-  @IntellijInternalApi
+  @SettingsInternalApi
   fun release()
 
   @Internal
-  @IntellijInternalApi
+  @SettingsInternalApi
   fun <T : Any> doGetItem(key: SettingDescriptor<T>): GetResult<T?>
 
   @Internal
-  @IntellijInternalApi
+  @SettingsInternalApi
   fun <T : Any> doSetItem(key: SettingDescriptor<T>, value: T?): SetResult
 
   @Internal
-  @IntellijInternalApi
+  @SettingsInternalApi
   fun isPersistenceStateComponentProxy(): Boolean
 }
 
 @Internal
 @JvmInline
-value class GetResult<out T : Any?> @PublishedApi internal constructor(@PublishedApi internal val value: Any?) {
+value class GetResult<out T : Any?> @PublishedApi internal constructor(internal val value: Any?) {
   companion object {
-    @Suppress("INAPPLICABLE_JVM_NAME")
-    fun <T> resolved(value: T?): GetResult<T> = GetResult(value)
-
-    // partial is supported only for PersistentStateComponent adapter
-    fun <T : Any> partial(value: T): GetResult<T> = GetResult(Partial(value))
+    fun <T : Any> resolved(value: T?): GetResult<T?> = GetResult(value)
 
     fun <T> inapplicable(): GetResult<T> = GetResult(Inapplicable)
   }
@@ -62,26 +57,32 @@ value class GetResult<out T : Any?> @PublishedApi internal constructor(@Publishe
   val isResolved: Boolean
     get() = value !is Inapplicable
 
-  val isPartial: Boolean
-    get() = value is Partial
-
   @Suppress("UNCHECKED_CAST")
-  fun get(): T? {
-    return when (value) {
-      is Inapplicable -> null
-      is Partial -> value.value as T
-      else -> value as T
-    }
-  }
+  fun get(): T? = if (value is Inapplicable) null else value as T
 
-  override fun toString(): String = if (value is Inapplicable) "Inapplicable" else "Applicable($value)"
+  override fun toString(): String = "GetResult($value)"
 
   private object Inapplicable
-  private class Partial(@JvmField val value: Any)
 }
 
 @Internal
-enum class SetResult {
+@JvmInline
+value class SetResult @PublishedApi internal constructor(@Internal @SettingsInternalApi val value: Any?) {
+  companion object {
+    fun inapplicable(): SetResult = SetResult(SetResultResolution.INAPPLICABLE)
+
+    fun forbid(): SetResult = SetResult(SetResultResolution.FORBID)
+
+    fun done(): SetResult = SetResult(SetResultResolution.DONE)
+
+    fun substituted(value: JsonElement): SetResult = SetResult(value)
+  }
+
+  @OptIn(SettingsInternalApi::class)
+  override fun toString(): String = "SetResult($value)"
+}
+
+private enum class SetResultResolution {
   /**
    * Indicates that the controller can't be used to set this particular setting.
    */
@@ -108,6 +109,9 @@ interface DelegatedSettingsController {
 
   fun createChild(container: ComponentManager): DelegatedSettingsController? = null
 
+  /**
+   * Called when the configuration store is closed, which occurs prior to a full disposal of the service container.
+   */
   fun close() {
   }
 }

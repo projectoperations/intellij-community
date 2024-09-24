@@ -39,7 +39,6 @@ import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.frame.XDropFrameHandler;
 import com.intellij.xdebugger.frame.XStackFrame;
 import com.intellij.xml.util.XmlStringUtil;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -54,7 +53,7 @@ import java.util.*;
 
 import static com.intellij.xdebugger.impl.XDebuggerUtilImpl.wrapKeepEditorAreaFocusNavigatable;
 
-public class XDebuggerFramesList extends DebuggerFramesList implements DataProvider {
+public class XDebuggerFramesList extends DebuggerFramesList implements UiCompatibleDataProvider {
   private final Project myProject;
   private final FileColorsCache myFileColorsCache;
   private static final DataKey<XDebuggerFramesList> FRAMES_LIST = DataKey.create("FRAMES_LIST");
@@ -124,47 +123,41 @@ public class XDebuggerFramesList extends DebuggerFramesList implements DataProvi
   }
 
   @Override
-  public @Nullable Object getData(@NonNls @NotNull String dataId) {
-    if (FRAMES_LIST.is(dataId)) {
-      return this;
+  public void updateUI() {
+    super.updateUI();
+
+    if (ExpandedItemListCellRendererWrapper.unwrap(getCellRenderer()) instanceof XDebuggerGroupedFrameListRenderer renderer) {
+      renderer.updateUI();
     }
-    // Because of the overridden locationToIndex(), the default logic of retrieving the context menu point doesn't work.
-    // Here, were mimic the way PopupFactoryImpl.guessBestPopupLocation(JComponent) calculates it for JLists.
-    if (PlatformDataKeys.CONTEXT_MENU_POINT.is(dataId)) {
-      int index = getSelectedIndex();
-      if (index != -1) {
-        Rectangle cellBounds = getCellBounds(index, index);
-        if (cellBounds != null) {
-          Rectangle visibleRect = getVisibleRect();
-          return new Point(visibleRect.x + visibleRect.width / 4, cellBounds.y + cellBounds.height - 1);
-        }
-      }
-      return null;
-    }
-    if (PlatformCoreDataKeys.BGT_DATA_PROVIDER.is(dataId)) {
-      XStackFrame frame = getSelectedFrame();
-      if (frame != null) {
-        return (DataProvider)realDataId -> getSlowData(frame, realDataId);
-      }
-    }
-    return null;
   }
 
-  @Nullable
-  private Object getSlowData(@NotNull XStackFrame frame, @NonNls String dataId) {
-    if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
-      return getFrameNavigatable(frame, true);
-    }
-    if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
-      return getFile(frame);
-    }
-    if (CommonDataKeys.PSI_FILE.is(dataId)) {
-      VirtualFile file = getFile(frame);
-      if (file != null && file.isValid()) {
-        return PsiManager.getInstance(myProject).findFile(file);
+  @Override
+  public void uiDataSnapshot(@NotNull DataSink sink) {
+    sink.set(FRAMES_LIST, this);
+    {
+      // Because of the overridden locationToIndex(), the default logic of retrieving the context menu point doesn't work.
+      // Here, were mimic the way PopupFactoryImpl.guessBestPopupLocation(JComponent) calculates it for JLists.
+      int index = getSelectedIndex();
+      Rectangle cellBounds = index != -1 ? getCellBounds(index, index) : null;
+      if (cellBounds != null) {
+        Rectangle visibleRect = getVisibleRect();
+        sink.set(PlatformDataKeys.CONTEXT_MENU_POINT,
+                 new Point(visibleRect.x + visibleRect.width / 4, cellBounds.y + cellBounds.height - 1));
       }
     }
-    return null;
+    XStackFrame frame = getSelectedFrame();
+    if (frame == null) return;
+    sink.lazy(CommonDataKeys.NAVIGATABLE, () -> {
+      return getFrameNavigatable(frame, true);
+    });
+    sink.lazy(CommonDataKeys.VIRTUAL_FILE, () -> {
+      return getFile(frame);
+    });
+    sink.lazy(CommonDataKeys.PSI_FILE, () -> {
+      VirtualFile file = getFile(frame);
+      return file != null && file.isValid() ?
+             PsiManager.getInstance(myProject).findFile(file) : null;
+    });
   }
 
   @SuppressWarnings("unchecked")
@@ -271,6 +264,10 @@ public class XDebuggerFramesList extends DebuggerFramesList implements DataProvi
       mySeparatorComponent.setCaptionCentered(false);
     }
 
+    public void updateUI() {
+      SwingUtilities.updateComponentTreeUI(myRendererComponent);
+    }
+
     @Override
     protected Border getDefaultItemComponentBorder() {
       return null;
@@ -281,6 +278,7 @@ public class XDebuggerFramesList extends DebuggerFramesList implements DataProvi
       setSeparatorFont(list.getFont());
       myOriginalRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
       Component result = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+      result.getAccessibleContext().setAccessibleName(myOriginalRenderer.getAccessibleContext().getAccessibleName());
       var itemComponent = getItemComponent();
       if (itemComponent instanceof SelectablePanel selectablePanel) {
         Color stackFrameColor = value instanceof XStackFrame stackFrame ? getFrameBgColor(stackFrame) : null;

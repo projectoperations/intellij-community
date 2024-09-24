@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui.popup
 
+import com.intellij.concurrency.resetThreadContext
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.util.PopupUtil
@@ -100,7 +101,11 @@ open class LocalPopupComponentFactory: PopupComponentFactory {
     override fun hide(dispose: Boolean) {
       val window = window
       if (!dispose) {
-        window?.isVisible = false
+        // `resetThreadContext` here is needed because `setVisible` runs eventloop
+        // IJPL-161712
+        resetThreadContext().use {
+          window?.isVisible = false
+        }
         return
       }
       val rootPane = (window as? RootPaneContainer)?.rootPane
@@ -114,7 +119,11 @@ open class LocalPopupComponentFactory: PopupComponentFactory {
       if (window != null) {
         fixFlickering(window, false)
       }
-      popup.show()
+      // `resetThreadContext` here is needed because `show` runs eventloop
+      // IJPL-161712
+      resetThreadContext().use {
+        popup.show()
+      }
       if (window != null) {
         fixFlickering(window, true)
         if (window is JWindow) {

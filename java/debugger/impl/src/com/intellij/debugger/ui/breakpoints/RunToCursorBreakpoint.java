@@ -4,7 +4,6 @@ package com.intellij.debugger.ui.breakpoints;
 import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.RequestHint;
-import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
@@ -16,8 +15,6 @@ import com.sun.jdi.event.LocatableEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.function.Function;
-
 /**
  * @author Eugene Zhuravlev
  */
@@ -25,13 +22,11 @@ public class RunToCursorBreakpoint extends SyntheticLineBreakpoint implements St
   private final boolean myRestoreBreakpoints;
   @NotNull
   protected final SourcePosition myCustomPosition;
-  private final boolean myNeedReplaceWithAllThreadSuspendContext;
 
-  protected RunToCursorBreakpoint(@NotNull Project project, @NotNull SourcePosition pos, boolean restoreBreakpoints, boolean needReplaceWithAllThreadSuspendContext) {
+  protected RunToCursorBreakpoint(@NotNull Project project, @NotNull SourcePosition pos, boolean restoreBreakpoints) {
     super(project);
     myCustomPosition = pos;
     myRestoreBreakpoints = restoreBreakpoints;
-    myNeedReplaceWithAllThreadSuspendContext = needReplaceWithAllThreadSuspendContext;
   }
 
   @NotNull
@@ -77,13 +72,12 @@ public class RunToCursorBreakpoint extends SyntheticLineBreakpoint implements St
   @Nullable
   protected static RunToCursorBreakpoint create(@NotNull Project project,
                                                 @NotNull XSourcePosition position,
-                                                boolean restoreBreakpoints,
-                                                boolean needReplaceWithAllThreadSuspendContext) {
+                                                boolean restoreBreakpoints) {
     PsiFile psiFile = PsiManager.getInstance(project).findFile(position.getFile());
     if (psiFile == null) {
       return null;
     }
-    return new RunToCursorBreakpoint(project, SourcePosition.createFromOffset(psiFile, position.getOffset()), restoreBreakpoints, needReplaceWithAllThreadSuspendContext);
+    return new RunToCursorBreakpoint(project, SourcePosition.createFromOffset(psiFile, position.getOffset()), restoreBreakpoints);
   }
 
   @Override
@@ -93,10 +87,5 @@ public class RunToCursorBreakpoint extends SyntheticLineBreakpoint implements St
   @Override
   public boolean track() {
     return false;
-  }
-
-  @Override
-  public @Nullable Function<@NotNull SuspendContextImpl, @NotNull Boolean> callbackAfterReplacementForAllThreadSuspendContext() {
-    return myNeedReplaceWithAllThreadSuspendContext ? (c -> true) : null;
   }
 }

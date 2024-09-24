@@ -38,7 +38,10 @@ import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.ModuleProj
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.ProjectStructureDaemonAnalyzer;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.ProjectStructureElement;
 import com.intellij.openapi.ui.*;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NullableComputable;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.openapi.util.text.StringUtil;
@@ -56,13 +59,11 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.tree.*;
-import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 import java.util.*;
 import java.util.function.Predicate;
 
@@ -236,7 +237,8 @@ public class ModuleStructureConfigurable extends BaseStructureConfigurable imple
                                                                                     ModuleGroupingTreeHelper.createDefaultGrouping(moduleGrouper),
                                                                                     ModuleStructureConfigurable::createModuleGroupNode,
                                                                                     m -> createModuleNode(m, moduleGrouper), getNodeComparator());
-    helper.createModuleNodes(Arrays.asList(myModuleManager.getModules()), myRoot, getTreeModel());
+    var modules = Arrays.stream(myModuleManager.getModules()).filter(module -> ModuleStructureFilterExtension.isAllowed(module)).toList();
+    helper.createModuleNodes(modules, myRoot, getTreeModel());
     if (containsSecondLevelNodes(myRoot)) {
       myTree.setShowsRootHandles(true);
     }
@@ -246,11 +248,6 @@ public class ModuleStructureConfigurable extends BaseStructureConfigurable imple
     }
 
     addRootNodesFromExtensions(myRoot, myProject);
-    //final LibraryTable table = LibraryTablesRegistrar.getInstance().getLibraryTable(myProject);
-    //final LibrariesModifiableModel projectLibrariesProvider = new LibrariesModifiableModel(table);
-    //myLevel2Providers.put(LibraryTablesRegistrar.PROJECT_LEVEL, projectLibrariesProvider);
-    //
-    //myProjectNode.add(myLevel2Nodes.get(LibraryTablesRegistrar.PROJECT_LEVEL));
   }
 
   private static boolean containsSecondLevelNodes(TreeNode rootNode) {
@@ -416,7 +413,12 @@ public class ModuleStructureConfigurable extends BaseStructureConfigurable imple
   @NotNull
   @Override
   public JComponent createComponent() {
-    return new MyDataProviderWrapper(super.createComponent());
+    return UiDataProvider.wrapComponent(super.createComponent(), sink -> {
+      sink.set(LangDataKeys.MODULE_CONTEXT_ARRAY, getModuleContexts());
+      sink.set(LangDataKeys.MODULE_CONTEXT, getSelectedModule());
+      sink.set(LangDataKeys.MODIFIABLE_MODULE_MODEL, myContext.myModulesConfigurator.getModuleModel());
+      sink.set(PlatformCoreDataKeys.SELECTED_ITEM, getSelectedObject());
+    });
   }
 
   @Override
@@ -803,49 +805,31 @@ public class ModuleStructureConfigurable extends BaseStructureConfigurable imple
     }
   }
 
-  private class MyDataProviderWrapper extends JPanel implements DataProvider {
-    MyDataProviderWrapper(final JComponent component) {
-      super(new BorderLayout());
-      add(component, BorderLayout.CENTER);
-    }
-
-    @Override
-    @Nullable
-    public Object getData(@NotNull @NonNls String dataId) {
-      return ValueKey.match(dataId)
-        .ifEq(LangDataKeys.MODULE_CONTEXT_ARRAY).thenGet(this::getModuleContexts)
-        .ifEq(LangDataKeys.MODULE_CONTEXT).thenGet(() -> getSelectedModule())
-        .ifEq(LangDataKeys.MODIFIABLE_MODULE_MODEL).thenGet(() -> myContext.myModulesConfigurator.getModuleModel())
-        .ifEq(PlatformCoreDataKeys.SELECTED_ITEM).thenGet(() -> getSelectedObject())
-        .orNull();
-    }
-
-    private Module[] getModuleContexts() {
-      final TreePath[] paths = myTree.getSelectionPaths();
-      Set<Module> modules = new LinkedHashSet<>();
-      if (paths != null) {
-        for (TreePath path : paths) {
-          MyNode node = (MyNode)path.getLastPathComponent();
-          final NamedConfigurable<?> configurable = node.getConfigurable();
-          LOG.assertTrue(configurable != null, "already disposed");
-          final Object o = configurable.getEditableObject();
-          if (o instanceof Module) {
-            modules.add((Module)o);
-          }
-          else if (node instanceof ModuleGroupNode && ((ModuleGroupNode)node).getModuleGroup() != null) {
-            TreeUtil.treeNodeTraverser(node).forEach(descendant -> {
-              if (descendant instanceof MyNode) {
-                Object object = ((MyNode)descendant).getConfigurable().getEditableObject();
-                if (object instanceof Module) {
-                  modules.add((Module)object);
-                }
+  private Module @Nullable [] getModuleContexts() {
+    final TreePath[] paths = myTree.getSelectionPaths();
+    Set<Module> modules = new LinkedHashSet<>();
+    if (paths != null) {
+      for (TreePath path : paths) {
+        MyNode node = (MyNode)path.getLastPathComponent();
+        final NamedConfigurable<?> configurable = node.getConfigurable();
+        LOG.assertTrue(configurable != null, "already disposed");
+        final Object o = configurable.getEditableObject();
+        if (o instanceof Module) {
+          modules.add((Module)o);
+        }
+        else if (node instanceof ModuleGroupNode && ((ModuleGroupNode)node).getModuleGroup() != null) {
+          TreeUtil.treeNodeTraverser(node).forEach(descendant -> {
+            if (descendant instanceof MyNode) {
+              Object object = ((MyNode)descendant).getConfigurable().getEditableObject();
+              if (object instanceof Module) {
+                modules.add((Module)object);
               }
-            });
-          }
+            }
+          });
         }
       }
-      return !modules.isEmpty() ? modules.toArray(Module.EMPTY_ARRAY) : null;
     }
+    return !modules.isEmpty() ? modules.toArray(Module.EMPTY_ARRAY) : null;
   }
 
   private class HideGroupsAction extends ToggleAction implements DumbAware {

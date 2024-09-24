@@ -16,7 +16,7 @@ import java.awt.*;
 import java.awt.font.FontRenderContext;
 
 public final class FontInfo {
-  public static final FontRenderContext DEFAULT_CONTEXT = new FontRenderContext(null, false, false);
+  static final FontRenderContext DEFAULT_CONTEXT = new FontRenderContext(null, false, false);
 
   private static final Font DUMMY_FONT = new Font(null);
   private static final FontMetricsAccessor FONT_METRICS_ACCESSOR = JBR.getFontMetricsAccessor();
@@ -139,5 +139,16 @@ public final class FontInfo {
   @Override
   public int hashCode() {
     return myFont.hashCode();
+  }
+
+  @Override
+  public String toString() {
+    return "FontInfo{" +
+           "myFont=" + myFont +
+           ", mySize=" + mySize +
+           ", mySafeCharacters=" + mySafeCharacters +
+           ", myContext=" + myContext +
+           ", myFontMetrics=" + myFontMetrics +
+           '}';
   }
 }

@@ -128,9 +128,7 @@ public class PyEvaluator {
   private static Object evaluateNumeric(@NotNull PyNumericLiteralExpression expression) {
     if (expression.isIntegerLiteral()) {
       final BigInteger value = expression.getBigIntegerValue();
-      if (value != null) {
-        return fromBigInteger(value);
-      }
+      return fromBigInteger(value);
     }
 
     return null;
@@ -175,9 +173,7 @@ public class PyEvaluator {
         return first.compareTo(second) != 0;
       }
     }
-    else if (lhs instanceof Boolean && rhs instanceof Boolean) {
-      final Boolean first = (Boolean)lhs;
-      final Boolean second = (Boolean)rhs;
+    else if (lhs instanceof Boolean first && rhs instanceof Boolean second) {
       if (op == PyTokenTypes.AND_KEYWORD) {
         return first && second;
       }

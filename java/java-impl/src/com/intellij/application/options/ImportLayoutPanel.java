@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.application.options;
 
 import com.intellij.icons.AllIcons;
@@ -19,6 +19,7 @@ import com.intellij.ui.*;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.JBInsets;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -108,7 +109,7 @@ public abstract class ImportLayoutPanel extends JPanel {
                            IdeBundle.message("action.remove"),
                            JavaBundle.message("import.layout.panel.up.button"),
                            JavaBundle.message("import.layout.panel.down.button"))
-      .setPreferredSize(new Dimension(-1, 100)).createPanel();
+      .setPreferredSize(new Dimension(-1, JBUI.scale(180))).createPanel();
 
 
     add(importLayoutPanel, BorderLayout.CENTER);
@@ -235,8 +236,7 @@ public abstract class ImportLayoutPanel extends JPanel {
       }
 
       @Override
-      @Nullable
-      public Object getValueAt(int row, int col) {
+      public @Nullable Object getValueAt(int row, int col) {
         PackageEntry entry = packageTable.getEntryAt(row);
         if (entry == null || !isCellEditable(row, col)) return null;
         col += panel.areStaticImportsEnabled() ? 0 : 1;
@@ -260,7 +260,7 @@ public abstract class ImportLayoutPanel extends JPanel {
       }
 
       @Override
-      public Class getColumnClass(int col) {
+      public Class<?> getColumnClass(int col) {
         col += panel.areStaticImportsEnabled() ? 0 : 1;
         if (col == 0) {
           return Boolean.class;
@@ -295,7 +295,7 @@ public abstract class ImportLayoutPanel extends JPanel {
         }
         else if (col == 2) {
           PackageEntry newPackageEntry =
-            new PackageEntry(packageEntry.isStatic(), packageEntry.getPackageName(), ((Boolean)aValue).booleanValue());
+            new PackageEntry(packageEntry.isStatic(), packageEntry.getPackageName(), (Boolean)aValue);
           packageTable.setEntryAt(newPackageEntry, row);
         }
         else {

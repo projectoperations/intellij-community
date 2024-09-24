@@ -41,7 +41,7 @@ enum Operation {
 enum enumWithTypeParameterInValueOf {
   ;
 
-  <error descr="'valueOf(String)' clashes with 'valueOf(String)'; both methods have same erasure"><error descr="'valueOf(String)' is already defined in 'enumWithTypeParameterInValueOf'">static <T> void valueOf(String s)</error></error> {}
+  <error descr="'valueOf(String)' clashes with 'valueOf(String)'; both methods have same erasure">static <T> void valueOf(String s)</error> {}
 }
 
 class exte extends <error descr="Cannot inherit from enum 'Operation'">Operation</error> {
@@ -222,8 +222,8 @@ class NestedEnums {
 }
 
 enum EnumWithoutExpectedArguments {
-  <error descr="'EnumWithoutExpectedArguments(int)' in 'EnumWithoutExpectedArguments' cannot be applied to '()'">ONE</error>, //comment
-  <error descr="'EnumWithoutExpectedArguments(int)' in 'EnumWithoutExpectedArguments' cannot be applied to '()'">TWO</error>
+  <error descr="Expected 1 argument but found 0">ONE</error>, //comment
+  <error descr="Expected 1 argument but found 0">TWO</error>
   ;
   EnumWithoutExpectedArguments(int a) {}
 }

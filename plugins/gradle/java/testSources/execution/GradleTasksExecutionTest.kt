@@ -8,7 +8,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.externalSystem.action.ExternalSystemActionUtil
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
-import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListenerAdapter
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import com.intellij.openapi.externalSystem.model.task.TaskData
 import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode
 import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager
@@ -23,6 +23,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.gradle.importing.GradleImportingTestCase
 import org.jetbrains.plugins.gradle.importing.TestGradleBuildScriptBuilder
 import org.jetbrains.plugins.gradle.statistics.GradleTaskExecutionCollector
+import org.jetbrains.plugins.gradle.tooling.annotation.TargetVersions
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import org.junit.Test
 import org.junit.runners.Parameterized
@@ -59,6 +60,7 @@ class GradleTasksExecutionTest : GradleImportingTestCase() {
       })
       .generate()
     createProjectSubFile("build.gradle", buildScript)
+    createProjectSubDirs("projectA", "projectB", "projectC")
     createSettingsFile("include 'projectA', 'projectB', 'projectC'")
     val expectedGradleTasks = listOf("compileJava", "processResources", "classes", "jar", "assemble", "compileTestJava",
                                      "processTestResources", "testClasses", "test", "check", "build", "clean", "other")
@@ -70,6 +72,7 @@ class GradleTasksExecutionTest : GradleImportingTestCase() {
   }
 
   @Test
+  @TargetVersions("<7.6")
   fun `run task with specified build file test`() {
     createProjectSubFile("build.gradle", """
       task myTask() { doLast { print 'Hi!' } }
@@ -163,7 +166,7 @@ tasks.register("hello-module") {
     val notificationManager = ApplicationManager.getApplication().getService(
       ExternalSystemProgressNotificationManager::class.java)
     val taskOutput = java.lang.StringBuilder()
-    val listener: ExternalSystemTaskNotificationListenerAdapter = object : ExternalSystemTaskNotificationListenerAdapter() {
+    val listener = object : ExternalSystemTaskNotificationListener {
       override fun onTaskOutput(id: ExternalSystemTaskId, text: String, stdOut: Boolean) {
         taskOutput.append(text)
       }
@@ -181,7 +184,7 @@ tasks.register("hello-module") {
 
   private fun runTaskAndGetErrorOutput(projectPath: String, taskName: String, scriptParameters: String = ""): String {
     val taskErrOutput = StringBuilder()
-    val stdErrListener = object : ExternalSystemTaskNotificationListenerAdapter() {
+    val stdErrListener = object : ExternalSystemTaskNotificationListener {
       override fun onTaskOutput(id: ExternalSystemTaskId, text: String, stdOut: Boolean) {
         if (!stdOut) {
           taskErrOutput.append(text)

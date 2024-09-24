@@ -26,6 +26,7 @@ class MavenWrapperConfigurationTest : MavenImportingTestCase() {
     httpServerFixtureForWrapper.setUp()
   }
 
+  override fun runInDispatchThread(): Boolean = false
 
   public override fun tearDown() {
     RunAll(
@@ -86,8 +87,9 @@ class MavenWrapperConfigurationTest : MavenImportingTestCase() {
                        </dependencies>
                        """.trimIndent())
 
-    createProjectSubFile(".mvn/wrapper/maven-wrapper.properties",
+    val wrapperProperties = createProjectSubFile(".mvn/wrapper/maven-wrapper.properties",
                          "distributionUrl=${httpServerFixtureForWrapper.url()}/custom-maven.zip\n")
+    refreshFiles(listOf(settingsXml, wrapperProperties))
 
     MavenWorkspaceSettingsComponent.getInstance(project).settings.generalSettings.setMavenHomeNoFire(MavenWrapper)
     removeFromLocalRepository("org/mytest/myartifact/")

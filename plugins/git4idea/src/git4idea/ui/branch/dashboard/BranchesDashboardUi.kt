@@ -4,7 +4,6 @@ package git4idea.ui.branch.dashboard
 import com.intellij.dvcs.branch.GroupingKey
 import com.intellij.icons.AllIcons
 import com.intellij.ide.CommonActionsManager
-import com.intellij.ide.DataManager
 import com.intellij.ide.DefaultTreeExpander
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
@@ -52,6 +51,7 @@ import com.intellij.vcs.log.visible.filters.VcsLogFilterObject
 import com.intellij.vcs.log.visible.filters.with
 import com.intellij.vcs.log.visible.filters.without
 import com.intellij.vcs.ui.ProgressStripe
+import git4idea.actions.branch.GitBranchActionsDataKeys
 import git4idea.i18n.GitBundle.message
 import git4idea.i18n.GitBundleExtensions.messagePointer
 import git4idea.repo.GitRepository
@@ -83,7 +83,8 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
   private val branchesScrollPane = ScrollPaneFactory.createScrollPane(filteringTree.component, true)
   private val branchesProgressStripe = ProgressStripe(branchesScrollPane, this)
   private val branchesTreeWithLogPanel = simplePanel()
-  private val mainPanel = simplePanel().apply { DataManager.registerDataProvider(this, uiController) }
+  private val mainPanel = simplePanel()
+  private val mainComponent = UiDataProvider.wrapComponent(mainPanel, uiController)
   private val branchesSearchFieldPanel = simplePanel()
   private val branchesSearchField = filteringTree.installSearchField().apply {
     textEditor.border = JBUI.Borders.emptyLeft(5)
@@ -280,23 +281,45 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
     })
   }
 
-  inner class BranchesTreePanel : BorderLayoutPanel(), DataProvider, QuickActionProvider {
-    override fun getData(dataId: String): Any? {
-      return when {
-        SELECTED_ITEMS.`is`(dataId) -> filteringTree.component.selectionPaths
-        GIT_BRANCHES.`is`(dataId) -> filteringTree.getSelectedBranches()
-        GIT_BRANCH_FILTERS.`is`(dataId) -> filteringTree.getSelectedBranchFilters()
-        GIT_BRANCH_REMOTES.`is`(dataId) -> filteringTree.getSelectedRemotes()
-        GIT_BRANCH_DESCRIPTORS.`is`(dataId) -> filteringTree.getSelectedBranchNodes()
-        BRANCHES_UI_CONTROLLER.`is`(dataId) -> uiController
-        VcsLogInternalDataKeys.LOG_UI_PROPERTIES.`is`(dataId) -> logUi.properties
-        QuickActionProvider.KEY.`is`(dataId) -> this
-        else -> null
+  inner class BranchesTreePanel : BorderLayoutPanel(), UiDataProvider, QuickActionProvider {
+    override fun uiDataSnapshot(sink: DataSink) {
+      snapshotBranchActionsKeys(sink)
+
+      sink[SELECTED_ITEMS] = filteringTree.component.selectionPaths
+      sink[GIT_BRANCHES] = filteringTree.getSelectedBranches()
+      sink[GIT_BRANCH_FILTERS] = filteringTree.getSelectedBranchFilters()
+      sink[GIT_BRANCH_REMOTES] = filteringTree.getSelectedRemotes()
+      sink[GIT_BRANCH_DESCRIPTORS] = filteringTree.getSelectedBranchNodes()
+      sink[BRANCHES_UI_CONTROLLER] = uiController
+      sink[VcsLogInternalDataKeys.LOG_UI_PROPERTIES] = logUi.properties
+      sink[QuickActionProvider.KEY] = this
+    }
+
+    private fun snapshotBranchActionsKeys(sink: DataSink) {
+      val selectedBranches = filteringTree.getSelectedBranches()
+      if (selectedBranches.isEmpty()) {
+        if (filteringTree.getSelectedBranchFilters().singleOrNull() == VcsLogUtil.HEAD) {
+          sink[GitBranchActionsDataKeys.USE_CURRENT_BRANCH] = true
+        }
+      }
+      else {
+        sink[GitBranchActionsDataKeys.BRANCHES] = selectedBranches.map { it.branch }
+      }
+
+      val selectedBranch = selectedBranches.singleOrNull()
+      if (selectedBranch != null) {
+        val selectedRepositories =
+          BranchesTreeComponent.getSelectedRepositories(selectedBranch, filteringTree.component.selectionPaths)
+            .toList()
+            .ifEmpty(selectedBranch::repositories)
+
+        sink[GitBranchActionsDataKeys.AFFECTED_REPOSITORIES] = selectedRepositories
+        sink[GitBranchActionsDataKeys.SELECTED_REPOSITORY] = selectedRepositories.singleOrNull()
       }
     }
 
     override fun getActions(originalProvider: Boolean): List<AnAction> {
-      return createToolbarGroup().getChildren(null).asList()
+      return listOf(createToolbarGroup())
     }
 
     override fun getComponent(): JComponent = filteringTree.component
@@ -305,7 +328,7 @@ internal class BranchesDashboardUi(project: Project, private val logUi: Branches
   }
 
   fun getMainComponent(): JComponent {
-    return mainPanel
+    return mainComponent
   }
 
   fun updateBranchesTree(initial: Boolean) {

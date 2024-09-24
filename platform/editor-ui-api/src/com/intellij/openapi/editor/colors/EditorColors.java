@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.colors;
 
 import com.intellij.lang.Language;
@@ -98,6 +98,10 @@ public interface EditorColors {
 
   ColorKey PREVIEW_BACKGROUND = ColorKey.createColorKey("PREVIEW_BACKGROUND");
   ColorKey PREVIEW_BORDER_COLOR = ColorKey.createColorKeyWithFallback("PREVIEW_BORDER_COLOR", INDENT_GUIDE_COLOR);
+
+  ColorKey STICKY_LINES_BACKGROUND = ColorKey.createColorKey("STICKY_LINES_BACKGROUND");
+  ColorKey STICKY_LINES_HOVERED_COLOR = ColorKey.createColorKeyWithFallback("STICKY_LINES_HOVERED_COLOR", CARET_ROW_COLOR);
+  ColorKey STICKY_LINES_BORDER_COLOR = ColorKey.createColorKeyWithFallback("STICKY_LINES_BORDER_COLOR", RIGHT_MARGIN_COLOR);
 
   static @NotNull TextAttributesKey createInjectedLanguageFragmentKey(@Nullable Language language) {
     Stack<Language> languages = new Stack<>();

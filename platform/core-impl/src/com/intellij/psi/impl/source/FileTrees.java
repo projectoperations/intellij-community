@@ -22,6 +22,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static com.intellij.psi.stubs.StubInconsistencyReporter.StubTreeAndIndexDoNotMatchSource.FileTreesPsiReconciliation;
 import static com.intellij.reference.SoftReference.deref;
 import static com.intellij.reference.SoftReference.dereference;
 
@@ -174,12 +175,17 @@ final class FileTrees {
     try {
       return DebugUtil.performPsiModification("reconcilePsi", () -> {
         if (myRefToPsi != null) {
-          assert myRefToPsi.length == (stubList != null ? stubList.size() : nodeList.size()) : "Cached PSI count doesn't match actual one";
+          assert myRefToPsi.length == (stubList != null ? stubList.size() : nodeList.size())
+            : "Cached PSI count doesn't match actual one. " +
+              "myRefToPsi.length=" + myRefToPsi.length + ", " +
+              "stubList.size=" + (stubList == null ? "null" : stubList.size()) + ", " +
+              "nodeList.size=" + (nodeList == null ? "null" : nodeList.size());
           bindSubstratesToCachedPsi(stubList, nodeList);
         }
 
         if (stubList != null && nodeList != null) {
-          assert stubList.size() == nodeList.size() : "Stub count doesn't match stubbed node length";
+          assert stubList.size() == nodeList.size() : "Stub count (" + stubList.size() + ") doesn't match " +
+                                                      "stubbed node length (" + nodeList.size() + ")";
 
           FileTrees result = switchToSpineRefs(srcSpine);
           bindStubsWithAst(srcSpine, stubList, nodeList, takePsiFromStubs);
@@ -191,7 +197,7 @@ final class FileTrees {
     catch (Throwable e) {
       myFile.clearContent(PsiFileImpl.STUB_PSI_MISMATCH);
       myFile.rebuildStub();
-      throw StubTreeLoader.getInstance().createCoarseExceptionStubTreeAndIndexDoNotMatch(stubTree, myFile, e);
+      throw StubTreeLoader.getInstance().createCoarseExceptionStubTreeAndIndexDoNotMatch(stubTree, myFile, e, FileTreesPsiReconciliation);
     }
   }
 

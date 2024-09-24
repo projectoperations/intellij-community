@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.java.stubs.impl;
 
 import com.intellij.psi.*;
@@ -46,7 +46,7 @@ public class PsiClassReferenceListStubImpl extends StubBase<PsiReferenceList> im
   private boolean shouldSkipSoleObject() {
     final boolean compiled = ((JavaClassReferenceListElementType)getStubType()).isCompiled(this);
     return compiled && myInfos.length == 1 && myInfos[0].getKind() == TypeInfo.TypeKind.JAVA_LANG_OBJECT &&
-           myInfos[0].getTypeAnnotations().isEmpty();
+           myInfos[0].getTypeAnnotations() == TypeAnnotationContainer.EMPTY;
   }
 
   private PsiClassType @NotNull [] createTypes() {
@@ -103,9 +103,8 @@ public class PsiClassReferenceListStubImpl extends StubBase<PsiReferenceList> im
     return myInfos.clone();
   }
 
-  @NotNull
   @Override
-  public PsiReferenceList.Role getRole() {
+  public @NotNull PsiReferenceList.Role getRole() {
     return JavaClassReferenceListElementType.elementTypeToRole(getStubType());
   }
 

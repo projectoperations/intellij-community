@@ -1,7 +1,11 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.internal.statistic.utils;
 
-import com.intellij.internal.statistic.eventLog.*;
+import com.intellij.ide.ConsentOptionsProvider;
+import com.intellij.internal.statistic.eventLog.EventLogInternalApplicationInfo;
+import com.intellij.internal.statistic.eventLog.EventLogInternalSendConfig;
+import com.intellij.internal.statistic.eventLog.ExternalEventLogSettings;
+import com.intellij.internal.statistic.eventLog.StatisticsEventLogProviderUtil;
 import com.intellij.internal.statistic.eventLog.connection.EventLogSendListener;
 import com.intellij.internal.statistic.eventLog.connection.EventLogStatisticsService;
 import com.intellij.internal.statistic.eventLog.connection.EventLogUploadSettingsService;
@@ -14,6 +18,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+
+import static com.intellij.internal.statistic.eventLog.StatisticsEventLogProviderUtil.getEventLogProvider;
 
 public final class StatisticsUploadAssistant {
   private static final String IDEA_HEADLESS_ENABLE_STATISTICS = "idea.headless.enable.statistics";
@@ -34,8 +40,7 @@ public final class StatisticsUploadAssistant {
       return isHeadlessStatisticsEnabled();
     }
 
-    UsageStatisticsPersistenceComponent settings = UsageStatisticsPersistenceComponent.getInstance();
-    return settings != null && settings.isAllowed();
+    return isAllowedByUserConsent();
   }
 
   public static boolean isCollectAllowed() {
@@ -44,11 +49,24 @@ public final class StatisticsUploadAssistant {
     }
 
     if (!isDisableCollectStatistics() && !isCollectionForceDisabled()) {
-      UsageStatisticsPersistenceComponent settings = UsageStatisticsPersistenceComponent.getInstance();
-      if ((settings != null && settings.isAllowed()) || isLocalStatisticsWithoutReport()) {
+      if (isAllowedByUserConsent() || isLocalStatisticsWithoutReport()) {
         return true;
       }
     }
+    return false;
+  }
+
+  public static boolean isAllowedByUserConsent() {
+    UsageStatisticsPersistenceComponent settings = UsageStatisticsPersistenceComponent.getInstance();
+    if (settings != null && settings.isAllowed()) {
+      return true;
+    }
+
+    ConsentOptionsProvider consentsProvider = ApplicationManager.getApplication().getService(ConsentOptionsProvider.class);
+    if (consentsProvider != null && consentsProvider.isActivatedWithFreeLicense()) {
+      return true;
+    }
+
     return false;
   }
 
@@ -90,9 +108,8 @@ public final class StatisticsUploadAssistant {
                              int totalLocalFiles) {
         int success = successfullySentFiles.size();
         int failed = errors.size();
-        EventLogSystemLogger.logFilesSend(
-          recorderId, totalLocalFiles, success, failed, false, successfullySentFiles, errors
-        );
+        getEventLogProvider(recorderId).getEventLogSystemLogger$intellij_platform_statistics()
+          .logFilesSend(totalLocalFiles, success, failed, false, successfullySentFiles, errors);
       }
     };
 

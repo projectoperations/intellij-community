@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xml.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -45,7 +45,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public abstract class DomInvocationHandler extends UserDataHolderBase implements InvocationHandler, DomElement {
+public abstract class DomInvocationHandler extends UserDataHolderBase implements DomElement {
   private static final Logger LOG = Logger.getInstance(DomInvocationHandler.class);
   public static final Method ACCEPT_METHOD = ReflectionUtil.getMethod(DomElement.class, "accept", DomElementVisitor.class);
   public static final Method ACCEPT_CHILDREN_METHOD = ReflectionUtil.getMethod(DomElement.class, "acceptChildren", DomElementVisitor.class);
@@ -61,7 +61,7 @@ public abstract class DomInvocationHandler extends UserDataHolderBase implements
   private volatile DomElement myProxy;
   private DomGenericInfoEx myGenericInfo;
   private final InvocationCache myInvocationCache;
-  private volatile Converter myScalarConverter = null;
+  private volatile Converter<?> myScalarConverter = null;
   private volatile SmartFMap<Method, Invocation> myAccessorInvocations = SmartFMap.emptyMap();
   protected @Nullable DomStub myStub;
 
@@ -413,22 +413,22 @@ public abstract class DomInvocationHandler extends UserDataHolderBase implements
     }
   }
 
-  protected final @NotNull Converter getScalarConverter() {
-    Converter converter = myScalarConverter;
+  protected final @NotNull Converter<?> getScalarConverter() {
+    Converter<?> converter = myScalarConverter;
     if (converter == null) {
       myScalarConverter = converter = createConverter(ourGetValue);
     }
     return converter;
   }
 
-  private @NotNull Converter createConverter(final JavaMethod method) {
+  private @NotNull Converter<?> createConverter(final JavaMethod method) {
     final Type returnType = method.getGenericReturnType();
     final Type type = returnType == void.class ? method.getGenericParameterTypes()[0] : returnType;
     final Class parameter = DomUtil.substituteGenericType(type, myType);
     if (parameter == null) {
       LOG.error(type + " " + myType);
     }
-    Converter converter = getConverter(new AnnotatedElement() {
+    Converter<?> converter = getConverter(new AnnotatedElement() {
       @Override
       public <T extends Annotation> T getAnnotation(Class<T> annotationClass) {
         return myInvocationCache.getMethodAnnotation(method, annotationClass);
@@ -466,8 +466,7 @@ public abstract class DomInvocationHandler extends UserDataHolderBase implements
     return myInvocationCache.getClassAnnotation(annotationClass);
   }
 
-  private @Nullable Converter getConverter(final AnnotatedElement annotationProvider,
-                                           Class parameter) {
+  private @Nullable Converter getConverter(final AnnotatedElement annotationProvider, Class parameter) {
     final Resolve resolveAnnotation = annotationProvider.getAnnotation(Resolve.class);
     if (resolveAnnotation != null) {
       final Class<? extends DomElement> aClass = resolveAnnotation.value();
@@ -482,8 +481,8 @@ public abstract class DomInvocationHandler extends UserDataHolderBase implements
     final ConverterManager converterManager = myManager.getConverterManager();
     Convert convertAnnotation = annotationProvider.getAnnotation(Convert.class);
     if (convertAnnotation != null) {
-      if (convertAnnotation instanceof ConvertAnnotationImpl) {
-        return ((ConvertAnnotationImpl)convertAnnotation).getConverter();
+      if (convertAnnotation instanceof ConvertAnnotationImpl annotation) {
+        return annotation.getConverter();
       }
       return converterManager.getConverterInstance(convertAnnotation.value());
     }
@@ -501,7 +500,7 @@ public abstract class DomInvocationHandler extends UserDataHolderBase implements
         //noinspection unchecked
         implementation = (Class<? extends DomElement>)rawType;
       }
-      myProxy = proxy = AdvancedProxy.createProxy(this, implementation, isInterface ? new Class[]{rawType} : ArrayUtil.EMPTY_CLASS_ARRAY);
+      myProxy = proxy = AdvancedProxy.createProxy(invocationHandler, implementation, isInterface ? new Class[]{rawType} : ArrayUtil.EMPTY_CLASS_ARRAY);
     }
     return proxy;
   }
@@ -627,15 +626,7 @@ public abstract class DomInvocationHandler extends UserDataHolderBase implements
     return new AttributeChildInvocationHandler(evaluatedXmlName, description, myManager, new VirtualDomParentStrategy(this), null);
   }
 
-  @Override
-  public final @Nullable Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-    try {
-      return findInvocation(method).invoke(this, args);
-    }
-    catch (InvocationTargetException ex) {
-      throw ex.getTargetException();
-    }
-  }
+  private final InvocationHandler invocationHandler = new MyInvocationHandler();
 
   private @NotNull Invocation findInvocation(Method method) {
     Invocation invocation = myAccessorInvocations.get(method);
@@ -861,6 +852,22 @@ public abstract class DomInvocationHandler extends UserDataHolderBase implements
 
   public int hashCode() {
     return myChildDescription.hashCode();
+  }
+
+  final class MyInvocationHandler implements InvocationHandler {
+    DomInvocationHandler getDomInvocationHandler() {
+      return DomInvocationHandler.this;
+    }
+
+    @Override
+    public @Nullable Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+      try {
+        return findInvocation(method).invoke(DomInvocationHandler.this, args);
+      }
+      catch (InvocationTargetException ex) {
+        throw ex.getTargetException();
+      }
+    }
   }
 }
 

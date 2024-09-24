@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.siyeh.ig.dataflow;
 
 import com.intellij.modcommand.ActionContext;
@@ -26,8 +26,15 @@ import java.util.Objects;
 
 public final class CreateNullBranchFix extends BaseSwitchFix {
 
+  private final boolean myStartTemplate;
+
   public CreateNullBranchFix(@NotNull PsiSwitchBlock block) {
+    this(block, true);
+  }
+
+  public CreateNullBranchFix(@NotNull PsiSwitchBlock block, boolean startTemplate) {
     super(block);
+    myStartTemplate = startTemplate;
   }
 
   @Override
@@ -61,11 +68,12 @@ public final class CreateNullBranchFix extends BaseSwitchFix {
       .stream()
       .map(text -> factory.createStatementFromText(text, body))
       .forEach(statement -> body.addBefore(statement, anchor));
-    CreateDefaultBranchFix.startTemplateOnStatement(PsiTreeUtil.getPrevSiblingOfType(anchor, PsiStatement.class), updater);
+    if (myStartTemplate) {
+      CreateDefaultBranchFix.startTemplateOnStatement(PsiTreeUtil.getPrevSiblingOfType(anchor, PsiStatement.class), updater);
+    }
   }
 
-  @Nullable
-  private static PsiElement findUnconditionalLabel(@NotNull PsiSwitchBlock switchBlock) {
+  private static @Nullable PsiElement findUnconditionalLabel(@NotNull PsiSwitchBlock switchBlock) {
     PsiCodeBlock body = switchBlock.getBody();
     if (body == null) return null;
     return ContainerUtil.find(body.getStatements(),

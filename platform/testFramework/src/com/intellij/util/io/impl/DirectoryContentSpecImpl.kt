@@ -2,8 +2,9 @@
 package com.intellij.util.io.impl
 
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.CharsetToolkit
-import com.intellij.rt.execution.junit.FileComparisonFailure
+import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.util.io.*
 import org.junit.Assert.assertEquals
 import org.junit.ComparisonFailure
@@ -235,8 +236,14 @@ private fun assertDirectoryContentMatches(file: Path,
               val specFilePath = spec.originalFile?.toFile()?.absolutePath
               val (expected, actual) = if (expectedDataIsInSpec) specString to fileString else fileString to specString
               val (expectedPath, actualPath) = if (expectedDataIsInSpec) specFilePath to null else null to specFilePath
+              val message = if (StringUtil.convertLineSeparators(fileString) != StringUtil.convertLineSeparators(specString)) {
+                "File content mismatch$place:"
+              }
+              else {
+                "Different line separators$place, expected ${StringUtil.detectSeparators(specString)}, but ${StringUtil.detectSeparators(fileString)} found:"
+              }
               errorReporter.reportError(relativePath,
-                                        FileComparisonFailure("File content mismatch$place:", expected, actual, expectedPath, actualPath))
+                                        FileComparisonFailedError(message, expected, actual, expectedPath, actualPath))
             }
           }
           else {

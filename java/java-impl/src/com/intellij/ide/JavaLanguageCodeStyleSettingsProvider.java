@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide;
 
 import com.intellij.application.options.*;
@@ -28,9 +28,8 @@ import static com.intellij.application.options.JavaDocFormattingPanel.*;
 import static com.intellij.psi.codeStyle.CodeStyleSettingsCustomizableOptions.getInstance;
 
 public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeStyleSettingsProvider {
-  @NotNull
   @Override
-  public CodeStyleConfigurable createConfigurable(@NotNull CodeStyleSettings settings, @NotNull CodeStyleSettings modelSettings) {
+  public @NotNull CodeStyleConfigurable createConfigurable(@NotNull CodeStyleSettings settings, @NotNull CodeStyleSettings modelSettings) {
     return new CodeStyleAbstractConfigurable(settings, modelSettings, JavaLanguage.INSTANCE.getDisplayName()) {
       @Override
       protected @NotNull CodeStyleAbstractPanel createPanel(final @NotNull CodeStyleSettings settings) {
@@ -43,15 +42,13 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
     };
   }
 
-  @Nullable
   @Override
-  public CustomCodeStyleSettings createCustomSettings(@NotNull CodeStyleSettings settings) {
+  public @Nullable CustomCodeStyleSettings createCustomSettings(@NotNull CodeStyleSettings settings) {
     return new JavaCodeStyleSettings(settings);
   }
 
-  @NotNull
   @Override
-  public Language getLanguage() {
+  public @NotNull Language getLanguage() {
     return JavaLanguage.INSTANCE;
   }
 
@@ -82,6 +79,8 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
                                 JavaBundle.message("checkbox.spaces.record.header"), getInstance().SPACES_WITHIN);
       consumer.showCustomOption(JavaCodeStyleSettings.class, "SPACE_WITHIN_DECONSTRUCTION_LIST",
                                 JavaBundle.message("checkbox.spaces.within.deconstruction.list"), getInstance().SPACES_WITHIN);
+      consumer.showCustomOption(JavaCodeStyleSettings.class, "SPACES_INSIDE_BLOCK_BRACES_WHEN_BODY_IS_PRESENT",
+                                JavaBundle.message("checkbox.spaces.inside.block.braces.when.body.is.present"), getInstance().SPACES_WITHIN);
 
       String groupName = getInstance().SPACES_IN_TYPE_ARGUMENTS;
       consumer.moveStandardOption("SPACE_AFTER_COMMA_IN_TYPE_ARGUMENTS", groupName);
@@ -99,6 +98,7 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
         "checkbox.spaces.before.colon.in.foreach"), groupName);
       consumer.showCustomOption(JavaCodeStyleSettings.class, "SPACE_INSIDE_ONE_LINE_ENUM_BRACES", JavaBundle.message(
         "checkbox.spaces.inside.one.line.enum"), groupName);
+
 
       consumer.showCustomOption(JavaCodeStyleSettings.class, "SPACE_BEFORE_DECONSTRUCTION_LIST", JavaBundle.message(
         "checkbox.spaces.before.deconstruction.list"), getInstance().SPACES_BEFORE_PARENTHESES);
@@ -305,9 +305,30 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
       consumer.showCustomOption(JavaCodeStyleSettings.class, "BLANK_LINES_AROUND_INITIALIZER",
                                 JavaBundle.message("editbox.blanklines.around.initializer"),
                                 getInstance().BLANK_LINES);
+
+      consumer.renameStandardOption(
+        "BLANK_LINES_AROUND_FIELD_IN_INTERFACE",
+        JavaBundle.message("editbox.blank.lines.field.in.interface"));
+
+      consumer.renameStandardOption(
+        "BLANK_LINES_AROUND_FIELD",
+        JavaBundle.message("editbox.blank.lines.field.without.annotations"));
+
+      consumer.showCustomOption(JavaCodeStyleSettings.class,
+                                "BLANK_LINES_AROUND_FIELD_WITH_ANNOTATIONS",
+                                JavaBundle.message("editbox.blank.lines.field.with.annotations"),
+                                getInstance().BLANK_LINES,
+                                OptionAnchor.AFTER,
+                                "BLANK_LINES_AROUND_FIELD");
     }
     else if (settingsType == SettingsType.COMMENTER_SETTINGS) {
-      consumer.showAllStandardOptions();
+      consumer.showStandardOptions(
+        "LINE_COMMENT_ADD_SPACE",
+        "LINE_COMMENT_ADD_SPACE_ON_REFORMAT",
+        "LINE_COMMENT_AT_FIRST_COLUMN",
+        "BLOCK_COMMENT_AT_FIRST_COLUMN",
+        "BLOCK_COMMENT_ADD_SPACE"
+      );
     }
     else if (settingsType == SettingsType.LANGUAGE_SPECIFIC) {
       consumer.showCustomOption(JavaCodeStyleSettings.class, "JD_ALIGN_PARAM_COMMENTS",
@@ -390,8 +411,7 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
 
 
   @Override
-  @NotNull
-  public DocCommentSettings getDocCommentSettings(@NotNull CodeStyleSettings rootSettings) {
+  public @NotNull DocCommentSettings getDocCommentSettings(@NotNull CodeStyleSettings rootSettings) {
     return new DocCommentSettings() {
       private final JavaCodeStyleSettings mySettings =
         rootSettings.getCustomSettings(JavaCodeStyleSettings.class);
@@ -426,9 +446,8 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
 
   }
 
-  @Nullable
   @Override
-  public CodeStyleFieldAccessor getAccessor(@NotNull Object codeStyleObject, @NotNull Field field) {
+  public @Nullable CodeStyleFieldAccessor getAccessor(@NotNull Object codeStyleObject, @NotNull Field field) {
     if (PackageEntryTable.class.isAssignableFrom(field.getType())) {
       return new JavaPackageEntryTableAccessor(codeStyleObject, field);
     }
@@ -458,8 +477,7 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
     }
 
     @Override
-    @Nullable
-    public List<String> get() {
+    public @Nullable List<String> get() {
       return mySettings.getRepeatAnnotations();
     }
 
@@ -468,9 +486,8 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
       return CodeStylePropertiesUtil.getValueList(string);
     }
 
-    @Nullable
     @Override
-    protected String valueToString(@NotNull List<String> value) {
+    protected @Nullable String valueToString(@NotNull List<String> value) {
       return CodeStylePropertiesUtil.toCommaSeparatedString(value);
     }
 
@@ -550,6 +567,8 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
 
       import javax.swing.*;
       import java.util.Vector;
+      import org.jetbrains.annotations.NotNull;
+      import org.jetbrains.annotations.Nullable;
 
       public class Foo {
         private int field1;
@@ -571,6 +590,18 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
       }
       class AnotherClass {
       }
+      
+      public class ClassWithAnnotatedFields {
+          @NotNull
+          public Boolean publicAnnotatedField = true;
+          public Boolean publicNonAnnotatedField = true;
+          @NotNull Boolean typeAnnotatedField = false;
+          @NotNull
+          private Boolean firstPrivateAnnotatedField = true;
+          @NotNull
+          private Boolean secondPrivateAnnotatedField = true;
+      }
+      
       interface TestInterface {
           int MAX = 10;
           int MIN = 1;
@@ -631,7 +662,26 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
           }
       }
       interface Abba {}
-      record Rec(String s, int i) {}""";
+      record Rec(String s, int i) {}
+      
+      class SimpleClass {
+        class EmptyClass{}
+      
+        void emptyMethod() {}
+      
+        void complexMethodWithEmptyCodeBlocks() {
+            try {} catch (Exception e) {}
+            Runnable r = () -> {};
+        }
+      
+        void oneLineMethod() {int x = 10;}
+      
+        void complexMethodWithOneLineCodeBlocks() {
+            try {int x = 10;} catch (Exception e) {int y = 10;}
+      
+            Runnable r = () -> {int z = 30;};
+        }
+      }""";
 
   @SuppressWarnings({"UnusedLabel", "InnerClassMayBeStatic"})
   @org.intellij.lang.annotations.Language("JAVA") private static final String WRAPPING_CODE_SAMPLE =

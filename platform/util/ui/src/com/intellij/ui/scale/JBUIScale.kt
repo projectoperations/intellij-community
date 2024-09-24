@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("LiftReturnOrAssignment")
 
 package com.intellij.ui.scale
@@ -20,24 +20,27 @@ import java.awt.geom.AffineTransform
 import java.awt.geom.Point2D
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
+import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Supplier
 import javax.swing.UIDefaults
 import javax.swing.UIManager
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+private const val DISCRETE_SCALE_RESOLUTION = 0.25f
+private const val USER_SCALE_FACTOR_PROPERTY = "JBUIScale.userScaleFactor"
+private val SYS_SCALE_ACCESS_STACK_TRACE = AtomicReference<Throwable>()
+
 object JBUIScale {
   @JvmField
   @Internal
   val SCALE_VERBOSE: Boolean = java.lang.Boolean.getBoolean("ide.ui.scale.verbose")
 
-  private const val USER_SCALE_FACTOR_PROPERTY = "JBUIScale.userScaleFactor"
-
   /**
    * The user scale factor, see [ScaleType.USR_SCALE].
    */
   private val userScaleFactor: SynchronizedClearableLazy<Float> = SynchronizedClearableLazy {
-    DEBUG_USER_SCALE_FACTOR.value ?: computeUserScaleFactor(if (JreHiDpiUtil.isJreHiDPIEnabled()) 1f else systemScaleFactor.value)
+    computeUserScaleFactor()
   }
 
   internal val userScale: Float
@@ -46,8 +49,10 @@ object JBUIScale {
   @Internal
   suspend fun preload(uiDefaults: Supplier<UIDefaults?>) {
     if (systemScaleFactor.isInitialized()) {
-      thisLogger().error("Must be not computed before that call")
+      thisLogger().error(Throwable("Must be not computed before that call", SYS_SCALE_ACCESS_STACK_TRACE.get()))
     }
+
+    JreHiDpiUtil.preload()
 
     val coroutineTracerShim = CoroutineTracerShim.coroutineTracer
     coroutineTracerShim.span("system scale factor computation") {
@@ -65,8 +70,9 @@ object JBUIScale {
   @Internal
   suspend fun preloadOnMac() {
     if (systemScaleFactor.isInitialized()) {
-      thisLogger().error("Must be not computed before that call")
+      thisLogger().error(Throwable("Must be not computed before that call", SYS_SCALE_ACCESS_STACK_TRACE.get()))
     }
+    JreHiDpiUtil.preload()
 
     val coroutineTracerShim = CoroutineTracerShim.coroutineTracer
     coroutineTracerShim.span("system scale factor computation") {
@@ -80,16 +86,17 @@ object JBUIScale {
     systemFontData.value = computeSystemFontDataForMacOs()
   }
 
+  @Internal
   fun drop() {
     systemScaleFactor.drop()
   }
 
   private val systemScaleFactor: SynchronizedClearableLazy<Float> = SynchronizedClearableLazy {
+    SYS_SCALE_ACCESS_STACK_TRACE.compareAndSet(null, Throwable("systemScaleFactor is first accessed here"))
     computeSystemScaleFactor(uiDefaults = null)
   }
 
   private val PROPERTY_CHANGE_SUPPORT = PropertyChangeSupport(JBUIScale)
-  private const val DISCRETE_SCALE_RESOLUTION = 0.25f
 
   @JvmField
   var DEF_SYSTEM_FONT_SIZE: Float = 12f
@@ -151,7 +158,7 @@ object JBUIScale {
       }
       else if (!SystemInfo.isJetBrainsJvm) {
         // With Oracle JDK: derive a scale from X server DPI, do not change DEF_SYSTEM_FONT_SIZE
-        val size = DEF_SYSTEM_FONT_SIZE * screenScale
+        val size = DEF_SYSTEM_FONT_SIZE * getScreenScale()
         font = font.deriveFont(size)
         log?.info(String.format("(Not-JB JRE) reset font size: %.2f", size))
       }
@@ -200,35 +207,26 @@ object JBUIScale {
 
   @VisibleForTesting
   fun computeSystemScaleFactor(uiDefaults: Supplier<UIDefaults?>?): Float {
-    if (!java.lang.Boolean.parseBoolean(System.getProperty("hidpi", "true"))) {
-      return 1f
+    val mode: String
+    val result = if (!java.lang.Boolean.parseBoolean(System.getProperty("hidpi", "true"))) {
+      mode = "non-HiDPI"
+      1f
     }
-
-    if (JreHiDpiUtil.isJreHiDPIEnabled()) {
-      return computeSystemScaleFactorForJreHiDPI()
+    else if (JreHiDpiUtil.isJreHiDPIEnabled()) {
+      mode = "JRE-managed HiDPI"
+      computeSystemScaleFactorForJreHiDPI()
     }
     else {
+      mode = "IDE-managed HiDPI"
       // we have init tests in a non-headless mode, but we cannot use here ApplicationManager
       if (uiDefaults == null && !LoadingState.APP_STARTED.isOccurred && !GraphicsEnvironment.isHeadless()) {
         thisLogger().error("Must be precomputed")
       }
 
-      val result = getFontScale(getSystemFontData(uiDefaults).second.toFloat())
-      thisLogger().info("System scale factor: $result (${if (JreHiDpiUtil.isJreHiDPIEnabled()) "JRE" else "IDE"}-managed HiDPI)")
-      return result
+      getFontScale(getSystemFontData(uiDefaults).second.toFloat())
     }
-  }
-
-  private fun computeSystemScaleFactorForJreHiDPI(): Float {
-    val gd = try {
-      GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice
-    }
-    catch (ignore: HeadlessException) {
-      null
-    }
-
-    val gc = gd?.defaultConfiguration
-    return if (gc == null || gc.device.type == GraphicsDevice.TYPE_PRINTER) 1f else gc.defaultTransform.scaleX.toFloat()
+    thisLogger().info("System scale factor: $result ($mode)")
+    return result
   }
 
   @TestOnly
@@ -250,7 +248,7 @@ object JBUIScale {
     }
 
     userScaleFactor.value = value
-    thisLogger().info("User scale factor: $value")
+    thisLogger().info("Set user scale factor: $value")
     PROPERTY_CHANGE_SUPPORT.firePropertyChange(USER_SCALE_FACTOR_PROPERTY, oldValue, value)
   }
 
@@ -258,9 +256,7 @@ object JBUIScale {
    * @return the scale factor of `fontSize` relative to the standard font size (currently 12pt)
    */
   @JvmStatic
-  fun getFontScale(fontSize: Float): Float {
-    return fontSize / DEF_SYSTEM_FONT_SIZE
-  }
+  fun getFontScale(fontSize: Float): Float = fontSize / DEF_SYSTEM_FONT_SIZE
 
   /**
    * Sets the user scale factor.
@@ -293,6 +289,28 @@ object JBUIScale {
     return scale
   }
 
+  private fun computeUserScaleFactor(): Float {
+    val debugValue = DEBUG_USER_SCALE_FACTOR.value
+    val origin: String
+    val result = if (debugValue != null) {
+      origin = "set by the 'ide.ui.scale' JVM property"
+      debugValue
+    }
+    else {
+      val sysScale = if (JreHiDpiUtil.isJreHiDPIEnabled()) {
+        origin = "JRE-managed HiDPI"
+        1f
+      }
+      else {
+        origin = "IDE-managed HiDPI"
+        systemScaleFactor.value
+      }
+      computeUserScaleFactor(sysScale)
+    }
+    thisLogger().info("Computed user scale factor: $result ($origin)")
+    return result
+  }
+
   private fun computeUserScaleFactor(value: Float): Float {
     var scale = value
     if (!java.lang.Boolean.parseBoolean(System.getProperty("hidpi", "true"))) {
@@ -303,8 +321,7 @@ object JBUIScale {
 
     // downgrading user scale below 1.0 may be uncomfortable (tiny icons),
     // whereas some users prefer font size slightly below normal, which is ok
-    if (Registry.`is`("ide.scale.below.100.only.fonts", false)
-        && scale < 1 && systemScaleFactor.value >= 1) {
+    if (Registry.`is`("ide.scale.below.100.only.fonts", false) && scale < 1 && systemScaleFactor.value >= 1) {
       scale = 1f
     }
 
@@ -316,13 +333,6 @@ object JBUIScale {
     else {
       return scale
     }
-  }
-
-  private fun discreteScale(scale: Float): Float {
-    return (scale / DISCRETE_SCALE_RESOLUTION).let {
-      if (Registry.`is`("ide.scale.discrete.take.floor", false)) it.toInt()
-      else it.roundToInt()
-    } * DISCRETE_SCALE_RESOLUTION
   }
 
   /**
@@ -405,17 +415,7 @@ object JBUIScale {
     }.toInt()
   }
 
-  private val screenScale: Float
-    get() {
-      val dpi = try {
-        Toolkit.getDefaultToolkit().screenResolution
-      }
-      catch (ignored: HeadlessException) {
-        96
-      }
-      return discreteScale(dpi / 96f)
-    }
-
+  @Internal
   @JvmStatic
   fun getSystemFontData(uiDefaults: Supplier<UIDefaults?>?): Pair<String?, Int> {
     if (uiDefaults == null) {
@@ -428,7 +428,6 @@ object JBUIScale {
     return computeSystemFontData(uiDefaults).also { systemFontData.value = it }
   }
 
-  @JvmStatic
   fun getSystemFontDataIfInitialized(): Pair<String?, Int>? = systemFontData.valueIfInitialized
 
   /**
@@ -450,19 +449,6 @@ object JBUIScale {
     else {
       return gc.defaultTransform.scaleX.toFloat()
     }
-  }
-
-  /**
-   * Get a scale for an arbitrary affine transform.
-   * This should not be necessary for [GraphicsConfiguration.getDefaultTransform], as it is expected to be a translation/uniform scale only.
-   *
-   * See javadoc [AffineTransform.getScaleX], it will return an arbitrary number (inc. negative ones)
-   * after [AffineTransform.rotate] or `AffineTransform.scale(-1, 1)` transforms.
-   */
-  private fun getTransformScaleX(transform: AffineTransform): Float {
-    val p = Point2D.Double(1.0, 0.0)
-    transform.deltaTransform(p, p)
-    return p.distance(0.0, 0.0).toFloat()
   }
 
   @JvmStatic
@@ -488,4 +474,46 @@ object JBUIScale {
   @JvmStatic
   val isUsrHiDPI: Boolean
     get() = isHiDPI(scale(1f))
+}
+
+private fun discreteScale(scale: Float): Float {
+  return (scale / DISCRETE_SCALE_RESOLUTION).let {
+    if (Registry.`is`("ide.scale.discrete.take.floor", false)) it.toInt()
+    else it.roundToInt()
+  } * DISCRETE_SCALE_RESOLUTION
+}
+
+private fun getScreenScale(): Float {
+  val dpi = try {
+    Toolkit.getDefaultToolkit().screenResolution
+  }
+  catch (ignored: HeadlessException) {
+    96
+  }
+  return discreteScale(dpi / 96f)
+}
+
+/**
+ * Get a scale for an arbitrary affine transform.
+ * This should not be necessary for [GraphicsConfiguration.getDefaultTransform], as it is expected to be a translation/uniform scale only.
+ *
+ * See javadoc [AffineTransform.getScaleX], it will return an arbitrary number (inc. negative ones)
+ * after [AffineTransform.rotate] or `AffineTransform.scale(-1, 1)` transforms.
+ */
+internal fun getTransformScaleX(transform: AffineTransform): Float {
+  val p = Point2D.Double(1.0, 0.0)
+  transform.deltaTransform(p, p)
+  return p.distance(0.0, 0.0).toFloat()
+}
+
+private fun computeSystemScaleFactorForJreHiDPI(): Float {
+  val gd = try {
+    GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice
+  }
+  catch (ignore: HeadlessException) {
+    null
+  }
+
+  val gc = gd?.defaultConfiguration
+  return if (gc == null || gc.device.type == GraphicsDevice.TYPE_PRINTER) 1f else gc.defaultTransform.scaleX.toFloat()
 }

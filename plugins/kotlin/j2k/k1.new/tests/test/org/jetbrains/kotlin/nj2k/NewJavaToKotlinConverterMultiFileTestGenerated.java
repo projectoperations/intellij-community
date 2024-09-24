@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.nj2k;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -19,6 +20,12 @@ import org.junit.runner.RunWith;
 @RunWith(JUnit3RunnerWithInners.class)
 @TestMetadata("../../shared/tests/testData/multiFile")
 public class NewJavaToKotlinConverterMultiFileTestGenerated extends AbstractNewJavaToKotlinConverterMultiFileTest {
+    @java.lang.Override
+    @org.jetbrains.annotations.NotNull
+    public final KotlinPluginMode getPluginMode() {
+        return KotlinPluginMode.K1;
+    }
+
     private void runTest(String testDataFilePath) throws Exception {
         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
@@ -28,19 +35,9 @@ public class NewJavaToKotlinConverterMultiFileTestGenerated extends AbstractNewJ
         runTest("../../shared/tests/testData/multiFile/AnnotationDoesNotLoseImport/");
     }
 
-    @TestMetadata("AnnotationWithArrayParameter")
-    public void testAnnotationWithArrayParameter() throws Exception {
-        runTest("../../shared/tests/testData/multiFile/AnnotationWithArrayParameter/");
-    }
-
     @TestMetadata("DetectPropertiesMultipleFiles")
     public void testDetectPropertiesMultipleFiles() throws Exception {
         runTest("../../shared/tests/testData/multiFile/DetectPropertiesMultipleFiles/");
-    }
-
-    @TestMetadata("EnumValues")
-    public void testEnumValues() throws Exception {
-        runTest("../../shared/tests/testData/multiFile/EnumValues/");
     }
 
     @TestMetadata("FieldToPrimaryConstructorProperty")
@@ -51,11 +48,6 @@ public class NewJavaToKotlinConverterMultiFileTestGenerated extends AbstractNewJ
     @TestMetadata("FieldToProperty")
     public void testFieldToProperty() throws Exception {
         runTest("../../shared/tests/testData/multiFile/FieldToProperty/");
-    }
-
-    @TestMetadata("FunctionalInterfaceAcceptor")
-    public void testFunctionalInterfaceAcceptor() throws Exception {
-        runTest("../../shared/tests/testData/multiFile/FunctionalInterfaceAcceptor/");
     }
 
     @TestMetadata("GetterAndSetterUsages")
@@ -86,16 +78,6 @@ public class NewJavaToKotlinConverterMultiFileTestGenerated extends AbstractNewJ
     @TestMetadata("KT11952")
     public void testKT11952() throws Exception {
         runTest("../../shared/tests/testData/multiFile/KT11952/");
-    }
-
-    @TestMetadata("NoDestructuringForPlainVariables")
-    public void testNoDestructuringForPlainVariables() throws Exception {
-        runTest("../../shared/tests/testData/multiFile/NoDestructuringForPlainVariables/");
-    }
-
-    @TestMetadata("NullabilityByDFa")
-    public void testNullabilityByDFa() throws Exception {
-        runTest("../../shared/tests/testData/multiFile/NullabilityByDFa/");
     }
 
     @TestMetadata("OverrideFieldToPrimaryConstructorProperty")

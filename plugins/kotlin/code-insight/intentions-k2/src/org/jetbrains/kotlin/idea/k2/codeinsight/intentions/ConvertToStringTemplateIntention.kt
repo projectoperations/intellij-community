@@ -2,21 +2,21 @@
 
 package org.jetbrains.kotlin.idea.k2.codeinsight.intentions
 
+import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.psi.SmartPsiElementPointer
-import com.intellij.refactoring.suggested.createSmartPointer
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import com.intellij.psi.createSmartPointer
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
-import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.AbstractKotlinModCommandWithContext
-import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.AnalysisActionContext
-import org.jetbrains.kotlin.idea.codeinsight.api.applicators.KotlinApplicabilityRange
-import org.jetbrains.kotlin.idea.codeinsights.impl.base.applicators.ApplicabilityRanges
+import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.buildStringTemplateForBinaryExpression
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.containNoNewLine
+import org.jetbrains.kotlin.idea.codeinsights.impl.base.containsPrefixedStringOperands
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.isFirstStringPlusExpressionWithoutNewLineInOperands
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
+import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 
 /**
@@ -25,26 +25,17 @@ import org.jetbrains.kotlin.psi.KtStringTemplateExpression
  * Example: "a" + 1 + 'b' + foo + 2.3f + bar -> "a1b${foo}2.3f{bar}"
  */
 internal class ConvertToStringTemplateIntention :
-    AbstractKotlinModCommandWithContext<KtBinaryExpression, ConvertToStringTemplateIntention.Context>(
-        KtBinaryExpression::class
-    ) {
+    KotlinApplicableModCommandAction<KtBinaryExpression, ConvertToStringTemplateIntention.Context>(KtBinaryExpression::class) {
 
-    class Context(val replacement: SmartPsiElementPointer<KtStringTemplateExpression>)
+    data class Context(
+        val replacement: SmartPsiElementPointer<KtStringTemplateExpression>,
+    )
 
     override fun getFamilyName(): String = KotlinBundle.message("convert.concatenation.to.template")
 
-    override fun getActionName(element: KtBinaryExpression, context: Context): String = familyName
-
-    override fun getApplicabilityRange(): KotlinApplicabilityRange<KtBinaryExpression> = ApplicabilityRanges.SELF
-
-    override fun apply(element: KtBinaryExpression, context: AnalysisActionContext<Context>, updater: ModPsiUpdater) {
-        context.analyzeContext.replacement.element?.let { element.replaced(updater.getWritable(it)) }
-    }
-
-    context(KtAnalysisSession)
-    override fun isApplicableByAnalyze(element: KtBinaryExpression): Boolean {
-        return isFirstStringPlusExpressionWithoutNewLineInOperands(element)
-    }
+    override fun isApplicableByPsi(element: KtBinaryExpression): Boolean =
+        element.operationToken == KtTokens.PLUS && element.containNoNewLine()
+                && !element.left.isUnsupportedStringTemplate() && !element.right.isUnsupportedStringTemplate()
 
     /**
      * [element] is applicable for this intention if
@@ -54,12 +45,22 @@ internal class ConvertToStringTemplateIntention :
      *     e.g., for "a" + 'b' + "c", we do not want to visit both 'b' + "c" and "a" + 'b' + "c" since 'b' + "c" will be handled
      *     in "a" + 'b' + "c".
      */
-    context(KtAnalysisSession)
-    override fun prepareContext(element: KtBinaryExpression): Context? {
-        if (!isFirstStringPlusExpressionWithoutNewLineInOperands(element)) return null
-        return Context(buildStringTemplateForBinaryExpression(element).createSmartPointer())
+    context(KaSession)
+    override fun prepareContext(element: KtBinaryExpression): Context? =
+        if (isFirstStringPlusExpressionWithoutNewLineInOperands(element) && !element.containsPrefixedStringOperands())
+            Context(buildStringTemplateForBinaryExpression(element).createSmartPointer())
+        else
+            null
+
+    override fun invoke(
+      actionContext: ActionContext,
+      element: KtBinaryExpression,
+      elementContext: Context,
+      updater: ModPsiUpdater,
+    ) {
+        elementContext.replacement.element?.let { element.replaced(updater.getWritable(it)) }
     }
 
-    override fun isApplicableByPsi(element: KtBinaryExpression): Boolean =
-        element.operationToken == KtTokens.PLUS && element.containNoNewLine()
+    private fun KtExpression?.isUnsupportedStringTemplate(): Boolean =
+        this is KtStringTemplateExpression && interpolationPrefix != null
 }

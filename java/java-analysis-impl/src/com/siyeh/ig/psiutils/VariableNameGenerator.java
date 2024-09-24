@@ -5,6 +5,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
 import com.intellij.psi.codeStyle.VariableKind;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -17,10 +18,12 @@ import java.util.*;
  * It's recommended to have at least one {@link #byName(String...)} call with at least one non-null candidate as the last resort.
  */
 public final class VariableNameGenerator {
+
   private final @NotNull JavaCodeStyleManager myManager;
   private final @NotNull PsiElement myContext;
   private final @NotNull VariableKind myKind;
   private final @NonNls Set<String> candidates = new LinkedHashSet<>();
+  private final @NonNls Set<String> skipNames = new HashSet<>();
 
   /**
    * Constructs a new generator
@@ -38,6 +41,7 @@ public final class VariableNameGenerator {
    * @param type type of newly generated variable
    * @return this generator
    */
+  @Contract("_ -> this")
   public VariableNameGenerator byType(@Nullable PsiType type) {
     if (type != null) {
       SuggestedNameInfo info = myManager.suggestVariableName(myKind, null, null, type, true);
@@ -55,6 +59,7 @@ public final class VariableNameGenerator {
    * @param expression expression which value will be stored to the new variable
    * @return this generator
    */
+  @Contract("_ -> this")
   public VariableNameGenerator byExpression(@Nullable PsiExpression expression) {
     if (expression != null) {
       SuggestedNameInfo info = myManager.suggestVariableName(myKind, null, expression, null, true);
@@ -68,6 +73,7 @@ public final class VariableNameGenerator {
    * @param name of the collection/array which element is represented by newly generated variable
    * @return this generator
    */
+  @Contract("_ -> this")
   public VariableNameGenerator byCollectionName(@Nullable String name) {
     if (name != null) {
       PsiExpression expr = JavaPsiFacade.getElementFactory(myContext.getProject()).createExpressionFromText(name + "[0]", myContext);
@@ -81,6 +87,7 @@ public final class VariableNameGenerator {
    * @param names base names which could be used to generate variable name
    * @return this generator
    */
+  @Contract("_ -> this")
   public VariableNameGenerator byName(@NonNls String... names) {
     for (String name : names) {
       if (name != null) {
@@ -88,6 +95,16 @@ public final class VariableNameGenerator {
         candidates.addAll(Arrays.asList(info.names));
       }
     }
+    return this;
+  }
+
+  /**
+   * @param names which generator will not use
+   * @return this generator
+   */
+  @Contract("_->this")
+  public VariableNameGenerator skipNames(@NotNull Collection<@NotNull String> names) {
+    skipNames.addAll(names);
     return this;
   }
 
@@ -101,7 +118,7 @@ public final class VariableNameGenerator {
     String suffixed = null;
     @NonNls final Set<String> candidates = this.candidates.isEmpty() ? Collections.singleton("v") : this.candidates;
     for (String candidate : candidates) {
-      String name = myManager.suggestUniqueVariableName(candidate, myContext, lookForward);
+      String name = myManager.suggestUniqueVariableName(candidate, myContext, lookForward, skipNames);
       if (name.equals(candidate)) return name;
       if (suffixed == null) {
         suffixed = name;
@@ -120,12 +137,13 @@ public final class VariableNameGenerator {
       if (myContext instanceof PsiNameIdentifierOwner owner && candidate.equals(owner.getName())) {
         name = candidate;
       } else {
-        name = myManager.suggestUniqueVariableName(candidate, myContext, lookForward);
+        name = myManager.suggestUniqueVariableName(candidate, myContext, lookForward, skipNames);
       }
       if (name.equals(candidate)) result.add(name);
       else suffixed.add(name);
     }
     result.addAll(suffixed);
+
     return result;
   }
 }

@@ -7,7 +7,7 @@ import com.intellij.codeInsight.template.impl.MacroCallNode
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplateProvider
 import com.intellij.codeInsight.template.postfix.templates.StringBasedPostfixTemplate
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.components.DefaultTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.*
 import org.jetbrains.kotlin.idea.liveTemplates.k2.macro.SymbolBasedSuggestVariableNameMacro
@@ -15,7 +15,6 @@ import org.jetbrains.kotlin.name.ClassId
 
 internal class KotlinForPostfixTemplate(provider: KotlinPostfixTemplateProvider) : AbstractKotlinForPostfixTemplate("for", provider)
 
-@Suppress("SpellCheckingInspection")
 internal class KotlinIterPostfixTemplate(provider: KotlinPostfixTemplateProvider) : AbstractKotlinForPostfixTemplate("iter", provider)
 
 @Suppress("SpellCheckingInspection")
@@ -59,6 +58,7 @@ internal class KotlinForWithIndexPostfixTemplate(
     override fun getElementToRemove(expr: PsiElement): PsiElement = expr
 }
 
+@Suppress("SpellCheckingInspection")
 internal class KotlinForReversedPostfixTemplate(
     provider: KotlinPostfixTemplateProvider
 ) : AbstractKotlinForPostfixTemplate(
@@ -108,7 +108,7 @@ internal abstract class AbstractKotlinForLoopNumbersPostfixTemplate(
     allExpressions(
         ValuedFilter,
         StatementFilter,
-        ExpressionTypeFilter { it is KtNonErrorClassType && !it.isMarkedNullable && it.classId == INT_CLASS_ID }),
+        ExpressionTypeFilter { it is KaClassType && !it.isMarkedNullable && it.classId == INT_CLASS_ID }),
     /* provider = */ provider
 ) {
     override fun setVariables(template: Template, element: PsiElement) {
@@ -149,16 +149,16 @@ private val ITERABLE_CLASS_IDS: Set<ClassId> = setOf(
     DefaultTypeClassIds.CHAR_SEQUENCE
 )
 
-context(KtAnalysisSession)
-internal fun canBeIterated(type: KtType, checkNullability: Boolean = true): Boolean {
+context(KaSession)
+internal fun canBeIterated(type: KaType, checkNullability: Boolean = true): Boolean {
     return when (type) {
-        is KtFlexibleType -> canBeIterated(type.lowerBoundIfFlexible())
-        is KtIntersectionType -> type.conjuncts.all { canBeIterated(it) }
-        is KtDefinitelyNotNullType -> canBeIterated(type.original, checkNullability = false)
-        is KtTypeParameterType -> type.symbol.upperBounds.any { canBeIterated(it) }
-        is KtNonErrorClassType -> {
+        is KaFlexibleType -> canBeIterated(type.lowerBoundIfFlexible())
+        is KaIntersectionType -> type.conjuncts.all { canBeIterated(it) }
+        is KaDefinitelyNotNullType -> canBeIterated(type.original, checkNullability = false)
+        is KaTypeParameterType -> type.symbol.upperBounds.any { canBeIterated(it) }
+        is KaClassType -> {
             (!checkNullability || !type.isMarkedNullable)
-                    && (type.classId in ITERABLE_CLASS_IDS || type.getAllSuperTypes(true).any { canBeIterated(it) })
+                    && (type.classId in ITERABLE_CLASS_IDS || type.allSupertypes(shouldApproximate = true).any { canBeIterated(it) })
         }
         else -> false
     }

@@ -57,6 +57,7 @@ public final class FUCounterUsageLogger {
     for (CounterUsageCollectorEP ep : COUNTER_EP_NAME.getExtensionList()) {
       registerGroupFromEP(ep);
     }
+
     ApplicationManager.getApplication().getExtensionArea().getExtensionPoint(COUNTER_EP_NAME).addExtensionPointListener(
       new ExtensionPointListener<>() {
         @Override
@@ -79,6 +80,22 @@ public final class FUCounterUsageLogger {
         register(new EventLogGroup(id, ep.version));
       }
     }
+  }
+
+  /**
+   * Event log counter-system collectors aren't registered in EP,
+   * so we log 'registered' event for every StatisticsEventLoggerProvider event log collector.
+   *
+   * @see StatisticsEventLoggerProvider#getEventLogSystemLogger$intellij_platform_statistics()
+   */
+  private static List<CompletableFuture<Void>> eventLogSystemCollectorsRegisteredEvents() {
+    List<CompletableFuture<Void>> futures = new ArrayList<>();
+    for (StatisticsEventLoggerProvider statisticsEventLoggerProvider: StatisticsEventLogProviderUtil.getEventLogProviders()) {
+      EventLogGroup group = statisticsEventLoggerProvider.getEventLogSystemLogger$intellij_platform_statistics().getGroup();
+      StatisticsEventLogger logger = StatisticsEventLogProviderUtil.getEventLogProvider(group.getRecorder()).getLogger();
+      futures.add(logger.logAsync(group, EventLogSystemEvents.COLLECTOR_REGISTERED, false));
+    }
+    return futures;
   }
 
   public static @NotNull List<FeatureUsagesCollector> instantiateCounterCollectors() {
@@ -128,8 +145,9 @@ public final class FUCounterUsageLogger {
   public CompletableFuture<Void> logRegisteredGroups() {
     List<CompletableFuture<Void>> futures = new ArrayList<>();
     for (EventLogGroup group : myGroups.values()) {
-      futures.add(FeatureUsageLogger.INSTANCE.log(group, EventLogSystemEvents.COLLECTOR_REGISTERED));
+      futures.add(FeatureUsageLogger.getInstance().log(group, EventLogSystemEvents.COLLECTOR_REGISTERED));
     }
+    futures.addAll(eventLogSystemCollectorsRegisteredEvents());
     Map<String, StatisticsEventLogger> recorderLoggers = new HashMap<>();
     for (FeatureUsagesCollector collector : instantiateCounterCollectors()) {
       EventLogGroup group = collector.getGroup();
@@ -158,31 +176,6 @@ public final class FUCounterUsageLogger {
   }
 
   /**
-   * Records new <strong>project-wide</strong> event without context.
-   * <br/><br/>
-   * For events with context use {@link FUCounterUsageLogger#logEvent(Project, String, String, FeatureUsageData)},
-   * useful to report structured events.<br/><br/>
-   * <i>Example:</i><br/>
-   * "eventId": "tooltip.shown"
-   *
-   * @param project shows in which project event was invoked, useful to separate events from two simultaneously opened projects.
-   * @param groupId is used to simplify access to events, e.g. 'dialogs', 'intentions'.
-   * @param eventId should be a <strong>verb</strong> because it shows which action happened, e.g. 'dialog.shown', 'project.opened'.
-   * @see FUCounterUsageLogger#logEvent(Project, String, String, FeatureUsageData)
-   * @deprecated Please use {@link EventLogGroup#registerEvent} and {@link EventId#log}
-   */
-  @Deprecated(forRemoval = true)
-  public void logEvent(@Nullable Project project,
-                       @NonNls @NotNull String groupId,
-                       @NonNls @NotNull String eventId) {
-    final EventLogGroup group = findRegisteredGroupById(groupId);
-    if (group != null) {
-      final Map<String, Object> data = new FeatureUsageData(group.getRecorder()).addProject(project).build();
-      FeatureUsageLogger.INSTANCE.log(group, eventId, data);
-    }
-  }
-
-  /**
    * Records new <strong>project-wide</strong> event with context.
    * <br/><br/>
    * <i>Example:</i><br/>
@@ -202,7 +195,7 @@ public final class FUCounterUsageLogger {
                        @NotNull FeatureUsageData data) {
     final EventLogGroup group = findRegisteredGroupById(groupId);
     if (group != null) {
-      FeatureUsageLogger.INSTANCE.log(group, eventId, data.addProject(project).build());
+      FeatureUsageLogger.getInstance().log(group, eventId, data.addProject(project).build());
     }
   }
 
@@ -210,9 +203,7 @@ public final class FUCounterUsageLogger {
    * Records new <strong>application-wide</strong> event without context.
    * <br/><br/>
    * For events with context use {@link FUCounterUsageLogger#logEvent(String, String, FeatureUsageData)},
-   * useful to report structured events.<br/>
-   * For project-wide events use {@link FUCounterUsageLogger#logEvent(Project, String, String)},
-   * useful to separate events from two simultaneously opened projects.<br/><br/>
+   * useful to report structured events.<br/><br/>
    *
    * <i>Example:</i><br/>
    * "eventId": "hector.clicked"
@@ -228,7 +219,7 @@ public final class FUCounterUsageLogger {
                        @NonNls @NotNull String eventId) {
     final EventLogGroup group = findRegisteredGroupById(groupId);
     if (group != null) {
-      FeatureUsageLogger.INSTANCE.log(group, eventId);
+      FeatureUsageLogger.getInstance().log(group, eventId);
     }
   }
 
@@ -253,7 +244,7 @@ public final class FUCounterUsageLogger {
                        @NotNull FeatureUsageData data) {
     final EventLogGroup group = findRegisteredGroupById(groupId);
     if (group != null) {
-      FeatureUsageLogger.INSTANCE.log(group, eventId, data.build());
+      FeatureUsageLogger.getInstance().log(group, eventId, data.build());
     }
   }
 

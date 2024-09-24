@@ -43,11 +43,7 @@ internal fun javascriptFeatures(source: PromoEventSource, promoTopic: PromoTopic
   return featurePage(
     FeaturePromoBundle.message("feature.javascript.description.html",
                                "https://www.jetbrains.com/help/pycharm/javascript-specific-guidelines.html"),
-    listOf(
-      PromoFeatureListItem(AllIcons.Actions.ReformatCode, FeaturePromoBundle.message("feature.javascript.code")),
-      PromoFeatureListItem(AllIcons.Actions.SuggestedRefactoringBulb, FeaturePromoBundle.message("feature.javascript.refactor")),
-      PromoFeatureListItem(AllIcons.FileTypes.UiForm, FeaturePromoBundle.message("feature.javascript.frameworks"))
-    ),
+    javaScriptPromoFeatureList,
     source,
     promoTopic
   )
@@ -62,6 +58,7 @@ internal fun djangoFeatures(source: PromoEventSource): JComponent {
     PromoTopic.Django
   )
 }
+
 
 internal fun jupyterFeatures(source: PromoEventSource): JComponent {
   return featurePage(
@@ -96,4 +93,10 @@ internal val djangoPromoFeatureList = listOf(
   PromoFeatureListItem(AllIcons.Actions.ReformatCode, PyCharmCommunityCustomizationBundle.message("feature.django.code")),
   PromoFeatureListItem(AllIcons.FileTypes.Html, PyCharmCommunityCustomizationBundle.message("feature.django.djangoTemplates")),
   PromoFeatureListItem(AllIcons.General.Web, PyCharmCommunityCustomizationBundle.message("feature.django.endpoints"))
+)
+
+internal val javaScriptPromoFeatureList = listOf(
+  PromoFeatureListItem(AllIcons.Actions.ReformatCode, FeaturePromoBundle.message("feature.javascript.code")),
+  PromoFeatureListItem(AllIcons.Actions.SuggestedRefactoringBulb, FeaturePromoBundle.message("feature.javascript.refactor")),
+  PromoFeatureListItem(AllIcons.FileTypes.UiForm, FeaturePromoBundle.message("feature.javascript.frameworks"))
 )

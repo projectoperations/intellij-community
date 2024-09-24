@@ -25,6 +25,11 @@
     "ideaId": "AngularJS"
   },
   {
+    "vsCodeId": "astro-build.astro-vscode",
+    "ideaName": "Astro",
+    "ideaId": "org.jetbrains.plugins.astro"
+  },
+  {
     "vsCodeId": "bajdzis.vscode-database",
     "ideaName": "vscode-database",
     "builtIn": true
@@ -76,7 +81,7 @@
   },
   {
     "vsCodeId": "donjayamanne.python-environment-manager",
-    "ideaName": "Python Community Edition",
+    "ideaName": "Python",
     "ideaId": "Pythonid"
   },
   {
@@ -151,8 +156,8 @@
   },
   {
     "vsCodeId": "GitLab.gitlab-workflow",
-    "ideaName": "GitLab Workflow",
-    "builtIn": true
+    "ideaName": "GitLab",
+    "ideaId": "org.jetbrains.plugins.gitlab"
   },
   {
     "vsCodeId": "golang.Go",
@@ -210,6 +215,11 @@
     "builtIn": true
   },
   {
+    "vsCodeId": "mhutchie.git-graph",
+    "ideaName": "Git Graph",
+    "builtIn": true
+  },
+  {
     "vsCodeId": "mongodb.mongodb-vscode",
     "ideaName": "Database Tools and SQL",
     "ideaId": "com.intellij.database"
@@ -230,6 +240,16 @@
     "ideaId": "com.intellij.ja"
   },
   {
+    "vsCodeId": "MS-CEINTL.vscode-language-pack-ko",
+    "ideaName": "Korean Language Pack / 한국어 언어 팩",
+    "ideaId": "com.intellij.ko"
+  },
+  {
+    "vsCodeId": "MS-CEINTL.vscode-language-pack-zh-hans",
+    "ideaName": "Chinese (Simplified) Language Pack / 中文语言包",
+    "ideaId": "com.intellij.zh"
+  },
+  {
     "vsCodeId": "ms-kubernetes-tools.vscode-kubernetes-tools",
     "ideaName": "Kubernetes",
     "ideaId": "com.intellij.kubernetes"
@@ -241,17 +261,17 @@
   },
   {
     "vsCodeId": "ms-python.black-formatter",
-    "ideaName": "Python Community Edition",
+    "ideaName": "Python",
     "ideaId": "Pythonid"
   },
   {
     "vsCodeId": "ms-python.isort",
-    "ideaName": "Python Community Edition",
+    "ideaName": "Python",
     "ideaId": "Pythonid"
   },
   {
     "vsCodeId": "ms-python.python",
-    "ideaName": "Python Community Edition",
+    "ideaName": "Python",
     "ideaId": "Pythonid"
   },
   {
@@ -278,6 +298,11 @@
     "vsCodeId": "ms-vscode-remote.remote-wsl",
     "ideaName": "WSL",
     "builtIn": true
+  },
+  {
+    "vsCodeId": "ms-vscode.node-debug2",
+    "ideaName": "Node.js",
+    "ideaId": "NodeJS"
   },
   {
     "vsCodeId": "ms-vscode.vscode-typescript-tslint-plugin",
@@ -308,6 +333,11 @@
     "vsCodeId": "pranaygp.vscode-css-peek",
     "ideaName": "CSS Peek",
     "builtIn": true
+  },
+  {
+    "vsCodeId": "Prisma.prisma",
+    "ideaName": "Prisma ORM",
+    "ideaId": "org.intellij.prisma"
   },
   {
     "vsCodeId": "redhat.java",
@@ -345,6 +375,11 @@
     "builtIn": true
   },
   {
+    "vsCodeId": "Shopify.ruby-lsp",
+    "ideaName": "Ruby",
+    "ideaId": "org.jetbrains.plugins.ruby"
+  },
+  {
     "vsCodeId": "streetsidesoftware.code-spell-checker",
     "ideaName": "Grazie Lite",
     "ideaId": "tanvd.grazi"
@@ -365,13 +400,18 @@
     "ideaId": "com.jetbrains.rust"
   },
   {
+    "vsCodeId": "tamasfe.even-better-toml",
+    "ideaName": "Toml",
+    "ideaId": "org.toml.lang"
+  },
+  {
     "vsCodeId": "techer.open-in-browser",
     "ideaName": "Open in browser",
     "builtIn": true
   },
   {
     "vsCodeId": "tht13.python",
-    "ideaName": "Python Community Edition",
+    "ideaName": "Python",
     "ideaId": "Pythonid"
   },
   {
@@ -438,6 +478,16 @@
     "vsCodeId": "Vue.volar",
     "ideaName": "Vue.js",
     "ideaId": "org.jetbrains.plugins.vue"
+  },
+  {
+    "vsCodeId": "waderyan.gitblame",
+    "ideaName": "Git Blame",
+    "builtIn": true
+  },
+  {
+    "vsCodeId": "wayou.vscode-todo-highlight",
+    "ideaName": "TODO Highlight",
+    "builtIn": true
   },
   {
     "vsCodeId": "wholroyd.jinja",

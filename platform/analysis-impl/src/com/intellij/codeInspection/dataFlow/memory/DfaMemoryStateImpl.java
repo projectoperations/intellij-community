@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.codeInspection.dataFlow.memory;
 
@@ -34,9 +34,9 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
 
   private final @NotNull DfaValueFactory myFactory;
 
-  private final List<EqClass> myEqClasses;
+  private final List<EqClassImpl> myEqClasses;
   // dfa value id -> indices in myEqClasses list of the classes which contain the id
-  protected final Int2IntMap myIdToEqClassesIndices;
+  private final Int2IntMap myIdToEqClassesIndices;
   protected final Stack<DfaValue> myStack;
   private DistinctPairSet myDistinctClasses;
   private final LinkedHashMap<DfaVariableValue,DfType> myVariableTypes;
@@ -195,7 +195,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
   }
 
   @Override
-  public void setVarValue(DfaVariableValue var, DfaValue value) {
+  public void setVarValue(@NotNull DfaVariableValue var, @NotNull DfaValue value) {
     assert value.getFactory() == myFactory;
     assert var.getFactory() == myFactory;
     if (var == value) return;
@@ -206,9 +206,13 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
 
     DfType dfType = filterDfTypeOnAssignment(var, getDfType(value)).meet(var.getDfType());
     if (dfType == DfType.BOTTOM) return; // likely uncompilable code or bad CFG
-    if (value instanceof DfaVariableValue && !ControlFlow.isTempVariable(var) &&
-        !ControlFlow.isTempVariable((DfaVariableValue)value) &&
-        (var.getQualifier() == null || !ControlFlow.isTempVariable(var.getQualifier()))) {
+    DfaVariableValue qualifier = var.getQualifier();
+    if (qualifier != null && !var.getDescriptor().isStable()) {
+      flushFields(new QualifierStatusMap(Set.of(qualifier), var.getDescriptor(), dfType));
+    }
+    if (value instanceof DfaVariableValue varValue && !ControlFlow.isTempVariable(var) &&
+        !ControlFlow.isTempVariable(varValue) &&
+        (qualifier == null || !ControlFlow.isTempVariable(qualifier))) {
       // assigning a = b when b is known to be null: could be ephemeral
       checkEphemeral(var, value);
     }
@@ -255,7 +259,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
     int i = getEqClassIndex(dfaValue);
     if (i != -1) return i;
     dfaValue = canonicalize(dfaValue);
-    EqClass eqClass = new EqClass(myFactory);
+    EqClassImpl eqClass = new EqClassImpl(myFactory);
     eqClass.add(dfaValue.getID());
 
     int resultIndex = storeClass(eqClass);
@@ -264,7 +268,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
     return resultIndex;
   }
 
-  private int storeClass(EqClass eqClass) {
+  private int storeClass(EqClassImpl eqClass) {
     int freeIndex = myEqClasses.indexOf(null);
     int resultIndex = freeIndex >= 0 ? freeIndex : myEqClasses.size();
     if (freeIndex >= 0) {
@@ -430,11 +434,11 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
         DfaVariableValue otherVar;
         DistinctPairSet.DistinctPair pair = ((DropOrderingMergePatch)mySingleDiff).myPair;
         boolean left;
-        if (pair.getFirst().contains(var.getID())) {
+        if (pair.getFirst().contains(var)) {
           left = true;
           otherVar = pair.getSecond().getCanonicalVariable();
         }
-        else if (pair.getSecond().contains(var.getID())) {
+        else if (pair.getSecond().contains(var)) {
           left = false;
           otherVar = pair.getFirst().getCanonicalVariable();
         } else {
@@ -546,8 +550,8 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
    * class in that state
    */
   private int @Nullable [] getClassesMap(DfaMemoryStateImpl that) {
-    List<EqClass> thisClasses = this.myEqClasses;
-    List<EqClass> thatClasses = that.myEqClasses;
+    List<EqClassImpl> thisClasses = this.myEqClasses;
+    List<EqClassImpl> thatClasses = that.myEqClasses;
     int thisSize = thisClasses.size();
     int thatSize = thatClasses.size();
     int[] thisToThat = new int[thisSize];
@@ -580,7 +584,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
   }
 
   public List<EqClass> getEqClasses() {
-    return myEqClasses;
+    return Collections.unmodifiableList(myEqClasses);
   }
 
   private @Nullable EqClass getEqClass(DfaValue value) {
@@ -594,17 +598,21 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
    * @return class index or -1 if not found
    */
   public int getEqClassIndex(@NotNull DfaValue dfaValue) {
-    int classIndex = myIdToEqClassesIndices.getOrDefault(dfaValue.getID(), -1);
+    int classIndex = getRawEqClassIndex(dfaValue.getID());
     if (classIndex == -1) {
       dfaValue = canonicalize(dfaValue);
-      classIndex = myIdToEqClassesIndices.getOrDefault(dfaValue.getID(), -1);
+      classIndex = getRawEqClassIndex(dfaValue.getID());
     }
 
     if (classIndex == -1) return -1;
 
     EqClass aClass = myEqClasses.get(classIndex);
-    assert aClass.contains(dfaValue.getID());
+    assert aClass.contains(dfaValue);
     return classIndex;
+  }
+
+  protected int getRawEqClassIndex(int dfaValueId) {
+    return myIdToEqClassesIndices.getOrDefault(dfaValueId, -1);
   }
 
   DfaVariableValue getCanonicalVariable(DfaValue val) {
@@ -628,10 +636,10 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
 
     if (!myDistinctClasses.unite(c1Index, c2Index)) return false;
 
-    EqClass c1 = myEqClasses.get(c1Index);
-    EqClass c2 = myEqClasses.get(c2Index);
+    EqClassImpl c1 = myEqClasses.get(c1Index);
+    EqClassImpl c2 = myEqClasses.get(c2Index);
 
-    EqClass newClass = new EqClass(c1);
+    EqClassImpl newClass = new EqClassImpl(c1);
 
     myEqClasses.set(c1Index, newClass);
     for (int i = 0; i < c2.size(); i++) {
@@ -644,7 +652,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
     checkInvariants();
 
     if (var1 == null || var2 == null || var1 == var2) return true;
-    int compare = EqClass.CANONICAL_VARIABLE_COMPARATOR.compare(var1, var2);
+    int compare = EqClassImpl.CANONICAL_VARIABLE_COMPARATOR.compare(var1, var2);
     return compare < 0 ? convertQualifiers(var2, var1) : convertQualifiers(var1, var2);
   }
 
@@ -691,7 +699,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
   private void checkInvariants() {
     if (!LOG.isDebugEnabled() && !ApplicationManager.getApplication().isEAP()) return;
     for (Int2IntMap.Entry entry : myIdToEqClassesIndices.int2IntEntrySet()) {
-      EqClass eqClass = myEqClasses.get(entry.getIntValue());
+      EqClassImpl eqClass = myEqClasses.get(entry.getIntValue());
       if (eqClass == null || !eqClass.contains(entry.getIntKey())) {
         LOG.error("Invariant violated: null-class for id=" + myFactory.getValue(entry.getIntKey()));
       }
@@ -793,9 +801,25 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
         return false;
       }
     }
+    if (!restrictDependentVariables(var)) return false;
     if (!updateDependentVariables(var, newType)) return false;
     if (!correctRelatedValues(var, newType)) return false;
     if (newType instanceof DfConstantType && !propagateConstant(var, (DfConstantType<?>)newType)) return false;
+    return true;
+  }
+
+  private boolean restrictDependentVariables(@NotNull DfaVariableValue var) {
+    for (Map.Entry<DfaVariableValue, DfType> entry : new ArrayList<>(myVariableTypes.entrySet())) {
+      DfaVariableValue knownVar = entry.getKey();
+      while (knownVar != null) {
+        if (knownVar.getQualifier() == var) {
+          if (!meetDfType(knownVar, knownVar.getDescriptor().restrictFromState(var, this))) {
+            return false;
+          }
+        }
+        knownVar = knownVar.getQualifier();
+      }
+    }
     return true;
   }
 
@@ -1074,9 +1098,10 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
   }
 
   private boolean updateQualifierOnEquality(DfaVariableValue target, DfaValue value) {
-    DfType constraint = target.getDescriptor().getQualifierConstraintFromValue(this, value);
     DfaVariableValue qualifier = target.getQualifier();
-    return qualifier == null || meetDfType(qualifier, constraint);
+    if (qualifier == null) return true;
+    DfType constraint = target.getDescriptor().getQualifierConstraintFromValue(this, value);
+    return meetDfType(qualifier, constraint);
   }
 
   private boolean propagateConstant(DfaVariableValue value, DfConstantType<?> constant) {
@@ -1126,7 +1151,11 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
       .allMatch(field -> {
         DfaValue leftValue = field.createValue(myFactory, left);
         DfaValue rightValue = field.createValue(myFactory, right);
-        DfType result = getDfType(leftValue).meet(getDfType(rightValue));
+        DfType leftType = getDfType(leftValue);
+        DfType rightType = getDfType(rightValue);
+        // Values participated in comparison are incompatible, but could be both null
+        if (leftType == DfType.BOTTOM || rightType == DfType.BOTTOM) return true;
+        DfType result = leftType.meet(rightType);
         if (!result.hasNonStandardEquivalence() && !applyRelation(leftValue, rightValue, false)) {
           return false;
         }
@@ -1183,7 +1212,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
 
   /**
    * Returns true if value represents an "unstable" value. An unstable value is a value of an object type which could be
-   * a newly object every time it's accessed. Such value is still useful as its nullability is stable
+   * a new object every time it's accessed. Such value is still useful as its nullability is stable
    *
    * @param value to check.
    * @return true if value might be unstable, false otherwise
@@ -1278,7 +1307,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
       type = type.fromRelation(RelationType.EQ);
       for (DfaVariableValue value : eqClass.asList()) {
         if (value != dfaVar) {
-          recordVariableType(value, type.meet(value.getInherentType()));
+          recordVariableType(value, type.meet(getDfType(value)));
           if (!updateQualifierOnEquality(value, value)) return false;
         }
       }
@@ -1307,10 +1336,10 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
   }
 
   private @NotNull DfaVariableValue canonicalizeQualifier(@NotNull DfaVariableValue qualifier) {
-    int index = myIdToEqClassesIndices.getOrDefault(qualifier.getID(), -1);
+    int index = getRawEqClassIndex(qualifier.getID());
     if (index == -1) {
       qualifier = canonicalize(qualifier);
-      index = myIdToEqClassesIndices.getOrDefault(qualifier.getID(), -1);
+      index = getRawEqClassIndex(qualifier.getID());
       if (index == -1) {
         return qualifier;
       }
@@ -1342,7 +1371,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
     flushFields(new QualifierStatusMap(null, false));
   }
 
-  public void flushFields(@NotNull DfaMemoryStateImpl.QualifierStatusMap qualifierStatusMap) {
+  private void flushFields(@NotNull DfaMemoryStateImpl.QualifierStatusMap qualifierStatusMap) {
     Set<DfaVariableValue> vars = new LinkedHashSet<>();
     for (DfaVariableValue value : myVariableTypes.keySet()) {
       if (qualifierStatusMap.shouldFlush(value)) {
@@ -1359,7 +1388,11 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
       }
     }
     for (DfaVariableValue value : vars) {
+      DfType oldValue = getDfType(value);
       doFlush(value, true);
+      if (qualifierStatusMap.myFieldToFlush != null && qualifierStatusMap.myFieldToFlush.equals(value.getDescriptor())) {
+        recordVariableType(value, oldValue.join(qualifierStatusMap.myFieldValue));
+      }
     }
     myStack.replaceAll(val -> {
       DfType type = getDfType(val);
@@ -1402,7 +1435,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
     DfaVariableValue canonical = canonicalize ? canonicalize(variable) : variable;
     EqClass eqClass = canonical.getDependentVariables().isEmpty() ? null : getEqClass(canonical);
     DfaVariableValue newCanonical =
-      eqClass == null ? null : StreamEx.of(eqClass.iterator()).without(canonical).min(EqClass.CANONICAL_VARIABLE_COMPARATOR)
+      eqClass == null ? null : StreamEx.of(eqClass.iterator()).without(canonical).min(EqClassImpl.CANONICAL_VARIABLE_COMPARATOR)
         .filter(candidate -> !candidate.dependsOn(canonical))
         .orElse(null);
     myStack.replaceAll(value -> handleStackValueOnVariableFlush(value, canonical, newCanonical));
@@ -1444,17 +1477,17 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
 
   void removeEquivalence(DfaVariableValue var) {
     int varID = var.getID();
-    int varClassIndex = myIdToEqClassesIndices.getOrDefault(varID, -1);
+    int varClassIndex = getRawEqClassIndex(varID);
     if (varClassIndex == -1) {
       var = canonicalize(var);
       varID = var.getID();
-      varClassIndex = myIdToEqClassesIndices.getOrDefault(varID, -1);
+      varClassIndex = getRawEqClassIndex(varID);
       if (varClassIndex == -1) return;
     }
 
-    EqClass varClass = myEqClasses.get(varClassIndex);
+    EqClassImpl varClass = myEqClasses.get(varClassIndex);
 
-    varClass = new EqClass(varClass);
+    varClass = new EqClassImpl(varClass);
     DfaVariableValue previousCanonical = varClass.getCanonicalVariable();
     myEqClasses.set(varClassIndex, varClass);
     varClass.removeValue(varID);
@@ -1476,7 +1509,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
       if (newCanonical != null && previousCanonical != null && previousCanonical != newCanonical &&
           (ControlFlow.isTempVariable(previousCanonical) && !newCanonical.dependsOn(previousCanonical) ||
            newCanonical.getDepth() <= previousCanonical.getDepth())) {
-        // Do not transfer to deeper qualifier. E.g. if we have two classes like (a, b.c) (a.d, e),
+        // Do not transfer to deeper qualifier. E.g., if we have two classes like (a, b.c) (a.d, e),
         // and flushing `a`, we do not convert `a.d` to `b.c.d`. Otherwise infinite qualifier explosion is possible.
         boolean successfullyConverted = convertQualifiers(previousCanonical, newCanonical);
         assert successfullyConverted;
@@ -1534,7 +1567,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
     for (DistinctPairSet.DistinctPair pair : pairs) {
       EqClass first = pair.getFirst();
       EqClass second = pair.getSecond();
-      RelationType relation = other.getRelation(myFactory.getValue(first.get(0)), myFactory.getValue(second.get(0)));
+      RelationType relation = other.getRelation(first.getVariable(0), second.getVariable(0));
       if (relation == null || relation == RelationType.EQ) {
         myDistinctClasses.remove(pair);
       }
@@ -1564,7 +1597,7 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
     while (needRestart) {
       ProgressManager.checkCanceled();
       needRestart = false;
-      for (EqClass eqClass : new ArrayList<>(myEqClasses)) {
+      for (EqClassImpl eqClass : new ArrayList<>(myEqClasses)) {
         if (eqClass != null && retainEquivalences(eqClass, other)) {
           needRestart = true;
           break;
@@ -1581,14 +1614,14 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
    *                be split to retain only remaining equivalences
    * @return true if not only given class, but also some other classes were updated due to canonicalization
    */
-  private boolean retainEquivalences(EqClass eqClass, DfaMemoryStateImpl other) {
+  private boolean retainEquivalences(EqClassImpl eqClass, DfaMemoryStateImpl other) {
     if (eqClass.size() <= 1) return false;
-    List<EqClass> groups = splitEqClass(eqClass, other);
+    List<EqClassImpl> groups = splitEqClass(eqClass, other);
     if (groups.size() == 1) return false;
 
     IntList addedClasses = new IntArrayList();
     int origIndex = myIdToEqClassesIndices.get(eqClass.get(0));
-    for (EqClass group : groups) {
+    for (EqClassImpl group : groups) {
       addedClasses.add(storeClass(group));
     }
     int[] addedClassesArray = addedClasses.toIntArray();
@@ -1632,20 +1665,20 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
    * @return list of created classes (the original class remains unchanged). Trivial classes are also included,
    * thus sum of resulting class sizes is equal to the original class size
    */
-  private @NotNull List<EqClass> splitEqClass(EqClass eqClass, DfaMemoryStateImpl other) {
-    Int2ObjectMap<EqClass> groupsInClasses = new Int2ObjectOpenHashMap<>();
-    List<EqClass> groups = new ArrayList<>();
+  private @NotNull List<EqClassImpl> splitEqClass(EqClass eqClass, DfaMemoryStateImpl other) {
+    Int2ObjectMap<EqClassImpl> groupsInClasses = new Int2ObjectOpenHashMap<>();
+    List<EqClassImpl> groups = new ArrayList<>();
     for (DfaVariableValue value : eqClass.asList()) {
       int otherClass = other.getEqClassIndex(value);
-      EqClass list;
+      EqClassImpl list;
       if (otherClass == -1) {
-        list = new EqClass(myFactory);
+        list = new EqClassImpl(myFactory);
         groups.add(list);
       }
       else {
         list = groupsInClasses.get(otherClass);
         if (list == null) {
-          list = new EqClass(myFactory);
+          list = new EqClassImpl(myFactory);
           groupsInClasses.put(otherClass, list);
         }
       }
@@ -1662,14 +1695,33 @@ public class DfaMemoryStateImpl implements DfaMemoryState {
   private final class QualifierStatusMap {
     private final Int2ObjectMap<QualifierStatus> myMap = new Int2ObjectOpenHashMap<>();
     private final @Nullable Set<DfaValue> myQualifiersToFlush;
+    private final @Nullable VariableDescriptor myFieldToFlush;
+    private final @NotNull DfType myFieldValue;
     private final boolean myClosure;
 
     private QualifierStatusMap(@Nullable Set<DfaValue> qualifiersToFlush, boolean closure) {
+      this(qualifiersToFlush, null, DfType.TOP, closure);
+    }
+
+    private QualifierStatusMap(@Nullable Set<DfaValue> qualifiersToFlush,
+                               @NotNull VariableDescriptor fieldToFlush,
+                               @NotNull DfType fieldValue) {
+      this(qualifiersToFlush, fieldToFlush, fieldValue, false);
+    }
+
+    private QualifierStatusMap(@Nullable Set<DfaValue> qualifiersToFlush, @Nullable VariableDescriptor fieldToFlush,
+                               @NotNull DfType fieldValue, boolean closure) {
       myQualifiersToFlush = qualifiersToFlush;
+      myFieldToFlush = fieldToFlush;
+      myFieldValue = fieldValue;
       myClosure = closure;
     }
 
     boolean shouldFlush(DfaVariableValue value) {
+      if (myFieldToFlush != null) {
+        return (value.getDescriptor().equals(myFieldToFlush) || value.containsCalls()) &&
+               shouldFlush(value.getQualifier(), value.containsCalls());
+      }
       return (myClosure ? value.canBeCapturedInClosure() : value.isFlushableByCalls()) &&
              shouldFlush(value.getQualifier(), value.containsCalls());
     }

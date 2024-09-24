@@ -29,6 +29,7 @@ public class KotlinCodeStyleSettings extends CustomCodeStyleSettings {
     public static final int DEFAULT_NAME_COUNT_TO_USE_STAR_IMPORT = 5;
     public static final int DEFAULT_NAME_COUNT_TO_USE_STAR_IMPORT_FOR_MEMBERS = 3;
 
+    public boolean SPACE_AROUND_ELVIS = true;
     public boolean SPACE_AROUND_RANGE = false;
     public boolean SPACE_BEFORE_TYPE_COLON = false;
     public boolean SPACE_AFTER_TYPE_COLON = true;
@@ -37,6 +38,7 @@ public class KotlinCodeStyleSettings extends CustomCodeStyleSettings {
     public boolean INSERT_WHITESPACES_IN_SIMPLE_ONE_LINE_METHOD = true;
     public boolean ALIGN_IN_COLUMNS_CASE_BRANCH = false;
     public boolean LINE_BREAK_AFTER_MULTILINE_WHEN_ENTRY = true;
+    public boolean INDENT_BEFORE_ARROW_ON_NEW_LINE = true;
     public boolean SPACE_AROUND_FUNCTION_TYPE_ARROW = true;
     public boolean SPACE_AROUND_WHEN_ARROW = true;
     public boolean SPACE_BEFORE_LAMBDA_ARROW = true;

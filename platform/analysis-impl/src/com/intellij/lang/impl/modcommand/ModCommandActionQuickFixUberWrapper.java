@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.lang.impl.modcommand;
 
 import com.intellij.codeInsight.daemon.impl.actions.IntentionActionWithFixAllOption;
@@ -7,7 +7,10 @@ import com.intellij.codeInsight.intention.PriorityAction;
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
 import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.modcommand.*;
+import com.intellij.modcommand.ActionContext;
+import com.intellij.modcommand.ModCommandAction;
+import com.intellij.modcommand.ModCommandExecutor;
+import com.intellij.modcommand.Presentation;
 import com.intellij.openapi.diagnostic.ReportingClassSubstitutor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -15,13 +18,15 @@ import com.intellij.openapi.util.Iconable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.NewUiValue;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.List;
 
-public class ModCommandActionQuickFixUberWrapper extends LocalQuickFixAndIntentionActionOnPsiElement 
+@ApiStatus.Internal
+public final class ModCommandActionQuickFixUberWrapper extends LocalQuickFixAndIntentionActionOnPsiElement
   implements Iconable, PriorityAction, IntentionActionWithFixAllOption, ReportingClassSubstitutor {
   private final @NotNull ModCommandAction myAction;
   private @Nullable Presentation myPresentation;
@@ -72,8 +77,9 @@ public class ModCommandActionQuickFixUberWrapper extends LocalQuickFixAndIntenti
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
     ActionContext context = ActionContext.from(editor, file).withElement(startElement);
-    ModCommand command = myAction.perform(context);
-    ModCommandExecutor.getInstance().executeInteractively(context, command, editor);
+    Presentation presentation = myPresentation;
+    String name = presentation == null ? getFamilyName() : presentation.name();
+    ModCommandExecutor.executeInteractively(context, name, editor, () -> myAction.perform(context));
   }
 
   @Override

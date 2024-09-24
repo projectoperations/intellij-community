@@ -3,6 +3,7 @@ package de.plushnikov.intellij.plugin.psi;
 import com.intellij.codeInspection.dataFlow.JavaMethodContractUtil;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.java.JavaLanguage;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.util.TextRange;
@@ -43,6 +44,7 @@ public class LombokLightMethodBuilder extends LightMethodBuilder implements Synt
           new LombokLightModifierList(manager),
           new LombokLightReferenceListBuilder(manager, JavaLanguage.INSTANCE, PsiReferenceList.Role.THROWS_LIST),
           new LightTypeParameterListBuilder(manager, JavaLanguage.INSTANCE));
+    getModifierList().withParent(this);
     setBaseIcon(LombokIcons.Nodes.LombokMethod);
   }
 
@@ -91,6 +93,7 @@ public class LombokLightMethodBuilder extends LightMethodBuilder implements Synt
 
   public LombokLightMethodBuilder withParameter(@NotNull LombokLightParameter psiParameter) {
     addParameter(psiParameter);
+    psiParameter.setParent(this);
     return this;
   }
 
@@ -189,7 +192,15 @@ public class LombokLightMethodBuilder extends LightMethodBuilder implements Synt
     Function<LombokLightMethodBuilder, String> builderBodyFunction = myBuilderBodyFunction;
     if (null == myBodyCodeBlock && (bodyAsText != null || builderBodyFunction != null)) {
       if (bodyAsText == null) {
-        bodyAsText = builderBodyFunction.apply(this);
+        DumbService dumbService = DumbService.getInstance(getProject());
+        if (dumbService.isDumb() && !dumbService.isAlternativeResolveEnabled()) {
+          bodyAsText = dumbService.computeWithAlternativeResolveEnabled(
+            () -> builderBodyFunction.apply(this)
+          );
+        }
+        else {
+          bodyAsText = builderBodyFunction.apply(this);
+        }
       }
       final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(getProject());
       myBodyCodeBlock = elementFactory.createCodeBlockFromText("{" + bodyAsText + "}", this);

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.profile.codeInspection.ui;
 
 import com.intellij.application.options.colors.ColorAndFontOptions;
@@ -10,6 +10,7 @@ import com.intellij.ide.DataManager;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction;
+import com.intellij.openapi.actionSystem.impl.PresentationFactory;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
@@ -28,6 +29,7 @@ import com.intellij.ui.GroupHeaderSeparator;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.components.panels.OpaquePanel;
+import com.intellij.ui.popup.ActionPopupOptions;
 import com.intellij.ui.popup.PopupFactoryImpl;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.Nls;
@@ -81,8 +83,7 @@ public abstract class HighlightingChooser extends ComboBoxAction implements Dumb
     getTemplatePresentation().setText(name);
   }
 
-  @NotNull
-  public static @Nls String stripColorOptionCategory(@NotNull @Nls String displayName) {
+  public static @NotNull @Nls String stripColorOptionCategory(@NotNull @Nls String displayName) {
     final int separatorPos = displayName.indexOf("//");
     final @Nls String name = separatorPos == -1 ? displayName
                                                 : displayName.substring(separatorPos + 2);
@@ -183,7 +184,9 @@ final class HighlightPopup extends PopupFactoryImpl.ActionGroupPopup {
                  @Nullable Runnable disposeCallback,
                  int maxRows,
                  Condition<? super AnAction> preselectCondition) {
-    super(title, actionGroup, dataContext, false, true, showDisabledActions, false, disposeCallback, maxRows, preselectCondition, null);
+    super(null, title, actionGroup, dataContext, ActionPlaces.POPUP, new PresentationFactory(),
+          ActionPopupOptions.create(false, true, showDisabledActions, false, maxRows, false, preselectCondition),
+          disposeCallback);
   }
 
   @Override

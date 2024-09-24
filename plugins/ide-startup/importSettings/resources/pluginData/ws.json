@@ -15,9 +15,19 @@
     "ideaId": "AngularJS"
   },
   {
+    "vsCodeId": "astro-build.astro-vscode",
+    "ideaName": "Astro",
+    "ideaId": "org.jetbrains.plugins.astro"
+  },
+  {
     "vsCodeId": "bradlc.vscode-tailwindcss",
     "ideaName": "Tailwind CSS",
     "ideaId": "com.intellij.tailwindcss"
+  },
+  {
+    "vsCodeId": "bungcip.better-toml",
+    "ideaName": "Toml",
+    "ideaId": "org.toml.lang"
   },
   {
     "vsCodeId": "christian-kohler.npm-intellisense",
@@ -53,6 +63,11 @@
     "vsCodeId": "ecmel.vscode-html-css",
     "ideaName": "HTML CSS Support",
     "builtIn": true
+  },
+  {
+    "vsCodeId": "EditorConfig.EditorConfig",
+    "ideaName": "EditorConfig",
+    "ideaId": "org.editorconfig.editorconfigjetbrains"
   },
   {
     "vsCodeId": "eg2.vscode-npm-script",
@@ -96,8 +111,8 @@
   },
   {
     "vsCodeId": "GitLab.gitlab-workflow",
-    "ideaName": "GitLab Workflow",
-    "builtIn": true
+    "ideaName": "GitLab",
+    "ideaId": "org.jetbrains.plugins.gitlab"
   },
   {
     "vsCodeId": "GraphQL.vscode-graphql",
@@ -130,6 +145,11 @@
     "ideaId": "AngularJS"
   },
   {
+    "vsCodeId": "mhutchie.git-graph",
+    "ideaName": "Git Graph",
+    "builtIn": true
+  },
+  {
     "vsCodeId": "mongodb.mongodb-vscode",
     "ideaName": "Database Tools and SQL for WebStorm",
     "ideaId": "com.intellij.database"
@@ -148,6 +168,11 @@
     "vsCodeId": "MS-CEINTL.vscode-language-pack-ja",
     "ideaName": "Japanese Language Pack / 日本語言語パック",
     "ideaId": "com.intellij.ja"
+  },
+  {
+    "vsCodeId": "MS-CEINTL.vscode-language-pack-ko",
+    "ideaName": "Korean Language Pack / 한국어 언어 팩",
+    "ideaId": "com.intellij.ko"
   },
   {
     "vsCodeId": "MS-CEINTL.vscode-language-pack-zh-hans",
@@ -185,6 +210,11 @@
     "builtIn": true
   },
   {
+    "vsCodeId": "ms-vscode.node-debug2",
+    "ideaName": "Node.js",
+    "ideaId": "NodeJS"
+  },
+  {
     "vsCodeId": "ms-vscode.vscode-typescript-tslint-plugin",
     "ideaName": "TSLint",
     "ideaId": "tslint"
@@ -208,6 +238,11 @@
     "vsCodeId": "pranaygp.vscode-css-peek",
     "ideaName": "CSS Peek",
     "builtIn": true
+  },
+  {
+    "vsCodeId": "Prisma.prisma",
+    "ideaName": "Prisma ORM",
+    "ideaId": "org.intellij.prisma"
   },
   {
     "vsCodeId": "redhat.vscode-xml",
@@ -267,6 +302,16 @@
   {
     "vsCodeId": "Vue.volar",
     "ideaName": "Vue.js",
+    "ideaId": "org.jetbrains.plugins.vue"
+  },
+  {
+    "vsCodeId": "waderyan.gitblame",
+    "ideaName": "Git Blame",
+    "builtIn": true
+  },
+  {
+    "vsCodeId": "wayou.vscode-todo-highlight",
+    "ideaName": "TODO Highlight",
     "builtIn": true
   },
   {

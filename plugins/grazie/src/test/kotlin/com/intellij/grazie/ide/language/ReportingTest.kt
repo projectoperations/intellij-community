@@ -40,6 +40,18 @@ class ReportingTest : BasePlatformTestCase() {
     myFixture.configureByText("a.txt", "I have a (new apple here.")
     val info = assertOneElement(myFixture.doHighlighting().filter { it.inspectionToolId == inspection.id })
     assertTrue(info.toolTip, info.toolTip!!.matches(Regex(".*Incorrect:.*" +
+                                                          "He lived in a <strong>\\(</strong>large house" +
+                                                          ".*Correct:.*" +
+                                                          "He lived in a <strong>\\(</strong>large house" +
+                                                          ".*")))
+  }
+
+  fun `test unpaired quotes tooltip`() {
+    val inspection = GrazieInspection()
+    myFixture.enableInspections(inspection)
+    myFixture.configureByText("a.txt", "I have a \"new apple here.")
+    val info = assertOneElement(myFixture.doHighlighting().filter { it.inspectionToolId == inspection.id })
+    assertTrue(info.toolTip, info.toolTip!!.matches(Regex(".*Incorrect:.*" +
                                                           "I'm over here, she said" +
                                                           ".*Correct:.*" +
                                                           "I'm over here,.*&quot;.*she said" +
@@ -141,7 +153,7 @@ class ReportingTest : BasePlatformTestCase() {
       "z fix", "a fix", // then custom fixes, in the specified order
       "mock intention and fix", // if a custom fix overrides an intention, it's raised in the list
       "Ignore 'S' in this sentence", // then the built-in general context action
-      "Configure rule 'something'...",
+      "Configure rule 'something'…",
       "mock intention", // normal intentions are at the bottom
     )
   }

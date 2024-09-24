@@ -30,8 +30,6 @@ interface SearchEverywhereMlService {
     }
   }
 
-  val shouldAllTabPrioritizeRecentFiles: Boolean
-
   /**
    * Indicates whether machine learning in Search Everywhere is enabled.
    * This method can return false if ML-ranking is disabled and no experiments are allowed
@@ -54,7 +52,8 @@ interface SearchEverywhereMlService {
   fun onItemSelected(project: Project?, tabId: String,
                               indexes: IntArray, selectedItems: List<Any>,
                               elementsProvider: () -> List<SearchEverywhereFoundElementInfo>,
-                              closePopup: Boolean)
+                              closePopup: Boolean,
+                              query: String)
 
   fun onSearchFinished(project: Project?, elementsProvider: () -> List<SearchEverywhereFoundElementInfo>)
 
@@ -69,4 +68,6 @@ interface SearchEverywhereMlService {
   fun getExperimentVersion(): Int
 
   fun getExperimentGroup(): Int
+
+  fun addBufferedTimestamp(item: SearchEverywhereFoundElementInfo, timestamp: Long)
 }

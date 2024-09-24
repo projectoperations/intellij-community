@@ -16,8 +16,8 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiNameIdentifierOwner
 import com.intellij.psi.search.SearchScope
+import com.intellij.psi.util.startOffset
 import com.intellij.psi.util.walkUp
-import com.intellij.refactoring.suggested.startOffset
 import com.intellij.util.Query
 import com.intellij.webSymbols.PsiSourcedWebSymbol
 import com.intellij.webSymbols.WebSymbol
@@ -50,7 +50,7 @@ object WebSymbolUsageQueries {
       .distinct()
       .map {
         SearchService.getInstance()
-          .searchWord(project, symbol.name)
+          .searchWord(project, it)
           .caseSensitive(false)
           .inContexts(SearchContext.IN_CODE_HOSTS, SearchContext.IN_CODE, SearchContext.IN_PLAIN_TEXT, SearchContext.IN_STRINGS)
           .includeInjections()

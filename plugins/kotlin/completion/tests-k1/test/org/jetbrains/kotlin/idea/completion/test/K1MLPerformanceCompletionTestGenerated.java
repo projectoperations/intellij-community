@@ -3,10 +3,11 @@
 package org.jetbrains.kotlin.idea.completion.test;
 
 import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode;
+import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.jetbrains.kotlin.idea.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils;
 import org.jetbrains.kotlin.test.TestMetadata;
-import org.jetbrains.kotlin.idea.base.test.TestRoot;
 import org.junit.runner.RunWith;
 
 /**
@@ -24,6 +25,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/annotations")
         public static class Annotations extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -81,6 +88,16 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             @TestMetadata("FunctionAnnotation2.kt")
             public void testFunctionAnnotation2() throws Exception {
                 runTest("../testData/basic/common/annotations/FunctionAnnotation2.kt");
+            }
+
+            @TestMetadata("NestedAnnotation.kt")
+            public void testNestedAnnotation() throws Exception {
+                runTest("../testData/basic/common/annotations/NestedAnnotation.kt");
+            }
+
+            @TestMetadata("NestedAnnotation2.kt")
+            public void testNestedAnnotation2() throws Exception {
+                runTest("../testData/basic/common/annotations/NestedAnnotation2.kt");
             }
 
             @TestMetadata("NoCatchParameterAutopopup.kt")
@@ -237,6 +254,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/autoPopup")
         public static class AutoPopup extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -335,6 +358,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/backticked")
         public static class Backticked extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -358,6 +387,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/boldOrGrayed")
         public static class BoldOrGrayed extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -380,6 +415,16 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             @TestMetadata("AfterNullableAutoCast2.kt")
             public void testAfterNullableAutoCast2() throws Exception {
                 runTest("../testData/basic/common/boldOrGrayed/AfterNullableAutoCast2.kt");
+            }
+
+            @TestMetadata("Deprecated.kt")
+            public void testDeprecated() throws Exception {
+                runTest("../testData/basic/common/boldOrGrayed/Deprecated.kt");
+            }
+
+            @TestMetadata("DeprecatedGetter.kt")
+            public void testDeprecatedGetter() throws Exception {
+                runTest("../testData/basic/common/boldOrGrayed/DeprecatedGetter.kt");
             }
 
             @TestMetadata("ImmediateExtensionMembers1.kt")
@@ -447,6 +492,16 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/common/boldOrGrayed/MemberAfterNullable.kt");
             }
 
+            @TestMetadata("NonDeprecatedGetter.kt")
+            public void testNonDeprecatedGetter() throws Exception {
+                runTest("../testData/basic/common/boldOrGrayed/NonDeprecatedGetter.kt");
+            }
+
+            @TestMetadata("NonDeprecatedSetter.kt")
+            public void testNonDeprecatedSetter() throws Exception {
+                runTest("../testData/basic/common/boldOrGrayed/NonDeprecatedSetter.kt");
+            }
+
             @TestMetadata("NonPredictableSmartCast.kt")
             public void testNonPredictableSmartCast() throws Exception {
                 runTest("../testData/basic/common/boldOrGrayed/NonPredictableSmartCast.kt");
@@ -471,6 +526,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/callableReference")
         public static class CallableReference extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -569,6 +630,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/dslMarker")
         public static class DslMarker extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -603,6 +670,11 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/common/dslMarker/noDslCompletionForNonDslReciever.kt");
             }
 
+            @TestMetadata("property.kt")
+            public void testProperty() throws Exception {
+                runTest("../testData/basic/common/dslMarker/property.kt");
+            }
+
             @TestMetadata("root.kt")
             public void testRoot() throws Exception {
                 runTest("../testData/basic/common/dslMarker/root.kt");
@@ -612,6 +684,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/extensionDeclarations")
         public static class ExtensionDeclarations extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -710,6 +788,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/extensionFunctionTypeValues")
         public static class ExtensionFunctionTypeValues extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -748,6 +832,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/extensionMethodInObject")
         public static class ExtensionMethodInObject extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -841,6 +931,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/extensions")
         public static class Extensions extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -923,6 +1019,16 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             @TestMetadata("JavaTypeExtension.kt")
             public void testJavaTypeExtension() throws Exception {
                 runTest("../testData/basic/common/extensions/JavaTypeExtension.kt");
+            }
+
+            @TestMetadata("KTIJ-28743.kt")
+            public void testKTIJ_28743() throws Exception {
+                runTest("../testData/basic/common/extensions/KTIJ-28743.kt");
+            }
+
+            @TestMetadata("KTIJ-30225.kt")
+            public void testKTIJ_30225() throws Exception {
+                runTest("../testData/basic/common/extensions/KTIJ-30225.kt");
             }
 
             @TestMetadata("KotlinGenericTypeExtension.kt")
@@ -1009,6 +1115,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/fromSmart")
         public static class FromSmart extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1053,16 +1165,6 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/common/fromSmart/EnumEntries.kt");
             }
 
-            @TestMetadata("JavaStaticMethods.kt")
-            public void testJavaStaticMethods() throws Exception {
-                runTest("../testData/basic/common/fromSmart/JavaStaticMethods.kt");
-            }
-
-            @TestMetadata("JavaStaticMethods2.kt")
-            public void testJavaStaticMethods2() throws Exception {
-                runTest("../testData/basic/common/fromSmart/JavaStaticMethods2.kt");
-            }
-
             @TestMetadata("MultipleArgs.kt")
             public void testMultipleArgs() throws Exception {
                 runTest("../testData/basic/common/fromSmart/MultipleArgs.kt");
@@ -1082,6 +1184,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/fromUnresolvedNames")
         public static class FromUnresolvedNames extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1160,6 +1268,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/getOperator")
         public static class GetOperator extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1183,6 +1297,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/highOrderFunctions")
         public static class HighOrderFunctions extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1241,6 +1361,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/inInitBlock")
         public static class InInitBlock extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1259,6 +1385,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/inStringLiterals")
         public static class InStringLiterals extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1297,6 +1429,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/inSuperTypes")
         public static class InSuperTypes extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1320,6 +1458,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/inTypeAlias")
         public static class InTypeAlias extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1338,6 +1482,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/lambdaAndTypeParams")
         public static class LambdaAndTypeParams extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1371,6 +1521,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/lambdaSignature")
         public static class LambdaSignature extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1429,6 +1585,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/namedArguments")
         public static class NamedArguments extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1558,6 +1720,16 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/common/namedArguments/ParamsFromSingleUnapplicableOverload.kt");
             }
 
+            @TestMetadata("PrivateFunction.kt")
+            public void testPrivateFunction() throws Exception {
+                runTest("../testData/basic/common/namedArguments/PrivateFunction.kt");
+            }
+
+            @TestMetadata("PrivateFunction2.kt")
+            public void testPrivateFunction2() throws Exception {
+                runTest("../testData/basic/common/namedArguments/PrivateFunction2.kt");
+            }
+
             @TestMetadata("TypeAliasParameter.kt")
             public void testTypeAliasParameter() throws Exception {
                 runTest("../testData/basic/common/namedArguments/TypeAliasParameter.kt");
@@ -1572,6 +1744,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/noCompletion")
         public static class NoCompletion extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1625,6 +1803,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/objects")
         public static class Objects extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1648,6 +1832,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/operatorNames")
         public static class OperatorNames extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1671,6 +1861,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/override")
         public static class Override extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1695,6 +1891,11 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/common/override/AfterVarKeyword.kt");
             }
 
+            @TestMetadata("ContextReceiver.kt")
+            public void testContextReceiver() throws Exception {
+                runTest("../testData/basic/common/override/ContextReceiver.kt");
+            }
+
             @TestMetadata("Generics.kt")
             public void testGenerics() throws Exception {
                 runTest("../testData/basic/common/override/Generics.kt");
@@ -1708,6 +1909,11 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             @TestMetadata("InConstructorParameters2.kt")
             public void testInConstructorParameters2() throws Exception {
                 runTest("../testData/basic/common/override/InConstructorParameters2.kt");
+            }
+
+            @TestMetadata("MethodNameMatch.kt")
+            public void testMethodNameMatch() throws Exception {
+                runTest("../testData/basic/common/override/MethodNameMatch.kt");
             }
 
             @TestMetadata("NoOverrideAfterFunKeyword.kt")
@@ -1739,6 +1945,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/parameterNameAndType")
         public static class ParameterNameAndType extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1927,6 +2139,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/primaryConstructor")
         public static class PrimaryConstructor extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -1950,6 +2168,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/primitiveCompletion")
         public static class PrimitiveCompletion extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2079,6 +2303,26 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/common/primitiveCompletion/smartCast.kt");
             }
 
+            @TestMetadata("smartCastAssignedLaterVariable.kt")
+            public void testSmartCastAssignedLaterVariable() throws Exception {
+                runTest("../testData/basic/common/primitiveCompletion/smartCastAssignedLaterVariable.kt");
+            }
+
+            @TestMetadata("smartCastBySafeCastAndEarlyReturn.kt")
+            public void testSmartCastBySafeCastAndEarlyReturn() throws Exception {
+                runTest("../testData/basic/common/primitiveCompletion/smartCastBySafeCastAndEarlyReturn.kt");
+            }
+
+            @TestMetadata("smartCastReassignedVariable.kt")
+            public void testSmartCastReassignedVariable() throws Exception {
+                runTest("../testData/basic/common/primitiveCompletion/smartCastReassignedVariable.kt");
+            }
+
+            @TestMetadata("smartCastReassignedVariable2.kt")
+            public void testSmartCastReassignedVariable2() throws Exception {
+                runTest("../testData/basic/common/primitiveCompletion/smartCastReassignedVariable2.kt");
+            }
+
             @TestMetadata("stringCompletion.kt")
             public void testStringCompletion() throws Exception {
                 runTest("../testData/basic/common/primitiveCompletion/stringCompletion.kt");
@@ -2138,6 +2382,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/shadowing")
         public static class Shadowing extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2281,6 +2531,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/smartCast")
         public static class SmartCast extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2334,6 +2590,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/staticMembers")
         public static class StaticMembers extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2362,41 +2624,17 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             public void testImportsFromObjectNoDuplicates() throws Exception {
                 runTest("../testData/basic/common/staticMembers/ImportsFromObjectNoDuplicates.kt");
             }
-
-            @TestMetadata("JavaStaticFields.kt")
-            public void testJavaStaticFields() throws Exception {
-                runTest("../testData/basic/common/staticMembers/JavaStaticFields.kt");
-            }
-
-            @TestMetadata("JavaStaticFieldsFromImports.kt")
-            public void testJavaStaticFieldsFromImports() throws Exception {
-                runTest("../testData/basic/common/staticMembers/JavaStaticFieldsFromImports.kt");
-            }
-
-            @TestMetadata("JavaStaticMethods.kt")
-            public void testJavaStaticMethods() throws Exception {
-                runTest("../testData/basic/common/staticMembers/JavaStaticMethods.kt");
-            }
-
-            @TestMetadata("JavaStaticMethodsFromImports.kt")
-            public void testJavaStaticMethodsFromImports() throws Exception {
-                runTest("../testData/basic/common/staticMembers/JavaStaticMethodsFromImports.kt");
-            }
-
-            @TestMetadata("JavaStaticMethodsNoDuplicates.kt")
-            public void testJavaStaticMethodsNoDuplicates() throws Exception {
-                runTest("../testData/basic/common/staticMembers/JavaStaticMethodsNoDuplicates.kt");
-            }
-
-            @TestMetadata("JavaStaticMethodsNoDuplicatesFromBases.kt")
-            public void testJavaStaticMethodsNoDuplicatesFromBases() throws Exception {
-                runTest("../testData/basic/common/staticMembers/JavaStaticMethodsNoDuplicatesFromBases.kt");
-            }
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/substitutedSignature")
         public static class SubstitutedSignature extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2440,6 +2678,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/super")
         public static class Super extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2498,6 +2742,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/typeAliasTypes")
         public static class TypeAliasTypes extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2516,6 +2766,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/typeArgsOrNot")
         public static class TypeArgsOrNot extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2569,6 +2825,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common")
         public static class Uncategorized extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -2721,6 +2983,11 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             @TestMetadata("EnumValuesMethodUsualPriorityWhenFeatureDisabled.kt")
             public void testEnumValuesMethodUsualPriorityWhenFeatureDisabled() throws Exception {
                 runTest("../testData/basic/common/EnumValuesMethodUsualPriorityWhenFeatureDisabled.kt");
+            }
+
+            @TestMetadata("Error.kt")
+            public void testError() throws Exception {
+                runTest("../testData/basic/common/Error.kt");
             }
 
             @TestMetadata("ExtendClassName.kt")
@@ -3128,11 +3395,6 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/common/NestedClassesOnDefaultObjectLiteral.kt");
             }
 
-            @TestMetadata("NoAutoInsertionOfNotImported.kt")
-            public void testNoAutoInsertionOfNotImported() throws Exception {
-                runTest("../testData/basic/common/NoAutoInsertionOfNotImported.kt");
-            }
-
             @TestMetadata("NoClassNameDuplication.kt")
             public void testNoClassNameDuplication() throws Exception {
                 runTest("../testData/basic/common/NoClassNameDuplication.kt");
@@ -3236,11 +3498,6 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             @TestMetadata("PreferLessParameters.kt")
             public void testPreferLessParameters() throws Exception {
                 runTest("../testData/basic/common/PreferLessParameters.kt");
-            }
-
-            @TestMetadata("PrivatesInSecondPressCompletion.kt")
-            public void testPrivatesInSecondPressCompletion() throws Exception {
-                runTest("../testData/basic/common/PrivatesInSecondPressCompletion.kt");
             }
 
             @TestMetadata("ProtectedExtensionMethod.kt")
@@ -3378,6 +3635,11 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/common/TypeArgOfOwnerClass.kt");
             }
 
+            @TestMetadata("TypeParamAsTypeArg.kt")
+            public void testTypeParamAsTypeArg() throws Exception {
+                runTest("../testData/basic/common/TypeParamAsTypeArg.kt");
+            }
+
             @TestMetadata("TypeParameterFromOuterClass.kt")
             public void testTypeParameterFromOuterClass() throws Exception {
                 runTest("../testData/basic/common/TypeParameterFromOuterClass.kt");
@@ -3402,6 +3664,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/variableNameAndType")
         public static class VariableNameAndType extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3425,6 +3693,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/visibility")
         public static class Visibility extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3518,6 +3792,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/when")
         public static class When extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3565,11 +3845,6 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             @TestMetadata("nonSealedClassInWhen.kt")
             public void testNonSealedClassInWhen() throws Exception {
                 runTest("../testData/basic/common/when/nonSealedClassInWhen.kt");
-            }
-
-            @TestMetadata("nonSealedClassInWhen2.kt")
-            public void testNonSealedClassInWhen2() throws Exception {
-                runTest("../testData/basic/common/when/nonSealedClassInWhen2.kt");
             }
 
             @TestMetadata("nonSealedClassWithTypeArgs.kt")
@@ -3641,6 +3916,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/where")
         public static class Where extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3668,6 +3949,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/java/boldOrGrayed")
         public static class BoldOrGrayed extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3699,8 +3986,38 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../testData/basic/java/fromSmart")
+        public static class FromSmart extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("JavaStaticMethods.kt")
+            public void testJavaStaticMethods() throws Exception {
+                runTest("../testData/basic/java/fromSmart/JavaStaticMethods.kt");
+            }
+
+            @TestMetadata("JavaStaticMethods2.kt")
+            public void testJavaStaticMethods2() throws Exception {
+                runTest("../testData/basic/java/fromSmart/JavaStaticMethods2.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/java/importAliases")
         public static class ImportAliases extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3752,8 +4069,58 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../testData/basic/java/staticMembers")
+        public static class StaticMembers extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("JavaStaticFields.kt")
+            public void testJavaStaticFields() throws Exception {
+                runTest("../testData/basic/java/staticMembers/JavaStaticFields.kt");
+            }
+
+            @TestMetadata("JavaStaticFieldsFromImports.kt")
+            public void testJavaStaticFieldsFromImports() throws Exception {
+                runTest("../testData/basic/java/staticMembers/JavaStaticFieldsFromImports.kt");
+            }
+
+            @TestMetadata("JavaStaticMethods.kt")
+            public void testJavaStaticMethods() throws Exception {
+                runTest("../testData/basic/java/staticMembers/JavaStaticMethods.kt");
+            }
+
+            @TestMetadata("JavaStaticMethodsFromImports.kt")
+            public void testJavaStaticMethodsFromImports() throws Exception {
+                runTest("../testData/basic/java/staticMembers/JavaStaticMethodsFromImports.kt");
+            }
+
+            @TestMetadata("JavaStaticMethodsNoDuplicates.kt")
+            public void testJavaStaticMethodsNoDuplicates() throws Exception {
+                runTest("../testData/basic/java/staticMembers/JavaStaticMethodsNoDuplicates.kt");
+            }
+
+            @TestMetadata("JavaStaticMethodsNoDuplicatesFromBases.kt")
+            public void testJavaStaticMethodsNoDuplicatesFromBases() throws Exception {
+                runTest("../testData/basic/java/staticMembers/JavaStaticMethodsNoDuplicatesFromBases.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/java/syntheticExtensions")
         public static class SyntheticExtensions extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3822,6 +4189,12 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/java")
         public static class Uncategorized extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
@@ -3886,6 +4259,11 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/java/KT9166.kt");
             }
 
+            @TestMetadata("NoAutoInsertionOfNotImported.kt")
+            public void testNoAutoInsertionOfNotImported() throws Exception {
+                runTest("../testData/basic/java/NoAutoInsertionOfNotImported.kt");
+            }
+
             @TestMetadata("NoDuplicationForImportedJavaClass.kt")
             public void testNoDuplicationForImportedJavaClass() throws Exception {
                 runTest("../testData/basic/java/NoDuplicationForImportedJavaClass.kt");
@@ -3926,6 +4304,11 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/java/PackageDirective.kt");
             }
 
+            @TestMetadata("PrivatesInSecondPressCompletion.kt")
+            public void testPrivatesInSecondPressCompletion() throws Exception {
+                runTest("../testData/basic/java/PrivatesInSecondPressCompletion.kt");
+            }
+
             @TestMetadata("ReadlineMethodLowerPriority.kt")
             public void testReadlineMethodLowerPriority() throws Exception {
                 runTest("../testData/basic/java/ReadlineMethodLowerPriority.kt");
@@ -3946,6 +4329,11 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
                 runTest("../testData/basic/java/SAMAdaptersStatic.kt");
             }
 
+            @TestMetadata("SamAdapters.kt")
+            public void testSamAdapters() throws Exception {
+                runTest("../testData/basic/java/SamAdapters.kt");
+            }
+
             @TestMetadata("StandardKotlinTypeAliasAfterExplicitlyImported.kt")
             public void testStandardKotlinTypeAliasAfterExplicitlyImported() throws Exception {
                 runTest("../testData/basic/java/StandardKotlinTypeAliasAfterExplicitlyImported.kt");
@@ -3964,6 +4352,25 @@ public abstract class K1MLPerformanceCompletionTestGenerated extends AbstractK1M
             @TestMetadata("TopLevelFromStandardLibrary.kt")
             public void testTopLevelFromStandardLibrary() throws Exception {
                 runTest("../testData/basic/java/TopLevelFromStandardLibrary.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../testData/basic/java/when")
+        public static class When extends AbstractK1MLPerformanceCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("nonSealedClassInWhen2.kt")
+            public void testNonSealedClassInWhen2() throws Exception {
+                runTest("../testData/basic/java/when/nonSealedClassInWhen2.kt");
             }
         }
     }

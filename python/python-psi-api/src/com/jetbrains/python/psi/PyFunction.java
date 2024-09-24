@@ -4,7 +4,9 @@ package com.jetbrains.python.psi;
 import com.intellij.psi.PsiNameIdentifierOwner;
 import com.intellij.psi.StubBasedPsiElement;
 import com.intellij.util.ArrayFactory;
-import com.jetbrains.python.ast.PyAstFunction;
+import com.jetbrains.python.PyNames;
+import com.jetbrains.python.ast.*;
+import com.jetbrains.python.ast.impl.PyPsiUtilsCore;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.psi.stubs.PyFunctionStub;
 import com.jetbrains.python.psi.types.PyType;
@@ -14,12 +16,14 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
+
 /**
  * Function declaration in source (the {@code def} and everything within).
  */
 public interface PyFunction extends PyAstFunction, StubBasedPsiElement<PyFunctionStub>, PsiNameIdentifierOwner, PyCompoundStatement,
                                     PyDecoratable, PyCallable, PyStatementListContainer, PyPossibleClassMember,
-                                    ScopeOwner, PyDocStringOwner, PyTypeCommentOwner, PyAnnotationOwner, PyTypeParameterListOwner {
+                                    ScopeOwner, PyDocStringOwner, PyTypeCommentOwner, PyAnnotationOwner, PyTypeParameterListOwner,
+                                    PyDeprecatable {
 
   PyFunction[] EMPTY_ARRAY = new PyFunction[0];
   ArrayFactory<PyFunction> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PyFunction[count];
@@ -64,6 +68,23 @@ public interface PyFunction extends PyAstFunction, StubBasedPsiElement<PyFunctio
   @Nullable
   default PyStringLiteralExpression getDocStringExpression() {
     return (PyStringLiteralExpression)PyAstFunction.super.getDocStringExpression();
+  }
+
+  static @Nullable String extractDeprecationMessage(List<? extends PyAstStatement> statements) {
+    for (PyAstStatement statement : statements) {
+      if (statement instanceof PyAstExpressionStatement expressionStatement) {
+        if (expressionStatement.getExpression() instanceof PyAstCallExpression callExpression) {
+          if (callExpression.isCalleeText(PyNames.WARN)) {
+            PyAstReferenceExpression warningClass = callExpression.getArgument(1, PyAstReferenceExpression.class);
+            if (warningClass != null && (PyNames.DEPRECATION_WARNING.equals(warningClass.getReferencedName()) ||
+                                         PyNames.PENDING_DEPRECATION_WARNING.equals(warningClass.getReferencedName()))) {
+              return PyPsiUtilsCore.strValue(callExpression.getArguments()[0]);
+            }
+          }
+        }
+      }
+    }
+    return null;
   }
 
   @Override

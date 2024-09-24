@@ -32,6 +32,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
+ * <h3>Obsolescence notice</h3>
+ * <p>
+ * See {@link com.intellij.openapi.progress.ProgressIndicator} notice.
+ * </p>
+ * <hr>
+ *
  * A progress indicator for write actions. Paints itself explicitly, without resorting to normal Swing's delayed repaint API.
  * Doesn't dispatch Swing events, except for handling manually those that can cancel it or affect the visual presentation.
  */
@@ -116,7 +122,7 @@ public final class PotemkinProgress extends ProgressWindow implements PingProgre
     if (myApp.isUnitTestMode()) return;
 
     JRootPane rootPane = getDialog().getPanel().getRootPane();
-    if (rootPane == null && now - myLastUiUpdate > myDelayInMillis && myApp.isActive()) {
+    if (rootPane == null && now - myLastUiUpdate > delayInMillis && myApp.isActive()) {
       getDialog().getRepaintRunnable().run();
       showDialog();
       rootPane = getDialog().getPanel().getRootPane();

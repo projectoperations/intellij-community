@@ -29,12 +29,14 @@ import com.intellij.util.concurrency.Semaphore
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.indexing.FileBasedIndex
 import com.intellij.util.indexing.FileBasedIndexImpl
+import com.intellij.util.indexing.PerProjectIndexingQueue
 import com.intellij.util.indexing.contentQueue.IndexUpdateRunner
+import com.intellij.util.indexing.contentQueue.IndexingProgressReporter2
 import com.intellij.util.indexing.dependencies.ProjectIndexingDependenciesService
 import com.intellij.util.indexing.diagnostic.ProjectDumbIndexingHistoryImpl
-import com.intellij.util.indexing.events.FileIndexingRequest
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -46,6 +48,7 @@ import java.util.concurrent.Phaser
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.time.Duration.Companion.seconds
 
 @RunWith(JUnit4::class)
 class DumbServiceImplTest {
@@ -296,8 +299,10 @@ class DumbServiceImplTest {
           ProgressIndicatorUtils.withTimeout(20_000) {
             val index = FileBasedIndex.getInstance() as FileBasedIndexImpl
             IndexUpdateRunner(index, project.service<ProjectIndexingDependenciesService>().getLatestIndexingRequestToken())
-              .indexFiles(project, listOf(IndexUpdateRunner.FileSet(project, "child", listOf(FileIndexingRequest.updateRequest(child)))),
-                          ProjectDumbIndexingHistoryImpl(project))
+              .indexFiles(project, IndexUpdateRunner.FileSet(project, "child",
+                                                             PerProjectIndexingQueue.QueuedFiles.fromFilesCollection(listOf(child), emptyList())),
+                          ProjectDumbIndexingHistoryImpl(project),
+                          IndexingProgressReporter2.createEmpty())
           }
         }
         catch (e: ProcessCanceledException) {
@@ -798,6 +803,25 @@ class DumbServiceImplTest {
         }
       }
     }
+  }
+
+  @Test
+  fun `DumbService_runInDumbMode should properly handle coroutine cancellation`() = runBlocking(Dispatchers.EDT) {
+    val dumbTaskStarted = Job()
+    val dumbTask = launch(Dispatchers.Default) {
+      DumbServiceImpl.getInstance(project).runInDumbMode("Test dumb task that awaits cancellation") {
+        dumbTaskStarted.complete()
+        awaitCancellation()
+      }
+    }
+    withTimeout(10.seconds) {
+      dumbTaskStarted.join()
+
+      DumbServiceImpl.getInstance(project).isDumbAsFlow.first { isDumb -> isDumb }
+      dumbTask.cancel("Cancel dumb task")
+      DumbServiceImpl.getInstance(project).isDumbAsFlow.first { isDumb -> !isDumb }
+    }
+    return@runBlocking
   }
 
   private fun waitForSmartModeFiveSecondsOrThrow() {

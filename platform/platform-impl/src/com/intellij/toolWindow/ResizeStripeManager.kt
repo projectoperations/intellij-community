@@ -1,15 +1,18 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.toolWindow
 
-import com.intellij.ide.actions.ToolWindowShowNamesAction
 import com.intellij.ide.ui.UISettings
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.OnePixelDivider
 import com.intellij.openapi.ui.Splittable
+import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.registry.RegistryValue
+import com.intellij.openapi.util.registry.RegistryValueListener
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.impl.SquareStripeButton
@@ -38,17 +41,18 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
   private var myCalculateDelta = false
   private var myDelta = 0
   private var myCustomWidth = 0
+  private var myCurrentScale = 0f
 
   init {
     myComponent.addMouseListener(object : PopupHandler() {
       override fun invokePopup(component: Component, x: Int, y: Int) {
-        val action = ToolWindowShowNamesAction()
-        val group = object : ActionGroup() {
-          override fun getChildren(e: AnActionEvent?) = arrayOf(action)
+        if (enabled()) {
+          val action = ActionManager.getInstance().getAction("ToolWindowShowNamesAction")!!
+          val group = object : ActionGroup() {
+            override fun getChildren(e: AnActionEvent?) = arrayOf(action)
+          }
+          showPopup(group, component, x, y)
         }
-        //group = DefaultActionGroup(action) // XXX
-        val popupMenu = ActionManager.getInstance().createActionPopupMenu(ActionPlaces.TOOLWINDOW_POPUP, group)
-        popupMenu.component.show(component, x, y)
       }
     })
   }
@@ -84,6 +88,7 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
       val enabled = isShowNames()
       if (enabled) {
         myCustomWidth = getSideCustomWidth(myComponent.anchor)
+        myCurrentScale = UISettings.getInstance().currentIdeScale
         myComponent.add(mySplitter)
       }
       else {
@@ -97,10 +102,10 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
     }
     else {
       myCustomWidth = getSideCustomWidth(myComponent.anchor)
+      myCurrentScale = UISettings.getInstance().currentIdeScale
     }
     updateView()
   }
-
 
   override fun setProportion(proportion: Float) {
     if (myIgnoreProportion) {
@@ -119,18 +124,46 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
     }
     width += myDelta
 
-    val min = JBUI.scale(if (UISettings.Companion.getInstance().compactMode) 32 else 40)
+    width = checkMinMax(width)
+
+    myCustomWidth = width
+    myCurrentScale = UISettings.getInstance().currentIdeScale
+    setSideCustomWidth(myComponent, width)
+    updateView()
+  }
+
+  private fun checkMinMax(width: Int): Int {
+    val min = JBUI.scale(if (UISettings.getInstance().compactMode) 33 else 40)
     if (width < min) {
-      width = min
+      return min
     }
 
     val max = JBUI.scale(100)
     if (width > max) {
-      width = max
+      return max
     }
 
-    myCustomWidth = width
-    setSideCustomWidth(myComponent, width)
+    return width
+  }
+
+  fun updateNamedState() {
+    val currentScale = UISettings.getInstance().currentIdeScale
+    if (myCustomWidth == 0 && myCurrentScale == 0f) {
+      myCustomWidth = getSideCustomWidth(myComponent.anchor)
+      val width = checkMinMax(myCustomWidth)
+      if (width != myCustomWidth) {
+        myCustomWidth = width
+        setSideCustomWidth(myComponent, width)
+      }
+    }
+    else if (myCurrentScale != currentScale) {
+      myCustomWidth = (myCustomWidth * currentScale / myCurrentScale).toInt()
+      setSideCustomWidth(myComponent, myCustomWidth)
+    }
+    else {
+      return
+    }
+    myCurrentScale = currentScale
     updateView()
   }
 
@@ -142,10 +175,7 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
       (button.getComponent() as SquareStripeButton).setOrUpdateShowName(myCustomWidth > 0)
     }
 
-    val parent = myComponent.parent
-    parent.revalidate()
     myComponent.revalidate()
-    parent.repaint()
   }
 
   override fun asComponent(): Component {
@@ -170,7 +200,23 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
   }
 
   companion object {
-    fun isShowNames(): Boolean = UISettings.getInstance().showToolWindowsNames
+    private var myKeyListener: RegistryValueListener? = null
+
+    fun enabled(): Boolean {
+      if (myKeyListener == null) {
+        myKeyListener = object : RegistryValueListener {
+          override fun afterValueChanged(value: RegistryValue) {
+            if (!value.asBoolean()) {
+              setShowNames(false)
+            }
+          }
+        }
+        Registry.get("toolwindow.enable.show.names").addListener(myKeyListener!!, ApplicationManager.getApplication())
+      }
+      return Registry.`is`("toolwindow.enable.show.names", true)
+    }
+
+    fun isShowNames(): Boolean = enabled() && UISettings.getInstance().showToolWindowsNames
 
     fun setShowNames(value: Boolean) {
       UISettings.getInstance().showToolWindowsNames = value
@@ -180,7 +226,7 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
     fun applyShowNames() {
       val uiSettings = UISettings.getInstance()
       val newValue = uiSettings.showToolWindowsNames
-      val defaultWidth = if (newValue) JBUI.scale(if (UISettings.Companion.getInstance().compactMode) 40 else 54) else 0
+      val defaultWidth = if (newValue) JBUI.scale(59) else 0
 
       uiSettings.toolWindowLeftSideCustomWidth = defaultWidth
       uiSettings.toolWindowRightSideCustomWidth = defaultWidth
@@ -188,6 +234,8 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
       for (project in ProjectManager.getInstance().openProjects) {
         ToolWindowManagerEx.getInstanceEx(project).setShowNames(newValue)
       }
+
+      showToolWindowNamesChanged(newValue)
     }
 
     fun getSideCustomWidth(side: ToolWindowAnchor): Int {
@@ -213,6 +261,11 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
       for (project in ProjectManager.getInstance().openProjects) {
         ToolWindowManagerEx.getInstanceEx(project).setSideCustomWidth(toolbar, width)
       }
+    }
+
+    fun showPopup(group: ActionGroup, component: Component, x: Int, y: Int) {
+      val popupMenu = ActionManager.getInstance().createActionPopupMenu(ActionPlaces.TOOLWINDOW_POPUP, group)
+      popupMenu.component.show(component, x, y)
     }
   }
 }

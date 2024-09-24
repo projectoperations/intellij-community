@@ -1,7 +1,7 @@
 <idea-plugin>
   <extensions defaultExtensionNs="com.intellij">
     <applicationService
-            serviceInterface="org.jetbrains.kotlin.analysis.providers.ForeignValueProviderService"
+            serviceInterface="org.jetbrains.kotlin.analysis.api.platform.declarations.KotlinForeignValueProviderService"
             serviceImplementation="org.jetbrains.kotlin.idea.debugger.evaluate.IdeForeignValueProviderService"/>
 
     <applicationService
@@ -9,5 +9,9 @@
             serviceImplementation="org.jetbrains.kotlin.idea.debugger.core.K2CodeFragmentContextTunerImpl"/>
 
     <debugger.codeFragmentFactory implementation="org.jetbrains.kotlin.idea.debugger.evaluate.KotlinK2CodeFragmentFactory"/>
+
+    <applicationService
+            serviceInterface="org.jetbrains.kotlin.idea.debugger.evaluate.KotlinCodeFragmentCompiler"
+            serviceImplementation="org.jetbrains.kotlin.idea.debugger.evaluate.K2KotlinCodeFragmentCompiler"/>
   </extensions>
 </idea-plugin>
