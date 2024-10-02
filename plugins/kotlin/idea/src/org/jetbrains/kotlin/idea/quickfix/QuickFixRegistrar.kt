@@ -677,6 +677,10 @@ class QuickFixRegistrar : QuickFixContributor {
         OPT_IN_USAGE.registerFactory(OptInFileLevelFixesFactory)
         OPT_IN_USAGE_ERROR.registerFactory(OptInFixesFactory)
         OPT_IN_USAGE_ERROR.registerFactory(OptInFileLevelFixesFactory)
+        OPT_IN_TO_INHERITANCE.registerFactory(OptInFixesFactory)
+        OPT_IN_TO_INHERITANCE.registerFactory(OptInFileLevelFixesFactory)
+        OPT_IN_TO_INHERITANCE_ERROR.registerFactory(OptInFixesFactory)
+        OPT_IN_TO_INHERITANCE_ERROR.registerFactory(OptInFileLevelFixesFactory)
         OPT_IN_OVERRIDE.registerFactory(OptInFixesFactory)
         OPT_IN_OVERRIDE.registerFactory(OptInFileLevelFixesFactory)
         OPT_IN_OVERRIDE_ERROR.registerFactory(OptInFixesFactory)
@@ -710,9 +714,9 @@ class QuickFixRegistrar : QuickFixContributor {
 
         ASSIGN_OPERATOR_AMBIGUITY.registerFactory(AssignOperatorAmbiguityFactory)
 
-        TYPE_MISMATCH.registerFactory(SurroundWithLambdaFix)
-        TYPE_MISMATCH_WARNING.registerFactory(SurroundWithLambdaFix)
-        CONSTANT_EXPECTED_TYPE_MISMATCH.registerFactory(SurroundWithLambdaFix)
+        TYPE_MISMATCH.registerFactory(SurroundWithLambdaForTypeMismatchFixFactory)
+        TYPE_MISMATCH_WARNING.registerFactory(SurroundWithLambdaForTypeMismatchFixFactory)
+        CONSTANT_EXPECTED_TYPE_MISMATCH.registerFactory(SurroundWithLambdaForTypeMismatchFixFactory)
 
         NO_SET_METHOD.registerFactory(ChangeToMutableCollectionFix)
 

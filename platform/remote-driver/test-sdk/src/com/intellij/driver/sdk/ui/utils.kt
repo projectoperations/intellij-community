@@ -2,6 +2,8 @@ package com.intellij.driver.sdk.ui
 
 import com.intellij.driver.client.Driver
 import com.intellij.driver.client.Remote
+import com.intellij.driver.model.OnDispatcher
+import com.intellij.driver.sdk.Project
 import com.intellij.driver.sdk.ui.components.UiComponent
 import com.intellij.driver.sdk.ui.remote.Component
 import com.intellij.driver.sdk.ui.remote.REMOTE_ROBOT_MODULE_ID
@@ -10,6 +12,19 @@ import java.awt.Rectangle
 
 fun Driver.hasFocus(c: Component) = utility(IJSwingUtilities::class).hasFocus(c)
 fun Driver.hasFocus(c: UiComponent) = hasFocus(c.component)
+
+
+fun Driver.requestFocusFromIde(project: Project?) {
+  withContext(OnDispatcher.EDT) {
+    utility(ProjectUtil::class).focusProjectWindow(project, true)
+  }
+}
+
+@Remote(value = "com.intellij.ide.impl.ProjectUtil")
+interface ProjectUtil {
+  fun focusProjectWindow(project: Project?, stealFocusIfAppInactive: Boolean)
+}
+
 
 val UiComponent.center: Point get() {
   val location = component.getLocationOnScreen()

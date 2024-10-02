@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("GraphicsSetClipInspection")
 
 package com.intellij.toolWindow
@@ -61,6 +61,7 @@ private val LOG = logger<ToolWindowPane>()
 /**
  * This panel contains all tool stripes and JLayeredPane at the center area. All tool windows are located inside this layered pane.
  */
+@Internal
 class ToolWindowPane private constructor(
   frame: JFrame,
   val paneId: String,
@@ -70,6 +71,7 @@ class ToolWindowPane private constructor(
     const val TEMPORARY_ADDED: String = "TEMPORARY_ADDED"
 
     // the size of the topmost 'resize' area when toolwindow caption is used for both resize and drag
+    @get:JvmName("getHeaderResizeArea")
     internal val headerResizeArea: Int
       get() = JBUI.scale(Registry.intValue("ide.new.tool.window.resize.area.height", 14, 1, 26))
 

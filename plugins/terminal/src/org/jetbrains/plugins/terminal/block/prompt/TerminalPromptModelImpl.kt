@@ -15,18 +15,19 @@ import com.intellij.openapi.editor.ex.DocumentEx
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
+import com.intellij.openapi.editor.markup.MarkupModel
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.util.DocumentUtil
+import com.intellij.util.EventDispatcher
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.jediterm.core.util.TermSize
-import org.jetbrains.plugins.terminal.TerminalUtil
 import org.jetbrains.plugins.terminal.block.BlockTerminalOptions
+import org.jetbrains.plugins.terminal.block.output.HighlightingInfo
 import org.jetbrains.plugins.terminal.block.prompt.error.TerminalPromptErrorDescription
 import org.jetbrains.plugins.terminal.block.prompt.error.TerminalPromptErrorStateListener
 import org.jetbrains.plugins.terminal.block.session.BlockTerminalSession
 import org.jetbrains.plugins.terminal.block.session.ShellCommandListener
-import java.util.concurrent.CopyOnWriteArrayList
 
 internal class TerminalPromptModelImpl(
   override val editor: EditorEx,
@@ -56,7 +57,7 @@ internal class TerminalPromptModelImpl(
       }
     }
 
-  private val errorStateListeners: MutableList<TerminalPromptErrorStateListener> = CopyOnWriteArrayList()
+  private val errorStateDispatcher: EventDispatcher<TerminalPromptErrorStateListener> = EventDispatcher.create(TerminalPromptErrorStateListener::class.java)
 
   init {
     editor.caretModel.addCaretListener(PreventMoveToPromptListener(), this)
@@ -95,16 +96,11 @@ internal class TerminalPromptModelImpl(
   @RequiresEdt
   private fun doUpdatePrompt(renderingInfo: TerminalPromptRenderingInfo) {
     DocumentUtil.writeInRunUndoTransparentAction {
-      document.guardedBlocks.forEach { document.removeGuardedBlock(it) }
+      document.clearGuardedBlocks()
       document.replaceString(0, commandStartOffset, renderingInfo.text)
       document.createGuardedBlock(0, renderingInfo.text.length)
     }
-    editor.markupModel.removeAllHighlighters()
-    for (highlighting in renderingInfo.highlightings) {
-      editor.markupModel.addRangeHighlighter(highlighting.startOffset, highlighting.endOffset, HighlighterLayer.SYNTAX,
-                                             highlighting.textAttributesProvider.getTextAttributes(), HighlighterTargetArea.EXACT_RANGE)
-    }
-
+    editor.markupModel.replaceHighlighters(renderingInfo.highlightings)
     val rightPrompt = renderingInfo.rightText
     if (rightPrompt.isNotEmpty()) {
       val manager = getOrCreateRightPromptManager()
@@ -136,13 +132,11 @@ internal class TerminalPromptModelImpl(
   }
 
   override fun setErrorDescription(errorDescription: TerminalPromptErrorDescription?) {
-    for (listener in errorStateListeners) {
-      listener.errorStateChanged(errorDescription)
-    }
+    errorStateDispatcher.multicaster.errorStateChanged(errorDescription)
   }
 
   override fun addErrorStateListener(listener: TerminalPromptErrorStateListener, parentDisposable: Disposable) {
-    TerminalUtil.addItem(errorStateListeners, listener, parentDisposable)
+    errorStateDispatcher.addListener(listener, parentDisposable)
   }
 
   override fun dispose() {}
@@ -166,6 +160,24 @@ internal class TerminalPromptModelImpl(
           preventRecursion = false
         }
       }
+    }
+  }
+
+  companion object {
+    internal fun MarkupModel.replaceHighlighters(highlightings: List<HighlightingInfo>) {
+      removeAllHighlighters()
+      highlightings.forEach {
+        applyHighlighting(it)
+      }
+    }
+
+    internal fun MarkupModel.applyHighlighting(highlighting: HighlightingInfo) {
+      addRangeHighlighter(highlighting.startOffset, highlighting.endOffset, HighlighterLayer.SYNTAX,
+                          highlighting.textAttributesProvider.getTextAttributes(), HighlighterTargetArea.EXACT_RANGE)
+    }
+
+    private fun DocumentEx.clearGuardedBlocks() {
+      this.guardedBlocks.forEach { removeGuardedBlock(it) }
     }
   }
 }

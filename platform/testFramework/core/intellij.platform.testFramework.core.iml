@@ -22,5 +22,7 @@
     <orderEntry type="library" name="jackson-databind" level="project" />
     <orderEntry type="library" name="jackson-module-kotlin" level="project" />
     <orderEntry type="library" name="http-client" level="project" />
+    <orderEntry type="library" name="kotlinx-collections-immutable" level="project" />
+    <orderEntry type="module" module-name="intellij.platform.testFramework.teamCity" />
   </component>
 </module>

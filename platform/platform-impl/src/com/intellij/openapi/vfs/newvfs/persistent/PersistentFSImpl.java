@@ -325,6 +325,8 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     NewVirtualFileSystem fs = getFileSystem(dir);
 
     try {
+      //MAYBE RC: .listWithCaching() uses DiskQueryRelay offloading under the hood -- which seems useless here,
+      //          because it seems there is no cancellability anyway, and only makes it slower
       String[] fsNames = VfsUtil.filterNames(
         fs instanceof LocalFileSystemImpl ? ((LocalFileSystemImpl)fs).listWithCaching(dir) : fs.list(dir)
       );
@@ -1047,6 +1049,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     return vfsPeer.getContentRecordId(fileId(file));
   }
 
+  @ApiStatus.Internal
   public boolean isOwnData(@NotNull VfsData data) {
     return data == myVfsData;
   }

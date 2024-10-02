@@ -242,6 +242,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
     return myContextManager;
   }
 
+  @NotNull
   public Project getProject() {
     return getProcess().getProject();
   }
@@ -408,7 +409,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
   }
 
   public void pause() {
-    myDebugProcess.getManagerThread().schedule(myDebugProcess.createPauseCommand());
+    myDebugProcess.getManagerThread().schedule(myDebugProcess.createPauseCommand(null));
   }
 
   /*Presentation*/

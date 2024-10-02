@@ -6,10 +6,9 @@ import com.intellij.cce.metric.util.chrF
 import org.apache.commons.text.similarity.LevenshteinDistance
 
 
-private fun Lookup.getWithPrefix() = suggestions.firstOrNull()?.text
-
-
 abstract class LineSimularityMetric(showByDefault: Boolean) : SimilarityMetric(showByDefault) {
+  protected fun Lookup.getWithPrefix() = suggestions.firstOrNull()?.text
+
   override fun computeExpectedText(session: Session, lookup: Lookup) = session.expectedText
 }
 
@@ -52,7 +51,7 @@ class PerfectFirstLine(showByDefault: Boolean) : LineSimularityMetric(showByDefa
   override fun computeExpected(lookup: Lookup, expectedText: String): Double = 1.0
 }
 
-class CharFScoreFirstLine(showByDefault: Boolean) : LineSimularityMetric(showByDefault) {
+class CharFScoreFirstLine(showByDefault: Boolean = false) : LineSimularityMetric(showByDefault) {
   override val name = "Character n-gram F-score First Line"
   override val description: String = "Average ChrF++ score on the first line"
 

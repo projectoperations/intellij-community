@@ -1,6 +1,8 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("WslIjentUtil")
 @file:Suppress("RAW_RUN_BLOCKING")  // These functions are called by different legacy code, a ProgressIndicator is not always available.
+@file:ApiStatus.Internal
+
 package com.intellij.execution.wsl
 
 import com.intellij.execution.CommandLineUtil.posixQuote
@@ -14,12 +16,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.eel.EelExecApi
 import com.intellij.platform.eel.EelExecApi.Arguments.executeProcessBuilder
+import com.intellij.platform.eel.EelResult
 import com.intellij.platform.ijent.IjentChildProcess
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.suspendingLazy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
+import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 
 /**
@@ -136,13 +140,13 @@ fun runProcessBlocking(
     .pty(pty)
     .workingDirectory(workingDirectory)
   )) {
-    is EelExecApi.ExecuteProcessResult.Success ->
-      (processResult.process as IjentChildProcess).toProcess(
+    is EelResult.Ok ->
+      (processResult.value as IjentChildProcess).toProcess(
         coroutineScope = scope,
         isPty = pty != null,
         redirectStderr = processBuilder.redirectErrorStream(),
       )
-    is EelExecApi.ExecuteProcessResult.Failure -> throw IOException(processResult.message)
+    is EelResult.Error -> throw IOException(processResult.error.message)
   }
 }
 

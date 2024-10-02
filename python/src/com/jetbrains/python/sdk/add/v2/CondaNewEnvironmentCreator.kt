@@ -10,7 +10,7 @@ import com.intellij.ui.dsl.builder.bindItem
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.jetbrains.python.PyBundle.message
-import com.jetbrains.python.newProjectWizard.collector.InterpreterStatisticsInfo
+import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.conda.condaSupportedLanguages
@@ -19,12 +19,9 @@ import com.jetbrains.python.statistics.InterpreterCreationMode
 import com.jetbrains.python.statistics.InterpreterType
 import com.jetbrains.python.ui.flow.bindText
 import com.jetbrains.python.util.ErrorSink
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
-import java.nio.file.Path
-import kotlin.io.path.name
 
-class CondaNewEnvironmentCreator(model: PythonMutableTargetAddInterpreterModel, private val projectPath: StateFlow<Path>?, private val errorSink:ErrorSink) : PythonNewEnvironmentCreator(model) {
+// TODO: DOC
+class CondaNewEnvironmentCreator(model: PythonMutableTargetAddInterpreterModel, private val errorSink: ErrorSink) : PythonNewEnvironmentCreator(model) {
 
   private lateinit var pythonVersion: ObservableMutableProperty<LanguageLevel>
   private lateinit var versionComboBox: ComboBox<LanguageLevel>
@@ -40,9 +37,8 @@ class CondaNewEnvironmentCreator(model: PythonMutableTargetAddInterpreterModel, 
       row(message("sdk.create.custom.conda.env.name")) {
         val envName = textField()
           .bindText(model.state.newCondaEnvName)
-        if (projectPath != null) {
-          envName.bindText(projectPath.map { it.name })
-        }
+        // TODO: DOC
+        envName.bindText(model.myProjectPathFlows.projectName)
       }
 
       executableSelector(model.state.condaExecutable,
@@ -54,9 +50,7 @@ class CondaNewEnvironmentCreator(model: PythonMutableTargetAddInterpreterModel, 
     }
   }
 
-  override fun onShown() {
-    model.state.newCondaEnvName.set(model.projectPath.value.name)
-  }
+  override fun onShown() = Unit
 
   override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): Result<Sdk> {
     return model.createCondaEnvironment(NewCondaEnvRequest.EmptyNamedEnv(pythonVersion.get(), model.state.newCondaEnvName.get()))

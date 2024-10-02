@@ -15,6 +15,7 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.util.SystemProperties
 import com.intellij.util.application
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -25,10 +26,16 @@ import git4idea.commit.signing.GpgAgentPathsLocator.Companion.GPG_AGENT_CONF_FIL
 import git4idea.commit.signing.GpgAgentPathsLocator.Companion.GPG_HOME_DIR
 import git4idea.commit.signing.GpgAgentPathsLocator.Companion.PINENTRY_LAUNCHER_FILE_NAME
 import git4idea.commit.signing.PinentryService.Companion.PINENTRY_USER_DATA_ENV
+import git4idea.commit.signing.PinentryService.PinentryData
 import git4idea.config.GitExecutable
 import git4idea.config.GitExecutableListener
 import git4idea.config.GitExecutableManager
+import git4idea.config.gpg.getGpgSignKey
+import git4idea.config.gpg.isGpgSignEnabled
 import git4idea.gpg.PinentryApp
+import git4idea.repo.GitConfigListener
+import git4idea.repo.GitRepository
+import git4idea.repo.GitRepositoryManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,21 +58,33 @@ internal class GpgAgentConfigurator(private val project: Project, cs: CoroutineS
     const val GPG_AGENT_PINENTRY_PROGRAM_CONF_KEY = "pinentry-program"
 
     @JvmStatic
-    fun isEnabled(executable: GitExecutable): Boolean {
+    fun isEnabled(project: Project, executable: GitExecutable): Boolean {
       return Registry.`is`("git.commit.gpg.signing.enable.embedded.pinentry", false) &&
              ((AppMode.isRemoteDevHost() && SystemInfo.isUnix)
-             || executable is GitExecutable.Wsl
-             || application.isUnitTestMode)
+              || executable is GitExecutable.Wsl
+              || application.isUnitTestMode)
+             && // do not configure Gpg Agent for roots without commit.gpgSign and user.signingkey enabled
+             GitRepositoryManager.getInstance(project)
+               .repositories.any { repository ->
+                 isGpgSignEnabled(project, repository.root)
+                 && getGpgSignKey(project, repository.root) != null
+               }
+
     }
   }
 
   init {
     val connection = application.messageBus.connect(this)
     connection.subscribe(GitExecutableManager.TOPIC, GitExecutableListener { cs.launch { configure() }})
+    project.messageBus.connect(this).subscribe(GitConfigListener.TOPIC, object: GitConfigListener {
+      override fun notifyConfigChanged(repository: GitRepository) {
+        cs.launch { configure() }
+      }
+    })
   }
 
   suspend fun configure() {
-    withContext(Dispatchers.IO) { doConfigure() }
+    withContext(Dispatchers.IO) { ProjectLevelVcsManager.getInstance(project).runAfterInitialization { doConfigure() } }
   }
 
   private fun createPathLocator(executor: GitExecutable): GpgAgentPathsLocator {
@@ -85,7 +104,7 @@ internal class GpgAgentConfigurator(private val project: Project, cs: CoroutineS
   @VisibleForTesting
   internal fun doConfigure(pathLocator: GpgAgentPathsLocator? = null) {
     val executable = GitExecutableManager.getInstance().getExecutable(project)
-    if (!isEnabled(executable)) return
+    if (!isEnabled(project, executable)) return
 
     val gpgAgentPaths = pathLocator?.resolvePaths() ?: createPathLocator(executable).resolvePaths() ?: return
     val gpgAgentConf = gpgAgentPaths.gpgAgentConf
@@ -98,7 +117,7 @@ internal class GpgAgentConfigurator(private val project: Project, cs: CoroutineS
     }
 
     val config = readConfig(gpgAgentConf)
-    if (config.content.isEmpty()) {
+    if (config == null) {
       LOG.debug("Empty $gpgAgentConf, skipping pinentry program configuration")
       return
     }
@@ -118,17 +137,28 @@ internal class GpgAgentConfigurator(private val project: Project, cs: CoroutineS
     generatePinentryLauncher(executable, gpgAgentPaths)
   }
 
-  private fun readConfig(gpgAgentConf: Path): GpgAgentConfig {
+  private fun readConfig(gpgAgentConf: Path): GpgAgentConfig? {
     val config = mutableMapOf<String, String>()
     try {
-      gpgAgentConf.readLines().forEach { line ->
-        val (key, value) = line.split(' ')
+      for (line in gpgAgentConf.readLines()) {
+        val keyValue = line.split(' ')
+        val key: String
+        val value: String
+        when (keyValue.size) {
+          1 -> {
+            key = keyValue[0]; value = ""
+          }
+          2 -> {
+            key = keyValue[0]; value = keyValue[1]
+          }
+          else -> continue
+        }
         config[key] = value
       }
     }
     catch (e: IOException) {
       LOG.error("Cannot read $gpgAgentConf", e)
-      return GpgAgentConfig(gpgAgentConf, emptyMap())
+      return null
     }
     return GpgAgentConfig(gpgAgentConf, config)
   }
@@ -136,11 +166,12 @@ internal class GpgAgentConfigurator(private val project: Project, cs: CoroutineS
   private fun generatePinentryLauncher(executable: GitExecutable, gpgAgentPaths: GpgAgentPaths) {
     val gpgAgentConfBackup = gpgAgentPaths.gpgAgentConfBackup
     val pinentryFallback = when {
-      gpgAgentConfBackup.exists() -> readConfig(gpgAgentConfBackup).content[GPG_AGENT_PINENTRY_PROGRAM_CONF_KEY]
+      gpgAgentConfBackup.exists() -> readConfig(gpgAgentConfBackup)?.content[GPG_AGENT_PINENTRY_PROGRAM_CONF_KEY]
       else -> null
     }
     if (pinentryFallback.isNullOrBlank()) {
-      LOG.debug("Pinentry fallback not found in $gpgAgentConfBackup. Skip pinentry script generation.")
+      LOG.warn("Pinentry fallback not found in $gpgAgentConfBackup. " +
+               "Some features of GPG (as a key manipulation) may not work correctly without default pinentry-program specified in this file.")
     }
     PinentryShellScriptLauncherGenerator(executable)
       .generate(project, gpgAgentPaths, pinentryFallback)
@@ -170,7 +201,7 @@ internal class GpgAgentConfigurator(private val project: Project, cs: CoroutineS
     configToSave.put(GPG_AGENT_PINENTRY_PROGRAM_CONF_KEY, pinentryAppLauncherConfigPath)
     try {
       FileUtil.writeToFile(configPath.toFile(),
-                           configToSave.map { (key, value) -> "$key $value" }.joinToString(separator = "\n"))
+                           configToSave.map { (key, value) -> "$key $value".trimEnd() }.joinToString(separator = "\n"))
     }
     catch (e: IOException) {
       LOG.error("Cannot change config $configPath", e)
@@ -179,12 +210,12 @@ internal class GpgAgentConfigurator(private val project: Project, cs: CoroutineS
 
   private fun restartAgent(executor: GitExecutable) {
     try {
-      val output = createGpgAgentExecutor(executor).execute("gpg-connect-agent", "reloadagent /bye").lastOrNull()
-      if (output == "OK") {
+      val output = createGpgAgentExecutor(executor).execute("gpg-connect-agent", "reloadagent", "/bye")
+      if (output.contains("OK")) {
         LOG.debug("Gpg Agent restarted successfully")
       }
       else {
-        LOG.warn("Gpg Agent restart failed, restart manually to apply config changes")
+        LOG.warn("Gpg Agent restart failed, restart manually to apply config changes $output")
       }
     }
     catch (e: ExecutionException) {
@@ -202,9 +233,10 @@ internal interface GpgAgentCommandExecutor {
 
 private class LocalGpgAgentCommandExecutor : GpgAgentCommandExecutor {
   override fun execute(command: String, vararg params: String): List<String> {
-    return CapturingProcessHandler
+    val processOutput = CapturingProcessHandler
       .Silent(GeneralCommandLine(command).withParameters(*params))
-      .runProcess(10000, true).stdoutLines
+      .runProcess(10000, true)
+    return processOutput.stdoutLines + processOutput.stderrLines
   }
 }
 
@@ -240,9 +272,10 @@ private class WslGpgAgentCommandExecutor(private val project: Project,
                                          private val executable: GitExecutable.Wsl) : GpgAgentCommandExecutor {
   override fun execute(command: String, vararg params: String): List<String> {
     val commandLine = executable.createBundledCommandLine(project, command).withParameters(*params)
-    return CapturingProcessHandler
+    val processOutput = CapturingProcessHandler
       .Silent(commandLine)
-      .runProcess(10000, true).stdoutLines
+      .runProcess(10000, true)
+    return processOutput.stdoutLines + processOutput.stderrLines
   }
 }
 
@@ -326,7 +359,8 @@ internal class PinentryShellScriptLauncherGenerator(override val executable: Git
     }
 
     return """|#!/bin/sh
-              |if [ -n "${'$'}$PINENTRY_USER_DATA_ENV" ]; then
+              |if [ -n "${'$'}$PINENTRY_USER_DATA_ENV" ] && [[
+              |  "${'$'}$PINENTRY_USER_DATA_ENV" == "${PinentryData.PREFIX}"* ]]; then
               |  ${addParameters(*getCommandLineParameters()).commandLine(PinentryApp::class.java, false)}
               |else
               |  exec $fallbackPinentryPath "$@"

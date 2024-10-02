@@ -742,6 +742,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/branched/ifThenToElvis/nullCheckWithSelectorCallChain.kt");
         }
 
+        @TestMetadata("nullabilityInReceiversOfBaseCause.kt")
+        public void testNullabilityInReceiversOfBaseCause() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/branched/ifThenToElvis/nullabilityInReceiversOfBaseCause.kt");
+        }
+
+        @TestMetadata("nullabilityInReceiversOfBaseCause1.kt")
+        public void testNullabilityInReceiversOfBaseCause1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/branched/ifThenToElvis/nullabilityInReceiversOfBaseCause1.kt");
+        }
+
         @TestMetadata("nullableResultWithImplicitReceiver.kt")
         public void testNullableResultWithImplicitReceiver() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/branched/ifThenToElvis/nullableResultWithImplicitReceiver.kt");
@@ -8324,6 +8334,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/allprojects.gradle.kts");
             }
 
+            @TestMetadata("assignmentOperation2params.gradle.kts")
+            public void testAssignmentOperation2params_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/assignmentOperation2params.gradle.kts");
+            }
+
             @TestMetadata("assignmentOperation.gradle.kts")
             public void testAssignmentOperation_gradle() throws Exception {
                 runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/assignmentOperation.gradle.kts");
@@ -8354,9 +8369,44 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/dontReplaceInKtFile.kt");
             }
 
+            @TestMetadata("dontReplaceWithMinusOperator2.gradle.kts")
+            public void testDontReplaceWithMinusOperator2_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/dontReplaceWithMinusOperator2.gradle.kts");
+            }
+
+            @TestMetadata("dontReplaceWithMinusOperator.gradle.kts")
+            public void testDontReplaceWithMinusOperator_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/dontReplaceWithMinusOperator.gradle.kts");
+            }
+
             @TestMetadata("freeCompilerArgsAddAllFromList.gradle.kts")
             public void testFreeCompilerArgsAddAllFromList_gradle() throws Exception {
                 runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/freeCompilerArgsAddAllFromList.gradle.kts");
+            }
+
+            @TestMetadata("freeCompilerArgsMultipleAddition1.gradle.kts")
+            public void testFreeCompilerArgsMultipleAddition1_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/freeCompilerArgsMultipleAddition1.gradle.kts");
+            }
+
+            @TestMetadata("freeCompilerArgsMultipleAddition2.gradle.kts")
+            public void testFreeCompilerArgsMultipleAddition2_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/freeCompilerArgsMultipleAddition2.gradle.kts");
+            }
+
+            @TestMetadata("freeCompilerArgsMultipleAddition3.gradle.kts")
+            public void testFreeCompilerArgsMultipleAddition3_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/freeCompilerArgsMultipleAddition3.gradle.kts");
+            }
+
+            @TestMetadata("freeCompilerArgsMultipleAddition4.gradle.kts")
+            public void testFreeCompilerArgsMultipleAddition4_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/freeCompilerArgsMultipleAddition4.gradle.kts");
+            }
+
+            @TestMetadata("freeCompilerArgsMultipleAddition5.gradle.kts")
+            public void testFreeCompilerArgsMultipleAddition5_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/freeCompilerArgsMultipleAddition5.gradle.kts");
             }
 
             @TestMetadata("freeCompilerArgsPlusFreeCompilerArgs.gradle.kts")

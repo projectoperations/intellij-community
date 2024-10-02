@@ -9,8 +9,10 @@ import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.fileEditor.impl.EditorWindow;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
+@ApiStatus.Internal
 public abstract class SplitterAction extends DumbAwareAction implements ActionRemoteBehaviorSpecification.Frontend {
   abstract void actionPerformed(@NotNull EditorWindow window);
 
@@ -71,7 +73,7 @@ public abstract class SplitterAction extends DumbAwareAction implements ActionRe
   static final class Unsplit extends SplitterAction {
     @Override
     void actionPerformed(@NotNull EditorWindow window) {
-      window.unsplit$intellij_platform_ide_impl(true);
+      window.unsplit(true);
     }
   }
 

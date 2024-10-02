@@ -265,7 +265,7 @@ class K2DfaAssistTest : DfaAssistTest(), ExpectedPluginModeProvider {
 
     fun testExtensionMethod() {
         doTest("""fun String.isLong(): Boolean {
-                      <caret>return this.length > 5/*FALSE*/
+                      <caret>return this.length > 5/*FALSE*/ || length > 2/*TRUE*/
                   }
 
                   fun main() {
@@ -349,7 +349,7 @@ class K2DfaAssistTest : DfaAssistTest(), ExpectedPluginModeProvider {
             frame.addVariable("t", MockValue.createValue(ElementType.METHOD, ElementType::class.java, vm))
         }
     }
-    
+
     fun testInlineFunction() {
         val text = """
             fun main() {
@@ -371,11 +371,11 @@ class K2DfaAssistTest : DfaAssistTest(), ExpectedPluginModeProvider {
             }          
         """
         doTest(text) { vm, frame ->
-            frame.addVariable("x${KotlinDebuggerConstants.INLINE_FUN_VAR_SUFFIX}", 
+            frame.addVariable("x${KotlinDebuggerConstants.INLINE_FUN_VAR_SUFFIX}",
                               MockValue.createValue(12, Integer::class.java, vm))
         }
     }
-    
+
     fun testInlineFunctionThis() {
         val text = """
             package org.jetbrains.kotlin.idea.k2.debugger.test
@@ -400,7 +400,7 @@ class K2DfaAssistTest : DfaAssistTest(), ExpectedPluginModeProvider {
                 MockValue.createValue(Nested(-1), vm))
         }
     }
-    
+
     fun testInlineFunctionReceiverThis() {
         val text = """
             fun main() {
@@ -408,13 +408,32 @@ class K2DfaAssistTest : DfaAssistTest(), ExpectedPluginModeProvider {
             }
             
             inline fun String.isLong(): Boolean {
-                <caret>return this.length > 5/*TRUE*/
+                <caret>return this.length > 5/*TRUE*/ && length > 16/*FALSE*/
             }
         """
         doTest(text) { vm, frame ->
             frame.addVariable(
                 "\$this\$isLong${KotlinDebuggerConstants.INLINE_FUN_VAR_SUFFIX}",
                 MockValue.createValue("hello world", vm))
+        }
+    }
+
+    fun testNullableBoolean() {
+        val text = """
+            fun main() {
+                callNullable(false, false)
+            }
+            
+            fun callNullable(nullable: Boolean?, nonNullable: Boolean) {
+                <caret>val abc = 123
+                if (nullable/*FALSE*/!!) /*unreachable_start*/println("alfa")/*unreachable_end*/
+                if (nullable/*FALSE*/) /*unreachable_start*/println("bravo")/*unreachable_end*/
+                if (nonNullable/*FALSE*/) /*unreachable_start*/println("charlie")/*unreachable_end*/
+            }
+        """
+        doTest(text) { vm, frame ->
+            frame.addVariable("nullable", MockValue.createValue(false, vm))
+            frame.addVariable("nonNullable", MockBooleanValue(vm, false))
         }
     }
 

@@ -5,7 +5,7 @@
   projectLibraries:
   - name: kotlinc.kotlin-jps-plugin-classpath
     files:
-    - name: $MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-jps-plugin-classpath/1/kotlin-jps-plugin-classpath-1.jar
+    - name: $MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-jps-plugin-classpath/2/kotlin-jps-plugin-classpath-2.jar
     reason: withProjectLibrary
 - name: lib/kotlin-base-jps.jar
   modules:
@@ -287,6 +287,12 @@
   - name: kotlinc.compose-compiler-plugin
     files:
     - name: $MAVEN_REPOSITORY$/org/jetbrains/kotlin/compose-compiler-plugin-for-ide/2/compose-compiler-plugin-for-ide-2.jar
+    reason: withProjectLibrary
+- name: lib/kotlinc.js-plain-objects-compiler-plugin.jar
+  projectLibraries:
+  - name: kotlinc.js-plain-objects-compiler-plugin
+    files:
+    - name: $MAVEN_REPOSITORY$/org/jetbrains/kotlin/js-plain-objects-compiler-plugin-for-ide/2/js-plain-objects-compiler-plugin-for-ide-2.jar
     reason: withProjectLibrary
 - name: lib/kotlinc.kotlin-compiler-common.jar
   projectLibraries:

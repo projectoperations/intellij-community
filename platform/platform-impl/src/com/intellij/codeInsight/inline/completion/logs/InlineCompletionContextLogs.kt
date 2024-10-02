@@ -20,10 +20,11 @@ internal object InlineCompletionContextLogs {
   fun getFor(request: InlineCompletionRequest): List<EventPair<*>> {
     val element = if (request.startOffset == 0) null else request.file.findElementAt(request.startOffset - 1)
     val simple = captureSimple(request.file, request.editor, request.startOffset, element)
+    val typingFeatures = getTypingSpeedFeatures()
     val featureCollectorBased = InlineCompletionFeaturesCollector.get(request.file.language)?.let {
       captureFeatureCollectorBased(request.file, request.startOffset, it, element)
     }
-    return simple + featureCollectorBased.orEmpty()
+    return simple + typingFeatures + featureCollectorBased.orEmpty()
   }
 
   private fun captureSimple(psiFile: PsiFile, editor: Editor, offset: Int, element: PsiElement?): List<EventPair<*>> {
@@ -104,6 +105,7 @@ internal object InlineCompletionContextLogs {
   private fun captureFeatureCollectorBased(file: PsiFile, offset: Int, featuresCollector: InlineCompletionFeaturesCollector, element: PsiElement?): List<EventPair<*>> {
     val result = mutableListOf<EventPair<*>>()
     result.addAll(addImportFeatures(featuresCollector, file))
+    result.addAll(getExtendedScopeFeatures(featuresCollector, file, offset))
 
     element ?: return result
 
@@ -117,9 +119,6 @@ internal object InlineCompletionContextLogs {
     featuresCollector.isInConditionalStatement(element)?.let { result.add(Logs.IS_IN_CONDITIONAL_STATEMENT with it) }
     featuresCollector.isInForStatement(element)?.let { result.add(Logs.IS_IN_FOR_STATEMENT with it) }
     result.add(Logs.BLOCK_STATEMENT_LEVEL with featuresCollector.getBlockStatementLevel(element))
-
-    result += getExtendedScopeFeatures(featuresCollector, file, offset)
-    result += getTypingSpeedFeatures()
 
     return result
   }
@@ -285,7 +284,7 @@ internal object InlineCompletionContextLogs {
     val SCOPE_VALUABLE_SYMBOLS_AFTER = scopeFeatures { EventFields.Boolean("${it}_scope_valuable_symbols_after", "False if in the ${it} scope after caret there are only whitespaces or statements/strings enclosures") }
     val SCOPE_HAS_ERROR_PSI = scopeFeatures { EventFields.Boolean("${it}_scope_has_error_psi", "True if in the ${it} scope there's any PsiError element") }
 
-    val TIME_SINCE_LAST_TYPING = register(EventFields.Long("time_since_last_typing"))
+    val TIME_SINCE_LAST_TYPING = register(EventFields.Long("time_since_last_typing", "Duration between current typing and previous one."))
     val TYPING_SPEEDS = TypingSpeedTracker.getEventFields().map {
       register(it)
     }

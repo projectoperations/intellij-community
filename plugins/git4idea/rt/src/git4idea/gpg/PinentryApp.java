@@ -51,6 +51,7 @@ public final class PinentryApp implements ExternalApp {
               if (pinentryUserData == null) {
                 pinentryUserData = "";
               }
+              pinentryUserData = pinentryUserData.replace("IJ_PINENTRY=", "");
               String[] pinentryData = pinentryUserData.split(":");
 
               if (pinentryData.length != 3) {
@@ -99,7 +100,12 @@ public final class PinentryApp implements ExternalApp {
               }
             }
             catch (Exception e) {
-              writer.write("ERR 83886179 exception\n");
+              if (shouldLog) {
+                exceptionsWriter.write("Exception occurred: \n");
+                exceptionsWriter.write(getStackTrace(e));
+                exceptionsWriter.flush();
+              }
+              writer.write("ERR 83886180 exception\n");
             }
           }
           else if (line.startsWith("BYE")) {
@@ -108,7 +114,7 @@ public final class PinentryApp implements ExternalApp {
             break;
           }
           else {
-            writer.write("ERR 83886179 unknown command <" + line + ">\n");
+            writer.write("ERR 83886181 unknown command <" + line + ">\n");
           }
 
           writer.flush();

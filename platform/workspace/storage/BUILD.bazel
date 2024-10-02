@@ -7,12 +7,13 @@ create_kotlinc_options(
   jvm_target = "11",
   x_optin = [
     "com.intellij.platform.workspace.storage.WorkspaceEntityInternalApi",
-    "com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi"
+    "com.intellij.platform.workspace.storage.instrumentation.EntityStorageInstrumentationApi",
   ]
 )
 
 kt_jvm_library(
-  name = "intellij.platform.workspace.storage",
+  name = "workspace-storage",
+  module_name = "intellij.platform.workspace.storage",
   visibility = ["//visibility:public"],
   srcs = glob(["gen/**/*.kt", "gen/**/*.java", "src/**/*.kt", "src/**/*.java"]),
   javac_opts = "//:j11",
@@ -21,15 +22,15 @@ kt_jvm_library(
     "@libraries//:kotlin-stdlib",
     "@libraries//:guava",
     "@libraries//:kotlin-reflect",
-    "@community//platform/util:intellij.platform.util",
+    "@community//platform/util",
     "@libraries//:intellij-deps-fastutil",
     "@libraries//:caffeine",
     "@libraries//:kryo5",
-    "@community//platform/diagnostic/telemetry:intellij.platform.diagnostic.telemetry",
+    "@community//platform/diagnostic/telemetry:diagnostic-telemetry",
     "@libraries//:opentelemetry-sdk",
     "@libraries//:opentelemetry-semconv",
-    "@community//platform/diagnostic:intellij.platform.diagnostic",
-    "@libraries//:kotlinx-collections-immutable-jvm"
+    "@community//platform/diagnostic",
+    "@libraries//:kotlinx-collections-immutable-jvm",
   ]
 )
 ### auto-generated section `build` end

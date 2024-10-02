@@ -11,13 +11,11 @@ import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ex.GlobalInspectionToolWrapper;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.codeInspection.ex.LocalInspectionToolWrapper;
-import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.annotation.Annotation;
 import com.intellij.lang.annotation.ExternalAnnotator;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.annotation.ProblemGroup;
-import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.modcommand.ModCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diagnostic.ReportingClassSubstitutor;
@@ -75,10 +73,6 @@ public class HighlightInfo implements Segment {
   /** true if this HighlightInfo was created as an error for some unresolved reference, so there likely will be some "Import" quickfixes after {@link com.intellij.codeInsight.quickfix.UnresolvedReferenceQuickFixProvider} being asked about em */
   private static final byte UNRESOLVED_REFERENCE_QUICK_FIXES_COMPUTED_MASK = 0x20;
 
-  // this HighlightInfo was created during visiting PsiElement with this range
-  @Deprecated
-  private RangeMarker visitingRange;
-
   @MagicConstant(intValues = {HAS_HINT_MASK, FROM_INJECTION_MASK, AFTER_END_OF_LINE_MASK, FILE_LEVEL_ANNOTATION_MASK, NEEDS_UPDATE_ON_TYPING_MASK, UNRESOLVED_REFERENCE_QUICK_FIXES_COMPUTED_MASK})
   private @interface FlagConstant {
   }
@@ -130,8 +124,6 @@ public class HighlightInfo implements Segment {
    */
   final PsiReference unresolvedReference;
 
-  private final @Nullable Integer layerOverride;
-
   /**
    * @deprecated Do not create manually, use {@link #newHighlightInfo(HighlightInfoType)} instead
    */
@@ -153,8 +145,7 @@ public class HighlightInfo implements Segment {
                           @Nullable Object toolId,
                           @Nullable GutterMark gutterIconRenderer,
                           int group,
-                          @Nullable PsiReference unresolvedReference,
-                          @Nullable Integer layerOverride) {
+                          @Nullable PsiReference unresolvedReference) {
     if (startOffset < 0 || startOffset > endOffset) {
       LOG.error("Incorrect highlightInfo bounds. description="+escapedDescription+"; startOffset="+startOffset+"; endOffset="+endOffset+";type="+type);
     }
@@ -177,7 +168,6 @@ public class HighlightInfo implements Segment {
     this.toolId = toolId;
     this.group = group;
     this.unresolvedReference = unresolvedReference;
-    this.layerOverride = layerOverride;
   }
 
   /**
@@ -312,7 +302,8 @@ public class HighlightInfo implements Segment {
    * @return encoded tooltip (stripped html text with one or more placeholder characters)
    * or tooltip without changes.
    */
-  private static @Nullable @Tooltip String encodeTooltip(@Nullable @Tooltip String tooltip, @Nullable @DetailedDescription String description) {
+  private static @Nullable @Tooltip String encodeTooltip(@Nullable @Tooltip String tooltip,
+                                                         @Nullable @DetailedDescription String description) {
     if (tooltip == null) return null;
 
     String stripped = XmlStringUtil.stripHtml(tooltip);
@@ -356,20 +347,15 @@ public class HighlightInfo implements Segment {
   // todo remove along with DefaultHighlightInfoProcessor
   @Deprecated
   void setVisitingTextRange(@NotNull PsiFile psiFile, @NotNull Document document, long range) {
-    if (document instanceof DocumentWindow window) {
-      range = TextRangeScalarUtil.toScalarRange(window.injectedToHost(TextRangeScalarUtil.create(range)));
-      document = window.getDelegate();
-      psiFile = InjectedLanguageManager.getInstance(psiFile.getProject()).getTopLevelFile(psiFile);
-    }
-    visitingRange = HighlightingSessionImpl.getOrCreateVisitingRangeMarker(psiFile, document, range);
   }
 
-  // todo remove along with DefaultHighlightInfoProcessor
+  /**
+   * @deprecated todo remove along with DefaultHighlightInfoProcessor
+   */
   @Deprecated
   @NotNull
   Segment getVisitingTextRange() {
-    RangeMarker visitingRange = this.visitingRange;
-    return visitingRange != null && visitingRange.isValid() ? visitingRange : this;
+    return TextRange.EMPTY_RANGE;
   }
 
   public @NotNull HighlightSeverity getSeverity() {
@@ -603,9 +589,6 @@ public class HighlightInfo implements Segment {
       return registerFix(action.asIntention(), options, displayName, fixRange, key);
     }
 
-    @ApiStatus.Internal
-    @NotNull Builder overrideLayer(int layer);
-
     @Nullable("null means filtered out")
     HighlightInfo create();
 
@@ -646,7 +629,7 @@ public class HighlightInfo implements Segment {
       annotation.getMessage(), annotation.getTooltip(), annotation.getSeverity(), annotation.isAfterEndOfLine(),
       annotation.needsUpdateOnTyping(),
       annotation.isFileLevelAnnotation(), 0, annotation.getProblemGroup(), annotatorClass, annotation.getGutterIconRenderer(), Pass.UPDATE_ALL,
-      annotation.getUnresolvedReference(), null);
+      annotation.getUnresolvedReference());
 
     List<? extends Annotation.QuickFixInfo> fixes = batchMode ? annotation.getBatchFixes() : annotation.getQuickFixes();
     if (fixes != null) {
@@ -948,10 +931,10 @@ public class HighlightInfo implements Segment {
   @Deprecated
   public synchronized // synchronized to avoid concurrent access to quickFix* fields; TODO rework to lock-free
   void registerFix(@Nullable IntentionAction action,
-                          @Nullable List<? extends IntentionAction> options,
-                          @Nullable @Nls String displayName,
-                          @Nullable TextRange fixRange,
-                          @Nullable HighlightDisplayKey key) {
+                   @Nullable List<? extends IntentionAction> options,
+                   @Nullable @Nls String displayName,
+                   @Nullable TextRange fixRange,
+                   @Nullable HighlightDisplayKey key) {
     if (action == null) return;
     if (fixRange == null) fixRange = new TextRange(getActualStartOffset(), getActualEndOffset());
     if (quickFixActionRanges == null) {
@@ -1110,9 +1093,4 @@ public class HighlightInfo implements Segment {
   boolean isInjectionRelated() {
     return HighlightInfoUpdaterImpl.isInjectionRelated(toolId);
   }
-
-  @ApiStatus.Internal
-  boolean isLayerOverriden() { return layerOverride != null; }
-  @ApiStatus.Internal
-  int getLayerOverride() { Objects.requireNonNull(layerOverride); return layerOverride; }
 }

@@ -1,11 +1,18 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ijent.community.impl
 
+import com.intellij.platform.eel.EelResult
+import com.intellij.platform.eel.EelUserPosixInfo
+import com.intellij.platform.eel.fs.EelFileSystemApi
+import com.intellij.platform.eel.fs.EelFileSystemPosixApi
+import com.intellij.platform.eel.fs.EelOpenedFile
+import com.intellij.platform.eel.fs.EelPosixFileInfo
+import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.ijent.IjentApi
 import com.intellij.platform.ijent.IjentPosixApi
-import com.intellij.platform.ijent.IjentPosixInfo
 import com.intellij.platform.ijent.IjentUnavailableException
-import com.intellij.platform.ijent.fs.*
+import com.intellij.platform.ijent.fs.IjentFileSystemApi
+import com.intellij.platform.ijent.fs.IjentFileSystemPosixApi
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicReference
 
@@ -91,24 +98,24 @@ private class DelegateHolder<I : IjentApi, F : IjentFileSystemApi>(
  * so implementing a similar class for Windows will require a full copy-paste of this class.
  */
 private class IjentFailSafeFileSystemPosixApiImpl(
-  override val user: IjentPosixInfo.User,
+  override val user: EelUserPosixInfo,
   private val holder: DelegateHolder<IjentPosixApi, IjentFileSystemPosixApi>,
 ) : IjentFileSystemPosixApi {
-  override suspend fun userHome(): IjentPath.Absolute? =
+  override suspend fun userHome(): EelPath.Absolute? =
     holder.withDelegateRetrying {
       userHome()
     }
 
   override suspend fun listDirectory(
-    path: IjentPath.Absolute,
-  ): IjentFsResult<Collection<String>, IjentFileSystemApi.ListDirectoryError> =
+    path: EelPath.Absolute,
+  ): EelResult<Collection<String>, EelFileSystemApi.ListDirectoryError> =
     holder.withDelegateRetrying {
       listDirectory(path)
     }
 
   override suspend fun createDirectory(
-    path: IjentPath.Absolute,
-    attributes: List<IjentFileSystemPosixApi.CreateDirAttributePosix>,
+    path: EelPath.Absolute,
+    attributes: List<EelFileSystemPosixApi.CreateDirAttributePosix>,
   ) {
     holder.withDelegateRetrying {
       createDirectory(path, attributes)
@@ -116,77 +123,77 @@ private class IjentFailSafeFileSystemPosixApiImpl(
   }
 
   override suspend fun listDirectoryWithAttrs(
-    path: IjentPath.Absolute,
-    symlinkPolicy: IjentFileSystemApi.SymlinkPolicy,
-  ): IjentFsResult<Collection<Pair<String, IjentPosixFileInfo>>, IjentFileSystemApi.ListDirectoryError> {
+    path: EelPath.Absolute,
+    symlinkPolicy: EelFileSystemApi.SymlinkPolicy,
+  ): EelResult<Collection<Pair<String, EelPosixFileInfo>>, EelFileSystemApi.ListDirectoryError> {
     return holder.withDelegateRetrying {
       listDirectoryWithAttrs(path, symlinkPolicy)
     }
   }
 
   override suspend fun canonicalize(
-    path: IjentPath.Absolute,
-  ): IjentFsResult<IjentPath.Absolute, IjentFileSystemApi.CanonicalizeError> =
+    path: EelPath.Absolute,
+  ): EelResult<EelPath.Absolute, EelFileSystemApi.CanonicalizeError> =
     holder.withDelegateRetrying {
       canonicalize(path)
     }
 
   override suspend fun stat(
-    path: IjentPath.Absolute,
-    symlinkPolicy: IjentFileSystemApi.SymlinkPolicy,
-  ): IjentFsResult<IjentPosixFileInfo, IjentFileSystemApi.StatError> =
+    path: EelPath.Absolute,
+    symlinkPolicy: EelFileSystemApi.SymlinkPolicy,
+  ): EelResult<EelPosixFileInfo, EelFileSystemApi.StatError> =
     holder.withDelegateRetrying {
       stat(path, symlinkPolicy)
     }
 
   override suspend fun sameFile(
-    source: IjentPath.Absolute,
-    target: IjentPath.Absolute,
-  ): IjentFsResult<Boolean, IjentFileSystemApi.SameFileError> =
+    source: EelPath.Absolute,
+    target: EelPath.Absolute,
+  ): EelResult<Boolean, EelFileSystemApi.SameFileError> =
     holder.withDelegateRetrying {
       sameFile(source, target)
     }
 
   override suspend fun openForReading(
-    path: IjentPath.Absolute,
-  ): IjentFsResult<IjentOpenedFile.Reader, IjentFileSystemApi.FileReaderError> =
+    path: EelPath.Absolute,
+  ): EelResult<EelOpenedFile.Reader, EelFileSystemApi.FileReaderError> =
     holder.withDelegateRetrying {
       openForReading(path)
     }
 
   override suspend fun openForWriting(
-    options: IjentFileSystemApi.WriteOptions,
-  ): IjentFsResult<IjentOpenedFile.Writer, IjentFileSystemApi.FileWriterError> =
+    options: EelFileSystemApi.WriteOptions,
+  ): EelResult<EelOpenedFile.Writer, EelFileSystemApi.FileWriterError> =
     holder.withDelegateRetrying {
       openForWriting(options)
     }
 
   override suspend fun openForReadingAndWriting(
-    options: IjentFileSystemApi.WriteOptions,
-  ): IjentFsResult<IjentOpenedFile.ReaderWriter, IjentFileSystemApi.FileWriterError> =
+    options: EelFileSystemApi.WriteOptions,
+  ): EelResult<EelOpenedFile.ReaderWriter, EelFileSystemApi.FileWriterError> =
     holder.withDelegateRetrying {
       openForReadingAndWriting(options)
     }
 
-  override suspend fun delete(path: IjentPath.Absolute, removeContent: Boolean) {
+  override suspend fun delete(path: EelPath.Absolute, removeContent: Boolean) {
     holder.withDelegateRetrying {
       delete(path, removeContent)
     }
   }
 
-  override suspend fun copy(options: IjentFileSystemApi.CopyOptions) {
+  override suspend fun copy(options: EelFileSystemApi.CopyOptions) {
     holder.withDelegateRetrying {
       copy(options)
     }
   }
 
-  override suspend fun move(source: IjentPath.Absolute, target: IjentPath.Absolute, replaceExisting: Boolean, followLinks: Boolean) {
+  override suspend fun move(source: EelPath.Absolute, target: EelPath.Absolute, replaceExisting: Boolean, followLinks: Boolean) {
     holder.withDelegateRetrying {
       move(source, target, replaceExisting, followLinks)
     }
   }
 
-  override suspend fun createSymbolicLink(target: IjentPath, linkPath: IjentPath.Absolute) {
+  override suspend fun createSymbolicLink(target: EelPath, linkPath: EelPath.Absolute) {
     holder.withDelegateRetrying {
       createSymbolicLink(target, linkPath)
     }

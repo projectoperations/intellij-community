@@ -13,7 +13,6 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.MavenCustomRepositoryHelper
 import org.jetbrains.idea.maven.project.*
 import org.jetbrains.idea.maven.server.MavenEmbedderWrapper
-import org.jetbrains.idea.maven.server.NativeMavenProjectHolder
 import org.junit.Test
 
 class MavenSnapshotDependenciesTest : MavenMultiVersionImportingTestCase() {
@@ -99,12 +98,12 @@ class MavenSnapshotDependenciesTest : MavenMultiVersionImportingTestCase() {
     val mavenProjectToCachedValue = mutableMapOf<MavenProject, String>()
 
     class MyMavenProjectResolutionContributor : MavenProjectResolutionContributor {
-      override suspend fun onMavenProjectResolved(project: Project, mavenProject: MavenProject, nativeMavenProject: NativeMavenProjectHolder, embedder: MavenEmbedderWrapper) {
+      override suspend fun onMavenProjectResolved(project: Project, mavenProject: MavenProject, embedder: MavenEmbedderWrapper) {
         mavenProject.putCachedValue(testCacheKey, "testValue")
       }
     }
 
-    class MyMavenImporter : MavenImporter("testPluginGroupID", "testPluginArtifactID") {
+    class MyTestMavenImporter : MavenImporter("testPluginGroupID", "testPluginArtifactID") {
       override fun isApplicable(mavenProject: MavenProject?) = true
 
       override fun process(modifiableModelsProvider: IdeModifiableModelsProvider, module: Module, rootModel: MavenRootModelAdapter, mavenModel: MavenProjectsTree, mavenProject: MavenProject, changes: MavenProjectChanges, mavenProjectToModuleName: Map<MavenProject, String>, postTasks: List<MavenProjectsProcessorTask>) {
@@ -114,7 +113,7 @@ class MavenSnapshotDependenciesTest : MavenMultiVersionImportingTestCase() {
     }
 
     ExtensionTestUtil.addExtensions(MavenProjectResolutionContributor.EP_NAME, listOf(MyMavenProjectResolutionContributor()), testRootDisposable)
-    ExtensionTestUtil.addExtensions(MavenImporter.EXTENSION_POINT_NAME, listOf(MyMavenImporter()), testRootDisposable)
+    ExtensionTestUtil.addExtensions(MavenImporter.EXTENSION_POINT_NAME, listOf(MyTestMavenImporter()), testRootDisposable)
     importProjectAsync("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>

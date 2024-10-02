@@ -11,7 +11,6 @@ import com.intellij.openapi.components.*;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
-import com.intellij.openapi.fileChooser.FileElement;
 import com.intellij.openapi.fileChooser.ex.FileChooserKeys;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.ui.Messages;
@@ -55,20 +54,16 @@ public final class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunn
   private static final Color CODE_COLOR = PlatformColors.BLUE;
   private static final Color TEST_COLOR = JBColor.GREEN.darker();
 
+  private static final FileChooserDescriptor FILE_DESCRIPTOR = new ScriptFileChooserDescriptor();
+
   private JPanel myComponent;
-
   private PlaybackRunner runner;
-
   private JEditorPane myLog;
-
   private final JTextField myCurrentScript = new JTextField();
-
   private VirtualFileListener myVfsListener;
-
   private boolean myChanged;
 
   private PlaybackDebuggerState myState;
-  private static final FileChooserDescriptor FILE_DESCRIPTOR = new ScriptFileChooserDescriptor();
   private JTextArea myCodeEditor;
 
   private void initUi() {
@@ -151,11 +146,19 @@ public final class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunn
     LocalFileSystem.getInstance().addVirtualFileListener(myVfsListener);
   }
 
-  private final class SaveAction extends AnAction {
-  SaveAction() {
-    super(IdeBundle.messagePointer("action.AnAction.text.save"),
-          IdeBundle.messagePointer("action.AnAction.description.save"), AllIcons.Actions.MenuSaveall);
+  private static final class ScriptFileChooserDescriptor extends FileChooserDescriptor {
+    ScriptFileChooserDescriptor() {
+      super(true, false, false, false, false, false);
+      putUserData(FileChooserKeys.NEW_FILE_TYPE, UiScriptFileType.getInstance());
+      putUserData(FileChooserKeys.NEW_FILE_TEMPLATE_TEXT, "");
+      withExtensionFilter(UiScriptFileType.myExtension);
+    }
   }
+
+  private final class SaveAction extends AnAction {
+    SaveAction() {
+      super(IdeBundle.messagePointer("action.AnAction.text.save"), IdeBundle.messagePointer("action.AnAction.description.save"), AllIcons.Actions.MenuSaveall);
+    }
 
     @Override
     public void update(@NotNull AnActionEvent e) {
@@ -186,27 +189,11 @@ public final class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunn
     }
   }
 
-  private static final class ScriptFileChooserDescriptor extends FileChooserDescriptor {
-    ScriptFileChooserDescriptor() {
-      super(true, false, false, false, false, false);
-      putUserData(FileChooserKeys.NEW_FILE_TYPE, UiScriptFileType.getInstance());
-      putUserData(FileChooserKeys.NEW_FILE_TEMPLATE_TEXT, "");
-    }
-
-    @Override
-    public boolean isFileVisible(VirtualFile file, boolean showHiddenFiles) {
-      if (!showHiddenFiles && FileElement.isFileHidden(file)) return false;
-      return file.getExtension() != null && file.getExtension().equalsIgnoreCase(UiScriptFileType.myExtension)
-             || super.isFileVisible(file, showHiddenFiles) && file.isDirectory();
-    }
-  }
-
   private final class SetScriptFileAction extends AnAction {
-  SetScriptFileAction() {
-    //noinspection DialogTitleCapitalization
-    super(IdeBundle.messagePointer("action.AnAction.text.set.script.file"),
-          IdeBundle.messagePointer("action.AnAction.description.set.script.file"), AllIcons.Actions.MenuOpen);
-  }
+    @SuppressWarnings("DialogTitleCapitalization")
+    SetScriptFileAction() {
+      super(IdeBundle.messagePointer("action.AnAction.text.set.script.file"), IdeBundle.messagePointer("action.AnAction.description.set.script.file"), AllIcons.Actions.MenuOpen);
+    }
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -219,12 +206,11 @@ public final class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunn
     }
   }
 
-  @SuppressWarnings("DialogTitleCapitalization")
   private final class NewScriptAction extends AnAction {
-  NewScriptAction() {
-    super(IdeBundle.messagePointer("action.AnAction.text.new.script"),
-          IdeBundle.messagePointer("action.AnAction.description.new.script"), AllIcons.Actions.New);
-  }
+    @SuppressWarnings("DialogTitleCapitalization")
+    NewScriptAction() {
+      super(IdeBundle.messagePointer("action.AnAction.text.new.script"), IdeBundle.messagePointer("action.AnAction.description.new.script"), AllIcons.Actions.New);
+    }
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -266,10 +252,9 @@ public final class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunn
   }
 
   private final class StopAction extends AnAction {
-  StopAction() {
-    super(IdeBundle.messagePointer("action.AnAction.text.stop"),
-          IdeBundle.messagePointer("action.AnAction.description.stop"), AllIcons.Actions.Suspend);
-  }
+    StopAction() {
+      super(IdeBundle.messagePointer("action.AnAction.text.stop"), IdeBundle.messagePointer("action.AnAction.description.stop"), AllIcons.Actions.Suspend);
+    }
 
     @Override
     public void update(@NotNull AnActionEvent e) {
@@ -291,10 +276,9 @@ public final class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunn
   }
 
   private final class ActivateFrameAndRun extends AnAction {
-  ActivateFrameAndRun() {
-    super(IdeBundle.messagePointer("action.AnAction.text.activate.frame.and.run"),
-          IdeBundle.messagePointer("action.AnAction.description.activate.frame.and.run"), AllIcons.Nodes.Deploy);
-  }
+    ActivateFrameAndRun() {
+      super(IdeBundle.messagePointer("action.AnAction.text.activate.frame.and.run"), IdeBundle.messagePointer("action.AnAction.description.activate.frame.and.run"), AllIcons.Nodes.Deploy);
+    }
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -313,10 +297,9 @@ public final class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunn
   }
 
   private final class RunOnFameActivationAction extends AnAction {
-  RunOnFameActivationAction() {
-    super(IdeBundle.messagePointer("action.AnAction.text.run.on.frame.activation"),
-          IdeBundle.messagePointer("action.AnAction.description.run.on.frame.activation"), AllIcons.RunConfigurations.TestState.Run);
-  }
+    RunOnFameActivationAction() {
+      super(IdeBundle.messagePointer("action.AnAction.text.run.on.frame.activation"), IdeBundle.messagePointer("action.AnAction.description.run.on.frame.activation"), AllIcons.RunConfigurations.TestState.Run);
+    }
 
     @Override
     public void update(@NotNull AnActionEvent e) {

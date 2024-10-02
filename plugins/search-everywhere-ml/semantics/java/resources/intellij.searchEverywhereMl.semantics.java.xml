@@ -4,8 +4,8 @@
     <module name="intellij.searchEverywhereMl.semantics"/>
   </dependencies>
 
-  <extensions defaultExtensionNs="com.intellij.searcheverywhere.ml">
-    <fileIndexableEntitiesProvider
-      implementation="com.intellij.searchEverywhereMl.semantics.java.JavaIndexableEntitiesProvider"/>
+  <extensions defaultExtensionNs="com.intellij.embeddings.indexer">
+    <classesProvider filetype="JAVA" implementationClass="com.intellij.searchEverywhereMl.semantics.java.JavaClassesProvider"/>
+    <symbolsProvider filetype="JAVA" implementationClass="com.intellij.searchEverywhereMl.semantics.java.JavaSymbolsProvider"/>
   </extensions>
 </idea-plugin>

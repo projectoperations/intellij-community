@@ -2630,6 +2630,11 @@ public abstract class NewJavaToKotlinConverterSingleFileTestGenerated extends Ab
             runTest("../../shared/tests/testData/newJ2k/for/forRangeToRangeUntil.java");
         }
 
+        @TestMetadata("forRangeToRangeUntilOldCompiler.java")
+        public void testForRangeToRangeUntilOldCompiler() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/for/forRangeToRangeUntilOldCompiler.java");
+        }
+
         @TestMetadata("forRangeWithBlock.java")
         public void testForRangeWithBlock() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/for/forRangeWithBlock.java");
@@ -3371,6 +3376,11 @@ public abstract class NewJavaToKotlinConverterSingleFileTestGenerated extends Ab
         @TestMetadata("extensionFunctionForBuiltinsWithCompoundAssignment.java")
         public void testExtensionFunctionForBuiltinsWithCompoundAssignment() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/implicitCasts/extensionFunctionForBuiltinsWithCompoundAssignment.java");
+        }
+
+        @TestMetadata("forLoop.java")
+        public void testForLoop() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/implicitCasts/forLoop.java");
         }
 
         @TestMetadata("inConstructorCall.java")

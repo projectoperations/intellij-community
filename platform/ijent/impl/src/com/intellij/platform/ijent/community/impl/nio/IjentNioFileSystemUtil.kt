@@ -3,7 +3,12 @@
 
 package com.intellij.platform.ijent.community.impl.nio
 
-import com.intellij.platform.ijent.fs.*
+import com.intellij.platform.eel.EelResult
+import com.intellij.platform.eel.fs.EelFileSystemApi
+import com.intellij.platform.eel.fs.EelFsError
+import com.intellij.platform.eel.fs.EelOpenedFile
+import com.intellij.platform.eel.path.EelPath
+import com.intellij.platform.eel.path.getOrThrow
 import com.intellij.util.text.nullize
 import kotlinx.coroutines.Dispatchers
 import java.io.IOException
@@ -13,43 +18,44 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.startCoroutine
 
 @Throws(FileSystemException::class)
-internal fun <T, E : IjentFsError> IjentFsResult<T, E>.getOrThrowFileSystemException(): T =
+internal fun <T, E : EelFsError> EelResult<T, E>.getOrThrowFileSystemException(): T =
   when (this) {
-    is IjentFsResult.Ok -> value
-    is IjentFsResult.Error -> error.throwFileSystemException()
+    is EelResult.Ok -> value
+    is EelResult.Error -> error.throwFileSystemException()
   }
 
 // TODO There's java.nio.file.FileSystemLoopException, so ELOOP should be added to all error codes for a decent support of all exceptions.
 @Throws(FileSystemException::class)
-internal fun IjentFsError.throwFileSystemException(): Nothing {
+internal fun EelFsError.throwFileSystemException(): Nothing {
   throw when (this) {
-    is IjentFsError.DoesNotExist -> NoSuchFileException(where.toString(), null, message.nullize())
-    is IjentFsError.NotFile -> FileSystemException(where.toString(), null, "Is a directory")
-    is IjentFsError.PermissionDenied -> AccessDeniedException(where.toString(), null, message.nullize())
-    is IjentFsError.NotDirectory -> NotDirectoryException(where.toString())
-    is IjentFsError.AlreadyExists -> FileAlreadyExistsException(where.toString())
-    is IjentFsError.UnknownFile -> IOException("File is not opened")
-    is IjentFsError.DirNotEmpty -> DirectoryNotEmptyException(where.toString())
-    is IjentFsError.NameTooLong -> IllegalArgumentException("Name is too long")
-    is IjentFsError.NotEnoughSpace -> FileSystemException(where.toString(), null, "Not enough space")
-    is IjentFsError.ReadOnlyFileSystem -> ReadOnlyFileSystemException()
-    is IjentOpenedFile.SeekError.InvalidValue -> IllegalArgumentException(message)
-    is IjentOpenedFile.Reader.ReadError.InvalidValue -> IllegalArgumentException(message)
-    is IjentOpenedFile.Writer.TruncateException.NegativeOffset,
-    is IjentOpenedFile.Writer.TruncateException.OffsetTooBig -> throw IllegalArgumentException(message)
-    is IjentOpenedFile.Writer.WriteError.InvalidValue -> throw IllegalArgumentException(message)
-    is IjentFileSystemApi.DeleteException.UnresolvedLink -> throw FileSystemException(where.toString(), null, message)
-    is IjentFsError.Other -> FileSystemException(where.toString(), null, message.nullize())
+    is EelFsError.DoesNotExist -> NoSuchFileException(where.toString(), null, message.nullize())
+    is EelFsError.NotFile -> FileSystemException(where.toString(), null, "Is a directory")
+    is EelFsError.PermissionDenied -> AccessDeniedException(where.toString(), null, message.nullize())
+    is EelFsError.NotDirectory -> NotDirectoryException(where.toString())
+    is EelFsError.AlreadyExists -> FileAlreadyExistsException(where.toString())
+    is EelFsError.UnknownFile -> IOException("File is not opened")
+    is EelFsError.DirNotEmpty -> DirectoryNotEmptyException(where.toString())
+    is EelFsError.NameTooLong -> IllegalArgumentException("Name is too long")
+    is EelFsError.NotEnoughSpace -> FileSystemException(where.toString(), null, "Not enough space")
+    is EelFsError.ReadOnlyFileSystem -> ReadOnlyFileSystemException()
+    is EelOpenedFile.SeekError.InvalidValue -> IllegalArgumentException(message)
+    is EelOpenedFile.Reader.ReadError.InvalidValue -> IllegalArgumentException(message)
+    is EelOpenedFile.Writer.TruncateException.NegativeOffset,
+    is EelOpenedFile.Writer.TruncateException.OffsetTooBig,
+      -> throw IllegalArgumentException(message)
+    is EelOpenedFile.Writer.WriteError.InvalidValue -> throw IllegalArgumentException(message)
+    is EelFileSystemApi.DeleteException.UnresolvedLink -> throw FileSystemException(where.toString(), null, message)
+    is EelFsError.Other -> FileSystemException(where.toString(), null, message.nullize())
   }
 }
 
-internal fun Path.toIjentPath(isWindows: Boolean): IjentPath =
+internal fun Path.toEelPath(): EelPath =
   when {
-    this is IjentNioPath -> ijentPath
+    this is IjentNioPath -> eelPath
 
     isAbsolute -> throw InvalidPathException(toString(), "This path can't be converted to IjentPath")
 
-    else -> IjentPath.Relative.parse(toString()).getOrThrow()
+    else -> EelPath.Relative.parse(toString()).getOrThrow()
   }
 
 internal fun <T> fsBlocking(body: suspend () -> T): T = invokeSuspending(body)
@@ -62,7 +68,7 @@ internal fun <T> fsBlocking(body: suspend () -> T): T = invokeSuspending(body)
  * Unfortunately, the execution of [block] may still launch coroutines, although they are very primitive.
  * To mitigate this, we use [Dispatchers.Unconfined] as an elementary event loop.
  * It does not change the final thread of execution,
- * as we are awaiting for a monitor on the same thread where [invokeSuspending] was called.
+ * as we are waiting for a monitor on the same thread where [invokeSuspending] was called.
  *
  * We manage to save up to 30% (300 microseconds) of performance cost in comparison with [kotlinx.coroutines.runBlocking],
  * which is important in case of many short IO operations.

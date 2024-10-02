@@ -59,6 +59,7 @@ import com.jetbrains.python.sdk.PySdkExtKt;
 import com.jetbrains.python.sdk.PythonSdkUtil;
 import com.jetbrains.python.sdk.flavors.CPythonSdkFlavor;
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
+import kotlin.Unit;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -110,9 +111,6 @@ public class PyDebugRunner implements ProgramRunner<RunnerSettings> {
 
   private static final @NonNls String PYTHON3_PYCACHE_PREFIX_OPTION = "pycache_prefix=";
 
-  @ApiStatus.Internal
-  public static final int DEFAULT_DEBUGGER_PORT = 29781;
-
   private static final Logger LOG = Logger.getInstance(PyDebugRunner.class);
 
   @Override
@@ -162,8 +160,9 @@ public class PyDebugRunner implements ProgramRunner<RunnerSettings> {
     PythonCommandLineState pyState = (PythonCommandLineState)state;
     RunProfile profile = environment.getRunProfile();
 
-    if (Registry.is("python.debug.use.single.port")) {
-      int port = Registry.intValue("python.debugger.port", DEFAULT_DEBUGGER_PORT);
+    if (PyDebuggerOptionsProvider.getInstance(environment.getProject()).isRunDebuggerInServerMode() &&
+        Registry.is("python.debug.use.single.port")) {
+      int port = PyDebuggerOptionsProvider.getInstance(environment.getProject()).getDebuggerPort();
       TargetEnvironment.TargetPortBinding targetPortBinding =
         new TargetEnvironment.TargetPortBinding(port, port);
       return Promises
@@ -200,7 +199,7 @@ public class PyDebugRunner implements ProgramRunner<RunnerSettings> {
             }
             return Pair.create(serverSocket, result);
           }
-          catch (ExecutionException err) {
+          catch (Exception err) {
             throw new RuntimeException(err.getMessage(), err);
           }
         })
@@ -636,7 +635,7 @@ public class PyDebugRunner implements ProgramRunner<RunnerSettings> {
     configureDebugEnvironment(project, new TargetEnvironmentController(debuggerScript.getEnvs(), request), runProfile,
                               isLocalTarget);
 
-    if (Registry.is("python.debug.use.single.port")) {
+    if (PyDebuggerOptionsProvider.getInstance(project).isRunDebuggerInServerMode() && Registry.is("python.debug.use.single.port")) {
       configureServerModeDebugConnectionParameters(debuggerScript, serverPortOnTarget);
     }
     else {
@@ -1044,7 +1043,7 @@ public class PyDebugRunner implements ProgramRunner<RunnerSettings> {
     }
 
     @Override
-    protected @NotNull Function<TargetEnvironment, HostPort> createPortBinding(@NotNull HelpersAwareTargetEnvironmentRequest helpersAwareTargetRequest) {
+    protected @NotNull Function<@Nullable TargetEnvironment, HostPort> createPortBinding(@NotNull HelpersAwareTargetEnvironmentRequest helpersAwareTargetRequest) {
       helpersAwareTargetRequest.getTargetEnvironmentRequest().getLocalPortBindings().add(myLocalPortBinding);
       helpersAwareTargetRequest.getTargetEnvironmentRequest().onEnvironmentPrepared((environment, indicator) -> {
         try {
@@ -1053,7 +1052,7 @@ public class PyDebugRunner implements ProgramRunner<RunnerSettings> {
         catch (IOException e) {
           LOG.error("Unable to create server socket for debugging", e);
         }
-        return null;
+        return Unit.INSTANCE;
       });
 
       helpersAwareTargetRequest.getTargetEnvironmentRequest().getLocalPortBindings().add(myLocalPortBinding);

@@ -1,6 +1,8 @@
-load("@rules_java//java:defs.bzl", "java_library")
-
+load("@rules_java//java:defs.bzl", "java_library", "java_binary", "java_import")
 load("@rules_kotlin//kotlin:kotlin.bzl", "kt_compiler_plugin")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_import")
+
+load("@bazel_skylib//rules:run_binary.bzl", "run_binary")
 
 kt_compiler_plugin(
   name = "serialization_plugin",
@@ -8,6 +10,47 @@ kt_compiler_plugin(
   deps = [
     "@maven//:org_jetbrains_kotlin_kotlin_serialization_compiler_plugin"
   ],
+  visibility = ["//visibility:public"]
+)
+
+java_binary(
+  name = "manifest_updater",
+  srcs = ["ManifestUpdater.java"],
+  main_class = "org.jetbrains.intellij.build.ManifestUpdater",
+  visibility = ["//visibility:public"],
+)
+
+run_binary(
+  name = "kotlinx-collections-immutable-jvm-source",
+  tool = ":manifest_updater",
+  srcs = ["@maven//:org_jetbrains_kotlinx_kotlinx_collections_immutable_jvm"],
+  outs = ["kotlinx.collections.immutable.jvm.jar"],
+  args = [
+    "$(location @maven//:org_jetbrains_kotlinx_kotlinx_collections_immutable_jvm)",
+    "$(location :kotlinx.collections.immutable.jvm.jar)",
+  ],
+)
+
+run_binary(
+  name = "bifurcan-source",
+  tool = ":manifest_updater",
+  srcs = ["@maven//:io_lacuna_bifurcan"],
+  outs = ["bifurcan.jar"],
+  args = [
+    "$(location @maven//:io_lacuna_bifurcan)",
+    "$(location :bifurcan.jar)",
+  ],
+)
+
+kt_jvm_import(
+  name = "kotlinx-collections-immutable-jvm",
+  jars = ["kotlinx.collections.immutable.jvm.jar"],
+  visibility = ["//visibility:public"],
+)
+
+kt_jvm_import(
+  name = "bifurcan",
+  jars = ["bifurcan.jar"],
   visibility = ["//visibility:public"]
 )
 
@@ -70,12 +113,6 @@ java_library(
 java_library(
   name = "bcpkix-jdk18on",
   exports = ["@maven//:org_bouncycastle_bcpkix_jdk18on"],
-  visibility = ["//visibility:public"]
-)
-
-java_library(
-  name = "bifurcan",
-  exports = ["@maven//:io_lacuna_bifurcan"],
   visibility = ["//visibility:public"]
 )
 
@@ -176,6 +213,12 @@ java_library(
 )
 
 java_library(
+  name = "gec-spell-engine-local-jvm",
+  exports = ["@maven//:ai_grazie_spell_gec_spell_engine_local_jvm"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
   name = "groovy",
   exports = ["@maven//:org_codehaus_groovy_groovy"],
   visibility = ["//visibility:public"]
@@ -232,6 +275,12 @@ java_library(
 java_library(
   name = "httpmime",
   exports = ["@maven//:org_apache_httpcomponents_httpmime"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "hunspell-en-jvm",
+  exports = ["@maven//:ai_grazie_spell_hunspell_en_jvm"],
   visibility = ["//visibility:public"]
 )
 
@@ -308,6 +357,12 @@ java_library(
 )
 
 java_library(
+  name = "java-string-similarity",
+  exports = ["@maven//:info_debatty_java_string_similarity"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
   name = "javax.activation",
   exports = ["@maven//:com_sun_activation_javax_activation"],
   visibility = ["//visibility:public"]
@@ -352,6 +407,18 @@ java_library(
 java_library(
   name = "jcip-annotations",
   exports = ["@maven//:net_jcip_jcip_annotations"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "jediterm-core",
+  exports = ["@maven//:org_jetbrains_jediterm_jediterm_core"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "jediterm-ui",
+  exports = ["@maven//:org_jetbrains_jediterm_jediterm_ui"],
   visibility = ["//visibility:public"]
 )
 
@@ -457,12 +524,6 @@ java_library(
 )
 
 java_library(
-  name = "kotlinx-collections-immutable-jvm",
-  exports = ["@maven//:org_jetbrains_kotlinx_kotlinx_collections_immutable_jvm"],
-  visibility = ["//visibility:public"]
-)
-
-java_library(
   name = "kotlinx-coroutines-core-jvm",
   exports = ["@maven//:com_intellij_platform_kotlinx_coroutines_core_jvm"],
   visibility = ["//visibility:public"]
@@ -484,6 +545,18 @@ java_library(
 java_library(
   name = "kotlinx-coroutines-slf4j",
   exports = ["@maven//:com_intellij_platform_kotlinx_coroutines_slf4j"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "kotlinx-datetime-jvm",
+  exports = ["@maven//:org_jetbrains_kotlinx_kotlinx_datetime_jvm"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "kotlinx-html-jvm",
+  exports = ["@maven//:org_jetbrains_kotlinx_kotlinx_html_jvm"],
   visibility = ["//visibility:public"]
 )
 
@@ -560,6 +633,12 @@ java_library(
 )
 
 java_library(
+  name = "ktor-network-tls-jvm",
+  exports = ["@maven//:io_ktor_ktor_network_tls_jvm"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
   name = "ktor-serialization-kotlinx-json-jvm",
   exports = ["@maven//:io_ktor_ktor_serialization_kotlinx_json_jvm"],
   visibility = ["//visibility:public"]
@@ -572,8 +651,26 @@ java_library(
 )
 
 java_library(
+  name = "lucene-analysis-common",
+  exports = ["@maven//:org_apache_lucene_lucene_analysis_common"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "lucene-core",
+  exports = ["@maven//:org_apache_lucene_lucene_core"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
   name = "lz4-java",
   exports = ["@maven//:org_lz4_lz4_java"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "markdown-jvm",
+  exports = ["@maven//:org_jetbrains_markdown_jvm"],
   visibility = ["//visibility:public"]
 )
 
@@ -640,6 +737,12 @@ java_library(
 java_library(
   name = "netty-tcnative-boringssl-static",
   exports = ["@maven//:io_netty_netty_tcnative_boringssl_static"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "nlp-detect-jvm",
+  exports = ["@maven//:ai_grazie_nlp_nlp_detect_jvm"],
   visibility = ["//visibility:public"]
 )
 
@@ -805,6 +908,12 @@ java_library(
 )
 
 java_library(
+  name = "snakeyaml-engine",
+  exports = ["@maven//:org_snakeyaml_snakeyaml_engine"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
   name = "streamex",
   exports = ["@maven//:one_util_streamex"],
   visibility = ["//visibility:public"]
@@ -829,8 +938,44 @@ java_library(
 )
 
 java_library(
+  name = "utils-lucene-lt-compatibility-jvm",
+  exports = ["@maven//:ai_grazie_utils_utils_lucene_lt_compatibility_jvm"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "velocity-engine-core",
+  exports = ["@maven//:org_apache_velocity_velocity_engine_core"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
   name = "winp",
   exports = ["@maven//:org_jetbrains_intellij_deps_winp_winp"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "xercesImpl",
+  exports = ["@maven//:xerces_xercesImpl"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "xml-resolver",
+  exports = ["@maven//:xml_resolver_xml_resolver"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "xstream",
+  exports = ["@maven//:com_thoughtworks_xstream_xstream"],
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "xz",
+  exports = ["@maven//:org_tukaani_xz"],
   visibility = ["//visibility:public"]
 )
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.refactoring.inline;
 
 import com.intellij.JavaTestUtil;
@@ -17,7 +17,6 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Iterator;
-
 
 public class InlineToAnonymousClassTest extends LightRefactoringTestCase {
   @NotNull
@@ -284,6 +283,10 @@ public class InlineToAnonymousClassTest extends LightRefactoringTestCase {
   public void testNoInlineAnnotationType() {
     doTestNoInline("Annotation types cannot be inlined");
   }
+  
+  public void testNoInlineRecordJava21() {
+    doTestNoInline("Record classes cannot be inlined");
+  }
 
   public void testNoInlineMultipleInterfaces() {
     doTestNoInline("Classes which implement multiple interfaces cannot be inlined");
@@ -374,12 +377,13 @@ public class InlineToAnonymousClassTest extends LightRefactoringTestCase {
   }
 
   public void testNoInlineRecursiveAccess() {
-    doTestConflict("Class cannot be inlined because a call to its member inside body", "Class cannot be inlined because a call to its member inside body");
+    doTestConflict("Class cannot be inlined because a call to its member inside body", 
+                   "Class cannot be inlined because a call to its member inside body");
   }
 
   public void testConflictInaccessibleOuterField() {
-    doTestConflict(
-      "Field <b><code>C2.a</code></b> that is used in inlined method is not accessible from call site(s) in method <b><code>C2User.test()</code></b>");
+    doTestConflict("Field <b><code>C2.a</code></b> will not be accessible when class <b><code>C2.C2Inner</code></b> " +
+                   "is inlined into method <b><code>C2User.test()</code></b>");
   }
 
   public void testGetClassConflict() {
@@ -437,7 +441,7 @@ public class InlineToAnonymousClassTest extends LightRefactoringTestCase {
                                                                           TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
     assertInstanceOf(element, PsiClass.class);
 
-    assertEquals(null, InlineToAnonymousClassHandler.getCannotInlineMessage((PsiClass) element));
+    assertNull(InlineToAnonymousClassHandler.getCannotInlineMessage((PsiClass)element));
     return new InlineToAnonymousClassProcessor(getProject(), (PsiClass) element, null, false, false, false);
   }
 

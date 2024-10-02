@@ -44,10 +44,7 @@ import com.intellij.openapi.editor.impl.stickyLines.VisualStickyLines;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineShadowPainter;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLinesPanel;
 import com.intellij.openapi.editor.impl.view.EditorView;
-import com.intellij.openapi.editor.markup.GutterDraggableObject;
-import com.intellij.openapi.editor.markup.GutterIconRenderer;
-import com.intellij.openapi.editor.markup.RangeHighlighter;
-import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.editor.markup.*;
 import com.intellij.openapi.editor.state.ObservableStateListener;
 import com.intellij.openapi.editor.toolbar.floating.EditorFloatingToolbar;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -231,7 +228,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private @NotNull EditorColorsScheme myScheme;
   private final @NotNull SelectionModelImpl mySelectionModel;
   private final @NotNull EditorMarkupModelImpl myMarkupModel;
-  private final @NotNull EditorFilteringMarkupModelEx myDocumentMarkupModel;
+  private final @NotNull EditorFilteringMarkupModelEx myEditorFilteringMarkupModel;
   private final @NotNull MarkupModelListener myMarkupModelListener;
   private final @NotNull List<HighlighterListener> myHighlighterListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
@@ -273,7 +270,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private int mySavedCaretOffsetForDNDUndoHack;
   private final List<FocusChangeListener> myFocusListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
-  private InputMethodRequestsHolder myInputMethodRequestsHolder;
+  private EditorInputMethodSupport myInputMethodSupport;
   private final MouseDragSelectionEventHandler mouseDragHandler = new MouseDragSelectionEventHandler(e -> {
     processMouseDragged(e);
     return Unit.INSTANCE;
@@ -386,7 +383,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     mySelectionModel = new SelectionModelImpl(this);
     myMarkupModel = new EditorMarkupModelImpl(this);
-    myDocumentMarkupModel = new EditorFilteringMarkupModelEx(this, documentMarkup);
+    myEditorFilteringMarkupModel = new EditorFilteringMarkupModelEx(this, documentMarkup);
     myFoldingModel = new FoldingModelImpl(this);
     myCaretModel = new CaretModelImpl(this);
     myScrollingModel = new ScrollingModelImpl(this);
@@ -493,7 +490,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       }
     }, myCaretModel);
 
-    myDocumentMarkupModel.addMarkupModelListener(myCaretModel, myMarkupModelListener);
+    myEditorFilteringMarkupModel.addMarkupModelListener(myCaretModel, myMarkupModelListener);
     myMarkupModel.addMarkupModelListener(myCaretModel, myMarkupModelListener);
     myDocument.addDocumentListener(myFoldingModel, myCaretModel);
     myDocument.addDocumentListener(myCaretModel, myCaretModel);
@@ -978,7 +975,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @Override
   public @NotNull MarkupModelEx getFilteredDocumentMarkupModel() {
-    return myDocumentMarkupModel;
+    return myEditorFilteringMarkupModel;
   }
 
   @Override
@@ -2254,19 +2251,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return handler != null && handler.isComposedTextShown();
   }
 
-  /**
-   * Returns true if the default logic ({@link MyInputMethodHandler}) should handle input method events.
-   * Customize it with: (a) `{@link #setInputMethodRequests(InputMethodRequests)}` and
-   * (b) `editor.contentComponent.addInputMethodListener(inputMethodListener)`.
-   */
-  boolean isDefaultInputMethodHandler() {
-    InputMethodRequestsHolder holder = myInputMethodRequestsHolder;
-    return holder == null || holder.asMyHandler() != null;
-  }
-
   private @Nullable MyInputMethodHandler getMyInputMethodHandler() {
-    InputMethodRequestsHolder holder = myInputMethodRequestsHolder;
-    return holder != null ? holder.asMyHandler() : null;
+    EditorInputMethodSupport support = myInputMethodSupport;
+    return support != null && support.getRequests() instanceof MyInputMethodHandler handler ? handler : null;
   }
 
   @Override
@@ -3756,37 +3743,19 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     mouseSelectionStateAlarm.cancel();
   }
 
-  void replaceInputMethodText(@NotNull InputMethodEvent e) {
-    if (isReleased) return;
-    MyInputMethodHandler handler = getOrInitInputMethodRequestsHolder().asMyHandler();
-    if (handler != null) {
-      handler.replaceInputMethodText(e);
+  @RequiresEdt(generateAssertion = false)
+  @NotNull EditorInputMethodSupport getInputMethodSupport() {
+    if (myInputMethodSupport == null) {
+      MyInputMethodHandler handler = new MyInputMethodHandler();
+      myInputMethodSupport = new EditorInputMethodSupport(handler, new MyInputMethodListener(handler));
     }
-  }
-
-  void inputMethodCaretPositionChanged(@NotNull InputMethodEvent e) {
-    if (isReleased) return;
-    MyInputMethodHandler handler = getOrInitInputMethodRequestsHolder().asMyHandler();
-    if (handler != null) {
-      handler.setInputMethodCaretPosition(e);
-    }
-  }
-
-  @Nullable InputMethodRequests getInputMethodRequests() {
-    return getOrInitInputMethodRequestsHolder().myInputMethodRequestsSwingWrapper;
-  }
-
-  private @NotNull InputMethodRequestsHolder getOrInitInputMethodRequestsHolder() {
-    if (myInputMethodRequestsHolder == null) {
-      myInputMethodRequestsHolder = new InputMethodRequestsHolder(new MyInputMethodHandler());
-    }
-    return myInputMethodRequestsHolder;
+    return myInputMethodSupport;
   }
 
   @ApiStatus.Internal
   @RequiresEdt(generateAssertion = false)
-  public void setInputMethodRequests(@Nullable InputMethodRequests inputMethodRequests) {
-    myInputMethodRequestsHolder = new InputMethodRequestsHolder(inputMethodRequests);
+  public void setInputMethodSupport(@Nullable EditorInputMethodSupport inputMethodSupport) {
+    myInputMethodSupport = inputMethodSupport;
   }
 
   @Override
@@ -3846,7 +3815,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   /**
-   * @deprecated Use {@link #addHighlightingPredicate(Key, Predicate)} instead and provide an explicit equality object
+   * @deprecated Use {@link #addHighlightingPredicate(Key, EditorHighlightingPredicate)} instead.
    */
   @Deprecated
   public void setHighlightingPredicate(@Nullable Predicate<? super RangeHighlighter> filter) {
@@ -3877,6 +3846,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
    *
    * @param key only the last added predicate with a given key is preserved
    * @param predicate predicate that checks if the editor should show a range highlighter or not. If null is passed, the previous predicate associated with key gets erased
+   *
+   * @see EditorHighlightingPredicate
    */
   @ApiStatus.Experimental
   @RequiresEdt
@@ -3889,7 +3860,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       return;
     }
 
-    for (RangeHighlighter highlighter : myDocumentMarkupModel.getDelegate().getAllHighlighters()) {
+    for (RangeHighlighter highlighter : myEditorFilteringMarkupModel.getDelegate().getAllHighlighters()) {
       boolean oldAvailable = oldFilter.test(highlighter);
       boolean newAvailable = myHighlightingFilter.test(highlighter);
       if (oldAvailable != newAvailable) {
@@ -3912,11 +3883,11 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
 
-  private static final class MyInputMethodHandleSwingThreadWrapper implements InputMethodRequests {
+  static final class MyInputMethodHandleSwingThreadWrapper implements InputMethodRequests {
     @NotNull
     private final InputMethodRequests myDelegate;
 
-    private MyInputMethodHandleSwingThreadWrapper(@NotNull InputMethodRequests delegate) {
+    MyInputMethodHandleSwingThreadWrapper(@NotNull InputMethodRequests delegate) {
       myDelegate = delegate;
     }
 
@@ -3961,17 +3932,25 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
-  private static final class InputMethodRequestsHolder {
-    private final @Nullable InputMethodRequests myInputMethodRequests;
-    private final @Nullable InputMethodRequests myInputMethodRequestsSwingWrapper;
+  private final class MyInputMethodListener implements InputMethodListener {
 
-    private InputMethodRequestsHolder(@Nullable InputMethodRequests imRequests) {
-      myInputMethodRequests = imRequests;
-      myInputMethodRequestsSwingWrapper = imRequests != null ? new MyInputMethodHandleSwingThreadWrapper(imRequests) : null;
+    private final MyInputMethodHandler myHandler;
+
+    private MyInputMethodListener(@NotNull MyInputMethodHandler handler) {
+      myHandler = handler;
     }
 
-    private @Nullable MyInputMethodHandler asMyHandler() {
-      return myInputMethodRequests instanceof MyInputMethodHandler handler ? handler : null;
+    @Override
+    public void inputMethodTextChanged(InputMethodEvent event) {
+      myHandler.replaceInputMethodText(event);
+      myHandler.setInputMethodCaretPosition(event);
+      event.consume();
+    }
+
+    @Override
+    public void caretPositionChanged(InputMethodEvent event) {
+      myHandler.setInputMethodCaretPosition(event);
+      event.consume();
     }
   }
 
@@ -5965,7 +5944,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private @Nullable StickyLinesManager createStickyLinesPanel() {
     if (myProject != null && myKind == EditorKind.MAIN_EDITOR && !isMirrored()) {
-      StickyLinesModel stickyModel = StickyLinesModel.getModel(myDocumentMarkupModel.getDelegate());
+      StickyLinesModel stickyModel = StickyLinesModel.getModel(myEditorFilteringMarkupModel.getDelegate());
       VisualStickyLines visualStickyLines = new VisualStickyLines(this, stickyModel);
       StickyLineShadowPainter shadowPainter = new StickyLineShadowPainter();
       StickyLinesPanel stickyPanel = new StickyLinesPanel(this, shadowPainter, visualStickyLines);

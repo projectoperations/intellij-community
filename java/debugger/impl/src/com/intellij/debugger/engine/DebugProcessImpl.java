@@ -26,7 +26,6 @@ import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.statistics.DebuggerStatistics;
 import com.intellij.debugger.statistics.Engine;
 import com.intellij.debugger.statistics.StatisticsStorage;
-import com.intellij.debugger.statistics.SteppingAction;
 import com.intellij.debugger.ui.breakpoints.*;
 import com.intellij.debugger.ui.tree.render.*;
 import com.intellij.execution.CantRunException;
@@ -157,6 +156,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   final ThreadBlockedMonitor myThreadBlockedMonitor = new ThreadBlockedMonitor(this, disposable);
 
+  final SteppingProgressTracker mySteppingProgressTracker = new SteppingProgressTracker(this);
+
   // These 2 fields are needs to switching from found suspend-thread context to user-friendly suspend-all context.
   // The main related logic is in [SuspendOtherThreadsRequestor].
   volatile ParametersForSuspendAllReplacing myParametersForSuspendAllReplacing = null;
@@ -198,6 +199,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         DebuggerStatistics.logProcessStatistics(process);
       }
     });
+    mySteppingProgressTracker.installListeners();
   }
 
   private DebuggerManagerThreadImpl createManagerThread() {
@@ -1715,14 +1717,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
                                  ClassLoaderReference classLoader) throws EvaluateException {
     try {
       DebuggerManagerThreadImpl.assertIsManagerThread();
-      ReferenceType result;
-      List<ReferenceType> types = ContainerUtil.filter(getCurrentVm(evaluationContext).classesByName(className), ReferenceType::isPrepared);
-      // first try to quickly find the equal classloader only
-      result = ContainerUtil.find(types, refType -> Objects.equals(classLoader, refType.classLoader()));
-      // now do the full visibility check
-      if (result == null && classLoader != null) {
-        result = ContainerUtil.find(types, refType -> isVisibleFromClassLoader(classLoader, refType));
-      }
+      ReferenceType result = findLoadedClass(evaluationContext, className, classLoader);
       if (result == null && evaluationContext != null) {
         EvaluationContextImpl evalContext = (EvaluationContextImpl)evaluationContext;
         if (evalContext.isAutoLoadClasses()) {
@@ -1734,6 +1729,19 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     catch (InvocationException | InvalidTypeException | IncompatibleThreadStateException | ClassNotLoadedException e) {
       throw EvaluateExceptionUtil.createEvaluateException(e);
     }
+  }
+
+  public @Nullable ReferenceType findLoadedClass(@Nullable EvaluationContext evaluationContext,
+                                                 String className,
+                                                 ClassLoaderReference classLoader) {
+    List<ReferenceType> types = ContainerUtil.filter(getCurrentVm(evaluationContext).classesByName(className), ReferenceType::isPrepared);
+    // first try to quickly find the equal classloader only
+    ReferenceType result = ContainerUtil.find(types, refType -> Objects.equals(classLoader, refType.classLoader()));
+    // now do the full visibility check
+    if (result == null && classLoader != null) {
+      result = ContainerUtil.find(types, refType -> isVisibleFromClassLoader(classLoader, refType));
+    }
+    return result;
   }
 
   private VirtualMachineProxyImpl getCurrentVm(@Nullable EvaluationContext evaluationContext) {
@@ -1947,8 +1955,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     @Override
-    public Object createCommandToken() {
-      return StatisticsStorage.createSteppingToken(SteppingAction.STEP_OUT, Engine.JAVA);
+    protected @NotNull SteppingAction getSteppingAction() {
+      return SteppingAction.STEP_OUT;
     }
   }
 
@@ -1999,8 +2007,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     @Override
-    public Object createCommandToken() {
-      return StatisticsStorage.createSteppingToken(SteppingAction.STEP_INTO, Engine.JAVA);
+    protected @NotNull SteppingAction getSteppingAction() {
+      return SteppingAction.STEP_INTO;
     }
   }
 
@@ -2072,8 +2080,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     @Override
-    public Object createCommandToken() {
-      return StatisticsStorage.createSteppingToken(SteppingAction.STEP_OVER, Engine.JAVA);
+    protected @NotNull SteppingAction getSteppingAction() {
+      return SteppingAction.STEP_OVER;
     }
   }
 
@@ -2134,6 +2142,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         });
       }
     }
+
+    @Override
+    protected @NotNull SteppingAction getSteppingAction() {
+      return SteppingAction.RUN_TO_CURSOR;
+    }
   }
 
   public abstract class StepCommand extends ResumeCommand {
@@ -2152,6 +2165,13 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           (context.getSuspendPolicy() == EventRequest.SUSPEND_EVENT_THREAD || isResumeOnlyCurrentThread())) {
         myThreadBlockedMonitor.startWatching(myContextThread);
       }
+
+      if (context != null) {
+        ApplicationManager.getApplication().getMessageBus().syncPublisher(SteppingListener.TOPIC)
+          .beforeSteppingStarted(context, getSteppingAction());
+      }
+
+
       if (context != null
           && isResumeOnlyCurrentThread()
           && context.getSuspendPolicy() == EventRequest.SUSPEND_ALL
@@ -2166,8 +2186,14 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
     }
 
-    public Object createCommandToken() {
-      return null;
+    protected @NotNull Engine getEngine() {
+      return Engine.JAVA;
+    }
+
+    protected abstract @NotNull SteppingAction getSteppingAction();
+
+    public final @NotNull Object createCommandToken() {
+      return StatisticsStorage.createSteppingToken(getSteppingAction(), getEngine());
     }
 
     @Nullable
@@ -2239,7 +2265,10 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   private class PauseCommand extends DebuggerCommandImpl {
-    PauseCommand() {
+    @Nullable private final ThreadReferenceProxyImpl myPredefinedThread;
+
+    PauseCommand(@Nullable ThreadReferenceProxyImpl thread) {
+      myPredefinedThread = thread;
     }
 
     @Override
@@ -2251,6 +2280,9 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       getVirtualMachineProxy().suspend();
       logThreads();
       SuspendContextImpl suspendContext = mySuspendManager.pushSuspendContext(EventRequest.SUSPEND_ALL, 0);
+      if (myPredefinedThread != null) {
+        suspendContext.setThread(myPredefinedThread.getThreadReference());
+      }
       myDebugProcessListeners.forEach(it -> it.paused(suspendContext));
 
       myDebuggerManagerThread.schedule(new SuspendContextCommandImpl(suspendContext) {
@@ -2674,8 +2706,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   @NotNull
-  public DebuggerCommandImpl createPauseCommand() {
-    return new PauseCommand();
+  public DebuggerCommandImpl createPauseCommand(@Nullable ThreadReferenceProxyImpl threadProxy) {
+    return new PauseCommand(threadProxy);
   }
 
   @NotNull

@@ -41,10 +41,7 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.NamedColorUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.accessibility.AccessibleContextUtil;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.SystemIndependent;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import javax.swing.border.LineBorder;
@@ -63,6 +60,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
+@ApiStatus.Internal
 public class RecentProjectPanel extends JPanel {
   private static final Logger LOG = Logger.getInstance(RecentProjectPanel.class);
 
@@ -656,7 +654,7 @@ public class RecentProjectPanel extends JPanel {
           final long startTime = System.currentTimeMillis();
           boolean pathIsValid;
           try {
-            pathIsValid = !RecentProjectsManagerBase.Companion.isFileSystemPath$intellij_platform_ide_impl(path) || isPathAvailable(path);
+            pathIsValid = !RecentProjectsManagerBase.Companion.isFileSystemPath(path) || isPathAvailable(path);
           }
           catch (Exception e) {
             pathIsValid = false;

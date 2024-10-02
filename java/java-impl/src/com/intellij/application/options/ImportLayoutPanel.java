@@ -18,7 +18,6 @@ import com.intellij.psi.codeStyle.PackageEntryTable;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.table.JBTable;
-import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -56,7 +55,6 @@ public abstract class ImportLayoutPanel extends JPanel {
 
   public ImportLayoutPanel() {
     super(new BorderLayout());
-    setBorder(IdeBorderFactory.createTitledBorder(JavaBundle.message("title.import.layout"), false, JBInsets.emptyInsets()));
 
     myCbLayoutStaticImportsSeparately.addItemListener(e -> {
       if (areStaticImportsEnabled()) {
@@ -87,10 +85,8 @@ public abstract class ImportLayoutPanel extends JPanel {
       refresh();
     });
 
-    add(myCbLayoutStaticImportsSeparately, BorderLayout.NORTH);
-
     ActionGroup addGroup = new DefaultActionGroup(new AddPackageAction(), new AddBlankLineAction());
-    addGroup.getTemplatePresentation().setIcon(LayeredIcon.ADD_WITH_DROPDOWN);
+    addGroup.getTemplatePresentation().setIcon(AllIcons.General.Add);
     addGroup.getTemplatePresentation().setText(JavaBundle.messagePointer("button.add"));
     addGroup.getTemplatePresentation().setPopupGroup(true);
     addGroup.registerCustomShortcutSet(CommonShortcuts.getNewForDialogs(), null);
@@ -109,10 +105,11 @@ public abstract class ImportLayoutPanel extends JPanel {
                            IdeBundle.message("action.remove"),
                            JavaBundle.message("import.layout.panel.up.button"),
                            JavaBundle.message("import.layout.panel.down.button"))
-      .setPreferredSize(new Dimension(-1, JBUI.scale(180))).createPanel();
+      .setPreferredSize(new Dimension(-1, JBUI.scale(180)))
+      .createPanel();
 
-
-    add(importLayoutPanel, BorderLayout.CENTER);
+    final ImportLayoutPanelUI UI = new ImportLayoutPanelUI(myCbLayoutStaticImportsSeparately, importLayoutPanel);
+    add(UI.getPanel(), BorderLayout.CENTER);
   }
 
   private class AddPackageAction extends DumbAwareAction {
@@ -376,7 +373,7 @@ public abstract class ImportLayoutPanel extends JPanel {
   private static void fixColumnWidthToHeader(JBTable result, int columnIdx) {
     final TableColumn column = result.getColumnModel().getColumn(columnIdx);
     final int width =
-      15 + result.getTableHeader().getFontMetrics(result.getTableHeader().getFont()).stringWidth(result.getColumnName(columnIdx));
+      16 + result.getTableHeader().getFontMetrics(result.getTableHeader().getFont()).stringWidth(result.getColumnName(columnIdx));
     column.setMinWidth(width);
     column.setMaxWidth(width);
   }

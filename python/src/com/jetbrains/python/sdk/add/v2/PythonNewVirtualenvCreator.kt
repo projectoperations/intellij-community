@@ -11,21 +11,24 @@ import com.intellij.openapi.ui.validation.DialogValidationRequestor
 import com.intellij.openapi.ui.validation.WHEN_PROPERTY_CHANGED
 import com.intellij.openapi.ui.validation.and
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.dsl.builder.*
 import com.intellij.ui.dsl.builder.components.validationTooltip
 import com.intellij.util.ui.showingScope
 import com.jetbrains.python.PyBundle.message
-import com.jetbrains.python.newProjectWizard.collector.InterpreterStatisticsInfo
+import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.newProjectWizard.collector.PythonNewProjectWizardCollector
+import com.jetbrains.python.newProjectWizard.projectPath.ProjectPathFlows.Companion.validatePath
 import com.jetbrains.python.sdk.VirtualEnvReader
-import com.jetbrains.python.newProjectWizard.validateProjectPathAndGetPath
 import com.jetbrains.python.sdk.ModuleOrProject
+import com.jetbrains.python.sdk.PySdkSettings
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMethod.SELECT_EXISTING
 import com.jetbrains.python.sdk.add.v2.PythonSupportedEnvironmentManagers.PYTHON
 import com.jetbrains.python.statistics.InterpreterCreationMode
 import com.jetbrains.python.statistics.InterpreterType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -86,7 +89,7 @@ class PythonNewVirtualenvCreator(model: PythonMutableTargetAddInterpreterModel) 
             addInputRule {
               if (!textField.isVisible) return@addInputRule null // We are hidden, hence valid
               locationValidationFailed.set(false)
-              val locationPath = when (val path = validateProjectPathAndGetPath(textField.text)) {
+              val locationPath = when (val path = validatePath(textField.text)) {
                 is com.jetbrains.python.Result.Failure -> return@addInputRule ValidationInfo(path.error) // Path is invalid
                 is com.jetbrains.python.Result.Success -> path.result
               }
@@ -134,9 +137,10 @@ class PythonNewVirtualenvCreator(model: PythonMutableTargetAddInterpreterModel) 
     }
 
     versionComboBox.showingScope("...") {
-      model.projectPath.collect {
+      model.myProjectPathFlows.projectPathWithDefault.collect {
         if (!locationModified) {
-          val suggestedVirtualEnvPath = model.suggestVenvPath()!! // todo nullability issue
+
+          val suggestedVirtualEnvPath = FileUtil.toSystemDependentName(PySdkSettings.instance.getPreferredVirtualEnvBasePath(it.toString())) // todo nullability issue
           model.state.venvPath.set(suggestedVirtualEnvPath)
         }
       }
@@ -159,9 +163,10 @@ class PythonNewVirtualenvCreator(model: PythonMutableTargetAddInterpreterModel) 
   override fun onShown() {
     val modalityState = ModalityState.current().asContextElement()
     model.scope.launch(Dispatchers.EDT + modalityState) {
-
-      val suggestedVirtualEnvPath = model.suggestVenvPath()!! // todo nullability issue
-      model.state.venvPath.set(suggestedVirtualEnvPath)
+      // TODO: Check venv set
+      //
+      //val suggestedVirtualEnvPath = model.suggestVenvPath()!! // todo nullability issue
+      //model.state.venvPath.set(suggestedVirtualEnvPath)
 
       //val projectBasePath = state.projectPath.get()
 
@@ -196,7 +201,7 @@ class PythonNewVirtualenvCreator(model: PythonMutableTargetAddInterpreterModel) 
     // todo remove project path, or move to controller
     try {
       val venvPath = Path.of(model.state.venvPath.get())
-      model.setupVirtualenv(venvPath, model.projectPath.value)
+      model.setupVirtualenv(venvPath, model.myProjectPathFlows.projectPathWithDefault.first())
     }
     catch (e: InvalidPathException) {
       Result.failure(e)

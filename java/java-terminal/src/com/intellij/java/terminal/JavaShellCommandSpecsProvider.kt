@@ -5,6 +5,7 @@ import com.intellij.execution.vmOptions.VMOptionKind
 import com.intellij.execution.vmOptions.VMOptionVariant
 import com.intellij.execution.vmOptions.VMOptionsService
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.terminal.completion.spec.ShellCommandParserOptions
 import com.intellij.terminal.completion.spec.ShellCommandSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,10 +19,12 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
   }
 
   private fun getSpecs(): ShellCommandSpec = ShellCommandSpec("java") {
+    parserOptions = ShellCommandParserOptions.create(flagsArePosixNonCompliant = true, optionsMustPrecedeArguments = true)
+
     dynamicOptions { terminalContext ->
-      val javaContext = JavaShellCommandContext.create(terminalContext) ?: return@dynamicOptions
-      addOptionsFromVM(javaContext.getJrePath())
-      val version = javaContext.getJavaVersion() ?: return@dynamicOptions
+      val javaContext = JavaShellCommandContext.create(terminalContext)
+      addOptionsFromVM(javaContext?.getJrePath())
+      val version = javaContext?.getJavaVersion() ?: return@dynamicOptions
       if (version.isAtLeast(11)) {
         addOptionsFromJava11()
       } else if (version.isAtLeast(8)) {
@@ -42,14 +45,6 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
       }
       description(JavaTerminalBundle.message("java.command.terminal.jar.option.description"))
     }
-    option("-D") {
-      description(JavaTerminalBundle.message("java.command.terminal.D.option.description"))
-      repeatTimes = 0
-      separator = ""
-      argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.D.option.argument.key.text"))
-      }
-    }
     option("-version") {
       exclusiveOn = listOf("--version")
       description(JavaTerminalBundle.message("java.command.terminal.version.option.description", errorStreamName))
@@ -66,58 +61,6 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
       exclusiveOn = listOf("--show-version")
       description(JavaTerminalBundle.message("java.command.terminal.show.version.option.description", errorStreamName))
     }
-    option("-dsa", "-enablesystemassertions") {
-      description(JavaTerminalBundle.message("java.command.terminal.disable.system.assertions.option.description"))
-    }
-    option("-esa", "-disablesystemassertions") {
-      description(JavaTerminalBundle.message("java.command.terminal.enable.system.assertions.option.description"))
-    }
-    option("-ea", "-enableassertions") {
-      repeatTimes = 0
-      separator = ":"
-      description(JavaTerminalBundle.message("java.command.terminal.enable.assertions.option.description"))
-      argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.assertions.option.argument.text"))
-        isOptional = true
-      }
-    }
-    option("-da", "-disableassertions") {
-      repeatTimes = 0
-      description(JavaTerminalBundle.message("java.command.terminal.disable.assertions.option.description"))
-      separator = ":"
-      argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.assertions.option.argument.text"))
-        isOptional = true
-      }
-    }
-
-    option("-agentlib") {
-      description(JavaTerminalBundle.message("java.command.terminal.agentlib.option.description"))
-      separator = ":"
-      repeatTimes = 0
-      argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.agentlib.option.argument.text"))
-      }
-    }
-
-    option("-agentpath") {
-      description(JavaTerminalBundle.message("java.command.terminal.agentpath.option.description"))
-      separator = ":"
-      repeatTimes = 0
-      argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.agentpath.option.argument.text"))
-      }
-    }
-
-    option("-javaagent") {
-      description(JavaTerminalBundle.message("java.command.terminal.javaagent.option.description"))
-      separator = ":"
-      repeatTimes = 0
-      argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.agentpath.option.argument.text"))
-      }
-    }
-
     argument {
       displayName(JavaTerminalBundle.message("java.command.terminal.argument.main.class.text"))
       suggestions(ShellDataGenerators.fileSuggestionsGenerator())
@@ -125,35 +68,36 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
   }
 
   private suspend fun ShellChildOptionsContext.addOptionsFromVM(path: String?) {
-    if (path == null) return
+    val optionsService = VMOptionsService.getInstance()
     val jdkOptionsData = withContext(Dispatchers.IO) {
-      VMOptionsService.getInstance().getOrComputeOptionsForJdk(path).get() ?: return@withContext null
-    } ?: return
+      if (path == null) return@withContext null
+      optionsService.getOrComputeOptionsForJdk(path).get()
+    } ?: optionsService.getStandardOptions()
     jdkOptionsData.options
-      .filter { (it.kind == VMOptionKind.Standard || it.kind == VMOptionKind.Product) &&
-                (it.variant == VMOptionVariant.X || it.variant == VMOptionVariant.DASH_DASH)}
+      .filter { (it.kind == VMOptionKind.Standard || it.kind == VMOptionKind.Product) && (it.variant != VMOptionVariant.XX)}
       .toList()
       .forEach {
       val optionName = it.optionName
       val presentableName = "${it.variant.prefix()}$optionName"
       option(presentableName) {
-        if (!JavaTerminalBundle.isMessageInBundle(getOptionBundleKey(optionName))) {
-          LOG.warn("Unknown ${it.variant} option: \"$optionName\". Provide ${getOptionBundleKey(optionName)} and [${getOptionArgumentBundleKey(optionName)}]")
-          return@option
+        val optionDescription = if (JavaTerminalBundle.isMessageInBundle(getOptionBundleKey(optionName))) {
+          JavaTerminalBundle.message(getOptionBundleKey(optionName))
+        } else {
+          val descriptionCandidate = it.doc
+          if (descriptionCandidate == null) {
+            LOG.warn("Unknown ${it.variant} option: \"$optionName\". Provide ${getOptionBundleKey(optionName)} and [${getOptionArgumentBundleKey(optionName)}]")
+            return@option
+          }
+          descriptionCandidate
         }
-        description(JavaTerminalBundle.message(getOptionBundleKey(optionName)))
-
+        description(optionDescription)
         if (!JavaTerminalBundle.isMessageInBundle(getOptionArgumentBundleKey(optionName))) return@option
 
-        if(it.variant == VMOptionVariant.DASH_DASH) {
-          if (KNOWN_REPETITIVE_OPTIONS.contains(presentableName)) repeatTimes = 0
-          if (KNOWN_OPTIONS_WITH_EMPTY_SEPARATOR.contains(presentableName)) separator = ""
-        } else if (it.variant == VMOptionVariant.X) {
-          if (!KNOWN_X_OPTIONS_WITH_ARGUMENT.contains(presentableName)) return@option
-          separator = it.variant.suffix()?.toString() ?: ""
-        }
-
+        val info = OPTION_UI_INFO_MAP[presentableName] ?: DEFAULT_UI_OPTION_INSTANCE
+        repeatTimes = info.repeatTimes
+        separator = info.separator
         argument {
+          isOptional = info.isArgumentOptional
           displayName(JavaTerminalBundle.message(getOptionArgumentBundleKey(optionName)))
         }
       }
@@ -219,29 +163,36 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
   private fun getCanonicalOptionName(option: String): String = option.replace(Regex("[:|\\-]"), ".").trim('=', '.')
 }
 
-private val KNOWN_X_OPTIONS_WITH_ARGUMENT = setOf(
-  "-Xms",
-  "-Xmx",
-  "-Xmn",
-  "-Xss",
-  "-Xbootclasspath:",
-  "-Xbootclasspath/a:",
-  "-Xbootclasspath/p:",
-  "-Xlog:",
-  "-Xloggc:",
+
+private val OPTION_UI_INFO_MAP = mapOf(
+  "-Xms" to UIOptionInfo(separator = ""),
+  "-Xmx" to UIOptionInfo(separator = ""),
+  "-Xmn" to UIOptionInfo(separator = ""),
+  "-Xss" to UIOptionInfo(separator = ""),
+  "-Xbootclasspath:" to UIOptionInfo(separator = ""),
+  "-Xbootclasspath/a:" to UIOptionInfo(separator = ""),
+  "-Xbootclasspath/p:" to UIOptionInfo(separator = ""),
+  "-Xlog:" to UIOptionInfo(separator = ""),
+  "-Xloggc:" to UIOptionInfo(separator = ""),
+  "--add-opens" to UIOptionInfo(repeatTimes = 0),
+  "--patch-module" to UIOptionInfo(repeatTimes = 0),
+  "--limit-modules" to UIOptionInfo(repeatTimes = 0),
+  "--add-reads" to UIOptionInfo(repeatTimes = 0),
+  "--add-exports" to UIOptionInfo(repeatTimes = 0),
+  "--finalization=" to UIOptionInfo(separator = ""),
+  "--illegal-access=" to UIOptionInfo(separator = ""),
+  "-ea" to UIOptionInfo(separator = ":", isArgumentOptional = true),
+  "-da" to UIOptionInfo(separator = ":", isArgumentOptional = true),
+  "-enableassertions" to UIOptionInfo(separator = ":", isArgumentOptional = true),
+  "-disableassertions" to UIOptionInfo(separator = ":", isArgumentOptional = true),
+  "-agentlib:" to UIOptionInfo(separator = ""),
+  "-agentpath:" to UIOptionInfo(separator = ""),
+  "-javaagent:" to UIOptionInfo(separator = ""),
+  "-D" to UIOptionInfo(separator = "", repeatTimes = 0),
+  "-XX:" to UIOptionInfo(repeatTimes = 0)
 )
 
-private val KNOWN_OPTIONS_WITH_EMPTY_SEPARATOR = setOf(
-  "--finalization=",
-  "--illegal-access="
-)
-
-private val KNOWN_REPETITIVE_OPTIONS = setOf(
-  "--add-opens",
-  "--patch-module",
-  "--limit-modules",
-  "--add-reads",
-  "--add-exports",
-)
+private data class UIOptionInfo(val separator: String? = null, val repeatTimes: Int = 1, val isArgumentOptional: Boolean = false)
+private val DEFAULT_UI_OPTION_INSTANCE = UIOptionInfo()
 
 private val LOG = Logger.getInstance(JavaShellCommandSpecsProvider::class.java)

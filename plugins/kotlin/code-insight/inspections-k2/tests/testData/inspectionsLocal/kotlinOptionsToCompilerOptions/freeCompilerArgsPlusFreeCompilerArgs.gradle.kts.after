@@ -25,6 +25,6 @@ kotlin {
 
 tasks.withType<KotlinCompile<*>> {
     compilerOptions {
-        freeCompilerArgs = freeCompilerArgs + "-Xopt-in=kotlin.RequiresOptIn"
+        freeCompilerArgs.addAll("-Xopt-in=kotlin.RequiresOptIn")
     }
 }

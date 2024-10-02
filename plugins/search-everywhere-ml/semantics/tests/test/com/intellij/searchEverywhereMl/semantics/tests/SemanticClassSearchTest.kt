@@ -3,23 +3,27 @@ package com.intellij.searchEverywhereMl.semantics.tests
 import com.intellij.ide.actions.searcheverywhere.PsiItemWithSimilarity
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereUI
 import com.intellij.ide.util.gotoByName.GotoClassModel2
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.smartReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.util.Disposer
+import com.intellij.platform.ml.embeddings.indexer.FileBasedEmbeddingIndexer
+import com.intellij.platform.ml.embeddings.indexer.entities.IndexableClass
+import com.intellij.platform.ml.embeddings.indexer.storage.ScoredKey
 import com.intellij.platform.ml.embeddings.jvm.indices.EntityId
 import com.intellij.platform.ml.embeddings.jvm.wrappers.ClassEmbeddingsStorageWrapper
-import com.intellij.platform.ml.embeddings.indexer.entities.IndexableClass
-import com.intellij.platform.ml.embeddings.indexer.FileBasedEmbeddingIndexer
-import com.intellij.platform.ml.embeddings.indexer.storage.ScoredKey
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.searchEverywhereMl.semantics.contributors.SemanticClassSearchEverywhereContributor
 import com.intellij.searchEverywhereMl.semantics.settings.SearchEverywhereSemanticSettings
-import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.utils.editor.commitToPsi
 import com.intellij.testFramework.utils.editor.saveToDisk
 import com.intellij.util.TimeoutUtil
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.jetbrains.kotlin.psi.KtClass
 import kotlin.time.Duration.Companion.seconds
@@ -33,7 +37,7 @@ class SemanticClassSearchTest : SemanticSearchBaseTestCase() {
 
   fun `test basic semantics`() = runTest {
     setupTest("java/IndexProjectAction.java", "kotlin/ProjectIndexingTask.kt", "java/ScoresFileManager.java")
-    assertEquals(3, storage.index.getSize())
+    assertEquals(3, storage.getSize())
 
     var neighbours = storage.searchNeighbours(modelService.embed("index project job"), 10, 0.5).asFlow().filterByModel()
     assertEquals(setOf("IndexProjectAction", "ProjectIndexingTask"), neighbours)
@@ -47,34 +51,34 @@ class SemanticClassSearchTest : SemanticSearchBaseTestCase() {
 
   fun `test index ids are not duplicated`() = runTest {
     setupTest("java/IndexProjectAction.java", "kotlin/IndexProjectAction.kt")
-    assertEquals(1, storage.index.getSize())
+    assertEquals(1, storage.getSize())
   }
 
   fun `test search everywhere contributor`() = runTest(
     timeout = 45.seconds // increased timeout because of a bug in class index
   ) {
     setupTest("java/IndexProjectAction.java", "kotlin/ProjectIndexingTask.kt", "java/ScoresFileManager.java")
-    assertEquals(3, storage.index.getSize())
+    assertEquals(3, storage.getSize())
 
-    val contributor = SemanticClassSearchEverywhereContributor(createEvent())
+    val contributor = readAction { SemanticClassSearchEverywhereContributor(createEvent()) }
     Disposer.register(project, contributor)
-    val searchEverywhereUI = SearchEverywhereUI(project, listOf(contributor), { _ -> null }, null)
+    val searchEverywhereUI = runBlocking(Dispatchers.EDT) { SearchEverywhereUI(project, listOf(contributor), { _ -> null }, null) }
     Disposer.register(project, searchEverywhereUI)
 
-    val elements = PlatformTestUtil.waitForFuture(searchEverywhereUI.findElementsForPattern("index project job"))
+    val elements = runBlocking(Dispatchers.EDT) { searchEverywhereUI.findElementsForPattern("index project job") }.get()
 
     val items: List<PsiElement> = elements.filterIsInstance<PsiItemWithSimilarity<*>>().mapNotNull { extractPsiElement(it) }
     assertEquals(2, items.size)
 
-    val classes = items.filterIsInstance<PsiClass>().map { IndexableClass(EntityId(it.name ?: "")) } +
-                  items.filterIsInstance<KtClass>().map { IndexableClass(EntityId(it.name ?: "")) }
+    val classes = items.filterIsInstance<PsiClass>().map { readAction { IndexableClass(EntityId(it.name ?: "")) } } +
+                  items.filterIsInstance<KtClass>().map { readAction { IndexableClass(EntityId(it.name ?: "")) } }
     assertEquals(2, classes.size)
     assertEquals(setOf(EntityId("IndexProjectAction"), EntityId("ProjectIndexingTask")), classes.map { it.id }.toSet())
   }
 
   fun `test class renaming changes the index`() = runTest {
     setupTest("java/IndexProjectAction.java", "kotlin/ProjectIndexingTask.kt", "java/ScoresFileManager.java")
-    assertEquals(3, storage.index.getSize())
+    assertEquals(3, storage.getSize())
 
     var neighbours = storage.streamSearchNeighbours(modelService.embed("index project job"), 0.5).filterByModel()
     assertEquals(setOf("IndexProjectAction", "ProjectIndexingTask"), neighbours)
@@ -101,7 +105,7 @@ class SemanticClassSearchTest : SemanticSearchBaseTestCase() {
 
   fun `test removal of file with class changes the index`() = runTest {
     setupTest("java/IndexProjectAction.java", "kotlin/ProjectIndexingTask.kt", "java/ScoresFileManager.java")
-    assertEquals(3, storage.index.getSize())
+    assertEquals(3, storage.getSize())
 
     var neighbours = storage.streamSearchNeighbours(modelService.embed("index project job"), 0.5).filterByModel()
     assertEquals(setOf("IndexProjectAction", "ProjectIndexingTask"), neighbours)
@@ -121,8 +125,10 @@ class SemanticClassSearchTest : SemanticSearchBaseTestCase() {
 
   private suspend fun Flow<ScoredKey<EntityId>>.filterByModel(): Set<String> {
     return this.map { it.key.id }.filter {
-      model.getElementsByName(it, false, it).any { element ->
-        (element as PsiElement).isValid
+      smartReadAction(project) {
+        model.getElementsByName(it, false, it).any { element ->
+          (element as PsiElement).isValid
+        }
       }
     }.toSet()
   }

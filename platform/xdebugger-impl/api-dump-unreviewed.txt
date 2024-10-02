@@ -1,6 +1,3 @@
-f:com.intellij.execution.actions.ActivateDebugToolWindowAction
-- com.intellij.ide.actions.ToolWindowEmptyStateAction
-- <init>():V
 a:com.intellij.xdebugger.attach.EnvironmentAwareHost
 - com.intellij.xdebugger.attach.XAttachHost
 - <init>():V
@@ -238,7 +235,6 @@ c:com.intellij.xdebugger.impl.XDebuggerSupport
 - getMarkObjectHandler():com.intellij.xdebugger.impl.actions.MarkObjectActionHandler
 - getMuteBreakpointsHandler():com.intellij.xdebugger.impl.actions.DebuggerToggleActionHandler
 - getPauseHandler():com.intellij.xdebugger.impl.actions.DebuggerActionHandler
-- getQuickEvaluateHandler():com.intellij.xdebugger.impl.evaluate.quick.common.QuickEvaluateHandler
 - getResumeActionHandler():com.intellij.xdebugger.impl.actions.DebuggerActionHandler
 - getRunToCursorHandler():com.intellij.xdebugger.impl.actions.DebuggerActionHandler
 - getShowExecutionPointHandler():com.intellij.xdebugger.impl.actions.DebuggerActionHandler
@@ -1022,16 +1018,6 @@ c:com.intellij.xdebugger.impl.evaluate.quick.XDebuggerTreeCreator
 - createDescriptorByNode(java.lang.Object,com.intellij.concurrency.ResultConsumer):V
 - createTree(com.intellij.openapi.util.Pair):com.intellij.ui.treeStructure.Tree
 - getTitle(com.intellij.openapi.util.Pair):java.lang.String
-f:com.intellij.xdebugger.impl.evaluate.quick.XQuickEvaluateHandler
-- com.intellij.xdebugger.impl.evaluate.quick.common.QuickEvaluateHandler
-- sf:Companion:com.intellij.xdebugger.impl.evaluate.quick.XQuickEvaluateHandler$Companion
-- <init>():V
-- canShowHint(com.intellij.openapi.project.Project):Z
-- createValueHint(com.intellij.openapi.project.Project,com.intellij.openapi.editor.Editor,java.awt.Point,com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType):com.intellij.xdebugger.impl.evaluate.quick.common.AbstractValueHint
-- createValueHintAsync(com.intellij.openapi.project.Project,com.intellij.openapi.editor.Editor,java.awt.Point,com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType):com.intellij.xdebugger.impl.evaluate.quick.common.QuickEvaluateHandler$CancellableHint
-- getValueLookupDelay(com.intellij.openapi.project.Project):I
-- isEnabled(com.intellij.openapi.project.Project):Z
-f:com.intellij.xdebugger.impl.evaluate.quick.XQuickEvaluateHandler$Companion
 c:com.intellij.xdebugger.impl.evaluate.quick.XValueHint
 - com.intellij.xdebugger.impl.evaluate.quick.common.AbstractValueHint
 - <init>(com.intellij.openapi.project.Project,com.intellij.openapi.editor.Editor,java.awt.Point,com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType,com.intellij.xdebugger.evaluation.ExpressionInfo,com.intellij.xdebugger.evaluation.XDebuggerEvaluator,com.intellij.xdebugger.XDebugSession,Z):V
@@ -1519,15 +1505,6 @@ f:com.intellij.xdebugger.impl.pinned.items.actions.XDebuggerPinToTopAction
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
 f:com.intellij.xdebugger.impl.pinned.items.actions.XDebuggerPinToTopAction$Companion
 - f:pinToTopField(java.awt.event.MouseEvent,com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl):V
-f:com.intellij.xdebugger.impl.rpc.XDebuggerValueLookupHintsRemoteApiClientStub
-- fleet.rpc.RemoteApi
-- <init>(kotlin.jvm.functions.Function3):V
-- f:canShowHint(com.intellij.platform.project.ProjectId,com.intellij.openapi.editor.impl.EditorId,I,com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType,kotlin.coroutines.Continuation):java.lang.Object
-- f:createHint(com.intellij.platform.project.ProjectId,com.intellij.openapi.editor.impl.EditorId,I,com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType,kotlin.coroutines.Continuation):java.lang.Object
-- f:getExpressionInfo(com.intellij.platform.project.ProjectId,com.intellij.openapi.editor.impl.EditorId,I,com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType,kotlin.coroutines.Continuation):java.lang.Object
-- f:getInvocationHandler():kotlin.jvm.functions.Function3
-- f:removeHint(com.intellij.platform.project.ProjectId,I,kotlin.coroutines.Continuation):java.lang.Object
-- f:showHint(com.intellij.platform.project.ProjectId,I,kotlin.coroutines.Continuation):java.lang.Object
 f:com.intellij.xdebugger.impl.rpc.XDebuggerValueLookupHintsRemoteApiRemoteApiDescriptorImpl
 - fleet.rpc.RemoteApiDescriptor
 - sf:INSTANCE:com.intellij.xdebugger.impl.rpc.XDebuggerValueLookupHintsRemoteApiRemoteApiDescriptorImpl

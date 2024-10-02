@@ -212,12 +212,9 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
           row(CredentialStoreBundle.message("settings.password.database")) {
             val fileChooserDescriptor = FileChooserDescriptorFactory.createSingleLocalFileDescriptor()
               .withTitle(CredentialStoreBundle.message("passwordSafeConfigurable.keepass.database.file"))
-              .withFileFilter { it.isDirectory || it.name.endsWith(".kdbx") }
+              .withExtensionFilter("kdbx")
             keePassDbFile = textFieldWithBrowseButton(fileChooserDescriptor, fileChosen = {
-              val path = when {
-                it.isDirectory -> "${it.path}${File.separator}$DB_FILE_NAME"
-                else -> it.path
-              }
+              val path = if (it.isDirectory) "${it.path}${File.separator}${DB_FILE_NAME}" else it.path
               return@textFieldWithBrowseButton File(path).path
             })
               .resizableColumn()
@@ -310,10 +307,8 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
     override fun actionPerformed(event: AnActionEvent) {
       closeCurrentStore()
 
-      FileChooserDescriptorFactory.createSingleLocalFileDescriptor()
-        .withFileFilter {
-          !it.isDirectory && it.nameSequence.endsWith(".kdbx")
-        }
+      FileChooserDescriptorFactory.createSingleFileDescriptor()
+        .withExtensionFilter("kdbx")
         .chooseFile(event) {
           createKeePassFileManager()?.import(Paths.get(it.path), event)
         }

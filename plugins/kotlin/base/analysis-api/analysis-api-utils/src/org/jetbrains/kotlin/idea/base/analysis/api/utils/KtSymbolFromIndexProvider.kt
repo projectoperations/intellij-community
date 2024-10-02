@@ -15,8 +15,10 @@ import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaFlexibleType
+import org.jetbrains.kotlin.analysis.api.types.KaIntersectionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeNullability
+import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.base.analysis.isExcludedFromAutoImport
 import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
@@ -203,7 +205,7 @@ class KtSymbolFromIndexProvider private constructor(
         receiverTypes: List<KaType>,
         psiFilter: (KtCallableDeclaration) -> Boolean,
     ): Sequence<KaCallableSymbol> {
-        val receiverTypeNames = receiverTypes.flatMapTo(hashSetOf()) { findAllNamesForType(it) }
+        val receiverTypeNames = findAllNamesForTypes(receiverTypes)
         if (receiverTypeNames.isEmpty()) return emptySequence()
 
         val values = receiverTypeNames.asSequence()
@@ -235,7 +237,7 @@ class KtSymbolFromIndexProvider private constructor(
         receiverTypes: List<KaType>,
         psiFilter: (KtCallableDeclaration) -> Boolean = { true },
     ): Sequence<KaCallableSymbol> {
-        val receiverTypeNames = receiverTypes.flatMapTo(hashSetOf()) { findAllNamesForType(it) }
+        val receiverTypeNames = findAllNamesForTypes(receiverTypes)
         if (receiverTypeNames.isEmpty()) return emptySequence()
 
         val keyFilter: (String) -> Boolean = { key ->
@@ -284,23 +286,41 @@ class KtSymbolFromIndexProvider private constructor(
     private fun getShortName(fqName: String) = Name.identifier(fqName.substringAfterLast('.'))
 
     context(KaSession)
-    private fun findAllNamesForType(type: KaType): Set<Name> = buildSet {
+    private fun findAllNamesForTypes(types: List<KaType>): Set<Name> =
+        types.flatMapTo(hashSetOf()) { findAllNamesForType(it) }
+
+    context(KaSession)
+    private fun findAllNamesForType(type: KaType): Set<Name> {
         if (type is KaFlexibleType) {
             return findAllNamesForType(type.lowerBound)
         }
-        if (type !is KaClassType) return@buildSet
+
+        if (type is KaIntersectionType) {
+            return findAllNamesForTypes(type.conjuncts)
+        }
+
+        if (type is KaTypeParameterType) {
+            // when no explicit upper bounds, we consider `Any` to be an upper bound
+            val upperBounds = type.symbol.upperBounds.ifEmpty { listOf(builtinTypes.any) }
+
+            return findAllNamesForTypes(upperBounds)
+        }
+
+        if (type !is KaClassType) return emptySet()
 
         val typeName = type.classId
             .shortClassName
             .takeUnless { it.isSpecial }
-            ?: return@buildSet
+            ?: return emptySet()
 
-        add(typeName)
-        addAll(getPossibleTypeAliasExpansionNames(typeName))
+        return buildSet {
+            add(typeName)
+            addAll(getPossibleTypeAliasExpansionNames(typeName))
 
-        val superTypes = (type.symbol as? KaClassSymbol)?.superTypes
-        superTypes?.forEach { superType ->
-            addAll(findAllNamesForType(superType))
+            val superTypes = (type.symbol as? KaClassSymbol)?.superTypes
+            superTypes?.forEach { superType ->
+                addAll(findAllNamesForType(superType))
+            }
         }
     }
 

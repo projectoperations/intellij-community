@@ -14,11 +14,12 @@ import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.use
-import com.intellij.platform.eel.EelExecApi
-import com.intellij.platform.eel.EelPlatform
+import com.intellij.platform.eel.*
+import com.intellij.platform.eel.EelExecApi.ExecuteProcessError
+import com.intellij.platform.eel.provider.EelProcessResultImpl
 import com.intellij.platform.ijent.IjentExecApi
 import com.intellij.platform.ijent.IjentPosixApi
-import com.intellij.platform.ijent.IjentPosixInfo
+import com.intellij.platform.ijent.IjentProcessInfo
 import com.intellij.platform.ijent.IjentTunnelsPosixApi
 import com.intellij.platform.ijent.fs.IjentFileSystemPosixApi
 import com.intellij.testFramework.junit5.TestApplication
@@ -500,7 +501,7 @@ class WSLDistributionTest {
         val err = shouldThrow<ProcessNotCreatedException> {
           sourceCommandLine.createProcess()
         }
-        err.message should be(executeResultMock.message)
+        err.message should be(executeResultMock.error.message)
       }
       adapter
     }
@@ -513,7 +514,9 @@ private class MockIjentApi(private val adapter: GeneralCommandLine, val rootUser
 
   override val isRunning: Boolean get() = true
 
-  override val info: IjentPosixInfo get() = throw UnsupportedOperationException()
+  override val ijentProcessInfo: IjentProcessInfo get() = throw UnsupportedOperationException()
+
+  override val userInfo: EelUserPosixInfo get() = throw UnsupportedOperationException()
 
   override fun close(): Unit = Unit
 
@@ -529,7 +532,7 @@ private class MockIjentApi(private val adapter: GeneralCommandLine, val rootUser
 private class MockIjentExecApi(private val adapter: GeneralCommandLine, private val rootUser: Boolean) : IjentExecApi {
 
 
-  override suspend fun execute(builder: EelExecApi.ExecuteProcessBuilder): EelExecApi.ExecuteProcessResult = executeResultMock.also {
+  override suspend fun execute(builder: EelExecApi.ExecuteProcessBuilder): EelResult<EelProcess, ExecuteProcessError> = executeResultMock.also {
     adapter.exePath = builder.exe
     if (rootUser) {
       adapter.putUserData(TEST_ROOT_USER_SET, true)
@@ -546,7 +549,7 @@ private val TEST_ROOT_USER_SET by lazy { Key.create<Boolean>("TEST_ROOT_USER_SET
 
 
 private val executeResultMock by lazy {
-  EelExecApi.ExecuteProcessResult.Failure(errno = 12345, message = "mock result ${Ksuid.generate()}")
+  EelProcessResultImpl.createErrorResult(errno = 12345, message = "mock result ${Ksuid.generate()}")
 }
 
 private class WslTestStrategyExtension

@@ -4,8 +4,8 @@
     <module name="intellij.searchEverywhereMl.semantics"/>
   </dependencies>
 
-  <extensions defaultExtensionNs="com.intellij.searcheverywhere.ml">
-    <fileIndexableEntitiesProvider
-      implementation="com.intellij.searchEverywhereMl.semantics.kotlin.KotlinIndexableEntitiesProvider"/>
+  <extensions defaultExtensionNs="com.intellij.embeddings.indexer">
+    <classesProvider filetype="Kotlin" implementationClass="com.intellij.searchEverywhereMl.semantics.kotlin.KotlinClassesProvider"/>
+    <symbolsProvider filetype="Kotlin" implementationClass="com.intellij.searchEverywhereMl.semantics.kotlin.KotlinSymbolsProvider"/>
   </extensions>
 </idea-plugin>

@@ -12678,6 +12678,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 runTest("testData/quickfix/optIn/propagateOptIn8Fir.kt");
             }
 
+            @TestMetadata("propagateSubclassOptInMultipleMarkers1.kt")
+            public void testPropagateSubclassOptInMultipleMarkers1() throws Exception {
+                runTest("testData/quickfix/optIn/propagateSubclassOptInMultipleMarkers1.kt");
+            }
+
+            @TestMetadata("propagateSubclassOptInMultipleMarkers2.kt")
+            public void testPropagateSubclassOptInMultipleMarkers2() throws Exception {
+                runTest("testData/quickfix/optIn/propagateSubclassOptInMultipleMarkers2.kt");
+            }
+
             @TestMetadata("propagateSubclassOptInRequired.kt")
             public void testPropagateSubclassOptInRequired() throws Exception {
                 runTest("testData/quickfix/optIn/propagateSubclassOptInRequired.kt");
@@ -18421,6 +18431,75 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/quickfix/typeMismatch/surroundWithLambda")
+        public static class SurroundWithLambda extends AbstractK1QuickFixTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("argument.kt")
+            public void testArgument() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/argument.kt");
+            }
+
+            @TestMetadata("argumentInt.kt")
+            public void testArgumentInt() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/argumentInt.kt");
+            }
+
+            @TestMetadata("argumentMismatch.kt")
+            public void testArgumentMismatch() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/argumentMismatch.kt");
+            }
+
+            @TestMetadata("argumentNull.kt")
+            public void testArgumentNull() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/argumentNull.kt");
+            }
+
+            @TestMetadata("argumentNullable.kt")
+            public void testArgumentNullable() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/argumentNullable.kt");
+            }
+
+            @TestMetadata("argumentSubclass.kt")
+            public void testArgumentSubclass() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/argumentSubclass.kt");
+            }
+
+            @TestMetadata("argumentSuspend.kt")
+            public void testArgumentSuspend() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/argumentSuspend.kt");
+            }
+
+            @TestMetadata("arityIsNotZero.kt")
+            public void testArityIsNotZero() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/arityIsNotZero.kt");
+            }
+
+            @TestMetadata("assignment.kt")
+            public void testAssignment() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/assignment.kt");
+            }
+
+            @TestMetadata("initializer.kt")
+            public void testInitializer() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/initializer.kt");
+            }
+
+            @TestMetadata("return.kt")
+            public void testReturn() throws Exception {
+                runTest("testData/quickfix/typeMismatch/surroundWithLambda/return.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/quickfix/typeMismatch/typeMismatchOnReturnedExpression")
         public abstract static class TypeMismatchOnReturnedExpression extends AbstractK1QuickFixTest {
             @RunWith(JUnit3RunnerWithInners.class)
@@ -18950,41 +19029,6 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 runTest("testData/quickfix/typeMismatch/nullArgumentForNonNullParameter.kt");
             }
 
-            @TestMetadata("paramTypeLambdaMatch.kt")
-            public void testParamTypeLambdaMatch() throws Exception {
-                runTest("testData/quickfix/typeMismatch/paramTypeLambdaMatch.kt");
-            }
-
-            @TestMetadata("paramTypeLambdaMatchInt.kt")
-            public void testParamTypeLambdaMatchInt() throws Exception {
-                runTest("testData/quickfix/typeMismatch/paramTypeLambdaMatchInt.kt");
-            }
-
-            @TestMetadata("paramTypeLambdaMatchNullable.kt")
-            public void testParamTypeLambdaMatchNullable() throws Exception {
-                runTest("testData/quickfix/typeMismatch/paramTypeLambdaMatchNullable.kt");
-            }
-
-            @TestMetadata("paramTypeLambdaMatchSubclass.kt")
-            public void testParamTypeLambdaMatchSubclass() throws Exception {
-                runTest("testData/quickfix/typeMismatch/paramTypeLambdaMatchSubclass.kt");
-            }
-
-            @TestMetadata("paramTypeLambdaMatchSuspend.kt")
-            public void testParamTypeLambdaMatchSuspend() throws Exception {
-                runTest("testData/quickfix/typeMismatch/paramTypeLambdaMatchSuspend.kt");
-            }
-
-            @TestMetadata("paramTypeLambdaMismatch.kt")
-            public void testParamTypeLambdaMismatch() throws Exception {
-                runTest("testData/quickfix/typeMismatch/paramTypeLambdaMismatch.kt");
-            }
-
-            @TestMetadata("paramTypeLambdaMismatchNull.kt")
-            public void testParamTypeLambdaMismatchNull() throws Exception {
-                runTest("testData/quickfix/typeMismatch/paramTypeLambdaMismatchNull.kt");
-            }
-
             @TestMetadata("parameterDefaultValue.kt")
             public void testParameterDefaultValue() throws Exception {
                 runTest("testData/quickfix/typeMismatch/parameterDefaultValue.kt");
@@ -19457,35 +19501,6 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("simple.kt")
         public void testSimple() throws Exception {
             runTest("testData/quickfix/unusedSuppressAnnotation/simple.kt");
-        }
-    }
-
-    @RunWith(JUnit3RunnerWithInners.class)
-    @TestMetadata("testData/quickfix/useFullyqualifiedCall")
-    public static class UseFullyqualifiedCall extends AbstractK1QuickFixTest {
-        @java.lang.Override
-        @org.jetbrains.annotations.NotNull
-        public final KotlinPluginMode getPluginMode() {
-            return KotlinPluginMode.K1;
-        }
-
-        private void runTest(String testDataFilePath) throws Exception {
-            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-        }
-
-        @TestMetadata("FunctionCallInsideObject.kt")
-        public void testFunctionCallInsideObject() throws Exception {
-            runTest("testData/quickfix/useFullyqualifiedCall/FunctionCallInsideObject.kt");
-        }
-
-        @TestMetadata("NestedObject.kt")
-        public void testNestedObject() throws Exception {
-            runTest("testData/quickfix/useFullyqualifiedCall/NestedObject.kt");
-        }
-
-        @TestMetadata("NestedObjectInRoot.kt")
-        public void testNestedObjectInRoot() throws Exception {
-            runTest("testData/quickfix/useFullyqualifiedCall/NestedObjectInRoot.kt");
         }
     }
 

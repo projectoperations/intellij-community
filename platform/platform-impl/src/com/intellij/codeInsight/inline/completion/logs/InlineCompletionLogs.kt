@@ -12,9 +12,9 @@ import com.intellij.openapi.progress.Cancellation
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
-internal object InlineCompletionLogs : CounterUsagesCollector() {
+object InlineCompletionLogs : CounterUsagesCollector() {
   // TODO use ML_RECORDER_ID
-  val GROUP = EventLogGroup("inline.completion.v2", 18, recorder = "ML")
+  val GROUP = EventLogGroup("inline.completion.v2", 21, recorder = "ML")
 
   override fun getGroup(): EventLogGroup = GROUP
 

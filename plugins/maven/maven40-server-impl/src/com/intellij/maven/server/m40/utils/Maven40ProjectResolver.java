@@ -30,8 +30,6 @@ import org.jetbrains.idea.maven.server.MavenServerGlobals;
 import org.jetbrains.idea.maven.server.PomHashMap;
 
 import java.io.File;
-import java.rmi.RemoteException;
-import java.rmi.server.UnicastRemoteObject;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -78,10 +76,7 @@ public class Maven40ProjectResolver {
   @NotNull
   public ArrayList<MavenServerExecutionResult> resolveProjects() {
     try {
-      Collection<Maven40ExecutionResult> results = myTelemetry.callWithSpan("doResolveProject", () -> doResolveProject());
-      ArrayList<MavenServerExecutionResult> list = new ArrayList<>();
-      results.stream().map(result -> createExecutionResult(result)).forEachOrdered(list::add);
-      return list;
+      return myTelemetry.callWithSpan("doResolveProject", () -> doResolveProject());
     }
     catch (Exception e) {
       throw myEmbedder.wrapToSerializableRuntimeException(e);
@@ -89,12 +84,20 @@ public class Maven40ProjectResolver {
   }
 
   private static class ProjectBuildingResultInfo {
-    ProjectBuildingResult buildingResult;
-    List<Exception> exceptions;
+    @NotNull String projectId;
+    @NotNull MavenProject mavenProject;
+    @NotNull List<ModelProblem> modelProblems;
+    @NotNull List<Exception> exceptions;
     String dependencyHash;
 
-    private ProjectBuildingResultInfo(ProjectBuildingResult buildingResult, List<Exception> exceptions, String dependencyHash) {
-      this.buildingResult = buildingResult;
+    private ProjectBuildingResultInfo(@NotNull String projectId,
+                                      @NotNull MavenProject mavenProject,
+                                      @NotNull List<ModelProblem> modelProblems,
+                                      @NotNull List<Exception> exceptions,
+                                      String dependencyHash) {
+      this.projectId = projectId;
+      this.mavenProject = mavenProject;
+      this.modelProblems = modelProblems;
       this.exceptions = exceptions;
       this.dependencyHash = dependencyHash;
     }
@@ -102,35 +105,35 @@ public class Maven40ProjectResolver {
     @Override
     public String toString() {
       return "ProjectBuildingResultData{" +
-             "projectId=" + buildingResult.getProjectId() +
+             "projectId=" + projectId +
              ", dependencyHash=" + dependencyHash +
              '}';
     }
   }
 
   @NotNull
-  private Collection<Maven40ExecutionResult> doResolveProject() {
+  private ArrayList<MavenServerExecutionResult> doResolveProject() {
     Set<File> files = myPomHashMap.keySet();
     File file = !files.isEmpty() ? files.iterator().next() : null;
     MavenExecutionRequest request = myEmbedder.createRequest(file, myActiveProfiles, myInactiveProfiles, userProperties);
 
     request.setUpdateSnapshots(myUpdateSnapshots);
 
-    Collection<Maven40ExecutionResult> executionResults = new ArrayList<>();
+    ArrayList<MavenServerExecutionResult> executionResults = new ArrayList<>();
 
     myEmbedder.executeWithMavenSession(request, myWorkspaceMap, myLongRunningTask.getIndicator(), session -> {
-      getExecutionResults(session, files, request, executionResults);
+      executionResults.addAll(getExecutionResults(session, files, request));
     });
 
     return executionResults;
   }
 
-  private void getExecutionResults(MavenSession session,
-                                   Set<File> files,
-                                   MavenExecutionRequest request,
-                                   Collection<Maven40ExecutionResult> executionResults) {
+  @NotNull
+  private ArrayList<MavenServerExecutionResult> getExecutionResults(MavenSession session,
+                                                                    Set<File> files,
+                                                                    MavenExecutionRequest request) {
+    ArrayList<MavenServerExecutionResult> executionResults = new ArrayList<>();
     try {
-
       List<ProjectBuildingResult> buildingResults = myTelemetry.callWithSpan("getProjectBuildingResults " + files.size(), () ->
         getProjectBuildingResults(request, files, session));
 
@@ -143,22 +146,19 @@ public class Maven40ProjectResolver {
       List<ProjectBuildingResultInfo> buildingResultInfos = new ArrayList<>();
 
       for (ProjectBuildingResult buildingResult : buildingResults) {
-
         MavenProject project = buildingResult.getProject();
+        String projectId = buildingResult.getProjectId();
         File pomFile = buildingResult.getPomFile();
+        List<ModelProblem> modelProblems = buildingResult.getProblems();
 
-        if (project == null) {
-          executionResults.add(new Maven40ExecutionResult(pomFile, buildingResult.getProblems()));
+        if (project == null || pomFile == null) {
+          executionResults.add(createExecutionResult(pomFile, modelProblems));
           continue;
         }
 
-        String previousDependencyHash = myPomHashMap.getDependencyHash(buildingResult.getPomFile());
         String newDependencyHash = fileToNewDependencyHash.get(pomFile);
-        if (null != previousDependencyHash && previousDependencyHash.equals(newDependencyHash)) {
-          Maven40ExecutionResult res = new Maven40ExecutionResult(project, null, new ArrayList<>(), new ArrayList<>());
-          res.setDependencyHash(previousDependencyHash);
-          res.setDependencyResolutionSkipped(true);
-          executionResults.add(res);
+        if (!transitiveDependenciesChanged(pomFile, newDependencyHash, fileToNewDependencyHash)) {
+          executionResults.add(createExecutionResult(project, newDependencyHash));
           continue;
         }
 
@@ -168,20 +168,19 @@ public class Maven40ProjectResolver {
 
         //project.setDependencyArtifacts(project.createArtifacts(myEmbedder.getComponent(ArtifactFactory.class), null, null));
 
-        buildingResultInfos.add(new ProjectBuildingResultInfo(buildingResult, exceptions, newDependencyHash));
+        buildingResultInfos.add(new ProjectBuildingResultInfo(projectId, project, modelProblems, exceptions, newDependencyHash));
 
         myLongRunningTask.updateTotalRequests(buildingResultInfos.size());
       }
 
-      Collection<Maven40ExecutionResult> execResults =
+      Collection<MavenServerExecutionResult> execResults =
         myTelemetry.executeWithSpan("resolveBuildingResults",
                                     runInParallel,
                                     buildingResultInfos, br -> {
-            if (myLongRunningTask.isCanceled()) return new Maven40ExecutionResult(Collections.emptyList());
-            Maven40ExecutionResult result = myTelemetry.callWithSpan(
-              "resolveBuildingResult " + br.buildingResult.getProjectId(), () ->
-                resolveBuildingResult(session.getRepositorySession(), br.buildingResult, br.exceptions));
-            result.setDependencyHash(br.dependencyHash);
+            if (myLongRunningTask.isCanceled()) return MavenServerExecutionResult.EMPTY;
+            MavenServerExecutionResult result = myTelemetry.callWithSpan(
+              "resolveBuildingResult " + br.projectId, () ->
+                resolveBuildingResult(session.getRepositorySession(), br.mavenProject, br.modelProblems, br.exceptions, br.dependencyHash));
             myLongRunningTask.incrementFinishedRequests();
             return result;
           }
@@ -190,11 +189,26 @@ public class Maven40ProjectResolver {
       executionResults.addAll(execResults);
     }
     catch (Exception e) {
-      executionResults.add(handleException(e));
+      executionResults.add(createExecutionResult(e));
     }
+    return executionResults;
   }
 
-  private @NotNull Map<File, String> collectHashes(boolean runInParallel, List<ProjectBuildingResult> buildingResults) {
+  private boolean transitiveDependenciesChanged(@NotNull File pomFile, String newDependencyHash, Map<File, String> fileToNewDependencyHash) {
+    if (dependenciesChanged(pomFile, newDependencyHash)) return true;
+    for (File dependencyPomFile : myPomHashMap.getFileDependencies(pomFile)) {
+      if (dependenciesChanged(dependencyPomFile, fileToNewDependencyHash.get(dependencyPomFile))) return true;
+    }
+    return false;
+  }
+
+  private boolean dependenciesChanged(@NotNull File pomFile, String newDependencyHash) {
+    String previousDependencyHash = myPomHashMap.getDependencyHash(pomFile);
+    return previousDependencyHash == null || !previousDependencyHash.equals(newDependencyHash);
+  }
+
+  @NotNull
+  private Map<File, String> collectHashes(boolean runInParallel, List<ProjectBuildingResult> buildingResults) {
     Map<File, String> fileToNewDependencyHash = new ConcurrentHashMap<>();
     myTelemetry.executeWithSpan("dependencyHashes",
                                 runInParallel,
@@ -210,25 +224,20 @@ public class Maven40ProjectResolver {
   }
 
   @NotNull
-  private Maven40ExecutionResult resolveBuildingResult(RepositorySystemSession repositorySession,
-                                                       ProjectBuildingResult buildingResult,
-                                                       List<Exception> exceptions) {
-    MavenProject project = buildingResult.getProject();
+  private MavenServerExecutionResult resolveBuildingResult(RepositorySystemSession repositorySession,
+                                                           MavenProject project,
+                                                           @NotNull List<ModelProblem> modelProblems,
+                                                           List<Exception> exceptions,
+                                                           String dependencyHash) {
     try {
-      List<ModelProblem> modelProblems = new ArrayList<>();
-
-      if (buildingResult.getProblems() != null) {
-        modelProblems.addAll(buildingResult.getProblems());
-      }
-
       DependencyResolutionResult dependencyResolutionResult = resolveDependencies(project, repositorySession);
       Set<Artifact> artifacts = resolveArtifacts(dependencyResolutionResult);
       project.setArtifacts(artifacts);
 
-      return new Maven40ExecutionResult(project, dependencyResolutionResult, exceptions, modelProblems);
+      return createExecutionResult(exceptions, modelProblems, project, dependencyResolutionResult, dependencyHash);
     }
     catch (Exception e) {
-      return handleException(project, e);
+      return createExecutionResult(project, e);
     }
   }
 
@@ -278,20 +287,59 @@ public class Maven40ProjectResolver {
   }
 
   @NotNull
-  private MavenServerExecutionResult createExecutionResult(Maven40ExecutionResult result) {
-    File file = result.getPomFile();
-    Collection<MavenProjectProblem> problems = MavenProjectProblem.createProblemsList();
-    myEmbedder.collectProblems(file, result.getExceptions(), result.getModelProblems(), problems);
+  private MavenServerExecutionResult createExecutionResult(@NotNull MavenProject mavenProject, String dependencyHash) {
+    return createExecutionResult(mavenProject.getFile(), Collections.emptyList(), Collections.emptyList(), mavenProject, null, dependencyHash, true);
+  }
+
+  @NotNull
+  private MavenServerExecutionResult createExecutionResult(Exception exception) {
+    return createExecutionResult(null, exception);
+  }
+
+  @NotNull
+  private MavenServerExecutionResult createExecutionResult(MavenProject mavenProject, Exception exception) {
+    return createExecutionResult(Collections.singletonList(exception), Collections.emptyList(), mavenProject, null, null);
+  }
+
+  @NotNull
+  private MavenServerExecutionResult createExecutionResult(List<Exception> exceptions,
+                                                           List<ModelProblem> modelProblems,
+                                                           MavenProject mavenProject,
+                                                           DependencyResolutionResult dependencyResolutionResult,
+                                                           String dependencyHash) {
+    return createExecutionResult(null, exceptions, modelProblems, mavenProject, dependencyResolutionResult, dependencyHash, false);
+  }
+
+  @NotNull
+  private MavenServerExecutionResult createExecutionResult(@Nullable File file, List<ModelProblem> modelProblems) {
+    return createExecutionResult(file, Collections.emptyList(), modelProblems, null, null, null, false);
+  }
+
+  @NotNull
+  private MavenServerExecutionResult createExecutionResult(@Nullable File file,
+                                                           @NotNull List<Exception> exceptions,
+                                                           @NotNull List<ModelProblem> modelProblems,
+                                                           @Nullable MavenProject mavenProject,
+                                                           DependencyResolutionResult dependencyResolutionResult,
+                                                           String dependencyHash,
+                                                           boolean dependencyResolutionSkipped) {
+    if (null != dependencyResolutionResult && null != dependencyResolutionResult.getCollectionErrors()) {
+      exceptions.addAll(dependencyResolutionResult.getCollectionErrors());
+    }
+
+    if (null == file && null != mavenProject) {
+      file = mavenProject.getFile();
+    }
+
+    Collection<MavenProjectProblem> problems = myEmbedder.collectProblems(file, exceptions, modelProblems);
 
     Collection<MavenProjectProblem> unresolvedProblems = new HashSet<>();
-    collectUnresolvedArtifactProblems(file, result.getDependencyResolutionResult(), unresolvedProblems);
+    collectUnresolvedArtifactProblems(file, dependencyResolutionResult, unresolvedProblems);
 
-    MavenProject mavenProject = result.getMavenProject();
     if (mavenProject == null) return new MavenServerExecutionResult(null, problems, Collections.emptySet());
 
     MavenModel model = new MavenModel();
     try {
-      DependencyResolutionResult dependencyResolutionResult = result.getDependencyResolutionResult();
       DependencyNode dependencyGraph =
         dependencyResolutionResult != null ? dependencyResolutionResult.getDependencyGraph() : null;
 
@@ -302,23 +350,14 @@ public class Maven40ProjectResolver {
         myLocalRepositoryFile);
     }
     catch (Exception e) {
-      myEmbedder.collectProblems(mavenProject.getFile(), Collections.singleton(e), result.getModelProblems(), problems);
-    }
-
-    RemoteNativeMaven40ProjectHolder holder = new RemoteNativeMaven40ProjectHolder(mavenProject);
-    try {
-      UnicastRemoteObject.exportObject(holder, 0);
-    }
-    catch (RemoteException e) {
-      throw new RuntimeException(e);
+      problems.addAll(myEmbedder.collectProblems(mavenProject.getFile(), Collections.singleton(e), modelProblems));
     }
 
     Collection<String> activatedProfiles = Maven40ProfileUtil.collectActivatedProfiles(mavenProject);
 
     Map<String, String> mavenModelMap = Maven40ModelConverter.convertToMap(mavenProject.getModel());
     MavenServerExecutionResult.ProjectData data =
-      new MavenServerExecutionResult.ProjectData(model, result.getDependencyHash(), result.isDependencyResolutionSkipped(), mavenModelMap,
-                                                 holder, activatedProfiles);
+      new MavenServerExecutionResult.ProjectData(model, dependencyHash, dependencyResolutionSkipped, mavenModelMap, activatedProfiles);
     if (null == model.getBuild() || null == model.getBuild().getDirectory()) {
       data = null;
     }
@@ -340,14 +379,6 @@ public class Maven40ProjectResolver {
         break;
       }
     }
-  }
-
-  private static Maven40ExecutionResult handleException(Exception e) {
-    return new Maven40ExecutionResult(Collections.singletonList(e));
-  }
-
-  private static Maven40ExecutionResult handleException(MavenProject mavenProject, Exception e) {
-    return new Maven40ExecutionResult(mavenProject, Collections.singletonList(e));
   }
 
   @NotNull

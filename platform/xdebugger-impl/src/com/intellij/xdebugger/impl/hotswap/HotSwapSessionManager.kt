@@ -4,6 +4,7 @@ package com.intellij.xdebugger.impl.hotswap
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.util.coroutines.childScope
@@ -11,7 +12,7 @@ import com.intellij.util.containers.DisposableWrapperList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import org.jetbrains.annotations.ApiStatus
-import java.lang.ref.SoftReference
+import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 
 @ApiStatus.Internal
@@ -21,7 +22,7 @@ class HotSwapSessionManager private constructor(private val project: Project, in
   private val sessions = DisposableWrapperList<HotSwapSession<*>>()
 
   @Volatile
-  private var selectedSession: SoftReference<HotSwapSession<*>>? = null
+  private var selectedSession: WeakReference<HotSwapSession<*>>? = null
 
   /**
    * Start a hot swap session and source file tracking.
@@ -58,7 +59,7 @@ class HotSwapSessionManager private constructor(private val project: Project, in
     val current = currentSession
     val selected = selectedSession?.get()
     if (selected !== session) {
-      selectedSession = SoftReference(session)
+      selectedSession = WeakReference(session)
     }
     if (session !== current) {
       fireStatusChanged(session)
@@ -110,6 +111,8 @@ internal fun interface HotSwapChangesListener {
   fun onStatusChanged(forceStatus: HotSwapVisibleStatus?)
 }
 
+private val logger = logger<HotSwapSession<*>>()
+
 @ApiStatus.Internal
 class HotSwapSession<T> internal constructor(val project: Project, internal val provider: HotSwapProvider<T>, parentScope: CoroutineScope) : Disposable {
   internal val coroutineScope = parentScope.childScope("HotSwapSession $this")
@@ -125,6 +128,9 @@ class HotSwapSession<T> internal constructor(val project: Project, internal val 
     // No further updates after the session is complete
     if (currentStatus == HotSwapVisibleStatus.SESSION_COMPLETED) return
     currentStatus = status
+    if (logger.isDebugEnabled) {
+      logger.debug("Session status changed: $status (fire=$fireUpdate)")
+    }
     if (fireUpdate) {
       HotSwapSessionManager.getInstance(project).fireStatusChanged(this)
     }

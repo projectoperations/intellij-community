@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.refactoring.inline;
 
 import com.intellij.JavaTestUtil;
@@ -76,8 +76,7 @@ public class InlineMethodTest extends LightRefactoringTestCase {
 
   public void testSCR20655() { doTest(); }
   public void testGenericArrayCreation() { doTest(); }
-
-
+  public void testNoRedundantCast() { doTest(); }
   public void testFieldInitializer() { doTest(); }
 
   public void testMethodCallInOtherAnonymousOrInner() { doTest(); }
@@ -406,7 +405,9 @@ public class InlineMethodTest extends LightRefactoringTestCase {
   }
 
   public void testInaccessibleConstructorInInlinedMethod() {
-    doTestConflict("Constructor <b><code>SomeClass.SomeClass()</code></b> that is used in inlined method is not accessible from call site(s) in method <b><code>InlineWithPrivateConstructorAccessMain.main(String...)</code></b>");
+    doTestConflict("Constructor <b><code>SomeClass.SomeClass()</code></b> will not be accessible when method " +
+                   "<b><code>SomeClass.createInstance()</code></b> is inlined into method " +
+                   "<b><code>InlineWithPrivateConstructorAccessMain.main(String...)</code></b>");
   }
 
   public void testPreserveResultedVariableIfInitializerIsNotSideEffectsFree() {
@@ -434,7 +435,8 @@ public class InlineMethodTest extends LightRefactoringTestCase {
   }
 
   public void testInaccessibleFieldInSuperClass() {
-    doTestConflict("Field <b><code>A.i</code></b> that is used in inlined method is not accessible from call site(s) in method <b><code>B.bar()</code></b>");
+    doTestConflict("Field <b><code>A.i</code></b> will not be accessible when method <b><code>A.foo()</code></b> is inlined into " +
+                   "method <b><code>B.bar()</code></b>");
   }
 
   public void testPrivateFieldInSuperClassInSameFile() {

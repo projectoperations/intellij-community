@@ -25,6 +25,7 @@ import com.sun.jna.Callback;
 import com.sun.jna.Pointer;
 import kotlin.Unit;
 import kotlinx.coroutines.CoroutineScope;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,6 +38,7 @@ import static com.intellij.openapi.wm.impl.IdeGlassPaneImplKt.executeOnCancelInE
 /**
  * @author Alexander Lobas
  */
+@ApiStatus.Internal
 public class MacWinTabsHandler {
   private static final String WIN_TAB_FILLER = "WIN_TAB_FILLER_KEY";
   private static final String CLOSE_MARKER = "TABS_CLOSE_MARKER";
@@ -171,7 +173,7 @@ public class MacWinTabsHandler {
 
       for (int i = 0; i < frames.length; i++) {
         ProjectFrameHelper helper = (ProjectFrameHelper)frames[i];
-        if (helper.isDisposed$intellij_platform_ide_impl()) {
+        if (helper.isDisposed()) {
           visibleAndHeights[i] = 0;
           continue;
         }

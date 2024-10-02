@@ -44,12 +44,13 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
     fun testComparisonNoValues() = doTest(false)
     fun testConstantDivisionByZero() = doTest()
     fun testConstantWithDifferentType() = doTest()
-    fun testCustomObjectComparison() = doTest()
+    fun testCustomObjectComparisonK2() = doTest()
     fun testDestructuringInLoop() = doTest()
     fun testDoubleComparison() = doTest()
     fun testEnumComparison() = doTest()
     fun testEnumOrdinal() = doTest()
     fun testExclamationK2() = doTest()
+    fun testExtensionImplicitThis() = doTest()
     fun testFieldAliasing() = doTest()
     fun testForLoop() = doTest()
     fun testInRange() = doTest()
@@ -88,7 +89,7 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
     fun testQualifierK2() = doTest()
     fun testRangeAnnotation() = doTest()
     fun testReifiedGenericK2() = doTest()
-    fun testReturnContract() = doTest()
+    fun testReturnContractK2() = doTest()
     fun testSingleton() = doTest()
     fun testSmartCastConflictK2() = doTest()
     fun testSmartCastExtensionCondition() = doTest()
@@ -106,7 +107,7 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
     fun testTypeCastK2() = doTest()
     fun testTypeTestK2() = doTest()
     fun testUInt() = doTest()
-    fun testUsefulNull() = doTest()
+    fun testUsefulNullK2() = doTest()
     fun testWhenToDo() = doTest()
     fun testWhenK2() = doTest()
     fun testWhenInLambdaK2() = doTest()
@@ -121,12 +122,12 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
             // LightClassUtil.toLightMethods triggers loading of some annotation classes from Kotlin standard library, including
             // kotlin.SinceKotlin, or kotlin.annotation.Target.
             // It goes through it.navigationElement inside org.jetbrains.kotlin.asJava.LightClassUtil.getPsiMethodWrappers
-            // then hundreds of frames and eventually ends up in PsiRawFirBuilder.Visitor.toFirConstructor where getConstructorKeyword 
+            // then hundreds of frames and eventually ends up in PsiRawFirBuilder.Visitor.toFirConstructor where getConstructorKeyword
             // is called, which in turn causes tree loading.
             // See KT-66400 for details.
-            val fromLightClassUtil = StackWalker.getInstance().walk { stream -> stream.anyMatch { ste -> 
+            val fromLightClassUtil = StackWalker.getInstance().walk { stream -> stream.anyMatch { ste ->
                 ste.className == "org.jetbrains.kotlin.asJava.LightClassUtilsKt" &&
-                ste.methodName == "toLightMethods"         
+                ste.methodName == "toLightMethods"
             } }
             !fromLightClassUtil
         }

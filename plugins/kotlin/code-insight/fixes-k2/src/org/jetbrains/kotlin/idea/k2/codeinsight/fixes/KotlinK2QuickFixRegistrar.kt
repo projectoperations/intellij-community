@@ -185,6 +185,11 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(AddGenericUpperBoundFixFactories.upperBoundViolatedBasedOnJavaAnnotationsFixFactory)
         registerFactory(DeprecatedTypeParameterSyntaxFixFactories.migrateTypeParameterListFixFactory)
         registerFactory(UnresolvedReferenceFixFactories.makeConstructorParameterPropertyFix)
+        registerFactory(PositionedValueArgumentForJavaAnnotationFixFactories.replaceWithNamedArgumentsFixFactory)
+        registerFactory(SurroundWithLambdaForTypeMismatchFixFactory.argumentTypeMismatchFixFactory)
+        registerFactory(SurroundWithLambdaForTypeMismatchFixFactory.assignmentTypeMismatchFixFactory)
+        registerFactory(SurroundWithLambdaForTypeMismatchFixFactory.initializerTypeMismatchFixFactory)
+        registerFactory(SurroundWithLambdaForTypeMismatchFixFactory.returnTypeMismatchFixFactory)
     }
 
     private val addAbstract = KtQuickFixesListBuilder.registerPsiQuickFix {
@@ -519,10 +524,14 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(OptInModuleLevelFixFactories.optInIsNotEnabledFactory)
         registerFactory(OptInFileLevelFixFactories.optInUsageFactory)
         registerFactory(OptInFileLevelFixFactories.optInUsageErrorFactory)
+        registerFactory(OptInFileLevelFixFactories.optInUsageInheritanceFactory)
+        registerFactory(OptInFileLevelFixFactories.optInUsageInheritanceErrorFactory)
         registerFactory(OptInFileLevelFixFactories.optInOverrideFactory)
         registerFactory(OptInFileLevelFixFactories.optInOverrideErrorFactory)
         registerFactory(OptInFixFactories.optInUsageFactory)
+        registerFactory(OptInFixFactories.optInToInheritanceFactory)
         registerFactory(OptInFixFactories.optInUsageErrorFactory)
+        registerFactory(OptInFixFactories.optInToInheritanceErrorFactory)
         registerFactory(OptInFixFactories.optInOverrideFactory)
         registerFactory(OptInFixFactories.optInOverrideErrorFactory)
     }
@@ -582,6 +591,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
 
     override val importOnTheFlyList: KotlinQuickFixesList = KtQuickFixesListBuilder.registerPsiQuickFix {
         registerFactory(ImportQuickFixFactories.unresolvedReferenceFactory)
+        registerFactory(ImportQuickFixFactories.unresolvedReferenceWrongReceiverFactory)
         registerFactory(ImportQuickFixFactories.invisibleReferenceFactory)
     }
 }

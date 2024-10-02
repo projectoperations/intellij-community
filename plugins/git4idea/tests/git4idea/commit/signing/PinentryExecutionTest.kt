@@ -29,7 +29,9 @@ class PinentryExecutionTest : GitSingleRepoTest() {
 
   override fun setUp() {
     super.setUp()
-    val enabled = GpgAgentConfigurator.isEnabled(GitExecutableManager.getInstance().getExecutable(project))
+    git("config commit.gpgSign true")
+    git("config user.signingkey 0A46826A!")
+    val enabled = GpgAgentConfigurator.isEnabled(project, GitExecutableManager.getInstance().getExecutable(project))
     assumeTrue("GpgAgentConfigurator should be enabled", enabled);
   }
 
@@ -62,14 +64,15 @@ class PinentryExecutionTest : GitSingleRepoTest() {
 
     val pathLocator = TestGpgPathLocator()
     val paths = pathLocator.resolvePaths()!!
+    val allowLoopbackPinentryConfig = "allow-loopback-pinentry"
     val cacheTtlConfig = "default-cache-ttl 5000"
     val pinentryConfig = "$GPG_AGENT_PINENTRY_PROGRAM_CONF_KEY ${paths.gpgPinentryAppLauncherConfigPath}"
 
-    FileUtil.writeToFile(paths.gpgAgentConf.toFile(), cacheTtlConfig)
+    FileUtil.writeToFile(paths.gpgAgentConf.toFile(), "$allowLoopbackPinentryConfig\n$cacheTtlConfig")
     project.service<GpgAgentConfigurator>().doConfigure(pathLocator)
     val generatedConfig = paths.gpgAgentConf.readLines()
 
-    assertContainsOrdered(generatedConfig, listOf(cacheTtlConfig, pinentryConfig))
+    assertContainsOrdered(generatedConfig, listOf(allowLoopbackPinentryConfig, cacheTtlConfig, pinentryConfig))
   }
 
   fun `test pinentry launcher structure`() {
@@ -127,9 +130,9 @@ class PinentryExecutionTest : GitSingleRepoTest() {
     }
   }
 
-  private fun requestPassword(paths: GpgAgentPaths, pinentryData: PinentryService.PinentryData?): List<@NlsSafe String> {
+  private fun requestPassword(paths: GpgAgentPaths, pinentryData: PinentryService.PinentryData): List<@NlsSafe String> {
     val cmd = GeneralCommandLine(paths.gpgPinentryAppLauncherConfigPath)
-      .withEnvironment(PinentryService.PINENTRY_USER_DATA_ENV, pinentryData.toString())
+      .withEnvironment(PinentryService.PINENTRY_USER_DATA_ENV, pinentryData.toEnv())
 
     val output = object : CapturingProcessHandler.Silent(cmd) {
       override fun createProcessAdapter(processOutput: ProcessOutput): CapturingProcessAdapter? {

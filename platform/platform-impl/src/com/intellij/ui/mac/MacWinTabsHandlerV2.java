@@ -15,6 +15,7 @@ import com.intellij.ui.mac.foundation.MacUtil;
 import com.intellij.util.ArrayUtil;
 import kotlin.Unit;
 import kotlinx.coroutines.CoroutineScope;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,6 +28,7 @@ import java.util.Objects;
 /**
  * @author Alexander Lobas
  */
+@ApiStatus.Internal
 public final class MacWinTabsHandlerV2 extends MacWinTabsHandler {
   private static final String WINDOW_TABS_CONTAINER = "WINDOW_TABS_CONTAINER_KEY";
 
@@ -164,7 +166,7 @@ public final class MacWinTabsHandlerV2 extends MacWinTabsHandler {
     else {
       for (IdeFrame _helper : helpers) {
         ProjectFrameHelper helper = (ProjectFrameHelper)_helper;
-        if (helper.isDisposed$intellij_platform_ide_impl()) {
+        if (helper.isDisposed()) {
           continue;
         }
 
@@ -180,7 +182,7 @@ public final class MacWinTabsHandlerV2 extends MacWinTabsHandler {
   private static void createTabBarsForFrame(@NotNull IdeFrameImpl frame,
                                             @NotNull ProjectFrameHelper helper,
                                             IdeFrameImpl @NotNull [] tabFrames) {
-    WindowTabsComponent tabs = new WindowTabsComponent(frame, helper.getProject(), helper.createDisposable$intellij_platform_ide_impl());
+    WindowTabsComponent tabs = new WindowTabsComponent(frame, helper.getProject(), helper.createDisposable());
 
     JPanel parentComponent = getTabsContainer(frame);
     parentComponent.add(tabs);

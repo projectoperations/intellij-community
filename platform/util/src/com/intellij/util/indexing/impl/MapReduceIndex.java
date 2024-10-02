@@ -150,9 +150,9 @@ public abstract class MapReduceIndex<Key, Value, Input> implements InvertedIndex
       //         its current implementation persists all the changes in those containers, AND
       //         invalidates the cache entirely, i.e. remove all the cached content. So flush()
       //         strongly tops .clearCaches() in its effect on occupied heap space.
-      ConcurrencyUtil.withLock(myLock.readLock(), () -> {
-        myStorage.clearCaches();
-      });
+      ConcurrencyUtil.withLock(myLock.readLock(),
+                               () -> myStorage.clearCaches()
+      );
 
       flush();
     }
@@ -313,7 +313,7 @@ public abstract class MapReduceIndex<Key, Value, Input> implements InvertedIndex
       inputId,
       indexId(),
 
-      (changedEntriesProcessor) -> {
+      changedEntriesProcessor -> {
         try {
           InputDataDiffBuilder<Key, Value> diffBuilder = getKeysDiffBuilder(inputId);
           Map<Key, Value> newData = inputData.getKeyValues();
@@ -408,8 +408,7 @@ public abstract class MapReduceIndex<Key, Value, Input> implements InvertedIndex
     myModificationStamp.incrementAndGet();
   }
 
-  //MAYBE RC: rename to updateWith()? There is no map anymore
-  public void updateWithMap(@NotNull UpdateData<Key, Value> updateData) throws StorageException {
+  public void updateWith(@NotNull UpdateData<Key, Value> updateData) throws StorageException {
     ConcurrencyUtil.withLock(myLock.writeLock(), () -> {
       IndexId<?, ?> oldIndexId = IndexDebugProperties.DEBUG_INDEX_ID.get();
       try {
@@ -459,7 +458,7 @@ public abstract class MapReduceIndex<Key, Value, Input> implements InvertedIndex
     public boolean update() {
       checkNonCancellableSection();
       try {
-        MapReduceIndex.this.updateWithMap(updateData);
+        MapReduceIndex.this.updateWith(updateData);
       }
       catch (StorageException | CancellationException ex) {
         logStorageUpdateException(ex);

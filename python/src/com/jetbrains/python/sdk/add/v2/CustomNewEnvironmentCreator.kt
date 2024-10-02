@@ -4,6 +4,7 @@ package com.jetbrains.python.sdk.add.v2
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.ObservableMutableProperty
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.ui.validation.DialogValidationRequestor
 import com.intellij.platform.ide.progress.ModalTaskOwner
@@ -13,11 +14,12 @@ import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.jetbrains.python.PyBundle.message
-import com.jetbrains.python.newProjectWizard.collector.InterpreterStatisticsInfo
+import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.sdk.*
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
 import com.jetbrains.python.statistics.InterpreterCreationMode
 import com.jetbrains.python.statistics.InterpreterType
+import kotlinx.coroutines.flow.first
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.nio.file.Path
 
@@ -61,8 +63,8 @@ abstract class CustomNewEnvironmentCreator(private val name: String, model: Pyth
     }
     val newSdk = setupEnvSdk(moduleOrProject.project,
                              module,
-                             model.existingSdks,
-                             model.projectPath.value.toString(),
+                             ProjectJdkTable.getInstance().allJdks.asList(),
+                             model.myProjectPathFlows.projectPathWithDefault.first().toString(),
                              homePath,
                              false)!!
     addSdk(newSdk)

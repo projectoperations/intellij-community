@@ -300,6 +300,7 @@ public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataPro
     rebuild();
   }
 
+  @ApiStatus.Internal
   public @NotNull ContentLayout getCurrentLayout() {
     if (type == ToolWindowContentUiType.TABBED) {
       return tabsLayout;
@@ -525,7 +526,7 @@ public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataPro
         }
         if (ui.window.getAnchor() != ToolWindowAnchor.BOTTOM ||
             SwingUtilities.convertMouseEvent(e.getComponent(), e, decorator).getY() >
-            ToolWindowPane.Companion.getHeaderResizeArea$intellij_platform_ide_impl()) {
+            ToolWindowPane.Companion.getHeaderResizeArea()) {
           return true;
         }
         //it's drag, not resize!

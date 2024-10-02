@@ -23,10 +23,6 @@ public class ApplicationManager {
     return ourApplication;
   }
 
-  static {
-    ApplicationStateDebugSupportKt.initApplicationStateDebugSupport();
-  }
-
   @ApiStatus.Internal
   public static void setApplication(@Nullable Application instance) {
     ourApplication = instance;
@@ -52,12 +48,11 @@ public class ApplicationManager {
   ) {
     Application old = ourApplication;
     setApplication(instance);
-    Supplier<? extends FileTypeRegistry> oldFileTypeRegistry = FileTypeRegistry.setInstanceSupplier(fileTypeRegistryGetter);
+    FileTypeRegistry.setInstanceSupplier(fileTypeRegistryGetter, parent);
     Disposer.register(parent, () -> {
       if (old != null) {
         // to prevent NPEs in threads still running
         setApplication(old);
-        FileTypeRegistry.setInstanceSupplier(oldFileTypeRegistry);
       }
     });
   }

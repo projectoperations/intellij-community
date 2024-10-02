@@ -2,6 +2,7 @@
 package com.intellij.execution.wsl.ijent.nio.toggle
 
 import com.intellij.diagnostic.VMOptions
+import com.intellij.execution.eel.EelApiWithPathsMapping
 import com.intellij.execution.wsl.WSLDistribution
 import com.intellij.execution.wsl.WslIjentAvailabilityService
 import com.intellij.execution.wsl.WslIjentManager
@@ -15,7 +16,6 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.core.nio.fs.MultiRoutingFileSystemProvider
 import com.intellij.platform.eel.EelApi
-import com.intellij.platform.eel.EelExecApi
 import com.intellij.platform.eel.provider.EelProvider
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -26,7 +26,6 @@ import java.nio.file.FileSystems
 import java.nio.file.Path
 import kotlin.io.path.bufferedReader
 import kotlin.io.path.isSameFileAs
-import kotlin.io.path.pathString
 
 /**
  * This service, along with listeners inside it, enables and disables access to WSL drives through IJent.
@@ -76,7 +75,15 @@ class IjentWslNioFsToggler(private val coroutineScope: CoroutineScope) {
       val enabledDistros = serviceAsync<IjentWslNioFsToggler>().strategy?.enabledInDistros
 
       return enabledDistros?.firstOrNull { distro -> distro.getUNCRootPath().isSameFileAs(path.root) }?.let { distro ->
-        VirtualRootAwareEelApi(path.root, WslIjentManager.getInstance().getIjentApi(distro, null, rootUser = false))
+        /**
+         * NOTE: In [IjentWslNioFsToggleStrategy], the [com.intellij.execution.ijent.nio.IjentEphemeralRootAwareFileSystemProvider] is not currently
+         * used because [com.intellij.execution.wsl.ijent.nio.IjentWslNioFileSystem] has its own logic for handling WSL roots (prefixes).
+         * Therefore, in this case, [com.intellij.execution.eel.EelEphemeralRootAwareMapper.getOriginalPath] will return null.
+         */
+        EelApiWithPathsMapping(
+          ephemeralRoot = path.root,
+          original = WslIjentManager.getInstance().getIjentApi(distro, null, rootUser = false)
+        )
       }
     }
   }
@@ -114,24 +121,6 @@ class IjentWslNioFsToggler(private val coroutineScope: CoroutineScope) {
         }
         null
       }
-    }
-  }
-}
-
-private class VirtualRootAwareEelApi(private val virtualRoot: Path, private val original: EelApi) : EelApi by original {
-  override val exec: EelExecApi get() = VirtualRootAwareEelExecApi(virtualRoot, original.exec)
-
-  private class VirtualRootAwareEelExecApi(private val virtualRoot: Path, private val original: EelExecApi) : EelExecApi by original {
-    override suspend fun execute(builder: EelExecApi.ExecuteProcessBuilder): EelExecApi.ExecuteProcessResult {
-      return original.execute(VirtualRootAwareExecuteProcessBuilder(virtualRoot, builder))
-    }
-
-    private class VirtualRootAwareExecuteProcessBuilder(
-      private val virtualRoot: Path,
-      private val original: EelExecApi.ExecuteProcessBuilder,
-    ) : EelExecApi.ExecuteProcessBuilder by original {
-      override val args: List<String> = original.args.map { arg -> arg.removePrefix(virtualRoot.pathString) }
-      override val env: Map<String, String> = original.env.mapValues { (_, value) -> value.removePrefix(virtualRoot.pathString) }
     }
   }
 }

@@ -101,7 +101,6 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.IntPredicate;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -283,8 +282,8 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
       }
     }
 
-    LOG.info("indexes cleared: " + clearedIndexes.stream().map(id -> id.getName()).collect(Collectors.joining(", ")) + "\n" +
-             "survived indexes: " + survivedIndexes.stream().map(id -> id.getName()).collect(Collectors.joining(", ")));
+    LOG.info("indexes cleared: " + clearedIndexes.stream().map(IndexId::getName).collect(Collectors.joining(", ")) + "\n" +
+             "survived indexes: " + survivedIndexes.stream().map(IndexId::getName).collect(Collectors.joining(", ")));
   }
 
   @Override
@@ -488,15 +487,16 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
                                                 @NotNull IndexConfiguration state,
                                                 @NotNull IndexVersionRegistrationSink registrationStatusSink,
                                                 @NotNull IntSet dirtyFiles) throws Exception {
-    ID<K, V> name = extension.getName();
+    ID<K, V> indexId = extension.getName();
     InputFilter inputFilter = extension.getInputFilter();
 
     UpdatableIndex<K, V, FileContent, ?> index = null;
+    VfsAwareIndexStorageLayout<K, V> layout = null;
 
     int attemptCount = 2;
     for (int attempt = 0; attempt < attemptCount; attempt++) {
       try {
-        VfsAwareIndexStorageLayout<K, V> layout = IndexStorageLayoutLocator.getLayout(extension);
+        layout = IndexStorageLayoutLocator.getLayout(extension);
         index = createIndex(extension, layout);
 
         for (FileBasedIndexInfrastructureExtension infrastructureExtension : FileBasedIndexInfrastructureExtension.EP_NAME.getExtensionList()) {
@@ -506,38 +506,48 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
           }
         }
 
-        state.registerIndex(name,
+        state.registerIndex(indexId,
                             index,
                             inputFilter,
-                            version + GlobalIndexFilter.getFiltersVersion(name));
+                            version + GlobalIndexFilter.getFiltersVersion(indexId));
         break;
       }
       catch (Exception e) {
-        boolean lastAttempt = attempt == attemptCount - 1;
-
+        //close the (half-)opened index first:
+        if (index != null) {
+          try {
+            index.dispose();
+          }
+          catch (Throwable t) {
+            LOG.error(t);
+          }
+        }
         try {
-          VfsAwareIndexStorageLayout<K, V> layout = IndexStorageLayoutLocator.getLayout(extension);
+          if (layout == null) {
+            layout = IndexStorageLayoutLocator.getLayout(extension);
+          }
           layout.clearIndexData();
         }
-        catch (Exception layoutEx) {
-          LOG.error(layoutEx);
+        catch (Throwable t) {
+          LOG.error(t);
         }
 
         for (FileBasedIndexInfrastructureExtension ext : FileBasedIndexInfrastructureExtension.EP_NAME.getExtensionList()) {
           try {
-            ext.resetPersistentState(name);
+            ext.resetPersistentState(indexId);
           }
           catch (Exception extEx) {
             LOG.error(extEx);
           }
         }
 
-        registrationStatusSink.setIndexVersionDiff(name, new IndexVersion.IndexVersionDiff.CorruptedRebuild(version));
-        IndexVersion.rewriteVersion(name, version);
-        IndexStatisticGroup.reportIndexRebuild(name, e, true);
+        registrationStatusSink.setIndexVersionDiff(indexId, new IndexVersion.IndexVersionDiff.CorruptedRebuild(version));
+        IndexVersion.rewriteVersion(indexId, version);
+        IndexStatisticGroup.reportIndexRebuild(indexId, e, true);
 
+        boolean lastAttempt = (attempt == attemptCount - 1);
         if (lastAttempt) {
-          state.registerIndexInitializationProblem(name, e);
+          state.registerIndexInitializationProblem(indexId, e);
           if (extension instanceof CustomImplementationFileBasedIndexExtension) {
             ((CustomImplementationFileBasedIndexExtension<?, ?>)extension).handleInitializationError(e);
           }
@@ -574,6 +584,12 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
                                                                                   @NotNull VfsAwareIndexStorageLayout<K, V> layout)
     throws StorageException, IOException {
     if (FileBasedIndexExtension.USE_VFS_FOR_FILENAME_INDEX && extension.getName() == FilenameIndex.NAME) {
+      //MAYBE RC: make FilenameIndexImpl implements CustomImplementationFileBasedIndexExtension, and return special index
+      //          implementation what doesn't 'index' anything, and delegates lookup to VFS?
+      //          Pro: we could drop a lot of if-s (like this one) across the codebase, and gather all the code into a nice
+      //          FilenameIndexOverVFS class
+      //          Cons: lookup with actual indexes involves deeper stacktraces, with many supplementary calls along the way,
+      //          so filename lookup may become more expensive being re-implemented that way (not sure it will be noticeable, though)
       return new EmptyIndex<>(extension);
     }
     else if (extension instanceof CustomImplementationFileBasedIndexExtension) {
@@ -624,9 +640,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
       return; // already shut down
     }
 
-    ProgressManager.getInstance().executeNonCancelableSection(() -> {
-      registeredIndexes.waitUntilAllIndicesAreInitialized();
-    });
+    ProgressManager.getInstance().executeNonCancelableSection(registeredIndexes::waitUntilAllIndicesAreInitialized);
     try {
       if (myShutDownTask != null) {
         ShutDownTracker.getInstance().unregisterShutdownTask(myShutDownTask);
@@ -724,9 +738,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
   }
 
   public void removeDataFromIndicesForFile(int fileId, @NotNull VirtualFile file, @NotNull String cause) {
-    VfsEventsMerger.tryLog("REMOVE", file, () -> {
-      return "cause=" + cause;
-    });
+    VfsEventsMerger.tryLog("REMOVE", file, () -> "cause=" + cause);
 
     final List<ID<?, ?>> states = IndexingStamp.getNontrivialFileIndexedStates(fileId);
 
@@ -1266,7 +1278,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
       try {
         FileBasedIndex fileBasedIndex = app.getServiceIfCreated(FileBasedIndex.class);
         if (fileBasedIndex instanceof FileBasedIndexImpl fileBasedIndexImpl) {
-          if(calledByShutdownHook) {
+          if (calledByShutdownHook) {
             //prevent unregistering the task from ShutDownTracker if we're already called from ShutDownTracker:
             // (unregister fails if ShutDownTracker's executing is already triggered)
             fileBasedIndexImpl.myShutDownTask = null;
@@ -1566,7 +1578,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
   }
 
   void requestIndexRebuildOnException(RuntimeException exception, ID<?, ?> indexId) {
-    Throwable causeToRebuildIndex = getCauseToRebuildIndex(exception);
+    Throwable causeToRebuildIndex = extractCauseToRebuildIndex(exception);
     if (causeToRebuildIndex != null) {
       requestRebuild(indexId, causeToRebuildIndex);
     }
@@ -1692,9 +1704,10 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
   }
 
   boolean runUpdateForPersistentData(StorageUpdate storageUpdate) {
-    return myStorageBufferingHandler.runUpdate(false, () -> {
-      return ProgressManager.getInstance().computeInNonCancelableSection(() -> storageUpdate.update());
-    });
+    return myStorageBufferingHandler.runUpdate(
+      /*transientInMemoryIndices: */ false,
+      () -> ProgressManager.getInstance().computeInNonCancelableSection(() -> storageUpdate.update())
+    );
   }
 
   public static void markFileIndexed(@Nullable VirtualFile file,
