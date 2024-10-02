@@ -14,16 +14,13 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.client.ClientSessionsManager
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.util.IncorrectOperationException
 import com.intellij.util.Processor
-import com.intellij.util.ThrowableRunnable
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
-import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.BiConsumer
@@ -129,7 +126,7 @@ data class ClientId(val value: String) {
     @JvmStatic
     val isCurrentlyUnderLocalId: Boolean
       get() {
-        val clientIdValue = getCurrentIdValidated()
+        val clientIdValue = currentThreadClientId?.value
         return clientIdValue == null || clientIdValue == localId.value || fakeLocalIds.contains(clientIdValue)
       }
 
@@ -155,17 +152,14 @@ data class ClientId(val value: String) {
     @JvmStatic
     @Internal
     // optimization method for avoiding allocating ClientId in the hot path
-    fun getCurrentValue(): String {
-      val service = getCachedService()
-      return if (service == null) localId.value else getCurrentIdValidated() ?: localId.value
-    }
+    fun getCurrentValue(): String = currentThreadClientId?.value ?: localId.value
 
     /**
      * Gets the current [ClientId]. Can be null if none was set.
      */
     @JvmStatic
     val currentOrNull: ClientId?
-      get() = getCurrentIdValidated()?.let(::ClientId)
+      get() = currentThreadClientId?.value?.let(::ClientId)
 
     /**
      * Overrides the ID of the owner of CWM/RD session.
@@ -264,18 +258,6 @@ data class ClientId(val value: String) {
       }
     }
 
-    private fun getCurrentIdValidated(): String? {
-      val currentId = currentThreadClientId
-      if (currentId != null) {
-        val service = getCachedService()
-        if (service != null && !service.isValid(currentId)) {
-          logger.trace { "Invalid ClientId $currentId replaced with null at ${Throwable().fillInStackTrace()}" }
-          return null
-        }
-      }
-      return currentId?.value
-    }
-
     /**
      * Computes a value under given [ClientId]
      *
@@ -346,26 +328,16 @@ data class ClientId(val value: String) {
     }
 
     private fun withClientIdImpl(clientIdValue: String, errorOnMismatch: Boolean): AccessToken {
-      val service = getCachedService()
-      if (service == null) {
-        return AccessToken.EMPTY_ACCESS_TOKEN
-      }
       val oldClientId = currentThreadClientId ?: localId
       if (clientIdValue == oldClientId.value) {
         return AccessToken.EMPTY_ACCESS_TOKEN
       }
 
       val clientId = ClientId(clientIdValue)
-      val newClientId = if (service.isValid(clientId)) {
-        if (fakeLocalIds.contains(clientIdValue))
-          localId
-        else
-          clientId
-      }
-      else {
-        logger.trace { "Invalid ClientId $clientIdValue replaced with null at ${Throwable().fillInStackTrace()}" }
-        null
-      }
+      val newClientId = if (fakeLocalIds.contains(clientIdValue))
+        localId
+      else
+        clientId
 
       val currentThreadContext = currentThreadContextOrNull()
       if (currentThreadContext == null) {
@@ -385,40 +357,12 @@ data class ClientId(val value: String) {
       return installThreadContext(newContext, replace = true)
     }
 
-    private var service: Ref<ClientSessionsManager<*>?>? = null
-
     @Internal
+    @ApiStatus.Obsolete
+    @Deprecated(message = "Resolve ClientSessionsManager via Application in client code", level = DeprecationLevel.ERROR,
+                replaceWith = ReplaceWith("ApplicationManager.getApplication().serviceOrNull<ClientSessionsManager<*>>()"))
     fun getCachedService(): ClientSessionsManager<*>? {
-      val cached = service
-      if (cached != null) return cached.get()
-      if (!LoadingState.CONFIGURATION_STORE_INITIALIZED.isOccurred) {
-        return null
-      }
-
-      val app = ApplicationManager.getApplication()
-      if (app == null || app.isDisposed) {
-        return null
-      }
-
-      val instance = app.serviceOrNull<ClientSessionsManager<*>>()
-      if (instance != null) {
-        service = Ref.create(instance)
-      }
-      return instance
-    }
-
-    @TestOnly
-    @Internal
-    fun nullizeCachedServiceInTest(test: ThrowableRunnable<Throwable>) {
-      service = Ref.create(null)
-      try {
-        assert(getCachedService() == null)
-        assert(getCurrentValue() == defaultLocalId.value)
-        test.run()
-      }
-      finally {
-        service = null
-      }
+      return ApplicationManager.getApplication().serviceOrNull<ClientSessionsManager<*>>()
     }
 
     @Deprecated("ClientId propagation is handled by context propagation. You don't need to do it manually. The method will be removed soon.")

@@ -17,6 +17,7 @@ import com.intellij.debugger.jdi.MethodBytecodeUtil
 import com.intellij.debugger.statistics.DebuggerStatistics
 import com.intellij.debugger.statistics.Engine
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.util.registry.Registry
@@ -65,7 +66,7 @@ class KotlinSmartStepIntoHandler : JvmSmartStepIntoHandler() {
     override fun createMethodFilter(stepTarget: SmartStepTarget?): MethodFilter? =
         when (stepTarget) {
             is KotlinSmartStepTarget -> stepTarget.createMethodFilter()
-            else -> super.createMethodFilter(stepTarget)
+            else -> runReadAction { super.createMethodFilter(stepTarget) }
         }
 
     internal suspend fun findSmartStepTargetsInternal(position: SourcePosition, session: DebuggerSession?): List<SmartStepTarget> =
@@ -81,11 +82,15 @@ class KotlinSmartStepIntoHandler : JvmSmartStepIntoHandler() {
             DebuggerStatistics.logSmartStepIntoTargetsDetection(session?.project, Engine.KOTLIN, SmartStepIntoDetectionStatus.INVALID_POSITION)
             return emptyList()
         }
+        val project = readAction { expression.project }
         val lines = readAction { expression.getLines()?.coerceAtLeast(position.line) } ?: run {
             DebuggerStatistics.logSmartStepIntoTargetsDetection(session?.project, Engine.KOTLIN, SmartStepIntoDetectionStatus.INVALID_POSITION)
             return emptyList()
         }
-        var targets = readAction { findSmartStepTargets(expression, lines) }
+        var targets = dumbAction(project, fallback = emptyList()) {
+            readAction { findSmartStepTargets(expression, lines) }
+        }
+        if (targets.isEmpty()) return emptyList()
         if (session != null) {
             val currentMethodName = session.process.suspendManager.pausedContext?.frameProxy?.safeLocation()?.safeMethod()?.name()
             // Cannot analyze method calls in the default method body, as they are located in a different method in bytecode
@@ -94,7 +99,7 @@ class KotlinSmartStepIntoHandler : JvmSmartStepIntoHandler() {
                 return emptyList()
             }
             val context = SmartStepIntoContext(expression, session.process, position, lines.toClosedRange())
-            targets = calculateSmartStepTargetsToShow(targets, context)
+            targets = dumbAction(project, fallback = targets) { calculateSmartStepTargetsToShow(targets, context) }
         } else {
             DebuggerStatistics.logSmartStepIntoTargetsDetection(position.file.project, Engine.KOTLIN, SmartStepIntoDetectionStatus.BYTECODE_NOT_AVAILABLE)
         }

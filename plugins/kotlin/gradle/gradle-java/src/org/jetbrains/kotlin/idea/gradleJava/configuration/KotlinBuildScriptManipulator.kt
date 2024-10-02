@@ -656,15 +656,15 @@ class KotlinBuildScriptManipulator(
             parameterName,
             "listOf(\"$featureArgumentString\")",
             forTests
-        ) { replacement, insideCompilerOptions ->
+        ) { _, preserveAssignmentWhenReplacing ->
             val prefix: String
             val postfix: String
-            if (insideCompilerOptions) {
-                prefix = "$parameterName.addAll(listOf("
-                postfix = "))"
-            } else {
+            if (preserveAssignmentWhenReplacing) {
                 prefix = "$parameterName = listOf("
                 postfix = ")"
+            } else {
+                prefix = "$parameterName.addAll(listOf(" // prefix is used only when adding a new value
+                postfix = "))"
             }
             val newText = text.replaceLanguageFeature(
                 feature,
@@ -717,7 +717,7 @@ class KotlinBuildScriptManipulator(
         parameterValue: String,
         forTests: Boolean,
         kotlinVersion: IdeKotlinVersion? = null,
-        replaceIt: KtExpression.(/* precompiledReplacement */ String?, /* insideCompilerOptions = */ Boolean) -> PsiElement
+        replaceIt: KtExpression.(/* precompiledReplacement */ String?, /* preserveAssignmentWhenReplacing = */ Boolean) -> PsiElement
     ): PsiElement? {
         val taskName = if (forTests) "compileTestKotlin" else "compileKotlin"
         val kotlinOptionsBlock = findScriptInitializer("$taskName.kotlinOptions")?.getBlock()
@@ -726,7 +726,7 @@ class KotlinBuildScriptManipulator(
             val assignment = kotlinOptionsBlock.statements.find {
                 (it as? KtBinaryExpression)?.left?.text == parameterName
             }
-            assignment?.replaceIt(/* precompiledReplacement = */ null, /* insideCompilerOptions = */ false)
+            assignment?.replaceIt(/* precompiledReplacement = */ null, /* preserveAssignmentWhenReplacing = */ true)
                 ?: kotlinOptionsBlock.addExpressionIfMissing("$parameterName = $parameterValue")
         } else {
             if (projectSupportsCompilerOptions(this, kotlinVersion)) {
@@ -744,7 +744,7 @@ class KotlinBuildScriptManipulator(
         taskName: String,
         parameterName: String,
         parameterValue: String,
-        replaceIt: KtExpression.(/* precompiledReplacement */ String?, /* insideCompilerOptions = */ Boolean) -> PsiElement
+        replaceIt: KtExpression.(/* precompiledReplacement */ String?, /* preserveAssignmentWhenReplacing = */ Boolean) -> PsiElement
     ): PsiElement? {
         val compilerOption = getCompilerOption(parameterName, parameterValue)
         compilerOption.classToImport?.let {
@@ -767,13 +767,35 @@ class KotlinBuildScriptManipulator(
 
     private fun replaceOrAddCompilerOption(
         compilerOptionsBlock: KtBlockExpression, parameterName: String, compilerOption: CompilerOption,
-        replaceIt: KtExpression.(/* precompiledReplacement */ String?, /* insideCompilerOptions = */ Boolean) -> PsiElement
+        replaceIt: KtExpression.(/* precompiledReplacement */ String?, /* preserveAssignmentWhenReplacing = */ Boolean) -> PsiElement
     ): PsiElement {
-        val assignment = compilerOptionsBlock.statements.find {
-            (it as? KtDotQualifiedExpression)?.receiverExpression?.text == parameterName
+        var precompiledReplacement = compilerOption.expression
+        var preserveAssignmentWhenReplacing = true
+        var assignment: KtExpression? = compilerOptionsBlock.statements.find { stmt ->
+            when (stmt) {
+                is KtDotQualifiedExpression -> {
+                    preserveAssignmentWhenReplacing = false
+                    stmt.receiverExpression.text == parameterName
+                }
+
+                is KtBinaryExpression -> {
+                    if (stmt.left?.text == parameterName) {
+                        compilerOption.compilerOptionValue?.let {
+                            precompiledReplacement = "$parameterName = $it"
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
+
+                else -> {
+                    false
+                }
+            }
         }
         return if (assignment != null) {
-            assignment.replaceIt(/* precompiledReplacement = */ compilerOption.expression, /* insideCompilerOptions = */ true)
+            assignment.replaceIt(precompiledReplacement, preserveAssignmentWhenReplacing)
         } else {
             compilerOptionsBlock.addExpressionIfMissing(compilerOption.expression)
         }
@@ -876,11 +898,12 @@ class KotlinBuildScriptManipulator(
         addAfter(psiFactory.createExpression(it), after)
     }
 
-    internal fun KtBlockExpression.addExpressionIfMissing(text: String, first: Boolean = false): KtExpression = addStatementIfMissing(text) {
-        psiFactory.createExpression(it).let { created ->
-            if (first) addAfter(created, null) else add(created)
+    internal fun KtBlockExpression.addExpressionIfMissing(text: String, first: Boolean = false): KtExpression =
+        addStatementIfMissing(text) {
+            psiFactory.createExpression(it).let { created ->
+                if (first) addAfter(created, null) else add(created)
+            }
         }
-    }
 
     private fun KtBlockExpression.addDeclarationIfMissing(text: String, first: Boolean = false): KtDeclaration =
         addStatementIfMissing(text) {
