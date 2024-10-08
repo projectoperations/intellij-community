@@ -6,13 +6,27 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
 import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.testFramework.UsefulTestCase;
-import junit.framework.TestCase;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.LightGroovyTestCase;
 import org.jetbrains.plugins.groovy.geb.GebTestsTest;
 import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.Assert;
 
 public class NavigateDelegatedClsMethodsTest extends LightGroovyTestCase {
+
+  private final String basePath = TestUtils.getTestDataPath() + "resolve/clsMethod";
+  private final LightProjectDescriptor projectDescriptor = GebTestsTest.DESCRIPTOR;
+
+  @Override
+  public final String getBasePath() {
+    return basePath;
+  }
+
+  @Override
+  public final @NotNull LightProjectDescriptor getProjectDescriptor() {
+    return projectDescriptor;
+  }
+
   public void testNavigationInGroovy() {
     myFixture.configureByText("A.groovy", """
       import geb.Page;
@@ -26,7 +40,7 @@ public class NavigateDelegatedClsMethodsTest extends LightGroovyTestCase {
     TargetElementUtil instance = TargetElementUtil.getInstance();
     PsiElement resolved = instance.findTargetElement(getEditor(), instance.getAllAccepted(), getEditor().getCaretModel().getOffset());
     UsefulTestCase.assertInstanceOf(resolved, PsiMethod.class);
-    TestCase.assertEquals("Page", ((PsiMethod)resolved).getContainingClass().getName());
+    Assert.assertEquals("Page", ((PsiMethod)resolved).getContainingClass().getName());
   }
 
   public void testNavigationInJava() {
@@ -43,19 +57,6 @@ public class NavigateDelegatedClsMethodsTest extends LightGroovyTestCase {
     PsiElement resolved = instance.findTargetElement(getEditor(), instance.getAllAccepted(), getEditor().getCaretModel().getOffset())
       .getNavigationElement();
     UsefulTestCase.assertInstanceOf(resolved, PsiMethod.class);
-    TestCase.assertEquals("Page", ((PsiMethod)resolved).getContainingClass().getName());
+    Assert.assertEquals("Page", ((PsiMethod)resolved).getContainingClass().getName());
   }
-
-  @Override
-  public final String getBasePath() {
-    return basePath;
-  }
-
-  @Override
-  public final @NotNull LightProjectDescriptor getProjectDescriptor() {
-    return projectDescriptor;
-  }
-
-  private final String basePath = TestUtils.getTestDataPath() + "resolve/clsMethod";
-  private final LightProjectDescriptor projectDescriptor = GebTestsTest.DESCRIPTOR;
 }

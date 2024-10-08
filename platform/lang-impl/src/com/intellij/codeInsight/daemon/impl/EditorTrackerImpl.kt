@@ -5,7 +5,6 @@ package com.intellij.codeInsight.daemon.impl
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.WriteIntentReadAction
-import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
@@ -22,18 +21,21 @@ import com.intellij.openapi.wm.impl.IdeFrameImpl
 import com.intellij.openapi.wm.impl.ProjectFrameHelper
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import org.jetbrains.annotations.ApiStatus
 import java.awt.Window
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
 import java.beans.PropertyChangeListener
+import java.lang.ref.WeakReference
 import javax.swing.SwingUtilities
 
+@ApiStatus.Internal
 open class EditorTrackerImpl(@JvmField protected val project: Project) : EditorTracker, Disposable {
   private val windowToEditorsMap = HashMap<Window, MutableList<Editor>>()
   private val windowToWindowFocusListenerMap = HashMap<Window, WindowAdapter>()
   private val editorToWindowMap = HashMap<Editor, Window>()
 
-  private var activeWindow: Window? = null
+  private var activeWindow: WeakReference<Window>? = null
   private val executeOnEditorRelease = HashMap<Editor, () -> Unit>()
 
   companion object {
@@ -78,7 +80,7 @@ open class EditorTrackerImpl(@JvmField protected val project: Project) : EditorT
       val project = event.manager.project
       val window = WindowManager.getInstance().getFrame(project) ?: return
       val editorTracker = getInstance(project)
-      if (editorTracker.activeWindow === window) {
+      if (editorTracker.isActiveWindow(window)) {
         LOG.debug { "Skip `setActiveWindow` calling on `FileEditorManagerListener.selectionChanged` (reason=same window, window=$window)" }
       }
       else {
@@ -136,9 +138,8 @@ open class EditorTrackerImpl(@JvmField protected val project: Project) : EditorT
       }
     }
     list.add(editor)
-    if (activeWindow === window) {
-      // to fire event
-      setActiveWindow(window)
+    if (isActiveWindow(window)) {
+      updateActiveEditors()
     }
   }
 
@@ -148,8 +149,8 @@ open class EditorTrackerImpl(@JvmField protected val project: Project) : EditorT
     val editorList = windowToEditorsMap.get(oldWindow)!!
     val removed = editorList.remove(editor)
     LOG.assertTrue(removed)
-    if (oldWindow === activeWindow) {
-      updateActiveEditors(activeWindow)
+    if (isActiveWindow(oldWindow)) {
+      updateActiveEditors()
     }
     if (editorList.isEmpty()) {
       windowToEditorsMap.remove(oldWindow)
@@ -157,6 +158,9 @@ open class EditorTrackerImpl(@JvmField protected val project: Project) : EditorT
       if (listener != null) {
         oldWindow.removeWindowFocusListener(listener)
         oldWindow.removeWindowListener(listener)
+      }
+      if (isActiveWindow(oldWindow)) {
+        setActiveWindow(null)
       }
     }
   }
@@ -186,12 +190,17 @@ open class EditorTrackerImpl(@JvmField protected val project: Project) : EditorT
       }
     }
 
-  private fun setActiveWindow(window: Window?) {
-    activeWindow = window
-    updateActiveEditors(window)
+  private fun isActiveWindow(window: Window): Boolean {
+    return window === activeWindow?.get()
   }
 
-  private fun updateActiveEditors(window: Window?) {
+  private fun setActiveWindow(window: Window?) {
+    activeWindow = if (window != null) WeakReference(window) else null
+    updateActiveEditors()
+  }
+
+  private fun updateActiveEditors() {
+    val window = activeWindow?.get()
     val list = if (window == null) null else windowToEditorsMap.get(window)
     if (list.isNullOrEmpty()) {
       activeEditors = emptyList()
@@ -236,6 +245,6 @@ open class EditorTrackerImpl(@JvmField protected val project: Project) : EditorT
   }
 
   override fun toString(): String {
-    return "EditorTracker(activeWindow=$activeWindow, activeEditors=$activeEditors, windowToEditorsMap=$windowToEditorsMap)"
+    return "EditorTracker(activeWindow=${activeWindow?.get()}, activeEditors=$activeEditors, windowToEditorsMap=$windowToEditorsMap)"
   }
 }

@@ -8,7 +8,6 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import com.intellij.psi.util.prevLeafs
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol
@@ -28,6 +27,7 @@ import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtReferenceExpression
 import org.jetbrains.kotlin.psi.KtVisitorVoid
@@ -42,40 +42,43 @@ private val kotlinCompileTasksNames = setOf(
 internal class KotlinOptionsToCompilerOptionsInGradleScriptInspection : AbstractKotlinGradleScriptInspection() {
 
     override fun isAvailableForFile(file: PsiFile): Boolean {
-        if (super.isAvailableForFile(file)) {
+        return if (super.isAvailableForFile(file)) {
             if (isUnitTestMode()) {
                 // Inspection tests don't treat tested build script files properly, and thus they ignore Kotlin versions used in scripts
-                return true
+                true
             } else {
-                return kotlinVersionIsEqualOrHigher(major = 2, minor = 0, patch = 0, file)
+                kotlinVersionIsEqualOrHigher(major = 2, minor = 0, patch = 0, file)
             }
         } else {
-            return false
+            false
         }
     }
 
     override fun buildVisitor(
         holder: ProblemsHolder,
-        isOnTheFly: Boolean
-    ) = object : KtVisitorVoid() {
-
-        override fun visitReferenceExpression(expression: KtReferenceExpression) {
-            if (expression.text.equals("kotlinOptions")) {
-
-                if (isDescendantOfDslInWhichReplacementIsNotNeeded(expression)) return
+        isOnTheFly: Boolean,
+    ): KtVisitorVoid {
+        return object : KtVisitorVoid() {
+            override fun visitReferenceExpression(expression: KtReferenceExpression) {
+                val referencedName = (expression as? KtNameReferenceExpression)?.getReferencedName() ?: return
+                // ATM, we don't have proper dependencies for tests to perform `analyze` in Gradle build scripts
+                if (referencedName == "android" && !isUnitTestMode()) {
+                    if (elementIsAndroidDsl(expression)) return
+                }
+                if (referencedName != "kotlinOptions") return
 
                 val expressionParent = expression.parent
 
-                if (!isUnitTestMode()) { // ATM, we don't have proper dependencies for tests on Gradle build scripts
-                    analyze(expression) {
-                        val jvmClassForKotlinCompileTask = (expression.resolveToCall()
+                if (!isUnitTestMode()) { // ATM, we don't have proper dependencies for tests to perform `analyze` in Gradle build scripts
+                    val jvmClassForKotlinCompileTask = analyze(expression) {
+                        val symbol = expression.resolveToCall()
                             ?.successfulFunctionCallOrNull()?.partiallyAppliedSymbol?.signature?.symbol
-                            ?.containingDeclaration as? KaClassLikeSymbol)?.importableFqName?.toString()
-
-                            ?: expression.resolveExpression()?.containingSymbol?.importableFqName?.toString() ?: return
-                        if (!kotlinCompileTasksNames.contains(jvmClassForKotlinCompileTask)) {
-                            return
-                        }
+                        val containingDeclarationOrSymbol =
+                            (symbol?.containingDeclaration as? KaClassLikeSymbol) ?: expression.resolveExpression()?.containingSymbol
+                        containingDeclarationOrSymbol?.importableFqName?.toString()
+                    }
+                    if (jvmClassForKotlinCompileTask !in kotlinCompileTasksNames) {
+                        return
                     }
                 }
                 when (expressionParent) {
@@ -86,20 +89,19 @@ internal class KotlinOptionsToCompilerOptionsInGradleScriptInspection : Abstract
 
                     is KtCallExpression -> {
                         /*
-                        Like the following. Raise a problem for this.
-                        compileKotlin.kotlinOptions {
-                            jvmTarget = "1.8"
-                            freeCompilerArgs += listOf("-module-name", "TheName")
-                            apiVersion = "1.9"
-                        }
-                         */
-                        val lambdaStatements = expressionParent.lambdaArguments.getOrNull(0)
+                    Like the following. Raise a problem for this.
+                    compileKotlin.kotlinOptions {
+                        jvmTarget = "1.8"
+                        freeCompilerArgs += listOf("-module-name", "TheName")
+                        apiVersion = "1.9"
+                    }
+                     */
+                        val lambdaStatements = expressionParent.lambdaArguments.firstOrNull()
                             ?.getLambdaExpression()?.bodyExpression?.statements?.requireNoNulls()
 
-                        if (lambdaStatements?.isNotEmpty() == true) { // compileKotlin.kotlinOptions { .. }
-                            lambdaStatements.forEach {
-                                if (expressionsContainForbiddenOperations(it)) return
-                            }
+                        // compileKotlin.kotlinOptions { .. }
+                        lambdaStatements?.forEach {
+                            if (expressionsContainForbiddenOperations(it)) return
                         }
                     }
 
@@ -119,59 +121,53 @@ internal class KotlinOptionsToCompilerOptionsInGradleScriptInspection : Abstract
     }
 
     private fun elementContainsOperationForbiddenToReplaceOrCantBeProcessed(psiElement: PsiElement): Boolean {
-        when (psiElement) {
+        return when (psiElement) {
             is KtBinaryExpression -> {
-                return expressionContainsOperationForbiddenToReplace(psiElement)
+                expressionContainsOperationForbiddenToReplace(psiElement)
             }
 
             is KtDotQualifiedExpression -> {
                 val psiElementParent = psiElement.parent
                 if (psiElementParent is KtBinaryExpression) {
-                    return expressionContainsOperationForbiddenToReplace(psiElementParent)
+                    expressionContainsOperationForbiddenToReplace(psiElementParent)
                 } else { // Can't be processed
-                    return true
+                    true
                 }
             }
 
-            else -> return true
+            else -> true
         }
     }
 
-    private fun isDescendantOfDslInWhichReplacementIsNotNeeded(ktExpression: KtExpression): Boolean {
-        val scriptText = ktExpression.containingFile.text
-        if (scriptText.contains("android")) {
-            ktExpression.prevLeafs.forEach {
-                if ("android" == it.text) {
-                    return true
-                }
-            }
+    private fun elementIsAndroidDsl(expression: KtExpression): Boolean {
+        val importableFqName = analyze(expression) {
+            val symbol = expression.resolveToCall()
+                ?.successfulFunctionCallOrNull()?.partiallyAppliedSymbol?.signature?.symbol
+            val kaSymbol =
+                (symbol?.containingDeclaration as? KaClassLikeSymbol) ?: expression.resolveExpression()
+            kaSymbol?.importableFqName?.toString()
         }
-        return false
+        return importableFqName.equals("org.gradle.kotlin.dsl.android")
     }
 
     private fun expressionsContainForbiddenOperations(element: PsiElement): Boolean {
         if (element is KtBinaryExpression) { // for sth like `kotlinOptions.sourceMapEmbedSources = "inlining"`
             if (expressionContainsOperationForbiddenToReplace(element)) return true
         } else {
-            element.children.forEach {
-                if (expressionsContainForbiddenOperations(it)) return true
-            }
+            return element.children.any { expressionsContainForbiddenOperations(it) }
         }
         return false
     }
 }
 
 private class ReplaceKotlinOptionsWithCompilerOptionsFix() : KotlinModCommandQuickFix<KtExpression>() {
-    override fun getFamilyName(): @IntentionFamilyName String {
-        return KotlinBundle.message("replace.kotlin.options.with.compiler.options")
-    }
+    override fun getFamilyName(): @IntentionFamilyName String = KotlinBundle.message("replace.kotlin.options.with.compiler.options")
 
     override fun applyFix(
         project: Project,
         element: KtExpression,
-        updater: ModPsiUpdater
+        updater: ModPsiUpdater,
     ) {
-
         val expressionsToFix = mutableListOf<Replacement>()
         val expressionParent = element.parent
         when (expressionParent) {
@@ -216,22 +212,22 @@ private class ReplaceKotlinOptionsWithCompilerOptionsFix() : KotlinModCommandQui
                  * Test case:
                  * K2LocalInspectionTestGenerated.InspectionsLocal.KotlinOptionsToCompilerOptions#testLambdaWithSeveralStatements_gradle())
                  */
-                if (lambdaStatements?.isNotEmpty() == true) { // compileKotlin.kotlinOptions { .. }
-                    lambdaStatements.forEach {
-                        addExpressionsToFixIfNeeded(it, expressionsToFix)
-                    }
+                // compileKotlin.kotlinOptions { .. }
+                lambdaStatements?.forEach {
+                    addExpressionsToFixIfNeeded(it, expressionsToFix)
                 }
             }
         }
 
+        val file = element.containingFile as? KtFile
+        val ktPsiFactory = KtPsiFactory(project)
         expressionsToFix.forEach {
-            val newExpression = KtPsiFactory(project).createExpression(it.replacement)
-
-            val replacedElement = it.expressionToReplace.replaced(newExpression)
+            val newExpression = ktPsiFactory.createExpression(it.replacement)
+            it.expressionToReplace.replaced(newExpression)
 
             val classToImport = it.classToImport
             if (classToImport != null) {
-                (replacedElement.containingFile as? KtFile)?.addImport(classToImport)
+                file?.addImport(classToImport)
             }
         }
     }

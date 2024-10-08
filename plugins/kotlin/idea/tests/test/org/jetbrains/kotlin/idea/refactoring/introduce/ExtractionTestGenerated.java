@@ -23,6 +23,70 @@ public abstract class ExtractionTestGenerated extends AbstractExtractionTest {
     @TestMetadata("testData/refactoring/introduceVariable")
     public abstract static class IntroduceVariable extends AbstractExtractionTest {
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/refactoring/introduceVariable/anonymousObjects")
+        public static class AnonymousObjects extends AbstractExtractionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doIntroduceVariableTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("ClassProperty.kt")
+            public void testClassProperty() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/ClassProperty.kt");
+            }
+
+            @TestMetadata("ClassPropertyAmbiguous.kt")
+            public void testClassPropertyAmbiguous() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/ClassPropertyAmbiguous.kt");
+            }
+
+            @TestMetadata("DefaultParamLocal.kt")
+            public void testDefaultParamLocal() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/DefaultParamLocal.kt");
+            }
+
+            @TestMetadata("DefaultParamNonLocal.kt")
+            public void testDefaultParamNonLocal() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/DefaultParamNonLocal.kt");
+            }
+
+            @TestMetadata("DefaultParamNonLocalAmbiguous.kt")
+            public void testDefaultParamNonLocalAmbiguous() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/DefaultParamNonLocalAmbiguous.kt");
+            }
+
+            @TestMetadata("DelegationLocal.kt")
+            public void testDelegationLocal() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/DelegationLocal.kt");
+            }
+
+            @TestMetadata("DelegationNonLocal.kt")
+            public void testDelegationNonLocal() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/DelegationNonLocal.kt");
+            }
+
+            @TestMetadata("NoContext.kt")
+            public void testNoContext() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/NoContext.kt");
+            }
+
+            @TestMetadata("NoSupertypes.kt")
+            public void testNoSupertypes() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/NoSupertypes.kt");
+            }
+
+            @TestMetadata("Param.kt")
+            public void testParam() throws Exception {
+                runTest("testData/refactoring/introduceVariable/anonymousObjects/Param.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/refactoring/introduceVariable/collectionElement")
         public static class CollectionElement extends AbstractExtractionTest {
             @java.lang.Override
@@ -171,6 +235,11 @@ public abstract class ExtractionTestGenerated extends AbstractExtractionTest {
             @TestMetadata("itInsideNestedLamba.kt")
             public void testItInsideNestedLamba() throws Exception {
                 runTest("testData/refactoring/introduceVariable/extractToScope/itInsideNestedLamba.kt");
+            }
+
+            @TestMetadata("KTIJ-17001.kt")
+            public void testKTIJ_17001() throws Exception {
+                runTest("testData/refactoring/introduceVariable/extractToScope/KTIJ-17001.kt");
             }
 
             @TestMetadata("outerItInsideNestedLamba.kt")
@@ -667,11 +736,6 @@ public abstract class ExtractionTestGenerated extends AbstractExtractionTest {
                 KotlinTestUtils.runTest(this::doIntroduceVariableTest, this, testDataFilePath);
             }
 
-            @TestMetadata("AnonymousType.kt")
-            public void testAnonymousType() throws Exception {
-                runTest("testData/refactoring/introduceVariable/AnonymousType.kt");
-            }
-
             @TestMetadata("ArrayAccessExpr.kt")
             public void testArrayAccessExpr() throws Exception {
                 runTest("testData/refactoring/introduceVariable/ArrayAccessExpr.kt");
@@ -745,6 +809,11 @@ public abstract class ExtractionTestGenerated extends AbstractExtractionTest {
             @TestMetadata("dynamicType.kt")
             public void testDynamicType() throws Exception {
                 runTest("testData/refactoring/introduceVariable/dynamicType.kt");
+            }
+
+            @TestMetadata("enumEntry.kt")
+            public void testEnumEntry() throws Exception {
+                runTest("testData/refactoring/introduceVariable/enumEntry.kt");
             }
 
             @TestMetadata("expressionBodyErrorType.kt")
@@ -865,6 +934,21 @@ public abstract class ExtractionTestGenerated extends AbstractExtractionTest {
             @TestMetadata("javaInnerClassQualifier.kt")
             public void testJavaInnerClassQualifier() throws Exception {
                 runTest("testData/refactoring/introduceVariable/javaInnerClassQualifier.kt");
+            }
+
+            @TestMetadata("KTIJ-14455.kt")
+            public void testKTIJ_14455() throws Exception {
+                runTest("testData/refactoring/introduceVariable/KTIJ-14455.kt");
+            }
+
+            @TestMetadata("KTIJ-6396.kt")
+            public void testKTIJ_6396() throws Exception {
+                runTest("testData/refactoring/introduceVariable/KTIJ-6396.kt");
+            }
+
+            @TestMetadata("KTIJ-9043.kt")
+            public void testKTIJ_9043() throws Exception {
+                runTest("testData/refactoring/introduceVariable/KTIJ-9043.kt");
             }
 
             @TestMetadata("kt10808.kt")

@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import org.jetbrains.annotations.ApiStatus
 import java.awt.Dimension
 import java.awt.Font
 import java.awt.event.ComponentAdapter
@@ -227,6 +228,7 @@ open class CommitProgressPanel : CommitProgressUi, InclusionListener, DocumentLi
   }
 
   override fun documentChanged(event: DocumentEvent) = clearError()
+
   override fun inclusionChanged() = clearError()
 
   protected fun update() {

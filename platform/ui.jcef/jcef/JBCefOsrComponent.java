@@ -27,7 +27,6 @@ import java.awt.geom.Point2D;
 import java.awt.im.InputMethodRequests;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static com.intellij.ui.paint.PaintUtil.RoundingMode.ROUND;
 
@@ -49,7 +48,10 @@ class JBCefOsrComponent extends JPanel {
 
   private final @NotNull AtomicLong myScheduleResizeMs = new AtomicLong(-1);
   private @Nullable Alarm myResizeAlarm;
+
   private final @NotNull Alarm myGraphicsConfigurationAlarm = new Alarm();
+  AtomicBoolean myScaleInitialized = new AtomicBoolean(false);
+
   private @NotNull Disposable myDisposable;
   private @NotNull MouseWheelEventsAccumulator myWheelEventsAccumulator;
 
@@ -85,23 +87,17 @@ class JBCefOsrComponent extends JPanel {
     // An additional notification during this time can break the internal state of the browser, which leads to the picture freeze.
     // The purpose of this delay is to give the browser a chance to handle the graphics configuration change before we update the scale on
     // our side.
-    AtomicBoolean scaleInitialized = new AtomicBoolean(false);
+    // The first graphicsConfiguration call is caused by the adding the browser component and doesn't need to be delayed.
+    // Further calls might be caused by the hardware setup or resolution changes.
     addPropertyChangeListener("graphicsConfiguration", e -> {
-      if (myGraphicsConfigurationAlarm.isDisposed())
-        return;
-
       myGraphicsConfigurationAlarm.cancelAllRequests();
-      myGraphicsConfigurationAlarm.addRequest(() -> {
-        double oldScale = myScale;
-        double oldDensity = myRenderHandler.getPixelDensity();
-        double pixelDensity = JreHiDpiUtil.isJreHiDPIEnabled() ? JCefAppConfig.getDeviceScaleFactor(this) : 1.0;
-        myScale = (JreHiDpiUtil.isJreHiDPIEnabled() ? 1.0 : JCefAppConfig.getDeviceScaleFactor(this)) *
-                  UISettings.getInstance().getIdeScale();
-        myRenderHandler.setScreenInfo(pixelDensity, myScale);
-        if (oldScale != myScale || oldDensity != pixelDensity) {
-          myBrowser.notifyScreenInfoChanged();
-        }
-      }, scaleInitialized.getAndSet(true) ? 1000 : 0);
+      if (myScaleInitialized.get()) {
+        myGraphicsConfigurationAlarm.addRequest(this::onGraphicsConfigurationChanged, 1000);
+      }
+      else {
+        onGraphicsConfigurationChanged();
+        myScaleInitialized.set(true);
+      }
     });
   }
 
@@ -142,11 +138,7 @@ class JBCefOsrComponent extends JPanel {
     myWheelEventsAccumulator = new MouseWheelEventsAccumulator(myDisposable);
 
     ApplicationManager.getApplication().getMessageBus().connect(myDisposable).subscribe(UISettingsListener.TOPIC, uiSettings -> {
-      double pixelDensity = JreHiDpiUtil.isJreHiDPIEnabled() ? JCefAppConfig.getDeviceScaleFactor(this) : 1.0;
-      myScale = (JreHiDpiUtil.isJreHiDPIEnabled() ? 1.0 : JCefAppConfig.getDeviceScaleFactor(this)) *
-                uiSettings.getIdeScale();
-      myRenderHandler.setScreenInfo(pixelDensity, myScale);
-      myBrowser.notifyScreenInfoChanged();
+      onGraphicsConfigurationChanged();
     });
 
     if (!JBCefBrowserBase.isCefBrowserCreationStarted(myBrowser)) {
@@ -158,7 +150,9 @@ class JBCefOsrComponent extends JPanel {
   public void removeNotify() {
     super.removeNotify();
     Disposer.dispose(myDisposable);
-    Disposer.dispose(myGraphicsConfigurationAlarm);
+
+    myGraphicsConfigurationAlarm.cancelAllRequests();
+    myScaleInitialized.set(false);
   }
 
   @Override
@@ -271,6 +265,18 @@ class JBCefOsrComponent extends JPanel {
   protected void processKeyEvent(KeyEvent e) {
     super.processKeyEvent(e);
     myBrowser.sendKeyEvent(e);
+  }
+
+  private void onGraphicsConfigurationChanged() {
+    double oldScale = myScale;
+    double oldDensity = myRenderHandler.getPixelDensity();
+    double pixelDensity = JreHiDpiUtil.isJreHiDPIEnabled() ? JCefAppConfig.getDeviceScaleFactor(this) : 1.0;
+    myScale = (JreHiDpiUtil.isJreHiDPIEnabled() ? 1.0 : JCefAppConfig.getDeviceScaleFactor(this)) *
+              UISettings.getInstance().getIdeScale();
+    myRenderHandler.setScreenInfo(pixelDensity, myScale);
+    if (oldScale != myScale || oldDensity != pixelDensity) {
+      myBrowser.notifyScreenInfoChanged();
+    }
   }
 
   /**

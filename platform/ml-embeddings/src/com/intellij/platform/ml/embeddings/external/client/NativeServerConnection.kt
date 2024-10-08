@@ -30,8 +30,19 @@ typealias EmbeddingsRemoveResponse = Embeddings.remove_response
 typealias EmbeddingsSearchRequest = Embeddings.search_request
 typealias EmbeddingsSearchResponse = Embeddings.search_response
 
+typealias EmbeddingsClearRequest = Embeddings.clear_request
+typealias EmbeddingsClearResponse = Embeddings.clear_response
+
+typealias EmbeddingsStartRequest = Embeddings.start_request
+typealias EmbeddingsStartResponse = Embeddings.start_response
+
 typealias EmbeddingsFinishRequest = Embeddings.finish_request
 typealias EmbeddingsFinishResponse = Embeddings.finish_response
+
+typealias EmbeddingsStatsRequest = Embeddings.stats_request
+typealias EmbeddingsStatsResponse = Embeddings.stats_response
+
+typealias EmbeddingsStorageLocation = Embeddings.storage_location
 
 class NativeServerConnection private constructor(
   private val osProcessHandler: OSProcessHandler,
@@ -57,9 +68,27 @@ class NativeServerConnection private constructor(
     }
   }
 
+  suspend fun clearStorage(request: EmbeddingsClearRequest): EmbeddingsClearResponse {
+    return boxGrpcException {
+      stub.clearStorage(request)
+    }
+  }
+
+  suspend fun startIndexingSession(request: EmbeddingsStartRequest): EmbeddingsStartResponse {
+    return boxGrpcException {
+      stub.startIndexingSession(request)
+    }
+  }
+
   suspend fun finishIndexingSession(request: EmbeddingsFinishRequest): EmbeddingsFinishResponse {
     return boxGrpcException {
       stub.finishIndexingSession(request)
+    }
+  }
+
+  suspend fun getStorageStats(request: EmbeddingsStatsRequest): EmbeddingsStatsResponse {
+    return boxGrpcException {
+      stub.getStorageStats(request)
     }
   }
 
@@ -87,7 +116,7 @@ class NativeServerConnection private constructor(
       startupArguments: NativeServerStartupArguments,
       startupTimeout: Duration,
       onStartupTimeout: () -> Unit,
-    ): NativeServerConnection = coroutineScope {
+    ): NativeServerConnection = withContext(Dispatchers.Default) {
       if (!serverPath.exists()) throw NativeServerException(IllegalArgumentException("Server file does not exist"))
       if (!serverPath.isRegularFile()) throw NativeServerException(IllegalArgumentException("Server file is not a regular file"))
       serverPath.toFile().setExecutable(true)
@@ -112,7 +141,7 @@ class NativeServerConnection private constructor(
 
       val channel = ManagedChannelBuilder
         .forAddress(LOCAL_HOSTNAME, port)
-        .usePlaintext() // TODO: should we?
+        .usePlaintext()
         .maxInboundMessageSize(CLIENT_MAX_SEND_MESSAGE_LENGTH)
         .executor(Dispatchers.IO.asExecutor())
         .build()

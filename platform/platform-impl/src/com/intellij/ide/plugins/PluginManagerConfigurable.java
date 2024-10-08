@@ -879,7 +879,7 @@ public final class PluginManagerConfigurable
                   }
                 }
 
-                PluginManagerUsageCollector.performMarketplaceSearch(
+                PluginManagerUsageCollector.INSTANCE.performMarketplaceSearch(
                   ProjectUtil.getActiveProject(), parser, result.descriptors, searchIndex, pluginToScore);
               }
               catch (IOException e) {
@@ -899,7 +899,7 @@ public final class PluginManagerConfigurable
 
       @Override
       protected void onSearchReset() {
-        PluginManagerUsageCollector.searchReset();
+        PluginManagerUsageCollector.INSTANCE.searchReset();
       }
     };
   }
@@ -1064,7 +1064,7 @@ public final class PluginManagerConfigurable
 
       @Override
       protected void onSearchReset() {
-        PluginManagerUsageCollector.searchReset();
+        PluginManagerUsageCollector.INSTANCE.searchReset();
       }
 
       @Override
@@ -1962,14 +1962,6 @@ public final class PluginManagerConfigurable
   @Override
   public void reset() {
     myPluginModel.clear(myCardPanel);
-  }
-
-  /**
-   * @deprecated Please use {@link #select(Collection)}.
-   */
-  @Deprecated(since = "2020.2", forRemoval = true)
-  public void select(@NotNull IdeaPluginDescriptor @NotNull ... descriptors) {
-    select(ContainerUtil.newHashSet(descriptors));
   }
 
   private void select(@NotNull Set<? extends IdeaPluginDescriptor> descriptors) {

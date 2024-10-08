@@ -7,13 +7,18 @@ import com.intellij.testFramework.LightPlatformTestCase
 import com.intellij.ui.FilteringSpeedSearch
 import com.intellij.ui.tree.TreeTestUtil
 import com.intellij.ui.treeStructure.Tree
+import git4idea.GitBranch
 import git4idea.GitLocalBranch
 import git4idea.GitStandardRemoteBranch
+import git4idea.GitTag
 import git4idea.repo.GitRemote
+import git4idea.repo.GitRepository
 import git4idea.ui.branch.dashboard.BranchInfo
 import git4idea.ui.branch.dashboard.BranchNodeDescriptor
 import git4idea.ui.branch.dashboard.BranchTreeNode
 import git4idea.ui.branch.dashboard.FilteringBranchesTreeBase
+import git4idea.ui.branch.dashboard.RefsCollection
+import git4idea.ui.branch.dashboard.TagInfo
 import junit.framework.TestCase.assertEquals
 
 abstract class GitBranchesTreeTest: LightPlatformTestCase() {
@@ -27,21 +32,39 @@ internal class GitBranchesTreeTestContext(private val groupByDirectories: Boolea
   val searchTextField = branchesTree.installSearchField()
 
   fun assertTree(expected: String) {
-    assertEquals("Tree state doesn't match expected. Search field - '${searchTextField.text}'", expected.trim(), TreeTestUtil(tree).setSelection(true).toString().trim())
+    assertEquals("Tree state doesn't match expected. Search field - '${searchTextField.text}'", expected.trim(), printTree())
   }
 
-  fun setState(localBranches: Collection<String>, remoteBranches: Collection<String>, expanded: Boolean = false) {
+  fun printTree(): String = TreeTestUtil(tree).setSelection(true).toString().trim()
+
+  fun setState(
+    localBranches: Collection<String>,
+    remoteBranches: Collection<String>,
+    tags: Collection<String> = emptyList(),
+    expanded: Boolean = false,
+  ) {
     val local = localBranches.map {
       BranchInfo(GitLocalBranch(it), isCurrent = false, isFavorite = false, repositories = emptyList())
     }
     val remote = remoteBranches.map {
       BranchInfo(GitStandardRemoteBranch(ORIGIN, it), isCurrent = false, isFavorite = false, repositories = emptyList())
     }
-    setRawState(local, remote, expanded)
+    val tags = tags.map {
+      TagInfo(GitTag(it), isCurrent = false, isFavorite = false, repositories = emptyList())
+    }
+    setRawState(local, remote, tags, expanded)
   }
 
-  fun setRawState(localBranches: Collection<BranchInfo>, remoteBranches: Collection<BranchInfo>, expanded: Boolean = false) {
-    branchesTree.refreshNodeDescriptorsModel(localBranches = localBranches, remoteBranches = remoteBranches, showOnlyMy = false)
+  fun setRawState(
+    localBranches: Collection<BranchInfo>,
+    remoteBranches: Collection<BranchInfo>,
+    tags: Collection<TagInfo> = emptyList(),
+    expanded: Boolean = false,
+  ) {
+    branchesTree.refreshNodeDescriptorsModel(
+      RefsCollection(localBranches.toMutableSet(), remoteBranches.toMutableSet(), tags.toMutableSet()),
+      showOnlyMy = false,
+    )
     branchesTree.searchModel.updateStructure()
     if (expanded) {
       TreeTestUtil(tree).expandAll()
@@ -73,6 +96,13 @@ internal class GitBranchesTreeTestContext(private val groupByDirectories: Boolea
   companion object {
     val ORIGIN_URLS = listOf("ssh://origin")
     val ORIGIN = GitRemote(GitRemote.ORIGIN, ORIGIN_URLS, ORIGIN_URLS, listOf(), listOf())
+    val NOT_ORIGIN = GitRemote("not-origin", ORIGIN_URLS, ORIGIN_URLS, listOf(), listOf())
+
+    fun branchInfo(branch: GitBranch, isCurrent: Boolean = false, isFavorite: Boolean = false, repositories: List<GitRepository> = emptyList()) =
+      BranchInfo(branch, isCurrent, isFavorite, repositories = repositories)
+
+    fun tagInfo(tag: GitTag, isCurrent: Boolean = false, isFavorite: Boolean = false, repositories: List<GitRepository> = emptyList()) =
+      TagInfo(tag, isCurrent, isFavorite, repositories)
   }
 }
 

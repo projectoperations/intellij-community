@@ -5,7 +5,6 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
 import com.intellij.testFramework.LightProjectDescriptor;
-import junit.framework.TestCase;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
@@ -20,6 +19,14 @@ import org.junit.Assert;
  * @author Max Medvedev
  */
 public class ResolveWithDelegatesToOnLambdaTest extends GroovyResolveTestCase {
+
+  private final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_LATEST;
+
+  @Override
+  public final @NotNull LightProjectDescriptor getProjectDescriptor() {
+    return projectDescriptor;
+  }
+
   public void testOwnerFirstMethod() {
     assertScript(
       """
@@ -805,13 +812,6 @@ public class ResolveWithDelegatesToOnLambdaTest extends GroovyResolveTestCase {
   private void assertScript(String text, String resolvedClass) {
     PsiMethod resolved = resolveByText(text, PsiMethod.class);
     final String containingClass = resolved.getContainingClass().getQualifiedName();
-    TestCase.assertEquals(resolvedClass, containingClass);
+    Assert.assertEquals(resolvedClass, containingClass);
   }
-
-  @Override
-  public final @NotNull LightProjectDescriptor getProjectDescriptor() {
-    return projectDescriptor;
-  }
-
-  private final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_LATEST;
 }

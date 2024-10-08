@@ -5306,8 +5306,20 @@ public class PyTypingTest extends PyTestCase {
   }
 
   // PY-71002
+  public void testTypeAliasOneWithoutDefault() {
+    doTest("dict[Any, str] | list[float]", """
+      from typing import TypeVar, TypeAlias
+      T = TypeVar("T")
+      U = TypeVar("U", default=str)
+      B = TypeVar("B", default=float)
+      Alias : TypeAlias = dict[T, U] | list[B]
+      expr: Alias
+      """);
+  }
+
+  // PY-71002
   public void testNewStyleTypeAliasOneWithoutDefault() {
-    doTest("dict[T, str] | list[float]", """
+    doTest("dict[Any, str] | list[float]", """
       type Alias[T, U = str, B = float] = dict[T, U] | list[B]
       expr: Alias
       """);
@@ -5573,6 +5585,116 @@ public class PyTypingTest extends PyTestCase {
     doTest("Test[Any, Any, bool]", """
       class Test[T = str, T1 = int, T2 = bool]: ...
       expr = Test[Any, Any]()
+      """);
+  }
+
+  // PY-71002
+  public void testNewStyleTypeAliasParameterizedInMultipleSteps() {
+    doTest("float | int | str", """
+      from typing import Union
+      type A[T1, T2, T3 = str] = Union[T1, T2, T3]
+      type B[T1, T2 = int] = A[T1, T2]
+      type C[T1] = B[T1]
+      type D = C[float]
+      expr: D
+      """);
+  }
+
+  // PY-71002
+  public void testMixedOldAndNewStyleTypeAliasesParameterizedInMultipleSteps() {
+    doTest("float | int | str", """
+      from typing import Union, TypeVar, TypeAlias
+      T = TypeVar("T")
+      T1 = TypeVar("T1", default=int)
+      type A[T1, T2, T3 = str] = Union[T1, T2, T3]
+      B: TypeAlias = A[T, T1]
+      C: TypeAlias = B[T]
+      type D = C[float]
+      expr: D
+      """);
+  }
+
+  // PY-71002
+  public void testNewStyleTypeAliasWithAssignedSubscriptionExpression() {
+    doTest("dict[int, str]", """
+      type my_dict[K = float, V = bool] = dict[K, V]
+      type myIntStrDict = my_dict[int, str]
+      expr: myIntStrDict
+      """);
+  }
+
+  // PY-71002
+  public void testNewStyleTypeAliasWithAssignedSubscriptionExpressionAliasingUnion() {
+    doTest("bool | list[float]", """
+      type Alias[T = int, U = str] = U | list[T]
+      type Alias2 = Alias[float, bool]
+      expr: Alias2
+      """);
+  }
+
+  // PY-71002
+  public void testOldStyleTypeAliasWithAssignedSubscriptionExpressionAliasingUnion() {
+    doTest("float | list[bool]", """
+      from typing import TypeVar, Generic, TypeAlias
+      T = TypeVar("T", default=int)
+      U = TypeVar("U", default=str)
+      Alias: TypeAlias = U | list[T]
+      Alias2: TypeAlias = Alias[float, bool]
+      expr: Alias2
+      """);
+  }
+
+  // PY-71002
+  public void testParamSpecDefaultTypeRefersToAnotherParamSpecNewStyle() {
+    doTest("Clazz[[str], [str], [str]]", """
+      class Clazz[**P1, **P2 = P1, **P3 = P2]: ...
+      expr = Clazz[[str]]()
+      """);
+  }
+
+  // PY-71002
+  public void testParamSpecDefaultTypeRefersToAnotherParamSpecOldStyle() {
+    doTest("Clazz[[str], [str], [str]]", """
+      from typing import Generic, ParamSpec
+      P1 = ParamSpec("P1")
+      P2 = ParamSpec("P2", default=P1)
+      P3 = ParamSpec("P3", default=P2)
+      class Clazz(Generic[P1, P2, P3]): ...
+      expr = Clazz[[str]]()
+      """);
+  }
+
+  // PY-71002
+  public void testParamSpecDefaultTypeRefersToAnotherParamSpecOldStyleNoExplicit() {
+    doTest("Clazz[[str], [str], [bool, bool], [bool, bool]]", """
+      from typing import Generic, ParamSpec
+      P1 = ParamSpec("P1", default=[str])
+      P2 = ParamSpec("P2", default=P1)
+      P3 = ParamSpec("P3", default=[bool, bool])
+      P4 = ParamSpec("P4", default=P3)
+      class Clazz(Generic[P1, P2, P3, P4]): ...
+      expr = Clazz()
+      """);
+  }
+
+  // PY-71002
+  public void testParamSpecWithDefaultInConstructor() {
+    doTest("(int, str, str) -> None | None", """
+      from typing import Generic, ParamSpec, Callable
+      P = ParamSpec("P", default=[int, str, str])
+      class ClassA(Generic[P]):
+          def __init__(self, x: Callable[P, None] = None) -> None:
+              self.x = x
+              ...
+      expr = ClassA().x
+      """);
+  }
+
+  // PY-71002
+  public void testParamSpecDefaultTypeRefersToAnotherParamSpecWithEllipsis() {
+    doTest("Clazz[Any, [float], [float]]", """
+      class Clazz[**P1, **P2 = P1, **P3 = P2]: ...
+      expr = Clazz[..., [float]]()
       """);
   }
 

@@ -55,6 +55,7 @@ open class VcsLogClassicFilterUi(private val logData: VcsLogData,
   protected val dateFilterModel: DateFilterModel
   protected val structureFilterModel: FileFilterModel
   protected val textFilterModel: TextFilterModel
+  @ApiStatus.Internal
   protected val parentFilterModel: ParentFilterModel
 
   private val textFilterField: VcsLogTextFilterField
@@ -287,7 +288,6 @@ open class VcsLogClassicFilterUi(private val logData: VcsLogData,
       toolbar.setCustomButtonLook(FieldInplaceActionButtonLook())
       toolbar.isReservePlaceAutoPopupIcon = false
       toolbar.targetComponent = editor
-      toolbar.updateActionsImmediately()
       return toolbar
     }
   }

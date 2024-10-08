@@ -21,6 +21,30 @@ public object finish_requestKt {
     @kotlin.jvm.JvmSynthetic
     @kotlin.PublishedApi
     internal fun _build(): org.jetbrains.embeddings.local.server.stubs.Embeddings.finish_request = _builder.build()
+
+    /**
+     * <code>.org.jetbrains.embeddings.local.server.stubs.storage_location location = 1;</code>
+     */
+    public var location: org.jetbrains.embeddings.local.server.stubs.Embeddings.storage_location
+      @JvmName("getLocation")
+      get() = _builder.getLocation()
+      @JvmName("setLocation")
+      set(value) {
+        _builder.setLocation(value)
+      }
+    /**
+     * <code>.org.jetbrains.embeddings.local.server.stubs.storage_location location = 1;</code>
+     */
+    public fun clearLocation() {
+      _builder.clearLocation()
+    }
+    /**
+     * <code>.org.jetbrains.embeddings.local.server.stubs.storage_location location = 1;</code>
+     * @return Whether the location field is set.
+     */
+    public fun hasLocation(): kotlin.Boolean {
+      return _builder.hasLocation()
+    }
   }
 }
 public inline fun org.jetbrains.embeddings.local.server.stubs.Embeddings.finish_request.copy(block: org.jetbrains.embeddings.local.server.stubs.finish_requestKt.Dsl.() -> kotlin.Unit): org.jetbrains.embeddings.local.server.stubs.Embeddings.finish_request =

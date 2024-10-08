@@ -34,7 +34,7 @@ def get_column_types(table):
 
 # used by pydevd
 # noinspection PyUnresolvedReferences
-def get_data(table, start_index=None, end_index=None, format=None, conv_mode=False):
+def get_data(table, use_csv_serialization, start_index=None, end_index=None, format=None):
     # type: (Union[pd.DataFrame, pd.Series], int, int) -> str
 
     def convert_data_to_csv(data):
@@ -43,7 +43,7 @@ def get_data(table, start_index=None, end_index=None, format=None, conv_mode=Fal
     def convert_data_to_html(data):
         return repr(__convert_to_df(data).to_html(notebook=True))
 
-    if conv_mode:
+    if use_csv_serialization:
         computed_data = _compute_sliced_data(table, convert_data_to_csv, start_index, end_index, format)
     else:
         computed_data = _compute_sliced_data(table, convert_data_to_html, start_index, end_index, format)
@@ -55,9 +55,11 @@ def get_data(table, start_index=None, end_index=None, format=None, conv_mode=Fal
 def display_data_csv(table, start_index, end_index):
     # type: (Union[pd.DataFrame, pd.Series], int, int) -> None
     def ipython_display(data):
-        from IPython.display import display
-        display(__convert_to_df(data))
-
+        try:
+            data = data.to_csv()
+        except AttributeError:
+            pass
+        print(__convert_to_df(data))
     _compute_sliced_data(table, ipython_display, start_index, end_index)
 
 
@@ -68,7 +70,6 @@ def display_data_html(table, start_index, end_index):
     def ipython_display(data):
         from IPython.display import display
         display(__convert_to_df(data))
-
     _compute_sliced_data(table, ipython_display, start_index, end_index)
 
 
@@ -76,7 +77,7 @@ def __get_data_slice(table, start, end):
     return __convert_to_df(table).iloc[start:end]
 
 
-def _compute_sliced_data(table, fun, start_index=None, end_index=None, format=None, conv_mode=False):
+def _compute_sliced_data(table, fun, start_index=None, end_index=None, format=None):
     # type: (Union[pd.DataFrame, pd.Series], function, int, int) -> str
 
     max_cols, max_colwidth, max_rows = __get_tables_display_options()

@@ -24,7 +24,7 @@ public abstract class FileTypeManager extends FileTypeRegistry implements Dispos
   @SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
   public static FileTypeManager getInstance() {
     FileTypeRegistry instance = FileTypeRegistry.getInstance();
-    return instance instanceof FileTypeManager ftm ? ftm : new StubFileTypeManager();
+    return instance instanceof FileTypeManager ftm ? ftm : new EmptyFileTypeManager();
   }
 
   protected FileTypeManager() {
@@ -33,10 +33,6 @@ public abstract class FileTypeManager extends FileTypeRegistry implements Dispos
   @Override
   public void dispose() {
   }
-
-  /** @deprecated use {@code com.intellij.fileType} extension point instead */
-  @Deprecated(forRemoval = true)
-  public abstract void registerFileType(@NotNull FileType type, String @Nullable ... defaultAssociatedExtensions);
 
   /**
    * Checks if the specified file is ignored by the IDE. Ignored files are not visible in

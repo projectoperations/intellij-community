@@ -51,6 +51,8 @@
               class="git4idea.ui.branch.dashboard.BranchesDashboardActions$ChangeBranchFilterAction"/>
       <action id="Git.Log.Branches.Navigate.Log.To.Branch.On.Selection"
               class="git4idea.ui.branch.dashboard.BranchesDashboardActions$NavigateLogToBranchAction"/>
+      <separator/>
+      <action id="git.branches.show.tags" class="git4idea.ui.branch.tree.GitBranchesTreeShowTagsAction"/>
     </group>
     <group id="Git.Log.Branches.Grouping.Settings" icon="AllIcons.Actions.GroupBy"
            class="git4idea.ui.branch.dashboard.BranchesDashboardActions$GroupingSettingsGroup">
@@ -189,7 +191,7 @@
       <action id="git.branches.group.by.prefix" class="git4idea.ui.branch.popup.GitBranchesTreePopupGroupByPrefixAction"/>
       <action class="git4idea.ui.branch.popup.GitBranchesTreePopupTrackReposSynchronouslyAction"/>
       <action id="git.branches.show.recent" class="git4idea.ui.branch.popup.GitBranchesTreePopupShowRecentBranchesAction"/>
-      <action id="git.branches.show.tags" class="git4idea.ui.branch.popup.GitBranchesTreePopupShowTagsAction"/>
+      <reference ref="git.branches.show.tags"/>
       <action id="git.branches.popup.resize" class="git4idea.ui.branch.popup.GitBranchesTreePopupResizeAction"/>
     </group>
 
@@ -214,26 +216,28 @@
     </group>
 
     <group id="Git.Branch">
-      <action class="git4idea.actions.branch.GitCheckoutAction"/>
-      <action class="git4idea.actions.tag.GitCheckoutTagAction"/>
-      <action class="git4idea.actions.tag.GitDeleteTagAction"/>
+      <action class="git4idea.actions.ref.GitCheckoutAction"/>
       <action class="git4idea.actions.branch.GitCheckoutAsNewBranch"/>
       <action class="git4idea.actions.branch.GitCheckoutWithRebaseAction"/>
       <separator/>
       <action class="git4idea.actions.branch.GitCompareWithBranchAction"/>
-      <action class="git4idea.actions.branch.GitShowDiffWithBranchAction"/>
+      <action class="git4idea.actions.ref.GitShowDiffWithRefAction"/>
       <separator/>
       <action class="git4idea.actions.branch.GitRebaseBranchAction"/>
-      <action class="git4idea.actions.branch.GitMergeRefAction"/>
+      <action class="git4idea.actions.ref.GitMergeRefAction"/>
       <separator/>
       <action class="git4idea.actions.branch.GitUpdateSelectedBranchAction"/>
       <action class="git4idea.actions.branch.GitPushBranchAction"/>
       <action class="git4idea.actions.branch.GitPullBranchAction$WithRebase"/>
       <action class="git4idea.actions.branch.GitPullBranchAction$WithMerge"/>
       <separator/>
+      <group class="git4idea.actions.tag.GitPushTagsActionGroup"/>
+      <separator/>
       <action class="git4idea.actions.branch.GitRenameBranchAction" id="Git.Rename.Local.Branch"/>
-      <action class="git4idea.actions.branch.GitDeleteBranchAction"/>
+      <action class="git4idea.actions.ref.GitDeleteRefAction"/>
     </group>
+
+    <action class="git4idea.actions.tag.GitPushTagAction" id="Git.Tag.Push"/>
 
     <group id="Git.Menu" class="git4idea.actions.GitMenu" popup="true" searchable="false">
       <reference ref="Git.FileActions"/>
@@ -484,8 +488,6 @@
     <group id="MainToolbarVCSGroup">
       <action id="main.toolbar.git.Branches" class="git4idea.ui.toolbar.GitToolbarWidgetAction" />
       <action id="main.toolbar.git.MergeRebase" class="git4idea.ui.toolbar.GitMergeRebaseWidget"/>
-      <action id="main.toolbar.git.update" class="git4idea.ui.toolbar.GitMainToolbarUpdateProjectAction"/>
-      <action id="main.toolbar.git.push" class="git4idea.ui.toolbar.GitMainToolbarPushAction"/>
       <add-to-group group-id="MainToolbarLeft" relative-to-action="MainToolbarGeneralActionsGroup" anchor="before"/>
     </group>
 
@@ -516,6 +518,8 @@
       <add-to-group group-id="CopyFileReference"/>
       <add-to-group group-id="Copy.Paste.Special" relative-to-action="CopyReference" anchor="after"/>
     </group>
+
+    <action id="Git.Unshallow" class="git4idea.actions.GitUnshallowRepositoryAction"/>
   </actions>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -617,11 +621,13 @@
                  description="Max amount of entry to process from Git reflog to parse recently checkout branches"/>
     <registryKey key="git.show.recent.checkout.branches" defaultValue="5"
                  description="Max count of recently checkout branches to show (e.g. in branches tree popup)"/>
-    <registryKey key="git.commit.gpg.signing.enable.embedded.pinentry" defaultValue="false"
+    <registryKey key="git.commit.gpg.signing.enable.embedded.pinentry" defaultValue="true"
                  restartRequired="true"
                  description="Enable embedded pinentry application for unlock GPG private key while Git perform commit signing. For remote dev (unix backend) and WSL."/>
     <registryKey key="git.read.branches.from.disk" defaultValue="false"
                  description="When enabled, read the '.git/refs' directory contents. When disabled, delegate to 'git branch' call."/>
+    <registryKey key="git.clone.shallow" defaultValue="false"
+                 description="When enabled, allows shallow cloning of the git repository"/>
 
     <search.projectOptionsTopHitProvider implementation="git4idea.config.GitOptionsTopHitProvider"/>
     <vcs name="Git" vcsClass="git4idea.GitVcs" displayName="Git" administrativeAreaName=".git"/>
@@ -728,6 +734,7 @@
 
     <backgroundPostStartupActivity implementation="git4idea.ignore.GitIgnoreInStoreDirGeneratorActivity"/>
     <backgroundPostStartupActivity implementation="git4idea.config.GitSetupProjectConfig"/>
+    <backgroundPostStartupActivity implementation="git4idea.repo.GitShallowRepositoryCheck"/>
 
     <registryKey key="git.update.incoming.info.time" defaultValue="20"
                  description="Time period (in minutes) between incoming commits checks." restartRequired="true"/>

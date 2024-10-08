@@ -4,7 +4,7 @@ package com.intellij.java.terminal
 import com.intellij.execution.vmOptions.VMOptionKind
 import com.intellij.execution.vmOptions.VMOptionVariant
 import com.intellij.execution.vmOptions.VMOptionsService
-import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.terminal.completion.spec.ShellCommandParserOptions
 import com.intellij.terminal.completion.spec.ShellCommandSpec
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +40,7 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
     }
     option("-jar") {
       argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.jar.option.argument.jar.file.text"))
+        displayName(JAR_FILE_ARGUMENT_NAME)
         suggestions(ShellDataGenerators.fileSuggestionsGenerator())
       }
       description(JavaTerminalBundle.message("java.command.terminal.jar.option.description"))
@@ -53,8 +53,8 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
       exclusiveOn = listOf("--class-path")
       description(JavaTerminalBundle.message("java.command.terminal.classpath.option.description"))
       argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.classpath.option.argument.path.text", ShellCommandUtils.getClassPathSeparator()))
-        suggestions(ShellDataGenerators.fileSuggestionsGenerator())
+        displayName(CLASSPATH_ARGUMENT_NAME)
+        suggestions(JavaShellCommandUtils.classpathSuggestionsGenerator())
       }
     }
     option("-showversion") {
@@ -62,7 +62,7 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
       description(JavaTerminalBundle.message("java.command.terminal.show.version.option.description", errorStreamName))
     }
     argument {
-      displayName(JavaTerminalBundle.message("java.command.terminal.argument.main.class.text"))
+      displayName(MAIN_CLASS_ARGUMENT_NAME)
       suggestions(ShellDataGenerators.fileSuggestionsGenerator())
     }
   }
@@ -80,25 +80,19 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
       val optionName = it.optionName
       val presentableName = "${it.variant.prefix()}$optionName"
       option(presentableName) {
-        val optionDescription = if (JavaTerminalBundle.isMessageInBundle(getOptionBundleKey(optionName))) {
-          JavaTerminalBundle.message(getOptionBundleKey(optionName))
-        } else {
-          val descriptionCandidate = it.doc
-          if (descriptionCandidate == null) {
-            LOG.warn("Unknown ${it.variant} option: \"$optionName\". Provide ${getOptionBundleKey(optionName)} and [${getOptionArgumentBundleKey(optionName)}]")
-            return@option
-          }
-          descriptionCandidate
-        }
+        val optionDescription = it.doc
+        if (optionDescription == null) return@option
         description(optionDescription)
-        if (!JavaTerminalBundle.isMessageInBundle(getOptionArgumentBundleKey(optionName))) return@option
 
         val info = OPTION_UI_INFO_MAP[presentableName] ?: DEFAULT_UI_OPTION_INSTANCE
         repeatTimes = info.repeatTimes
         separator = info.separator
-        argument {
-          isOptional = info.isArgumentOptional
-          displayName(JavaTerminalBundle.message(getOptionArgumentBundleKey(optionName)))
+        val argumentName = info.argumentName
+        if (argumentName != null) {
+          argument {
+            isOptional = info.isArgumentOptional
+            displayName(argumentName)
+          }
         }
       }
     }
@@ -121,8 +115,8 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
     option("--class-path") {
       description(JavaTerminalBundle.message("java.command.terminal.classpath.option.description"))
       argument {
-        displayName(JavaTerminalBundle.message("java.command.terminal.classpath.option.argument.path.text", ShellCommandUtils.getClassPathSeparator()))
-        suggestions(ShellDataGenerators.fileSuggestionsGenerator())
+        displayName(CLASSPATH_ARGUMENT_NAME)
+        suggestions(JavaShellCommandUtils.classpathSuggestionsGenerator())
       }
     }
     option("--help") {
@@ -139,7 +133,7 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
       repeatTimes = 0
       argument {
         isOptional = true
-        displayName(JavaTerminalBundle.message("java.command.terminal.verbose.option.argument.text.11"))
+        displayName(CLASS_GC_GNI_MODULE_ARGUMENT_NAME)
       }
     }
   }
@@ -151,48 +145,52 @@ class JavaShellCommandSpecsProvider : ShellCommandSpecsProvider {
       repeatTimes = 0
       argument {
         isOptional = true
-        displayName(JavaTerminalBundle.message("java.command.terminal.verbose.option.argument.text.8"))
+        displayName(CLASS_GC_GNI_ARGUMENT_NAME)
       }
     }
   }
-
-  private fun getOptionBundleKey(option: String): String = "java.command.terminal.${getCanonicalOptionName(option)}.option.description"
-
-  private fun getOptionArgumentBundleKey(option: String): String = "java.command.terminal.${getCanonicalOptionName(option)}.option.argument.text"
-
-  private fun getCanonicalOptionName(option: String): String = option.replace(Regex("[:|\\-]"), ".").trim('=', '.')
 }
 
 
+private const val SIZE_ARGUMENT_NAME = "size"
+private const val PATH_ARGUMENT_NAME = "path"
+private const val PACKAGE_AND_CLASS_ARGUMENT_NAME = "<package>|<class>"
+private const val VALUE_ARGUMENT_NAME = "value"
+private const val MODULE_PACKAGE_TARGET_MODULE_ARGUMENT_NAME = "<module>/<package>=<target-module>(,<target-module>)*"
+private const val MAIN_CLASS_ARGUMENT_NAME: @NlsSafe String = "mainclass"
+private const val JAR_FILE_ARGUMENT_NAME: @NlsSafe String = "jar file"
+private const val CLASS_GC_GNI_ARGUMENT_NAME: @NlsSafe String = "class|gc|gni"
+private const val CLASS_GC_GNI_MODULE_ARGUMENT_NAME: @NlsSafe String = "$CLASS_GC_GNI_ARGUMENT_NAME|<module>"
+private val CLASSPATH_ARGUMENT_NAME: @NlsSafe String = "filepath[${JavaShellCommandUtils.getClassPathSeparator()}filepath]"
+
 private val OPTION_UI_INFO_MAP = mapOf(
-  "-Xms" to UIOptionInfo(separator = ""),
-  "-Xmx" to UIOptionInfo(separator = ""),
-  "-Xmn" to UIOptionInfo(separator = ""),
-  "-Xss" to UIOptionInfo(separator = ""),
-  "-Xbootclasspath:" to UIOptionInfo(separator = ""),
-  "-Xbootclasspath/a:" to UIOptionInfo(separator = ""),
-  "-Xbootclasspath/p:" to UIOptionInfo(separator = ""),
-  "-Xlog:" to UIOptionInfo(separator = ""),
-  "-Xloggc:" to UIOptionInfo(separator = ""),
-  "--add-opens" to UIOptionInfo(repeatTimes = 0),
-  "--patch-module" to UIOptionInfo(repeatTimes = 0),
-  "--limit-modules" to UIOptionInfo(repeatTimes = 0),
-  "--add-reads" to UIOptionInfo(repeatTimes = 0),
-  "--add-exports" to UIOptionInfo(repeatTimes = 0),
-  "--finalization=" to UIOptionInfo(separator = ""),
-  "--illegal-access=" to UIOptionInfo(separator = ""),
-  "-ea" to UIOptionInfo(separator = ":", isArgumentOptional = true),
-  "-da" to UIOptionInfo(separator = ":", isArgumentOptional = true),
-  "-enableassertions" to UIOptionInfo(separator = ":", isArgumentOptional = true),
-  "-disableassertions" to UIOptionInfo(separator = ":", isArgumentOptional = true),
-  "-agentlib:" to UIOptionInfo(separator = ""),
-  "-agentpath:" to UIOptionInfo(separator = ""),
-  "-javaagent:" to UIOptionInfo(separator = ""),
-  "-D" to UIOptionInfo(separator = "", repeatTimes = 0),
-  "-XX:" to UIOptionInfo(repeatTimes = 0)
-)
+  "-Xms" to UIOptionInfo(separator = "", argumentName = SIZE_ARGUMENT_NAME),
+  "-Xmx" to UIOptionInfo(separator = "", argumentName = SIZE_ARGUMENT_NAME),
+  "-Xmn" to UIOptionInfo(separator = "", argumentName = SIZE_ARGUMENT_NAME),
+  "-Xss" to UIOptionInfo(separator = "", argumentName = SIZE_ARGUMENT_NAME),
+  "-Xbootclasspath:" to UIOptionInfo(separator = "", argumentName = PATH_ARGUMENT_NAME),
+  "-Xbootclasspath/a:" to UIOptionInfo(separator = "", argumentName = PATH_ARGUMENT_NAME),
+  "-Xbootclasspath/p:" to UIOptionInfo(separator = "", argumentName = PATH_ARGUMENT_NAME),
+  "-Xlog:" to UIOptionInfo(separator = "", argumentName = "opts"),
+  "-Xloggc:" to UIOptionInfo(separator = "", argumentName = "file"),
+  "--add-opens" to UIOptionInfo(repeatTimes = 0, argumentName = MODULE_PACKAGE_TARGET_MODULE_ARGUMENT_NAME),
+  "--patch-module" to UIOptionInfo(repeatTimes = 0, argumentName = "<module>=<file>(:<file>)*"),
+  "--limit-modules" to UIOptionInfo(repeatTimes = 0, argumentName = "<module name>[,<module name>...]"),
+  "--add-reads" to UIOptionInfo(repeatTimes = 0, argumentName = "<module>=<target-module>(,<target-module>)*"),
+  "--add-exports" to UIOptionInfo(repeatTimes = 0, argumentName = MODULE_PACKAGE_TARGET_MODULE_ARGUMENT_NAME),
+  "--finalization=" to UIOptionInfo(separator = "", argumentName = VALUE_ARGUMENT_NAME),
+  "--illegal-access=" to UIOptionInfo(separator = "", argumentName = VALUE_ARGUMENT_NAME),
+  "-ea" to UIOptionInfo(separator = ":", isArgumentOptional = true, argumentName = PACKAGE_AND_CLASS_ARGUMENT_NAME),
+  "-da" to UIOptionInfo(separator = ":", isArgumentOptional = true, argumentName = PACKAGE_AND_CLASS_ARGUMENT_NAME),
+  "-enableassertions" to UIOptionInfo(separator = ":", isArgumentOptional = true, argumentName = PACKAGE_AND_CLASS_ARGUMENT_NAME),
+  "-disableassertions" to UIOptionInfo(separator = ":", isArgumentOptional = true, argumentName = PACKAGE_AND_CLASS_ARGUMENT_NAME),
+  "-agentlib:" to UIOptionInfo(separator = "", argumentName = "<libname>[=<options>]"),
+  "-agentpath:" to UIOptionInfo(separator = "", argumentName = "<pathname>[=<options>]"),
+  "-javaagent:" to UIOptionInfo(separator = "", argumentName = "<jarpath>[=<options>]"),
+  "-D" to UIOptionInfo(separator = "", repeatTimes = 0, argumentName = "<name>=<value>"),
+  "-XX:" to UIOptionInfo(repeatTimes = 0),
+  "--source" to UIOptionInfo(argumentName = "version")
+ )
 
-private data class UIOptionInfo(val separator: String? = null, val repeatTimes: Int = 1, val isArgumentOptional: Boolean = false)
+private data class UIOptionInfo(val separator: String? = null, @NlsSafe val argumentName: String? = null, val repeatTimes: Int = 1, val isArgumentOptional: Boolean = false)
 private val DEFAULT_UI_OPTION_INSTANCE = UIOptionInfo()
-
-private val LOG = Logger.getInstance(JavaShellCommandSpecsProvider::class.java)

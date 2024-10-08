@@ -20,7 +20,7 @@
       description="KInference model version"
       key="intellij.platform.ml.embeddings.ki.model.version"/>
 
-    <registryKey defaultValue="2.0.140"
+    <registryKey defaultValue="2.0.143"
                  description="Embeddings native server version"
                  key="intellij.platform.ml.embeddings.server.version"/>
 
@@ -59,6 +59,11 @@
       defaultValue="16384"
       description="Chunk size for indexing values from file based index. All values should not be loaded to memory at once to avoid high memory usage."
       key="intellij.platform.ml.embeddings.file.based.index.processing.chunk.size"/>
+
+    <registryKey
+      defaultValue="true"
+      description="Trigger entities extraction from files on first search"
+      key="intellij.platform.ml.embeddings.trigger.indexing.on.search"/>
 
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.platform.ml.embeddings.logging.EmbeddingSearchLogger"/>

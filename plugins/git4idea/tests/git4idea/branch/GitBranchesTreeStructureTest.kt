@@ -5,12 +5,17 @@ import com.intellij.testFramework.LightVirtualFile
 import git4idea.GitBranch
 import git4idea.GitLocalBranch
 import git4idea.GitStandardRemoteBranch
+import git4idea.GitTag
+import git4idea.branch.GitBranchesTreeTestContext.Companion.NOT_ORIGIN
 import git4idea.branch.GitBranchesTreeTestContext.Companion.ORIGIN
 import git4idea.branch.GitBranchesTreeTestContext.Companion.ORIGIN_URLS
+import git4idea.branch.GitBranchesTreeTestContext.Companion.branchInfo
+import git4idea.branch.GitBranchesTreeTestContext.Companion.tagInfo
 import git4idea.repo.GitRemote
 import git4idea.repo.GitRepository
 import git4idea.test.MockGitRepository
 import git4idea.ui.branch.dashboard.BranchInfo
+import git4idea.ui.branch.dashboard.TagInfo
 
 class GitBranchesTreeStructureTest : GitBranchesTreeTest() {
   private lateinit var repo1: GitRepository
@@ -83,6 +88,10 @@ class GitBranchesTreeStructureTest : GitBranchesTreeTest() {
         branchInfo(GitStandardRemoteBranch(ORIGIN, "group/favorite"), isFavorite = true),
         branchInfo(GitStandardRemoteBranch(ORIGIN, "a-group/aaaa")),
       ),
+      tags = listOf(
+        tagInfo(GitTag("group/tag"), isFavorite = true),
+        tagInfo(GitTag("group/a-tag")),
+      ),
       expanded = true,
     )
 
@@ -104,6 +113,10 @@ class GitBranchesTreeStructureTest : GitBranchesTreeTest() {
       |   -GROUP:a-group
       |    BRANCH:origin/a-group/aaaa
       |   BRANCH:origin/aa
+      | -TAG
+      |  -GROUP:group
+      |   TAG:group/tag
+      |   TAG:group/a-tag
     """.trimMargin())
   }
 
@@ -115,6 +128,9 @@ class GitBranchesTreeStructureTest : GitBranchesTreeTest() {
       remoteBranches = listOf(
         branchInfo(GitStandardRemoteBranch(NOT_ORIGIN, "a-branch"), repositories = listOf(repo1, repo2)),
         branchInfo(GitStandardRemoteBranch(ORIGIN, "a-branch"), repositories = listOf(repo2)),
+      ),
+      tags = listOf(
+        tagInfo(GitTag("tag"), repositories = listOf(repo2)),
       ),
       expanded = true,
     )
@@ -131,6 +147,9 @@ class GitBranchesTreeStructureTest : GitBranchesTreeTest() {
       |  -REPO:/repo-2
       |   BRANCH:not-origin/a-branch
       |   BRANCH:origin/a-branch
+      | -TAG
+      |  -REPO:/repo-2
+      |   TAG:tag
     """.trimMargin())
   }
 
@@ -143,6 +162,9 @@ class GitBranchesTreeStructureTest : GitBranchesTreeTest() {
         branchInfo(GitStandardRemoteBranch(NOT_ORIGIN, "a-branch"), repositories = listOf(repo1, repo2)),
         branchInfo(GitStandardRemoteBranch(ORIGIN, "a-branch"), repositories = listOf(repo2)),
       ),
+      tags = listOf(
+        tagInfo(GitTag("tag"), repositories = listOf(repo1, repo2)),
+      ),
       expanded = true,
     )
 
@@ -154,13 +176,8 @@ class GitBranchesTreeStructureTest : GitBranchesTreeTest() {
       | -REMOTE
       |  BRANCH:not-origin/a-branch
       |  BRANCH:origin/a-branch
+      | -TAG
+      |  TAG:tag
     """.trimMargin())
-  }
-
-  private companion object {
-    val NOT_ORIGIN = GitRemote("not-origin", ORIGIN_URLS, ORIGIN_URLS, listOf(), listOf())
-
-    fun branchInfo(branch: GitBranch, isCurrent: Boolean = false, isFavorite: Boolean = false, repositories: List<GitRepository> = emptyList()) =
-      BranchInfo(branch, isCurrent, isFavorite, repositories = repositories)
   }
 }

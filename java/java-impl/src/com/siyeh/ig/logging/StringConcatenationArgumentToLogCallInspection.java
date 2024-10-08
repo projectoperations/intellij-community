@@ -395,7 +395,7 @@ public final class StringConcatenationArgumentToLogCallInspection extends BaseIn
     @Override
     public void fix(@NotNull PsiMethodCallExpression callExpression) {
       PsiExpression[] expressions = callExpression.getArgumentList().getExpressions();
-      if (expressions.length != 1) {
+      if (expressions.length < 1) {
         return;
       }
 
@@ -407,8 +407,8 @@ public final class StringConcatenationArgumentToLogCallInspection extends BaseIn
       StringBuilder builder = new StringBuilder();
       CommentTracker tracker = new CommentTracker();
       for (PsiElement child : callExpression.getChildren()) {
-        if (child instanceof PsiExpressionList) {
-          builder.append(createNewArgumentsFromCall(formatCallExpression, tracker));
+        if (child instanceof PsiExpressionList expressionList) {
+          builder.append(createNewArgumentsFromCall(formatCallExpression, tracker, expressionList.getExpressions()));
         }
         else {
           builder.append(tracker.text(child));
@@ -428,7 +428,8 @@ public final class StringConcatenationArgumentToLogCallInspection extends BaseIn
     }
 
     private @NotNull String createNewArgumentsFromCall(@NotNull PsiMethodCallExpression formatCallExpression,
-                                                       @NotNull CommentTracker tracker) {
+                                                       @NotNull CommentTracker tracker,
+                                                       PsiExpression @NotNull  [] allArguments) {
       List<String> arguments = new ArrayList<>();
       List<Map.Entry<TextRange, Integer>> placeholders =
         myTextMapping.entrySet()
@@ -445,6 +446,11 @@ public final class StringConcatenationArgumentToLogCallInspection extends BaseIn
       }
       arguments.add(formatWithPlaceholders);
       Collections.reverse(arguments);
+      if (allArguments.length > 1) {
+        for (int i = 1; i < allArguments.length; i++) {
+          arguments.add(tracker.text(allArguments[i]));
+        }
+      }
       return "(" + String.join(", ", arguments) + ")";
     }
   }
@@ -596,7 +602,30 @@ public final class StringConcatenationArgumentToLogCallInspection extends BaseIn
         if (range == null) return null;
         result.put(range, index);
       }
-
+      int start = 0;
+      while ((start = formattedString.indexOf("%n", start)) != -1) {
+        int escaped = 0;
+        while (true) {
+          if (start - escaped == 0) {
+            break;
+          }
+          if(formattedString.charAt(start - escaped - 1) == '%') {
+            escaped++;
+            continue;
+          }
+          break;
+        }
+        if (escaped % 2 == 1) {
+          start++;
+          continue;
+        }
+        TextRange range = ExpressionUtils.findStringLiteralRange(expression, start, start + 2);
+        if (range == null) {
+          return null;
+        }
+        text = StringUtil.replaceSubstring(text, range, "\\n");
+        start++;
+      }
       return new StringFormatArgumentToLogCallFix(result, text);
     }
 
@@ -675,7 +704,11 @@ public final class StringConcatenationArgumentToLogCallInspection extends BaseIn
 
     ProblemType problemType = null;
 
-    if (arguments.length == 1 && argument instanceof PsiMethodCallExpression callExpression) {
+    if (argument instanceof PsiMethodCallExpression callExpression && (
+      arguments.length == 1 ||
+      (arguments.length == 2 && arguments[1] != null &&
+       InheritanceUtil.isInheritor(arguments[1].getType(), CommonClassNames.JAVA_LANG_THROWABLE))
+    )) {
       FormatDecode.FormatArgument formatArgument =
         FormatDecode.FormatArgument.extract(callExpression, List.of("format"), List.of("String"), true);
       if (formatArgument != null) {

@@ -17,8 +17,6 @@ c:com.intellij.openapi.progress.ProcessCanceledException
 - <init>():V
 - p:<init>(java.lang.String):V
 - <init>(java.lang.Throwable):V
-*@:com.intellij.openapi.util.NlsSafe
-- java.lang.annotation.Annotation
 com.intellij.openapi.util.Segment
 - sf:BY_START_OFFSET_THEN_END_OFFSET:java.util.Comparator
 - sf:EMPTY_ARRAY:com.intellij.openapi.util.Segment[]
@@ -376,7 +374,6 @@ f:com.intellij.util.SystemProperties
 - s:getFloatProperty(java.lang.String,F):F
 - s:getIntProperty(java.lang.String,I):I
 - s:getJavaHome():java.lang.String
-- s:getLineSeparator():java.lang.String
 - s:getLongProperty(java.lang.String,J):J
 - s:getUserHome():java.lang.String
 - s:getUserName():java.lang.String

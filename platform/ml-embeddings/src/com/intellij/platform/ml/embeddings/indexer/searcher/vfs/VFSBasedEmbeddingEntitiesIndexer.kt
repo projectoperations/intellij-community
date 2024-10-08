@@ -18,7 +18,7 @@ import com.intellij.platform.ml.embeddings.indexer.SymbolsProvider
 import com.intellij.platform.ml.embeddings.indexer.TOTAL_THREAD_LIMIT_FOR_INDEXING
 import com.intellij.platform.ml.embeddings.indexer.entities.IndexableEntity
 import com.intellij.platform.ml.embeddings.indexer.entities.IndexableFile
-import com.intellij.platform.ml.embeddings.indexer.searchAndSendEntities
+import com.intellij.platform.ml.embeddings.indexer.extractAndAddEntities
 import com.intellij.platform.ml.embeddings.indexer.searcher.EmbeddingEntitiesIndexer
 import com.intellij.platform.ml.embeddings.indexer.searcher.SemanticSearchFileChangeListener
 import com.intellij.platform.ml.embeddings.settings.EmbeddingIndexSettings
@@ -59,10 +59,8 @@ internal class VFSBasedEmbeddingEntitiesIndexer(private val cs: CoroutineScope) 
 
     indexingScope.launch {
       val files = scanFiles(project).sortedByDescending { it.name.length }
-      searchAndSendEntities(project, settings) { filesChannel, classesChannel, symbolsChannel ->
-        launch {
-          search(project, files, filesChannel, classesChannel, symbolsChannel)
-        }
+      extractAndAddEntities(project) { filesChannel, classesChannel, symbolsChannel ->
+        search(project, files, filesChannel, classesChannel, symbolsChannel)
       }
     }.join()
   }
@@ -77,10 +75,8 @@ internal class VFSBasedEmbeddingEntitiesIndexer(private val cs: CoroutineScope) 
     if (!settings.shouldIndexAnythingFileBased) return
 
     indexingScope.launch {
-      searchAndSendEntities(project, settings) { filesChannel, classesChannel, symbolsChannel ->
-        launch {
-          search(project, files, filesChannel, classesChannel, symbolsChannel)
-        }
+      extractAndAddEntities(project) { filesChannel, classesChannel, symbolsChannel ->
+        search(project, files, filesChannel, classesChannel, symbolsChannel)
       }
     }.join()
   }
@@ -144,32 +140,23 @@ internal class VFSBasedEmbeddingEntitiesIndexer(private val cs: CoroutineScope) 
     classesChannel: Channel<IndexableEntity>?,
     symbolsChannel: Channel<IndexableEntity>?,
   ) = coroutineScope {
-    if (filesChannel != null) {
-      launch {
-        filesChannel.send(IndexableFile(file))
-      }
-    }
-
+    filesChannel?.send(IndexableFile(file))
     if (classesChannel != null || symbolsChannel != null) {
-      val (psiFile, fileType) = readActionUndispatched {
-        val psiFile = psiManager.findFile(file) ?: return@readActionUndispatched null
-        val fileType = psiFile.fileType
-        psiFile to fileType
-      } ?: return@coroutineScope
+      val fileType = file.fileType
+      if (fileType !in ClassesProvider.supportedFileTypes && fileType !in SymbolsProvider.supportedFileTypes) return@coroutineScope
+
+      val psiFile = readActionUndispatched { psiManager.findFile(file) } ?: return@coroutineScope
 
       val content: FileContentImpl = FileContentImpl.createByFile(file, psiManager.project) as FileContentImpl
       content.putUserData(PSI_FILE, psiFile) // todo I think we can avoid explicit passing of file
       content.setSubstituteFileType(fileType) // todo we don't want to infer the substituted file type, do we?
 
+      // we can't run processing concurrently because LighterAST is not thread-safe
       if (classesChannel != null) {
-        launch {
-          readActionUndispatched { ClassesProvider.extractClasses(content) }.forEach { classesChannel.send(it) }
-        }
+          readActionUndispatched { ClassesProvider.extractClasses(content) }.forEach { classesChannel.send(it) } // todo should this send also be wrapped in launch or can we remove launch from filesChannel?
       }
       if (symbolsChannel != null) {
-        launch {
           readActionUndispatched { SymbolsProvider.extractSymbols(content) }.forEach { symbolsChannel.send(it) }
-        }
       }
     }
   }

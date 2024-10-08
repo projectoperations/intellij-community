@@ -16,7 +16,6 @@ import org.jetbrains.kotlin.psi.KtReferenceExpression
 import org.jetbrains.kotlin.resolve.calls.util.getCalleeExpressionIfAny
 import org.jetbrains.kotlin.tooling.core.KotlinToolingVersion
 import java.util.function.Function
-import kotlin.String
 
 data class CompilerOption(val expression: String, val classToImport: FqName? = null, val compilerOptionValue: String? = null)
 
@@ -25,28 +24,28 @@ data class Replacement(val expressionToReplace: KtExpression, val replacement: S
 @ApiStatus.Internal
 fun expressionContainsOperationForbiddenToReplace(binaryExpression: KtBinaryExpression): Boolean {
     val operationReference = binaryExpression.operationReference.text
-    if (operationReference == "-=") {
-        return true
+    return if (operationReference == "-=") {
+        true
     } else {
         val rightPartOfBinaryExpression = binaryExpression.right ?: return true
         if (rightPartOfBinaryExpression is KtBinaryExpression) {
-            return checkIfExpressionContainsMinusOperator(rightPartOfBinaryExpression)
+            checkIfExpressionContainsMinusOperator(rightPartOfBinaryExpression)
         } else {
-            return false
+            false
         }
     }
 }
 
 private fun checkIfExpressionContainsMinusOperator(binaryExpression: KtBinaryExpression): Boolean {
     val operationReference = binaryExpression.operationReference.text
-    if (operationReference == "-") {
-        return true
+    return if (operationReference == "-") {
+        true
     } else {
         val leftPartOfBinaryExpression = binaryExpression.left ?: return true
         if (leftPartOfBinaryExpression is KtBinaryExpression) {
-            return checkIfExpressionContainsMinusOperator(leftPartOfBinaryExpression)
+            checkIfExpressionContainsMinusOperator(leftPartOfBinaryExpression)
         } else {
-            return false
+            false
         }
     }
 }
@@ -236,13 +235,13 @@ private fun getCompilerOptionForVersionValue(
     replacement: StringBuilder,
     optionName: String,
     operationReplacer: String,
-): CompilerOption? {
+): CompilerOption {
     val processedOptionValue = optionValue.removeSurrounding("\"").removeSurrounding("'")
     val convertedValue = versionOptionData.mappingRule.apply(processedOptionValue)
     val compilerOptionValue = if (convertedValue != null) {
         "${versionOptionData.newOptionType}${convertedValue}"
     } else if (optionName.contains("jvmTarget")) {
-        "JvmTarget.fromString(${optionValue})"
+        "JvmTarget.fromTarget(${optionValue})"
     } else {
         "KotlinVersion.fromVersion(${optionValue})"
     }
@@ -250,7 +249,6 @@ private fun getCompilerOptionForVersionValue(
         "$optionName.$operationReplacer($compilerOptionValue)"
     )
     return CompilerOption(replacement.toString(), versionOptionData.fqClassName, compilerOptionValue)
-    return null
 }
 
 private fun getCompilerOptionForJsValue(
@@ -304,8 +302,11 @@ private fun jvmTargetValueMappingRule(inputValue: String): String? {
     if (inputValue == "1.8") return "1_8"
     val numericValue = inputValue.removePrefix("1.").toIntOrNull()
     if (numericValue != null) {
-        if (numericValue <= 7) return null // JvmTarget class has values starting from 8
-        else return numericValue.toString()
+        return if (numericValue <= 7) {
+            null // JvmTarget class has values starting from 8
+        } else {
+            numericValue.toString()
+        }
     }
 
     // parse JavaVersion.VERSION_N.toString()
@@ -314,10 +315,10 @@ private fun jvmTargetValueMappingRule(inputValue: String): String? {
         "1_8" -> return "1_8"
         else -> {
             val numericValue = version.removePrefix("1_").toIntOrNull() ?: return null
-            if (numericValue > 8) {
-                return numericValue.toString()
+            return if (numericValue > 8) {
+                numericValue.toString()
             } else { // Kotlin doesn't support jvmTarget 7 and less
-                return null
+                null
             }
         }
     }
@@ -326,9 +327,11 @@ private fun jvmTargetValueMappingRule(inputValue: String): String? {
 private val kotlinVersionRegex = Regex("\\d\\.\\d")
 
 private fun kotlinVersionValueMappingRule(inputValue: String): String? {
-    if (kotlinVersionRegex.matches(inputValue)) {
-        return inputValue.replace(".", "_")
-    } else return null
+    return if (kotlinVersionRegex.matches(inputValue)) {
+        inputValue.replace(".", "_")
+    } else {
+        null
+    }
 }
 
 private data class VersionOption(val newOptionType: String, val fqClassName: FqName, val mappingRule: Function<String, String?>)

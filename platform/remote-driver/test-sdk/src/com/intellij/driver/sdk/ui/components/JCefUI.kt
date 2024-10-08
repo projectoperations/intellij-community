@@ -42,14 +42,14 @@ fun Finder.jcef(@Language("xpath") xpath: String? = null, action: JCefUI.() -> U
 }
 
 class JCefUI(data: ComponentData) : UiComponent(data) {
-  private val jcefWorker by lazy {
-    driver.new(JcefComponentWrapper::class, component).apply {
-      runJs(initScript)
-    }
-  }
+  private val jcefWorker by lazy { driver.new(JcefComponentWrapper::class, component) }
 
   private val json = Json {
     ignoreUnknownKeys = true
+  }
+
+  fun getYOffset(): Double {
+    return callJs("window.pageYOffset.toString()").toDouble()
   }
 
   fun findElement(@Language("XPath") xpath: String, wait: Duration = 5.seconds): DomElement {
@@ -94,15 +94,22 @@ class JCefUI(data: ComponentData) : UiComponent(data) {
   fun getUrl(): String =  jcefWorker.getUrl()
 
   fun getHtml(): String {
-    waitFor("Document exists") { hasDocument() }
     return callJs("""document.documentElement.outerHTML""")
   }
 
-  fun callJs(@Language("JavaScript") js: String, timeout: Long = 3000): String {
+  private fun callJs(@Language("JavaScript") js: String, timeout: Long = 3000): String {
+    waitFor("document exists", 10.seconds) { hasDocument() }
+    injectElementFinderIfNeeded()
     return jcefWorker.callJs(js, timeout)
   }
 
   private fun String.escapeXpath() = replace("'", "\\x27").replace("\"", "\\x22")
+
+  private fun injectElementFinderIfNeeded() {
+    if (!jcefWorker.callJs("!!window.elementFinder", 3_000).toBoolean()) {
+      jcefWorker.runJs(initScript)
+    }
+  }
 
   /**
    * JavaScript functions we need on the browser side.

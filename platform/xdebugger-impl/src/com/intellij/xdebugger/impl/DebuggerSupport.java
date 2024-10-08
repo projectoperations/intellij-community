@@ -49,9 +49,6 @@ public abstract class DebuggerSupport {
   }
 
   private static final BreakpointPanelProvider<?> EMPTY_PANEL_PROVIDER = new BreakpointPanelProvider<>() {
-    @Override
-    public void createBreakpointsGroupingRules(Collection collection) {
-    }
 
     @Override
     public void addListener(BreakpointsListener listener, Project project, Disposable disposable) {
@@ -208,6 +205,7 @@ public abstract class DebuggerSupport {
     return DISABLED_TOGGLE_HANDLER;
   }
 
+  @ApiStatus.Internal
   protected static final MarkObjectActionHandler DISABLED_MARK_HANDLER = new MarkObjectActionHandler() {
     @Override
     public boolean isMarked(@NotNull Project project, @NotNull AnActionEvent event) {
@@ -229,6 +227,7 @@ public abstract class DebuggerSupport {
     }
   };
 
+  @ApiStatus.Internal
   public @NotNull MarkObjectActionHandler getMarkObjectHandler() {
     return DISABLED_MARK_HANDLER;
   }

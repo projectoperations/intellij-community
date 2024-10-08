@@ -217,7 +217,7 @@ abstract class KotlinIntroduceVariableHandler : RefactoringActionHandler {
         }
 
         fun KtElement.getContainer(): KtElement? {
-            if (this is KtBlockExpression) return this
+            if (this is KtBlockExpression || this is KtClassBody) return this
 
             return (parentsWithSelf.zip(parents)).firstOrNull {
                 val (place, parent) = it
@@ -226,7 +226,7 @@ abstract class KotlinIntroduceVariableHandler : RefactoringActionHandler {
                     is KtBlockExpression -> true
                     is KtWhenEntry -> place == parent.expression
                     is KtDeclarationWithBody -> parent.bodyExpression == place
-                    is KtClassBody -> true
+                    is KtClassBody -> place !is KtEnumEntry
                     is KtFile -> true
                     else -> false
                 }
@@ -238,7 +238,7 @@ abstract class KotlinIntroduceVariableHandler : RefactoringActionHandler {
             for ((place, parent) in parentsWithSelf.zip(parents)) {
                 when {
                     parent is KtContainerNode && place !is KtBlockExpression && !parent.isBadContainerNode(place) -> result = parent
-                    parent is KtClassBody || parent is KtFile -> return result ?: parent as? KtElement
+                    parent is KtClassBody || parent is KtFile || parent is KtFunctionLiteral -> return result ?: parent as? KtElement
                     parent is KtBlockExpression -> result = parent
                     parent is KtWhenEntry && place !is KtBlockExpression -> result = parent
                     parent is KtDeclarationWithBody && parent.bodyExpression == place && place !is KtBlockExpression -> result = parent

@@ -49,6 +49,7 @@ import com.intellij.openapi.editor.impl.event.MarkupModelListener;
 import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.editor.textarea.EmptyInlayModel;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -73,10 +74,7 @@ import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
 import com.intellij.xml.breadcrumbs.NavigatableCrumb;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
@@ -104,6 +102,7 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements EditorD
 
   @NotNull protected Side myMasterSide = Side.RIGHT;
 
+  @ApiStatus.Internal
   @NotNull protected final UnifiedDiffModel myModel = new UnifiedDiffModel(this);
 
   private final boolean[] myForceReadOnlyFlags;
@@ -271,6 +270,7 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements EditorD
     new TextDiffViewerUtil.EditorActionsPopup(createEditorPopupActions()).install(getEditors(), myPanel);
   }
 
+  @ApiStatus.Internal
   @NotNull
   protected UnifiedDiffChangeUi createUi(@NotNull UnifiedDiffChange change) {
     return new UnifiedDiffChangeUi(this, change);
@@ -1110,6 +1110,9 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements EditorD
       sink.set(DiffDataKeys.CURRENT_CHANGE_RANGE, new LineRange(change.getLine1(), change.getLine2()));
     }
     sink.set(DiffDataKeys.EDITOR_CHANGED_RANGE_PROVIDER, new MyChangedRangeProvider());
+
+    sink.set(PlatformCoreDataKeys.FILE_EDITOR,
+             TextEditorProvider.getInstance().getTextEditor(myEditor));
   }
 
   @Override

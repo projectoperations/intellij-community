@@ -321,7 +321,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       getFileEditorManager().removeTopComponent(fileEditor, component);
       info.removeFileLeverComponent(fileEditor);
     }
-    RangeHighlighterEx highlighter = info.highlighter;
+    RangeHighlighterEx highlighter = info.getHighlighter();
     if (highlighter != null) {
       highlighter.dispose();
     }
@@ -405,7 +405,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
             fileEditorManager.removeTopComponent(fileEditor, component);
             fileLevelInfo.removeFileLeverComponent(fileEditor);
           }
-          RangeHighlighterEx highlighter = fileLevelInfo.highlighter;
+          RangeHighlighterEx highlighter = fileLevelInfo.getHighlighter();
           if (highlighter != null && highlighter != toReuse) {
             highlighter.dispose();
           }
@@ -1069,7 +1069,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       if (foundInfoList.isEmpty()) return null;
       if (foundInfoList.size() == 1) return foundInfoList.get(0);
       foundInfoList.sort(Comparator.comparing(HighlightInfo::getSeverity).reversed());
-      return HighlightInfoComposite.create(foundInfoList);
+      return HighlightInfo.createComposite(foundInfoList);
     }
   }
 

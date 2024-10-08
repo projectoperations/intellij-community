@@ -9,6 +9,7 @@ import com.intellij.util.xml.dom.readXmlAsModel
 import org.jetbrains.intellij.build.impl.ModuleItem
 import org.jetbrains.intellij.build.impl.ModuleOutputPatcher
 import org.jetbrains.intellij.build.impl.PluginLayout
+import org.jetbrains.intellij.build.impl.findFileInModuleSources
 import org.jetbrains.intellij.build.io.readZipFile
 import org.jetbrains.jps.model.java.JpsJavaClasspathKind
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
@@ -19,7 +20,7 @@ import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 
-private val useTestSourceEnabled = System.getProperty("idea.build.pack.test.source.enabled", "false").toBoolean()
+internal val useTestSourceEnabled: Boolean = System.getProperty("idea.build.pack.test.source.enabled", "true").toBoolean()
 
 // production-only - JpsJavaClasspathKind.PRODUCTION_RUNTIME
 internal class JarPackagerDependencyHelper(private val context: BuildContext) {
@@ -37,16 +38,35 @@ internal class JarPackagerDependencyHelper(private val context: BuildContext) {
            getLibraryDependencies(module = module, withTests = false).any { it.libraryReference.parentReference is JpsModuleReference }
   }
 
-  fun isTestPluginModule(moduleName: String): Boolean {
-    return useTestSourceEnabled &&
-           moduleName.contains(".test.") &&
-           moduleName != "intellij.rider.test.framework" &&
-           moduleName != "intellij.rider.test.api" &&
-           moduleName != "intellij.rider.test.api.teamcity"
+  fun isTestPluginModule(module: JpsModule): Boolean {
+    if (!useTestSourceEnabled) {
+      return false
+    }
+
+    val moduleName = module.name
+    // todo use some marker
+    if (moduleName == "intellij.rdct.testFramework" || moduleName == "intellij.rdct.tests.distributed") {
+      return true
+    }
+
+    if (moduleName.contains(".test.")) {
+      if (module.sourceRoots.none { it.rootType.isForTests }) {
+        return false
+      }
+
+      return moduleName != "intellij.rider.test.framework" &&
+             moduleName != "intellij.rider.test.api" &&
+             moduleName != "intellij.rider.test.api.teamcity"
+    }
+    return moduleName.endsWith("._test")
   }
 
   suspend fun getPluginXmlContent(pluginModule: JpsModule): String {
-    val moduleOutput = context.getModuleOutputDir(pluginModule, forTests = isTestPluginModule(pluginModule.name))
+    var moduleOutput = context.getModuleOutputDir(pluginModule, forTests = false)
+    if (useTestSourceEnabled && Files.notExists(moduleOutput)) {
+      moduleOutput = context.getModuleOutputDir(pluginModule, forTests = true)
+    }
+
     if (moduleOutput.toString().endsWith(".jar")) {
       return getPluginXmlContentFromJar(moduleOutput)
     }
@@ -88,7 +108,7 @@ internal class JarPackagerDependencyHelper(private val context: BuildContext) {
 
   // The x-include is not resolved. If the plugin.xml includes any files, the content from these included files will not be considered.
   fun readPluginIncompleteContentFromDescriptor(pluginModule: JpsModule): Sequence<String> {
-    val pluginXml = context.findFileInModuleSources(pluginModule, "META-INF/plugin.xml") ?: return emptySequence()
+    val pluginXml = findFileInModuleSources(pluginModule, "META-INF/plugin.xml") ?: return emptySequence()
     return readPluginContentFromDescriptor(readXmlAsModel(pluginXml)).map { it.first  }
   }
 
@@ -131,7 +151,7 @@ internal class JarPackagerDependencyHelper(private val context: BuildContext) {
     }
   }
 
-  // cool.module.core has dependency on library cool-library.
+  // cool.module.core has dependency on a library cool-library.
   // And it is a plugin.
   //
   // cool.module.part1 has dependency on cool.module.core AND on library cool-library.

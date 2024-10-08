@@ -260,9 +260,8 @@ class JarPackager private constructor(
     val moduleName = item.moduleName
     val patchedContent = moduleOutputPatcher.getPatchedContent(moduleName)
 
-    val useTestModuleOutput = helper.isTestPluginModule(moduleName)
-
     val module = context.findRequiredModule(moduleName)
+    val useTestModuleOutput = helper.isTestPluginModule(module)
     val moduleOutDir = context.getModuleOutputDir(module = module, forTests = useTestModuleOutput)
     val extraExcludes = layout?.moduleExcludes?.get(moduleName) ?: emptyList()
 
@@ -366,7 +365,7 @@ class JarPackager private constructor(
       }
       else {
         // is it a product module?
-        context.findFileInModuleSources(module, "$moduleName.xml")?.let {
+        findFileInModuleSources(module, "$moduleName.xml")?.let {
           sources.addAll(searchableOptionSet.createSourceByModule(moduleName))
         }
       }

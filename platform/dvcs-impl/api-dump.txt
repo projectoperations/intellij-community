@@ -23,7 +23,7 @@ f:com.intellij.dvcs.DvcsUtil
 - <init>():V
 - s:addMappingIfSubRoot(com.intellij.openapi.project.Project,java.lang.String,java.lang.String):V
 - s:assertFileExists(java.io.File,java.lang.String):V
-- s:disableActionIfAnyRepositoryIsFresh(com.intellij.openapi.actionSystem.AnActionEvent,java.util.List,java.lang.String):V
+- s:disableActionIfAnyRepositoryIsFresh(com.intellij.openapi.actionSystem.AnActionEvent,java.util.Collection,java.lang.String):V
 - s:ensureAllChildrenInVfs(com.intellij.openapi.vfs.VirtualFile):V
 - s:findVcsRootFor(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.vfs.VirtualFile
 - s:findVirtualFilesWithRefresh(java.util.List):java.util.List
@@ -99,13 +99,6 @@ a:com.intellij.dvcs.actions.DvcsQuickListContentProvider
 - getVcsActions(com.intellij.openapi.project.Project,com.intellij.openapi.vcs.AbstractVcs,com.intellij.openapi.actionSystem.DataContext):java.util.List
 - pa:getVcsName():java.lang.String
 - replaceVcsActionsFor(com.intellij.openapi.vcs.AbstractVcs,com.intellij.openapi.actionSystem.DataContext):Z
-f:com.intellij.dvcs.branch.BranchStorage
-- com.intellij.openapi.components.BaseState
-- <init>():V
-- f:add(java.lang.String,com.intellij.dvcs.repo.Repository,java.lang.String):V
-- f:contains(java.lang.String,com.intellij.dvcs.repo.Repository,java.lang.String):Z
-- f:getBranches():java.util.Map
-- f:remove(java.lang.String,com.intellij.dvcs.repo.Repository,java.lang.String):V
 com.intellij.dvcs.branch.BranchType
 - a:getName():java.lang.String
 c:com.intellij.dvcs.branch.DvcsBranchInfo
@@ -127,6 +120,7 @@ a:com.intellij.dvcs.branch.DvcsBranchManager
 com.intellij.dvcs.branch.DvcsBranchManager$DvcsBranchManagerListener
 - branchFavoriteSettingsChanged():V
 - branchGroupingSettingsChanged(com.intellij.dvcs.branch.GroupingKey,Z):V
+- showTagsSettingsChanged(Z):V
 a:com.intellij.dvcs.branch.DvcsBranchPopup
 - pf:myCurrentRepository:com.intellij.dvcs.repo.Repository
 - pf:myInSpecificRepository:Z
@@ -150,11 +144,7 @@ f:com.intellij.dvcs.branch.DvcsBranchPopup$MyMoreIndex
 f:com.intellij.dvcs.branch.DvcsBranchSettings
 - com.intellij.openapi.components.BaseState
 - <init>():V
-- f:getExcludedFavorites():com.intellij.dvcs.branch.BranchStorage
-- f:getFavorites():com.intellij.dvcs.branch.BranchStorage
 - f:getGroupingKeyIds():java.util.Set
-- f:setExcludedFavorites(com.intellij.dvcs.branch.BranchStorage):V
-- f:setFavorites(com.intellij.dvcs.branch.BranchStorage):V
 f:com.intellij.dvcs.branch.DvcsBranchSyncPolicyUpdateNotifier
 - <init>(com.intellij.openapi.project.Project,com.intellij.openapi.vcs.AbstractVcs,com.intellij.dvcs.branch.DvcsSyncSettings,com.intellij.dvcs.repo.AbstractRepositoryManager):V
 - f:initBranchSyncPolicyIfNotInitialized():V
@@ -236,7 +226,7 @@ a:com.intellij.dvcs.commit.AmendCommitService
 f:com.intellij.dvcs.commit.CommitAndPushExecutorKt
 - sf:getCommitAndPushActionName(com.intellij.vcs.commit.CommitWorkflowHandlerState):java.lang.String
 f:com.intellij.dvcs.ignore.IgnoredToExcludedSynchronizer
-- com.intellij.openapi.vcs.FilesProcessorImpl
+- com.intellij.openapi.vcs.FilesProcessor
 - <init>(com.intellij.openapi.project.Project,kotlinx.coroutines.CoroutineScope):V
 - f:clearFiles(java.util.Collection):Z
 - doActionOnChosenFiles(java.util.Collection):V
@@ -296,7 +286,6 @@ f:com.intellij.dvcs.push.PushController
 - com.intellij.openapi.Disposable
 - <init>(com.intellij.openapi.project.Project,com.intellij.dvcs.push.ui.VcsPushDialog,java.util.Collection,java.util.List,com.intellij.dvcs.repo.Repository,com.intellij.dvcs.push.PushSource):V
 - createAdditionalPanels():java.util.Map
-- *:createCustomPanels(java.util.Collection):java.util.Map
 - createTopPanel():javax.swing.JComponent
 - dispose():V
 - executeHandlers(com.intellij.openapi.progress.ProgressIndicator):com.intellij.dvcs.push.PrePushHandler$Result
@@ -319,27 +308,12 @@ com.intellij.dvcs.push.RepositoryNodeListener
 - a:onSelectionChanged(Z):V
 - a:onTargetChanged(com.intellij.dvcs.push.PushTarget):V
 - a:onTargetInEditMode(java.lang.String):V
-c:com.intellij.dvcs.push.ui.CheckBoxModel
-- <init>(Z):V
-- isChecked():Z
-- setChecked(Z):V
 c:com.intellij.dvcs.push.ui.CommitNode
-- com.intellij.dvcs.push.ui.TooltipNode
 - javax.swing.tree.DefaultMutableTreeNode
 - <init>(com.intellij.openapi.project.Project,com.intellij.vcs.log.VcsFullCommitDetails):V
 - getTooltip():java.lang.String
 - getUserObject():com.intellij.vcs.log.VcsFullCommitDetails
 - render(com.intellij.ui.ColoredTreeCellRenderer):V
-*:com.intellij.dvcs.push.ui.CommitNodeUiRenderExtension
-- a:render(com.intellij.openapi.project.Project,com.intellij.ui.ColoredTreeCellRenderer,com.intellij.dvcs.push.ui.CommitNode):V
-com.intellij.dvcs.push.ui.EditableTreeNode
-- a:cancelLoading():V
-- a:fireOnCancel():V
-- a:fireOnChange():V
-- a:fireOnSelectionChange(Z):V
-- a:isEditableNow():Z
-- a:render(com.intellij.ui.ColoredTreeCellRenderer):V
-- a:startLoading(javax.swing.JTree,java.util.concurrent.Future,Z):V
 f:com.intellij.dvcs.push.ui.PushLog
 - javax.swing.JPanel
 - com.intellij.openapi.Disposable
@@ -368,10 +342,8 @@ f:com.intellij.dvcs.push.ui.PushUtils
 - sf:getProhibitedTargetConfigurablePath(com.intellij.dvcs.push.ui.VcsPushUi):java.lang.String
 c:com.intellij.dvcs.push.ui.RepositoryNode
 - com.intellij.ui.CheckedTreeNode
-- com.intellij.dvcs.push.ui.EditableTreeNode
 - java.lang.Comparable
 - pf:myLoading:java.util.concurrent.atomic.AtomicBoolean
-- <init>(com.intellij.dvcs.push.ui.RepositoryWithBranchPanel,com.intellij.dvcs.push.ui.CheckBoxModel,Z):V
 - cancelLoading():V
 - compareTo(com.intellij.dvcs.push.ui.RepositoryNode):I
 - fireOnCancel():V
@@ -402,21 +374,6 @@ c:com.intellij.dvcs.push.ui.RepositoryWithBranchPanel
 - getTargetPanel():com.intellij.dvcs.push.PushTargetPanel
 - getTreeCellEditorComponent(javax.swing.JTree,java.lang.Object,Z,Z,Z,I,Z):java.awt.Component
 - isEditable():Z
-c:com.intellij.dvcs.push.ui.SingleRepositoryNode
-- com.intellij.dvcs.push.ui.RepositoryNode
-- <init>(com.intellij.dvcs.push.ui.RepositoryWithBranchPanel,com.intellij.dvcs.push.ui.CheckBoxModel):V
-- fireOnSelectionChange(Z):V
-- isCheckboxVisible():Z
-- render(com.intellij.ui.ColoredTreeCellRenderer):V
-- setChecked(Z):V
-c:com.intellij.dvcs.push.ui.TextWithLinkNode
-- javax.swing.tree.DefaultMutableTreeNode
-- p:myLinkedText:com.intellij.dvcs.push.ui.VcsLinkedTextComponent
-- <init>(com.intellij.dvcs.push.ui.VcsLinkedTextComponent):V
-- render(com.intellij.ui.ColoredTreeCellRenderer):V
-com.intellij.dvcs.push.ui.TooltipNode
-- a:getTooltip():java.lang.String
-com.intellij.dvcs.push.ui.VcsEditableComponent
 com.intellij.dvcs.push.ui.VcsLinkListener
 - a:hyperlinkActivated(javax.swing.tree.DefaultMutableTreeNode,java.awt.event.MouseEvent):V
 c:com.intellij.dvcs.push.ui.VcsLinkedTextComponent
@@ -449,7 +406,6 @@ c:com.intellij.dvcs.push.ui.VcsPushDialog
 - enableOkActions(Z):V
 - executeAfterRunningPrePushHandlers(com.intellij.openapi.progress.Task$Backgroundable):V
 - getAdditionalOptionValue(com.intellij.dvcs.push.PushSupport):com.intellij.dvcs.push.VcsPushOptionValue
-- *:getCustomParams():java.util.Map
 - getData(java.lang.String):java.lang.Object
 - p:getDimensionServiceKey():java.lang.String
 - p:getHelpId():java.lang.String
@@ -467,7 +423,6 @@ com.intellij.dvcs.push.ui.VcsPushUi
 - a:executeAfterRunningPrePushHandlers(com.intellij.openapi.progress.Task$Backgroundable):V
 - a:getAdditionalOptionValue(com.intellij.dvcs.push.PushSupport):com.intellij.dvcs.push.VcsPushOptionValue
 - a:getSelectedPushSpecs():java.util.Map
-- *:hasWarnings():Z
 - a:push(Z):V
 a:com.intellij.dvcs.repo.AbstractRepositoryManager
 - com.intellij.dvcs.repo.RepositoryManager
@@ -552,7 +507,6 @@ com.intellij.dvcs.repo.VcsRepositoryMappingListener
 - a:mappingChanged():V
 a:com.intellij.dvcs.ui.BranchActionGroup
 - com.intellij.openapi.actionSystem.ActionGroup
-- com.intellij.dvcs.ui.CustomIconProvider
 - com.intellij.openapi.project.DumbAware
 - <init>():V
 - s:getIncomingOutgoingIcon():javax.swing.Icon
@@ -645,8 +599,6 @@ com.intellij.dvcs.ui.CompareBranchesHelper
 - a:getDvcsCompareSettings():com.intellij.dvcs.branch.DvcsCompareSettings
 - a:getProject():com.intellij.openapi.project.Project
 - a:getRepositoryManager():com.intellij.dvcs.repo.RepositoryManager
-com.intellij.dvcs.ui.CustomIconProvider
-- a:getRightIcon():javax.swing.Icon
 a:com.intellij.dvcs.ui.DvcsCloneDialogComponent
 - com.intellij.openapi.vcs.ui.VcsCloneComponent
 - com.intellij.openapi.vcs.ui.VcsCloneComponent$WithSettableUrl
@@ -657,7 +609,7 @@ a:com.intellij.dvcs.ui.DvcsCloneDialogComponent
 - doValidateAll():java.util.List
 - f:getDirectory():java.lang.String
 - pf:getErrorComponent():com.intellij.util.ui.components.BorderLayoutPanel
-- pf:getMainPanel():javax.swing.JPanel
+- pf:getMainPanel():com.intellij.openapi.ui.DialogPanel
 - getPreferredFocusedComponent():javax.swing.JComponent
 - f:getProject():com.intellij.openapi.project.Project
 - pf:getRememberedInputs():com.intellij.dvcs.DvcsRememberedInputs
@@ -735,10 +687,6 @@ f:com.intellij.dvcs.ui.RepositoryChangesBrowserNode$Companion
 - f:getColorManager(com.intellij.openapi.project.Project):com.intellij.vcs.log.ui.VcsLogColorManager
 - f:getRepositoryIcon(com.intellij.dvcs.repo.Repository,com.intellij.vcs.log.ui.VcsLogColorManager):com.intellij.util.ui.ColorIcon
 - bs:getRepositoryIcon$default(com.intellij.dvcs.ui.RepositoryChangesBrowserNode$Companion,com.intellij.dvcs.repo.Repository,com.intellij.vcs.log.ui.VcsLogColorManager,I,java.lang.Object):com.intellij.util.ui.ColorIcon
-f:com.intellij.dvcs.ui.RepositoryChangesGroupingPolicy
-- com.intellij.openapi.vcs.changes.ui.SimpleChangesGroupingPolicy
-- <init>(com.intellij.openapi.project.Project,javax.swing.tree.DefaultTreeModel):V
-- f:getProject():com.intellij.openapi.project.Project
 f:com.intellij.dvcs.ui.RepositoryComboboxListCellRenderer
 - com.intellij.ui.SimpleListCellRenderer
 - <init>():V
