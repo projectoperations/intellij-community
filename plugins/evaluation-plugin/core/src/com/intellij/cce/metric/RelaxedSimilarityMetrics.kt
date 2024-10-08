@@ -22,7 +22,7 @@ object RelaxedSimilarityUtils {
       .filter { it.isNotBlank() }
   }
 
-  enum class RelaxedResult(val weight: Double) { NO(0.0), ANY(1.0), MULTI(2.0) }
+  enum class RelaxedResult(val weight: Double) { NO(0.0), SINGLE(1.0), MULTI(2.0) }
 
   fun computeRelaxedSimilarity(
     middle: String,
@@ -37,15 +37,15 @@ object RelaxedSimilarityUtils {
     val missingCode = middle + suffix
     val completionLines = preProcessLines(completion, prefix, suffix, stripChars)
     val middleLines = preProcessLines(middle, prefix, suffix, stripChars).toSet()
-    val prefixMatch = missingCode.startsWith(completion.trim())
+    val prefixMatch = missingCode.trim().startsWith(completion.trim())
 
-    val matchingLines = completionLines.count { predicate(it, middleLines) }
-    val hasMatchingLine = matchingLines > 0
-    val multilineMatch = matchingLines == completionLines.size
+    val matchingLines = completionLines.map { predicate(it, middleLines) }
+    val hasFirstLineMatching = matchingLines[0] == true
+    val multilineMatch = matchingLines.all { it == true }
 
     return when {
       multilineMatch -> RelaxedResult.MULTI
-      hasMatchingLine || prefixMatch -> RelaxedResult.ANY
+      hasFirstLineMatching || prefixMatch -> RelaxedResult.SINGLE
       else -> RelaxedResult.NO
     }
   }
@@ -62,7 +62,7 @@ object RelaxedSimilarityUtils {
     }
   }
 
-  class RelaxedEditDistance(private val threshold: Double = 0.5) : RelaxedMetric {
+  class RelaxedEditDistance(private val threshold: Double = 0.7) : RelaxedMetric {
     private fun normalizedEditDistance(left: String, right: String): Double {
       val norm = listOf(left, right).maxOf { it.length }
       val result = LevenshteinDistance(norm).apply(left, right).toDouble() / norm
@@ -77,7 +77,7 @@ object RelaxedSimilarityUtils {
   }
 }
 
-abstract class BaseRelaxedMetric(showByDefault: Boolean) : LineSimularityMetric(showByDefault) {
+abstract class BaseRelaxedMetric(showByDefault: Boolean) : LineSimilarityMetric(showByDefault) {
   abstract val onlyValuable: Boolean
   abstract val metric: RelaxedSimilarityUtils.RelaxedMetric
 
@@ -98,13 +98,38 @@ class RelaxedExactMatchOnlyAlphanum(showByDefault: Boolean = false) : BaseRelaxe
   override val metric: RelaxedSimilarityUtils.RelaxedMetric = RelaxedSimilarityUtils.RelaxedExactMatch()
 }
 
+class RelaxedExactMatch(showByDefault: Boolean = false) : BaseRelaxedMetric(showByDefault) {
+  override val name: String = "Relaxed exact match"
+  override val description: String =
+    "Checks that for any the suggested lines of the completion, there is a line from middle that matches it."
+  override val onlyValuable: Boolean = false
+  override val metric: RelaxedSimilarityUtils.RelaxedMetric = RelaxedSimilarityUtils.RelaxedExactMatch()
+}
+
 /**
- * Note that the default threshold value is picked experimenatlly.
+ * Note that the default threshold value is picked experimentally.
  */
-class RelaxedEditDistanceOnlyAlphanum(showByDefault: Boolean = false, threshold: Double = 0.767) : BaseRelaxedMetric(showByDefault) {
+private const val BEST_EDIT_ALPHANUM_THRESHOLD = 0.7674
+private const val BEST_EDIT_THRESHOLD = 0.7412
+
+class RelaxedEditDistanceOnlyAlphanum(
+  showByDefault: Boolean = false,
+  threshold: Double = BEST_EDIT_ALPHANUM_THRESHOLD,
+) : BaseRelaxedMetric(showByDefault) {
   override val name: String = "Relaxed alphanumeric-only edit distance"
   override val description: String =
-    "Checks that for any the suggested lines of the completion, there is a line from middle that has a normalized edit distance less than $threshold."
+    "Checks that for any the suggested lines of the completion, there is a line from middle that has a normalized edit distance less than $threshold. (alphanumeric-only)"
   override val onlyValuable: Boolean = true
+  override val metric: RelaxedSimilarityUtils.RelaxedMetric = RelaxedSimilarityUtils.RelaxedEditDistance(threshold)
+}
+
+class RelaxedEditDistance(
+  showByDefault: Boolean = false,
+  threshold: Double = BEST_EDIT_THRESHOLD,
+) : BaseRelaxedMetric(showByDefault) {
+  override val name: String = "Relaxed edit distance"
+  override val description: String =
+    "Checks that for any the suggested lines of the completion, there is a line from middle that has a normalized edit distance less than $threshold."
+  override val onlyValuable: Boolean = false
   override val metric: RelaxedSimilarityUtils.RelaxedMetric = RelaxedSimilarityUtils.RelaxedEditDistance(threshold)
 }

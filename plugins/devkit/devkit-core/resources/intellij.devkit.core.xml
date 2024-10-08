@@ -145,7 +145,7 @@
                      level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.internal.StatisticsCollectorNotRegisteredInspection"
                      isInternal="true"/>
-    <localInspection language="UAST" shortName="InspectionDescriptionNotFoundInspection"
+    <localInspection language="JVM" shortName="InspectionDescriptionNotFoundInspection"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.description.file"
                      enabledByDefault="true" level="WARNING"
@@ -163,13 +163,13 @@
                      enabledByDefault="true" level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.UnspecifiedActionsPlaceInspection"
                      key="inspection.inspection.unspecified.actions.place.display.name"/>
-    <localInspection language="UAST" shortName="IntentionDescriptionNotFoundInspection"
+    <localInspection language="JVM" shortName="IntentionDescriptionNotFoundInspection"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.description.file"
                      enabledByDefault="true" level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.IntentionDescriptionNotFoundInspection"
                      key="inspection.intention.description.not.found.inspection.display.name"/>
-    <localInspection language="UAST"
+    <localInspection language="JVM"
                      projectType="INTELLIJ_PLUGIN"
                      key="inspections.component.postfix.template.not.found.description.name"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.description.file"
@@ -396,13 +396,13 @@
                      groupPathKey="inspections.group.path"
                      key="inspections.action.update.thread.display.name" groupKey="inspections.group.code" enabledByDefault="true"
                      level="WARNING" implementationClass="org.jetbrains.idea.devkit.inspections.MissingActionUpdateThread"/>
-    <localInspection language="UAST"
+    <localInspection language="JVM"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path"
                      key="inspections.jcomponent.data.provider.display.name" groupKey="inspections.group.code" enabledByDefault="true"
                      level="WARNING" implementationClass="org.jetbrains.idea.devkit.inspections.JComponentDataProviderInspection"/>
 
-    <localInspection language="UAST" enabledByDefault="true" level="ERROR" shortName="ExtensionRegisteredAsServiceOrComponent"
+    <localInspection language="JVM" enabledByDefault="true" level="ERROR" shortName="ExtensionRegisteredAsServiceOrComponent"
                      projectType="INTELLIJ_PLUGIN"
                      key="inspection.extension.registered.as.service.or.component.display.name"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.code"
@@ -452,7 +452,7 @@
                      enabledByDefault="true" level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.StaticInitializationInExtensionsInspection"/>
 
-    <localInspection language="UAST" groupPathKey="inspections.group.path"
+    <localInspection language="JVM" groupPathKey="inspections.group.path"
                      projectType="INTELLIJ_PLUGIN"
                      key="inspections.listener.implementation.must.not.be.disposable.name" groupKey="inspections.group.code"
                      enabledByDefault="true" level="ERROR"

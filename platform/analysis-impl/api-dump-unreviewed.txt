@@ -687,7 +687,6 @@ com.intellij.codeInsight.daemon.impl.HighlightInfoType
 - sf:ERROR:com.intellij.codeInsight.daemon.impl.HighlightInfoType
 - sf:GENERIC_WARNINGS_OR_ERRORS_FROM_SERVER:com.intellij.codeInsight.daemon.impl.HighlightInfoType
 - sf:HIGHLIGHTED_REFERENCE_SEVERITY:com.intellij.lang.annotation.HighlightSeverity
-- sf:INCOMPLETE_MODE_ERROR:com.intellij.codeInsight.daemon.impl.HighlightInfoType
 - sf:INFO:com.intellij.codeInsight.daemon.impl.HighlightInfoType
 - sf:INFORMATION:com.intellij.codeInsight.daemon.impl.HighlightInfoType
 - sf:INJECTED_FRAGMENT_SEVERITY:com.intellij.lang.annotation.HighlightSeverity
@@ -3306,6 +3305,7 @@ f:com.intellij.openapi.module.impl.scopes.ModuleWithDependenciesScope
 - equals(java.lang.Object):Z
 - extractFileEnumeration():com.intellij.psi.search.impl.VirtualFileEnumeration
 - getDisplayName():java.lang.String
+- s:getFileEnumerationUnderRoots(java.util.Collection):com.intellij.psi.search.impl.VirtualFileEnumeration
 - getModule():com.intellij.openapi.module.Module
 - getRoots():java.util.Collection
 - isSearchInLibraries():Z
