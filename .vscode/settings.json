@@ -1,0 +1,11 @@
+{
+    "files.autoGuessEncoding": true,
+    "workbench.view.alwaysShowHeaderActions": true,
+    "terminal.integrated.allowMnemonics": true,
+    "remote.localPortHost": "allInterfaces",
+    "testing.automaticallyOpenPeekViewDuringAutoRun": true,
+    "testing.alwaysRevealTestOnStateChange": true,
+    "scm.alwaysShowRepositories": true,
+    "scm.alwaysShowActions": true,
+    "Codegeex.SidebarUI.LanguagePreference": "English"
+}
