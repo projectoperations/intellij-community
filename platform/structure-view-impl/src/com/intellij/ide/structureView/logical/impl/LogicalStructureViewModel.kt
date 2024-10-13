@@ -22,10 +22,12 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiTarget
 import com.intellij.ui.SimpleTextAttributes
+import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.Icon
 
-internal class LogicalStructureViewModel private constructor(psiFile: PsiFile, editor: Editor?, assembledModel: LogicalStructureAssembledModel<*>, elementBuilder: ElementsBuilder)
+@ApiStatus.Internal
+class LogicalStructureViewModel private constructor(psiFile: PsiFile, editor: Editor?, assembledModel: LogicalStructureAssembledModel<*>, elementBuilder: ElementsBuilder)
   : StructureViewModelBase(psiFile, editor, elementBuilder.createViewTreeElement(assembledModel)),
     StructureViewModel.ElementInfoProvider, StructureViewModel.ExpandInfoProvider, StructureViewModel.ActionHandler {
 
@@ -38,7 +40,7 @@ internal class LogicalStructureViewModel private constructor(psiFile: PsiFile, e
   }
 
   override fun isAlwaysLeaf(element: StructureViewTreeElement?): Boolean {
-    return element is ElementsBuilder.PropertyPsiElementStructureElement<*> || element is ElementsBuilder.PropertyStructureElement
+    return element is ElementsBuilder.PropertyStructureElement
   }
 
   override fun isAutoExpand(element: StructureViewTreeElement): Boolean {
@@ -66,6 +68,12 @@ internal class LogicalStructureViewModel private constructor(psiFile: PsiFile, e
 interface LogicalStructureViewTreeElement<T> : StructureViewTreeElement {
 
   fun getLogicalAssembledModel(): LogicalStructureAssembledModel<T>
+
+  /**
+   * Means that the element is not the node for logical object itself but it's a child which has no own logical object
+   */
+  @ApiStatus.Internal
+  fun isHasNoOwnLogicalModel(): Boolean = false
 
 }
 
@@ -275,6 +283,8 @@ private class ElementsBuilder {
 
     override fun getLogicalAssembledModel(): LogicalStructureAssembledModel<T> = parentAssembledModel
 
+    override fun isHasNoOwnLogicalModel(): Boolean = true
+
     override fun equals(other: Any?): Boolean {
       if (other !is LogicalGroupStructureElement<*>) return false
       return parentAssembledModel == other.parentAssembledModel && grouper == other.grouper
@@ -297,7 +307,7 @@ private class ElementsBuilder {
     override fun getIcon(open: Boolean): Icon? = getPresentation().getIcon(open)
 
     override fun getChildrenBase(): Collection<StructureViewTreeElement> {
-      return emptyList() // getChildrenNodes (assembledModel, parentKey + "." + assembledModel.model.hashCode())
+      return getChildrenNodes(assembledModel)
     }
 
     override fun isAllowExtensions(): Boolean = false
@@ -325,7 +335,8 @@ private class ElementsBuilder {
     override fun getPresentation(): ItemPresentation = getPropertyPresentationData(grouper, assembledModel.model!!)
 
     override fun getChildren(): Array<TreeElement> {
-      return getChildrenNodes(assembledModel).toTypedArray()
+      //return getChildrenNodes(assembledModel).toTypedArray()
+      return emptyArray()
     }
 
     override fun equals(other: Any?): Boolean {

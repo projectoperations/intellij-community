@@ -26,6 +26,10 @@ import kotlinx.coroutines.cancel
 import org.jetbrains.annotations.ApiStatus
 import java.io.File
 
+/**
+ * @param rootDir Root of the repository (parent directory of '.git' file/directory).
+ * @param gitDir  '.git' directory location. For worktrees - location of the 'main_repo/.git/worktrees/worktree_name/'.
+ */
 class GitRepositoryImpl private constructor(
   project: Project,
   rootDir: VirtualFile,
@@ -43,7 +47,7 @@ class GitRepositoryImpl private constructor(
   private val tagHolder: GitTagHolder
 
   @Volatile
-  private var repoInfo: GitRepoInfo
+  private lateinit var repoInfo: GitRepoInfo
 
   @Volatile
   private var recentCheckoutBranches = emptyList<GitLocalBranch>()
@@ -51,8 +55,8 @@ class GitRepositoryImpl private constructor(
   private val coroutineScope = GitDisposable.getInstance(project).coroutineScope.childScope("GitRepositoryImpl")
 
   /**
-   * @param rootDir Root of the repository (parent directory of '.git' file/directory).
-   * @param gitDir  '.git' directory location. For worktrees - location of the 'main_repo/.git/worktrees/worktree_name/'.
+   * @see [git4idea.repo.GitRepositoryImpl.createInstance]
+   * @see [git4idea.repo.GitRepositoryImpl.installListeners]
    */
   init {
     stagingAreaHolder = GitStagingAreaHolder(this)
@@ -60,8 +64,9 @@ class GitRepositoryImpl private constructor(
     untrackedFilesHolder = GitUntrackedFilesHolder(this)
     Disposer.register(this, untrackedFilesHolder)
 
-    repoInfo = readRepoInfo()
     tagHolder = GitTagHolder(this)
+
+    installListeners()
   }
 
   @Deprecated("Deprecated in Java")
@@ -153,7 +158,7 @@ class GitRepositoryImpl private constructor(
 
   override fun update() {
     ApplicationManager.getApplication().assertIsNonDispatchThread()
-    val previousInfo = repoInfo
+    val previousInfo = if (::repoInfo.isInitialized) repoInfo else null
     repoInfo = readRepoInfo()
     notifyIfRepoChanged(this, previousInfo, repoInfo)
   }
@@ -203,7 +208,6 @@ class GitRepositoryImpl private constructor(
   companion object {
     private val LOG = Logger.getInstance(GitRepositoryImpl::class.java)
 
-
     @JvmStatic
     @Deprecated("Use {@link GitRepositoryManager#getRepositoryForRoot} to obtain an instance of a Git repository.")
     fun getInstance(
@@ -252,24 +256,21 @@ class GitRepositoryImpl private constructor(
       parentDisposable: Disposable,
     ): GitRepository {
       ProgressManager.checkCanceled()
-
-      val repository = GitRepositoryImpl(project, root, gitDir, parentDisposable)
-
-      val updater = GitRepositoryUpdater(repository, repository.repositoryFiles)
-      Disposer.register(repository, updater)
-
-      GitRepositoryManager.getInstance(project).notifyListenersAsync(repository)
-      return repository
+      return GitRepositoryImpl(project, root, gitDir, parentDisposable).apply { installListeners() }
     }
 
-    private fun notifyIfRepoChanged(
-      repository: GitRepository,
-      previousInfo: GitRepoInfo,
-      info: GitRepoInfo,
-    ) {
+    private fun GitRepositoryImpl.installListeners() {
+      val updater = GitRepositoryUpdater(this, repositoryFiles)
+      updater.installListeners(this)
+      update()
+      untrackedFilesHolder.invalidate()
+    }
+
+    private fun notifyIfRepoChanged(repository: GitRepository, previousInfo: GitRepoInfo?, info: GitRepoInfo) {
       val project = repository.project
       if (!project.isDisposed && info != previousInfo) {
-        GitRepositoryManager.getInstance(project).notifyListenersAsync(repository)
+        GitRepositoryManager.getInstance(project).notifyListenersAsync(repository, previousInfo, info)
+        LOG.debug("Repository $repository changed")
       }
     }
   }

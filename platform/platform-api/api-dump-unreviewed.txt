@@ -2312,6 +2312,8 @@ a:com.intellij.openapi.help.HelpManager
 - s:getInstance():com.intellij.openapi.help.HelpManager
 - a:invokeHelp(java.lang.String):V
 - ps:logWillOpenHelpId(java.lang.String):V
+com.intellij.openapi.help.KeymapHelpIdPresenter
+- a:getKeymapIdForHelp(com.intellij.openapi.keymap.Keymap):java.lang.String
 a:com.intellij.openapi.help.WebHelpProvider
 - com.intellij.openapi.extensions.PluginAware
 - <init>():V
@@ -2800,14 +2802,16 @@ f:com.intellij.openapi.observable.util.ListenerUiUtil
 - sf:whenCaretMoved(javax.swing.text.JTextComponent,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
 - bs:whenCaretMoved$default(javax.swing.text.JTextComponent,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - sf:whenDocumentChanged(com.intellij.ui.EditorTextComponent,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- sf:whenDocumentChanged(javax.swing.text.Document,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
 - bs:whenDocumentChanged$default(com.intellij.ui.EditorTextComponent,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
+- bs:whenDocumentChanged$default(javax.swing.text.Document,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - sf:whenFocusGained(java.awt.Component,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
 - bs:whenFocusGained$default(java.awt.Component,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - sf:whenFocusLost(java.awt.Component,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
 - bs:whenFocusLost$default(java.awt.Component,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
-- sf:whenItemSelected(com.intellij.ui.components.DropDownLink,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
-- sf:whenItemSelected(java.awt.ItemSelectable,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
-- sf:whenItemSelected(javax.swing.JComboBox,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bsf:whenItemSelected(com.intellij.ui.components.DropDownLink,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bsf:whenItemSelected(java.awt.ItemSelectable,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bsf:whenItemSelected(javax.swing.JComboBox,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
 - bs:whenItemSelected$default(com.intellij.ui.components.DropDownLink,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - bs:whenItemSelected$default(java.awt.ItemSelectable,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - bs:whenItemSelected$default(javax.swing.JComboBox,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
@@ -2835,10 +2839,10 @@ f:com.intellij.openapi.observable.util.ListenerUiUtil
 - sf:whenTableChanged(com.intellij.util.ui.TableViewModel,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
 - bs:whenTableChanged$default(com.intellij.ui.table.TableView,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - bs:whenTableChanged$default(com.intellij.util.ui.TableViewModel,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
-- sf:whenTextChanged(com.intellij.openapi.ui.TextFieldWithBrowseButton,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
-- sf:whenTextChanged(com.intellij.ui.SearchTextField,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
-- sf:whenTextChanged(javax.swing.text.Document,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
-- sf:whenTextChanged(javax.swing.text.JTextComponent,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bsf:whenTextChanged(com.intellij.openapi.ui.TextFieldWithBrowseButton,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bsf:whenTextChanged(com.intellij.ui.SearchTextField,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bsf:whenTextChanged(javax.swing.text.Document,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bsf:whenTextChanged(javax.swing.text.JTextComponent,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
 - bs:whenTextChanged$default(com.intellij.openapi.ui.TextFieldWithBrowseButton,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - bs:whenTextChanged$default(com.intellij.ui.SearchTextField,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - bs:whenTextChanged$default(javax.swing.text.Document,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
@@ -2847,6 +2851,19 @@ f:com.intellij.openapi.observable.util.ListenerUiUtil
 - sf:whenTreeChanged(javax.swing.tree.TreeModel,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
 - bs:whenTreeChanged$default(javax.swing.JTree,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 - bs:whenTreeChanged$default(javax.swing.tree.TreeModel,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
+f:com.intellij.openapi.observable.util.ListenerWithValueUiUtil
+- sf:whenItemSelected(com.intellij.ui.components.DropDownLink,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- sf:whenItemSelected(javax.swing.JComboBox,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bs:whenItemSelected$default(com.intellij.ui.components.DropDownLink,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
+- bs:whenItemSelected$default(javax.swing.JComboBox,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
+- sf:whenTextChanged(com.intellij.openapi.ui.TextFieldWithBrowseButton,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- sf:whenTextChanged(com.intellij.ui.SearchTextField,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- sf:whenTextChanged(javax.swing.text.Document,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- sf:whenTextChanged(javax.swing.text.JTextComponent,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):V
+- bs:whenTextChanged$default(com.intellij.openapi.ui.TextFieldWithBrowseButton,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
+- bs:whenTextChanged$default(com.intellij.ui.SearchTextField,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
+- bs:whenTextChanged$default(javax.swing.text.Document,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
+- bs:whenTextChanged$default(javax.swing.text.JTextComponent,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 f:com.intellij.openapi.observable.util.ModificationTrackerUtilKt
 - sf:createPropertyModificationTracker(com.intellij.openapi.observable.properties.ObservableMutableProperty,com.intellij.openapi.Disposable):com.intellij.openapi.util.ModificationTracker
 - bs:createPropertyModificationTracker$default(com.intellij.openapi.observable.properties.ObservableMutableProperty,com.intellij.openapi.Disposable,I,java.lang.Object):com.intellij.openapi.util.ModificationTracker
@@ -2892,6 +2909,8 @@ f:com.intellij.openapi.observable.util.PropertyUiUtilKt
 - sf:getSizeProperty(javax.swing.JComponent):com.intellij.openapi.observable.properties.ObservableProperty
 - sf:getWidthProperty(javax.swing.JComponent):com.intellij.openapi.observable.properties.ObservableProperty
 f:com.intellij.openapi.observable.util.RevertOnDisposeUtilKt
+- sf:addActionListener(com.intellij.openapi.ui.ComponentWithBrowseButton,com.intellij.openapi.Disposable,java.awt.event.ActionListener):V
+- bs:addActionListener$default(com.intellij.openapi.ui.ComponentWithBrowseButton,com.intellij.openapi.Disposable,java.awt.event.ActionListener,I,java.lang.Object):V
 - sf:addCaretListener(javax.swing.text.JTextComponent,com.intellij.openapi.Disposable,javax.swing.event.CaretListener):V
 - bs:addCaretListener$default(javax.swing.text.JTextComponent,com.intellij.openapi.Disposable,javax.swing.event.CaretListener,I,java.lang.Object):V
 - sf:addComponent(java.awt.Container,java.awt.Component,com.intellij.openapi.Disposable):V
@@ -2917,6 +2936,7 @@ f:com.intellij.openapi.observable.util.RevertOnDisposeUtilKt
 - sf:addPopupMenuListener(javax.swing.JComboBox,com.intellij.openapi.Disposable,javax.swing.event.PopupMenuListener):V
 - bs:addPopupMenuListener$default(javax.swing.JComboBox,com.intellij.openapi.Disposable,javax.swing.event.PopupMenuListener,I,java.lang.Object):V
 - sf:addPropertyChangeListener(java.awt.Component,java.lang.String,com.intellij.openapi.Disposable,java.beans.PropertyChangeListener):V
+- bs:addPropertyChangeListener$default(java.awt.Component,java.lang.String,com.intellij.openapi.Disposable,java.beans.PropertyChangeListener,I,java.lang.Object):V
 - sf:addTableModelListener(com.intellij.util.ui.TableViewModel,com.intellij.openapi.Disposable,javax.swing.event.TableModelListener):V
 - bs:addTableModelListener$default(com.intellij.util.ui.TableViewModel,com.intellij.openapi.Disposable,javax.swing.event.TableModelListener,I,java.lang.Object):V
 - sf:addTreeModelListener(javax.swing.tree.TreeModel,com.intellij.openapi.Disposable,javax.swing.event.TreeModelListener):V
@@ -3019,7 +3039,6 @@ com.intellij.openapi.options.MasterDetails
 com.intellij.openapi.options.NonDefaultProjectConfigurable
 a:com.intellij.openapi.options.SchemeExporter
 - <init>():V
-- exportScheme(com.intellij.openapi.options.Scheme,java.io.OutputStream):V
 - exportScheme(com.intellij.openapi.project.Project,com.intellij.openapi.options.Scheme,java.io.OutputStream):V
 - getDefaultDir(com.intellij.openapi.project.Project):com.intellij.openapi.vfs.VirtualFile
 - getDefaultFileName(java.lang.String):java.lang.String
@@ -3077,7 +3096,9 @@ a:com.intellij.openapi.options.ShowSettingsUtil
 f:com.intellij.openapi.options.SimpleConfigurable
 - com.intellij.openapi.options.ConfigurableBase
 - s:create(java.lang.String,java.lang.String,java.lang.Class,com.intellij.openapi.util.Getter):com.intellij.openapi.options.SimpleConfigurable
+- s:create(java.lang.String,java.lang.String,java.lang.Class,java.util.function.Supplier):com.intellij.openapi.options.SimpleConfigurable
 - s:create(java.lang.String,java.lang.String,java.lang.String,java.lang.Class,com.intellij.openapi.util.Getter):com.intellij.openapi.options.SimpleConfigurable
+- s:create(java.lang.String,java.lang.String,java.lang.String,java.lang.Class,java.util.function.Supplier):com.intellij.openapi.options.SimpleConfigurable
 - getOriginalClass():java.lang.Class
 a:com.intellij.openapi.options.colors.AbstractKeyDescriptor
 - p:<init>(java.util.function.Supplier,java.lang.Object):V
@@ -3908,6 +3929,7 @@ c:com.intellij.openapi.ui.JBPopupMenu
 - paint(java.awt.Graphics):V
 - processMouseWheelEvent(java.awt.event.MouseWheelEvent):V
 - setLayout(java.awt.LayoutManager):V
+- show(java.awt.Component,I,I):V
 - s:showAbove(java.awt.Component,javax.swing.JPopupMenu):V
 - s:showAt(com.intellij.ui.awt.RelativePoint,javax.swing.JPopupMenu):V
 - s:showAtRight(java.awt.Component,javax.swing.JPopupMenu):V
@@ -4425,6 +4447,7 @@ f:com.intellij.openapi.ui.TestDialogManager
 - s:getTestImplementation():com.intellij.openapi.ui.TestDialog
 - s:getTestInputImplementation():com.intellij.openapi.ui.TestInputDialog
 - s:setTestDialog(com.intellij.openapi.ui.TestDialog):com.intellij.openapi.ui.TestDialog
+- s:setTestDialog(com.intellij.openapi.ui.TestDialog,com.intellij.openapi.Disposable):com.intellij.openapi.ui.TestDialog
 - s:setTestInputDialog(com.intellij.openapi.ui.TestInputDialog):com.intellij.openapi.ui.TestInputDialog
 com.intellij.openapi.ui.TestInputDialog
 - sf:DEFAULT:com.intellij.openapi.ui.TestInputDialog
@@ -5468,7 +5491,6 @@ com.intellij.openapi.wm.WelcomeScreenTab
 - updateComponent():V
 com.intellij.openapi.wm.WelcomeTabFactory
 - sf:WELCOME_TAB_FACTORY_EP:com.intellij.openapi.extensions.ExtensionPointName
-- createWelcomeTab(com.intellij.openapi.Disposable):com.intellij.openapi.wm.WelcomeScreenTab
 - createWelcomeTabs(com.intellij.openapi.wm.WelcomeScreen,com.intellij.openapi.Disposable):java.util.List
 - isApplicable():Z
 com.intellij.openapi.wm.WindowInfo

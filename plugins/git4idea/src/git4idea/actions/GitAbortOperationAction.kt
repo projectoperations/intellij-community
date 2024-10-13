@@ -14,6 +14,7 @@ import com.intellij.openapi.vcs.changes.ChangeListData
 import com.intellij.openapi.vcs.changes.ChangeListManagerEx
 import com.intellij.openapi.vcs.update.RefreshVFsSynchronously
 import git4idea.DialogManager
+import git4idea.GitApplyChangesNotification
 import git4idea.GitActivity
 import git4idea.GitNotificationIdsHolder.Companion.CHERRY_PICK_ABORT_FAILED
 import git4idea.GitNotificationIdsHolder.Companion.CHERRY_PICK_ABORT_SUCCESS
@@ -61,13 +62,15 @@ internal abstract class GitAbortOperationAction(
 
   final override fun getMainToolbarIcon(): Icon = AllIcons.Vcs.Abort
 
-  override fun performInBackground(repository: GitRepository): Boolean {
-    if (!confirmAbort(repository)) return false
+  override fun performInBackground(repository: GitRepository) {
+    if (!confirmAbort(repository)) return
 
     runBackgroundableTask(GitBundle.message("abort.operation.progress.title", operationNameCapitalised), repository.project) { indicator ->
       doAbort(repository, indicator)
     }
-    return true
+
+    GitApplyChangesNotification.expireAll<GitApplyChangesNotification.ExpireAfterAbort>(repository.project)
+
   }
 
   private fun confirmAbort(repository: GitRepository): Boolean {

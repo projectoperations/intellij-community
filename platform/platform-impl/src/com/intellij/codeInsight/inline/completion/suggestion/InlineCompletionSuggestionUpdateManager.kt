@@ -91,6 +91,12 @@ interface InlineCompletionSuggestionUpdateManager {
             onInsertNextLine(event, variant)
           }
         }
+        is InlineCompletionEvent.SuggestionInserted -> {
+          onSuggestionInserted(event, variant)
+        }
+        is InlineCompletionEvent.ManualCall -> {
+          onManualCall(event, variant)
+        }
         else -> onCustomEvent(event, variant)
       }
     }
@@ -116,7 +122,18 @@ interface InlineCompletionSuggestionUpdateManager {
     @RequiresEdt
     fun onInsertNextLine(event: InlineCompletionEvent.InsertNextLine, variant: InlineCompletionVariant.Snapshot): UpdateResult = Same
 
+    @ApiStatus.Experimental
     @RequiresEdt
+    fun onSuggestionInserted(event: InlineCompletionEvent.SuggestionInserted, variant: InlineCompletionVariant.Snapshot): UpdateResult {
+      error("A session cannot be updated on the ${event::class.simpleName}, because this event destroyed the session.")
+    }
+
+    @ApiStatus.Experimental
+    @RequiresEdt
+    fun onManualCall(event: InlineCompletionEvent.ManualCall, variant: InlineCompletionVariant.Snapshot): UpdateResult = Same
+
+    @RequiresEdt
+    @Deprecated("Do not extend `InlineCompletionEvent`. Use `ManualCall` instead.")
     fun onCustomEvent(event: InlineCompletionEvent, variant: InlineCompletionVariant.Snapshot): UpdateResult = Same
 
     private fun ignoreDocumentAndCaretChanges(editor: Editor, block: () -> UpdateResult): UpdateResult {
@@ -156,6 +173,14 @@ interface InlineCompletionSuggestionUpdateManager {
     @ApiStatus.NonExtendable
     override fun onBackspace(event: InlineCompletionEvent.Backspace, variant: InlineCompletionVariant.Snapshot): UpdateResult {
       return Invalidated
+    }
+
+    @ApiStatus.Experimental
+    final override fun onSuggestionInserted(
+      event: InlineCompletionEvent.SuggestionInserted,
+      variant: InlineCompletionVariant.Snapshot
+    ): UpdateResult {
+      return super.onSuggestionInserted(event, variant)
     }
 
     @ApiStatus.Experimental

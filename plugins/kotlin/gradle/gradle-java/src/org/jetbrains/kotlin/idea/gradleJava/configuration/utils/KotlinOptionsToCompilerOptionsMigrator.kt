@@ -3,16 +3,18 @@ package org.jetbrains.kotlin.idea.gradleJava.configuration.utils
 
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.psi.PsiFile
+import com.intellij.psi.tree.IElementType
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.idea.base.util.module
 import org.jetbrains.kotlin.idea.compiler.configuration.IdeKotlinVersion
 import org.jetbrains.kotlin.idea.gradleJava.kotlinGradlePluginVersion
 import org.jetbrains.kotlin.idea.gradleTooling.compareTo
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
-import org.jetbrains.kotlin.psi.KtReferenceExpression
+import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.resolve.calls.util.getCalleeExpressionIfAny
 import org.jetbrains.kotlin.tooling.core.KotlinToolingVersion
 import java.util.function.Function
@@ -23,30 +25,22 @@ data class Replacement(val expressionToReplace: KtExpression, val replacement: S
 
 @ApiStatus.Internal
 fun expressionContainsOperationForbiddenToReplace(binaryExpression: KtBinaryExpression): Boolean {
-    val operationReference = binaryExpression.operationReference.text
-    return if (operationReference == "-=") {
-        true
+    if (binaryExpression.operationToken == KtTokens.MINUSEQ) return true
+    val rightPartOfBinaryExpression = binaryExpression.right ?: return true
+    return if (rightPartOfBinaryExpression is KtBinaryExpression) {
+        checkIfExpressionContainsMinusOperator(rightPartOfBinaryExpression)
     } else {
-        val rightPartOfBinaryExpression = binaryExpression.right ?: return true
-        if (rightPartOfBinaryExpression is KtBinaryExpression) {
-            checkIfExpressionContainsMinusOperator(rightPartOfBinaryExpression)
-        } else {
-            false
-        }
+        false
     }
 }
 
 private fun checkIfExpressionContainsMinusOperator(binaryExpression: KtBinaryExpression): Boolean {
-    val operationReference = binaryExpression.operationReference.text
-    return if (operationReference == "-") {
-        true
+    if (binaryExpression.operationToken == KtTokens.MINUS) return true
+    val leftPartOfBinaryExpression = binaryExpression.left ?: return true
+    return if (leftPartOfBinaryExpression is KtBinaryExpression) {
+        checkIfExpressionContainsMinusOperator(leftPartOfBinaryExpression)
     } else {
-        val leftPartOfBinaryExpression = binaryExpression.left ?: return true
-        if (leftPartOfBinaryExpression is KtBinaryExpression) {
-            checkIfExpressionContainsMinusOperator(leftPartOfBinaryExpression)
-        } else {
-            false
-        }
+        false
     }
 }
 
@@ -56,44 +50,53 @@ fun getReplacementForOldKotlinOptionIfNeeded(binaryExpression: KtBinaryExpressio
     val rightPartOfBinaryExpression = binaryExpression.right ?: return null
 
     val leftPartOfBinaryExpression = binaryExpression.left ?: return null
-    val textOfLeftPartOfBinaryExpression = leftPartOfBinaryExpression.text
 
     val (optionName, replacementOfKotlinOptionsIfNeeded) = getOptionName(leftPartOfBinaryExpression)
         ?: return null
 
     if (rightPartOfBinaryExpression is KtBinaryExpression && !optionName.contains("freeCompilerArgs")) {
-        return getReplacementOnlyOfKotlinOptionsIfNeeded(rightPartOfBinaryExpression, textOfLeftPartOfBinaryExpression)
+        return getReplacementOnlyOfKotlinOptionsIfNeeded(binaryExpression)
     }
 
     val (optionValue, valueContainsMultipleValues) = getOptionValue(rightPartOfBinaryExpression, optionName) ?: return null
 
-    val operationReference = binaryExpression.operationReference.text
+    val operationToken = binaryExpression.operationToken
 
     val expressionForCompilerOption =
         getReplacementForOldKotlinOptionIfNeeded(
             replacementOfKotlinOptionsIfNeeded,
             optionName,
             optionValue,
-            operationReference,
+            operationToken,
             valueContainsMultipleValues
         )
     if (expressionForCompilerOption != null) {
         return Replacement(binaryExpression, expressionForCompilerOption.expression, expressionForCompilerOption.classToImport)
     }
     // ALL OTHER
-    return getReplacementOnlyOfKotlinOptionsIfNeeded(binaryExpression, textOfLeftPartOfBinaryExpression)
+    return getReplacementOnlyOfKotlinOptionsIfNeeded(binaryExpression)
 }
 
 private fun getOptionValue(expression: KtExpression, optionName: String): Pair<String, Boolean>? {
     val optionValue: String
     val valueContainsMultipleValues: Boolean
     if (expression is KtBinaryExpression) {
-        if (expression.operationReference.text != "+") {
+        if (expression.operationToken != KtTokens.PLUS) {
             return null
         }
         if (optionName == "freeCompilerArgs") {
             val leftPart = expression.left ?: return null
             val rightPart = expression.right ?: return null
+            /*
+              rightPart.text might be:
+              "-Xopt-in=kotlin.RequiresOptIn" OR
+              project.compilerArgs OR
+              listOf(
+                  "-Xopt-in=kotlin.RequiresOptIn",
+                  "-Xopt-in=kotlin.ExperimentalStdlibApi"), etc.
+
+              That's why using `rightPart.text` is ok
+             */
             val optionValues = getOptionsFromFreeCompilerArgsExpression(leftPart, mutableSetOf(rightPart.text)) ?: return null
             optionValue = StringUtil.join(optionValues.reversed(), ", ")
             valueContainsMultipleValues = true
@@ -101,7 +104,7 @@ private fun getOptionValue(expression: KtExpression, optionName: String): Pair<S
             return null
         }
     } else {
-        optionValue = expression.text
+        optionValue = expression.text // The same reason of using `.text` as above for `rightPart.text`
         valueContainsMultipleValues = false
     }
     return Pair(optionValue, valueContainsMultipleValues)
@@ -112,39 +115,45 @@ private fun getOptionValue(expression: KtExpression, optionName: String): Pair<S
  */
 private fun getOptionsFromFreeCompilerArgsExpression(expression: KtExpression, optionValues: MutableSet<String>): Set<String>? {
     if (expression is KtBinaryExpression) {
-        val operationReference = expression.operationReference.text
-        if (operationReference != "+") {
-            return null
-        } else {
-            optionValues.add(expression.right?.text ?: return null)
-            getOptionsFromFreeCompilerArgsExpression(expression.left ?: return null, optionValues)
-        }
+        if (expression.operationToken != KtTokens.PLUS) return null
+        optionValues.add(expression.right?.text ?: return null) // `expression.right?.text` looks like `"-Xopt-in=kotlin.RequiresOptIn"`
+        getOptionsFromFreeCompilerArgsExpression(expression.left ?: return null, optionValues)
     } else {
-        if (expression.text != "freeCompilerArgs") {
-            optionValues.add(expression.text)
+        /*
+        expression.text can be `project.benchmark.compilerOpts` OR
+        `allLibraries.map { listOf("-include-binary", it) }.flatten()` OR
+         a recursion bottom like "-Xexport-kdoc"
+         */
+        val expressionText = expression.text ?: return null
+        if (expressionText != "freeCompilerArgs") {
+            optionValues.add(expressionText)
         }
     }
     return optionValues
+}
+
+private fun getLeftmostReceiver(expression: KtDotQualifiedExpression): KtExpression {
+    val receiver = expression.receiverExpression
+    if (receiver is KtDotQualifiedExpression) {
+        return getLeftmostReceiver(receiver)
+    }
+    return receiver
 }
 
 private fun getOptionName(expression: KtExpression): Pair<String, StringBuilder>? {
     val replacementOfKotlinOptionsIfNeeded = StringBuilder()
     val optionName = when (expression) {
         is KtDotQualifiedExpression -> {
-            val partBeforeDot = expression.receiverExpression.text
-
-            if (!partBeforeDot.contains("kotlinOptions")) {
-                if (partBeforeDot != "options") {
-                    return null
-                }
-            } else {
-                replacementOfKotlinOptionsIfNeeded.append("compilerOptions.")
+            if (expressionStartsWithKotlinOptionsReference(expression)) {
+                val partBeforeDot = expression.receiverExpression.text // Might be `kotlinOptions.options`
+                replacementOfKotlinOptionsIfNeeded.append(partBeforeDot.replace("kotlinOptions", "compilerOptions") + ".")
             }
+            // optionName is everything that is on the right side of `kotlinOptions.`:
             expression.getCalleeExpressionIfAny()?.text ?: return null
         }
 
-        is KtReferenceExpression -> {
-            expression.text
+        is KtNameReferenceExpression -> {
+            expression.getReferencedName()
         }
 
         else -> {
@@ -169,12 +178,12 @@ fun kotlinVersionIsEqualOrHigher(major: Int, minor: Int, patch: Int, file: PsiFi
 }
 
 private fun getOperationReplacer(
-    operationReference: String,
+    operationToken: IElementType,
     optionValue: String,
     valueContainsMultipleValues: Boolean = false
 ): String? {
-    return when (operationReference) {
-        "=" -> {
+    return when (operationToken) {
+        KtTokens.EQ -> {
             if (valueContainsMultipleValues) {
                 "addAll"
             } else {
@@ -182,7 +191,7 @@ private fun getOperationReplacer(
             }
         }
 
-        "+=" -> {
+        KtTokens.PLUSEQ -> {
             if (!collectionsNamesRegex.find(optionValue)?.value.isNullOrEmpty() || valueContainsMultipleValues) {
                 "addAll"
             } else {
@@ -200,11 +209,11 @@ private fun getReplacementForOldKotlinOptionIfNeeded(
     replacement: StringBuilder,
     optionName: String,
     optionValue: String,
-    operationReference: String,
+    operationToken: IElementType,
     valueContainsMultipleValues: Boolean = false,
 ): CompilerOption? {
     val operationReplacer =
-        getOperationReplacer(operationReference, optionValue, valueContainsMultipleValues) ?: return null
+        getOperationReplacer(operationToken, optionValue, valueContainsMultipleValues) ?: return null
     // jvmTarget, apiVersion and languageVersion
     val versionOptionData = optionsWithValuesMigratedFromNumericStringsToEnums[optionName]
     if (versionOptionData != null) {
@@ -266,22 +275,30 @@ private fun getCompilerOptionForJsValue(
 @ApiStatus.Internal
 fun getCompilerOption(optionName: String, optionValue: String): CompilerOption {
     val replacement = StringBuilder()
-    val compilerOption = getReplacementForOldKotlinOptionIfNeeded(replacement, optionName, optionValue, operationReference = "=")
+    val compilerOption = getReplacementForOldKotlinOptionIfNeeded(replacement, optionName, optionValue, operationToken = KtTokens.EQ)
     return compilerOption ?: CompilerOption("$optionName = $optionValue")
 }
 
 private val collectionsNamesRegex = Regex("listOf|mutableListOf|setOf|mutableSetOf")
 
 private fun getReplacementOnlyOfKotlinOptionsIfNeeded(
-    binaryExpression: KtBinaryExpression,
-    textOfLeftPartOfBinaryExpression: String,
+    binaryExpression: KtBinaryExpression
 ): Replacement? {
-    return if (textOfLeftPartOfBinaryExpression.startsWith("kotlinOptions.")) {
-        val replacement = binaryExpression.text.replace("kotlinOptions.", "compilerOptions.")
+    val leftPartOfBinaryExpression = binaryExpression.left ?: return null
+    return if (leftPartOfBinaryExpression is KtDotQualifiedExpression) {
+        if (!expressionStartsWithKotlinOptionsReference(leftPartOfBinaryExpression)) return null
+        val replacement = binaryExpression.text.replace("kotlinOptions", "compilerOptions")
         Replacement(binaryExpression, replacement)
     } else {
         null
     }
+}
+
+private fun expressionStartsWithKotlinOptionsReference(expression: KtDotQualifiedExpression): Boolean {
+    val leftmostReceiver = getLeftmostReceiver(expression)
+    if (leftmostReceiver !is KtNameReferenceExpression) return false
+    val leftmostReceiverName = leftmostReceiver.getReferencedName()
+    return (leftmostReceiverName == "kotlinOptions")
 }
 
 private data class JsOptionValue(val optionValue: String, val className: String, val fqClassName: FqName)
@@ -339,80 +356,50 @@ private data class VersionOption(val newOptionType: String, val fqClassName: FqN
 
 private val kotlinVersionFqName = FqName("org.jetbrains.kotlin.gradle.dsl.KotlinVersion")
 private val optionsWithValuesMigratedFromNumericStringsToEnums = mapOf(
-    Pair(
-        "jvmTarget",
-        VersionOption("JvmTarget.JVM_", FqName("org.jetbrains.kotlin.gradle.dsl.JvmTarget"), ::jvmTargetValueMappingRule)
-    ),
-    Pair(
-        "apiVersion",
-        VersionOption("KotlinVersion.KOTLIN_", kotlinVersionFqName, ::kotlinVersionValueMappingRule)
-    ),
-    Pair(
-        "languageVersion",
-        VersionOption("KotlinVersion.KOTLIN_", kotlinVersionFqName, ::kotlinVersionValueMappingRule)
-    )
+    "jvmTarget" to VersionOption("JvmTarget.JVM_", FqName("org.jetbrains.kotlin.gradle.dsl.JvmTarget"), ::jvmTargetValueMappingRule),
+    "apiVersion" to VersionOption("KotlinVersion.KOTLIN_", kotlinVersionFqName, ::kotlinVersionValueMappingRule),
+    "languageVersion" to VersionOption("KotlinVersion.KOTLIN_", kotlinVersionFqName, ::kotlinVersionValueMappingRule)
 )
 
 private val jsSourceMapEmbedModeFqClassName = FqName("org.jetbrains.kotlin.gradle.dsl.JsSourceMapEmbedMode")
 private const val jsSourceMapEmbedModeClassName = "JsSourceMapEmbedMode"
 private val sourceMapEmbedSourcesValues = mapOf(
-    Pair(
-        "inlining",
-        JsOptionValue("SOURCE_MAP_SOURCE_CONTENT_INLINING", jsSourceMapEmbedModeClassName, jsSourceMapEmbedModeFqClassName)
-    ),
-    Pair(
-        "never",
-        JsOptionValue("SOURCE_MAP_SOURCE_CONTENT_NEVER", jsSourceMapEmbedModeClassName, jsSourceMapEmbedModeFqClassName)
-    ),
-    Pair(
-        "always",
-        JsOptionValue("SOURCE_MAP_SOURCE_CONTENT_ALWAYS", jsSourceMapEmbedModeClassName, jsSourceMapEmbedModeFqClassName)
-    )
+    "inlining" to JsOptionValue("SOURCE_MAP_SOURCE_CONTENT_INLINING", jsSourceMapEmbedModeClassName, jsSourceMapEmbedModeFqClassName),
+    "never" to JsOptionValue("SOURCE_MAP_SOURCE_CONTENT_NEVER", jsSourceMapEmbedModeClassName, jsSourceMapEmbedModeFqClassName),
+    "always" to JsOptionValue("SOURCE_MAP_SOURCE_CONTENT_ALWAYS", jsSourceMapEmbedModeClassName, jsSourceMapEmbedModeFqClassName)
 )
 
 private val jsMainFunctionExecutionModeFqClassName = FqName("org.jetbrains.kotlin.gradle.dsl.JsMainFunctionExecutionMode")
 private const val jsMainFunctionExecutionModeClassName = "JsMainFunctionExecutionMode"
 private val jsMainFunctionExecutionModeValues = mapOf(
-    Pair(
-        "call",
-        JsOptionValue("CALL", jsMainFunctionExecutionModeClassName, jsMainFunctionExecutionModeFqClassName)
-    ),
-    Pair(
-        "noCall",
-        JsOptionValue("NO_CALL", jsMainFunctionExecutionModeClassName, jsMainFunctionExecutionModeFqClassName)
-    )
+    "call" to JsOptionValue("CALL", jsMainFunctionExecutionModeClassName, jsMainFunctionExecutionModeFqClassName),
+    "noCall" to JsOptionValue("NO_CALL", jsMainFunctionExecutionModeClassName, jsMainFunctionExecutionModeFqClassName)
+
 )
 
 private val jsModuleKindFqClassName = FqName("org.jetbrains.kotlin.gradle.dsl.JsModuleKind")
 private const val jsModuleKindClassName = "JsModuleKind"
 private val jsModuleKindValues = mapOf(
-    Pair("amd", JsOptionValue("MODULE_AMD", jsModuleKindClassName, jsModuleKindFqClassName)),
-    Pair("plain", JsOptionValue("MODULE_PLAIN", jsModuleKindClassName, jsModuleKindFqClassName)),
-    Pair("es", JsOptionValue("MODULE_ES", jsModuleKindClassName, jsModuleKindFqClassName)),
-    Pair("commonjs", JsOptionValue("MODULE_COMMONJS", jsModuleKindClassName, jsModuleKindFqClassName)),
-    Pair("umd", JsOptionValue("MODULE_UMD", jsModuleKindClassName, jsModuleKindFqClassName))
+    "amd" to JsOptionValue("MODULE_AMD", jsModuleKindClassName, jsModuleKindFqClassName),
+    "plain" to JsOptionValue("MODULE_PLAIN", jsModuleKindClassName, jsModuleKindFqClassName),
+    "es" to JsOptionValue("MODULE_ES", jsModuleKindClassName, jsModuleKindFqClassName),
+    "commonjs" to JsOptionValue("MODULE_COMMONJS", jsModuleKindClassName, jsModuleKindFqClassName),
+    "umd" to JsOptionValue("MODULE_UMD", jsModuleKindClassName, jsModuleKindFqClassName)
 )
 
 private val jsSourceMapNamesPolicyFqClassName = FqName("org.jetbrains.kotlin.gradle.dsl.JsSourceMapNamesPolicy")
 private const val jsSourceMapNamesPolicyClassName = "JsSourceMapNamesPolicy"
 private val jsSourceMapNamesPolicyValues = mapOf(
-    Pair(
-        "fully-qualified-names",
-        JsOptionValue("SOURCE_MAP_NAMES_POLICY_FQ_NAMES", jsSourceMapNamesPolicyClassName, jsSourceMapNamesPolicyFqClassName)
-    ),
-    Pair(
-        "simple-names",
-        JsOptionValue("SOURCE_MAP_NAMES_POLICY_SIMPLE_NAMES", jsSourceMapNamesPolicyClassName, jsSourceMapNamesPolicyFqClassName)
-    ),
-    Pair(
-        "no",
-        JsOptionValue("SOURCE_MAP_NAMES_POLICY_NO", jsSourceMapNamesPolicyClassName, jsSourceMapNamesPolicyFqClassName)
-    ),
+    "fully-qualified-names" to
+            JsOptionValue("SOURCE_MAP_NAMES_POLICY_FQ_NAMES", jsSourceMapNamesPolicyClassName, jsSourceMapNamesPolicyFqClassName),
+    "simple-names" to
+            JsOptionValue("SOURCE_MAP_NAMES_POLICY_SIMPLE_NAMES", jsSourceMapNamesPolicyClassName, jsSourceMapNamesPolicyFqClassName),
+    "no" to JsOptionValue("SOURCE_MAP_NAMES_POLICY_NO", jsSourceMapNamesPolicyClassName, jsSourceMapNamesPolicyFqClassName),
 )
 
 private val jsOptions = mapOf(
-    Pair("main", jsMainFunctionExecutionModeValues),
-    Pair("moduleKind", jsModuleKindValues),
-    Pair("sourceMapEmbedSources", sourceMapEmbedSourcesValues),
-    Pair("sourceMapNamesPolicy", jsSourceMapNamesPolicyValues)
+    "main" to jsMainFunctionExecutionModeValues,
+    "moduleKind" to jsModuleKindValues,
+    "sourceMapEmbedSources" to sourceMapEmbedSourcesValues,
+    "sourceMapNamesPolicy" to jsSourceMapNamesPolicyValues
 )

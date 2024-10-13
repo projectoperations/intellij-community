@@ -261,7 +261,10 @@ public final class VfsEventsMerger {
       if (indexedFile instanceof FileContent fileContent) {
         extra += ",contLen(b)=" + fileContent.getContent().length;
         FileType fileType = fileContent.getFileType();
-        extra += ",psiLen=" + (fileType instanceof LanguageFileType ? fileContent.getPsiFile().getTextLength() : -1);
+        // WARNING: LanguageFileType does not guarantee that there is a PsiFile.
+        // Example: org.jetbrains.bazel.languages.projectview.base.ProjectViewFileType
+        // psiLen has never been helpful to me, so don't log it for now.
+        // extra += ",psiLen=" + (fileType instanceof LanguageFileType ? fileContent.getPsiFile().getTextLength() : -1);
         extra += ",bin=" + (fileType.isBinary() ? "t" : "f");
       }
 
@@ -274,7 +277,12 @@ public final class VfsEventsMerger {
 
   public static void tryLog(Supplier<String> message) {
     if (LOG != null) {
-      LOG.info(message.get());
+      try {
+        LOG.info(message.get());
+      }
+      catch (Throwable t) {
+        Logger.getInstance(VfsEventsMerger.class).error("Could not evaluate log message (message.get())", t);
+      }
     }
   }
 

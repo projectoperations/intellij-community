@@ -55,16 +55,18 @@ public abstract class InlineOptionsWithSearchSettingsDialog extends InlineOption
   protected @NotNull JComponent createCenterPanel() {
     final JPanel panel = new JPanel(new GridBagLayout());
     GridBagConstraints gbc = new GridBagConstraints();
+    gbc.anchor = GridBagConstraints.NORTH;
     gbc.fill = GridBagConstraints.HORIZONTAL;
     gbc.weightx = 1.0;
     gbc.gridwidth = 2;
-    gbc.insets.bottom = JBUIScale.scale(10);
+    gbc.insets.bottom = JBUIScale.scale(UIUtil.LARGE_VGAP);
     panel.add(super.createCenterPanel(), gbc);
 
     myCbSearchInComments = new JCheckBox(RefactoringBundle.message("search.in.comments.and.strings"), isSearchInCommentsAndStrings());
     myCbSearchTextOccurences = new JCheckBox(RefactoringBundle.message("search.for.text.occurrences"), isSearchForTextOccurrences());
     gbc.insets.bottom = 0;
     gbc.weightx = 0;
+    gbc.weighty = 1;
     gbc.gridwidth = 1;
     gbc.gridy = 1;
     gbc.gridx = 0;
@@ -75,7 +77,7 @@ public abstract class InlineOptionsWithSearchSettingsDialog extends InlineOption
     final ActionListener actionListener = new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        setEnabledSearchSettngs(myRbInlineAll.isSelected() || myKeepTheDeclaration != null && myKeepTheDeclaration.isSelected());
+        setEnabledSearchSettngs(!isInlineThisOnly());
       }
     };
     myRbInlineThisOnly.addActionListener(actionListener);
@@ -83,7 +85,7 @@ public abstract class InlineOptionsWithSearchSettingsDialog extends InlineOption
     if (myKeepTheDeclaration != null) {
       myKeepTheDeclaration.addActionListener(actionListener);
     }
-    setEnabledSearchSettngs(myRbInlineAll.isSelected());
+    setEnabledSearchSettngs(!isInlineThisOnly());
     return panel;
   }
 }

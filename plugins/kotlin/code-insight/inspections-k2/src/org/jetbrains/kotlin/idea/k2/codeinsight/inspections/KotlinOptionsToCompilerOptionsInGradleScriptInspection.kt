@@ -31,6 +31,7 @@ import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtReferenceExpression
 import org.jetbrains.kotlin.psi.KtVisitorVoid
+import org.jetbrains.kotlin.psi.psiUtil.referenceExpression
 
 private val kotlinCompileTasksNames = setOf(
     "org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile",
@@ -59,57 +60,56 @@ internal class KotlinOptionsToCompilerOptionsInGradleScriptInspection : Abstract
         isOnTheFly: Boolean,
     ): KtVisitorVoid {
         return object : KtVisitorVoid() {
-            override fun visitReferenceExpression(expression: KtReferenceExpression) {
-                val referencedName = (expression as? KtNameReferenceExpression)?.getReferencedName() ?: return
-                // ATM, we don't have proper dependencies for tests to perform `analyze` in Gradle build scripts
-                if (referencedName == "android" && !isUnitTestMode()) {
-                    if (elementIsAndroidDsl(expression)) return
-                }
-                if (referencedName != "kotlinOptions") return
+
+            override fun visitDotQualifiedExpression(expression: KtDotQualifiedExpression) {
+                val referenceExpression = expression.receiverExpression.referenceExpression() ?: return
+
+                if (!isKotlinOptionsOfNeededType(referenceExpression)) return
 
                 val expressionParent = expression.parent
+                if (elementContainsOperationForbiddenToReplaceOrCantBeProcessed(expressionParent)) return
 
-                if (!isUnitTestMode()) { // ATM, we don't have proper dependencies for tests to perform `analyze` in Gradle build scripts
-                    val jvmClassForKotlinCompileTask = analyze(expression) {
-                        val symbol = expression.resolveToCall()
-                            ?.successfulFunctionCallOrNull()?.partiallyAppliedSymbol?.signature?.symbol
-                        val containingDeclarationOrSymbol =
-                            (symbol?.containingDeclaration as? KaClassLikeSymbol) ?: expression.resolveExpression()?.containingSymbol
-                        containingDeclarationOrSymbol?.importableFqName?.toString()
-                    }
-                    if (jvmClassForKotlinCompileTask !in kotlinCompileTasksNames) {
-                        return
-                    }
+                addProblemToHolder(referenceExpression)
+            }
+
+            override fun visitCallExpression(callExpression: KtCallExpression) {
+                val referenceExpression = callExpression.referenceExpression() ?: return
+
+                if (!isKotlinOptionsOfNeededType(referenceExpression)) return
+
+                val lambdaStatements = callExpression.lambdaArguments.firstOrNull()
+                    ?.getLambdaExpression()?.bodyExpression?.statements?.requireNoNulls()
+
+                if (lambdaStatements?.any(::expressionsContainForbiddenOperations) == true) return
+                addProblemToHolder(referenceExpression)
+            }
+
+            private fun isKotlinOptionsOfNeededType(referenceExpression: KtReferenceExpression): Boolean {
+                val referencedName = (referenceExpression as? KtNameReferenceExpression)?.getReferencedName() ?: return false
+                if (referencedName != "kotlinOptions") return false
+
+                return if (!isUnitTestMode()) { // ATM, we don't have proper dependencies for tests to perform `analyze` in Gradle build scripts
+                    kotlinOptionsAreOfNeededType(referenceExpression)
+                } else {
+                    true
                 }
-                when (expressionParent) {
-                    is KtDotQualifiedExpression -> { // like `kotlinOptions.sourceMapEmbedSources` OR kotlinOptions.options
-                        val parentOfExpressionParent = expressionParent.parent
-                        if (elementContainsOperationForbiddenToReplaceOrCantBeProcessed(parentOfExpressionParent)) return
-                    }
+            }
 
-                    is KtCallExpression -> {
-                        /*
-                    Like the following. Raise a problem for this.
-                    compileKotlin.kotlinOptions {
-                        jvmTarget = "1.8"
-                        freeCompilerArgs += listOf("-module-name", "TheName")
-                        apiVersion = "1.9"
-                    }
-                     */
-                        val lambdaStatements = expressionParent.lambdaArguments.firstOrNull()
-                            ?.getLambdaExpression()?.bodyExpression?.statements?.requireNoNulls()
-
-                        // compileKotlin.kotlinOptions { .. }
-                        lambdaStatements?.forEach {
-                            if (expressionsContainForbiddenOperations(it)) return
-                        }
-                    }
-
-                    else -> return
+            private fun kotlinOptionsAreOfNeededType(referenceExpression: KtReferenceExpression): Boolean {
+                val jvmClassForKotlinCompileTask = analyze(referenceExpression) {
+                    val symbol = referenceExpression.resolveToCall()
+                        ?.successfulFunctionCallOrNull()?.partiallyAppliedSymbol?.signature?.symbol
+                    val containingDeclarationOrSymbol =
+                        (symbol?.containingDeclaration as? KaClassLikeSymbol)
+                            ?: referenceExpression.resolveExpression()?.containingSymbol
+                    containingDeclarationOrSymbol?.importableFqName?.toString()
                 }
+                return jvmClassForKotlinCompileTask in kotlinCompileTasksNames
+            }
 
+            private fun addProblemToHolder(referenceExpression: KtReferenceExpression) {
                 holder.problem(
-                    expression,
+                    referenceExpression,
                     KotlinBundle.message("inspection.kotlin.options.to.compiler.options.display.name")
                 )
                     .highlight(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
@@ -139,24 +139,16 @@ internal class KotlinOptionsToCompilerOptionsInGradleScriptInspection : Abstract
         }
     }
 
-    private fun elementIsAndroidDsl(expression: KtExpression): Boolean {
-        val importableFqName = analyze(expression) {
-            val symbol = expression.resolveToCall()
-                ?.successfulFunctionCallOrNull()?.partiallyAppliedSymbol?.signature?.symbol
-            val kaSymbol =
-                (symbol?.containingDeclaration as? KaClassLikeSymbol) ?: expression.resolveExpression()
-            kaSymbol?.importableFqName?.toString()
-        }
-        return importableFqName == "org.gradle.kotlin.dsl.android"
-    }
-
     private fun expressionsContainForbiddenOperations(element: PsiElement): Boolean {
-        if (element is KtBinaryExpression) { // for sth like `kotlinOptions.sourceMapEmbedSources = "inlining"`
-            if (expressionContainsOperationForbiddenToReplace(element)) return true
+        return if (element is KtBinaryExpression) { // for sth like `kotlinOptions.sourceMapEmbedSources = "inlining"`
+            if (expressionContainsOperationForbiddenToReplace(element)) {
+                true
+            } else {
+                false
+            }
         } else {
-            return element.children.any { expressionsContainForbiddenOperations(it) }
+            element.children.any { expressionsContainForbiddenOperations(it) }
         }
-        return false
     }
 }
 

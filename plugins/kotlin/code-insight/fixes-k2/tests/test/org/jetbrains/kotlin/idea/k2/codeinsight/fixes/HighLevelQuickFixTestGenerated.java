@@ -1912,21 +1912,6 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/modifiers/removeInnerForClassInInterface.kt");
         }
 
-        @TestMetadata("removeModifierFromForbiddenOperatorMod.kt")
-        public void testRemoveModifierFromForbiddenOperatorMod() throws Exception {
-            runTest("../../../idea/tests/testData/quickfix/modifiers/removeModifierFromForbiddenOperatorMod.kt");
-        }
-
-        @TestMetadata("removeModifierFromOperatorMod.kt")
-        public void testRemoveModifierFromOperatorMod() throws Exception {
-            runTest("../../../idea/tests/testData/quickfix/modifiers/removeModifierFromOperatorMod.kt");
-        }
-
-        @TestMetadata("removeModifierFromOperatorModAssign.kt")
-        public void testRemoveModifierFromOperatorModAssign() throws Exception {
-            runTest("../../../idea/tests/testData/quickfix/modifiers/removeModifierFromOperatorModAssign.kt");
-        }
-
         @TestMetadata("removeProtectedModifier.kt")
         public void testRemoveProtectedModifier() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/modifiers/removeProtectedModifier.kt");
@@ -4012,6 +3997,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("changeAccessorTypeToFunctionType.kt")
         public void testChangeAccessorTypeToFunctionType() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/typeAddition/changeAccessorTypeToFunctionType.kt");
+        }
+
+        @TestMetadata("dataClasNoParameterType.kt")
+        public void testDataClasNoParameterType() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/typeAddition/dataClasNoParameterType.kt");
         }
 
         @TestMetadata("noAddErrorType.kt")
@@ -10370,7 +10360,39 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         }
     }
 
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/quickfix/protectedInFinal")
+    public static class ProtectedInFinal extends AbstractHighLevelQuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
 
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("finalizeNotReal.kt")
+        public void testFinalizeNotReal() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/protectedInFinal/finalizeNotReal.kt");
+        }
+
+        @TestMetadata("finalizeNotRealImplicitReturnInt.kt")
+        public void testFinalizeNotRealImplicitReturnInt() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/protectedInFinal/finalizeNotRealImplicitReturnInt.kt");
+        }
+
+        @TestMetadata("protected.kt")
+        public void testProtected() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/protectedInFinal/protected.kt");
+        }
+
+        @TestMetadata("protected2.kt")
+        public void testProtected2() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/protectedInFinal/protected2.kt");
+        }
+    }
 
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/quickfix/redundantConst")
@@ -10782,36 +10804,8 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
 
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/quickfix/renameToRem")
-    public static class RenameToRem extends AbstractHighLevelQuickFixTest {
-        @java.lang.Override
-        @org.jetbrains.annotations.NotNull
-        public final KotlinPluginMode getPluginMode() {
-            return KotlinPluginMode.K2;
-        }
+    public abstract static class RenameToRem extends AbstractHighLevelQuickFixTest {
 
-        private void runTest(String testDataFilePath) throws Exception {
-            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-        }
-
-        @TestMetadata("forbiddenModAsMember.kt")
-        public void testForbiddenModAsMember() throws Exception {
-            runTest("../../../idea/tests/testData/quickfix/renameToRem/forbiddenModAsMember.kt");
-        }
-
-        @TestMetadata("modAsExtension.kt")
-        public void testModAsExtension() throws Exception {
-            runTest("../../../idea/tests/testData/quickfix/renameToRem/modAsExtension.kt");
-        }
-
-        @TestMetadata("modAsMember.kt")
-        public void testModAsMember() throws Exception {
-            runTest("../../../idea/tests/testData/quickfix/renameToRem/modAsMember.kt");
-        }
-
-        @TestMetadata("modAssignAsMember.kt")
-        public void testModAssignAsMember() throws Exception {
-            runTest("../../../idea/tests/testData/quickfix/renameToRem/modAssignAsMember.kt");
-        }
     }
 
 

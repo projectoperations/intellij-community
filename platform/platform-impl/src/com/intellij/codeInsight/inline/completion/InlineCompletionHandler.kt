@@ -92,18 +92,28 @@ class InlineCompletionHandler(
   }
 
   @Deprecated(
-    message = "Direct invocations of DocumentChange are forbidden. Use [onDocumentEvent].",
-    ReplaceWith("onDocumentEvent(..., event.editor)"),
-    level = DeprecationLevel.ERROR
+    message = "Use general invokeEvent.",
+    level = DeprecationLevel.WARNING,
+    replaceWith = ReplaceWith("invokeEvent(event)"),
   )
   @ScheduledForRemoval
-  fun invoke(@Suppress("UNUSED_PARAMETER") event: InlineCompletionEvent.DocumentChange) {
-    throw UnsupportedOperationException("Direct `DocumentChange` events are not supported anymore.")
-  }
+  fun invoke(event: InlineCompletionEvent.LookupChange): Unit = invokeEvent(event)
 
-  fun invoke(event: InlineCompletionEvent.LookupChange) = invokeEvent(event)
-  fun invoke(event: InlineCompletionEvent.LookupCancelled) = invokeEvent(event)
-  fun invoke(event: InlineCompletionEvent.DirectCall) = invokeEvent(event)
+  @Deprecated(
+    message = "Use general invokeEvent.",
+    level = DeprecationLevel.WARNING,
+    replaceWith = ReplaceWith("invokeEvent(event)"),
+  )
+  @ScheduledForRemoval
+  fun invoke(event: InlineCompletionEvent.LookupCancelled): Unit = invokeEvent(event)
+
+  @Deprecated(
+    message = "Use general invokeEvent.",
+    level = DeprecationLevel.WARNING,
+    replaceWith = ReplaceWith("invokeEvent(event)"),
+  )
+  @ScheduledForRemoval
+  fun invoke(event: InlineCompletionEvent.DirectCall): Unit = invokeEvent(event)
 
   @RequiresEdt
   fun invokeEvent(event: InlineCompletionEvent) {
@@ -152,6 +162,7 @@ class InlineCompletionHandler(
     ThreadingAssertions.assertWriteAccess()
 
     val session = InlineCompletionSession.getOrNull(editor) ?: return
+    val providerId = session.provider.id
     val context = session.context
     val offset = context.startOffset() ?: return
     traceBlocking(InlineCompletionEventType.Insert)
@@ -170,6 +181,9 @@ class InlineCompletionHandler(
     traceBlocking(InlineCompletionEventType.AfterInsert)
 
     LookupManager.getActiveLookup(editor)?.hideLookup(false) //TODO: remove this
+
+    // The session is completely destroyed at this moment, so it's safe to send a new event
+    invokeEvent(InlineCompletionEvent.SuggestionInserted(editor, providerId))
   }
 
   @RequiresEdt
@@ -361,7 +375,7 @@ class InlineCompletionHandler(
 
     return InlineCompletionProvider.extensions().firstOrNull {
       try {
-        it.isEnabled(event)
+        it.isEnabledConsideringEventRequirements(event)
       }
       catch (e: Throwable) {
         LOG.errorIfNotMessage(e)
@@ -370,6 +384,13 @@ class InlineCompletionHandler(
     }?.also {
       LOG.trace("Selected inline provider: $it")
     }
+  }
+
+  private fun InlineCompletionProvider.isEnabledConsideringEventRequirements(event: InlineCompletionEvent): Boolean {
+    if (event is InlineCompletionEvent.WithSpecificProvider && event.providerId != this@isEnabledConsideringEventRequirements.id) {
+      return false
+    }
+    return isEnabled(event)
   }
 
   private suspend fun ensureDocumentAndFileSynced(project: Project, document: Document) {

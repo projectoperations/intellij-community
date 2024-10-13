@@ -855,10 +855,6 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
         testClass<AbstractDiagnosticMessageTest> {
             model("diagnosticMessage", isRecursive = false)
         }
-
-        testClass<AbstractDiagnosticMessageJsTest> {
-            model("diagnosticMessage/js", isRecursive = false, targetBackend = TargetBackend.JS)
-        }
     }
 
     testGroup("idea/tests", category = RENAME_REFACTORING) {
@@ -1086,7 +1082,7 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
         }
 
         testClass<AbstractStubBuilderTest> {
-            model("stubs", pattern = KT)
+            model("stubs", pattern = KT_OR_KTS)
         }
 
         testClass<AbstractMultiplatformAnalysisTest> {
