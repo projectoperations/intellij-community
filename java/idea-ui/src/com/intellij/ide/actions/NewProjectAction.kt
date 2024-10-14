@@ -3,7 +3,7 @@ package com.intellij.ide.actions
 
 import com.intellij.icons.AllIcons
 import com.intellij.ide.JavaUiBundle
-import com.intellij.ide.impl.NewProjectUtil.createNewProject
+import com.intellij.ide.impl.createNewProjectAsync
 import com.intellij.ide.projectWizard.NewProjectWizard
 import com.intellij.lang.IdeLanguageCustomization
 import com.intellij.lang.java.JavaLanguage
@@ -11,10 +11,20 @@ import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider
 import com.intellij.openapi.wm.impl.welcomeScreen.NewWelcomeScreen
 import com.intellij.ui.ExperimentalUI
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+@Service()
+private class NewProjectActionCoroutineScopeHolder(@JvmField val coroutineScope: CoroutineScope)
 
 open class NewProjectAction : AnAction(), DumbAware, NewProjectOrModuleAction {
   init {
@@ -38,8 +48,12 @@ open class NewProjectAction : AnAction(), DumbAware, NewProjectOrModuleAction {
   }
 
   override fun actionPerformed(e: AnActionEvent) {
-    val wizard = NewProjectWizard(null, ModulesProvider.EMPTY_MODULES_PROVIDER, null)
-    createNewProject(wizard)
+    service<NewProjectActionCoroutineScopeHolder>().coroutineScope.launch {
+      val wizard = withContext(Dispatchers.EDT) {
+        NewProjectWizard(null, ModulesProvider.EMPTY_MODULES_PROVIDER, null)
+      }
+      createNewProjectAsync(wizard)
+    }
   }
 
   override fun update(e: AnActionEvent) {

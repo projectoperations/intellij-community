@@ -13,15 +13,16 @@ internal object VcsCloneCollector : CounterUsagesCollector() {
     return GROUP
   }
 
-  private val GROUP = EventLogGroup("vcs.clone", 2)
+  private val GROUP = EventLogGroup("vcs.clone", 3)
   private val CLONE_STATUS_EVENT_FIELD = EventFields.Enum("status", CloneStatus::class.java)
 
   @JvmField
-  internal val SHALLOW_CLONE_DEPTH = EventFields.Int("status")
+  internal val SHALLOW_CLONE_DEPTH = EventFields.Int("shallowCloneDepth")
 
   private val CLONE_ACTIVITY = GROUP.registerIdeActivity(
     activityName = "cloning",
-    finishEventAdditionalFields = arrayOf(CLONE_STATUS_EVENT_FIELD)
+    startEventAdditionalFields = arrayOf(SHALLOW_CLONE_DEPTH),
+    finishEventAdditionalFields = arrayOf(CLONE_STATUS_EVENT_FIELD, SHALLOW_CLONE_DEPTH)
   )
 
   fun cloneStarted(cloneTaskInfo: CloneTaskInfo): StructuredIdeActivity {
