@@ -15,9 +15,12 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
+import static com.intellij.openapi.diagnostic.AsyncLogKt.log;
+import static com.intellij.openapi.diagnostic.AsyncLogKt.shutdownLogProcessing;
+
 @ApiStatus.Internal
 public class JulLogger extends Logger {
-  @SuppressWarnings("NonConstantLogger") protected final java.util.logging.Logger myLogger;
+
   private static final boolean CLEANER_DELAYED;
 
   static {
@@ -32,8 +35,23 @@ public class JulLogger extends Logger {
     CLEANER_DELAYED = delayed;
   }
 
+  @SuppressWarnings("NonConstantLogger")
+  private final java.util.logging.Logger myLogger;
+
   public JulLogger(java.util.logging.Logger delegate) {
     myLogger = delegate;
+  }
+
+  protected final @NotNull String getLoggerName() {
+    return myLogger.getName();
+  }
+
+  protected final void logSevere(@NotNull String msg) {
+    logSevere(msg, null);
+  }
+
+  protected final void logSevere(@NotNull String msg, @Nullable Throwable t) {
+    log(new LogEvent(myLogger, LogLevel.ERROR, msg, t));
   }
 
   @Override
@@ -43,12 +61,12 @@ public class JulLogger extends Logger {
 
   @Override
   public void trace(String message) {
-    myLogger.log(Level.FINER, message);
+    log(new LogEvent(myLogger, LogLevel.TRACE, message, null));
   }
 
   @Override
   public void trace(@Nullable Throwable t) {
-    myLogger.log(Level.FINER, "", t);
+    log(new LogEvent(myLogger, LogLevel.TRACE, "", t));
   }
 
   @Override
@@ -58,23 +76,23 @@ public class JulLogger extends Logger {
 
   @Override
   public void debug(String message, @Nullable Throwable t) {
-    myLogger.log(Level.FINE, message, t);
+    log(new LogEvent(myLogger, LogLevel.DEBUG, message, t));
   }
 
   @Override
   public void info(String message, @Nullable Throwable t) {
-    myLogger.log(Level.INFO, message, t);
+    log(new LogEvent(myLogger, LogLevel.INFO, message, t));
   }
 
   @Override
   public void warn(String message, @Nullable Throwable t) {
-    myLogger.log(Level.WARNING, message, t);
+    log(new LogEvent(myLogger, LogLevel.WARNING, message, t));
   }
 
   @Override
   public void error(String message, @Nullable Throwable t, String @NotNull ... details) {
     String fullMessage = details.length > 0 ? message + "\nDetails: " + String.join("\n", details) : message;
-    myLogger.log(Level.SEVERE, fullMessage, t);
+    log(new LogEvent(myLogger, LogLevel.ERROR, fullMessage, t));
   }
 
   @Override
@@ -139,7 +157,11 @@ public class JulLogger extends Logger {
       for (Object o : hooks.keySet()) {
         if (o instanceof Thread && logManagerCleanerClass.isAssignableFrom(o.getClass())) {
           Thread logCloseThread = (Thread)o;
-          ShutDownTracker.getInstance().registerShutdownTask(logCloseThread);
+          ShutDownTracker.getInstance().registerShutdownTask(() -> {
+            shutdownLogProcessing();
+            //noinspection CallToThreadRun
+            logCloseThread.run();
+          });
           hooks.remove(o);
           return true;
         }

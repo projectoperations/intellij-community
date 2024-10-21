@@ -34,9 +34,12 @@ public final class ConsentOptions implements ModificationTracker {
   private static final Logger LOG = Logger.getInstance(ConsentOptions.class);
   private static final String CONSENTS_CONFIRMATION_PROPERTY = "jb.consents.confirmation.enabled";
   private static final String RECONFIRM_CONSENTS_PROPERTY = "test.force.reconfirm.consents";
+  private static final String TEST_DEFAULT_CONSENTS_FILE_PROPERTY = "test.default.consents.file";
+  private static final String TEST_CONFIRMED_CONSENTS_FILE_PROPERTY = "test.confirmed.consents.file";
   private static final String STATISTICS_OPTION_ID = "rsch.send.usage.stat";
   private static final String EAP_FEEDBACK_OPTION_ID = "eap";
-  private static final Set<String> PER_PRODUCT_CONSENTS = Set.of(EAP_FEEDBACK_OPTION_ID);
+  private static final String AI_DATA_COLLECTION_OPTION_ID = "ai.data.collection.and.use.policy";
+  private static final Set<String> PER_PRODUCT_CONSENTS = Set.of(EAP_FEEDBACK_OPTION_ID, AI_DATA_COLLECTION_OPTION_ID);
   private final BooleanSupplier myIsEap;
   private String myProductCode;
   private Set<String> myPluginCodes = Set.of();
@@ -49,12 +52,20 @@ public final class ConsentOptions implements ModificationTracker {
   }
 
   private static @NotNull Path getDefaultConsentsFile() {
+    Path fileForTests = getDefaultConsentsFileForTests();
+    if (fileForTests != null) {
+      return fileForTests;
+    }
     return PathManager.getCommonDataPath()
       .resolve(ApplicationNamesInfo.getInstance().getLowercaseProductName())
       .resolve("consentOptions/cached");
   }
 
   private static @NotNull Path getConfirmedConsentsFile() {
+    Path fileForTests = getConfirmedConsentsFileForTests();
+    if (fileForTests != null) {
+      return fileForTests;
+    }
     return PathManager.getCommonDataPath().resolve("consentOptions/accepted");
   }
 
@@ -107,7 +118,7 @@ public final class ConsentOptions implements ModificationTracker {
         Files.writeString(confirmedConsentsFile, data);
         if (LoadingState.COMPONENTS_REGISTERED.isOccurred()) {
           DataSharingSettingsChangeListener syncPublisher =
-            ApplicationManager.getApplication().getMessageBus().syncPublisher(DataSharingSettingsChangeListener.Companion.getTOPIC());
+            ApplicationManager.getApplication().getMessageBus().syncPublisher(DataSharingSettingsChangeListener.TOPIC);
           syncPublisher.consentWritten();
         }
       }
@@ -221,6 +232,23 @@ public final class ConsentOptions implements ModificationTracker {
     return setPermission(EAP_FEEDBACK_OPTION_ID, allowed);
   }
 
+  public @NotNull Permission getAiDataCollectionPermission() {
+    return getPermission(lookupConsentID(AI_DATA_COLLECTION_OPTION_ID));
+  }
+
+  public void setAiDataCollectionPermission(boolean permitted) {
+    setPermission(lookupConsentID(AI_DATA_COLLECTION_OPTION_ID), permitted);
+  }
+
+  public @NotNull Pair<@NotNull Consent, @NotNull Boolean> getAiDataCollectionConsent() {
+    final Pair<List<Consent>, Boolean> consents =
+      getConsents(consent -> isProductConsentOfKind(AI_DATA_COLLECTION_OPTION_ID, consent.getId()), false);
+    if (consents.getFirst().size() != 1) {
+      throw new IllegalStateException("Cannot find AI data sharing agreement, it is expected to be bundled");
+    }
+    return new Pair<>(consents.getFirst().get(0), consents.getSecond());
+  }
+
   private @NotNull Permission getPermission(final String consentId) {
     final ConfirmedConsent confirmedConsent = getConfirmedConsent(consentId);
     return confirmedConsent == null? Permission.UNDEFINED : confirmedConsent.isAccepted()? Permission.YES : Permission.NO;
@@ -281,7 +309,7 @@ public final class ConsentOptions implements ModificationTracker {
       if (applyServerChangesToConfirmedConsents(confirmed, fromServer)) {
         myBackend.writeConfirmedConsents(confirmedConsentToExternalString(confirmed.values().stream()));
       }
-      myModificationCount.incrementAndGet();
+      notifyConsentsUpdated();
     }
     catch (Exception e) {
       LOG.info("Unable to apply server consents", e);
@@ -293,14 +321,23 @@ public final class ConsentOptions implements ModificationTracker {
   }
 
   public @NotNull Pair<List<Consent>, Boolean> getConsents(@NotNull Predicate<? super Consent> filter) {
+    return getConsents(filter, true);
+  }
+
+  @NotNull
+  private Pair<List<Consent>, Boolean> getConsents(@NotNull Predicate<? super Consent> filter, boolean skipIrrelevant) {
     final Map<String, Map<Locale, Consent>> allDefaults = loadDefaultConsents();
-    if (isEAP()) {
-      // for EA builds there is a different option for statistics sending management
-      allDefaults.remove(STATISTICS_OPTION_ID);
-    }
-    else {
-      // EAP feedback consent is relevant to EA builds only
-      allDefaults.remove(lookupConsentID(EAP_FEEDBACK_OPTION_ID));
+    if (skipIrrelevant) {
+      if (isEAP()) {
+        // for EA builds there is a different option for statistics sending management
+        allDefaults.remove(STATISTICS_OPTION_ID);
+      }
+      else {
+        // EAP feedback consent is relevant to EA builds only
+        allDefaults.remove(lookupConsentID(EAP_FEEDBACK_OPTION_ID));
+      }
+      // AI plugin specific, only relevant to the plugin and must be requested explicitly.
+      allDefaults.remove(lookupConsentID(AI_DATA_COLLECTION_OPTION_ID));
     }
 
     for (Iterator<Map.Entry<String, Map<Locale, Consent>>> it = allDefaults.entrySet().iterator(); it.hasNext(); ) {
@@ -386,7 +423,7 @@ public final class ConsentOptions implements ModificationTracker {
           allConfirmed.put(consent.getId(), consent);
         }
         myBackend.writeConfirmedConsents(confirmedConsentToExternalString(allConfirmed.values().stream()));
-        myModificationCount.incrementAndGet();
+        notifyConsentsUpdated();
       }
       catch (IOException e) {
         LOG.info("Unable to save confirmed consents", e);
@@ -561,6 +598,13 @@ public final class ConsentOptions implements ModificationTracker {
     return null;
   }
 
+  private void notifyConsentsUpdated() {
+    myModificationCount.incrementAndGet();
+    if (LoadingState.COMPONENTS_REGISTERED.isOccurred()) {
+      ApplicationManager.getApplication().getMessageBus().syncPublisher(DataSharingSettingsChangeListener.TOPIC).consentsUpdated();
+    }
+  }
+
   protected interface IOBackend {
     void writeDefaultConsents(@NotNull String data) throws IOException;
     @NotNull
@@ -572,5 +616,15 @@ public final class ConsentOptions implements ModificationTracker {
     void writeConfirmedConsents(@NotNull String data) throws IOException;
     @NotNull
     String readConfirmedConsents() throws IOException;
+  }
+
+  private static @Nullable Path getDefaultConsentsFileForTests() {
+    String path = System.getProperty(TEST_DEFAULT_CONSENTS_FILE_PROPERTY);
+    return path != null ? Path.of(path) : null;
+  }
+
+  private static @Nullable Path getConfirmedConsentsFileForTests() {
+    String path = System.getProperty(TEST_CONFIRMED_CONSENTS_FILE_PROPERTY);
+    return path != null ? Path.of(path) : null;
   }
 }

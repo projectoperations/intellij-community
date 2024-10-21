@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.debugger.dfaassist
 
+import com.intellij.codeInspection.dataFlow.NullabilityProblemKind.NullabilityProblem
 import com.intellij.codeInspection.dataFlow.TypeConstraint
 import com.intellij.codeInspection.dataFlow.TypeConstraints
 import com.intellij.codeInspection.dataFlow.jvm.SpecialField
@@ -11,9 +12,11 @@ import com.intellij.codeInspection.dataFlow.types.DfReferenceType
 import com.intellij.codeInspection.dataFlow.types.DfTypes
 import com.intellij.codeInspection.dataFlow.value.DfaValue
 import com.intellij.codeInspection.dataFlow.value.DfaVariableValue
+import com.intellij.debugger.engine.DebuggerUtils
 import com.intellij.debugger.engine.dfaassist.DebuggerDfaListener
 import com.intellij.debugger.engine.dfaassist.DfaAssistProvider
 import com.intellij.debugger.jdi.StackFrameProxyEx
+import com.intellij.lang.jvm.types.JvmPrimitiveTypeKind
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
@@ -22,9 +25,12 @@ import com.intellij.util.ThreeState
 import com.intellij.xdebugger.impl.dfaassist.DfaHint
 import com.sun.jdi.Location
 import com.sun.jdi.ObjectReference
+import com.sun.jdi.PrimitiveType
 import com.sun.jdi.Value
 import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.KaJavaFieldSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaTypeNullability
 import org.jetbrains.kotlin.idea.base.psi.KotlinPsiHeuristics
@@ -34,13 +40,11 @@ import org.jetbrains.kotlin.idea.debugger.base.util.KotlinDebuggerConstants
 import org.jetbrains.kotlin.idea.debugger.evaluate.variables.EvaluatorValueConverter
 import org.jetbrains.kotlin.idea.inspections.dfa.KotlinAnchor
 import org.jetbrains.kotlin.idea.inspections.dfa.KotlinProblem
-import org.jetbrains.kotlin.idea.k2.codeinsight.inspections.dfa.KotlinConstantConditionsInspection
-import org.jetbrains.kotlin.idea.k2.codeinsight.inspections.dfa.KtClassDef
-import org.jetbrains.kotlin.idea.k2.codeinsight.inspections.dfa.KtThisDescriptor
-import org.jetbrains.kotlin.idea.k2.codeinsight.inspections.dfa.KtVariableDescriptor
+import org.jetbrains.kotlin.idea.k2.codeinsight.inspections.dfa.*
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.parentsWithSelf
+import org.jetbrains.kotlin.resolve.jvm.JvmClassName
 import org.jetbrains.org.objectweb.asm.Type as AsmType
 
 class K2DfaAssistProvider : DfaAssistProvider {
@@ -82,10 +86,27 @@ class K2DfaAssistProvider : DfaAssistProvider {
         anchor: PsiElement
     ): Value? {
         if (anchor !is KtElement) return null
+        if ((dfaVar.descriptor as? KtBaseDescriptor)?.isInlineClassReference() == true) return null
+        return getJdiValueInner(proxy, dfaVar, anchor)
+    }
+
+    private fun getJdiValueInner(
+        proxy: StackFrameProxyEx,
+        dfaVar: DfaVariableValue,
+        anchor: KtElement
+    ): Value? {
         val qualifier = dfaVar.qualifier
         val descriptor = dfaVar.descriptor
         val inlined = (anchor.parentOfType<KtFunction>() as? KtNamedFunction)?.hasInlineModifier() == true
         if (qualifier == null) {
+            if (descriptor is KtLambdaThisVariableDescriptor) {
+                val scopeName = (descriptor.lambda.parentOfType<KtFunction>() as? KtNamedFunction)?.name
+                val regex = Regex("\\\$this\\\$${scopeName?.let(Regex::escape) ?: ".+"}_u\\d+lambda_u\\d+")
+                val lambdaThis = proxy.stackFrame.visibleVariables().filter { it.name().matches(regex) }
+                if (lambdaThis.size == 1) {
+                    return postprocess(proxy.stackFrame.getValue(lambdaThis.first()))
+                }
+            }
             if (descriptor is KtThisDescriptor) {
                 val pointer = descriptor.classDef.pointer
                 analyze(anchor) {
@@ -94,7 +115,8 @@ class K2DfaAssistProvider : DfaAssistProvider {
                         val nameString = symbol.classId?.asSingleFqName()
                         if (nameString != null) {
                             if (inlined) {
-                                val thisName = KotlinDebuggerConstants.INLINE_DECLARATION_SITE_THIS + KotlinDebuggerConstants.INLINE_FUN_VAR_SUFFIX
+                                val thisName =
+                                    KotlinDebuggerConstants.INLINE_DECLARATION_SITE_THIS + KotlinDebuggerConstants.INLINE_FUN_VAR_SUFFIX
                                 val thisVar = proxy.visibleVariableByName(thisName)
                                 if (thisVar != null) {
                                     return postprocess(proxy.getVariableValue(thisVar))
@@ -105,6 +127,13 @@ class K2DfaAssistProvider : DfaAssistProvider {
                                     val signature = AsmType.getType(thisObject.type().signature()).className
                                     val jvmName = KotlinPsiHeuristics.getJvmName(nameString)
                                     if (signature == jvmName) return thisObject
+                                }
+                            }
+                            if (symbol.isInline) {
+                                // See org.jetbrains.kotlin.backend.jvm.MemoizedInlineClassReplacements.createStaticReplacement
+                                val thisVar = proxy.visibleVariableByName("arg0")
+                                if (thisVar != null) {
+                                    return postprocess(proxy.getVariableValue(thisVar))
                                 }
                             }
                             val contextName = descriptor.contextName
@@ -126,6 +155,20 @@ class K2DfaAssistProvider : DfaAssistProvider {
                 val pointer = descriptor.pointer
                 analyze(anchor) {
                     val symbol = pointer.restoreSymbol()
+                    if (symbol is KaJavaFieldSymbol && symbol.isStatic) {
+                        val classId = (symbol.containingDeclaration as? KaNamedClassSymbol)?.classId
+                        if (classId != null) {
+                            val declaringClasses = proxy.virtualMachine.classesByName(JvmClassName.byClassId(classId).internalName.replace("/", "."))
+                            if (declaringClasses.size == 1) {
+                                val declaringClass = declaringClasses.first()
+                                val field = DebuggerUtils.findField(declaringClass, symbol.name.identifier)
+                                if (field != null && field.isStatic) {
+                                    return postprocess(declaringClass.getValue(field))
+                                }
+                            }
+                        }
+                        return null
+                    }
                     if (symbol is KaVariableSymbol) {
                         var name = symbol.name.asString()
                         if (inlined) {
@@ -133,21 +176,39 @@ class K2DfaAssistProvider : DfaAssistProvider {
                         }
                         val variable = proxy.visibleVariableByName(name)
                         if (variable != null) {
-                            return postprocess(proxy.getVariableValue(variable))
+                            val value = postprocess(proxy.getVariableValue(variable))
+                            val expectedType = symbol.returnType
+                            if (inlined && value.type() is PrimitiveType && !(expectedType.isPrimitive && !expectedType.canBeNull)) {
+                                val typeKind = JvmPrimitiveTypeKind.getKindByName(value.type().name())
+                                if (typeKind != null) {
+                                    val referenceType = proxy.virtualMachine.classesByName(typeKind.boxedFqn).firstOrNull()
+                                    if (referenceType != null) {
+                                        return DfaAssistProvider.BoxedValue(value, referenceType)
+                                    }
+                                }
+                            }
+                            return value
                         }
                     }
                 }
             }
             // TODO: support `this` references for outer types, etc.
         } else {
-            val jdiQualifier = getJdiValueForDfaVariable(proxy, qualifier, anchor)
-            if (jdiQualifier is ObjectReference && descriptor is KtVariableDescriptor) {
-                val type = jdiQualifier.referenceType()
+            val jdiQualifier = getJdiValueInner(proxy, qualifier, anchor)
+            if (descriptor is KtVariableDescriptor) {
+                val type = (jdiQualifier as? ObjectReference)?.referenceType()
                 val pointer = descriptor.pointer
                 analyze(anchor) {
                     val symbol = pointer.restoreSymbol()
-                    if (symbol is KaVariableSymbol) {
-                        val field = type.fieldByName(symbol.name.asString())
+                    if (symbol is KaPropertySymbol) {
+                        val parent = symbol.containingDeclaration
+                        if (parent is KaNamedClassSymbol && parent.isInline) {
+                            // Inline class sole property is represented by inline class itself
+                            return jdiQualifier
+                        }
+                    }
+                    if (symbol is KaVariableSymbol && type != null) {
+                        val field = DebuggerUtils.findField(type, symbol.name.asString())
                         if (field != null) {
                             return postprocess(jdiQualifier.getValue(field))
                         }
@@ -180,12 +241,7 @@ class K2DfaAssistProvider : DfaAssistProvider {
             var psi = when (anchor) {
                 is KotlinAnchor.KotlinExpressionAnchor -> {
                     if (!shouldTrackExpressionValue(anchor.expression)) return
-                    if (KotlinConstantConditionsInspection.shouldSuppress(dfType, anchor.expression) &&
-                        dfType.tryNegate()
-                            ?.let { negated -> KotlinConstantConditionsInspection.shouldSuppress(negated, anchor.expression) } != false
-                    ) {
-                        return
-                    }
+                    if (KotlinConstantConditionsInspection.shouldSuppress(dfType, anchor.expression)) return
                     anchor.expression
                 }
 
@@ -222,6 +278,13 @@ class K2DfaAssistProvider : DfaAssistProvider {
                 hints.merge(
                     problem.cast.operationReference,
                     if (failed == ThreeState.YES) DfaHint.CCE else DfaHint.NONE,
+                    DfaHint::merge
+                )
+            }
+            if (problem is NullabilityProblem<*>) {
+                hints.merge(
+                    problem.anchor,
+                    if (failed == ThreeState.YES) DfaHint.NPE else DfaHint.NONE,
                     DfaHint::merge
                 )
             }

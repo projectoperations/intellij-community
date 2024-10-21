@@ -33,7 +33,9 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.SmartHashSet;
 import com.intellij.vcsUtil.VcsUtil;
 import kotlin.Unit;
+import kotlin.coroutines.EmptyCoroutineContext;
 import kotlinx.coroutines.CoroutineScope;
+import kotlinx.coroutines.CoroutineScopeKt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -41,7 +43,9 @@ import org.jetbrains.annotations.TestOnly;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static com.intellij.platform.util.coroutines.CoroutineScopeKt.childScope;
 import static com.intellij.util.ConcurrencyUtil.withLock;
+import static com.intellij.util.concurrency.AppJavaExecutorUtil.awaitCancellationAndDispose;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 
@@ -52,7 +56,7 @@ public abstract class VcsVFSListener implements Disposable {
   private final VcsIgnoreManager myVcsIgnoreManager;
   private final VcsFileListenerContextHelper myVcsFileListenerContextHelper;
 
-  protected static class MovedFileInfo {
+  protected static final class MovedFileInfo {
     @NotNull
     public final String myOldPath;
     @NotNull
@@ -87,6 +91,7 @@ public abstract class VcsVFSListener implements Disposable {
   protected final Project myProject;
   protected final AbstractVcs myVcs;
   @NotNull protected final CoroutineScope coroutineScope;
+  private boolean myShouldCancelScope = true;
   protected final ChangeListManager myChangeListManager;
   protected final VcsShowConfirmationOption myAddOption;
   protected final VcsShowConfirmationOption myRemoveOption;
@@ -422,6 +427,8 @@ public abstract class VcsVFSListener implements Disposable {
     myProjectConfigurationFilesProcessor = createProjectConfigurationFilesProcessor();
     myExternalFilesProcessor = createExternalFilesProcessor();
     myIgnoreFilesProcessor = createIgnoreFilesProcessor();
+
+    awaitCancellationAndDispose(coroutineScope, this);
   }
 
   /**
@@ -430,8 +437,9 @@ public abstract class VcsVFSListener implements Disposable {
   @Deprecated(forRemoval = true)
   protected VcsVFSListener(@NotNull Project project, @NotNull AbstractVcs vcs) {
     //noinspection UsagesOfObsoleteApi
-    this(vcs, ((ComponentManagerEx)project).getCoroutineScope());
+    this(vcs, childScope(((ComponentManagerEx)project).getCoroutineScope(), "VcsVFSListener", EmptyCoroutineContext.INSTANCE, true));
     installListeners();
+    myShouldCancelScope = true;
   }
 
   protected void installListeners() {
@@ -445,6 +453,9 @@ public abstract class VcsVFSListener implements Disposable {
 
   @Override
   public void dispose() {
+    if (myShouldCancelScope) {
+      CoroutineScopeKt.cancel(coroutineScope, null);
+    }
   }
 
   protected boolean isEventAccepted(@NotNull VFileEvent event) {
@@ -511,9 +522,7 @@ public abstract class VcsVFSListener implements Disposable {
   protected void executeAdd(@NotNull List<VirtualFile> addedFiles, @NotNull Map<VirtualFile, VirtualFile> copyFromMap) {
     if (ApplicationManager.getApplication().isDispatchThread()) {
       // backward compatibility with plugins
-      ApplicationManager.getApplication().executeOnPooledThread(() -> {
-        performAddingWithConfirmation(addedFiles, copyFromMap);
-      });
+      ApplicationManager.getApplication().executeOnPooledThread(() -> performAddingWithConfirmation(addedFiles, copyFromMap));
     }
     else {
       performAddingWithConfirmation(addedFiles, copyFromMap);
@@ -827,7 +836,7 @@ public abstract class VcsVFSListener implements Disposable {
 
     /**
      * Not using modal progress here, because it could lead to some focus related assertion (e.g. "showing dialogs from popup" in com.intellij.ui.popup.tree.TreePopupImpl)
-     * Assume, that it is a safe to do all processing in background even if "Add to VCS" dialog may appear during such processing.
+     * Assume that it is a safe to do all processing in background even if "Add to VCS" dialog may appear during such processing.
      */
     private void processEventsInBackground(List<? extends VFileEvent> events) {
       new Task.Backgroundable(myProject, VcsBundle.message("progress.title.version.control.processing.changed.files"), true) {

@@ -3,18 +3,24 @@ package com.intellij.platform.eel.impl.local
 
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.eel.*
+import com.intellij.platform.eel.fs.EelFileSystemApi
 import com.intellij.platform.eel.fs.EelFileSystemPosixApi
 import com.intellij.platform.eel.fs.EelFileSystemWindowsApi
 import com.intellij.platform.eel.fs.getPath
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.path.getOrThrow
 import com.intellij.platform.eel.provider.EelUserPosixInfoImpl
 import com.intellij.platform.eel.provider.EelUserWindowsInfoImpl
+import com.sun.security.auth.module.UnixSystem
+import kotlinx.coroutines.CoroutineScope
 import java.nio.file.Path
 
 internal class LocalEelPathMapper(private val eelApi: EelApi) : EelPathMapper {
   override fun getOriginalPath(path: Path): EelPath.Absolute {
-    return eelApi.fs.getPath(path.toString()).getOrThrow()
+    return eelApi.fs.getPath(path.toString())
+  }
+
+  override suspend fun maybeUploadPath(path: Path, scope: CoroutineScope, options: EelFileSystemApi.CreateTemporaryDirectoryOptions): EelPath.Absolute {
+    return getOriginalPath(path)
   }
 
   override fun toNioPath(path: EelPath.Absolute): Path {
@@ -47,10 +53,11 @@ internal class LocalPosixEelApiImpl : LocalEelApi, EelPosixApi {
   override val exec: EelExecApi = EelLocalExecApi()
   override val mapper: EelPathMapper = LocalEelPathMapper(this)
 
-  override val userInfo: EelUserPosixInfo = EelUserPosixInfoImpl(
-    uid = System.getProperty("user.id").toInt(),
-    gid = System.getProperty("group.id").toInt(),
-  )
+  override val userInfo: EelUserPosixInfo = run {
+    val unix = UnixSystem()
+    EelUserPosixInfoImpl(uid = unix.uid.toInt(), gid = unix.gid.toInt())
+  }
+
   override val fs: EelFileSystemPosixApi
     get() = TODO("Not yet implemented")
 }

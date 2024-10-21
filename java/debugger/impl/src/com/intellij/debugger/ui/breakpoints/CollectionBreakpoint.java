@@ -285,7 +285,7 @@ public final class CollectionBreakpoint extends BreakpointWithHighlighter<JavaCo
   private void processAllClasses(SuspendContextImpl context, List<ReferenceType> classes) {
     String fieldName = getFieldName();
     for (ReferenceType cls : classes) {
-      Field field = cls.fieldByName(fieldName);
+      Field field = DebuggerUtils.findField(cls, fieldName);
       if (cls.isInitialized()) {
         captureClsField(cls, field, context.getDebugProcess(), context);
       }
@@ -325,7 +325,7 @@ public final class CollectionBreakpoint extends BreakpointWithHighlighter<JavaCo
   private void processAllInstances(SuspendContextImpl context, List<ObjectReference> instances) {
     String fieldName = getFieldName();
     for (ObjectReference instance : instances) {
-      Field field = instance.referenceType().fieldByName(fieldName);
+      Field field = DebuggerUtils.findField(instance.referenceType(), fieldName);
       captureInstanceField(instance, field, context.getDebugProcess(), context);
     }
 
@@ -384,7 +384,7 @@ public final class CollectionBreakpoint extends BreakpointWithHighlighter<JavaCo
                                   ReferenceType declaringType,
                                   @Nullable ObjectReference thisObj) {
     DebugProcessImpl debugProcess = context.getDebugProcess();
-    Field field = declaringType.fieldByName(getFieldName());
+    Field field = DebuggerUtils.findField(declaringType, getFieldName());
 
     ModificationWatchpointRequest request =
       debugProcess.getRequestsManager().createModificationWatchpointRequest(requestor, field);
@@ -398,11 +398,9 @@ public final class CollectionBreakpoint extends BreakpointWithHighlighter<JavaCo
     request.enable();
   }
 
-  private void createRequestForSubclasses(DebugProcessImpl debugProcess, ReferenceType baseType) {
-    final VirtualMachineProxyImpl virtualMachineProxy = debugProcess.getVirtualMachineProxy();
-
+  private void createRequestForSubclasses(DebugProcessImpl debugProcess, @NotNull ReferenceType baseType) {
     // create a request for classes that are already loaded
-    virtualMachineProxy.allClasses()
+    baseType.virtualMachine().allClasses()
       .stream()
       .filter(type -> DebuggerUtilsImpl.instanceOf(type, baseType) && !type.name().equals(baseType.name()))
       .forEach(derivedType -> createRequestForClass(debugProcess, derivedType));

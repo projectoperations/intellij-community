@@ -7,16 +7,24 @@ import com.intellij.platform.eel.EelUserPosixInfo
 import com.intellij.platform.eel.EelUserWindowsInfo
 import com.intellij.platform.eel.fs.EelFileSystemApi.StatError
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.path.EelPathError
 import java.nio.ByteBuffer
-import kotlin.Throws
 
-fun EelFileSystemApi.getPath(string: String, vararg other: String): EelResult<out EelPath.Absolute, EelPathError> {
-  return EelPath.Absolute.build(listOf(string, *other), when (this) {
+val EelFileSystemApi.pathOs: EelPath.Absolute.OS
+  get() = when (this) {
     is EelFileSystemPosixApi -> EelPath.Absolute.OS.UNIX
     is EelFileSystemWindowsApi -> EelPath.Absolute.OS.WINDOWS
     else -> throw UnsupportedOperationException("Unsupported OS: ${this::class.java}")
-  })
+  }
+
+val EelFileSystemApi.pathSeparator: String
+  get() = when (this) {
+    is EelFileSystemPosixApi -> ":"
+    is EelFileSystemWindowsApi -> ";"
+    else -> throw UnsupportedOperationException("Unsupported OS: ${this::class.java}")
+  }
+
+fun EelFileSystemApi.getPath(string: String, vararg other: String): EelPath.Absolute {
+  return if (other.isEmpty()) return EelPath.Absolute.parse(string, pathOs) else EelPath.Absolute.build(listOf(string, *other), pathOs)
 }
 
 // TODO Integrate case-(in)sensitiveness into the interface.
@@ -312,6 +320,30 @@ interface EelFileSystemApi {
   @Throws(ChangeAttributesException::class)
   suspend fun changeAttributes(path: EelPath.Absolute, options: ChangeAttributesOptions)
 
+  suspend fun createTemporaryDirectory(options: CreateTemporaryDirectoryOptions): EelResult<
+    EelPath.Absolute,
+    CreateTemporaryDirectoryError>
+
+  interface CreateTemporaryDirectoryOptions {
+    fun prefix(prefix: String): CreateTemporaryDirectoryOptions
+    val prefix: String
+
+    fun suffix(suffix: String): CreateTemporaryDirectoryOptions
+    val suffix: String
+
+    fun deleteOnExit(deleteOnExit: Boolean): CreateTemporaryDirectoryOptions
+    val deleteOnExit: Boolean
+
+    fun parentDirectory(parentDirectory: EelPath.Absolute?): CreateTemporaryDirectoryOptions
+    val parentDirectory: EelPath.Absolute?
+  }
+
+  sealed interface CreateTemporaryDirectoryError : EelFsError {
+    interface NotDirectory : CreateTemporaryDirectoryError, EelFsError.NotDirectory
+    interface PermissionDenied : CreateTemporaryDirectoryError, EelFsError.PermissionDenied
+    interface Other : CreateTemporaryDirectoryError, EelFsError.Other
+  }
+
   companion object Arguments {
     @JvmStatic
     fun writeOptionsBuilder(path: EelPath.Absolute): WriteOptions =
@@ -327,6 +359,36 @@ interface EelFileSystemApi {
 
     @JvmStatic
     fun timeSinceEpoch(seconds: ULong, nanos: UInt): TimeSinceEpoch = TimeSinceEpochImpl(seconds, nanos)
+
+    @JvmStatic
+    fun createTemporaryDirectoryOptions(): CreateTemporaryDirectoryOptions =
+      CreateTemporaryDirectoryOptionsImpl()
+  }
+
+  /**
+   * Returns information about a logical disk that contains [path].
+   */
+  suspend fun getDiskInfo(path: EelPath.Absolute): EelResult<DiskInfo, DiskInfoError>
+
+  interface DiskInfo {
+    /**
+     * Total capacity of a logical disk.
+     * If more than [ULong.MAX_VALUE] available, then the returned value is [ULong.MAX_VALUE]
+     */
+    val totalSpace: ULong
+
+    /**
+     * The number of available bytes on a logical disk.
+     * If more than [ULong.MAX_VALUE] available, then the returned value is [ULong.MAX_VALUE]
+     */
+    val availableSpace: ULong
+  }
+
+  sealed interface DiskInfoError : EelFsError {
+    interface PathDoesNotExists : DiskInfoError, EelFsError.DoesNotExist
+    interface PermissionDenied : DiskInfoError, EelFsError.PermissionDenied
+    interface NameTooLong : DiskInfoError, EelFsError.NameTooLong
+    interface Other : DiskInfoError, EelFsError.Other
   }
 }
 

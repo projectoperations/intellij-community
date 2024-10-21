@@ -125,14 +125,16 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
     }
   }
 
-  private void executeTasks(@NotNull ExternalSystemTaskId id,
-                            @NotNull List<String> tasks,
-                            @NotNull String projectPath,
-                            @NotNull GradleExecutionSettings settings,
-                            @Nullable String jvmParametersSetup,
-                            @NotNull ExternalSystemTaskNotificationListener listener,
-                            @NotNull ProjectConnection connection,
-                            @NotNull CancellationToken cancellationToken) {
+  private static void executeTasks(
+    @NotNull ExternalSystemTaskId id,
+    @NotNull List<String> tasks,
+    @NotNull String projectPath,
+    @NotNull GradleExecutionSettings settings,
+    @Nullable String jvmParametersSetup,
+    @NotNull ExternalSystemTaskNotificationListener listener,
+    @NotNull ProjectConnection connection,
+    @NotNull CancellationToken cancellationToken
+  ) {
     BuildEnvironment buildEnvironment = null;
     try {
       buildEnvironment = GradleExecutionHelper.getBuildEnvironment(connection, id, listener, cancellationToken, settings);
@@ -155,17 +157,16 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
           .notifyConnectionAboutChangedPaths(connection);
       }
 
-      if (isApplicableTestLauncher(id, projectPath, tasks, settings, gradleVersion)) {
-        TestLauncher launcher = myHelper.getTestLauncher(connection, id, tasks, settings, listener);
-        launcher.withCancellationToken(cancellationToken);
-        launcher.run();
+      var operation = isApplicableTestLauncher(id, projectPath, tasks, settings, gradleVersion)
+                      ? connection.newTestLauncher()
+                      : connection.newBuild();
+      GradleExecutionHelper.prepareForExecution(connection, operation, cancellationToken, id, tasks, settings, listener);
+      if (operation instanceof BuildLauncher) {
+        ((BuildLauncher)operation).run();
       }
       else {
-        BuildLauncher launcher = myHelper.getBuildLauncher(connection, id, tasks, settings, listener);
-        launcher.withCancellationToken(cancellationToken);
-        launcher.run();
+        ((TestLauncher)operation).run();
       }
-      GradleTaskResultListener.EP_NAME.forEachExtensionSafe(ext -> ext.onSuccess(id, projectPath));
     }
     catch (RuntimeException e) {
       LOG.debug("Gradle build launcher error", e);

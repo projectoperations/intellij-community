@@ -401,6 +401,23 @@ class K2DfaAssistTest : DfaAssistTest(), ExpectedPluginModeProvider {
         }
     }
 
+    fun testInlineFunctionGenericUnboxed() {
+        val text = """
+            package org.jetbrains.kotlin.idea.k2.debugger.test
+            
+            fun main() {
+                inlineGeneric(42)
+            }
+            
+            inline fun <T> inlineGeneric(par: T) {
+                <caret>if (par is Int/*TRUE*/) println("Int")
+            }
+        """
+        doTest(text) { vm, frame ->
+            frame.addVariable("par" + KotlinDebuggerConstants.INLINE_FUN_VAR_SUFFIX, MockIntegerValue(vm, 42))
+        }
+    }
+
     fun testInlineFunctionReceiverThis() {
         val text = """
             fun main() {
@@ -434,6 +451,169 @@ class K2DfaAssistTest : DfaAssistTest(), ExpectedPluginModeProvider {
         doTest(text) { vm, frame ->
             frame.addVariable("nullable", MockValue.createValue(false, vm))
             frame.addVariable("nonNullable", MockBooleanValue(vm, false))
+        }
+    }
+
+    fun testInlineClass() {
+        val text = """
+            fun main() {
+                InlineClass(true).foo(InlineClass(false))
+            }
+            
+            @JvmInline
+            value class InlineClass(val a: Boolean) {
+                fun foo(other: InlineClass) {
+                    <caret>if (a/*TRUE*/) println()
+                    if (other.a/*FALSE*/) /*unreachable_start*/println()/*unreachable_end*/
+                }
+            }
+        """
+        doTest(text) { vm, frame ->
+            frame.addVariable("arg0", MockBooleanValue(vm, true))
+            frame.addVariable("other", MockBooleanValue(vm, false))
+        }
+    }
+
+    fun testInlineClassBoxing() {
+        val text = """
+            fun main() {
+                InlineClass(12).foo(InlineClass(null))
+            }
+            
+            @JvmInline
+            value class InlineClass(val a: Int?) {
+                fun foo(other: InlineClass) {
+                    <caret>if (a == 12/*TRUE*/) println()
+                    if (other.a == 13/*FALSE*/) /*unreachable_start*/println()/*unreachable_end*/
+                }
+            }
+        """
+        doTest(text) { vm, frame ->
+            frame.addVariable("arg0", MockValue.createValue(12, Integer::class.java, vm))
+            frame.addVariable(MockLocalVariable(vm, "other", vm.createReferenceType(Integer::class.java), null))
+        }
+    }
+
+    fun testPlatformBooleanNull() {
+        createAndSaveFile("AA.java", """
+            public class AA {
+                public static Boolean getBoolean() {
+                    return null;
+                }
+            }""".trimIndent())
+        val text = """
+            fun main() {
+                callNullable()
+            }
+            
+            fun callNullable() {
+                val nullable = AA.getBoolean()
+                <caret>print("")
+                if (nullable/*NPE*/) /*unreachable_start*/println("bravo")/*unreachable_end*/
+            }
+        """
+        doTest(text) { vm, frame ->
+            frame.addVariable(MockLocalVariable(vm, "nullable", vm.createReferenceType(java.lang.Boolean::class.java), null))
+        }
+    }
+
+    fun testInlineLambdaThis() {
+        val text = """
+            package org.jetbrains.kotlin.idea.k2.debugger.test
+            
+            class K2DfaAssistTest {
+              class Nested(val x:Int)
+            }
+            
+            fun useClazz(clazz: K2DfaAssistTest.Nested) {
+                with(clazz) {
+                    <caret>if (x > 3/*FALSE*/) /*unreachable_start*/println("hello")/*unreachable_end*/
+                }
+            }
+            
+            fun main() {
+                useClazz(K2DfaAssistTest.Nested(1))
+            }
+        """
+        doTest(text) { vm, frame ->
+            frame.addVariable("\$this\$useClazz_u24lambda_u240", MockValue.createValue(Nested(1), vm))
+        }
+    }
+
+    fun testInlineLambdaThisSmartCast() {
+        val text = """
+            package org.jetbrains.kotlin.idea.k2.debugger.test
+            
+            class K2DfaAssistTest {
+              class Nested(val x:Int)
+            }
+            
+            fun useClazz(clazz: Any) {
+                with(clazz) {
+                    if (this is K2DfaAssistTest.Nested) {
+                        <caret>if (x > 3/*FALSE*/) /*unreachable_start*/println("hello")/*unreachable_end*/
+                    }
+                }
+            }
+            
+            fun main() {
+                useClazz(K2DfaAssistTest.Nested(1))
+            }
+        """
+        doTest(text) { vm, frame ->
+            frame.addVariable("\$this\$useClazz_u24lambda_u240", MockValue.createValue(Nested(1), vm))
+        }
+    }
+
+    fun testJavaStaticField() {
+        val text = """
+            import java.io.File
+            
+            fun main() {
+              <caret>sideEffect()
+              if (File.separator == "!"/*FALSE*/) /*unreachable_start*/{
+                println("unexpected")
+              }/*unreachable_end*/
+            }
+        """.trimIndent()
+        doTest(text) { _, _ -> }
+    }
+
+    fun testSmartCastDoesNotAffectDebugging() {
+        val text = """
+            fun useNullable(clazz: Any?) {
+                <caret>if (clazz == null/*TRUE*/) return
+                /*unreachable_start*/with(clazz) {
+                    if (/*unreachable_start*/this !is String/*unreachable_end*/) /*unreachable_start*/return/*unreachable_end*/
+                    println(length)
+                }/*unreachable_end*/
+            }
+            
+            fun main() {
+                useNullable(null)
+            }
+        """.trimIndent()
+        doTest(text) { vm, frame ->
+            frame.addVariable(MockLocalVariable(vm, "clazz", vm.createReferenceType(Object::class.java), null))
+        }
+    }
+
+    fun testSmartCastDoesNotAffectDebugging2() {
+        val text = """
+            fun useNullable(clazz: Any?) {
+                <caret>if (clazz == null/*FALSE*/) /*unreachable_start*/return/*unreachable_end*/
+                with(clazz) {
+                    if (this !is String) return
+                    println(length)
+                }
+            }
+            
+            fun main() {
+                useNullable("foo")
+            }
+        """.trimIndent()
+        doTest(text) { vm, frame ->
+            frame.addVariable("clazz", MockValue.createValue("foo", String::class.java, vm))
         }
     }
 

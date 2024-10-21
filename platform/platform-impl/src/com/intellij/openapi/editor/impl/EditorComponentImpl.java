@@ -650,7 +650,7 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
 
   @Override
   public int getCaretPosition() {
-    return editor.getCaretModel().getOffset();
+    return ReadAction.compute(() -> editor.getCaretModel().getOffset());
   }
 
   @DirtyUI
@@ -1197,7 +1197,7 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
   }
 
   private final class AccessibleEditorComponentImpl extends AccessibleJComponent
-      implements AccessibleText, AccessibleEditableText, AccessibleExtendedText,
+      implements AccessibleText, AccessibleEditableText, AccessibleExtendedText, AccessibleAction,
                  CaretListener, DocumentListener {
 
     AccessibleEditorComponentImpl() {
@@ -1394,12 +1394,12 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
 
     @Override
     public int getSelectionStart() {
-      return editor.getSelectionModel().getSelectionStart();
+      return ReadAction.compute(() -> editor.getSelectionModel().getSelectionStart());
     }
 
     @Override
     public int getSelectionEnd() {
-      return editor.getSelectionModel().getSelectionEnd();
+      return ReadAction.compute(() -> editor.getSelectionModel().getSelectionEnd());
     }
 
     @Override
@@ -1527,6 +1527,23 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
       rectangle.add(endPoint);
 
       return rectangle;
+    }
+
+    // ---- Implements AccessibleAction ----
+
+    @Override
+    public int getAccessibleActionCount(){
+      return 0;
+    }
+
+    @Override
+    public String getAccessibleActionDescription(int i){
+      return null;
+    }
+
+    @Override
+    public boolean doAccessibleAction(int i) {
+      return false;
     }
 
     private @Nullable String getTextAtOffset(

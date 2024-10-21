@@ -3,6 +3,7 @@ package com.intellij.openapi.application.impl
 
 import com.intellij.codeWithMe.ClientId.Companion.decorateCallable
 import com.intellij.codeWithMe.ClientId.Companion.decorateRunnable
+import com.intellij.concurrency.currentThreadContext
 import com.intellij.core.rwmutex.*
 import com.intellij.diagnostic.PerformanceWatcher
 import com.intellij.diagnostic.PluginException
@@ -19,6 +20,7 @@ import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.platform.util.coroutines.internal.runSuspend
 import com.intellij.util.ReflectionUtil
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.ThreadingAssertions
@@ -34,6 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.BooleanSupplier
 import java.util.function.Consumer
 import javax.swing.JComponent
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 private class ThreadState(var permit: Permit? = null, var prevPermit: WriteIntentPermit? = null, var inListener: Boolean = false, var impatientReader: Boolean = false) {
   fun release() {
@@ -47,6 +51,14 @@ private class ThreadState(var permit: Permit? = null, var prevPermit: WriteInten
   val hasWriteIntent get() = permit is WriteIntentPermit
   val hasWrite get() = permit is WritePermit
 }
+
+private class LockStateContextElement(val threadState: ThreadState): CoroutineContext.Element {
+  override val key: CoroutineContext.Key<*>
+    get() = LockStateContextElement
+
+  companion object : CoroutineContext.Key<LockStateContextElement>
+}
+
 
 @Suppress("SSBasedInspection")
 @ApiStatus.Internal
@@ -66,14 +78,44 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   private val myWriteActionPending = AtomicInteger(0)
   private var myNoWriteActionCounter = AtomicInteger()
 
-  private val myState = ThreadLocal.withInitial { ThreadState(null, null,false) }
+  private val myState = ThreadLocal.withInitial { ThreadState() }
 
   @Volatile
   private var myWriteAcquired: Thread? = null
 
+  override fun getPermitAsContextElement(): CoroutineContext {
+    if (!isLockStoredInContext) {
+      return EmptyCoroutineContext
+    }
+
+    val element = currentThreadContext()[LockStateContextElement]
+    if (element != null && element.threadState.permit != null) {
+      return element
+    }
+
+    val ts = myState.get()
+    if (ts.permit != null) {
+      return LockStateContextElement(ts)
+    }
+
+    return EmptyCoroutineContext
+  }
+
+  override fun hasPermitAsContextElement(context: CoroutineContext): Boolean = isLockStoredInContext && context[LockStateContextElement] != null
+
+  private fun getThreadState(): ThreadState {
+    val ctxState = if (isLockStoredInContext) currentThreadContext()[LockStateContextElement]?.threadState else null
+    val thrState = myState.get()
+    if (ctxState != null) {
+      check(thrState?.permit == null || ctxState == thrState) { "Lock inconsistency: thread has ${thrState.permit} and context has ${ctxState.permit}" }
+      return ctxState
+    }
+    return thrState
+  }
+
   // @Throws(E::class)
   override fun <T, E : Throwable?> runWriteIntentReadAction(computation: ThrowableComputable<T, E>): T {
-    val ts = myState.get()
+    val ts = getThreadState()
     var release = true
     when(ts.permit) {
       null -> ts.permit = getWriteIntentPermit()
@@ -108,11 +150,11 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   }
 
   override fun isWriteIntentLocked(): Boolean {
-    val ts = myState.get()
+    val ts = getThreadState()
     return ts.hasWrite || ts.hasWriteIntent
   }
 
-  override fun isReadAccessAllowed(): Boolean = myState.get().hasPermit
+  override fun isReadAccessAllowed(): Boolean = getThreadState().hasPermit
 
   override fun executeOnPooledThread(action: Runnable, expired: BooleanSupplier): Future<*> {
     val actionDecorated = decorateRunnable(action)
@@ -179,7 +221,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
 
   // @Throws(E::class)
   override fun <T, E : Throwable?> runUnlockingIntendedWrite(action: ThrowableComputable<T, E>): T {
-    val ts = myState.get()
+    val ts = getThreadState()
     if (!ts.hasWriteIntent) {
       try {
         ts.writeIntentReleased = true
@@ -222,7 +264,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
 
   private fun <T, E : Throwable?> runReadAction(clazz: Class<*>, block: ThrowableComputable<T, E>): T {
     fireBeforeReadActionStart(clazz)
-    val ts = myState.get()
+    val ts = getThreadState()
     if (ts.hasPermit) {
       val prevImplicitLock = ThreadingAssertions.isImplicitLockOnEDT()
       ThreadingAssertions.setImplicitLockOnEDT(false)
@@ -283,7 +325,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   }
 
   override fun tryRunReadAction(action: Runnable): Boolean {
-    val ts = myState.get()
+    val ts = getThreadState()
     if (ts.hasPermit) {
       val prevImplicitLock = ThreadingAssertions.isImplicitLockOnEDT()
       ThreadingAssertions.setImplicitLockOnEDT(false)
@@ -319,7 +361,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
   }
 
-  override fun isReadLockedByThisThread() = myState.get().hasRead
+  override fun isReadLockedByThisThread() = getThreadState().hasRead
 
   @ApiStatus.Internal
   override fun setWriteActionListener(listener: WriteActionListener) {
@@ -342,7 +384,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   override fun <T, E : Throwable?> runWriteAction(computation: ThrowableComputable<T, E>): T = runWriteAction(computation.javaClass, computation)
 
   private fun <T, E : Throwable?> runWriteAction(clazz: Class<*>, block: ThrowableComputable<T, E>): T {
-    val ts = myState.get()
+    val ts = getThreadState()
     val state = startWrite(ts, clazz)
     return try {
       block.compute()
@@ -397,7 +439,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
                                             title: @NlsContexts.DialogTitle String,
                                             runnable: Runnable) {
     ThreadingAssertions.assertWriteIntentReadAccess()
-    val ts = myState.get()
+    val ts = getThreadState()
     if (ts.hasWriteIntent) {
       runModalProgress(project, title, runnable)
       return
@@ -465,7 +507,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   @Deprecated
   override fun acquireReadActionLock(): AccessToken {
     PluginException.reportDeprecatedUsage("ThreadingSupport.acquireReadActionLock", "Use `runReadAction()` instead")
-    val ts = myState.get()
+    val ts = getThreadState()
     if (ts.hasWrite) {
       throw IllegalStateException("Write Action can not request Read Access Token")
     }
@@ -497,7 +539,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
       return
     }
 
-    val ts = myState.get()
+    val ts = getThreadState()
     ts.impatientReader = true
     try {
       runnable.run()
@@ -507,9 +549,9 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
   }
 
-  override fun isInImpatientReader(): Boolean = myState.get().impatientReader
+  override fun isInImpatientReader(): Boolean = getThreadState().impatientReader
 
-  override fun isInsideUnlockedWriteIntentLock(): Boolean = myState.get().writeIntentReleased
+  override fun isInsideUnlockedWriteIntentLock(): Boolean = getThreadState().writeIntentReleased
 
   private fun measureWriteLock(acquisitor: () -> WritePermit) : WritePermit {
     val delay = ApplicationImpl.Holder.ourDumpThreadsOnLongWriteActionWaiting
@@ -678,7 +720,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
 
   @Deprecated
   private class WriteAccessToken(private val clazz: Class<*>) : AccessToken() {
-    val ts = myState.get()
+    val ts = getThreadState()
     val release = startWrite(ts, clazz)
 
     init {

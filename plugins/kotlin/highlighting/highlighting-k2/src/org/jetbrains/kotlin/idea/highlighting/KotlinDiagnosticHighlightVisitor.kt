@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.highlighting
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
@@ -11,16 +11,24 @@ import com.intellij.codeInsight.intention.IntentionActionWithOptions
 import com.intellij.codeInsight.quickfix.UnresolvedReferenceQuickFixUpdater
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.registry.Registry
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.createSmartPointer
 import com.intellij.psi.impl.IncompleteModelUtil.isIncompleteModel
 import com.intellij.xml.util.XmlStringUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
@@ -29,8 +37,10 @@ import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaSeverity
 import org.jetbrains.kotlin.analysis.api.diagnostics.getDefaultMessageWithFactoryName
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.idea.base.analysis.injectionRequiresOnlyEssentialHighlighting
 import org.jetbrains.kotlin.idea.base.analysis.isInjectedFileShouldBeAnalyzed
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixService
+import org.jetbrains.kotlin.idea.core.KotlinPluginDisposable
 import org.jetbrains.kotlin.idea.highlighter.KotlinUnresolvedReferenceKind
 import org.jetbrains.kotlin.idea.highlighter.KotlinUnresolvedReferenceKind.UnresolvedDelegateFunction
 import org.jetbrains.kotlin.idea.highlighter.clearAllKotlinUnresolvedReferenceKinds
@@ -39,15 +49,15 @@ import org.jetbrains.kotlin.idea.highlighting.highlighters.ignoreIncompleteModeD
 import org.jetbrains.kotlin.idea.inspections.suppress.CompilerWarningIntentionAction
 import org.jetbrains.kotlin.idea.inspections.suppress.KotlinSuppressableWarningProblemGroup
 import org.jetbrains.kotlin.idea.statistics.compilationError.KotlinCompilationErrorFrequencyStatsCollector
-import org.jetbrains.kotlin.psi.KtCodeFragment
-import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.*
 
 
 class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
     // map TextRange -> list of diagnostics for that range obtained from collectDiagnosticsForFile()
     // we have to extract diags from this map according to the range of the current element being visited, to avoid flickers
-    private lateinit var diagnosticRanges: MutableMap<TextRange, MutableList<HighlightInfo.Builder?>>
+    private var diagnosticRanges: MutableMap<TextRange, MutableList<HighlightInfo.Builder?>>? = null
     private var holder: HighlightInfoHolder? = null
+    private var coroutineScope: CoroutineScope? = null
     override fun suitableForFile(file: PsiFile): Boolean {
         val viewProvider = file.viewProvider
         val isInjection = InjectedLanguageManager.getInstance(file.project).isInjectedViewProvider(viewProvider)
@@ -55,58 +65,109 @@ class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
             // do not highlight errors in injected code
             return false
         }
+
         return file is KtFile
     }
 
     override fun analyze(file: PsiFile, updateWholeFile: Boolean, holder: HighlightInfoHolder, action: Runnable): Boolean {
         val highlightingLevelManager = HighlightingLevelManager.getInstance(file.project)
-        if (highlightingLevelManager.runEssentialHighlightingOnly(file)) {
+        if (highlightingLevelManager.runEssentialHighlightingOnly(file) || file.injectionRequiresOnlyEssentialHighlighting) {
             return true
         }
+
         this.holder = holder
-        val contextFile = holder.contextFile as? KtFile ?: error("KtFile files expected but got ${holder.contextFile}")
-        diagnosticRanges = analyzeFile(contextFile)
+        this.coroutineScope = KotlinPluginDisposable.getInstance(file.project)
+            .coroutineScope
+            .childScope(name = "${KotlinDiagnosticHighlightVisitor::class.simpleName}: ${file.name}")
+
         try {
+            val contextFile = holder.contextFile as? KtFile
+                ?: error("${KtFile::class.simpleName} files expected but got ${holder.contextFile::class.simpleName}")
+
+            diagnosticRanges = analyzeFile(contextFile)
             action.run()
         } catch (e: Throwable) {
             if (e is ControlFlowException) throw e
             // TODO: Port KotlinHighlightingSuspender to K2 to avoid the issue with infinite highlighting loop restart
             throw e
         } finally {
-            // do not leak Editor, since KotlinDiagnosticHighlightVisitor is an app-level extension
+            // do not leak Editor, since KotlinDiagnosticHighlightVisitor is a project-level extension
+            this.diagnosticRanges = null
+            this.coroutineScope?.cancel() // TODO
+            this.coroutineScope = null
             this.holder = null
-            diagnosticRanges.clear()
         }
+
         return true
     }
 
-    private fun analyzeFile(file: KtFile): MutableMap<TextRange, MutableList<HighlightInfo.Builder?>> {
-        analyze(file) {
-
-            //remove filtering when KTIJ-29195 is fixed
-            val isIJProject = IntelliJProjectUtil.isIntelliJPlatformProject(file.project)
-            val analysis = file.collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
-            val diagnostics = analysis
-                .filterOutCodeFragmentVisibilityErrors(file)
-                .filterNot { isIJProject && it.diagnosticClass == KaFirDiagnostic.ContextReceiversDeprecated::class }
-                .onEach { diagnostic -> diagnostic.psi.clearAllKotlinUnresolvedReferenceKinds() }
-                .flatMap { diagnostic -> diagnostic.textRanges.map { range -> Pair(range, diagnostic) } }
-                .groupByTo(HashMap(), { it.first }, {
-                    try {
-                        convertToBuilder(file, it.first, it.second)
-                    } catch (e: ProcessCanceledException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Logger.getInstance(KotlinDiagnosticHighlightVisitor::class.java).error(e)
-                        null
-                    }
-                })
-
-            KotlinCompilationErrorFrequencyStatsCollector.recordCompilationErrorsHappened(
-                analysis.asSequence().filter { it.severity == KaSeverity.ERROR }.mapNotNull(KaDiagnosticWithPsi<*>::factoryName), file
-            )
-            return diagnostics
+    @OptIn(KaExperimentalApi::class)
+    private fun analyzeFile(file: KtFile): MutableMap<TextRange, MutableList<HighlightInfo.Builder?>> = analyze(file) {
+        // Trigger additional resolution under `analyze` block to have the session on the stack
+        // to avoid stop-the-world and GC optimizations
+        if (Registry.`is`(key = "kotlin.highlighting.warmup", defaultValue = true)) {
+            triggerCollectingDiagnostics(file)
         }
+
+        //remove filtering when KTIJ-29195 is fixed
+        val isIJProject = IntelliJProjectUtil.isIntelliJPlatformProject(file.project)
+        val analysis = file.collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+        val diagnostics = analysis
+            .filterOutCodeFragmentVisibilityErrors(file)
+            .filterNot { isIJProject && it.diagnosticClass == KaFirDiagnostic.ContextReceiversDeprecated::class }
+            .onEach { diagnostic -> diagnostic.psi.clearAllKotlinUnresolvedReferenceKinds() }
+            .flatMap { diagnostic -> diagnostic.textRanges.map { range -> Pair(range, diagnostic) } }
+            .groupByTo(HashMap(), { it.first }, {
+                try {
+                    convertToBuilder(file, it.first, it.second)
+                } catch (e: ProcessCanceledException) {
+                    throw e
+                } catch (e: Exception) {
+                    Logger.getInstance(KotlinDiagnosticHighlightVisitor::class.java).error(e)
+                    null
+                }
+            })
+
+        KotlinCompilationErrorFrequencyStatsCollector.recordCompilationErrorsHappened(
+            analysis.asSequence().filter { it.severity == KaSeverity.ERROR }.mapNotNull(KaDiagnosticWithPsi<*>::factoryName), file
+        )
+
+        diagnostics
+    }
+
+    /**
+     * This is a hack to force the Analysis API to calculate and cache the result of diagnostic collectors.
+     *
+     * [org.jetbrains.kotlin.analysis.api.components.KaDiagnosticProvider.diagnostics] will resolve the corresponding
+     * non-local declaration and calculate diagnostics.
+     *
+     * The following [org.jetbrains.kotlin.analysis.api.components.KaDiagnosticProvider.collectDiagnostics]
+     * may see already cached results.
+     *
+     * In the ideal scenario, most of the declarations should be resolved via [triggerCollectingDiagnostics] on other threads
+     * while the initial thread just get information from caches.
+     */
+    private fun triggerCollectingDiagnostics(element: KtElement) {
+        val pointer = element.createSmartPointer()
+        coroutineScope!!.launch {
+            // This logic is not inside a separate function to simplify CPU snapshot investigations
+            readAction {
+                val declaration = pointer.element ?: return@readAction
+                analyze(declaration) {
+                    @OptIn(KaExperimentalApi::class)
+                    declaration.diagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+                }
+            }
+        }
+
+        val declarations = when (element) {
+            is KtFile -> element.declarations
+            is KtClassOrObject -> element.declarations
+            is KtScript -> element.declarations
+            else -> null
+        }
+
+        declarations?.forEach(::triggerCollectingDiagnostics)
     }
 
     private fun <PSI : PsiElement> Collection<KaDiagnosticWithPsi<PSI>>.filterOutCodeFragmentVisibilityErrors(file: KtFile): Collection<KaDiagnosticWithPsi<PSI>> {
@@ -244,11 +305,16 @@ class KotlinDiagnosticHighlightVisitor : HighlightVisitor {
     }
 
     override fun visit(element: PsiElement) {
-        val elementRange = element.textRange
         // show diagnostics with textRanges under this element range
         // assumption: highlight visitors call visit() method in the post-order (children first)
-        // note that after this visitor finished, `diagnosticRanges` will be empty, because all diagnostics are inside the file range, by definition
-        val iterator = diagnosticRanges.iterator()
+        // note that after this visitor finished, `diagnosticRanges` will be empty,
+        // because all diagnostics are inside the file range, by definition
+        val iterator = diagnosticRanges?.iterator()
+        if (iterator?.hasNext() != true) {
+            return
+        }
+
+        val elementRange = element.textRange
         for (entry in iterator) {
             if (entry.key in elementRange) {
                 val diagnostics = entry.value.filterNotNull()

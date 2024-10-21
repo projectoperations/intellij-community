@@ -5,6 +5,7 @@ const prefix = "ep@"
 const LC_KEYS = {
   delimiter: prefix + "delimiter"
 };
+const EXTERNAL_VARIABLES = {}
 
 
 document.addEventListener("click", function (e) {
@@ -150,7 +151,7 @@ function updatePopup(sessionDiv) {
       addSuggestions(sessionDiv, popup, lookup);
     }
   }
-  sessionDiv.appendChild(popup)
+  appendPopup(sessionDiv, popup)
 }
 
 // Add the `addDiffView` function
@@ -265,6 +266,11 @@ function createCodeElement(context) {
   return code
 }
 
+function appendPopup(session, popup) {
+  const target = session.querySelector(".autocomplete-items-position") ?? session
+  target.appendChild(popup)
+}
+
 function addButtonToCopyCompletionContext(context, sessionDiv, popup, lookup) {
   let buttonDiv = document.createElement("DIV")
   let button = document.createElement("BUTTON")
@@ -292,7 +298,8 @@ function addSuggestions(sessionDiv, popup, lookup) {
       p.setAttribute("style", "font-weight: bold;")
     }
     const presentationText = suggestions[i].presentationText.replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    p.innerHTML = removeCommonIndentFromCodeSnippet(presentationText)
+    p.innerHTML = EXTERNAL_VARIABLES["suggestion.indent.preserve"] === "true" ?
+      presentationText : removeCommonIndentFromCodeSnippet(presentationText)
     suggestionDiv.appendChild(p)
     popup.appendChild(suggestionDiv)
   }
@@ -567,7 +574,7 @@ function updateMultilinePopup(event) {
   else {
     addMultilineAttachments(sessionDiv, popup, expectedText)
   }
-  sessionDiv.appendChild(popup)
+  appendPopup(sessionDiv, popup)
 }
 
 function addMultilineHeaders(popup, showSuggestion) {

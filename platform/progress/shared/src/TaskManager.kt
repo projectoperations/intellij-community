@@ -2,6 +2,7 @@
 package com.intellij.platform.ide.progress
 
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diagnostic.trace
 import com.intellij.platform.kernel.withKernel
 import fleet.kernel.*
 import org.jetbrains.annotations.ApiStatus
@@ -21,7 +22,7 @@ object TaskManager {
    *
    * @param taskInfoEntity task to cancel
    */
-  suspend fun cancelTask(taskInfoEntity: TaskInfoEntity) = withKernel {
+  suspend fun cancelTask(taskInfoEntity: TaskInfoEntity): Unit = withKernel {
     tryWithEntities(taskInfoEntity) {
       if (taskInfoEntity.cancellation is TaskCancellation.NonCancellable) {
         LOG.error("Task ${taskInfoEntity.eid} is not cancellable")
@@ -38,7 +39,7 @@ object TaskManager {
    *
    * @param taskInfoEntity task to pause
    */
-  suspend fun pauseTask(taskInfoEntity: TaskInfoEntity) = withKernel {
+  suspend fun pauseTask(taskInfoEntity: TaskInfoEntity): Unit = withKernel {
     tryWithEntities(taskInfoEntity) {
       // TODO Check that task can be suspended RDCT-1620
 
@@ -52,7 +53,7 @@ object TaskManager {
    *
    * @param taskInfoEntity task to pause
    */
-  suspend fun resumeTask(taskInfoEntity: TaskInfoEntity) = withKernel {
+  suspend fun resumeTask(taskInfoEntity: TaskInfoEntity): Unit = withKernel {
     tryWithEntities(taskInfoEntity) {
       taskInfoEntity.setTaskStatus(TaskStatus.RUNNING)
     }
@@ -76,6 +77,7 @@ object TaskManager {
       return
     }
 
+    LOG.trace { "Changing task status from $taskStatus to $newStatus" }
     taskStatus = newStatus
   }
 

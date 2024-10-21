@@ -6,11 +6,12 @@ import com.jetbrains.rhizomedb.impl.*
 import fleet.kernel.rebase.OfferContributorEntity
 import fleet.kernel.rebase.RemoteKernelConnectionEntity
 import fleet.kernel.rebase.WorkspaceClockEntity
+import fleet.preferences.isUsingMicroSpans
 import fleet.rpc.client.RpcClientDisconnectedException
+import fleet.tracing.*
 import fleet.tracing.runtime.Span
+import fleet.tracing.runtime.SpanInfo
 import fleet.tracing.runtime.currentSpan
-import fleet.tracing.span
-import fleet.tracing.spannedScope
 import fleet.util.*
 import fleet.util.async.catching
 import fleet.util.async.coroutineNameAppended
@@ -91,13 +92,10 @@ suspend fun <T> change(f: ChangeScope.() -> T): T {
   val kernel = context.transactor
   val interceptor = context[ChangeInterceptor] ?: ChangeInterceptor.Identity
   var res: T? = null
-  // TODO: check required condition after the change too?
-  val change = interceptor.change({ res = f() }) { changeFn ->
+  interceptor.change({ res = f() }) { changeFn ->
     kernel.changeSuspend(changeFn)
   }
-  val result = res as T
-  DbContext.threadBound.set(change.dbAfter)
-  return result
+  return res as T
 }
 
 
@@ -201,14 +199,17 @@ class DispatchChannelOverflowException : RuntimeException("dispatch channel is o
 
 class ChangeInterceptor(
   val debugName: String,
-  val change: suspend (
-    changeFn: ChangeScope.() -> Unit,
-    next: suspend (ChangeScope.() -> Unit) -> Change,
-  ) -> Change,
+  val change: suspend (changeFn: ChangeScope.() -> Unit, next: suspend (ChangeScope.() -> Unit) -> Change) -> Change,
 ) : CoroutineContext.Element {
   companion object : CoroutineContext.Key<ChangeInterceptor> {
     val Identity: ChangeInterceptor = ChangeInterceptor("identity") { changeFn, next ->
-      next(changeFn)
+      next(changeFn).also {
+        /**
+         * because [fleet.kernel.rete.ReteSpinChangeInterceptor] wants to be in control of the threadBound context
+         * setting the database becomes a responsibility of the interceptor
+         * */
+        DbContext.threadBound.set(it.dbAfter)
+      }
     }
   }
 
@@ -257,7 +258,7 @@ sealed interface SubscriptionEvent {
  * [middleware] is applied to every change fn synchronously, being able to supply meta to the change, or alter the behavior of fn in other ways
  * Consider adding KernelMiddleware if additional routine has to be performed on every [Transactor.changeAsync]
  */
-suspend fun<T> withTransactor(
+suspend fun <T> withTransactor(
   entityClasses: List<EntityTypeDefinition>,
   middleware: TransactorMiddleware = TransactorMiddleware.Identity,
   defaultPart: Int = CommonPart,
@@ -353,17 +354,35 @@ suspend fun<T> withTransactor(
       }
 
       override suspend fun changeSuspend(f: ChangeScope.() -> Unit): Change {
-        currentCoroutineContext().job.ensureActive()
-        return frequentSpannedScope("change") {
+        val job = currentCoroutineContext().job
+        job.ensureActive()
+        val span = if (isUsingMicroSpans) {
+          currentSpan.startChild(
+            SpanInfo(
+              name = "change",
+              job = job,
+              isScope = true,
+              startTimestampNano = null,
+              cause = null,
+              map = HashMap()))
+        }
+        else {
+          null
+        }
+        /**
+         * DO NOT WRAP THIS BLOCK IN A SCOPE!
+         * see `change suspend is atomic case 2` in [fleet.test.frontend.kernel.TransactorTest]
+         * */
+        return runCatching {
           val rendezvous = CompletableDeferred<Unit>()
           try {
             val deferred = CompletableDeferred<Change>()
             backgroundDispatchChannel.send(ChangeTask(f = f,
                                                       rendezvous = rendezvous,
                                                       resultDeferred = deferred,
-                                                      causeSpan = currentSpan))
+                                                      causeSpan = span ?: currentSpan))
             /** we want to preserve structured concurrency which means current job should be completed only when [body] has finished
-             * see `change suspend is atomic` in [fleet.test.frontend.kernel.KernelTest]
+             * see `change suspend is atomic` in [fleet.test.frontend.kernel.TransactorTest]
              */
             withContext(NonCancellable) {
               rendezvous.complete(Unit)
@@ -373,7 +392,7 @@ suspend fun<T> withTransactor(
           finally {
             rendezvous.completeExceptionally(CancellationException("Suspending change is cancelled"))
           }
-        }
+        }.also { span?.completeWithResult(it) }.getOrThrow()
       }
 
       override val log = flow {

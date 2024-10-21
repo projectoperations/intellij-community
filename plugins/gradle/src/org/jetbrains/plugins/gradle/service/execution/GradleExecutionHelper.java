@@ -40,7 +40,7 @@ import org.jetbrains.plugins.gradle.properties.GradleProperties;
 import org.jetbrains.plugins.gradle.properties.GradlePropertiesFile;
 import org.jetbrains.plugins.gradle.properties.models.Property;
 import org.jetbrains.plugins.gradle.service.execution.cmd.GradleCommandLineOptionsProvider;
-import org.jetbrains.plugins.gradle.service.project.GradleOperationHelperExtension;
+import org.jetbrains.plugins.gradle.service.project.GradleExecutionHelperExtension;
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 import org.jetbrains.plugins.gradle.util.cmd.node.GradleCommandLine;
@@ -56,30 +56,6 @@ import static org.jetbrains.plugins.gradle.GradleConnectorService.withGradleConn
 public class GradleExecutionHelper {
 
   private static final Logger LOG = Logger.getInstance(GradleExecutionHelper.class);
-
-  public @NotNull BuildLauncher getBuildLauncher(
-    @NotNull ProjectConnection connection,
-    @NotNull ExternalSystemTaskId id,
-    @NotNull List<String> tasksAndArguments,
-    @NotNull GradleExecutionSettings settings,
-    @NotNull ExternalSystemTaskNotificationListener listener
-  ) {
-    BuildLauncher operation = connection.newBuild();
-    prepare(connection, operation, id, tasksAndArguments, settings, listener);
-    return operation;
-  }
-
-  public @NotNull TestLauncher getTestLauncher(
-    @NotNull ProjectConnection connection,
-    @NotNull ExternalSystemTaskId id,
-    @NotNull List<String> tasksAndArguments,
-    @NotNull GradleExecutionSettings settings,
-    @NotNull ExternalSystemTaskNotificationListener listener
-  ) {
-    var operation = connection.newTestLauncher();
-    prepare(connection, operation, id, tasksAndArguments, settings, listener);
-    return operation;
-  }
 
   public <T> T execute(@NotNull String projectPath,
                        @Nullable GradleExecutionSettings settings,
@@ -127,19 +103,11 @@ public class GradleExecutionHelper {
       });
   }
 
-  public static void prepare(
+  @ApiStatus.Internal
+  public static void prepareForExecution(
     @NotNull ProjectConnection connection,
     @NotNull LongRunningOperation operation,
-    @NotNull ExternalSystemTaskId id,
-    @NotNull GradleExecutionSettings settings,
-    @NotNull ExternalSystemTaskNotificationListener listener
-  ) {
-    prepare(connection, operation, id, Collections.emptyList(), settings, listener);
-  }
-
-  private static void prepare(
-    @NotNull ProjectConnection connection,
-    @NotNull LongRunningOperation operation,
+    @NotNull CancellationToken cancellationToken,
     @NotNull ExternalSystemTaskId id,
     @NotNull List<String> tasksAndArguments,
     @NotNull GradleExecutionSettings settings,
@@ -165,8 +133,11 @@ public class GradleExecutionHelper {
 
     setupStandardIO(operation, settings, id, listener);
 
-    GradleOperationHelperExtension.EP_NAME
-      .forEachExtensionSafe(proc -> proc.prepareForExecution(id, operation, settings, buildEnvironment));
+    operation.withCancellationToken(cancellationToken);
+
+    GradleExecutionHelperExtension.EP_NAME.forEachExtensionSafe(proc -> {
+      proc.prepareForExecution(id, operation, settings, buildEnvironment);
+    });
   }
 
   private static void clearSystemProperties(LongRunningOperation operation) {

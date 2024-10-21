@@ -19,6 +19,7 @@ import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaFileCodeStyleFacade;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -66,7 +67,7 @@ public final class ImportUtils {
     if (containingPackageName.equals(packageName) || importList.findSingleClassImportStatement(qualifiedName) != null) {
       return;
     }
-    if ((createImplicitImportChecker(javaFile).isImplicitlyImported(new Import(qualifiedName, false)) ||
+    if ((createImplicitImportChecker(javaFile).isImplicitlyImported(qualifiedName, false) ||
          importList.findOnDemandImportStatement(packageName) != null ||
          ContainerUtil.exists(importList.getImportModuleStatements(),
                               moduleStatement -> moduleStatement.findImportedPackage(packageName) != null))
@@ -549,7 +550,7 @@ public final class ImportUtils {
   }
 
   private static boolean hasImplicitStaticImport(@NotNull PsiJavaFile file, @NotNull String name) {
-    return createImplicitImportChecker(file).isImplicitlyImported(new Import(name, true));
+    return createImplicitImportChecker(file).isImplicitlyImported(name, true);
   }
 
 
@@ -578,7 +579,7 @@ public final class ImportUtils {
           if (importReference == null) continue;
           String referenceName = importReference.getQualifiedName();
           if (referenceName == null) continue;
-          myStaticImportStatements.put(staticStatement.isOnDemand() ? referenceName : getPackageOrClassName(referenceName),
+          myStaticImportStatements.put(staticStatement.isOnDemand() ? referenceName : StringUtil.getPackageName(referenceName),
                                        staticStatement);
         }
         else if (anImport instanceof PsiImportModuleStatement moduleStatement) {
@@ -591,10 +592,10 @@ public final class ImportUtils {
       }
     }
 
-    public boolean isImplicitlyImported(@NotNull Import name) {
-      String packageOrClassName = getPackageOrClassName(name.name);
-      String className = ClassUtil.extractClassName(name.name);
-      if (!name.isStatic) {
+    public boolean isImplicitlyImported(String qName, boolean isStatic) {
+      String packageOrClassName = StringUtil.getPackageName(qName);
+      String className = ClassUtil.extractClassName(qName);
+      if (!isStatic) {
         for (PsiImportModuleStatement psiImportModuleStatement : myModulesStatements) {
           PsiPackageAccessibilityStatement importedPackage = psiImportModuleStatement.findImportedPackage(packageOrClassName);
           if (importedPackage == null) continue;
@@ -614,20 +615,12 @@ public final class ImportUtils {
           PsiJavaCodeReferenceElement reference = psiImportStaticStatement.getImportReference();
           if (reference == null) return false;
           String qualifiedName = reference.getQualifiedName();
-          return name.name.equals(qualifiedName);
+          return qName.equals(qualifiedName);
         }
       }
       return false;
     }
   }
-
-  public static @NotNull String getPackageOrClassName(@NotNull String className){
-    int dotIndex = className.lastIndexOf('.');
-    return dotIndex < 0 ? "" : className.substring(0, dotIndex);
-  }
-
-  @ApiStatus.Internal
-  public record Import(@NotNull String name, boolean isStatic) {}
 
   private static boolean memberReferenced(PsiMember member, PsiElement context) {
     final MemberReferenceVisitor visitor = new MemberReferenceVisitor(member);

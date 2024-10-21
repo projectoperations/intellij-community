@@ -3,6 +3,8 @@ package com.intellij.ide.ui
 
 import com.intellij.BundleBase
 import com.intellij.ide.IdeBundle
+import com.intellij.internal.statistic.eventLog.EventLogGroup
+import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -36,10 +38,10 @@ import org.jetbrains.annotations.NonNls
 import java.awt.Graphics
 import java.awt.Point
 import java.awt.event.MouseEvent
-import java.awt.geom.AffineTransform
 import java.util.*
 import javax.accessibility.AccessibleContext
 import javax.swing.*
+import javax.swing.event.HyperlinkEvent
 
 private const val ID = "NonCommercial"
 
@@ -103,7 +105,6 @@ private class NonCommercialWidget : CustomStatusBarWidget {
     val uiSettings = UISettings.Companion.getInstance()
     val icon = TextIcon(title, foreground, null, borderColor, 0, true)
     icon.setFont(JBFont.medium())
-    icon.setFontTransform(AffineTransform())
     icon.setRound(18)
     icon.setInsets(JBUI.insets(if (!ExperimentalUI.Companion.isNewUI() || uiSettings.compactMode) 3 else 4, 8))
 
@@ -122,7 +123,7 @@ private class NonCommercialWidget : CustomStatusBarWidget {
             oldFont = font
             icon.setInsets(JBUI.insets(if (newValue) 3 else 4, 8))
             icon.font = JBFont.medium()
-            icon.setFontTransform(AffineTransform())
+            icon.setFontTransform(getFontMetrics(icon.font).fontRenderContext.transform)
             parent.revalidate()
           }
           super.paint(g)
@@ -132,6 +133,7 @@ private class NonCommercialWidget : CustomStatusBarWidget {
     else {
       JLabel(icon)
     }
+    icon.setFontTransform(label.getFontMetrics(icon.font).fontRenderContext.transform)
     label.putClientProperty(AccessibleContext.ACCESSIBLE_NAME_PROPERTY, title)
 
     NonCommercialPopup(this).installOn(label)
@@ -179,6 +181,8 @@ private class NonCommercialWidget : CustomStatusBarWidget {
 private class NonCommercialPopup(private val widget: NonCommercialWidget) : ClickListener() {
 
   override fun onClick(event: MouseEvent, clickCount: Int): Boolean {
+    NonCommercialWidgetUsagesCollector.widgetClick.log()
+
     val popupDisposable = Disposer.newDisposable(widget)
     val popup = JBPopupFactory.getInstance().createComponentPopupBuilder(createPanel(popupDisposable), null).createPopup()
 
@@ -209,6 +213,18 @@ private class NonCommercialPopup(private val widget: NonCommercialWidget) : Clic
 
         component.text = IdeBundle.message("popup.text.non.commercial.usage", BundleBase.replaceMnemonicAmpersand(url))
         component.putClientProperty(AccessibleContext.ACCESSIBLE_NAME_PROPERTY, StringUtil.stripHtml(component.text, " "))
+
+        component.addHyperlinkListener { event ->
+          val eventUrl = event.url?.toExternalForm()
+          if (event.eventType == HyperlinkEvent.EventType.ACTIVATED && eventUrl != null) {
+            if (eventUrl.contains("/buy/")) {
+              NonCommercialWidgetUsagesCollector.widgetBuyLinkClick.log()
+            }
+            else {
+              NonCommercialWidgetUsagesCollector.widgetAgreementLinkClick.log()
+            }
+          }
+        }
 
         bottomGap(BottomGap.SMALL)
       }
@@ -261,5 +277,18 @@ private class NonCommercialPopup(private val widget: NonCommercialWidget) : Clic
     }.lowercase()
 
     return "https://www.jetbrains.com/$product/buy/?fromIDE&lang=$tag"
+  }
+}
+
+@ApiStatus.Internal
+internal object NonCommercialWidgetUsagesCollector : CounterUsagesCollector() {
+  private val nonCommercialUseGroup = EventLogGroup("non.commercial.use", 1)
+
+  internal val widgetClick = nonCommercialUseGroup.registerEvent("widget.click")
+  internal val widgetBuyLinkClick = nonCommercialUseGroup.registerEvent("widget.buy.link.click")
+  internal val widgetAgreementLinkClick = nonCommercialUseGroup.registerEvent("widget.agreement.link.click")
+
+  override fun getGroup(): EventLogGroup {
+    return nonCommercialUseGroup
   }
 }

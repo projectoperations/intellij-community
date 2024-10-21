@@ -69,7 +69,6 @@ internal class MigLayoutRow(private val parent: MigLayoutRow?,
   }
 
   val components: MutableList<JComponent> = SmartList()
-  var rightIndex: Int = Int.MAX_VALUE
 
   private var lastComponentConstraintsWithSplit: CC? = null
 
@@ -144,22 +143,6 @@ internal class MigLayoutRow(private val parent: MigLayoutRow?,
       }
     }
 
-  override var subRowsVisible: Boolean = true
-    set(value) {
-      if (field == value) {
-        return
-      }
-
-      field = value
-      subRows?.forEach {
-        it.visible = value
-        it.subRowsVisible = value
-        if (it != subRows!!.last()) {
-          it.gapAfter = if (value) null else "0px!"
-        }
-      }
-    }
-
   internal val isLabeledIncludingSubRows: Boolean
     get() = labeled || (subRows?.any { it.isLabeledIncludingSubRows } ?: false)
 
@@ -188,8 +171,7 @@ internal class MigLayoutRow(private val parent: MigLayoutRow?,
     if (isSeparated) {
       val separatorRow = MigLayoutRow(this, builder, indent = newIndent, noGrid = true)
       configureSeparatorRow(separatorRow, title)
-      separatorRow.visible = subRowsVisible
-      separatorRow.subRowsVisible = subRowsVisible
+      separatorRow.visible = true
       row.getOrCreateSubRowsList().add(separatorRow)
     }
 
@@ -202,8 +184,7 @@ internal class MigLayoutRow(private val parent: MigLayoutRow?,
     }
     subRows.add(insertIndex, row)
 
-    row.visible = subRowsVisible
-    row.subRowsVisible = subRowsVisible
+    row.visible = true
 
     if (label != null) {
       row.addComponent(label)
@@ -281,11 +262,6 @@ internal class MigLayoutRow(private val parent: MigLayoutRow?,
   override fun <T : JComponent> component(component: T): CellBuilder<T> {
     addComponent(component)
     return CellBuilderImpl(builder, this, component)
-  }
-
-  override fun <T : JComponent> component(component: T, viewComponent: JComponent): CellBuilder<T> {
-    addComponent(viewComponent)
-    return CellBuilderImpl(builder, this, component, viewComponent)
   }
 
   internal fun addComponent(component: JComponent, cc: CC = CC()) {
@@ -385,25 +361,8 @@ internal class MigLayoutRow(private val parent: MigLayoutRow?,
     }
   }
 
-  override fun alignRight() {
-    if (rightIndex != Int.MAX_VALUE) {
-      throw IllegalStateException("right allowed only once")
-    }
-    rightIndex = components.size
-  }
-
-  override fun largeGapAfter() {
+  private fun largeGapAfter() {
     gapAfter = "${spacing.largeVerticalGap}px!"
-  }
-
-  override fun createNoteOrCommentRow(component: JComponent): Row {
-    val cc = CC()
-    cc.vertical.gapBefore = gapToBoundSize(if (subRows == null) spacing.verticalGap else spacing.largeVerticalGap, false)
-    cc.vertical.gapAfter = gapToBoundSize(spacing.verticalGap, false)
-
-    val row = createChildRow(label = null, noGrid = true)
-    row.addComponent(component, cc)
-    return row
   }
 
   override fun onGlobalApply(callback: () -> Unit): Row {
@@ -438,7 +397,6 @@ private class CellBuilderImpl<T : JComponent>(
   override val component: T,
   private val viewComponent: JComponent = component
 ) : CellBuilder<T> {
-  private var applyIfEnabled = false
   private var property: GraphProperty<*>? = null
 
   override fun withGraphProperty(property: GraphProperty<*>): CellBuilder<T> {
@@ -482,29 +440,10 @@ private class CellBuilderImpl<T : JComponent>(
     return this
   }
 
-  override fun enabled(isEnabled: Boolean) {
-    viewComponent.isEnabled = isEnabled
-  }
-
   override fun enableIf(predicate: ComponentPredicate): CellBuilder<T> {
     viewComponent.isEnabled = predicate()
     predicate.addListener { viewComponent.isEnabled = it }
     return this
-  }
-
-  override fun visibleIf(predicate: ComponentPredicate): CellBuilder<T> {
-    viewComponent.isVisible = predicate()
-    predicate.addListener { viewComponent.isVisible = it }
-    return this
-  }
-
-  override fun applyIfEnabled(): CellBuilder<T> {
-    applyIfEnabled = true
-    return this
-  }
-
-  override fun shouldSaveOnApply(): Boolean {
-    return !(applyIfEnabled && !viewComponent.isEnabled)
   }
 
   @Deprecated("Use Kotlin UI DSL Version 2")
@@ -518,13 +457,6 @@ private class CellBuilderImpl<T : JComponent>(
   override fun constraints(vararg constraints: CCFlags): CellBuilder<T> {
     builder.updateComponentConstraints(viewComponent) {
       overrideFlags(this, constraints)
-    }
-    return this
-  }
-
-  override fun withLargeLeftGap(): CellBuilder<T> {
-    builder.updateComponentConstraints(viewComponent) {
-      horizontal.gapBefore = gapToBoundSize(builder.spacing.largeHorizontalGap, true)
     }
     return this
   }

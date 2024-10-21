@@ -77,7 +77,7 @@ class KotlinEvaluator(val codeFragment: KtCodeFragment, private val sourcePositi
 
     override fun evaluate(context: EvaluationContextImpl): Any? {
         if (codeFragment.text.isEmpty()) {
-            return context.debugProcess.virtualMachineProxy.mirrorOfVoid()
+            return context.suspendContext.virtualMachineProxy.mirrorOfVoid()
         }
 
         if (!context.debugProcess.isAttached) {
@@ -263,7 +263,7 @@ class KotlinEvaluator(val codeFragment: KtCodeFragment, private val sourcePositi
                 }
 
                 override fun jdiMirrorOfString(str: String): StringReference {
-                    return DebuggerUtilsEx.mirrorOfString(str, context.vm, context.evaluationContext)
+                    return DebuggerUtilsEx.mirrorOfString(str, context.evaluationContext)
                 }
 
                 override fun jdiNewArray(arrayType: ArrayType, size: Int): ArrayReference {

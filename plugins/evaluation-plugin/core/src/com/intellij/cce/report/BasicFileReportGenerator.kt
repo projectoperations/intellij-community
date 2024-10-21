@@ -34,10 +34,22 @@ open class BasicFileReportGenerator(
       for (resource in scripts){
         script { src = resource.destinationPath }
       }
+
+      script {
+        unsafe {
+          raw(
+            externalVariables
+              .map { "EXTERNAL_VARIABLES[\"${it.key}\"] = \"${it.value}\";" }
+              .joinToString("\n")
+          )
+        }
+      }
     }
   }
 
   protected open fun textToInsert(session: Session): String = session.expectedText
+
+  protected open val externalVariables: Map<String, String> = mapOf()
 
   override val scripts: List<Resource> = listOf(Resource("/script.js", "../res/script.js"))
 

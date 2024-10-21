@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.engine;
 
 import com.intellij.debugger.SourcePosition;
@@ -106,11 +106,11 @@ public class BasicStepMethodFilter implements NamedMethodFilter {
       return false;
     }
     String declaringClassNameName = myDeclaringClassName.getName(process);
-    boolean res = DebuggerUtilsEx.isAssignableFrom(declaringClassNameName, location.declaringType());
+    boolean res = DebuggerUtils.instanceOf(location.declaringType(), declaringClassNameName);
     if (!res && !method.isStatic() && stackFrame != null) {
       ObjectReference thisObject = stackFrame.thisObject();
       if (thisObject != null) {
-        res = DebuggerUtilsEx.isAssignableFrom(declaringClassNameName, thisObject.referenceType());
+        res = DebuggerUtils.instanceOf(thisObject.referenceType(), (declaringClassNameName));
       }
     }
     return res;
@@ -191,13 +191,13 @@ public class BasicStepMethodFilter implements NamedMethodFilter {
             if (proxyValue != null) {
               Type proxyType = proxyValue.type();
               if (proxyType instanceof ReferenceType &&
-                  DebuggerUtilsEx.isAssignableFrom(myDeclaringClassName.getName(process), proxyType)) {
+                  DebuggerUtils.instanceOf(proxyType, myDeclaringClassName.getName(process))) {
                 Value methodValue = argumentValues.get(size - 2);
                 if (methodValue instanceof ObjectReference) {
                   // TODO: no signature check for now
                   ReferenceType methodType = ((ObjectReference)methodValue).referenceType();
                   return myTargetMethodName.equals(
-                    ((StringReference)((ObjectReference)methodValue).getValue(methodType.fieldByName("name"))).value());
+                    ((StringReference)((ObjectReference)methodValue).getValue(DebuggerUtils.findField(methodType, "name"))).value());
                 }
               }
             }
@@ -216,6 +216,7 @@ public class BasicStepMethodFilter implements NamedMethodFilter {
       return true;
     }
     // check if there are any bridge methods that match
+    //noinspection SSBasedInspection
     for (Method candidate : method.declaringType().methodsByName(method.name())) {
       if (candidate != method && candidate.isBridge() && expectedSignature.equals(candidate.signature())) {
         return true;

@@ -23,6 +23,7 @@ import com.intellij.openapi.util.*;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiReference;
+import com.intellij.util.DocumentUtil;
 import org.jetbrains.annotations.*;
 
 import java.util.ArrayList;
@@ -101,13 +102,22 @@ public final class UnresolvedReferenceQuickFixUpdaterImpl implements UnresolvedR
     // compute unresolved refs suggestions from the caret to two pages down (in case the user is scrolling down, which is often the case)
     int startOffset = Math.max(0, visibleRange.getStartOffset());
     int endOffset = Math.min(document.getTextLength(), visibleRange.getEndOffset()+visibleRange.getLength());
-    // first, compute quick fixes close to the caret
-    List<HighlightInfo> unresolvedInfos = new ArrayList<>();
-    DaemonCodeAnalyzerEx.processHighlights(document, project, HighlightSeverity.ERROR, startOffset, endOffset, info -> {
-      if (!info.isUnresolvedReference()) {
+    List<HighlightInfo> unresolvedInfos = new ArrayList<>(); // collect unresolved-ref infos into intermediate collection to avoid messing with HighlightInfo lock under the markup lock
+    int caret = editor.getCaretModel().getOffset();
+    TextRange caretLine = DocumentUtil.getLineTextRange(document, document.getLineNumber(caret));
+    if (caretLine.getStartOffset() < startOffset || caretLine.getEndOffset() >= endOffset) {
+      // in case the caret line is scrolled out of sight it would be useful if the quick fixes are ready there nevertheless
+      DaemonCodeAnalyzerEx.processHighlights(document, project, HighlightSeverity.ERROR, caretLine.getStartOffset(), caretLine.getEndOffset(), info -> {
+        if (info.isUnresolvedReference()) {
+          unresolvedInfos.add(info);
+        }
         return true;
+      });
+    }
+    DaemonCodeAnalyzerEx.processHighlights(document, project, HighlightSeverity.ERROR, startOffset, endOffset, info -> {
+      if (info.isUnresolvedReference()) {
+        unresolvedInfos.add(info);
       }
-      unresolvedInfos.add(info);
       return true;
     });
     for (HighlightInfo info : unresolvedInfos) {

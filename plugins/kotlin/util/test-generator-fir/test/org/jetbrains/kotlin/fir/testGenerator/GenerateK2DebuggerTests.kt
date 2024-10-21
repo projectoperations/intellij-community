@@ -1,17 +1,14 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.fir.testGenerator
 
-import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2CodeFragmentAutoImportTest
-import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2CodeFragmentCompletionHandlerTest
-import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2CodeFragmentCompletionTest
-import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2CodeFragmentHighlightingTest
 import org.jetbrains.kotlin.idea.compose.k2.debugger.test.cases.AbstractK2ComposeSteppingTest
-import org.jetbrains.kotlin.idea.fir.debugger.evaluate.AbstractK2MultiplatformCodeFragmentCompletionTest
+import org.jetbrains.kotlin.idea.fir.debugger.evaluate.*
 import org.jetbrains.kotlin.idea.k2.debugger.test.cases.*
 import org.jetbrains.kotlin.test.TargetBackend
 import org.jetbrains.kotlin.testGenerator.model.*
 import org.jetbrains.kotlin.testGenerator.model.GroupCategory.*
 import org.jetbrains.kotlin.testGenerator.model.Patterns.KT
+import org.jetbrains.kotlin.testGenerator.model.Patterns.KT_WITHOUT_DOTS
 
 internal fun MutableTWorkspace.generateK2DebuggerTests() {
     testGroup("jvm-debugger/test/k2", testDataPath = "../testData", category = DEBUGGER) {
@@ -55,6 +52,12 @@ internal fun MutableTWorkspace.generateK2DebuggerTests() {
             model("positionManager", isRecursive = false, pattern = Patterns.DIRECTORY, testClassName = "MultiFile")
         }
 
+        listOf(AbstractK2IdeK1CodeBreakpointHighlightingTest::class, AbstractK2IdeK2CodeBreakpointHighlightingTest::class).forEach {
+            testClass(it) {
+                model("highlighting", isRecursive = false, pattern = KT_WITHOUT_DOTS, testMethodName = "doCustomTest")
+            }
+        }
+
         testClass<AbstractK2SmartStepIntoTest> {
             model("smartStepInto")
         }
@@ -69,11 +72,14 @@ internal fun MutableTWorkspace.generateK2DebuggerTests() {
             }
         }
 
-
-        listOf(AbstractK2IdeK1CodeAsyncStackTraceTest::class, AbstractK2IdeK2CodeAsyncStackTraceTest::class).forEach {
+        listOf(AbstractK2IdeK1CodeSuspendStackTraceTest::class, AbstractK2IdeK2CodeSuspendStackTraceTest::class).forEach {
             testClass(it) {
-                model("asyncStackTrace")
+                model("suspendStackTrace")
             }
+        }
+
+        testClass<AbstractK2FlowAsyncStackTraceTest> {
+            model("asyncStackTrace/flows")
         }
 
         listOf(

@@ -100,14 +100,14 @@ public final class AsyncStacksUtils {
       return null;
     }
 
-    VirtualMachineProxyImpl virtualMachineProxy = evalContext.getSuspendContext().getVirtualMachineProxy();
+    VirtualMachineProxyImpl virtualMachineProxy = evalContext.getVirtualMachineProxy();
     List<Value> args = Collections.singletonList(virtualMachineProxy.mirrorOf(getMaxStackLength()));
     Pair<ClassType, Method> finalMethodPair = methodPair;
     String value = DebuggerUtils.getInstance().processCollectibleValue(
       () -> process.invokeMethod(evaluationContext, finalMethodPair.first, finalMethodPair.second,
                                  args, ObjectReference.INVOKE_SINGLE_THREADED, true),
       result -> result instanceof StringReference ? ((StringReference)result).value() : null,
-      process.getVirtualMachineProxy());
+      evaluationContext);
     if (value != null) {
       List<StackFrameItem> res = new ArrayList<>();
       ClassesByNameProvider classesByName = ClassesByNameProvider.createCache(virtualMachineProxy.allClasses());
@@ -118,7 +118,8 @@ public final class AsyncStacksUtils {
             String className = dis.readUTF();
             String methodName = dis.readUTF();
             int line = dis.readInt();
-            Location location = DebuggerUtilsEx.findOrCreateLocation(process, classesByName, className, methodName, line);
+            Location location =
+              DebuggerUtilsEx.findOrCreateLocation(virtualMachineProxy.getVirtualMachine(), classesByName, className, methodName, line);
             item = new StackFrameItem(location, null);
           }
           res.add(item);
@@ -179,7 +180,7 @@ public final class AsyncStacksUtils {
       public void processClassPrepare(DebugProcess debuggerProcess, ReferenceType referenceType) {
         try {
           requestsManager.deleteRequest(this);
-          ((ClassType)referenceType).setValue(referenceType.fieldByName("DEBUG"), process.getVirtualMachineProxy().mirrorOf(true));
+          ((ClassType)referenceType).setValue(DebuggerUtils.findField(referenceType, "DEBUG"), process.getVirtualMachineProxy().mirrorOf(true));
         }
         catch (Exception e) {
           LOG.warn("Error setting agent debug mode", e);
@@ -212,9 +213,14 @@ public final class AsyncStacksUtils {
           StringWriter writer = new StringWriter();
           try {
             properties.store(writer, null);
-            var stringArgs = DebuggerUtilsEx.mirrorOfString(writer.toString(), evalContext.getSuspendContext().getVirtualMachineProxy(), evalContext);
+            var stringArgs = DebuggerUtilsEx.mirrorOfString(writer.toString(), evalContext);
             List<StringReference> args = Collections.singletonList(stringArgs);
-            process.invokeMethod(evaluationContext, captureClass, method, args, ObjectReference.INVOKE_SINGLE_THREADED, true);
+            try {
+              process.invokeMethod(evaluationContext, captureClass, method, args, ObjectReference.INVOKE_SINGLE_THREADED, true);
+            }
+            finally {
+              DebuggerUtilsEx.enableCollection(stringArgs);
+            }
           }
           catch (Exception e) {
             DebuggerUtilsImpl.logError(e);

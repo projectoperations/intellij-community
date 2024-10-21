@@ -17,7 +17,6 @@ import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.registry.RegistryValueListener
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.workspace.jps.entities.FacetEntity
-import com.intellij.platform.workspace.storage.EntityChange
 import com.intellij.util.concurrency.SynchronizedClearableLazy
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.containers.orNull
@@ -48,7 +47,8 @@ import org.jetbrains.kotlin.idea.base.util.caching.getChanges
 import org.jetbrains.kotlin.idea.compiler.configuration.KotlinCommonCompilerArgumentsHolder
 import org.jetbrains.kotlin.idea.compiler.configuration.KotlinCompilerSettingsListener
 import org.jetbrains.kotlin.idea.facet.KotlinFacet
-import org.jetbrains.kotlin.idea.facet.KotlinFacetType
+import org.jetbrains.kotlin.idea.facet.isKotlinFacet
+import org.jetbrains.kotlin.idea.workspaceModel.KotlinSettingsEntity
 import org.jetbrains.kotlin.util.ServiceLoaderLite
 import java.io.File
 import java.nio.file.Path
@@ -73,8 +73,11 @@ internal class KtCompilerPluginsProviderIdeImpl(
     init {
         cs.launch {
             WorkspaceModel.getInstance(project).eventLog.collect { event ->
-                val hasChanges = event.getChanges<FacetEntity>().any { change ->
-                    change.facetTypes.any { it == KotlinFacetType.ID }
+                val facetChanges = event.getChanges<FacetEntity>() + event.getChanges<KotlinSettingsEntity>()
+
+                val hasChanges = facetChanges.any { change ->
+                    val entities = listOfNotNull(change.oldEntity, change.newEntity)
+                    entities.any { it.isKotlinFacet() }
                 }
                 if (hasChanges) {
                     resetPluginsCache()
@@ -99,13 +102,6 @@ internal class KtCompilerPluginsProviderIdeImpl(
             this
         )
     }
-
-    private val EntityChange<FacetEntity>.facetTypes: List<String>
-        get() = when (this) {
-            is EntityChange.Added -> listOf(newEntity.typeId.name)
-            is EntityChange.Removed -> listOf(oldEntity.typeId.name)
-            is EntityChange.Replaced -> listOf(oldEntity.typeId.name, newEntity.typeId.name)
-        }
 
     private fun createNewCache(): PluginsCache? {
         if (!project.isTrusted()) return null

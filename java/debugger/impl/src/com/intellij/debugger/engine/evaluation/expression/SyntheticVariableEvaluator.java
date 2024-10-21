@@ -1,12 +1,12 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.engine.evaluation.expression;
 
 import com.intellij.debugger.JavaDebuggerBundle;
+import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.JVMName;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
-import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.ui.impl.watch.NodeDescriptorImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -33,7 +33,7 @@ public class SyntheticVariableEvaluator implements Evaluator {
     if (myTypeNameString == null && myTypeName != null) {
       myTypeNameString = myTypeName.getName(context.getDebugProcess());
     }
-    return myCodeFragmentEvaluator.getValue(myLocalName, context.getSuspendContext().getVirtualMachineProxy());
+    return myCodeFragmentEvaluator.getValue(myLocalName, context.getVirtualMachineProxy());
   }
 
   @Override
@@ -51,9 +51,15 @@ public class SyntheticVariableEvaluator implements Evaluator {
 
       @Override
       public void setValue(Value value) throws EvaluateException {
-        if (value != null) {
+        if (value == null) {
+          if (myTypeNameString != null && DebuggerUtils.isPrimitiveType(myTypeNameString)) {
+            throw EvaluateExceptionUtil.createEvaluateException(
+              JavaDebuggerBundle.message("evaluation.error.cannot.set.primitive.to.null"));
+          }
+        }
+        else {
           Type type = value.type();
-          if (myTypeNameString != null && !DebuggerUtilsEx.isAssignableFrom(myTypeNameString, type)) {
+          if (myTypeNameString != null && !DebuggerUtils.instanceOf(type, myTypeNameString)) {
             throw EvaluateExceptionUtil.createEvaluateException(
               JavaDebuggerBundle.message("evaluation.error.cannot.cast.object", type.name(), myTypeNameString));
           }

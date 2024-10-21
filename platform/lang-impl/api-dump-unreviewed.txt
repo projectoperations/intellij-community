@@ -2243,11 +2243,12 @@ com.intellij.codeInsight.daemon.impl.EditorTrackerListener
 - a:activeEditorsChanged(java.util.List):V
 f:com.intellij.codeInsight.daemon.impl.EditorTrackerListener$Companion
 f:com.intellij.codeInsight.daemon.impl.ErrorStripeUpdateManager
-- com.intellij.openapi.Disposable
-- <init>(com.intellij.openapi.project.Project):V
-- dispose():V
-- s:getInstance(com.intellij.openapi.project.Project):com.intellij.codeInsight.daemon.impl.ErrorStripeUpdateManager
-- repaintErrorStripePanel(com.intellij.openapi.editor.Editor,com.intellij.psi.PsiFile):V
+- sf:Companion:com.intellij.codeInsight.daemon.impl.ErrorStripeUpdateManager$Companion
+- <init>(com.intellij.openapi.project.Project,kotlinx.coroutines.CoroutineScope):V
+- sf:getInstance(com.intellij.openapi.project.Project):com.intellij.codeInsight.daemon.impl.ErrorStripeUpdateManager
+- f:repaintErrorStripePanel(com.intellij.openapi.editor.Editor,com.intellij.psi.PsiFile):V
+f:com.intellij.codeInsight.daemon.impl.ErrorStripeUpdateManager$Companion
+- f:getInstance(com.intellij.openapi.project.Project):com.intellij.codeInsight.daemon.impl.ErrorStripeUpdateManager
 c:com.intellij.codeInsight.daemon.impl.GotoNextErrorHandler
 - com.intellij.codeInsight.CodeInsightActionHandler
 - <init>(Z):V
@@ -2457,7 +2458,6 @@ c:com.intellij.codeInsight.daemon.impl.TrafficLightRenderer
 - com.intellij.openapi.Disposable
 - com.intellij.openapi.editor.markup.ErrorStripeRenderer
 - <init>(com.intellij.openapi.project.Project,com.intellij.openapi.editor.Document):V
-- p:<init>(com.intellij.openapi.project.Project,com.intellij.openapi.editor.Editor):V
 - p:createUIController():com.intellij.openapi.editor.markup.UIController
 - pf:createUIController(com.intellij.openapi.editor.Editor):com.intellij.openapi.editor.markup.UIController
 - dispose():V
@@ -2465,12 +2465,11 @@ c:com.intellij.codeInsight.daemon.impl.TrafficLightRenderer
 - p:getDaemonCodeAnalyzerStatus(com.intellij.codeInsight.daemon.impl.SeverityRegistrar):com.intellij.codeInsight.daemon.impl.TrafficLightRenderer$DaemonCodeAnalyzerStatus
 - getErrorCounts():I[]
 - pf:getProject():com.intellij.openapi.project.Project
-- getSeverityRegistrar():com.intellij.codeInsight.daemon.impl.SeverityRegistrar
+- f:getSeverityRegistrar():com.intellij.codeInsight.daemon.impl.SeverityRegistrar
 - getStatus():com.intellij.openapi.editor.markup.AnalyzerStatus
-- p:getUIController():com.intellij.openapi.editor.markup.UIController
+- f:invalidate():V
 - isValid():Z
-- p:refresh(com.intellij.openapi.editor.impl.EditorMarkupModelImpl):V
-- s:setTrafficLightOnEditor(com.intellij.openapi.project.Project,com.intellij.openapi.editor.ex.EditorMarkupModel,com.intellij.openapi.application.ModalityState,java.util.function.Supplier):V
+- refresh(com.intellij.openapi.editor.ex.EditorMarkupModel):V
 pc:com.intellij.codeInsight.daemon.impl.TrafficLightRenderer$AbstractUIController
 - canClosePopup():Z
 - fillHectorPanels(java.awt.Container,com.intellij.util.ui.GridBag):V
@@ -2481,11 +2480,10 @@ pc:com.intellij.codeInsight.daemon.impl.TrafficLightRenderer$AbstractUIControlle
 - toggleProblemsView():V
 pc:com.intellij.codeInsight.daemon.impl.TrafficLightRenderer$DefaultUIController
 - com.intellij.codeInsight.daemon.impl.TrafficLightRenderer$AbstractUIController
-- p:<init>(com.intellij.codeInsight.daemon.impl.TrafficLightRenderer):V
+- <init>(com.intellij.codeInsight.daemon.impl.TrafficLightRenderer):V
 - getActions():java.util.List
 - isToolbarEnabled():Z
 com.intellij.codeInsight.daemon.impl.TrafficLightRendererContributor
-- sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:createRenderer(com.intellij.openapi.editor.Editor,com.intellij.psi.PsiFile):com.intellij.codeInsight.daemon.impl.TrafficLightRenderer
 c:com.intellij.codeInsight.daemon.impl.actions.GotoNextErrorAction
 - com.intellij.codeInsight.actions.BaseCodeInsightAction
@@ -9241,6 +9239,7 @@ f:com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl
 - getSelectedTabID():java.lang.String
 - isEverywhere():Z
 - isShown():Z
+- savePrevSelection(java.lang.String,java.lang.Object):V
 - setEverywhere(Z):V
 - setSelectedTabID(java.lang.String):V
 - show(java.lang.String,java.lang.String,com.intellij.openapi.actionSystem.AnActionEvent):V
@@ -18924,6 +18923,7 @@ f:com.intellij.unscramble.AnalyzeStacktraceUtil
 - sf:EP_NAME:com.intellij.openapi.extensions.ProjectExtensionPointName
 - s:addConsole(com.intellij.openapi.project.Project,com.intellij.unscramble.AnalyzeStacktraceUtil$ConsoleFactory,java.lang.String,java.lang.String):V
 - s:addConsole(com.intellij.openapi.project.Project,com.intellij.unscramble.AnalyzeStacktraceUtil$ConsoleFactory,java.lang.String,java.lang.String,javax.swing.Icon):com.intellij.execution.ui.RunContentDescriptor
+- s:addConsole(com.intellij.openapi.project.Project,com.intellij.unscramble.AnalyzeStacktraceUtil$ConsoleFactory,java.lang.String,java.lang.String,javax.swing.Icon,java.lang.Boolean):com.intellij.execution.ui.RunContentDescriptor
 - s:createEditorPanel(com.intellij.openapi.project.Project,com.intellij.openapi.Disposable):com.intellij.unscramble.AnalyzeStacktraceUtil$StacktraceEditorPanel
 - s:printStacktrace(com.intellij.execution.ui.ConsoleView,java.lang.String):V
 com.intellij.unscramble.AnalyzeStacktraceUtil$ConsoleFactory
@@ -19430,7 +19430,8 @@ f:com.intellij.webcore.packaging.PackagingErrorDialog
 - <init>(java.lang.String,com.intellij.webcore.packaging.PackageManagementService$ErrorDescription):V
 f:com.intellij.workspaceModel.ide.impl.legacyBridge.project.ProjectRootManagerBridge
 - com.intellij.openapi.Disposable
-- com.intellij.openapi.roots.impl.ProjectRootManagerImpl
+- com.intellij.openapi.components.PersistentStateComponent
+- com.intellij.openapi.roots.ex.ProjectRootManagerEx
 - <init>(com.intellij.openapi.project.Project,kotlinx.coroutines.CoroutineScope):V
 f:com.intellij.workspaceModel.ide.impl.legacyBridge.project.ProjectRootManagerBridge$ModuleDependencyListenerImpl
 - java.util.EventListener

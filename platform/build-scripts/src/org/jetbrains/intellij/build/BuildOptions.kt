@@ -481,6 +481,11 @@ data class BuildOptions(
   var isNightlyBuild: Boolean = getBooleanProperty(INTELLIJ_BUILD_IS_NIGHTLY, (buildNumber?.count { it == '.' } ?: 1) <= 1)
 
   /**
+   * Specifies an additional list of compatible plugin names which should not be built, see [ProductModulesLayout.compatiblePluginsToIgnore]
+   */
+  var compatiblePluginsToIgnore: Set<String> = getSetProperty("intellij.build.compatible.plugins.to.ignore")
+
+  /**
    * If `false`, [org.jetbrains.intellij.build.impl.projectStructureMapping.buildJarContentReport]
    * won't be affected by [PluginBundlingRestrictions.includeInDistribution]
    */
@@ -511,6 +516,6 @@ data class BuildOptions(
   }
 }
 
-private fun getSetProperty(name: String): Set<String> = System.getProperty(name)?.splitToSequence(',')?.toSet() ?: emptySet()
+private fun getSetProperty(name: String): Set<String> = System.getProperty(name)?.splitToSequence(',')?.filterTo(LinkedHashSet()) { it.isNotBlank() } ?: emptySet()
 
 internal fun getBooleanProperty(key: String, defaultValue: Boolean = false): Boolean = System.getProperty(key)?.toBoolean() ?: defaultValue

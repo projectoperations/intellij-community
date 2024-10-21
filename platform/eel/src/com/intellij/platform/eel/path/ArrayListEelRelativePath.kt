@@ -1,8 +1,6 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.eel.path
 
-import com.intellij.platform.eel.EelResult
-
 internal class ArrayListEelRelativePath private constructor(
   private val parts: List<String>,
 ) : EelPath.Relative {
@@ -26,7 +24,7 @@ internal class ArrayListEelRelativePath private constructor(
     return true
   }
 
-  override fun resolve(other: EelPath.Relative): EelResult<ArrayListEelRelativePath, EelPathError> {
+  override fun resolve(other: EelPath.Relative): ArrayListEelRelativePath {
     val result = mutableListOf<String>()
     result += parts
     if (other != EMPTY) {
@@ -35,14 +33,14 @@ internal class ArrayListEelRelativePath private constructor(
         result += fileName
       }
     }
-    return OkResult(ArrayListEelRelativePath(result))
+    return ArrayListEelRelativePath(result)
   }
 
-  override fun getChild(name: String): EelResult<ArrayListEelRelativePath, EelPathError> =
+  override fun getChild(name: String): ArrayListEelRelativePath =
     when {
-      name.isEmpty() -> ErrorResult(Err(name, "Empty child name is not allowed"))
-      "/" in name -> ErrorResult(Err(name, "Invalid symbol in child name: /"))
-      else -> OkResult(ArrayListEelRelativePath(parts + name))
+      name.isEmpty() -> throw EelPathException(name, "Empty child name is not allowed")
+      "/" in name -> throw EelPathException(name, "Invalid symbol in child name: /")
+      else -> ArrayListEelRelativePath(parts + name)
     }
 
   override fun compareTo(other: EelPath.Relative): Int {
@@ -110,22 +108,22 @@ internal class ArrayListEelRelativePath private constructor(
     val EMPTY = ArrayListEelRelativePath(listOf())
     private val REGEX = Regex("""[/\\]""")
 
-    fun parse(raw: String): EelResult<ArrayListEelRelativePath, EelPathError> =
+    @Throws(EelPathException::class)
+    fun parse(raw: String): ArrayListEelRelativePath =
       build(raw.splitToSequence(REGEX).filter(String::isNotEmpty).iterator())
 
-    fun build(parts: List<String>): EelResult<ArrayListEelRelativePath, EelPathError> =
+    @Throws(EelPathException::class)
+    fun build(parts: List<String>): ArrayListEelRelativePath =
       build(parts.iterator())
 
-    private fun build(parts: Iterator<String>): EelResult<ArrayListEelRelativePath, EelPathError> {
+    @Throws(EelPathException::class)
+    private fun build(parts: Iterator<String>): ArrayListEelRelativePath {
       // Not optimal, but DRY.
       var result = ArrayListEelRelativePath(listOf())
       for (part in parts) {
-        result = when (val r = result.getChild(part)) {
-          is EelResult.Ok -> r.value
-          is EelResult.Error -> return r
-        }
+        result = result.getChild(part)
       }
-      return OkResult(result)
+      return result
     }
   }
 }

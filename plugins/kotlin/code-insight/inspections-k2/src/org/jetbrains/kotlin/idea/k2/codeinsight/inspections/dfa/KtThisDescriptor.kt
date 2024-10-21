@@ -19,7 +19,7 @@ import org.jetbrains.kotlin.psi.KtFunctionLiteral
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtThisExpression
 
-class KtThisDescriptor(val classDef: KtClassDef, val contextName: String? = null) : VariableDescriptor {
+class KtThisDescriptor(val classDef: KtClassDef, val contextName: String? = null) : KtBaseDescriptor {
     private val dfType = TypeConstraints.exactClass(this@KtThisDescriptor.classDef).instanceOf().asDfType()
 
     override fun isStable(): Boolean = true
@@ -40,12 +40,14 @@ class KtThisDescriptor(val classDef: KtClassDef, val contextName: String? = null
         return "$receiver.this"
     }
 
+    override fun isInlineClassReference(): Boolean = classDef.inline
+
     companion object {
         context(KaSession)
         fun descriptorFromThis(expr: KtThisExpression): Pair<VariableDescriptor?, KaType?> {
             val exprType = expr.getKotlinType()
             val symbol = ((expr.instanceReference as? KtNameReferenceExpression)?.reference as? KtReference)?.resolveToSymbol()
-            var declType: KaType? = null
+            val declType: KaType?
             if (symbol is KaReceiverParameterSymbol && exprType != null) {
                 val function = symbol.psi as? KtFunctionLiteral
                 declType = symbol.returnType

@@ -60,27 +60,36 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
     fun testInlineLambda() = doTest()
     fun testInlineStandardCalls() = doTest()
     fun testIndices() = doTest()
+    fun testJavaFields() {
+        myFixture.addClass("""
+            public class Point {
+                public int x, y;
+            }""".trimIndent()
+        )
+        doTest()
+    }
     fun testJavaMethods() = doTest()
     fun testJavaConstant() = doTest()
     fun testJavaType() = doTest()
     fun testLambda() = doTest()
     fun testLanguageConstructs() = doTest()
+    fun testLastIndex() = doTest()
     fun testLetNonLocalReturn() = doTest()
     fun testList() = doTest()
     fun testListApply() = doTest()
     fun testMapEmpty() = doTest()
     fun testMath() = doTest()
     fun testMembers() = doTest()
+    fun testNestedLoopLabel() = doTest()
     fun testNothingType() = doTest()
     fun testPlatformType() {
         // KTIJ-22430
-        myFixture.addClass(
-            "public class SomeJavaUtil {\n" +
-                    "\n" +
-                    "    public static Boolean b() {\n" +
-                    "        return false;\n" +
-                    "    }\n" +
-                    "}"
+        myFixture.addClass("""
+            public class SomeJavaUtil {
+                public static Boolean b() {
+                    return false;
+                }
+            }""".trimIndent()
         )
         doTest()
     }

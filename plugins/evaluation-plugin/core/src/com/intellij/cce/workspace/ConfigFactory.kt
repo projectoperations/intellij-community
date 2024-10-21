@@ -119,7 +119,7 @@ object ConfigFactory {
 
     builder.fileDataset = Config.FileDataset(
       map.getAs("url"),
-      map.getAs<Double>("chunkSize").toInt(),
+      map.getIfExists<Double?>("chunkSize")?.toInt(),
     )
   }
 

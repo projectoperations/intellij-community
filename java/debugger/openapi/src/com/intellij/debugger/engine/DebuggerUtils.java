@@ -7,7 +7,6 @@ import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContext;
 import com.intellij.debugger.engine.evaluation.TextWithImports;
-import com.intellij.debugger.engine.jdi.VirtualMachineProxy;
 import com.intellij.execution.ExecutionException;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
@@ -134,7 +133,7 @@ public abstract class DebuggerUtils {
             }
             return result instanceof StringReference ? ((StringReference)result).value() : result.toString();
           },
-          debugProcess.getVirtualMachineProxy());
+          evaluationContext);
       }
       throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.unsupported.expression.type"));
     }
@@ -147,7 +146,7 @@ public abstract class DebuggerUtils {
   public abstract <R, T extends Value> R processCollectibleValue(
     @NotNull ThrowableComputable<? extends T, ? extends EvaluateException> valueComputable,
     @NotNull Function<? super T, ? extends R> processor,
-    @NotNull VirtualMachineProxy proxy) throws EvaluateException;
+    @NotNull EvaluationContext evaluationContext) throws EvaluateException;
 
   public static void ensureNotInsideObjectConstructor(@NotNull ObjectReference reference, @NotNull EvaluationContext context)
     throws EvaluateException {
@@ -197,6 +196,7 @@ public abstract class DebuggerUtils {
       method = concreteMethodByName((ClassType)refType, methodName, methodSignature);
     }
     if (method == null) {
+      //noinspection SSBasedInspection
       method = ContainerUtil.getFirstItem(
         methodSignature != null ? refType.methodsByName(methodName, methodSignature) : refType.methodsByName(methodName));
     }
@@ -231,6 +231,42 @@ public abstract class DebuggerUtils {
       else if (t instanceof InterfaceType && checkedInterfaces.add(t)) {
         for (Method candidate : t.methods()) {
           if (candidate.name().equals(name) && signatureChecker.process(candidate) && !candidate.isAbstract()) {
+            return candidate;
+          }
+        }
+        types.addAll(0, ((InterfaceType)t).superinterfaces());
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Optimized version of {@link ReferenceType#fieldByName(String)}.
+   * It does not gather all visible fields before checking so can return early
+   */
+  @Nullable
+  public static Field findField(@NotNull ReferenceType type, @NotNull String name) {
+    LinkedList<ReferenceType> types = new LinkedList<>();
+    // first check classes
+    while (type != null) {
+      for (Field candidate : type.fields()) {
+        if (candidate.name().equals(name)) {
+          return candidate;
+        }
+      }
+      types.add(type);
+      type = type instanceof ClassType classType ? classType.superclass() : null;
+    }
+    // then interfaces
+    Set<ReferenceType> checkedInterfaces = new HashSet<>();
+    ReferenceType t;
+    while ((t = types.poll()) != null) {
+      if (t instanceof ClassType) {
+        types.addAll(0, ((ClassType)t).interfaces());
+      }
+      else if (t instanceof InterfaceType && checkedInterfaces.add(t)) {
+        for (Field candidate : t.fields()) {
+          if (candidate.name().equals(name)) {
             return candidate;
           }
         }

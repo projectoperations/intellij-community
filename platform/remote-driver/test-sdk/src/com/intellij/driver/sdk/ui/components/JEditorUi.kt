@@ -8,6 +8,7 @@ import com.intellij.driver.sdk.*
 import com.intellij.driver.sdk.remoteDev.BeControlClass
 import com.intellij.driver.sdk.remoteDev.EditorComponentImplBeControlBuilder
 import com.intellij.driver.sdk.ui.Finder
+import com.intellij.driver.sdk.ui.center
 import com.intellij.driver.sdk.ui.remote.Component
 import org.intellij.lang.annotations.Language
 import java.awt.Point
@@ -37,6 +38,11 @@ class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
 
   fun isEditable() = editorComponent.isEditable()
 
+  fun clickInlay(inlay: Inlay) {
+    val inlayCenter = driver.withContext(OnDispatcher.EDT) { inlay.getBounds() }.center
+    click(inlayCenter)
+  }
+
   fun getInlayHints(): List<InlayHint> {
     val hints = mutableListOf<InlayHint>()
     this.editor.getInlayModel().getInlineElementsInRange(0, Int.MAX_VALUE).forEach { element ->
@@ -54,6 +60,12 @@ class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
       hints.add(InlayHint(element.getOffset(), hintText!!))
     }
     return hints
+  }
+
+  fun setSelection(startOffset: Int, endOffset: Int) {
+    driver.withContext(OnDispatcher.EDT) {
+      editor.getSelectionModel().setSelection(startOffset, endOffset)
+    }
   }
 
   fun deleteFile() {

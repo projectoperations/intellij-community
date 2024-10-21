@@ -53,7 +53,7 @@ class ExternalSystemFacadeManagerTest : UsefulTestCase() {
   fun `test remote resolve project info`() {
     ExtensionTestUtil.maskExtensions(ExternalSystemManager.EP_NAME, listOf(SimpleTestExternalSystemManager(project)), testRootDisposable)
 
-    val facadeManager: ExternalSystemFacadeManager = ApplicationManager.getApplication().getService(ExternalSystemFacadeManager::class.java)
+    val facadeManager = ExternalSystemFacadeManager.getInstance()
     TestCase.assertNotNull(facadeManager)
     val facade = facadeManager.getFacade(project, "fake/path", TEST_EXTERNAL_SYSTEM_ID)
     try {
@@ -87,7 +87,7 @@ class ExternalSystemFacadeManagerTest : UsefulTestCase() {
                                     listOf(testExternalSystemManager, fakeExternalSystemManager),
                                     testRootDisposable)
 
-    val facadeManager: ExternalSystemFacadeManager = ApplicationManager.getApplication().getService(ExternalSystemFacadeManager::class.java)
+    val facadeManager = ExternalSystemFacadeManager.getInstance()
     TestCase.assertNotNull(facadeManager)
     val facade = facadeManager.getFacade(project, "fake/path", TEST_EXTERNAL_SYSTEM_ID)
     try {
@@ -127,20 +127,15 @@ class TestProjectResolver: ExternalSystemProjectResolver<TestExternalSystemExecu
   }
 
   override fun cancelTask(taskId: ExternalSystemTaskId, listener: ExternalSystemTaskNotificationListener): Boolean {
-    listener.beforeCancel(taskId)
-    listener.onCancel(taskId)
-    return true
+    return false
   }
 }
 
 class TestTaskManager: ExternalSystemTaskManager<TestExternalSystemExecutionSettings> {
   override fun cancelTask(id: ExternalSystemTaskId, listener: ExternalSystemTaskNotificationListener): Boolean {
-    listener.beforeCancel(id)
-    listener.onCancel(id)
-    return true
+    return false
   }
 }
-
 
 class CustomClassLoadingTestExternalSystemManager(val project: Project): TestExternalSystemManager(project) {
   override fun getProjectResolverClass(): Class<out ExternalSystemProjectResolver<TestExternalSystemExecutionSettings>> {
@@ -174,9 +169,7 @@ class CustomClassLoadingTestProjectResolver: ExternalSystemProjectResolver<TestE
   }
 
   override fun cancelTask(taskId: ExternalSystemTaskId, listener: ExternalSystemTaskNotificationListener): Boolean {
-    listener.beforeCancel(taskId)
-    listener.onCancel(taskId)
-    return true
+    return false
   }
 }
 

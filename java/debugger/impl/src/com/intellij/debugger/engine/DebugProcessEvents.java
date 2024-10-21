@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.engine;
 
+import com.intellij.ReviseWhenPortedToJDK;
 import com.intellij.debugger.*;
 import com.intellij.debugger.engine.evaluation.DebuggerImplicitEvaluationContextUtil;
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
@@ -76,16 +77,17 @@ public class DebugProcessEvents extends DebugProcessImpl {
   }
 
   @Override
-  protected void commitVM(final VirtualMachine vm) {
-    super.commitVM(vm);
+  protected @NotNull VirtualMachineProxyImpl commitVM(final VirtualMachine vm) {
+    VirtualMachineProxyImpl proxy = super.commitVM(vm);
     if (vm != null) {
-      vmAttached();
+      vmAttached(proxy);
       if (vm.canBeModified()) {
-        DebuggerEventThread eventThread = myEventThreads.computeIfAbsent(vm, __ -> new DebuggerEventThread());
+        DebuggerEventThread eventThread = myEventThreads.computeIfAbsent(vm, __ -> new DebuggerEventThread(proxy));
         ApplicationManager.getApplication().executeOnPooledThread(
           ConcurrencyUtil.underThreadNameRunnable("DebugProcessEvents", eventThread));
       }
     }
+    return proxy;
   }
 
   private static void showStatusText(DebugProcessEvents debugProcess, Event event) {
@@ -127,8 +129,8 @@ public class DebugProcessEvents extends DebugProcessImpl {
     private final VirtualMachineProxyImpl myVmProxy;
     private final DebuggerManagerThreadImpl myDebuggerManagerThread;
 
-    DebuggerEventThread() {
-      myVmProxy = getVirtualMachineProxy();
+    DebuggerEventThread(VirtualMachineProxyImpl proxy) {
+      myVmProxy = proxy;
       myDebuggerManagerThread = getManagerThread();
     }
 
@@ -360,14 +362,20 @@ public class DebugProcessEvents extends DebugProcessImpl {
     enableRequestWithHandler(request, handler);
   }
 
+  @ReviseWhenPortedToJDK(value = "21", description = "Call addPlatformThreadsOnlyFilter directly from ThreadDeathRequest and ThreadStartRequest")
   private static EventRequest platformThreadsOnly(EventRequest eventRequest) {
-    if (eventRequest instanceof EventRequestManagerImpl.ThreadLifecycleEventRequestImpl lifecycleEventRequest) {
-      lifecycleEventRequest.addPlatformThreadsOnlyFilter();
+    try {
+      eventRequest.getClass().getMethod("addPlatformThreadsOnlyFilter").invoke(eventRequest);
+    }
+    catch (Exception e) {
+      if (eventRequest instanceof EventRequestManagerImpl.ThreadLifecycleEventRequestImpl lifecycleEventRequest) {
+        lifecycleEventRequest.addPlatformThreadsOnlyFilter();
+      }
     }
     return eventRequest;
   }
 
-  private void processVMStartEvent(final SuspendContextImpl suspendContext, VMStartEvent event) {
+  private void processVMStartEvent(@NotNull SuspendContextImpl suspendContext, VMStartEvent event) {
     preprocessEvent(suspendContext, event.thread());
 
     LOG.debug("enter: processVMStartEvent()");
@@ -377,11 +385,10 @@ public class DebugProcessEvents extends DebugProcessImpl {
     getSuspendManager().voteResume(suspendContext);
   }
 
-  private void vmAttached() {
+  private void vmAttached(VirtualMachineProxyImpl machineProxy) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     LOG.assertTrue(!isAttached());
     if (myState.compareAndSet(State.INITIAL, State.ATTACHED)) {
-      final VirtualMachineProxyImpl machineProxy = getVirtualMachineProxy();
       boolean canBeModified = machineProxy.canBeModified();
       if (canBeModified) {
         final EventRequestManager requestManager = machineProxy.eventRequestManager();
@@ -485,11 +492,10 @@ public class DebugProcessEvents extends DebugProcessImpl {
     });
   }
 
-  private void processVMDeathEvent(SuspendContextImpl suspendContext, @Nullable Event event) {
+  private void processVMDeathEvent(@NotNull SuspendContextImpl suspendContext, @Nullable Event event) {
     // do not destroy another process on reattach
     if (isAttached()) {
-      var vmProxy = suspendContext != null ? suspendContext.getVirtualMachineProxy() : getVirtualMachineProxy();
-      VirtualMachine vm = vmProxy.getVirtualMachine();
+      VirtualMachine vm = suspendContext.getVirtualMachineProxy().getVirtualMachine();
       if (event == null || vm == event.virtualMachine()) {
         try {
           preprocessEvent(suspendContext, null);
@@ -526,7 +532,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
     }
   }
 
-  private void processStepEvent(SuspendContextImpl suspendContext, StepEvent event) {
+  private void processStepEvent(@NotNull SuspendContextImpl suspendContext, StepEvent event) {
     logSuspendContext(suspendContext, "process step event");
     final ThreadReference thread = event.thread();
     //LOG.assertTrue(thread.isSuspended());
@@ -535,7 +541,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
     RequestHint hint = getRequestHint(event);
     Object commandToken = getCommandToken(event);
 
-    deleteStepRequests(event.thread());
+    deleteStepRequests(suspendContext.getVirtualMachineProxy().eventRequestManager(), event.thread());
 
     boolean shouldResume = false;
 

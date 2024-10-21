@@ -370,7 +370,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     return mask;
   }
 
-  protected void commitVM(VirtualMachine vm) {
+  @NotNull
+  protected VirtualMachineProxyImpl commitVM(VirtualMachine vm) {
     if (!isInInitialState()) {
       logError("State is invalid " + myState.get());
     }
@@ -402,13 +403,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     vm.setDebugTraceMode(mask);
 
     checkVirtualMachineVersion(vm);
-    myVirtualMachineProxy = new VirtualMachineProxyImpl(this, vm);
+    VirtualMachineProxyImpl proxy = new VirtualMachineProxyImpl(this, vm);
+    myVirtualMachineProxy = proxy;
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       Alarm alarm = new Alarm(disposable);
       alarm.addRequest(() -> myDebuggerManagerThread.schedule(PrioritizedTask.Priority.HIGH, () -> {
         logError("Long debugger test execution");
       }), 3*60*1000);
     }
+    return proxy;
   }
 
   private void stopConnecting() {
@@ -457,7 +460,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
    * @param size the step size. One of {@link StepRequest#STEP_LINE} or {@link StepRequest#STEP_MIN}
    * @param hint may be null
    */
-  protected void doStep(final SuspendContextImpl suspendContext, final ThreadReferenceProxyImpl stepThread, int size, int depth,
+  protected void doStep(@NotNull SuspendContextImpl suspendContext, final ThreadReferenceProxyImpl stepThread, int size, int depth,
                         RequestHint hint, Object commandToken) {
     if (stepThread == null) {
       return;
@@ -467,7 +470,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       if (LOG.isDebugEnabled()) {
         LOG.debug("DO_STEP: creating step request for " + stepThreadReference);
       }
-      deleteStepRequests(stepThreadReference);
+      deleteStepRequests(suspendContext.getVirtualMachineProxy().eventRequestManager(), stepThreadReference);
       EventRequestManager requestManager = suspendContext.getVirtualMachineProxy().eventRequestManager();
       StepRequest stepRequest = requestManager.createStepRequest(stepThreadReference, size, depth);
       String policyFromRequestors = suspendContext.getSuspendPolicyFromRequestors();
@@ -538,8 +541,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     return DebuggerSettings.getInstance().HIDE_STACK_FRAMES_USING_STEPPING_FILTER;
   }
 
-  void deleteStepRequests(@Nullable final ThreadReference stepThread) {
-    EventRequestManager requestManager = getVirtualMachineProxy().eventRequestManager();
+  void deleteStepRequests(@NotNull EventRequestManager requestManager, @Nullable ThreadReference stepThread) {
     for (StepRequest request : new ArrayList<>(requestManager.stepRequests())) { // need a copy here to avoid CME
       if (stepThread == null || stepThread.equals(request.thread())) {
         try {
@@ -900,6 +902,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
    */
   @NotNull
   @Override
+  @ApiStatus.Obsolete
   public VirtualMachineProxyImpl getVirtualMachineProxy() {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     final VirtualMachineProxyImpl vm = myVirtualMachineProxy;
@@ -1496,6 +1499,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           if (LOG.isDebugEnabled()) {
             LOG.debug("Invoking " + objRef.type().name() + "." + method.name());
           }
+          //noinspection SSBasedInspection
           return objRef.invokeMethod(thread, method, args, invokePolicy | invocationOptions);
         }
       }.start(internalEvaluate);
@@ -1516,18 +1520,17 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
                                                   @NotNull List<? extends Value> originalArgs,
                                                   @NotNull EvaluationContextImpl evaluationContext) throws EvaluateException {
     DebugProcessImpl debugProcess = evaluationContext.getDebugProcess();
-    VirtualMachineProxyImpl virtualMachineProxy = evaluationContext.getSuspendContext().getVirtualMachineProxy();
     ArrayList<Value> invokerArgs = new ArrayList<>();
 
     ReferenceType lookupClass =
       debugProcess.findClass(evaluationContext, "java.lang.invoke.MethodHandles$Lookup", evaluationContext.getClassLoader());
-    ObjectReference implLookup = (ObjectReference)lookupClass.getValue(lookupClass.fieldByName("IMPL_LOOKUP"));
+    ObjectReference implLookup = (ObjectReference)lookupClass.getValue(DebuggerUtils.findField(lookupClass, "IMPL_LOOKUP"));
 
     invokerArgs.add(implLookup); // lookup
     invokerArgs.add(type.classObject()); // class
     invokerArgs.add(objRef); // object
-    invokerArgs.add(DebuggerUtilsEx.mirrorOfString(method.name(), virtualMachineProxy, evaluationContext)); // method name
-    invokerArgs.add(DebuggerUtilsEx.mirrorOfString(method.signature(), virtualMachineProxy, evaluationContext)); // method descriptor
+    invokerArgs.add(DebuggerUtilsEx.mirrorOfString(method.name() + ";" + method.signature(),
+                                                   evaluationContext)); // method name and descriptor
 
     // argument values
     List<Value> args = new ArrayList<>(originalArgs);
@@ -1552,7 +1555,14 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       CommonClassNames.JAVA_LANG_OBJECT + "[]",
       evaluationContext.getClassLoader());
 
-    ArrayReference arrayArgs = DebuggerUtilsEx.mirrorOfArray(objectArrayClass, boxedArgs, evaluationContext);
+    // reserve one extra element for the return value
+    ArrayReference arrayArgs = DebuggerUtilsEx.mirrorOfArray(objectArrayClass, boxedArgs.size() + 1, evaluationContext);
+    try {
+      DebuggerUtilsEx.setArrayValues(arrayArgs, boxedArgs, false);
+    }
+    catch (Exception e) {
+      throw new EvaluateException(e.getMessage(), e);
+    }
     invokerArgs.add(arrayArgs);
     invokerArgs.add(evaluationContext.getClassLoader()); // class loader
     return DebuggerUtilsImpl.invokeHelperMethod(evaluationContext, MethodInvoker.class, "invoke", invokerArgs, false);
@@ -1605,6 +1615,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           if (LOG.isDebugEnabled()) {
             LOG.debug("Invoking " + classType.name() + "." + method.name());
           }
+          //noinspection SSBasedInspection
           return classType.invokeMethod(thread, method, args, invokePolicy | extraInvocationOptions);
         }
       }.start(internalEvaluate);
@@ -1628,6 +1639,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           }
 
           try {
+            //noinspection SSBasedInspection
             return interfaceType.invokeMethod(thread, method, args, invokePolicy);
           }
           catch (LinkageError e) {
@@ -1679,6 +1691,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           if (LOG.isDebugEnabled()) {
             LOG.debug("New instance " + classType.name() + "." + method.name());
           }
+          //noinspection SSBasedInspection
           return classType.newInstance(thread, method, args, invokePolicy | invocationOptions);
         }
       };
@@ -1686,15 +1699,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
   }
 
-  public void clearCashes(@MagicConstant(flagsFromClass = EventRequest.class) int suspendPolicy) {
+  public void clearCashes(@NotNull SuspendContextImpl context) {
     if (!isAttached()) return;
-    switch (suspendPolicy) {
-      case EventRequest.SUSPEND_ALL, EventRequest.SUSPEND_EVENT_THREAD -> getVirtualMachineProxy().clearCaches();
+    switch (context.getSuspendPolicy()) {
+      case EventRequest.SUSPEND_ALL, EventRequest.SUSPEND_EVENT_THREAD -> context.getVirtualMachineProxy().clearCaches();
     }
   }
 
   protected void beforeSuspend(SuspendContextImpl suspendContext) {
-    clearCashes(suspendContext.getSuspendPolicy());
+    clearCashes(suspendContext);
   }
 
   private void beforeMethodInvocation(SuspendContextImpl suspendContext, Method method, boolean internalEvaluate) {
@@ -1818,7 +1831,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
     final Method forNameMethod;
     List<Value> args = new ArrayList<>(); // do not use unmodifiable lists because the list is modified by JPDA
-    args.add(DebuggerUtilsEx.mirrorOfString(qName, virtualMachine, evaluationContext));
+    args.add(DebuggerUtilsEx.mirrorOfString(qName, evaluationContext));
     if (classLoader != null) {
       forNameMethod = DebuggerUtils.findMethod(classClassType, "forName", "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;");
       args.add(virtualMachine.mirrorOf(true));
@@ -1961,6 +1974,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
     @Override
     public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
+      super.step(suspendContext, stepThread, hint, commandToken);
       doStep(suspendContext, stepThread, myStepSize, StepRequest.STEP_OUT, hint, commandToken);
     }
 
@@ -2013,6 +2027,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
     @Override
     public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
+      super.step(suspendContext, stepThread, hint, createCommandToken());
       doStep(suspendContext, stepThread, myStepSize, StepRequest.STEP_INTO, hint, commandToken);
     }
 
@@ -2086,6 +2101,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
     @Override
     public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
+      super.step(suspendContext, stepThread, hint, commandToken);
       doStep(suspendContext, stepThread, myStepSize, getStepDepth(), hint, commandToken);
     }
 
@@ -2124,6 +2140,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       if (myIgnoreBreakpoints) {
         DebuggerManagerEx.getInstanceEx(project).getBreakpointManager().disableBreakpoints(DebugProcessImpl.this);
       }
+      beforeSteppingAction(context);
       LightOrRealThreadInfo threadFilterFromContext = getThreadFilterFromContext(context);
       applyThreadFilter(threadFilterFromContext);
       int breakpointSuspendPolicy = context.getSuspendPolicy();
@@ -2176,12 +2193,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         myThreadBlockedMonitor.startWatching(myContextThread);
       }
 
-      if (context != null) {
-        ApplicationManager.getApplication().getMessageBus().syncPublisher(SteppingListener.TOPIC)
-          .beforeSteppingStarted(context, getSteppingAction());
-      }
-
-
       if (context != null
           && isResumeOnlyCurrentThread()
           && context.getSuspendPolicy() == EventRequest.SUSPEND_ALL
@@ -2194,6 +2205,14 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     public void step(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread, RequestHint hint, Object commandToken) {
+      beforeSteppingAction(suspendContext);
+    }
+
+    protected void beforeSteppingAction(SuspendContextImpl context) {
+      if (context != null) {
+        ApplicationManager.getApplication().getMessageBus().syncPublisher(SteppingListener.TOPIC)
+          .beforeSteppingStarted(context, getSteppingAction());
+      }
     }
 
     protected @NotNull Engine getEngine() {

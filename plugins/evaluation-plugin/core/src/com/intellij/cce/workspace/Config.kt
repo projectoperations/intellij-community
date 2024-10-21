@@ -73,7 +73,7 @@ data class Config private constructor(
    */
   data class FileDataset internal constructor(
     val url: String,
-    val chunkSize: Int,
+    val chunkSize: Int?,
   )
 
   /**

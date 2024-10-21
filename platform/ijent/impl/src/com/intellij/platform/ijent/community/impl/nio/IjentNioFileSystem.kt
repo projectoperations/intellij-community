@@ -2,7 +2,6 @@
 package com.intellij.platform.ijent.community.impl.nio
 
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.path.getOrThrow
 import com.intellij.platform.ijent.fs.IjentFileSystemApi
 import com.intellij.platform.ijent.fs.IjentFileSystemPosixApi
 import com.intellij.platform.ijent.fs.IjentFileSystemWindowsApi
@@ -48,8 +47,12 @@ class IjentNioFileSystem internal constructor(
     }
   }
 
-  override fun getFileStores(): Iterable<FileStore> =
-    listOf(IjentNioFileStore(ijentFs))
+  override fun getFileStores(): Iterable<FileStore> {
+    val home = fsBlocking {
+      ijentFs.userHome()
+    }
+    return listOf(IjentNioFileStore(home!!, ijentFs))
+  }
 
   override fun supportedFileAttributeViews(): Set<String> =
     when (ijentFs) {
@@ -68,9 +71,7 @@ class IjentNioFileSystem internal constructor(
       is IjentFileSystemWindowsApi -> EelPath.Absolute.OS.WINDOWS
     }
     return EelPath.parse(first, os)
-      .getOrThrow()
-      .resolve(EelPath.Relative.build(*more).getOrThrow())
-      .getOrThrow()
+      .resolve(EelPath.Relative.build(*more))
       .toNioPath()
   }
 

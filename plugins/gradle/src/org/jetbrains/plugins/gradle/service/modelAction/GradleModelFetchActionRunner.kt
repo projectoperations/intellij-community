@@ -13,10 +13,11 @@ import org.gradle.tooling.StreamedValueListener
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.gradle.service.GradleFileModificationTracker
 import org.jetbrains.plugins.gradle.service.execution.GradleExecutionHelper
+import org.jetbrains.plugins.gradle.service.modelAction.GradleModelFetchActionRunner.Companion.runBuildAction
 import org.jetbrains.plugins.gradle.service.project.DefaultProjectResolverContext
-import org.jetbrains.plugins.gradle.service.project.GradleOperationHelperExtension
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings
 import org.jetbrains.plugins.gradle.statistics.GradleSyncCollector
+
 /**
  * This class handles setting up and running the [BuildActionExecuter] it deals with calling the correct APIs based on the version of
  * Gradle that is present.
@@ -77,7 +78,6 @@ class GradleModelFetchActionRunner private constructor(
       .buildFinished(modelFetchAction, resultHandler.asBuildFinishedResultHandler())
       .build()
       .prepareOperationForSync()
-      .withCancellationToken(resolverContext.cancellationToken)
       .withStreamedValueListener(resultHandler.asStreamValueListener())
       .forTasks(emptyList()) // this will allow setting up Gradle StartParameter#taskNames using model builders
       .run(resultHandler.asResultHandler())
@@ -86,22 +86,20 @@ class GradleModelFetchActionRunner private constructor(
   private fun runDefaultBuildAction(resultHandler: GradleModelFetchActionResultHandlerBridge) {
     resolverContext.connection.action(modelFetchAction)
       .prepareOperationForSync()
-      .withCancellationToken(resolverContext.cancellationToken)
       .withStreamedValueListener(resultHandler.asStreamValueListener())
       .run(resultHandler.asResultHandler())
   }
 
   private fun <T : LongRunningOperation> T.prepareOperationForSync(): T {
-    GradleExecutionHelper.prepare(
+    GradleExecutionHelper.prepareForExecution(
       resolverContext.connection,
       this,
+      resolverContext.cancellationToken,
       resolverContext.externalSystemTaskId,
+      mutableListOf(),
       settings,
       resolverContext.listener
     )
-    GradleOperationHelperExtension.EP_NAME.forEachExtensionSafe {
-      it.prepareForSync(this, resolverContext)
-    }
     return this
   }
 

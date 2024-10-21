@@ -3,7 +3,7 @@ package com.intellij.codeInsight.inline.completion.logs
 
 import com.intellij.codeInsight.inline.completion.logs.InlineCompletionLogsContainer.Phase
 import com.intellij.internal.statistic.eventLog.EventLogGroup
-import com.intellij.internal.statistic.eventLog.events.EventField
+import com.intellij.internal.statistic.eventLog.events.EventPair
 import com.intellij.internal.statistic.eventLog.events.ObjectEventField
 import com.intellij.internal.statistic.eventLog.events.VarargEventId
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
@@ -14,7 +14,7 @@ import org.jetbrains.annotations.ApiStatus
 @ApiStatus.Internal
 object InlineCompletionLogs : CounterUsagesCollector() {
   // TODO use ML_RECORDER_ID
-  val GROUP = EventLogGroup("inline.completion.v2", 22, recorder = "ML")
+  val GROUP = EventLogGroup("inline.completion.v2", 23, recorder = "ML")
 
   override fun getGroup(): EventLogGroup = GROUP
 
@@ -23,17 +23,17 @@ object InlineCompletionLogs : CounterUsagesCollector() {
   }
 
   object Session {
-    private val phaseToFieldList: List<Pair<Phase, EventField<*>>> = run {
+    private val phaseToFieldList: List<Pair<Phase, EventFieldExt<*>>> = run {
       val fields = Cancellation.withNonCancelableSection().use {
         // Non-cancellable section, because this function is often used in
         // static initializer code of `object`, and any exception (namely, CancellationException)
         // breaks the object with ExceptionInInitializerError, and subsequent NoClassDefFoundError
         InlineCompletionSessionLogsEP.EP_NAME.extensionsIfPointIsRegistered
-      }.flatMap { it.fields }.flatMap { phasedLogs ->
-        phasedLogs.fields.map { field -> phasedLogs.phase to field}
+      }.flatMap { it.logGroups }.flatMap { phasedLogs ->
+        phasedLogs.registeredFields.map { field -> phasedLogs.phase to field}
       }
 
-      fields.groupingBy { it.second.name }.eachCount().filter { it.value > 1 }.forEach {
+      fields.groupingBy { it.second.field }.eachCount().filter { it.value > 1 }.forEach {
         thisLogger().error("Log ${it.key} is registered multiple times: ${it.value}")
       }
       fields
@@ -41,11 +41,19 @@ object InlineCompletionLogs : CounterUsagesCollector() {
 
     // group logs to the phase so that each phase has its own object field
     val phases: Map<Phase, ObjectEventField> = Phase.entries.associateWith { phase ->
-      ObjectEventField(phase.name.lowercase(), phase.description, *phaseToFieldList.filter { phase == it.first }.map { it.second }.toTypedArray())
+      ObjectEventField(phase.name.lowercase(), phase.description, *phaseToFieldList.filter { phase == it.first }.map { it.second.field }.toTypedArray())
     }
 
-    val eventFieldNameToPhase: Map<String, Phase> = phaseToFieldList.associate { it.second.name to it.first }
+    val eventFieldProperties: Map<String, EventFieldProperty> = phaseToFieldList.associate {
+      it.second.field.name to EventFieldProperty(it.first, it.second.isBasic)
+    }
 
+    fun isBasic(eventPair: EventPair<*>): Boolean {
+      // all fields are unique and must be initialized before
+      return requireNotNull(eventFieldProperties[eventPair.field.name]?.isBasic)
+    }
+
+    // Each phase will have a separate ObjectEventField in the session event with the corresponding features.
     val SESSION_EVENT: VarargEventId = GROUP.registerVarargEvent(
       "session",
       description = "The whole inline completion session",
@@ -53,4 +61,8 @@ object InlineCompletionLogs : CounterUsagesCollector() {
     )
   }
 
+  data class EventFieldProperty(
+    val phase: Phase,
+    val isBasic: Boolean,
+  )
 }

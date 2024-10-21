@@ -22,9 +22,9 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.serializer
-import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.reflect.KClass
 import kotlin.reflect.KClassifier
 import kotlin.reflect.KType
@@ -357,12 +357,14 @@ class Blob(val bytes: ByteArray) {
 
 //@fleet.kernel.plugins.InternalInPluginModules(where = ["fleet.common", "fleet.protocol"])
 object BlobSerializer : DataSerializer<Blob, String>(String.serializer()) {
+  @OptIn(ExperimentalEncodingApi::class)
   override fun fromData(data: String): Blob {
-    return Blob(Base64.getDecoder().decode(data))
+    return Blob(Base64WithOptionalPadding.decode(data))
   }
 
+  @OptIn(ExperimentalEncodingApi::class)
   override fun toData(value: Blob): String {
-    return Base64.getEncoder().encodeToString(value.bytes)
+    return Base64WithOptionalPadding.encode(value.bytes)
   }
 }
 
