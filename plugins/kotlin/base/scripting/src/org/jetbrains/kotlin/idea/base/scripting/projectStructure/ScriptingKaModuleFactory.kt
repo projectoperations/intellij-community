@@ -60,7 +60,7 @@ private class KtScriptModuleByModuleInfo(
             emptyList()
         } else {
             val ktModules = ScriptAdditionalIdeaDependenciesProvider.getRelatedModules(moduleInfo.scriptFile, moduleInfo.project)
-                .mapNotNull { it.productionSourceInfo?.toKaModule() }
+                .mapNotNull { it.toKaSourceModuleForProduction() }
             hasDirectFriendDependencies = ktModules.isNotEmpty()
             ktModules
         }

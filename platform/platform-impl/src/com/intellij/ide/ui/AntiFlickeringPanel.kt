@@ -6,36 +6,31 @@ import com.intellij.ui.DirtyUI
 import com.intellij.util.concurrency.EdtExecutorService
 import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.UIUtil
-import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.ApiStatus
 import java.awt.*
 import java.awt.image.BufferedImage
 import javax.swing.JComponent
 import javax.swing.JPanel
 
 /** A hacky way to reduce flickering. */
-@Internal
+@ApiStatus.Internal
 class AntiFlickeringPanel(private val content: JComponent) : JPanel(BorderLayout()) {
   private var savedSelfieImage: BufferedImage? = null
   private var savedSize: Dimension? = null
   private var savedPreferredSize: Dimension? = null
-  private var needToScroll: Rectangle? = null
   private var isChildOpaque = false
 
-  private var childWasAdded = false
-  
   init {
     add(content)
-    childWasAdded = true
   }
 
   override fun addImpl(comp: Component?, constraints: Any?, index: Int) {
-    require(!childWasAdded) { "${this.javaClass} is now working only with one child" }
+    require(componentCount == 0) { "${this.javaClass} is now working only with one child" }
     super.addImpl(comp, constraints, index)
   }
 
   fun freezePainting(delay: Int) {
     isOpaque = true
-    needToScroll = null
     savedSelfieImage = takeSelfie(this)
     if (savedSelfieImage == null) {
       isOpaque = false
@@ -46,19 +41,19 @@ class AntiFlickeringPanel(private val content: JComponent) : JPanel(BorderLayout
 
     isChildOpaque = content.isOpaque
     content.isOpaque = false
+    // Need to remove the child, so it will not be repainted by Swing during its update.
+    // The child painting is performing above this panel.
+    remove(content)
 
     EdtExecutorService.getScheduledExecutorInstance().schedule(
       {
+        add(content)
         savedSelfieImage = null
         savedSize = null
         savedPreferredSize = null
         isOpaque = false
         content.isOpaque = isChildOpaque
         revalidate()
-        needToScroll?.let {
-          needToScroll = null
-          scrollRectToVisible(it)
-        }
         repaint()
       },
       delay.toLong(),
@@ -82,15 +77,6 @@ class AntiFlickeringPanel(private val content: JComponent) : JPanel(BorderLayout
       return
     }
     super.paint(g)
-  }
-
-  fun scrollRectToVisibleAfterFreeze(needToScroll: Rectangle) {
-    if (savedSize == null) {
-      scrollRectToVisible(needToScroll)
-    }
-    else {
-      this.needToScroll = needToScroll
-    }
   }
 
   companion object {

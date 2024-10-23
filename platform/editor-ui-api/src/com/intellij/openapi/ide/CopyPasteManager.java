@@ -3,6 +3,7 @@ package com.intellij.openapi.ide;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.ui.Gray;
 import org.jetbrains.annotations.ApiStatus;
@@ -16,6 +17,7 @@ import java.awt.datatransfer.Transferable;
 import java.util.EventListener;
 
 public abstract class CopyPasteManager {
+  private static final Logger LOG = Logger.getInstance(CopyPasteManager.class);
 
   /**
    * @deprecated use {@link #getCutColor()} instead
@@ -73,13 +75,38 @@ public abstract class CopyPasteManager {
    */
   public abstract void stopKillRings(@NotNull Document document);
 
+  /**
+   * Tells whether {@linkplain Toolkit#getSystemSelection() system selection} is supported in the current system.
+   */
+  public abstract boolean isSystemSelectionSupported();
+
+  /**
+   * Returns current system selection contents, or {@code null} if system selection has no contents, or if it's
+   * {@linkplain #isSystemSelectionSupported() not supported}.
+   */
+  public abstract @Nullable Transferable getSystemSelectionContents();
+
+  /**
+   * Sets current system selection contents. Does nothing if system selection is {@linkplain #isSystemSelectionSupported() not supported}.
+   */
+  public abstract void setSystemSelectionContents(@NotNull Transferable content);
+
   public interface ContentChangedListener extends EventListener {
     void contentChanged(final @Nullable Transferable oldTransferable, final Transferable newTransferable);
   }
 
   public static void copyTextToClipboard(@NotNull String text) {
     try {
-      getInstance().setContents(new StringSelection(text));
-    } catch (Exception ignore) { }
+      StringSelection transferable = new StringSelection(text);
+      if (ApplicationManager.getApplication() == null) {
+        //noinspection SSBasedInspection
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(transferable, null);
+      }
+      else {
+        getInstance().setContents(transferable);
+      }
+    } catch (Exception e) {
+      LOG.debug(e);
+    }
   }
 }

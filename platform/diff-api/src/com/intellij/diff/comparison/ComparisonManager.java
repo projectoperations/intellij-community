@@ -23,6 +23,8 @@ public abstract class ComparisonManager {
     return ApplicationManager.getApplication().getService(ComparisonManager.class);
   }
 
+  public abstract @NotNull CancellationChecker createCancellationChecker(@NotNull ProgressIndicator indicator);
+
   /**
    * Compare two texts by-line
    */
@@ -69,7 +71,7 @@ public abstract class ComparisonManager {
                                                                 @NotNull CharSequence text2,
                                                                 @NotNull CharSequence text3,
                                                                 @NotNull ComparisonPolicy policy,
-                                                                @NotNull MergeRange range,
+                                                                @NotNull MergeRange boundaryRange,
                                                                 @NotNull ProgressIndicator indicator) throws DiffTooBigException;
 
   /**

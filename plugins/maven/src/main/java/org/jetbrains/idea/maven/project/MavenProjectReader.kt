@@ -27,6 +27,7 @@ import java.io.IOException
 import java.nio.file.Path
 
 private const val UNKNOWN = MavenId.UNKNOWN_VALUE
+private const val MODEL_VERSION_4_0_0 = "4.0.0"
 
 class MavenProjectReader(private val myProject: Project) {
   private val myCache = MavenReadProjectCache()
@@ -151,7 +152,6 @@ class MavenProjectReader(private val myProject: Project) {
                                          recursionGuard: MutableSet<VirtualFile>,
                                          locator: MavenProjectReaderProjectLocator,
                                          problems: MutableCollection<MavenProjectProblem>): MavenModel {
-    var model = model
     if (recursionGuard.contains(file)) {
       problems.add(MavenProjectProblem.createProblem(
         file.path, MavenProjectBundle.message("maven.project.problem.recursiveInheritance"),
@@ -213,10 +213,10 @@ class MavenProjectReader(private val myProject: Project) {
           false))
       }
 
-      model = myReadHelper.assembleInheritance(projectPomDir, parentModel, model, file)
+      val modelWithInheritance = myReadHelper.assembleInheritance(projectPomDir, parentModel, model, file)
 
       // todo: it is a quick-hack here - we add inherited dummy profiles to correctly collect activated profiles in 'applyProfiles'.
-      val profiles = model.profiles
+      val profiles = modelWithInheritance.profiles
       for (each in parentModel.profiles) {
         val copyProfile = MavenProfile(each.id, each.source)
         if (each.activation != null) {
@@ -225,7 +225,7 @@ class MavenProjectReader(private val myProject: Project) {
 
         addProfileIfDoesNotExist(copyProfile, profiles)
       }
-      return model
+      return modelWithInheritance
     }
     finally {
       recursionGuard.remove(file)
@@ -321,34 +321,66 @@ class MavenProjectReader(private val myProject: Project) {
     xmlProject: Element?,
     problems: MutableCollection<MavenProjectProblem>,
     file: VirtualFile,
-    isAutomaticVersionFeatureEnabled: Boolean): String {
-    var version = findChildValueByPath(xmlProject, "parent.version")
-    if (version != null || !isAutomaticVersionFeatureEnabled) {
-      return StringUtil.notNullize(version, UNKNOWN)
+    isAutomaticVersionFeatureEnabled: Boolean,
+  ): String {
+    val version = doCalculateParentVersion(xmlProject, problems, file, isAutomaticVersionFeatureEnabled)
+    if (version != null) return version
+    problems.add(MavenProjectProblem(file.path, MavenProjectBundle.message("consumer.pom.cannot.determine.parent.version"),
+                                     MavenProjectProblem.ProblemType.STRUCTURE,
+                                     false))
+    return UNKNOWN
+  }
+
+  private suspend fun doCalculateParentVersion(
+    xmlProject: Element?,
+    problems: MutableCollection<MavenProjectProblem>,
+    file: VirtualFile,
+    isAutomaticVersionFeatureEnabled: Boolean,
+  ): String? {
+    val explicitVersion = findChildValueByPath(xmlProject, "parent.version")
+    if (explicitVersion != null || !isAutomaticVersionFeatureEnabled) {
+      return StringUtil.notNullize(explicitVersion, UNKNOWN)
     }
-    val parentGroupId = findChildValueByPath(xmlProject, "parent.groupId")
-    val parentArtifactId = findChildValueByPath(xmlProject, "parent.artifactId")
-    if (parentGroupId == null || parentArtifactId == null) {
-      problems.add(MavenProjectProblem(file.path, MavenProjectBundle.message("consumer.pom.cannot.determine.parent.version"),
-                                       MavenProjectProblem.ProblemType.STRUCTURE,
-                                       false))
-      return UNKNOWN
-    }
-    val relativePath = findChildValueByPath(xmlProject, "parent.relativePath", "../pom.xml")
-    val parentFile = file.parent.findFileByRelativePath(relativePath!!)
+    if (null == xmlProject) return null
+
+    if (!xmlProject.requiredParentGroupAndArtifactPresent()) return null
+
+    val relativePath = findChildValueByPath(xmlProject, "parent.relativePath", "../pom.xml")!!
+    val parentFile = file.findParentPom(relativePath)
     if (parentFile == null) {
-      problems.add(MavenProjectProblem(file.path, MavenProjectBundle.message("consumer.pom.cannot.determine.parent.version"),
-                                       MavenProjectProblem.ProblemType.STRUCTURE,
-                                       false))
-      return UNKNOWN
+      return null
     }
 
     val parentXmlProject = readXml(parentFile, problems, MavenProjectProblem.ProblemType.SYNTAX)
-    version = findChildValueByPath(parentXmlProject, "version")
+    val version = findChildValueByPath(parentXmlProject, "version")
     if (version != null) {
       return version
     }
-    return calculateParentVersion(parentXmlProject, problems, parentFile, isAutomaticVersionFeatureEnabled)
+    return doCalculateParentVersion(parentXmlProject, problems, parentFile, isAutomaticVersionFeatureEnabled)
+  }
+
+  private fun Element.requiredParentGroupAndArtifactPresent(): Boolean {
+    val parentGroupId = findChildValueByPath(this, "parent.groupId")
+    val parentArtifactId = findChildValueByPath(this, "parent.artifactId")
+    if (parentGroupId != null && parentArtifactId != null) return true
+
+    val modelVersion = this.getModelVersion()
+
+    // model version 4.0.0, parent.groupId or parent.artifactId is not present
+    if (modelVersion == null || modelVersion == MODEL_VERSION_4_0_0) return false
+
+    // model version 4.1.0, parent tag is not present
+    val parent = findChildByPath(this, "parent")
+    if (null == parent) return false
+
+    // model version 4.1.0, parent tag is present
+    return true
+  }
+
+  private fun VirtualFile.findParentPom(relativePath: String): VirtualFile? {
+    val parentPath = this.parent.findFileByRelativePath(relativePath) ?: return null
+    if (parentPath.isDirectory) return parentPath.findFileByRelativePath(MavenConstants.POM_XML)
+    return parentPath
   }
 
   private fun repairModelBody(model: MavenModel) {
@@ -489,8 +521,37 @@ class MavenProjectReader(private val myProject: Project) {
     return true
   }
 
+  private fun VirtualFile.hasPomFile(): Boolean {
+    return this.isDirectory && this.children.any { it.name == MavenConstants.POM_XML }
+  }
+
+  private fun findModules_4_0_0(xmlModel: Element): List<String> = findChildrenValuesByPath(xmlModel, "modules", "module")
+
+  private fun Element.getModelVersion() = this.getChild("modelVersion")?.value
+
+  private fun findSubprojects(xmlModel: Element, projectFile: VirtualFile): List<String> {
+    val modelVersion = xmlModel.getModelVersion()
+
+    if (modelVersion != null && StringUtil.compareVersionNumbers(modelVersion, MODEL_VERSION_4_0_0) > 0) {
+      val subprojects = findChildrenValuesByPath(xmlModel, "subprojects", "subproject")
+      if (!subprojects.isEmpty()) return subprojects
+
+      val modules = findModules_4_0_0(xmlModel)
+      if (!modules.isEmpty()) return modules
+
+      if (MavenConstants.TYPE_POM != xmlModel.getChild("packaging")?.value) return emptyList()
+
+      // subprojects discovery
+      // see org.apache.maven.internal.impl.model.DefaultModelBuilder.DefaultModelBuilderSession#doReadFileModel
+      return projectFile.parent.children.filter { it.hasPomFile() }.map { it.name }
+    }
+
+    return findModules_4_0_0(xmlModel)
+  }
+
   private fun readModelBody(mavenModelBase: MavenModelBase, mavenBuildBase: MavenBuildBase, xmlModel: Element, projectFile: VirtualFile) {
-    mavenModelBase.modules = myReadHelper.filterModules(findChildrenValuesByPath(xmlModel, "modules", "module"), projectFile)
+    val modules = findSubprojects(xmlModel, projectFile)
+    mavenModelBase.modules = myReadHelper.filterModules(modules, projectFile)
     collectProperties(findChildByPath(xmlModel, "properties"), mavenModelBase)
 
     val xmlBuild = findChildByPath(xmlModel, "build")

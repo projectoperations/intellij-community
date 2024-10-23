@@ -2066,12 +2066,15 @@ c:com.intellij.ide.CopyPasteManagerEx
 - getContents():java.awt.datatransfer.Transferable
 - getContents(java.awt.datatransfer.DataFlavor):java.lang.Object
 - s:getInstanceEx():com.intellij.ide.CopyPasteManagerEx
+- getSystemSelectionContents():java.awt.datatransfer.Transferable
 - isCutElement(java.lang.Object):Z
+- isSystemSelectionSupported():Z
 - lostOwnership(java.awt.datatransfer.Clipboard,java.awt.datatransfer.Transferable):V
 - moveContentToStackTop(java.awt.datatransfer.Transferable):V
 - removeContent(java.awt.datatransfer.Transferable):V
 - removeContentChangedListener(com.intellij.openapi.ide.CopyPasteManager$ContentChangedListener):V
 - setContents(java.awt.datatransfer.Transferable):V
+- setSystemSelectionContents(java.awt.datatransfer.Transferable):V
 - stopKillRings():V
 - stopKillRings(com.intellij.openapi.editor.Document):V
 com.intellij.ide.FeedbackDescriptionProvider
@@ -2292,7 +2295,7 @@ f:com.intellij.ide.ProtocolHandler$Companion
 c:com.intellij.ide.RecentProjectListActionProvider
 - sf:Companion:com.intellij.ide.RecentProjectListActionProvider$Companion
 - <init>():V
-- p:createOpenAction(java.lang.String,java.util.Set):com.intellij.ide.ReopenProjectAction
+- p:createOpenAction(java.lang.String,java.util.Set,com.intellij.ide.RecentProjectsManagerBase):com.intellij.ide.ReopenProjectAction
 - f:getActions():java.util.List
 - f:getActions(Z):java.util.List
 - getActions(Z,Z):java.util.List
@@ -12779,6 +12782,7 @@ c:com.intellij.platform.GeneratorPeerImpl
 - <init>(java.lang.Object,javax.swing.JComponent):V
 - addSettingsStateListener(com.intellij.platform.WebProjectGenerator$SettingsStateListener):V
 - buildUI(com.intellij.ide.util.projectWizard.SettingsStep):V
+- getComponent():javax.swing.JComponent
 - getComponent(com.intellij.openapi.ui.TextFieldWithBrowseButton,java.lang.Runnable):javax.swing.JComponent
 - getSettings():java.lang.Object
 - isBackgroundJobRunning():Z

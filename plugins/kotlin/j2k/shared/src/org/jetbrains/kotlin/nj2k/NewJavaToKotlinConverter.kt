@@ -12,10 +12,9 @@ import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModuleProvider
 import org.jetbrains.kotlin.config.LanguageVersionSettingsImpl
-import org.jetbrains.kotlin.idea.base.projectStructure.getMainKtSourceModule
+import org.jetbrains.kotlin.idea.base.projectStructure.toKaSourceModuleForProductionOrTest
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
-import org.jetbrains.kotlin.idea.base.projectStructure.productionOrTestSourceModuleInfo
-import org.jetbrains.kotlin.idea.base.projectStructure.toKaModule
+import org.jetbrains.kotlin.idea.base.projectStructure.toKaSourceModuleForProduction
 import org.jetbrains.kotlin.j2k.*
 import org.jetbrains.kotlin.j2k.PostProcessingTarget.MultipleFilesPostProcessingTarget
 import org.jetbrains.kotlin.name.FqName
@@ -95,7 +94,7 @@ class NewJavaToKotlinConverter(
         forInlining: Boolean = false
     ): Result {
         val contextElement = inputElements.firstOrNull() ?: return Result.EMPTY
-        val targetKaModule = targetModule?.productionOrTestSourceModuleInfo?.toKaModule()
+        val targetKaModule = targetModule?.toKaSourceModuleForProductionOrTest()
 
         // TODO
         // val originKtModule = ProjectStructureProvider.getInstance(project).getModule(contextElement, contextualModule = null)
@@ -139,7 +138,7 @@ class NewJavaToKotlinConverter(
 
         val kaModule =
             targetFile?.let { KaModuleProvider.getModule(project, it, useSiteModule = null) }
-                ?: targetModule?.getMainKtSourceModule()
+                ?: targetModule?.toKaSourceModuleForProduction()
                 ?: KaModuleProvider.getModule(project, contextElement, useSiteModule = null)
 
         val importStorage = JKImportStorage(kaModule.targetPlatform, project)

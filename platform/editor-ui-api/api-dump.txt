@@ -510,6 +510,7 @@ f:com.intellij.ide.ui.UISettings$Companion
 - f:setupFractionalMetrics(javax.swing.JComponent):V
 com.intellij.ide.ui.UISettingsListener
 - java.util.EventListener
+- sf:TOPIC:com.intellij.util.messages.Topic
 - a:uiSettingsChanged(com.intellij.ide.ui.UISettings):V
 f:com.intellij.ide.ui.UISettingsState
 - com.intellij.openapi.components.BaseState
@@ -2688,9 +2689,12 @@ a:com.intellij.openapi.ide.CopyPasteManager
 - a:getContents(java.awt.datatransfer.DataFlavor):java.lang.Object
 - s:getCutColor():java.awt.Color
 - s:getInstance():com.intellij.openapi.ide.CopyPasteManager
+- a:getSystemSelectionContents():java.awt.datatransfer.Transferable
 - a:isCutElement(java.lang.Object):Z
+- a:isSystemSelectionSupported():Z
 - a:removeContentChangedListener(com.intellij.openapi.ide.CopyPasteManager$ContentChangedListener):V
 - a:setContents(java.awt.datatransfer.Transferable):V
+- a:setSystemSelectionContents(java.awt.datatransfer.Transferable):V
 - a:stopKillRings():V
 - a:stopKillRings(com.intellij.openapi.editor.Document):V
 com.intellij.openapi.ide.CopyPasteManager$ContentChangedListener

@@ -228,6 +228,15 @@ public class JavaHomeFinderBasic {
     return Files.isDirectory(javaHome) ? javaHome : null;
   }
 
+  protected @Nullable Path getPathInEnvironmentVariable(String variable, String path) {
+    String dir = mySystemInfo.getEnvironmentVariable(variable);
+    if (dir != null) {
+      Path primaryDir = mySystemInfo.getPath(path);
+      if (safeIsDirectory(primaryDir)) return primaryDir;
+    }
+    return null;
+  }
+
   /**
    * Finds Java home directories installed by <a href="https://github.com/sdkman">SDKMAN</a>.
    */
@@ -256,31 +265,42 @@ public class JavaHomeFinderBasic {
    * Finds Java home directory installed by <a href="https://mise.jdx.dev/lang/java.html">mise</a>.
    */
   private @NotNull Set<String> findJavaInstalledByMise() {
-    Path jdks = getPathInUserHome(".local/share/mise/installs/java/");
-    if (jdks == null || !Files.isDirectory(jdks)) return Collections.emptySet();
+    Path installsDir = findMiseInstallsDir();
+    if (installsDir == null) return Collections.emptySet();
+    Path jdks = installsDir.resolve("java");
     return scanAll(jdks, true).stream()
       .filter(path -> !Files.isSymbolicLink(Path.of(path)))
       .collect(Collectors.toSet());
   }
 
-  private @Nullable Path findSdkManCandidatesDir() {
-    // first, try the special environment variable
-    String candidatesPath = mySystemInfo.getEnvironmentVariable("SDKMAN_CANDIDATES_DIR");
-    if (candidatesPath != null) {
-      Path candidatesDir = mySystemInfo.getPath(candidatesPath);
-      if (Files.isDirectory(candidatesDir)) {
-        return candidatesDir;
-      }
+  @Nullable
+  private Path findMiseInstallsDir() {
+    // try to use environment variable for custom data directory
+    // https://mise.jdx.dev/configuration.html#mise-data-dir
+    Path miseDataDir = getPathInEnvironmentVariable("MISE_DATA_DIR", "installs");
+    if (miseDataDir != null) return miseDataDir;
+
+    Path xdgDataDir = getPathInEnvironmentVariable("XDG_DATA_DIR", "mise/installs");
+    if (xdgDataDir != null) return xdgDataDir;
+
+    // finally, try the usual location in Unix or macOS
+    if (!(this instanceof JavaHomeFinderWindows) && !(this instanceof JavaHomeFinderWsl)) {
+      Path installsDir = getPathInUserHome(".local/share/mise/installs");
+      if (installsDir != null && safeIsDirectory(installsDir)) return installsDir;
     }
 
+    // no chances
+    return null;
+  }
+
+  private @Nullable Path findSdkManCandidatesDir() {
+    // first, try the special environment variable
+    Path candidatesDir = getPathInEnvironmentVariable("SDKMAN_CANDIDATES_DIR", "");
+    if (candidatesDir != null) return candidatesDir;
+
     // then, try to use its 'primary' variable
-    String primaryPath = mySystemInfo.getEnvironmentVariable("SDKMAN_DIR");
-    if (primaryPath != null) {
-      Path candidatesDir = mySystemInfo.getPath(primaryPath, "candidates");
-      if (Files.isDirectory(candidatesDir)) {
-        return candidatesDir;
-      }
-    }
+    Path sdkmanDirCandidates = getPathInEnvironmentVariable("SDKMAN_DIR", "candidates");
+    if (sdkmanDirCandidates != null) return sdkmanDirCandidates;
 
     // finally, try the usual location in UNIX
     if (!(this instanceof JavaHomeFinderWindows)) {
@@ -371,14 +391,8 @@ public class JavaHomeFinderBasic {
   private @Nullable Path findAsdfInstallsDir() {
     // try to use environment variable for custom data directory
     // https://asdf-vm.com/#/core-configuration?id=environment-variables
-    String dataDir = mySystemInfo.getEnvironmentVariable("ASDF_DATA_DIR");
-    if (dataDir != null) {
-      Path primaryDir = mySystemInfo.getPath(dataDir);
-      if (safeIsDirectory(primaryDir)) {
-        Path installsDir = primaryDir.resolve("installs");
-        if (safeIsDirectory(installsDir)) return installsDir;
-      }
-    }
+    Path asdfDataDirInstalls = getPathInEnvironmentVariable("ASDF_DATA_DIR", "installs");
+    if (asdfDataDirInstalls != null) return asdfDataDirInstalls;
 
     // finally, try the usual location in Unix or macOS
     if (!(this instanceof JavaHomeFinderWindows) && !(this instanceof JavaHomeFinderWsl)) {

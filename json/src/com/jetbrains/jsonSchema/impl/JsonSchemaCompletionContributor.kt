@@ -220,7 +220,7 @@ class JsonSchemaCompletionContributor : CompletionContributor() {
             val description = valueMetadata?.get("description")
             val deprecated = valueMetadata?.get("deprecationMessage")
             val order = if (isEnumOrderSensitive) i else null
-            val handlers = customizers.mapNotNull { p -> p.createHandlerForEnumValue(schema, variant) }.toList()
+            val handlers = customizers.mapNotNull { p -> p.createHandlerForEnumValue(schema, variant, completionPsiElement) }.toList()
             addValueVariant(
               key = variant,
               description = description,
@@ -241,6 +241,11 @@ class JsonSchemaCompletionContributor : CompletionContributor() {
           for (schemaType in schema.typeVariants!!) {
             suggestByType(schema, schemaType)
           }
+        }
+      }
+      else if (psiWalker?.hasObjectArrayAmbivalence() == true) {
+        schema.itemsSchema?.let { itemsSchema ->
+          suggestValues(itemsSchema, false, completionPath)
         }
       }
     }

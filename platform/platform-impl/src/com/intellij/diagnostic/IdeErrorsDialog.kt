@@ -11,6 +11,8 @@ import com.intellij.ide.lightEdit.LightEditCompatible
 import com.intellij.ide.plugins.*
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.idea.ActionsBundle
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
 import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
@@ -45,6 +47,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.TextComponentEmptyText
 import com.intellij.util.ExceptionUtil
+import com.intellij.util.application
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.io.URLUtil
 import com.intellij.util.text.DateFormatUtil
@@ -68,7 +71,7 @@ import javax.swing.event.DocumentEvent
 import javax.swing.event.HyperlinkEvent
 import javax.swing.text.JTextComponent
 
-open class IdeErrorsDialog internal constructor(
+open class IdeErrorsDialog @ApiStatus.Internal constructor(
   private val myMessagePool: MessagePool,
   private val myProject: Project?,
   defaultMessage: LogMessage?
@@ -311,7 +314,6 @@ open class IdeErrorsDialog internal constructor(
 
   override fun createLeftSideActions(): Array<Action> {
     if (myProject != null && !myProject.isDefault && PluginManagerCore.isPluginInstalled(PluginId.getId(ITNProxy.EA_PLUGIN_ID))) {
-      @Suppress("UnresolvedPluginConfigReference")
       ActionManager.getInstance().getAction("Unscramble")?.let {
         return arrayOf(AnalyzeAction(it))
       }
@@ -525,6 +527,7 @@ open class IdeErrorsDialog internal constructor(
       val frame = ComponentUtil.getParentOfType(IdeFrame::class.java, parentComponent)
       parentComponent = frame?.component ?: WindowManager.getInstance().findVisibleFrame() ?: parentComponent
     }
+
     val accepted = submitter.submit(events, message.additionalInfo, parentComponent) { reportInfo: SubmittedReportInfo? ->
       message.setSubmitted(reportInfo)
       UIUtil.invokeLaterIfNeeded { updateOnSubmit() }
@@ -739,6 +742,9 @@ open class IdeErrorsDialog internal constructor(
         IdeErrorDialogUsageCollector.logReport()
         PropertiesComponent.getInstance().setValue(LAST_OK_ACTION, ReportAction.DEFAULT.name)
         val closeDialog = myMessageClusters.size == 1
+
+        NOTIFY_SUCCESS_EACH_REPORT.set(true)
+
         val reportingStarted = reportMessage(selectedCluster(), closeDialog)
         if (!closeDialog) {
           updateControls()
@@ -750,6 +756,27 @@ open class IdeErrorsDialog internal constructor(
     }
   }
 
+  private val gratitudeMessagesInternal: List<String> = listOf<String>(
+    "You are breathtaking!",
+    "The world is a better place because of you!",
+    "I couldn’t have done this without you. Thank you for being there!",
+    "Your effort and dedication don’t go unnoticed. Thank you!",
+    "Thank you for making such a big difference with your actions!",
+    "I feel so fortunate to have someone like you in my life!",
+    "I’m just grateful to be a part of this journey with you. Stay awesome."
+  )
+
+  private fun notifySuccessReportAll() {
+    val content = if (application.isInternal)
+      gratitudeMessagesInternal.random()
+    else
+      DiagnosticBundle.message("error.report.gratitude")
+
+    val title = DiagnosticBundle.message("error.reports.submitted")
+    val notification = Notification("Error Report", title, content, NotificationType.INFORMATION).setImportant(false)
+    notification.notify(myProject)
+  }
+
   private inner class ReportAllAction : AbstractAction(DiagnosticBundle.message("error.report.all.action")) {
     override fun actionPerformed(e: ActionEvent) {
       if (isEnabled) {
@@ -757,6 +784,7 @@ open class IdeErrorsDialog internal constructor(
         PropertiesComponent.getInstance().setValue(LAST_OK_ACTION, ReportAction.REPORT_ALL.name)
         val reportingStarted = reportAll()
         if (reportingStarted) {
+          notifySuccessReportAll()
           super@IdeErrorsDialog.doOKAction()
         }
       }
@@ -770,6 +798,7 @@ open class IdeErrorsDialog internal constructor(
         PropertiesComponent.getInstance().setValue(LAST_OK_ACTION, ReportAction.REPORT_AND_CLEAR_ALL.name)
         val reportingStarted = reportAll()
         if (reportingStarted) {
+          notifySuccessReportAll()
           myMessagePool.clearErrors()
           super@IdeErrorsDialog.doOKAction()
         }
@@ -784,6 +813,9 @@ open class IdeErrorsDialog internal constructor(
       if (!cluster.canSubmit()) {
         continue
       }
+
+      NOTIFY_SUCCESS_EACH_REPORT.set(false)
+
       if (!reportMessage(cluster, true).also { reportingStarted = it }) {
         myIndex = i
         updateControls()

@@ -12,7 +12,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.rootManager
 import com.intellij.openapi.roots.FileIndex
 import com.intellij.openapi.roots.ProjectFileIndex
-import com.intellij.openapi.roots.libraries.Library
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.JavaPsiFacade
@@ -27,7 +26,6 @@ import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.jps.model.module.JpsModuleSourceRoot
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
-import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
 import org.jetbrains.kotlin.analyzer.LanguageSettingsProvider
 import org.jetbrains.kotlin.analyzer.ModuleInfo
 import org.jetbrains.kotlin.builtins.StandardNames
@@ -46,17 +44,6 @@ val KaModule.moduleInfo: IdeaModuleInfo
         return ideaModuleInfo
     }
 
-
-val KaSourceModule.ideaModule: Module
-    get() {
-        require(this is KtSourceModuleByModuleInfo)
-        return ideaModule
-    }
-
-fun Module.getMainKtSourceModule(): KaSourceModule? {
-    val moduleInfo = productionSourceInfo ?: return null
-    return moduleInfo.toKaModuleOfType<KaSourceModule>()
-}
 
 val ModuleInfo.kotlinSourceRootType: KotlinSourceRootType?
     get() = when (this) {
@@ -91,18 +78,8 @@ fun Module.asSourceInfo(sourceRootType: KotlinSourceRootType?): ModuleSourceInfo
 val Module.sourceModuleInfos: List<ModuleSourceInfo>
     get() = listOfNotNull(testSourceInfo, productionSourceInfo)
 
-val Module.productionOrTestSourceModuleInfo: ModuleSourceInfo?
-    get() = productionSourceInfo ?: testSourceInfo
-
 private fun Module.hasRootsOfType(rootTypes: Set<JpsModuleSourceRootType<*>>): Boolean {
     return rootManager.contentEntries.any { it.getSourceFolders(rootTypes).isNotEmpty() }
-}
-
-fun Library.getBinaryAndSourceModuleInfos(project: Project): List<IdeaModuleInfo> = buildList {
-    LibraryInfoCache.getInstance(project)[this@getBinaryAndSourceModuleInfos].forEach { libraryInfo ->
-        add(libraryInfo)
-        add(libraryInfo.sourcesModuleInfo)
-    }
 }
 
 /**
@@ -145,9 +122,9 @@ fun ProjectFileIndex.getKotlinSourceRootType(virtualFile: VirtualFile): KotlinSo
     return runReadAction {
         val sourceRootType = getContainingSourceRootType(virtualFile) ?: return@runReadAction null
         when (sourceRootType) {
-          in testRootTypes -> TestSourceKotlinRootType
-          in sourceRootTypes -> SourceKotlinRootType
-          else -> null
+            in testRootTypes -> TestSourceKotlinRootType
+            in sourceRootTypes -> SourceKotlinRootType
+            else -> null
         }
     }
 }
