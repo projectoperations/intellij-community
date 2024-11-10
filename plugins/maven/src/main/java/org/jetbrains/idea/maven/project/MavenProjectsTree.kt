@@ -588,6 +588,19 @@ class MavenProjectsTree(val project: Project) {
     return true
   }
 
+  internal fun recalculateMavenIdToProjectMap() {
+    withWriteLock {
+      myMavenIdToProjectMapping.clear()
+      myWorkspaceMap.availableIds.toList().forEach {
+        myWorkspaceMap.unregister(it)
+      }
+      myVirtualFileToProjectMapping.values.forEach {
+        myMavenIdToProjectMapping[it.mavenId] = it
+        myWorkspaceMap.register(it.mavenId, File(it.file.path))
+      }
+    }
+  }
+
   fun hasProjects(): Boolean {
     return withReadLock { !myRootProjects.isEmpty() }
   }
@@ -1063,8 +1076,8 @@ class MavenProjectsTree(val project: Project) {
   companion object {
     private val LOG = Logger.getInstance(MavenProjectsTree::class.java)
 
-    private const val STORAGE_VERSION_NUMBER = 10
-    private val STORAGE_VERSION = MavenProjectsTree::class.java.simpleName + "." + STORAGE_VERSION_NUMBER
+    private const val STORAGE_VERSION_NUMBER = 12
+    val STORAGE_VERSION = MavenProjectsTree::class.java.simpleName + "." + STORAGE_VERSION_NUMBER
 
     private fun String.getStorageVersionNumber(): Int {
       val parts = this.split(".")

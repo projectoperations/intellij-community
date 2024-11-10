@@ -808,24 +808,8 @@ public final class PyTypeChecker {
             }
           }
           else {
-            PyTypeParameterMapping mapping = PyTypeParameterMapping.mapByShape(definitionTypeParameters, genericType.getElementTypes(),
-                                                                               Option.MAP_UNMATCHED_EXPECTED_TYPES_TO_ANY);
-            if (mapping != null) {
-              for (Couple<PyType> pair : mapping.getMappedTypes()) {
-                PyType typeParameter = pair.getFirst();
-                PyType typeArgument = pair.getSecond();
-                if (typeParameter instanceof PyTypeVarType typeVarType) {
-                  result.typeVars.put(typeVarType, typeArgument);
-                }
-                else if (typeParameter instanceof PyTypeVarTupleType typeVarTuple) {
-                  assert typeArgument instanceof PyVariadicType || typeArgument == null;
-                  result.typeVarTuples.put(typeVarTuple, (PyVariadicType)typeArgument);
-                }
-                else if (typeParameter instanceof PyParamSpecType) {
-                  result.paramSpecs.put((PyParamSpecType)typeParameter, as(typeArgument, PyParamSpecType.class));
-                }
-              }
-            }
+            mapTypeParametersToSubstitutions(result, definitionTypeParameters, genericType.getElementTypes(),
+                                             Option.MAP_UNMATCHED_EXPECTED_TYPES_TO_ANY);
           }
         }
       }
@@ -1430,7 +1414,7 @@ public final class PyTypeChecker {
   }
 
   @NotNull
-  public static GenericSubstitutions unifyReceiver(@Nullable PyType receiverType, @NotNull TypeEvalContext context) {
+  static GenericSubstitutions unifyReceiver(@Nullable PyType receiverType, @NotNull TypeEvalContext context) {
     // Collect generic params of object type
     final var substitutions = new GenericSubstitutions();
     if (receiverType != null) {
@@ -1608,8 +1592,8 @@ public final class PyTypeChecker {
     Generics typeParams = collectGenerics(genericType, context);
     if (!typeParams.isEmpty()) {
       List<PyType> expectedTypeParams = new ArrayList<>(new LinkedHashSet<>(typeParams.getAllTypeParameters()));
-      var substitutions = mapTypeParametersToSubstitutions(new GenericSubstitutions(),
-                                                           expectedTypeParams, actualTypeParams,
+      var substitutions = mapTypeParametersToSubstitutions(expectedTypeParams, 
+                                                           actualTypeParams,
                                                            Option.MAP_UNMATCHED_EXPECTED_TYPES_TO_ANY,
                                                            Option.USE_DEFAULTS);
       if (substitutions == null) return null;
@@ -1628,32 +1612,32 @@ public final class PyTypeChecker {
 
   @ApiStatus.Internal
   @Nullable
-  public static GenericSubstitutions mapTypeParametersToSubstitutions(@NotNull GenericSubstitutions substitutions,
-                                                                      @NotNull List<? extends PyType> expectedTypes,
+  public static GenericSubstitutions mapTypeParametersToSubstitutions(@NotNull List<? extends PyType> expectedTypes,
                                                                       @NotNull List<? extends PyType> actualTypes,
                                                                       Option @NotNull ... options) {
-    PyTypeParameterMapping mapping = PyTypeParameterMapping.mapByShape(expectedTypes, actualTypes, options);
-    if (mapping != null) {
-      return fillSubstitutionsWithTypeParameters(substitutions, mapping.getMappedTypes());
-    }
-    return null;
+    return mapTypeParametersToSubstitutions(new GenericSubstitutions(), expectedTypes, actualTypes, options);
   }
 
-  @NotNull
-  @ApiStatus.Internal
-  public static GenericSubstitutions fillSubstitutionsWithTypeParameters(@NotNull GenericSubstitutions substitutions, @NotNull List<Couple<PyType>> typeParameters) {
-    for (Couple<PyType> pair : typeParameters) {
-      if (pair.getFirst() instanceof PyTypeVarType typeVar) {
-        substitutions.typeVars.put(typeVar, pair.getSecond());
+  private static @Nullable GenericSubstitutions mapTypeParametersToSubstitutions(@NotNull GenericSubstitutions substitutions,
+                                                                                 @NotNull List<? extends PyType> expectedTypes,
+                                                                                 @NotNull List<? extends PyType> actualTypes,
+                                                                                 Option @NotNull ... options) {
+    PyTypeParameterMapping mapping = PyTypeParameterMapping.mapByShape(expectedTypes, actualTypes, options);
+    if (mapping != null) {
+      for (Couple<PyType> pair : mapping.getMappedTypes()) {
+        if (pair.getFirst() instanceof PyTypeVarType typeVar) {
+          substitutions.typeVars.put(typeVar, pair.getSecond());
+        }
+        else if (pair.getFirst() instanceof PyTypeVarTupleType typeVarTuple) {
+          substitutions.typeVarTuples.put(typeVarTuple, as(pair.getSecond(), PyVariadicType.class));
+        }
+        else if (pair.getFirst() instanceof PyParamSpecType paramSpec) {
+          substitutions.paramSpecs.put(paramSpec, as(pair.getSecond(), PyParamSpecType.class));
+        }
       }
-      else if (pair.getFirst() instanceof PyTypeVarTupleType typeVarTuple) {
-        substitutions.typeVarTuples.put(typeVarTuple, as(pair.getSecond(), PyVariadicType.class));
-      }
-      else if (pair.getFirst() instanceof PyParamSpecType paramSpec) {
-        substitutions.paramSpecs.put(paramSpec, as(pair.getSecond(), PyParamSpecType.class));
-      }
+      return substitutions;
     }
-    return substitutions;
+    return null;
   }
 
   @ApiStatus.Internal

@@ -22,15 +22,15 @@ import kotlin.io.path.pathString
 /**
  * Searches for module with [clazz] in [PathManager.ourHomePath] an executes [clazz] `main` with all dependencies
  */
-internal class JavaMainClassExecutor(clazz: Class<*>) {
+internal class JavaMainClassExecutor(clazz: Class<*>, vararg args: String) {
   private val exe = Path(ProcessHandle.current().info().command().get()).toString()
   private val env = mapOf("CLASSPATH" to getClassPathForClass(clazz))
-  private val args = listOf(clazz.canonicalName)
+  private val args = listOf(clazz.canonicalName) + args.toList()
 
   /**
    * Execute `main` method
    */
-  fun createBuilderToExecuteMain(): EelExecApi.ExecuteProcessBuilder = EelExecApi.executeProcessBuilder(exe).env(env).args(args)
+  fun createBuilderToExecuteMain(): EelExecApi.ExecuteProcessOptions.Builder = EelExecApi.ExecuteProcessOptions.Builder(exe).env(env).args(args)
 
   private companion object {
     private fun getClassPathForClass(clazz: Class<*>): String {

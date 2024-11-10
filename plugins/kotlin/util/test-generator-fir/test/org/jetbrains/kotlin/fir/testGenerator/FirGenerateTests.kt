@@ -20,17 +20,18 @@ import org.jetbrains.kotlin.idea.fir.completion.*
 import org.jetbrains.kotlin.idea.fir.completion.kmpBasic.AbstractKotlinKmpCompletionTest
 import org.jetbrains.kotlin.idea.fir.completion.test.handlers.*
 import org.jetbrains.kotlin.idea.fir.completion.wheigher.AbstractHighLevelWeigherTest
-import org.jetbrains.kotlin.idea.fir.copyPaste.AbstractFirLiteralKotlinToKotlinCopyPasteTest
 import org.jetbrains.kotlin.idea.fir.copyPaste.AbstractFirKotlinToKotlinMultiDollarStringsCopyPasteTest
+import org.jetbrains.kotlin.idea.fir.copyPaste.AbstractFirLiteralKotlinToKotlinCopyPasteTest
 import org.jetbrains.kotlin.idea.fir.copyPaste.AbstractFirLiteralTextToKotlinCopyPasteTest
 import org.jetbrains.kotlin.idea.fir.documentation.AbstractFirQuickDocMultiplatformTest
 import org.jetbrains.kotlin.idea.fir.documentation.AbstractFirQuickDocTest
 import org.jetbrains.kotlin.idea.fir.externalAnnotations.AbstractK2ExternalAnnotationTest
 import org.jetbrains.kotlin.idea.fir.findUsages.*
 import org.jetbrains.kotlin.idea.fir.folding.AbstractFirFoldingTest
-import org.jetbrains.kotlin.idea.fir.imports.AbstractFirJvmOptimizeImportsTest
+import org.jetbrains.kotlin.idea.fir.imports.AbstractK2JvmOptimizeImportsTest
 import org.jetbrains.kotlin.idea.fir.imports.AbstractK2AutoImportTest
 import org.jetbrains.kotlin.idea.fir.imports.AbstractK2FilteringAutoImportTest
+import org.jetbrains.kotlin.idea.fir.imports.AbstractK2JsOptimizeImportsTest
 import org.jetbrains.kotlin.idea.fir.kmp.AbstractK2KmpLightFixtureHighlightingTest
 import org.jetbrains.kotlin.idea.fir.navigation.AbstractFirGotoDeclarationTest
 import org.jetbrains.kotlin.idea.fir.navigation.AbstractFirGotoRelatedSymbolMultiModuleTest
@@ -89,6 +90,7 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
     generateK2RefIndexTests()
     generateK2AnalysisApiTests()
     generateK2InjectionTests()
+    generateProjectStructureTest()
 
     testGroup("base/fir/analysis-api-platform") {
         testClass<AbstractProjectWideOutOfBlockKotlinModificationTrackerTest> {
@@ -214,8 +216,13 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
             )
         }
 
-        testClass<AbstractFirJvmOptimizeImportsTest> {
+        testClass<AbstractK2JvmOptimizeImportsTest> {
             model("editor/optimizeImports/jvm", pattern = KT_WITHOUT_DOTS)
+            model("editor/optimizeImports/common", pattern = KT_WITHOUT_DOTS)
+        }
+
+        testClass<AbstractK2JsOptimizeImportsTest> {
+            model("editor/optimizeImports/js", pattern = KT_WITHOUT_DOTS)
             model("editor/optimizeImports/common", pattern = KT_WITHOUT_DOTS)
         }
 
@@ -280,6 +287,7 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
 
         testClass<AbstractHighLevelBasicCompletionHandlerTest> {
             model("handlers/basic", pattern = KT_WITHOUT_DOT_AND_FIR_PREFIX)
+            model("handlers/basic/enum", pattern = KT_WITHOUT_DOT_AND_FIR_PREFIX)
             model("handlers", pattern = KT_WITHOUT_DOT_AND_FIR_PREFIX, isRecursive = false)
         }
 

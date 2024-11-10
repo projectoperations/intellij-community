@@ -1,8 +1,8 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.inline.completion.logs
 
-import com.intellij.codeInsight.inline.completion.InlineCompletionEventAdapter
 import com.intellij.codeInsight.inline.completion.InlineCompletionEventType
+import com.intellij.codeInsight.inline.completion.logs.InlineCompletionLogsUtils.isLoggable
 import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.FeatureUsageData
 import com.intellij.internal.statistic.eventLog.events.*
@@ -10,6 +10,7 @@ import com.intellij.internal.statistic.eventLog.events.EventFields.createAdditio
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
 import com.intellij.internal.statistic.utils.PluginInfo
 import com.intellij.util.application
+import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -17,7 +18,7 @@ import kotlin.coroutines.cancellation.CancellationException
 
 @ApiStatus.Internal
 object InlineCompletionUsageTracker : CounterUsagesCollector() {
-  private val GROUP = EventLogGroup("inline.completion", 35)
+  private val GROUP = EventLogGroup("inline.completion", 37)
 
   const val INVOKED_EVENT_ID: String = "invoked"
   const val SHOWN_EVENT_ID: String = "shown"
@@ -25,7 +26,7 @@ object InlineCompletionUsageTracker : CounterUsagesCollector() {
 
   private class PluginInfoField(override val name: String, override val description: String?) : PrimitiveEventField<PluginInfo?>() {
     override val validationRule: List<String>
-      get() = listOf("plugin_info")
+      get() = listOf("{util#plugin_info}")
 
     override fun addData(
       fuData: FeatureUsageData,
@@ -86,6 +87,7 @@ object InlineCompletionUsageTracker : CounterUsagesCollector() {
     val EXPLICIT_SWITCHING_VARIANTS_TIMES: EventField<Int> = EventFields.Int("explicit_switching_variants_times", "How many times the user was switching between completion variants (we only have 1 at the moment)")
     val SELECTED_INDEX: EventField<Int> = EventFields.Int("selected_index")
 
+    @Serializable
     enum class FinishType {
       SELECTED,
       TYPED,
@@ -147,10 +149,14 @@ object InlineCompletionUsageTracker : CounterUsagesCollector() {
 
   override fun getGroup(): EventLogGroup = GROUP
 
-  class Listener : InlineCompletionEventAdapter {
+  internal class Listener : InlineCompletionFilteringEventListener() {
     private val lock = ReentrantLock()
     private var invocationTracker: InlineCompletionInvocationTracker? = null
     private var showTracker: InlineCompletionShowTracker? = null
+
+    override fun isApplicable(requestEvent: InlineCompletionEventType.Request): Boolean {
+      return requestEvent.provider.isLoggable()
+    }
 
     override fun onRequest(event: InlineCompletionEventType.Request): Unit = lock.withLock {
       invocationTracker = InlineCompletionInvocationTracker(event).also {

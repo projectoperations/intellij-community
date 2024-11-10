@@ -23,10 +23,13 @@ import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnv
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnvIdentity
 import com.jetbrains.python.sdk.pipenv.pipEnvPath
-import com.jetbrains.python.sdk.poetry.getPoetryExecutable
+import com.jetbrains.python.sdk.poetry.poetryPath
 import com.jetbrains.python.util.ErrorSink
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.plus
+import kotlinx.coroutines.withContext
 import java.nio.file.Path
 import kotlin.io.path.pathString
 
@@ -60,6 +63,7 @@ abstract class PythonAddInterpreterModel(params: PyInterpreterModelParams) {
     .stateIn(scope + uiContext, started = SharingStarted.Eagerly, initialValue = emptyList())
 
   val baseInterpreters: StateFlow<List<PythonSelectableInterpreter>> = allInterpreters
+    .map { it.filter { it.isBasePython() } }
     .mapLatest {
       it.filter { it !is ExistingSelectableInterpreter || it.isSystemWide } + installable
     }
@@ -170,27 +174,31 @@ abstract class PythonMutableTargetAddInterpreterModel(params: PyInterpreterModel
     detectPipEnvExecutable()
   }
 
-  fun detectPoetryExecutable() {
+  suspend fun detectPoetryExecutable() {
     // todo this is local case, fix for targets
-    scope.launch(Dispatchers.IO) {
-      val poetryExecutable = getPoetryExecutable()
-      withContext(Dispatchers.EDT) {
-        poetryExecutable?.let { state.poetryExecutable.set(it.pathString) }
+    val savedPath = PropertiesComponent.getInstance().poetryPath
+    if (savedPath != null) {
+      state.poetryExecutable.set(savedPath)
+    }
+    else {
+      com.jetbrains.python.sdk.poetry.detectPoetryExecutable().getOrNull()?.let {
+        withContext(Dispatchers.EDT) {
+          state.poetryExecutable.set(it.pathString)
+        }
       }
     }
   }
 
-  fun detectPipEnvExecutable() {
+  suspend fun detectPipEnvExecutable() {
     // todo this is local case, fix for targets
     val savedPath = PropertiesComponent.getInstance().pipEnvPath
     if (savedPath != null) {
       state.pipenvExecutable.set(savedPath)
     }
     else {
-      scope.launch(Dispatchers.IO) {
-        val detectedExecutable = com.jetbrains.python.sdk.pipenv.detectPipEnvExecutable()
+      com.jetbrains.python.sdk.pipenv.detectPipEnvExecutable().getOrNull()?.let {
         withContext(Dispatchers.EDT) {
-          detectedExecutable?.let { state.pipenvExecutable.set(it.path) }
+          state.pipenvExecutable.set(it.pathString)
         }
       }
     }
@@ -226,8 +234,15 @@ class PythonLocalAddInterpreterModel(params: PyInterpreterModelParams)
 }
 
 
-// todo does it need target configuration
 sealed class PythonSelectableInterpreter {
+  /**
+   * Base python is some system python (not venv) which can be used as a base for venv.
+   * In terms of flavors we call it __not__ [PythonSdkFlavor.isPlatformIndependent]
+   */
+  open suspend fun isBasePython(): Boolean = withContext(Dispatchers.IO) {
+    PythonSdkFlavor.tryDetectFlavorByLocalPath(homePath)?.isPlatformIndependent == false
+  }
+
   abstract val homePath: String
   abstract val languageLevel: LanguageLevel
   override fun toString(): String =
@@ -235,6 +250,10 @@ sealed class PythonSelectableInterpreter {
 }
 
 class ExistingSelectableInterpreter(val sdk: Sdk, override val languageLevel: LanguageLevel, val isSystemWide: Boolean) : PythonSelectableInterpreter() {
+  override suspend fun isBasePython(): Boolean = withContext(Dispatchers.IO) {
+    !sdk.sdkFlavor.isPlatformIndependent
+  }
+
   override val homePath = sdk.homePath!! // todo is it safe
 }
 
@@ -243,6 +262,7 @@ class DetectedSelectableInterpreter(override val homePath: String, override val 
 class ManuallyAddedSelectableInterpreter(override val homePath: String, override val languageLevel: LanguageLevel) : PythonSelectableInterpreter()
 
 class InstallableSelectableInterpreter(val sdk: PySdkToInstall) : PythonSelectableInterpreter() {
+  override suspend fun isBasePython(): Boolean = true
   override val homePath: String = ""
   override val languageLevel = PySdkUtil.getLanguageLevelForSdk(sdk)
 }

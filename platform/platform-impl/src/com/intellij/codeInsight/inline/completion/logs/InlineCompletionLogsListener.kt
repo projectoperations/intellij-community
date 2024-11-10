@@ -2,7 +2,6 @@
 package com.intellij.codeInsight.inline.completion.logs
 
 import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
-import com.intellij.codeInsight.inline.completion.InlineCompletionEventAdapter
 import com.intellij.codeInsight.inline.completion.InlineCompletionEventType
 import com.intellij.codeInsight.inline.completion.logs.FinishingLogs.FINAL_PROPOSAL_LENGTH
 import com.intellij.codeInsight.inline.completion.logs.FinishingLogs.FINAL_PROPOSAL_LINE
@@ -19,6 +18,7 @@ import com.intellij.codeInsight.inline.completion.logs.FinishingLogs.TOTAL_INSER
 import com.intellij.codeInsight.inline.completion.logs.FinishingLogs.TOTAL_INSERTED_LINES
 import com.intellij.codeInsight.inline.completion.logs.FinishingLogs.WAS_SHOWN
 import com.intellij.codeInsight.inline.completion.logs.InlineCompletionLogsContainer.Phase
+import com.intellij.codeInsight.inline.completion.logs.InlineCompletionLogsUtils.isLoggable
 import com.intellij.codeInsight.inline.completion.logs.StartingLogs.FILE_LANGUAGE
 import com.intellij.codeInsight.inline.completion.logs.StartingLogs.INLINE_API_PROVIDER
 import com.intellij.codeInsight.inline.completion.logs.StartingLogs.REQUEST_EVENT
@@ -29,7 +29,7 @@ import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Editor
 
-internal class InlineCompletionLogsListener(private val editor: Editor) : InlineCompletionEventAdapter,
+internal class InlineCompletionLogsListener(private val editor: Editor) : InlineCompletionFilteringEventListener(),
                                                                           InlineCompletionInvalidationListener {
   /**
    * This field is not thread-safe, please access it only on EDT.
@@ -52,6 +52,9 @@ internal class InlineCompletionLogsListener(private val editor: Editor) : Inline
     val variantStates = mutableMapOf<Int, VariantState>()
   }
 
+  override fun isApplicable(requestEvent: InlineCompletionEventType.Request): Boolean {
+    return requestEvent.provider.isLoggable()
+  }
 
   override fun onRequest(event: InlineCompletionEventType.Request) {
     holder = Holder()
@@ -156,10 +159,10 @@ internal class InlineCompletionLogsListener(private val editor: Editor) : Inline
 }
 
 private object StartingLogs : PhasedLogs(Phase.INLINE_API_STARTING) {
-  val REQUEST_ID = registerBasic(EventFields.Long("request_id"))
-  val REQUEST_EVENT = register(EventFields.Class("request_event"))
-  val INLINE_API_PROVIDER = registerBasic(EventFields.Class("inline_api_provider"))
-  val FILE_LANGUAGE = register(EventFields.Language("file_language"))
+  val REQUEST_ID = registerBasic(EventFields.Long("request_id", "Unique request id for the inline completion session"))
+  val REQUEST_EVENT = register(EventFields.Class("request_event", "Type of the event that caused the request for the inline completion session"))
+  val INLINE_API_PROVIDER = registerBasic(EventFields.Class("inline_api_provider", "Type of the inline completion provider that was used for the request"))
+  val FILE_LANGUAGE = register(EventFields.Language("file_language", "Language of the file that was opened for the request"))
 }
 
 private object FinishingLogs : PhasedLogs(Phase.INLINE_API_FINISHING) {

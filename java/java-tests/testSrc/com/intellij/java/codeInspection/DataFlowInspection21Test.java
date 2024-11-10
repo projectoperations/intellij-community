@@ -140,4 +140,10 @@ public class DataFlowInspection21Test extends DataFlowInspectionTestCase {
     addJetBrainsNotNullByDefault(myFixture);
     doTest();
   }
+  
+  public void testClassFileGetter() {
+    doTest();
+  }
+  public void testGetterVsDirectAccess() { doTest(); }
+  public void testSetterAndGetter() { doTest(); }
 }

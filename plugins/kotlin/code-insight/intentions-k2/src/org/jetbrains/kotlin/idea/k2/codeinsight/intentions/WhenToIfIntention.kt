@@ -1,9 +1,10 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.intentions
 
-import com.intellij.codeInsight.intention.LowPriorityAction
+import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
+import com.intellij.modcommand.Presentation
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -31,8 +32,7 @@ import org.jetbrains.kotlin.utils.addToStdlib.ifNotEmpty
  *   else "More"
  */
 internal class WhenToIfIntention :
-    KotlinApplicableModCommandAction<KtWhenExpression, WhenToIfIntention.Context>(KtWhenExpression::class),
-    LowPriorityAction {
+    KotlinApplicableModCommandAction<KtWhenExpression, WhenToIfIntention.Context>(KtWhenExpression::class) {
 
     data class Context(
         val hasNullableSubject: Boolean,
@@ -160,13 +160,16 @@ internal class WhenToIfIntention :
     }
 
     override fun getFamilyName(): String = KotlinBundle.message("replace.when.with.if")
+    override fun getPresentation(context: ActionContext, element: KtWhenExpression): Presentation =
+        Presentation.of(familyName).withPriority(PriorityAction.Priority.LOW)
 
     override fun isApplicableByPsi(element: KtWhenExpression): Boolean {
         val entries = element.entries
         val lastEntry = entries.lastOrNull() ?: return false
         return !(entries.any { it != lastEntry && it.isElse }) &&
                 !(entries.size == 1 && lastEntry.isElse) && // 'when' with only 'else' branch is not supported
-                element.subjectExpression !is KtProperty
+                element.subjectExpression !is KtProperty &&
+                entries.none { it.guard != null } // Not implemented: KTIJ-31750
     }
 
     /**

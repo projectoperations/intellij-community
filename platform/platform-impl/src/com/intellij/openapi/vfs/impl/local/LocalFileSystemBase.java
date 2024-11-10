@@ -19,6 +19,7 @@ import com.intellij.openapi.vfs.newvfs.impl.VirtualDirectoryImpl;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
 import com.intellij.util.PathUtilRt;
 import com.intellij.util.SlowOperations;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.ThrowableConsumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.PreemptiveSafeFileOutputStream;
@@ -40,6 +41,8 @@ import java.util.List;
 @ApiStatus.Internal
 @Deprecated(forRemoval = true)
 public abstract class LocalFileSystemBase extends LocalFileSystem {
+  private static final Boolean EXTRACT_ROOTS_USING_NIO = SystemProperties.getBooleanProperty("vfs.extract.roots.using.nio", true);
+
   private static final ExtensionPointName<LocalFileOperationsHandler> FILE_OPERATIONS_HANDLER_EP_NAME =
     ExtensionPointName.create("com.intellij.vfs.local.fileOperationsHandler");
 
@@ -490,6 +493,23 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
 
   @Override
   protected @NotNull String extractRootPath(@NotNull String normalizedPath) {
+    if (EXTRACT_ROOTS_USING_NIO) {
+      final var normalizedPathRootString = Path.of(normalizedPath).getRoot().toString();
+
+      for (Path root : FileSystems.getDefault().getRootDirectories()) {
+        var stringRoot = root.toString();
+
+        if (normalizedPathRootString.equals(stringRoot)) {
+          // root path should be short. See com.intellij.openapi.vfs.newvfs.persistent.namecache.SLRUFileNameCache.assertShortFileName
+          if (stringRoot.length() > 1 && (stringRoot.endsWith("\\") || stringRoot.endsWith("/"))) {
+            stringRoot = stringRoot.substring(0, stringRoot.length() - 1);
+          }
+
+          return stringRoot;
+        }
+      }
+    }
+
     var rootPath = FileUtil.extractRootPath(normalizedPath);
     return rootPath != null ? rootPath : "";
   }

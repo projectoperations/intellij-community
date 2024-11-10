@@ -2,57 +2,66 @@
 package com.intellij.ide.ui
 
 import com.intellij.ide.ui.UISettings.Companion.setupAntialiasing
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.ui.DirtyUI
+import com.intellij.ui.components.JBLayeredPane
 import com.intellij.util.concurrency.EdtExecutorService
 import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.UIUtil
-import org.jetbrains.annotations.ApiStatus
-import java.awt.*
+import java.awt.Component
+import java.awt.Graphics
 import java.awt.image.BufferedImage
 import javax.swing.JComponent
-import javax.swing.JPanel
 
 /** A hacky way to reduce flickering. */
-@ApiStatus.Internal
-class AntiFlickeringPanel(private val content: JComponent) : JPanel(BorderLayout()) {
+internal class AntiFlickeringPanel(private val content: JComponent) : JBLayeredPane() {
   private var savedSelfieImage: BufferedImage? = null
-  private var savedSize: Dimension? = null
-  private var savedPreferredSize: Dimension? = null
-  private var isChildOpaque = false
 
-  init {
-    add(content)
+  private inner class FreezingPaintPanel : JComponent() {
+    @DirtyUI
+    override fun paint(g: Graphics) {
+      val image = savedSelfieImage
+      if (image != null) {
+        UIUtil.drawImage(g, image, 0, 0, null)
+      }
+    }
   }
 
-  override fun addImpl(comp: Component?, constraints: Any?, index: Int) {
-    require(componentCount == 0) { "${this.javaClass} is now working only with one child" }
+  private val freezingPaintPanel = FreezingPaintPanel()
+
+  init {
+    isFullOverlayLayout = true
+    add(content, DEFAULT_LAYER, 0)
+  }
+
+  override fun addImpl(comp: Component, constraints: Any?, index: Int) {
+    require(comp === content || comp === freezingPaintPanel) {
+      "Alien component: $comp"
+    }
     super.addImpl(comp, constraints, index)
   }
 
   fun freezePainting(delay: Int) {
-    isOpaque = true
-    savedSelfieImage = takeSelfie(this)
-    if (savedSelfieImage == null) {
-      isOpaque = false
+    if (savedSelfieImage != null) {
       return
     }
-    savedSize = size.dimensionCopy()
-    savedPreferredSize = size.dimensionCopy()
+    savedSelfieImage = try {
+      takeSelfie(content)
+    }
+    catch (e: Exception) {
+      thisLogger().error(e)
+      return
+    }
+    if (savedSelfieImage == null) {
+      return
+    }
 
-    isChildOpaque = content.isOpaque
-    content.isOpaque = false
-    // Need to remove the child, so it will not be repainted by Swing during its update.
-    // The child painting is performing above this panel.
-    remove(content)
+    add(freezingPaintPanel, PALETTE_LAYER, 1)
 
     EdtExecutorService.getScheduledExecutorInstance().schedule(
       {
-        add(content)
+        remove(freezingPaintPanel)
         savedSelfieImage = null
-        savedSize = null
-        savedPreferredSize = null
-        isOpaque = false
-        content.isOpaque = isChildOpaque
         revalidate()
         repaint()
       },
@@ -61,34 +70,17 @@ class AntiFlickeringPanel(private val content: JComponent) : JPanel(BorderLayout
     )
   }
 
-  override fun getSize(): Dimension {
-    return savedSize?.dimensionCopy() ?: super.getSize()
-  }
-
-  override fun getPreferredSize(): Dimension {
-    return savedPreferredSize?.dimensionCopy() ?: super.getPreferredSize()
-  }
-
-  @DirtyUI
-  override fun paint(g: Graphics) {
-    val image = savedSelfieImage
-    if (image != null) {
-      UIUtil.drawImage(g, image, 0, 0, null)
-      return
-    }
-    super.paint(g)
-  }
-
   companion object {
     @JvmStatic
     private fun takeSelfie(component: Component): BufferedImage? {
       val graphicsConfiguration = component.graphicsConfiguration ?: return null
-      val image = ImageUtil.createImage(graphicsConfiguration, component.width, component.height, BufferedImage.TYPE_INT_ARGB)
+      val width = component.width
+      val height = component.height
+      if (width <= 0 || height <= 0) return null
+      val image = ImageUtil.createImage(graphicsConfiguration, width, height, BufferedImage.TYPE_INT_ARGB)
       setupAntialiasing(image.graphics)
       component.paint(image.graphics)
       return image
     }
   }
 }
-
-private fun Dimension.dimensionCopy(): Dimension = Dimension(width, height)

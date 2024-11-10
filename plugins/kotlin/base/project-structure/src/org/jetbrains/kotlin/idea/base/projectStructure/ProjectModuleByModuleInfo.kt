@@ -37,8 +37,10 @@ import org.jetbrains.kotlin.idea.base.projectStructure.DependencyKeys.TEST_MODUL
 import org.jetbrains.kotlin.idea.base.projectStructure.DependencyKeys.TEST_MODULE_DEPENDENCIES_IGNORED
 import org.jetbrains.kotlin.idea.base.projectStructure.forwardDeclarations.kotlinForwardDeclarationsWorkspaceEntity
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.*
+import org.jetbrains.kotlin.idea.base.projectStructure.modules.KaSourceModuleForOutsider
 import org.jetbrains.kotlin.idea.base.projectStructure.scope.LibrarySourcesScope
 import org.jetbrains.kotlin.idea.base.projectStructure.util.createAtomicReferenceFieldUpdaterForProperty
+import org.jetbrains.kotlin.idea.base.util.K1ModeProjectStructureApi
 import org.jetbrains.kotlin.idea.base.util.minus
 import org.jetbrains.kotlin.idea.core.util.toPsiFile
 import org.jetbrains.kotlin.platform.TargetPlatform
@@ -50,6 +52,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater
 
 @ApiStatus.Internal
+@K1ModeProjectStructureApi
 abstract class KtModuleByModuleInfoBase(moduleInfo: ModuleInfo) {
     @Volatile
     private var _directRegularDependencies: List<KaModule>? = null
@@ -172,6 +175,7 @@ abstract class KtModuleByModuleInfoBase(moduleInfo: ModuleInfo) {
 }
 
 @ApiStatus.Internal
+@K1ModeProjectStructureApi
 open class KtSourceModuleByModuleInfo(private val moduleInfo: ModuleSourceInfo) : KtModuleByModuleInfoBase(moduleInfo), KaSourceModule {
     val ideaModule: Module get() = moduleInfo.module
 
@@ -193,12 +197,12 @@ open class KtSourceModuleByModuleInfo(private val moduleInfo: ModuleSourceInfo) 
     override val project: Project get() = ideaModule.project
 }
 
-@ApiStatus.Internal
-class KtSourceModuleByModuleInfoForOutsider(
-    val fakeVirtualFile: VirtualFile,
-    val originalVirtualFile: VirtualFile?,
+@K1ModeProjectStructureApi
+internal class KtSourceModuleByModuleInfoForOutsider(
+    override val fakeVirtualFile: VirtualFile,
+    override val originalVirtualFile: VirtualFile?,
     moduleInfo: ModuleSourceInfo,
-) : KtSourceModuleByModuleInfo(moduleInfo) {
+) : KtSourceModuleByModuleInfo(moduleInfo), KaSourceModuleForOutsider {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is KtSourceModuleByModuleInfoForOutsider || other.fakeVirtualFile != fakeVirtualFile) return false
@@ -209,26 +213,19 @@ class KtSourceModuleByModuleInfoForOutsider(
 
     override val contentScope: GlobalSearchScope
         get() = adjustContentScope(super.contentScope)
-
-    fun adjustContentScope(scope: GlobalSearchScope): GlobalSearchScope {
-        val scopeWithFakeFile = GlobalSearchScope.fileScope(project, fakeVirtualFile).uniteWith(scope)
-
-        return if (originalVirtualFile != null) {
-            scopeWithFakeFile.minus(GlobalSearchScope.fileScope(project, originalVirtualFile))
-        } else {
-            scopeWithFakeFile
-        }
-    }
 }
 
 @ApiStatus.Internal
+@K1ModeProjectStructureApi
 class KtScriptLibraryModuleByModuleInfo(libraryInfo: LibraryInfo, override val file: KtFile? = null):
     KtLibraryModuleByModuleInfo(libraryInfo), KaScriptDependencyModule
 
 @ApiStatus.Internal
+@K1ModeProjectStructureApi
 class KtScriptLibrarySourceModuleByModuleInfo(moduleInfo: LibrarySourceInfo, override val file: KtFile? = null):
     KtLibrarySourceModuleByModuleInfo(moduleInfo), KaScriptDependencyModule
 
+@K1ModeProjectStructureApi
 fun ModuleSourceInfo.collectDependencies(collectionMode: ModuleDependencyCollector.CollectionMode): List<KaModule> {
     val sourceRootType = when (this) {
         is ModuleProductionSourceInfo -> SourceKotlinRootType
@@ -285,6 +282,7 @@ private object DependencyKeys {
 }
 
 @ApiStatus.Internal
+@K1ModeProjectStructureApi
 open class KtLibraryModuleByModuleInfo(val libraryInfo: LibraryInfo) : KtModuleByModuleInfoBase(libraryInfo), KaLibraryModule {
     @Volatile
     private var _librarySources: KaLibrarySourceModule? = null
@@ -305,10 +303,11 @@ open class KtLibraryModuleByModuleInfo(val libraryInfo: LibraryInfo) : KtModuleB
         }
 
     override val binaryRoots: Collection<Path>
-        get() = libraryInfo.getLibraryRoots().map(Paths::get)
+        get() = binaryVirtualFiles.map { it.toNioPath() }
 
     @KaExperimentalApi
-    override val binaryVirtualFiles: Collection<VirtualFile> = emptyList()
+    override val binaryVirtualFiles: Collection<VirtualFile> =
+        libraryInfo.library.getFiles(OrderRootType.CLASSES).toList()
 
     override val isSdk: Boolean get() = false
 
@@ -326,6 +325,7 @@ open class KtLibraryModuleByModuleInfo(val libraryInfo: LibraryInfo) : KtModuleB
 }
 
 @ApiStatus.Internal
+@K1ModeProjectStructureApi
 class KtNativeKlibLibraryModuleByModuleInfo(
     private val nativeLibraryInfo: NativeKlibLibraryInfo
 ) : KtLibraryModuleByModuleInfo(nativeLibraryInfo) {
@@ -368,18 +368,20 @@ class KtNativeKlibLibraryModuleByModuleInfo(
 }
 
 @ApiStatus.Internal
+@K1ModeProjectStructureApi
 class KtSdkLibraryModuleByModuleInfo(val moduleInfo: SdkInfo) : KtModuleByModuleInfoBase(moduleInfo), KaLibraryModule {
     override val libraryName: String get() = moduleInfo.sdk.name
 
     override val contentScope: GlobalSearchScope get() = moduleInfo.contentScope
 
     override val binaryRoots: Collection<Path>
-        get() = moduleInfo.sdk.rootProvider.getFiles(OrderRootType.CLASSES).map { virtualFile ->
+        get() = binaryVirtualFiles.map { virtualFile ->
             Paths.get(virtualFile.fileSystem.extractPresentableUrl(virtualFile.path)).normalize()
         }
 
     @KaExperimentalApi
-    override val binaryVirtualFiles: Collection<VirtualFile> = emptyList()
+    override val binaryVirtualFiles: Collection<VirtualFile> =
+        moduleInfo.sdk.rootProvider.getFiles(OrderRootType.CLASSES).toList()
 
     override val librarySources: KaLibrarySourceModule? get() = null
 
@@ -388,6 +390,7 @@ class KtSdkLibraryModuleByModuleInfo(val moduleInfo: SdkInfo) : KtModuleByModule
     override val project: Project get() = moduleInfo.project
 }
 
+@K1ModeProjectStructureApi
 open class KtLibrarySourceModuleByModuleInfo(
     private val moduleInfo: LibrarySourceInfo
 ) : KtModuleByModuleInfoBase(moduleInfo), KaLibrarySourceModule {
@@ -434,6 +437,7 @@ open class KtLibrarySourceModuleByModuleInfo(
 }
 
 
+@K1ModeProjectStructureApi
 class NotUnderContentRootModuleByModuleInfo(
     private val moduleInfo: IdeaModuleInfo
 ) : KtModuleByModuleInfoBase(moduleInfo), KaNotUnderContentRootModule {

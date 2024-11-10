@@ -62,7 +62,7 @@ internal suspend fun buildDistribution(
 
   val productRunner = context.createProductRunner()
   if (context.productProperties.buildDocAuthoringAssets) {
-    launch {
+    launch(CoroutineName("build authoring assets")) {
       buildAdditionalAuthoringArtifacts(productRunner = productRunner, context = context)
     }
   }
@@ -79,7 +79,7 @@ internal suspend fun buildDistribution(
       productLayout = context.productProperties.productLayout,
     )
     val moduleOutputPatcher = ModuleOutputPatcher()
-    val buildPlatformJob: Deferred<List<DistributionFileEntry>> = async(traceContext) {
+    val buildPlatformJob: Deferred<List<DistributionFileEntry>> = async(traceContext + CoroutineName("build platform lib")) {
       spanBuilder("build platform lib").use {
         val result = buildLib(moduleOutputPatcher = moduleOutputPatcher, platform = state.platform, searchableOptionSetDescriptor = searchableOptionSet, context = context)
         if (!isUpdateFromSources && context.productProperties.scrambleMainJar) {
@@ -93,7 +93,7 @@ internal suspend fun buildDistribution(
       }
     }
 
-    val buildNonBundledPlugins = async {
+    val buildNonBundledPlugins = async(CoroutineName("build non-bundled plugins")) {
       buildNonBundledPlugins(
         pluginsToPublish = state.pluginsToPublish,
         compressPluginArchive = !isUpdateFromSources && context.options.compressZipFiles,
@@ -122,7 +122,7 @@ internal suspend fun buildDistribution(
   }
 
   coroutineScope {
-    launch(Dispatchers.IO) {
+    launch(Dispatchers.IO + CoroutineName("generate content report")) {
       spanBuilder("generate content report").use {
         Files.createDirectories(context.paths.artifactDir)
         val contentReportFile = context.paths.artifactDir.resolve("content-report.zip")
@@ -134,7 +134,7 @@ internal suspend fun buildDistribution(
     }
     createBuildThirdPartyLibraryListJob(contentReport.bundled(), context)
     if (context.useModularLoader || context.generateRuntimeModuleRepository) {
-      launch(Dispatchers.IO) {
+      launch(CoroutineName("generate runtime module repository")) {
         spanBuilder("generate runtime module repository").use {
           generateRuntimeModuleRepository(contentReport.bundled(), context)
         }
@@ -154,7 +154,7 @@ private suspend fun buildBundledPluginsForAllPlatforms(
   context: BuildContext,
 ): List<Pair<PluginBuildDescriptor, List<DistributionFileEntry>>> {
   return coroutineScope {
-    val commonDeferred = async {
+    val commonDeferred = async(CoroutineName("build bundled plugins")) {
       doBuildBundledPlugins(
         state = state,
         plugins = pluginLayouts,
@@ -166,12 +166,12 @@ private suspend fun buildBundledPluginsForAllPlatforms(
       )
     }
 
-    val additionalDeferred = async {
+    val additionalDeferred = async(CoroutineName("build additional plugins")) {
       copyAdditionalPlugins(context = context, pluginDir = context.paths.distAllDir.resolve(PLUGINS_DIRECTORY))
     }
 
     val pluginDirs = getPluginDirs(context = context, isUpdateFromSources = isUpdateFromSources)
-    val specificDeferred = async {
+    val specificDeferred = async(CoroutineName("build OS-specific bundled plugins")) {
       buildOsSpecificBundledPlugins(
         state = state,
         plugins = pluginLayouts,
@@ -319,13 +319,15 @@ private suspend fun buildOsSpecificBundledPlugins(
   pluginDirs: List<Pair<SupportedDistribution, Path>>,
   moduleOutputPatcher: ModuleOutputPatcher,
 ): Map<SupportedDistribution, List<Pair<PluginBuildDescriptor, List<DistributionFileEntry>>>> {
+  // we do not support arch-dependent plugins for now, so, use only current arch
+  val currentArch = JvmArchitecture.currentJvmArch
   return spanBuilder("build os-specific bundled plugins")
     .setAttribute("isUpdateFromSources", isUpdateFromSources)
     .setAttribute(AttributeKey.stringArrayKey("pluginDirectoriesToSkip"), context.options.bundledPluginDirectoriesToSkip.toList())
-    .block {
+    .use {
       pluginDirs.mapNotNull { (dist, targetDir) ->
         val (os, arch) = dist
-        if (!context.shouldBuildDistributionForOS(os = os, arch = arch)) {
+        if (arch != currentArch || !context.shouldBuildDistributionForOS(os = os, arch = arch)) {
           return@mapNotNull null
         }
 
@@ -336,7 +338,7 @@ private suspend fun buildOsSpecificBundledPlugins(
           return@mapNotNull null
         }
 
-        dist to async(Dispatchers.IO) {
+        dist to async(CoroutineName("build bundled plugins")) {
           spanBuilder("build bundled plugins")
             .setAttribute("os", os.osName)
             .setAttribute("arch", arch.name)
@@ -396,13 +398,13 @@ internal suspend fun buildNonBundledPlugins(
       return@executeStep emptyList()
     }
 
-    val nonBundledPluginsArtifacts = context.paths.artifactDir.resolve("${context.applicationInfo.productCode}-plugins")
-    val autoUploadingDir = nonBundledPluginsArtifacts.resolve("auto-uploading")
     var buildKeymapPluginsTask = if (context.options.buildStepsToSkip.contains(BuildOptions.KEYMAP_PLUGINS_STEP)) {
       null
     }
     else {
-      async { buildKeymapPlugins(targetDir = autoUploadingDir, context = context) }
+      async(CoroutineName("build keymap plugins")) {
+        buildKeymapPlugins(targetDir = context.nonBundledPluginsToBePublished, context = context)
+      }
     }
     val moduleOutputPatcher = ModuleOutputPatcher()
     val stageDir = context.paths.tempDir.resolve("non-bundled-plugins-${context.applicationInfo.productCode}")
@@ -435,7 +437,11 @@ internal suspend fun buildNonBundledPlugins(
         ).pluginVersion
       }
 
-      val targetDirectory = if (autoPublishPluginChecker.test(plugin)) autoUploadingDir else nonBundledPluginsArtifacts
+      val targetDirectory = if (autoPublishPluginChecker.test(plugin)) {
+        context.nonBundledPluginsToBePublished
+      } else {
+        context.nonBundledPlugins
+      }
       val destFile = targetDirectory.resolve("${plugin.directoryName}-$pluginVersion.zip")
       val pluginXml = moduleOutputPatcher.getPatchedPluginXml(plugin.mainModule)
       pluginSpecs.add(PluginRepositorySpec(destFile, pluginXml))
@@ -449,7 +455,7 @@ internal suspend fun buildNonBundledPlugins(
       val spec = buildHelpPlugin(
         helpPlugin = helpPlugin,
         pluginsToPublishDir = stageDir,
-        targetDir = autoUploadingDir,
+        targetDir = context.nonBundledPluginsToBePublished,
         moduleOutputPatcher = moduleOutputPatcher,
         state = state,
         searchableOptionSetDescriptor = searchableOptionSet,
@@ -466,8 +472,8 @@ internal suspend fun buildNonBundledPlugins(
 
     if (prepareCustomPluginRepository) {
       val list = pluginSpecs.sortedBy { it.pluginZip }
-      generatePluginRepositoryMetaFile(list, nonBundledPluginsArtifacts, context)
-      generatePluginRepositoryMetaFile(list.filter { it.pluginZip.startsWith(autoUploadingDir) }, autoUploadingDir, context)
+      generatePluginRepositoryMetaFile(list, context.nonBundledPlugins, context)
+      generatePluginRepositoryMetaFile(list.filter { it.pluginZip.startsWith(context.nonBundledPluginsToBePublished) }, context.nonBundledPluginsToBePublished, context)
     }
 
     validatePlugins(context, pluginSpecs)
@@ -484,7 +490,7 @@ private suspend fun validatePlugins(context: BuildContext, pluginSpecs: Collecti
         span.addEvent("doesn't exist, skipped", Attributes.of(AttributeKey.stringKey("path"), "$path"))
         continue
       }
-      launch {
+      launch(CoroutineName("$path plugin validation")) {
         validatePlugin(file = path, context = context, span = span)
       }
     }
@@ -542,7 +548,7 @@ private suspend fun buildHelpPlugin(
 internal suspend fun generateProjectStructureMapping(platformLayout: PlatformLayout, context: BuildContext): ContentReport {
   return coroutineScope {
     val moduleOutputPatcher = ModuleOutputPatcher()
-    val libDirLayout = async {
+    val libDirLayout = async(CoroutineName("layout platform distribution")) {
       layoutPlatformDistribution(
         moduleOutputPatcher = moduleOutputPatcher,
         targetDirectory = context.paths.distAllDir,
@@ -577,6 +583,8 @@ internal suspend fun generateProjectStructureMapping(platformLayout: PlatformLay
   }
 }
 
+private class ScrambleTask(@JvmField val plugin: PluginLayout, @JvmField val pluginDir: Path, @JvmField val targetDir: Path)
+
 internal suspend fun buildPlugins(
   moduleOutputPatcher: ModuleOutputPatcher,
   plugins: Collection<PluginLayout>,
@@ -590,8 +598,6 @@ internal suspend fun buildPlugins(
 ): List<Pair<PluginBuildDescriptor, List<DistributionFileEntry>>> {
   val scrambleTool = context.proprietaryBuildTools.scrambleTool
   val isScramblingSkipped = context.options.buildStepsToSkip.contains(BuildOptions.SCRAMBLING_STEP)
-
-  class ScrambleTask(@JvmField val plugin: PluginLayout, @JvmField val pluginDir: Path, @JvmField val targetDir: Path)
 
   val scrambleTasks = mutableListOf<ScrambleTask>()
 
@@ -657,7 +663,7 @@ internal suspend fun buildPlugins(
     }
     coroutineScope {
       for (scrambleTask in scrambleTasks) {
-        launch {
+        launch(CoroutineName("scramble plugin ${scrambleTask.plugin.directoryName}")) {
           scrambleTool.scramblePlugin(
             pluginLayout = scrambleTask.plugin,
             targetDir = scrambleTask.pluginDir,
@@ -763,14 +769,14 @@ suspend fun layoutPlatformDistribution(
   if (copyFiles) {
     coroutineScope {
       createStatisticsRecorderBundledMetadataProviderTask(moduleOutputPatcher = moduleOutputPatcher, context = context)
-      launch {
+      launch(CoroutineName("patch keymap with Alt click reassigned to multiple carets")) {
         patchKeyMapWithAltClickReassignedToMultipleCarets(moduleOutputPatcher = moduleOutputPatcher, context = context)
       }
-      launch {
+      launch(CoroutineName("write patched app info")) {
         spanBuilder("write patched app info").use {
-          val moduleOutDir = context.getModuleOutputDir(context.findRequiredModule("intellij.platform.core"))
+          val module = context.findRequiredModule("intellij.platform.core")
           val relativePath = "com/intellij/openapi/application/ApplicationNamesInfo.class"
-          val result = injectAppInfo(inFile = moduleOutDir.resolve(relativePath), newFieldValue = context.appInfoXml)
+          val result = injectAppInfo(inFileBytes = context.readFileContentFromModuleOutput(module, relativePath) ?: error("app info not found"), newFieldValue = context.appInfoXml)
           moduleOutputPatcher.patchModuleOutput("intellij.platform.core", relativePath, result)
         }
       }
@@ -999,7 +1005,7 @@ private suspend fun buildKeymapPlugins(targetDir: Path, context: BuildContext): 
       arrayOf("Emacs"),
       arrayOf("Sublime Text", "Sublime Text (Mac OS X)"),
     ).map {
-      async {
+      async(CoroutineName("build keymap plugin for ${it[0]}")) {
         buildKeymapPlugin(keymaps = it, buildNumber = context.buildNumber, targetDir = targetDir, keymapDir = keymapDir)
       }
     }
@@ -1021,7 +1027,7 @@ suspend fun layoutDistribution(
       Files.createDirectories(targetDirectory)
 
       if (!layout.moduleExcludes.isEmpty()) {
-        launch {
+        launch(CoroutineName("check module excludes")) {
           checkModuleExcludes(layout.moduleExcludes, context)
         }
       }
@@ -1040,8 +1046,8 @@ suspend fun layoutDistribution(
 
   val entries = coroutineScope {
     val tasks = ArrayList<Deferred<Collection<DistributionFileEntry>>>(3)
-    tasks.add(async {
-      val outputDir = targetDirectory.resolve(LIB_DIRECTORY)
+    val outputDir = targetDirectory.resolve(LIB_DIRECTORY)
+    tasks.add(async(CoroutineName("pack $outputDir")) {
       spanBuilder("pack").setAttribute("outputDir", outputDir.toString()).use {
         JarPackager.pack(
           includedModules = includedModules,
@@ -1060,7 +1066,7 @@ suspend fun layoutDistribution(
     if (copyFiles &&
         !context.options.skipCustomResourceGenerators &&
         (layout.resourcePaths.isNotEmpty() || layout is PluginLayout && !layout.resourceGenerators.isEmpty())) {
-      tasks.add(async(Dispatchers.IO) {
+      tasks.add(async(Dispatchers.IO + CoroutineName("pack additional resources")) {
         spanBuilder("pack additional resources").use {
           layoutAdditionalResources(layout = layout, context = context, targetDirectory = targetDirectory)
           emptyList()
@@ -1069,7 +1075,7 @@ suspend fun layoutDistribution(
     }
 
     if (!layout.includedArtifacts.isEmpty()) {
-      tasks.add(async {
+      tasks.add(async(CoroutineName("pack artifacts")) {
         spanBuilder("pack artifacts").use {
           layoutArtifacts(layout = layout, context = context, copyFiles = copyFiles, targetDirectory = targetDirectory)
         }
@@ -1257,7 +1263,7 @@ private suspend fun archivePlugins(items: Collection<NonBundledPlugin>, compress
   ) {
     val json by lazy { JSON.std.without(JSON.Feature.USE_FIELDS) }
     for ((source, target, optimized) in items) {
-      launch {
+      launch(CoroutineName("archive plugin $source")) {
         spanBuilder("archive plugin")
           .setAttribute("input", source.toString())
           .setAttribute("outputFile", target.toString())

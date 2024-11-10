@@ -5,13 +5,13 @@ import com.intellij.internal.inspector.PropertyBean;
 import com.intellij.internal.inspector.UiInspectorContextProvider;
 import com.intellij.internal.inspector.UiInspectorUtil;
 import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.components.panels.OpaquePanel;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.NamedColorUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.UpdateScaleHelper;
-import com.intellij.util.ui.accessibility.AccessibleContextUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
@@ -65,8 +65,6 @@ public abstract class GroupedElementsRenderer implements Accessible {
 
     myTextLabel.setText(text);
     myRendererComponent.setToolTipText(tooltip);
-    AccessibleContextUtil.setName(myRendererComponent, myTextLabel);
-    AccessibleContextUtil.setDescription(myRendererComponent, myTextLabel);
 
     setComponentIcon(icon, disabledIcon);
     updateSelection(isSelected, myComponent, myTextLabel);
@@ -232,10 +230,40 @@ public abstract class GroupedElementsRenderer implements Accessible {
       result.add(new PropertyBean("Renderer Delegate Class", UiInspectorUtil.getClassPresentation(renderer)));
       return result;
     }
+
+    @Override
+    public AccessibleContext getAccessibleContext() {
+      if (accessibleContext == null) {
+        accessibleContext = new MyAccessibleContext();
+      }
+      return accessibleContext;
+    }
+
+    private final class MyAccessibleContext extends JPanel.AccessibleJPanel {
+      @Override
+      public String getAccessibleName() {
+        return GroupedElementsRenderer.this.getDelegateAccessibleName();
+      }
+
+      @Override
+      public String getAccessibleDescription() {
+        return GroupedElementsRenderer.this.getDelegateAccessibleDescription();
+      }
+    }
   }
 
   @Override
   public AccessibleContext getAccessibleContext() {
     return myRendererComponent.getAccessibleContext();
+  }
+
+  @NlsSafe
+  protected String getDelegateAccessibleName() {
+    return myTextLabel != null ? myTextLabel.getAccessibleContext().getAccessibleName() : null;
+  }
+
+  @NlsSafe
+  protected String getDelegateAccessibleDescription() {
+    return myTextLabel != null ? myTextLabel.getAccessibleContext().getAccessibleDescription() : null;
   }
 }

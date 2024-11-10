@@ -7,7 +7,6 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.Serializable
-import org.jetbrains.intellij.build.dependencies.TeamCityHelper
 import org.jetbrains.intellij.build.io.DEFAULT_TIMEOUT
 import org.jetbrains.intellij.build.productRunner.IntellijProductRunner
 import org.jetbrains.intellij.build.telemetry.use
@@ -95,11 +94,23 @@ interface BuildContext : CompilationContext {
   suspend fun getBundledPluginModules(): List<String>
 
   /**
-   * see BuildTasksImpl.buildProvidedModuleList
+   * See [BuildOptions.PROVIDED_MODULES_LIST_STEP]
    */
   var builtinModule: BuiltinModulesFileData?
 
   val appInfoXml: String
+
+  /**
+   * [BuildPaths.artifactDir]/[ApplicationInfoProperties.productCode]-plugins/
+   */
+  val nonBundledPlugins: Path
+
+  /**
+   * [nonBundledPlugins]/auto-uploading/
+   *
+   * See [ProductModulesLayout.buildAllCompatiblePlugins]
+   */
+  val nonBundledPluginsToBePublished: Path
 
   /**
    * Add the file to be copied into an application.
@@ -185,14 +196,9 @@ suspend inline fun <T> BuildContext.executeStep(
       throw e
     }
     catch (e: Throwable) {
-      if (TeamCityHelper.isUnderTeamCity) {
-        span.recordException(e)
-        options.buildStepListener.onFailure(stepId = stepId, failure = e, messages = messages)
-        null
-      }
-      else {
-        throw e
-      }
+      span.recordException(e)
+      options.buildStepListener.onFailure(stepId = stepId, failure = e, messages = messages)
+      null
     }
     finally {
       options.buildStepListener.onCompletion(stepId, messages)

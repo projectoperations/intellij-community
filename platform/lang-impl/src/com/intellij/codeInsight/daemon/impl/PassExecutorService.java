@@ -8,6 +8,7 @@ import com.intellij.codeHighlighting.TextEditorHighlightingPass;
 import com.intellij.codeHighlighting.TextEditorHighlightingPassRegistrar;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.codeWithMe.ClientId;
+import com.intellij.concurrency.IdeaForkJoinWorkerThreadFactory;
 import com.intellij.concurrency.Job;
 import com.intellij.concurrency.JobLauncher;
 import com.intellij.diagnostic.Activity;
@@ -22,7 +23,10 @@ import com.intellij.openapi.diagnostic.ControlFlowException;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.impl.DocumentMarkupModel;
+import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.fileEditor.ClientFileEditorManager;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.fileTypes.FileType;
@@ -32,8 +36,10 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.diagnostic.telemetry.helpers.TraceKt;
@@ -54,15 +60,10 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class PassExecutorService implements Disposable {
   static final Logger LOG = Logger.getInstance(PassExecutorService.class);
@@ -117,7 +118,7 @@ final class PassExecutorService implements Disposable {
         }
       }
     }
-    catch (ProcessCanceledException ignored) {
+    catch (CancellationException ignored) {
     }
     catch (Error | RuntimeException e) {
       throw e;
@@ -134,7 +135,7 @@ final class PassExecutorService implements Disposable {
                     HighlightingPass @NotNull [] passes,
                     @NotNull DaemonProgressIndicator updateProgress) {
     if (isDisposed()) {
-      ((DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(myProject)).stopMyProcess(updateProgress, true, null,"PES is disposed");
+      ((DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(myProject)).stopAndRestartMyProcess(updateProgress, null, "PES is disposed");
       return;
     }
     ApplicationManager.getApplication().assertIsNonDispatchThread();
@@ -179,13 +180,14 @@ final class PassExecutorService implements Disposable {
     }
 
     if (LOG.isDebugEnabled()) {
-      log(updateProgress, null, "submitPasses: "+virtualFile.getName() + " ----- starting " + threadsToStartCountdown.get() + "passes. free:"+freePasses+"; editorBound:"+editorBoundPasses+"; documentBound:"+documentBoundPasses);
+      log(updateProgress, null, "submitPasses: "+virtualFile.getName() + " ----- starting " + threadsToStartCountdown.get() + " passes. Free:"+freePasses+"; editorBound:"+editorBoundPasses+"; documentBound:"+documentBoundPasses);
     }
 
     for (ScheduledPass dependentPass : dependentPasses) {
       mySubmittedPasses.get().put(dependentPass, Job.nullJob());
     }
     for (ScheduledPass freePass : freePasses) {
+      freePass.myUpdateProgress.checkCanceled();
       submit(freePass);
     }
   }
@@ -343,7 +345,7 @@ final class PassExecutorService implements Disposable {
         }
         catch (ExecutionException e) {
           Throwable cause = e.getCause();
-          if (!(cause instanceof ControlFlowException)) {
+          if (!(cause instanceof ControlFlowException || cause instanceof CancellationException)) {
             LOG.error(cause);
           }
         }
@@ -398,6 +400,7 @@ final class PassExecutorService implements Disposable {
     }
 
     private void doRun() {
+      ApplicationManager.getApplication().assertIsNonDispatchThread();
       if (myUpdateProgress.isCanceled()) return;
 
       log(myUpdateProgress, myPass, "Started.");
@@ -426,6 +429,9 @@ final class PassExecutorService implements Disposable {
                   try (AccessToken ignored = ClientId.withClientId(ClientFileEditorManager.getClientId(myFileEditor))) {
                     myPass.collectInformation(myUpdateProgress);
                   }
+                  catch (IndexNotReadyException e) {
+                    cancelled = true;
+                  }
                   catch (CancellationException e) {
                     cancelled = true;
                     throw e;
@@ -440,12 +446,12 @@ final class PassExecutorService implements Disposable {
               }
             }
           }
-          catch (ProcessCanceledException e) {
+          catch (CancellationException e) {
             log(myUpdateProgress, myPass, "Canceled ");
             if (!myUpdateProgress.isCanceled()) {
               //in case some smart asses throw PCE just for fun
-              ((DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(myProject)).stopMyProcess(myUpdateProgress, true,
-                                                                                                ObjectUtils.notNull(e.getCause(), e), "PCE was thrown by pass");
+              ((DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(myProject)).stopAndRestartMyProcess(myUpdateProgress,
+                                                                                                          ObjectUtils.notNull(e.getCause(), e), "PCE was thrown by pass");
               if (LOG.isDebugEnabled()) {
                 LOG.debug("PCE was thrown by " + myPass.getClass(), e);
               }
@@ -498,6 +504,7 @@ final class PassExecutorService implements Disposable {
                                               @NotNull DaemonProgressIndicator updateProgress,
                                               @NotNull AtomicInteger threadsToStartCountdown,
                                               @NotNull Runnable callbackOnApplied) {
+    ApplicationManager.getApplication().assertIsNonDispatchThread();
     try {
       ApplicationManager.getApplication().invokeLater(() -> {
         if (isDisposed() || !fileEditor.isValid()) {
@@ -522,16 +529,24 @@ final class PassExecutorService implements Disposable {
           throw e;
         }
         catch (RuntimeException e) {
-          VirtualFile file = fileEditor.getFile();
-          FileType fileType = file == null ? null : file.getFileType();
-          String message = "Exception while applying information to " + fileEditor + "(" + fileType + ")";
-          log(updateProgress, pass, message + e);
+          VirtualFile virtualFile = fileEditor.getFile();
+          FileType fileType = virtualFile == null ? null : virtualFile.getFileType();
+          String message;
+
+          log(updateProgress, pass, (message = "Exception while applying information to " + fileEditor + "(" + fileType + ")") + e);
           throw new RuntimeException(message, e);
         }
         if (threadsToStartCountdown.decrementAndGet() == 0) {
           HighlightingSessionImpl.waitForAllSessionsHighlightInfosApplied(updateProgress);
-          log(updateProgress, pass, "Stopping ");
-          updateProgress.stopIfRunning();
+          if (LOG.isTraceEnabled()) {
+            VirtualFile virtualFile = fileEditor.getFile();
+            Document document = FileDocumentManager.getInstance().getDocument(virtualFile);
+            RangeHighlighter[] highlighters = document == null ? RangeHighlighter.EMPTY_ARRAY : DocumentMarkupModel.forDocument(document, myProject, true).getAllHighlighters();
+            List<RangeHighlighter> sorted = ContainerUtil.sorted(Arrays.asList(highlighters), Segment.BY_START_OFFSET_THEN_END_OFFSET);
+            log(updateProgress, pass, "result markup=" + StringUtil.join(sorted, h -> h.toString(), "\n   "));
+          }
+          log(updateProgress, pass, "Stopping. ");
+          updateProgress.stop();
           clearStaleEntries();
         }
         else {
@@ -571,23 +586,17 @@ final class PassExecutorService implements Disposable {
     ContainerUtil.quickSort(result, Comparator.comparingInt(TextEditorHighlightingPass::getId));
   }
 
-  private static int getThreadNum() {
-    Matcher matcher = Pattern.compile("JobScheduler FJ pool (\\d*)/(\\d*)").matcher(Thread.currentThread().getName());
-    String num = matcher.matches() ? matcher.group(1) : null;
-    return StringUtil.parseInt(num, 0);
-  }
-
   static void log(ProgressIndicator progressIndicator, HighlightingPass pass, @NonNls Object @NotNull ... info) {
     if (LOG.isDebugEnabled()) {
       Document document = pass instanceof TextEditorHighlightingPass text ? text.getDocument() : null;
       CharSequence docText = document == null ? "" : ": '" + StringUtil.first(document.getCharsSequence(), 10, true)+ "'";
       synchronized (PassExecutorService.class) {
-        String message = StringUtil.repeatSymbol(' ', getThreadNum() * 4)
+        String message = StringUtil.repeatSymbol(' ', IdeaForkJoinWorkerThreadFactory.getThreadNum() * 4)
                          + " " + (pass == null ? "" : pass + " ")
                          + StringUtil.join(info, Functions.TO_STRING(), " ")
                          + "; progress=" + (progressIndicator == null ? null : System.identityHashCode(progressIndicator))
                          + (progressIndicator == null ? "?" : progressIndicator.isCanceled() ? "X" : "V")
-                         + " " + docText;
+                         + (docText.isEmpty() ? "": " " + docText);
         LOG.debug(message);
       }
     }

@@ -17,7 +17,6 @@ import com.intellij.ui.popup.list.ComboBoxPopup
 import com.intellij.ui.popup.list.ListPopupModel
 import com.intellij.ui.popup.list.SelectablePanel
 import com.intellij.ui.render.RenderingUtil
-import com.intellij.ui.speedSearch.SpeedSearchUtil
 import com.intellij.util.ReflectionUtil
 import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
@@ -148,14 +147,8 @@ open class LcrRowImpl<T>(private val renderer: LcrRow<T>.() -> Unit) : LcrRow<T>
 
     for ((i, cell) in cells.withIndex()) {
       val component = result.applyCellConstraints(i, cell, if (i == 0) 0 else getGapValue(cell.beforeGap))
-      cell.apply(component, enabled)
-
-      if (cell is LcrSimpleColoredTextImpl && cell.initParams.speedSearchHighlighting) {
-        SpeedSearchUtil.applySpeedSearchHighlighting(list, component as SimpleColoredComponent, true, isSelected)
-      }
+      cell.apply(component, enabled, list, isSelected)
     }
-
-    result.applyAccessibleName()
 
     return result
   }
@@ -321,6 +314,14 @@ private class RendererPanel(key: RowKey) : JPanel(BorderLayout()), KotlinUIDslRe
     if (accessibleContext == null) {
       accessibleContext = object : AccessibleJPanel() {
         override fun getAccessibleRole(): AccessibleRole = AccessibleRole.LABEL
+        override fun getAccessibleName(): String? {
+          val names = cellsPanel.components
+            .map { it.accessibleContext.accessibleName?.trim() }
+            .filter { !it.isNullOrEmpty() }
+
+          // Comma gives a good pause between unrelated text for readers on Windows and macOS
+          return names.joinToString(", ")
+        }
       }
     }
     return accessibleContext
@@ -366,15 +367,6 @@ private class RendererPanel(key: RowKey) : JPanel(BorderLayout()), KotlinUIDslRe
     }
 
     return result
-  }
-
-  fun applyAccessibleName() {
-    val names = cellsPanel.components
-      .map { it.accessibleContext.accessibleName?.trim() }
-      .filter { !it.isNullOrEmpty() }
-
-    // Comma gives a good pause between unrelated text for readers on Windows and macOS
-    getAccessibleContext().accessibleName = names.joinToString(", ")
   }
 
   /**

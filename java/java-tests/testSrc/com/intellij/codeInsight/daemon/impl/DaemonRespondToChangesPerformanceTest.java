@@ -126,7 +126,7 @@ public class DaemonRespondToChangesPerformanceTest extends DaemonAnalyzerTestCas
     LOG.debug("N = " + N);
     final long[] interruptTimes = new long[N];
     for (int i = 0; i < N; i++) {
-      codeAnalyzer.restart();
+      codeAnalyzer.restart(getTestName(false));
       final int finalI = i;
       final long start = System.currentTimeMillis();
       final AtomicLong typingStart = new AtomicLong();
@@ -236,7 +236,7 @@ public class DaemonRespondToChangesPerformanceTest extends DaemonAnalyzerTestCas
     LOG.debug("N = " + N);
     final long[] interruptTimes = new long[N];
     for (int i = 0; i < N; i++) {
-      codeAnalyzer.restart();
+      codeAnalyzer.restart(getTestName(false));
       final int finalI = i;
       final long start = System.currentTimeMillis();
       Runnable interrupt = () -> {
@@ -245,7 +245,7 @@ public class DaemonRespondToChangesPerformanceTest extends DaemonAnalyzerTestCas
           // wait to engage all highlighting threads
           return;
         }
-        // uncomment to debug what's causing pauses
+        // set DEBUG=true to see what's causing pauses
         AtomicBoolean finished = new AtomicBoolean();
         if (DEBUG) {
           AppExecutorUtil.getAppScheduledExecutorService().schedule(() -> {
@@ -304,7 +304,7 @@ public class DaemonRespondToChangesPerformanceTest extends DaemonAnalyzerTestCas
     type(' ');
     for (int i=0; i<100; i++) {
       backspace();
-      codeAnalyzer.restart();
+      codeAnalyzer.restart(getTestName(false));
       try {
         PsiDocumentManager.getInstance(myProject).commitAllDocuments();
 

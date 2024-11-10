@@ -69,6 +69,26 @@ public class ProjectBytecodeAnalysis {
     nullableMethodTransitivity = Registry.is(NULLABLE_METHOD_TRANSITIVITY);
   }
 
+  /**
+   * @param accessor accessor method getter or setter
+   * @return field that this method reads or writes; null if the method is not identified as a getter
+   * or setter
+   */
+  public @Nullable PsiField findFieldForAccessor(@NotNull PsiMethod accessor) {
+    int count = accessor.getParameterList().getParametersCount();
+    Direction direction = count == 0 ? Out : new In(0, true);
+    EKey eKey = getKey(accessor);
+    if (eKey == null) return null;
+    EKey accessKey = myEquationProvider.adaptKey(eKey);
+    for (Equations equation : myEquationProvider.getEquations(accessKey.member)) {
+      if (equation.find(direction).orElse(null) instanceof FieldAccess access) {
+        PsiClass containingClass = accessor.getContainingClass();
+        return containingClass != null ? containingClass.findFieldByName(access.name(), false) : null;
+      }
+    }
+    return null;
+  }
+
   @Nullable
   public PsiAnnotation findInferredAnnotation(@NotNull PsiModifierListOwner listOwner, @NotNull String annotationFQN) {
     if (!(listOwner instanceof PsiCompiledElement)) {
@@ -441,6 +461,9 @@ public class ProjectBytecodeAnalysis {
 
       for (Equations equations : myEquationProvider.getEquations(curKey.member)) {
         Result result = equations.find(curKey.getDirection()).orElseGet(solver::getUnknownResult);
+        if (result instanceof FieldAccess) {
+          continue;
+        }
         solver.addEquation(new Equation(withStability(curKey, equations.stable), result));
         result.processDependencies(dep -> {
           if (queued.add(dep)) {

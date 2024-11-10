@@ -5,6 +5,7 @@ import com.intellij.util.text.NameUtilCore
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.apache.maven.model.Dependency
@@ -13,6 +14,7 @@ import org.apache.maven.model.Model
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.DirSource
+import org.jetbrains.intellij.build.ZipSource
 import org.jetbrains.intellij.build.buildJar
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
@@ -392,7 +394,7 @@ private suspend fun layoutMavenArtifacts(modulesToPublish: Map<MavenArtifactData
   val publishSourceFilter = context.productProperties.mavenArtifacts.publishSourcesFilter
   coroutineScope {
     for ((artifactData, modules) in modulesToPublish.entries) {
-      launch {
+      launch(CoroutineName("layout maven artifact ${artifactData.coordinates}")) {
         val modulesWithSources = modules.filter {
           it.getSourceRoots(JavaSourceRootType.SOURCE).any() || it.getSourceRoots(JavaResourceRootType.RESOURCE).any()
         }
@@ -407,7 +409,13 @@ private suspend fun layoutMavenArtifacts(modulesToPublish: Map<MavenArtifactData
         buildJar(
           targetFile = artifactDir.resolve(artifactData.coordinates.getFileName("", "jar")),
           sources = modulesWithSources.map {
-            DirSource(dir = context.getModuleOutputDir(it), excludes = commonModuleExcludes)
+            val moduleOutput = context.getModuleOutputDir(it)
+            if (moduleOutput.toString().endsWith(".jar")) {
+              ZipSource(file = moduleOutput, distributionFileEntryProducer = null, filter = createModuleSourcesNamesFilter(commonModuleExcludes))
+            }
+            else {
+              DirSource(dir = moduleOutput, excludes = commonModuleExcludes)
+            }
           },
         )
 

@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.rootManager
@@ -29,12 +30,14 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.indexing.DumbModeAccessType
+import com.intellij.util.indexing.FileBasedIndex
 import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.idea.base.indices.KotlinPackageIndexUtils
 import org.jetbrains.kotlin.idea.base.projectStructure.ModuleInfoProvider
 import org.jetbrains.kotlin.idea.base.projectStructure.firstOrNull
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.ModuleSourceInfo
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfoOrNull
+import org.jetbrains.kotlin.idea.base.util.K1ModeProjectStructureApi
 import org.jetbrains.kotlin.idea.caches.PerModulePackageCacheService.Companion.DEBUG_LOG_ENABLE_PerModulePackageCache
 import org.jetbrains.kotlin.idea.util.application.isUnitTestMode
 import org.jetbrains.kotlin.idea.util.getSourceRoot
@@ -50,6 +53,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater
 
+@K1ModeProjectStructureApi
 class KotlinPackageStatementPsiTreeChangePreprocessor(private val project: Project) : PsiTreeChangePreprocessor {
     override fun treeChanged(event: PsiTreeChangeEventImpl) {
         // skip events out of scope of this processor
@@ -199,6 +203,7 @@ class ImplicitPackagePrefixCache(private val project: Project) {
 }
 
 @Service(Service.Level.PROJECT)
+@K1ModeProjectStructureApi
 class PerModulePackageCacheService(private val project: Project) : Disposable {
 
     /*
@@ -340,18 +345,19 @@ class PerModulePackageCacheService(private val project: Project) : Disposable {
         val cacheForCurrentModuleInfo = perSourceInfoCache.getOrPut(moduleInfo) {
             if (useStrongMapForCaching) ConcurrentHashMap() else CollectionFactory.createConcurrentSoftMap()
         }
-
-        return try {
-          cacheForCurrentModuleInfo.getOrPut(packageFqName) {
-              val packageExists = KotlinPackageIndexUtils.packageExists(packageFqName, moduleInfo.contentScope)
-              LOG.debugIfEnabled(project) { "Computed cache value for $packageFqName in $moduleInfo is $packageExists" }
-              packageExists
-          }
-        } catch (_: IndexNotReadyException) {
-            DumbModeAccessType.RELIABLE_DATA_ONLY.ignoreDumbMode(ThrowableComputable {
-                KotlinPackageIndexUtils.packageExists(packageFqName, moduleInfo.contentScope)
-            })
+        if (!DumbService.isDumb(project) || FileBasedIndex.getInstance().currentDumbModeAccessType == null) {
+            try {
+                return cacheForCurrentModuleInfo.getOrPut(packageFqName) {
+                    val packageExists = KotlinPackageIndexUtils.packageExists(packageFqName, moduleInfo.contentScope)
+                    LOG.debugIfEnabled(project) { "Computed cache value for $packageFqName in $moduleInfo is $packageExists" }
+                    packageExists
+                }
+            }
+            catch (_: IndexNotReadyException) { }
         }
+        return DumbModeAccessType.RELIABLE_DATA_ONLY.ignoreDumbMode(ThrowableComputable {
+            KotlinPackageIndexUtils.packageExists(packageFqName, moduleInfo.contentScope)
+        })
     }
 
     fun getImplicitPackagePrefix(sourceRoot: VirtualFile): FqName {
@@ -437,6 +443,7 @@ class PerModulePackageCacheService(private val project: Project) : Disposable {
     }
 }
 
+@OptIn(K1ModeProjectStructureApi::class)
 private fun Logger.debugIfEnabled(project: Project, withCurrentTrace: Boolean = false, message: () -> String) {
     if (isUnitTestMode() && project.DEBUG_LOG_ENABLE_PerModulePackageCache) {
         val msg = message()

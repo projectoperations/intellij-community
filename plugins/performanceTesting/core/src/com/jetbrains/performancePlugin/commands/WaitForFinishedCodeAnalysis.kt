@@ -24,20 +24,15 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.playback.PlaybackContext
 import com.intellij.openapi.util.use
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.platform.diagnostic.telemetry.Scope
-import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurerService
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.ui.EDT
 import com.intellij.util.ui.UIUtil
+import com.jetbrains.performancePlugin.utils.HighlightingTestUtil
 import kotlinx.coroutines.*
-import java.util.Collections
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CompletionException
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
+import kotlinx.coroutines.CancellationException
+import java.util.*
+import java.util.concurrent.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.nanoseconds
@@ -124,7 +119,7 @@ class CodeAnalysisStateListener(val project: Project, val cs: CoroutineScope) {
   /**
    * @throws TimeoutException when stopped due to provided [timeout]
    */
-  suspend fun waitAnalysisToFinish(timeout: Duration? = 5.minutes, throws: Boolean = false) {
+  suspend fun waitAnalysisToFinish(timeout: Duration? = 5.minutes, throws: Boolean = false, logsError: Boolean = true) {
     LOG.info("Waiting for code analysis to finish in $timeout")
     val future = CompletableFuture<Unit>()
     if (timeout != null) {
@@ -168,7 +163,9 @@ class CodeAnalysisStateListener(val project: Project, val cs: CoroutineScope) {
       val errorText = "Waiting for highlight to finish took more than $timeout."
       printStatistic()
 
-      LOG.error(errorText)
+      if (logsError) {
+        LOG.error(errorText)
+      }
       if (throws) {
         throw TimeoutException(errorText)
       }
@@ -328,12 +325,12 @@ class CodeAnalysisStateListener(val project: Project, val cs: CoroutineScope) {
   internal fun printStatistic() {
     sessions.forEach {
       val editor = it.key.editor
-      printCodeAnalyzerStatistic(editor)
+      printCodeAnalyzerStatus(editor)
       printFileStatusMapInfo(editor)
     }
   }
 
-  internal fun printCodeAnalyzerStatistic(editor: Editor) {
+  internal fun printCodeAnalyzerStatus(editor: Editor) {
     //Status can't be retrieved from EDT
     if (EDT.isCurrentThreadEdt()) return
     try {
@@ -436,6 +433,8 @@ private sealed class ExceptionWithTime(override val message: String?) : Exceptio
   abstract val wasStartedInLimitedSetup: Boolean
 
   companion object {
+    val highlightingScopeName = "highlighting"
+
     private class DaemonAnalysisStarted(editor: TextEditor, override val wasStartedInLimitedSetup: Boolean) :
       ExceptionWithTime(message = "Previous daemon start trace (editor = ${editor.description})") {
       private var analysisFinished = false
@@ -459,11 +458,7 @@ private sealed class ExceptionWithTime(override val message: String?) : Exceptio
       return when (exceptionWithTime) {
         null -> "Editor ${editor} wasn't opened, and highlighting didn't start, but it finished, and the editor was highlighted"
         is DaemonAnalysisStarted -> {
-          TelemetryManager.getTracer(Scope("highlighting"))
-            .spanBuilder("highlighting_${editor.file.name}")
-            .setStartTimestamp(exceptionWithTime.timestamp, TimeUnit.MILLISECONDS)
-            .startSpan()
-            .end(currentTime, TimeUnit.MILLISECONDS)
+          HighlightingTestUtil.storeProcessFinishedTime(highlightingScopeName, "highlighting_${editor.file.name}")
           "Total highlighting time is : ${currentTime - exceptionWithTime.timestamp} ms for ${editor.description}"
         }
       }

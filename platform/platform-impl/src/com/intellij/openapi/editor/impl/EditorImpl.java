@@ -136,6 +136,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   public static final int TEXT_ALIGNMENT_LEFT = 0;
   public static final int TEXT_ALIGNMENT_RIGHT = 1;
 
+  private static final Object CUSTOM_LAYER_MARKER = new Object();
   private static final float MIN_FONT_SIZE = 8;
   private static final Logger LOG = Logger.getInstance(EditorImpl.class);
   static final Logger EVENT_LOG = Logger.getInstance("editor.input.events");
@@ -443,7 +444,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       }
       return Collections.emptyIterator();
     });
-    myPanel.putClientProperty(DslComponentProperty.VERTICAL_COMPONENT_GAP, new VerticalComponentGap(true, true));
+    myPanel.putClientProperty(DslComponentProperty.VERTICAL_COMPONENT_GAP, VerticalComponentGap.BOTH);
 
     myHeaderPanel = new MyHeaderPanel();
     myGutterComponent = new EditorGutterComponentImpl(this);
@@ -4859,6 +4860,12 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myState.setUseAntialiasing(value);
   }
 
+  @ApiStatus.Internal
+  public void addLayer(@NotNull JComponent component, int index) {
+    component.putClientProperty(CUSTOM_LAYER_MARKER, true);
+    myLayeredPane.add(component, Integer.valueOf(index));
+  }
+
   private @NotNull EditorMouseEvent createEditorMouseEvent(@NotNull MouseEvent e) {
     Point point = e.getPoint();
     EditorMouseEventArea area = getMouseEventArea(e);
@@ -5880,8 +5887,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       Component[] components = getComponents();
       Rectangle r = getBounds();
       for (Component c : components) {
-        if (c instanceof JScrollPane) {
-          // Main scroll panel: MyScrollPane
+        if (c instanceof JScrollPane || isCustomLayer(c)) {
+          // Custom layers or main scroll panel (MyScrollPane) occupy whole area
           c.setBounds(0, 0, r.width, r.height);
         }
         else if (c instanceof EditorFloatingToolbar){
@@ -5907,6 +5914,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     @Override
     public Dimension getPreferredSize() {
       return myScrollPane.getPreferredSize();
+    }
+
+    private static boolean isCustomLayer(Component c) {
+      return c instanceof JComponent jComponent && jComponent.getClientProperty(CUSTOM_LAYER_MARKER) != null;
     }
   }
 

@@ -2,19 +2,16 @@
 package com.intellij.execution.target.eel
 
 import com.intellij.execution.Platform
-import com.intellij.execution.eel.EelPathUtils
 import com.intellij.execution.target.*
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.platform.eel.EelApi
-import com.intellij.platform.eel.EelExecApi
-import com.intellij.platform.eel.EelPlatform
+import com.intellij.platform.eel.*
 import com.intellij.platform.eel.fs.EelFileSystemApi
 import com.intellij.platform.eel.fs.getPath
-import com.intellij.platform.eel.getOrThrow
+import com.intellij.platform.eel.provider.utils.EelPathUtils
 import com.intellij.platform.ijent.tunnels.forwardLocalPort
 import com.intellij.platform.util.coroutines.channel.ChannelInputStream
 import com.intellij.platform.util.coroutines.channel.ChannelOutputStream
@@ -89,7 +86,7 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
 
     request.targetPortBindings.forEach { targetPortBinding ->
       val localPort = targetPortBinding.local ?: NetUtils.findAvailableSocketPort()
-      val targetAddress = eel.tunnels.hostAddressBuilder(targetPortBinding.target.toUShort()).build()
+      val targetAddress = EelTunnelsApi.HostAddress.Builder(targetPortBinding.target.toUShort()).build()
 
       forwardingScope.launch {
         forwardLocalPort(eel.tunnels, localPort, targetAddress)
@@ -103,7 +100,7 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
 
     request.localPortBindings.forEach { localPortBinding ->
       forwardingScope.launch {
-        val remoteAddress = eel.tunnels.hostAddressBuilder((localPortBinding.target ?: 0).toUShort()).build()
+        val remoteAddress = EelTunnelsApi.HostAddress.Builder((localPortBinding.target ?: 0).toUShort()).build()
         val acceptor = eel.tunnels.getAcceptorForRemotePort(remoteAddress).getOrThrow()
 
         val socket = Socket()
@@ -169,13 +166,13 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
         val remoteRoot = when (val targetRootPath = targetPathGetter()) {
           is TargetPath.Temporary -> {
             eel.mapper.getOriginalPath(localRootPath)?.toString() ?: runBlockingCancellable {
-              val options = EelFileSystemApi.createTemporaryDirectoryOptions()
+              val options = EelFileSystemApi.CreateTemporaryDirectoryOptions.Builder()
 
               targetRootPath.prefix?.let(options::prefix)
               targetRootPath.parentDirectory?.let(eel.fs::getPath)?.let(options::parentDirectory)
               options.deleteOnExit(true)
 
-              eel.fs.createTemporaryDirectory(options).toString()
+              eel.fs.createTemporaryDirectory(options.build()).getOrThrow().toString()
             }
           }
           is TargetPath.Persistent -> targetRootPath.absolutePath
@@ -207,13 +204,13 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
 
   override fun createProcess(commandLine: TargetedCommandLine, indicator: ProgressIndicator): Process {
     val command = commandLine.collectCommandsSynchronously()
-    val builder = EelExecApi.executeProcessBuilder(command.first())
+    val builder = EelExecApi.ExecuteProcessOptions.Builder(command.first())
 
     builder.args(command.drop(1))
     builder.env(commandLine.environmentVariables)
     builder.workingDirectory(commandLine.workingDirectory)
 
-    return runBlockingCancellable { eel.exec.execute(builder).getOrThrow().convertToJavaProcess() }
+    return runBlockingCancellable { eel.exec.execute(builder.build()).getOrThrow().convertToJavaProcess() }
   }
 
   override val targetPlatform: TargetPlatform = request.targetPlatform

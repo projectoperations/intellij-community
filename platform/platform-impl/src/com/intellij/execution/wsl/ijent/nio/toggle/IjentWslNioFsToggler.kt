@@ -16,6 +16,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.core.nio.fs.MultiRoutingFileSystemProvider
 import com.intellij.platform.eel.EelApi
+import com.intellij.platform.eel.provider.EelApiKey
 import com.intellij.platform.eel.provider.EelProvider
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -39,34 +40,38 @@ class IjentWslNioFsToggler(private val coroutineScope: CoroutineScope) {
     fun instance(): IjentWslNioFsToggler = service()
   }
 
-  init {
-    if (!SystemInfo.isWindows) {
-      thisLogger().error("${javaClass.name} should be requested only on Windows")
-    }
-  }
-
   val isAvailable: Boolean get() = strategy != null
 
   suspend fun enableForAllWslDistributions() {
+    logErrorIfNotWindows()
     strategy?.enableForAllWslDistributions()
   }
 
   @TestOnly
   suspend fun switchToIjentFs(distro: WSLDistribution) {
+    logErrorIfNotWindows()
     strategy ?: error("Not available")
     strategy.switchToIjentFs(distro)
   }
 
   @TestOnly
   fun switchToTracingWsl9pFs(distro: WSLDistribution) {
+    logErrorIfNotWindows()
     strategy ?: error("Not available")
     strategy.switchToTracingWsl9pFs(distro)
   }
 
   @TestOnly
   fun unregisterAll() {
+    logErrorIfNotWindows()
     strategy ?: error("Not available")
     strategy.unregisterAll()
+  }
+
+  private fun logErrorIfNotWindows() {
+    if (!SystemInfo.isWindows) {
+      thisLogger().error("${javaClass.name} should be requested only on Windows")
+    }
   }
 
   // TODO Move to ijent.impl?
@@ -75,17 +80,19 @@ class IjentWslNioFsToggler(private val coroutineScope: CoroutineScope) {
       val enabledDistros = serviceAsync<IjentWslNioFsToggler>().strategy?.enabledInDistros
 
       return enabledDistros?.firstOrNull { distro -> distro.getUNCRootPath().isSameFileAs(path.root) }?.let { distro ->
-        /**
-         * NOTE: In [IjentWslNioFsToggleStrategy], the [com.intellij.execution.ijent.nio.IjentEphemeralRootAwareFileSystemProvider] is not currently
-         * used because [com.intellij.execution.wsl.ijent.nio.IjentWslNioFileSystem] has its own logic for handling WSL roots (prefixes).
-         * Therefore, in this case, [com.intellij.execution.eel.EelEphemeralRootAwareMapper.getOriginalPath] will return null.
-         */
         EelApiWithPathsMapping(
           ephemeralRoot = path.root,
           original = WslIjentManager.getInstance().getIjentApi(distro, null, rootUser = false)
         )
       }
     }
+
+    override fun getEelApiKey(path: Path): EelApiKey? =
+      service<IjentWslNioFsToggler>().strategy?.enabledInDistros
+        ?.find { distro -> distro.getUNCRootPath().isSameFileAs(path.root) }
+        ?.let { WslEelKey(it.id) }
+
+    private data class WslEelKey(val key: String) : EelApiKey()
   }
 
   private val strategy = run {

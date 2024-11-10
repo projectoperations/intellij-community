@@ -5,13 +5,18 @@ package org.jetbrains.kotlin.idea.base.projectStructure
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.libraries.Library
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.workspace.jps.entities.LibraryId
 import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFile
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaLibraryModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModuleProvider
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
+import com.intellij.openapi.projectRoots.Sdk as OpenapiSdk
+import com.intellij.openapi.roots.libraries.Library as OpenapiLibrary
 
 /**
  * Represents kind of [KaSourceModule]
@@ -131,9 +136,23 @@ val KaSourceModule.sourceModuleKind: KaSourceModuleKind?
 val KaSourceModule.openapiModule: Module
     get() = project.ideProjectStructureProvider.getOpenapiModule(this)
 
-val KaLibraryModule.openapiLibrary: Library
+/**
+ * Gets the [com.intellij.openapi.roots.libraries.Library] represented by this [KaLibraryModule].
+ *
+ * @return the [com.intellij.openapi.roots.libraries.Library] that represents the current [KaLibraryModule],
+ * or `null` if the current [KaLibraryModule] is an SDK.
+ */
+val KaLibraryModule.openapiLibrary: OpenapiLibrary?
     get() = project.ideProjectStructureProvider.getOpenapiLibrary(this)
 
+/**
+ * Gets the [com.intellij.openapi.projectRoots.Sdk] represented by this [KaLibraryModule].
+ *
+ * @return the [com.intellij.openapi.projectRoots.Sdk] that represents the current [KaLibraryModule],
+ * or `null` if the current [KaLibraryModule] is a library.
+ */
+val KaLibraryModule.openapiSdk: OpenapiSdk?
+    get() = project.ideProjectStructureProvider.getOpenapiSdk(this)
 
 /**
  * Converts the [Library] to a list of [KaLibraryModule] in the specified [project].
@@ -145,6 +164,14 @@ val KaLibraryModule.openapiLibrary: Library
  */
 fun Library.toKaLibraryModules(project: Project): List<KaLibraryModule> =
     project.ideProjectStructureProvider.getKaLibraryModules(this)
+
+/**
+ * Converts the [OpenapiSdk] to a list of [KaLibraryModule] in the specified [project].
+ *
+ * @return A list of corresponding [KaLibraryModule].
+ */
+fun OpenapiSdk.toKaLibraryModule(project: Project): KaLibraryModule =
+    project.ideProjectStructureProvider.getKaLibraryModule(this)
 
 /**
  * Returns a [KaModule] for a given PsiElement in the context of the [useSiteModule].
@@ -175,3 +202,32 @@ inline fun <reified M : KaModule> PsiElement.getKaModuleOfTypeSafe(project: Proj
  */
 inline fun <reified M : KaModule> PsiElement.getKaModuleOfType(project: Project, useSiteModule: KaModule?): M =
     getKaModule(project, useSiteModule) as M
+
+
+/**
+ * Returns a list of [KaModule] instances that correspond to a specific [VirtualFile].
+ *
+ * In some cases, a virtual file may be contained in multiple [KaModule]s. For example,
+ * the same JAR or a class file from that JAR may be reused across different libraries.
+ *
+ * @return a list of [KaModule]s that use the current [VirtualFile].
+ * If a virtual file is not part of a project, an empty list is returned.
+ * Thus, it never returns [org.jetbrains.kotlin.analysis.api.projectStructure.KaNotUnderContentRootModule] as a result.
+*/
+fun VirtualFile.getContainingKaModules(project: Project): List<KaModule> =
+project.ideProjectStructureProvider.getContainingKaModules(this)
+
+
+/**
+ * [forcedKaModule] provides a [KaModule] instance for a dummy file. It must not be changed after the first assignment because
+ * [IDEProjectStructureProvider] might cache the module info.
+ */
+var PsiFile.forcedKaModule: KaModule?
+    @ApiStatus.Internal
+    get() {
+        return project.ideProjectStructureProvider.getForcedKaModule(this)
+    }
+    @ApiStatus.Internal
+    set(value) {
+        project.ideProjectStructureProvider.setForcedKaModule(this, value)
+    }

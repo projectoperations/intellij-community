@@ -689,6 +689,10 @@
                  description="Show logical structure in Structure View"
                  defaultValue="true"
                  restartRequired="false"/>
+    <registryKey key="logical.structure.actions.enabled"
+                 description="Show action icons for logical structure nodes"
+                 defaultValue="false"
+                 restartRequired="false"/>
 
     <idIndexer filetype="PLAIN_TEXT" implementationClass="com.intellij.psi.impl.cache.impl.id.PlainTextIdIndexer"/>
     <todoIndexer filetype="PLAIN_TEXT" implementationClass="com.intellij.psi.impl.cache.impl.todo.PlainTextTodoIndexer"/>
@@ -1816,8 +1820,6 @@
               topic="com.intellij.codeInsight.daemon.DaemonCodeAnalyzer$DaemonListener"/>
     <listener class="com.intellij.codeInsight.inline.completion.InlineCompletionLookupManagerListener"
               topic="com.intellij.codeInsight.lookup.LookupManagerListener"/>
-    <listener class="com.intellij.codeInsight.inline.completion.InlineCompletionNoSuggestionListenerInstaller"
-              topic="com.intellij.codeInsight.inline.completion.InlineCompletionInstallListener"/>
     <listener class="com.intellij.codeInsight.inline.completion.TabEnterUsageDetector"
               topic="com.intellij.codeInsight.lookup.LookupManagerListener"/>
     <listener class="com.intellij.lang.documentation.ide.impl.DocumentationAutoPopupListener"

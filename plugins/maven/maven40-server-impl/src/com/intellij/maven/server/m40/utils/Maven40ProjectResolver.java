@@ -10,6 +10,7 @@ import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.ArtifactUtils;
 import org.apache.maven.execution.MavenExecutionRequest;
 import org.apache.maven.execution.MavenSession;
+import org.apache.maven.model.Model;
 import org.apache.maven.model.building.ModelBuildingRequest;
 import org.apache.maven.model.building.ModelProblem;
 import org.apache.maven.plugin.LegacySupport;
@@ -301,17 +302,18 @@ public class Maven40ProjectResolver {
   }
 
   @NotNull
-  private MavenServerExecutionResult createExecutionResult(MavenProject mavenProject, Exception exception) {
+  private MavenServerExecutionResult createExecutionResult(@Nullable MavenProject mavenProject, Exception exception) {
     return createExecutionResult(Collections.singletonList(exception), Collections.emptyList(), mavenProject, null, null);
   }
 
   @NotNull
   private MavenServerExecutionResult createExecutionResult(List<Exception> exceptions,
                                                            List<ModelProblem> modelProblems,
-                                                           MavenProject mavenProject,
+                                                           @Nullable MavenProject mavenProject,
                                                            DependencyResolutionResult dependencyResolutionResult,
                                                            String dependencyHash) {
-    return createExecutionResult(null, exceptions, modelProblems, mavenProject, dependencyResolutionResult, dependencyHash, false);
+    File file = null == mavenProject ? null : mavenProject.getFile();
+    return createExecutionResult(file, exceptions, modelProblems, mavenProject, dependencyResolutionResult, dependencyHash, false);
   }
 
   @NotNull
@@ -340,9 +342,11 @@ public class Maven40ProjectResolver {
     Collection<MavenProjectProblem> unresolvedProblems = new HashSet<>();
     collectUnresolvedArtifactProblems(file, dependencyResolutionResult, unresolvedProblems);
 
-    if (mavenProject == null) return new MavenServerExecutionResult(null, problems, Collections.emptySet());
+    if (mavenProject == null) return new MavenServerExecutionResult(file, null, problems, Collections.emptySet());
 
     MavenModel model = new MavenModel();
+    Model nativeModel = mavenProject.getModel();
+    Model interpolatedNativeModel = Maven40ProfileUtil.interpolateAndAlignModel(nativeModel, myEmbedder.getMultiModuleProjectDirectory(), mavenProject.getBasedir());
     try {
       DependencyNode dependencyGraph =
         dependencyResolutionResult != null ? dependencyResolutionResult.getDependencyGraph() : null;
@@ -350,6 +354,7 @@ public class Maven40ProjectResolver {
       List<DependencyNode> dependencyNodes = dependencyGraph != null ? dependencyGraph.getChildren() : Collections.emptyList();
       model = Maven40AetherModelConverter.convertModelWithAetherDependencyTree(
         mavenProject,
+        interpolatedNativeModel,
         dependencyNodes,
         myLocalRepositoryFile);
     }
@@ -359,14 +364,14 @@ public class Maven40ProjectResolver {
 
     Collection<String> activatedProfiles = Maven40ProfileUtil.collectActivatedProfiles(mavenProject);
 
-    Map<String, String> mavenModelMap = Maven40ModelConverter.convertToMap(mavenProject.getModel());
+    Map<String, String> mavenModelMap = Maven40ModelConverter.convertToMap(interpolatedNativeModel);
     MavenServerExecutionResult.ProjectData data =
       new MavenServerExecutionResult.ProjectData(model, getManagedDependencies(mavenProject), dependencyHash, dependencyResolutionSkipped,
                                                  mavenModelMap, activatedProfiles);
     if (null == model.getBuild() || null == model.getBuild().getDirectory()) {
       data = null;
     }
-    return new MavenServerExecutionResult(data, problems, Collections.emptySet(), unresolvedProblems);
+    return new MavenServerExecutionResult(file, data, problems, Collections.emptySet(), unresolvedProblems);
   }
 
   @NotNull
@@ -463,7 +468,7 @@ public class Maven40ProjectResolver {
   private void loadExtensions(MavenProject project, List<Exception> exceptions) {
     ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
     Collection<AbstractMavenLifecycleParticipant> lifecycleParticipants =
-      myEmbedder.getLifecycleParticipants(Collections.singletonList(project));
+      myEmbedder.getExtensionComponents(Collections.singletonList(project), AbstractMavenLifecycleParticipant.class);
     if (!lifecycleParticipants.isEmpty()) {
       LegacySupport legacySupport = myEmbedder.getComponent(LegacySupport.class);
       MavenSession session = legacySupport.getSession();
@@ -536,7 +541,7 @@ public class Maven40ProjectResolver {
 
     ProjectBuildingRequest projectBuildingRequest = request.getProjectBuildingRequest();
     projectBuildingRequest.setRepositorySession(session.getRepositorySession());
-    projectBuildingRequest.setValidationLevel(ModelBuildingRequest.VALIDATION_LEVEL_MINIMAL);
+    projectBuildingRequest.setValidationLevel(ModelBuildingRequest.VALIDATION_LEVEL_STRICT); // to process extensions
     projectBuildingRequest.setActiveProfileIds(request.getActiveProfiles());
     projectBuildingRequest.setInactiveProfileIds(request.getInactiveProfiles());
     projectBuildingRequest.setResolveDependencies(false);

@@ -11,6 +11,8 @@
                          key="configurable.TerminalOptionsConfigurable.display.name"
                          id="terminal" instance="org.jetbrains.plugins.terminal.TerminalOptionsConfigurable"/>
 
+    <fileEditorProvider id="terminal-session-editor" implementation="org.jetbrains.plugins.terminal.vfs.TerminalSessionEditorProvider"/>
+
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.TerminalOptionsProvider"/>
 
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.arrangement.TerminalCommandHistoryManager"/>
@@ -19,7 +21,7 @@
 
     <registryKey key="terminal.Ctrl-E.opens.RecentFiles.popup" defaultValue="false"
                  description="Ctrl+E in terminal opens 'Recent Files' popup on Linux/Windows"/>
-    <registryKey key="terminal.new.ui" defaultValue="true"
+    <registryKey key="terminal.new.ui" defaultValue="false"
                  description="Enable new terminal UI"/>
     <registryKey key="terminal.new.ui.fish" defaultValue="false"
                  description="Enable new terminal for Fish"/>
@@ -35,6 +37,9 @@
                  description="Whether to show the inline (grey text) completion in the New Terminal"/>
     <registryKey key="terminal.new.ui.autocompletion" defaultValue="true"
                  description="Whether to run autocompletion in the New Terminal"/>
+    <registryKey key="terminal.classic.refresh.vfs.on.shell.command.finished" defaultValue="true"
+                 description="Refresh VFS when shell commands are finished in the Classic Terminal.
+                  May not work 100% reliably as it uses heuristics to determine when command is finished."/>
 
     <experimentalFeature id="terminal.shell.command.handling" percentOfUsers="100"/>
     <terminal.shellCommandHandler implementation="org.jetbrains.plugins.terminal.RunAnythingTerminalBridge"/>

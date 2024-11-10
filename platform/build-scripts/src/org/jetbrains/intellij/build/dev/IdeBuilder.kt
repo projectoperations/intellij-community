@@ -78,7 +78,7 @@ data class BuildRequest(
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-internal suspend fun buildProduct(request: BuildRequest, createProductProperties: suspend () -> ProductProperties): Path {
+internal suspend fun buildProduct(request: BuildRequest, createProductProperties: suspend (CompilationContext) -> ProductProperties): Path {
   val rootDir = withContext(Dispatchers.IO) {
     val rootDir = request.devRootDir
     // if symlinked to ram disk, use a real path for performance reasons and avoid any issues in ant/other code
@@ -124,13 +124,13 @@ internal suspend fun buildProduct(request: BuildRequest, createProductProperties
   coroutineScope {
     val moduleOutputPatcher = ModuleOutputPatcher()
 
-    val platformLayout = async {
+    val platformLayout = async(CoroutineName("create platform layout")) {
       createPlatformLayout(context = context)
     }
 
     val searchableOptionSet = getSearchableOptionSet(context)
 
-    val platformDistributionEntriesDeferred = async {
+    val platformDistributionEntriesDeferred = async(CoroutineName("platform distribution entries")) {
       launch(Dispatchers.IO) {
         // PathManager.getBinPath() is used as a working dir for maven
         val binDir = Files.createDirectories(runDir.resolve("bin"))
@@ -183,7 +183,7 @@ internal suspend fun buildProduct(request: BuildRequest, createProductProperties
       }
     }
 
-    val pluginDistributionEntriesDeferred = async {
+    val pluginDistributionEntriesDeferred = async(CoroutineName("build plugins")) {
       buildPlugins(
         request = request,
         runDir = runDir,
@@ -230,6 +230,12 @@ internal suspend fun buildProduct(request: BuildRequest, createProductProperties
         runDir = runDir,
         homePath = request.projectDir,
       )
+    }
+
+    launch(Dispatchers.IO) {
+      platformDistributionEntriesDeferred.await() // ensure platform dist files added to the list
+      pluginDistributionEntriesDeferred.await() // ensure plugins dist files added to the list
+      copyDistFiles(context = context, newDir = runDir, os = OsFamily.currentOs, arch = JvmArchitecture.currentJvmArch)
     }
   }
     .invokeOnCompletion {
@@ -409,18 +415,13 @@ private suspend fun buildPlugins(
 }
 
 private suspend fun createBuildContext(
-  createProductProperties: suspend () -> ProductProperties,
+  createProductProperties: suspend (CompilationContext) -> ProductProperties,
   request: BuildRequest,
   runDir: Path,
   jarCacheDir: Path,
   buildDir: Path,
 ): BuildContext {
   return coroutineScope {
-    // ~1 second
-    val productProperties = async {
-      createProductProperties()
-    }
-
     val buildOptionsTemplate = request.buildOptionsTemplate
     val useCompiledClassesFromProjectOutput = buildOptionsTemplate == null || buildOptionsTemplate.useCompiledClassesFromProjectOutput
     val classOutDir = if (useCompiledClassesFromProjectOutput) {
@@ -433,7 +434,7 @@ private suspend fun createBuildContext(
     }
 
     // load project is executed as part of compilation context creation - ~1 second
-    val compilationContextDeferred = async {
+    val compilationContextDeferred = async(CoroutineName("create build context")) {
       spanBuilder("create build context").use {
         // we cannot inject a proper build time as it is a part of resources, so, set to the first day of the current month
         val options = BuildOptions(
@@ -446,6 +447,7 @@ private suspend fun createBuildContext(
           useCompiledClassesFromProjectOutput = useCompiledClassesFromProjectOutput,
           pathToCompiledClassesArchivesMetadata = buildOptionsTemplate?.pathToCompiledClassesArchivesMetadata?.takeIf { !useCompiledClassesFromProjectOutput },
           pathToCompiledClassesArchive = buildOptionsTemplate?.pathToCompiledClassesArchive?.takeIf { !useCompiledClassesFromProjectOutput },
+          unpackCompiledClassesArchives = buildOptionsTemplate?.unpackCompiledClassesArchives?.takeIf { !useCompiledClassesFromProjectOutput } ?: true,
           classOutDir = classOutDir.toString(),
 
           validateModuleStructure = false,
@@ -490,6 +492,7 @@ private suspend fun createBuildContext(
           options = options,
           customBuildPaths = result,
         )
+        .let { if (options.unpackCompiledClassesArchives) it else ArchivedCompilationContext(it) }
       }
     }
 
@@ -499,6 +502,12 @@ private suspend fun createBuildContext(
     }
 
     val compilationContext = compilationContextDeferred.await()
+
+    // ~1 second
+    val productProperties = async(CoroutineName("create product properties")) {
+      createProductProperties(compilationContext)
+    }
+
     BuildContextImpl(
       compilationContext = compilationContext,
       productProperties = productProperties.await(),
@@ -545,8 +554,10 @@ private fun isPluginApplicable(bundledMainModuleNames: Set<String>, plugin: Plug
          satisfiesBundlingRequirements(plugin = plugin, osFamily = null, arch = JvmArchitecture.currentJvmArch, context = context)
 }
 
-internal suspend fun createProductProperties(productConfiguration: ProductConfiguration, request: BuildRequest): ProductProperties {
-  val classPathFiles = getBuildModules(productConfiguration).map { request.productionClassOutput.resolve(it) }.toList()
+internal suspend fun createProductProperties(productConfiguration: ProductConfiguration, compilationContext: CompilationContext, request: BuildRequest): ProductProperties {
+  val classPathFiles = coroutineScope {
+     getBuildModules(productConfiguration).map { async { compilationContext.getModuleOutputDir(compilationContext.findRequiredModule(it)) } }.toList()
+  }.awaitAll()
 
   val classLoader = spanBuilder("create product properties classloader").use {
     PathClassLoader(UrlClassLoader.build().files(classPathFiles).parent(BuildRequest::class.java.classLoader))
@@ -600,10 +611,6 @@ private suspend fun layoutPlatform(
   )
   lateinit var sortedClassPath: Set<Path>
   coroutineScope {
-    launch(Dispatchers.IO) {
-      copyDistFiles(context = context, newDir = runDir, os = OsFamily.currentOs, arch = JvmArchitecture.currentJvmArch)
-    }
-
     launch {
       val classPath = LinkedHashSet<Path>()
       val libDir = runDir.resolve("lib")

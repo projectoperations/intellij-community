@@ -11,7 +11,9 @@ import com.intellij.platform.eel.fs.EelFileSystemApi.FileWriterCreationMode.*
 import com.intellij.platform.eel.fs.EelFileSystemPosixApi.CreateDirectoryException
 import com.intellij.platform.eel.fs.EelFileSystemPosixApi.CreateSymbolicLinkException
 import com.intellij.platform.eel.path.EelPath
+import com.intellij.platform.eel.path.EelPathException
 import com.intellij.platform.eel.provider.EelFsResultImpl
+import com.intellij.platform.eel.provider.utils.EelPathUtils
 import org.jetbrains.annotations.VisibleForTesting
 import java.nio.ByteBuffer
 import java.nio.channels.SeekableByteChannel
@@ -21,6 +23,7 @@ import java.nio.file.attribute.PosixFileAttributes
 import java.nio.file.attribute.PosixFilePermission
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import kotlin.io.path.exists
 import kotlin.io.path.fileStore
 import kotlin.reflect.full.isSubclassOf
 import kotlin.reflect.full.primaryConstructor
@@ -28,9 +31,6 @@ import kotlin.streams.asSequence
 
 abstract class NioBasedEelFileSystemApi(@VisibleForTesting val fs: FileSystem) : EelFileSystemApi {
   protected abstract val pathOs: EelPath.Absolute.OS
-
-  override suspend fun userHome(): EelPath.Absolute? =
-    EelPath.Absolute.parse(System.getProperty("user.home"), null)
 
   protected fun EelPath.toNioPath(): Path =
     fs.getPath(toString())
@@ -52,7 +52,7 @@ abstract class NioBasedEelFileSystemApi(@VisibleForTesting val fs: FileSystem) :
         try {
           EelPath.Absolute.parse(err.file.toString(), pathOs)
         }
-        catch (_: InvalidPathException) {
+        catch (_: EelPathException) {
           EelPath.Absolute.parse(fs.rootDirectories.first().toString(), pathOs)
         }
       val err: EelFsError = when (err) {
@@ -79,10 +79,11 @@ abstract class NioBasedEelFileSystemApi(@VisibleForTesting val fs: FileSystem) :
         try {
           EelPath.Absolute.parse(err.file.toString(), pathOs)
         }
-        catch (_: InvalidPathException) {
+        catch (_: EelPathException) {
           EelPath.Absolute.parse(fs.rootDirectories.first().toString(), pathOs)
         }
-      val subclasses = E::class.sealedSubclasses
+      val cl = E::class
+      val subclasses = cl.sealedSubclasses
 
       val iface = when (err) {
         is AccessDeniedException -> EelFsError.PermissionDenied::class
@@ -97,7 +98,8 @@ abstract class NioBasedEelFileSystemApi(@VisibleForTesting val fs: FileSystem) :
         else -> EelFsError.Other::class
       }
 
-      val appropriateSubclass = subclasses.single { it.isSubclassOf(iface) }
+      // would be more correct to use 'single' here, but some kinds of exceptions have multiple children -- like the wildcard "Other"
+      val appropriateSubclass = subclasses.first { it.isSubclassOf(iface) }
 
       throw appropriateSubclass.primaryConstructor!!.call(path, err.message!!)
     }
@@ -232,16 +234,12 @@ abstract class NioBasedEelFileSystemApi(@VisibleForTesting val fs: FileSystem) :
     followLinks: Boolean,
   ) {
     wrapIntoEelException<EelFileSystemApi.MoveException> {
-      Files.move(
-        source.toNioPath(),
-        target.toNioPath(),
-        *listOfNotNull(
-          when (replaceExisting) {
-            EelFileSystemApi.ReplaceExistingDuringMove.REPLACE_EVERYTHING -> StandardCopyOption.REPLACE_EXISTING
-            EelFileSystemApi.ReplaceExistingDuringMove.DO_NOT_REPLACE_DIRECTORIES -> StandardCopyOption.ATOMIC_MOVE
-            EelFileSystemApi.ReplaceExistingDuringMove.DO_NOT_REPLACE -> null
-          }).toTypedArray(),
-      )
+      val sourceNioPath = source.toNioPath()
+      val targetNioPath = target.toNioPath()
+      if (targetNioPath.exists() && replaceExisting == EelFileSystemApi.ReplaceExistingDuringMove.DO_NOT_REPLACE) {
+        throw EelFileSystemApi.MoveException.TargetAlreadyExists(target)
+      }
+      EelPathUtils.walkingTransfer(sourceNioPath, targetNioPath, true)
     }
   }
 }

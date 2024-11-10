@@ -24,11 +24,7 @@ import com.sun.jdi.StackFrame
 import com.sun.jdi.request.StepRequest
 import org.jetbrains.kotlin.idea.base.psi.getLineNumber
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
-import org.jetbrains.kotlin.idea.debugger.base.util.safeAllLineLocations
-import org.jetbrains.kotlin.idea.debugger.base.util.safeLineNumber
-import org.jetbrains.kotlin.idea.debugger.base.util.safeMethod
-import org.jetbrains.kotlin.idea.debugger.base.util.safeStackFrame
-import org.jetbrains.kotlin.idea.debugger.base.util.safeThreadProxy
+import org.jetbrains.kotlin.idea.debugger.base.util.*
 import org.jetbrains.kotlin.idea.debugger.core.DebuggerUtils.getBorders
 import org.jetbrains.kotlin.idea.debugger.core.findElementAtLine
 import org.jetbrains.kotlin.idea.debugger.core.getInlineFunctionAndArgumentVariablesToBordersMap
@@ -38,11 +34,7 @@ import org.jetbrains.kotlin.idea.debugger.core.stepping.filter.KotlinStepOverPar
 import org.jetbrains.kotlin.idea.debugger.core.stepping.filter.LocationToken
 import org.jetbrains.kotlin.load.java.JvmAbi
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.psi.KtDeclaration
-import org.jetbrains.kotlin.psi.KtDeclarationWithBody
-import org.jetbrains.kotlin.psi.KtFile
-import org.jetbrains.kotlin.psi.KtNamedFunction
-import org.jetbrains.kotlin.psi.KtParameterList
+import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
 
 class KotlinSteppingCommandProvider : JvmSteppingCommandProvider() {
@@ -249,7 +241,7 @@ fun Method.isSyntheticMethodForDefaultParameters(): Boolean {
     if (size < 3) return false
     // We should check not only the marker parameter, as it is present also
     // for object constructor and sealed class constructor
-    return arguments[size - 2] == "int" && arguments[size - 1] == "kotlin.jvm.internal.DefaultConstructorMarker"
+    return arguments[size - 2] == "int" && arguments[size - 1] == KotlinDebuggerConstants.DEFAULT_CONSTRUCTOR_MARKER_FQ_NAME.asString()
 }
 
 private fun isInlineFunctionFromLibrary(positionManager: PositionManager, location: Location, token: LocationToken): Boolean {
@@ -324,8 +316,9 @@ private fun createStepOutMethodWithDefaultArgsActionIfNeeded(frameProxy: StackFr
     val parentMethod = previousLocation.safeMethod() ?: return null
     if (!parentMethod.isSyntheticMethodForDefaultParameters()) return null
 
-    val parentLines = parentMethod.allLineLocations().map { it.safeLineNumber() - 1 }
-    val parentRange = Range(parentLines.min(), parentLines.max())
+    val parentLines = parentMethod.safeAllLineLocations().map { it.safeLineNumber() - 1 }
+    // Could have no lines in case of constructor with value class parameter
+    val parentRange = if (parentLines.isNotEmpty()) Range(parentLines.min(), parentLines.max()) else null
     return KotlinStepAction.StepOut(object : MethodFilter {
         override fun getCallingExpressionLines() = parentRange
         override fun onReached(context: SuspendContextImpl?, hint: RequestHint?) = StepRequest.STEP_OUT

@@ -30,7 +30,7 @@ public abstract class JsonSchemaObject {
   public abstract @Nullable Boolean getConstantSchema();
 
   @ApiStatus.Experimental
-  public abstract boolean hasChildFieldsExcept(@NotNull String @NotNull ... namesToSkip);
+  public abstract boolean hasChildFieldsExcept(@NotNull List<@NotNull String> namesToSkip);
 
   public abstract @NotNull Iterable<JsonSchemaValidation> getValidations(@Nullable JsonSchemaType type, @NotNull JsonValueAdapter value);
 
@@ -154,9 +154,9 @@ public abstract class JsonSchemaObject {
 
   public abstract @NotNull Iterator<String> getDefinitionNames();
 
-  public abstract @Nullable String readChildNodeValue(@NotNull String @NotNull ... childNodeName);
+  public abstract @Nullable String readChildNodeValue(@NotNull String childNodeName);
 
-  public abstract boolean hasChildNode(@NotNull String @NotNull ... childNodeName);
+  public abstract boolean hasChildNode(@NotNull String childNodeName);
 
   public abstract @NotNull Iterator<String> getPropertyNames();
 
@@ -273,13 +273,13 @@ public abstract class JsonSchemaObject {
   public abstract @Nullable String getLanguageInjection();
 
   /**
-   * @deprecated use {@link JsonSchemaObject#readChildNodeValue)} with the corresponding parameter
+   * @deprecated use {@link JsonSchemaTraversalUtilsKt#getChildAsText(JsonSchemaObject, String...)} with the corresponding parameter
    */
   @Deprecated
   public abstract @Nullable String getLanguageInjectionPrefix();
 
   /**
-   * @deprecated use {@link JsonSchemaObject#readChildNodeValue)} with the corresponding parameter
+   * @deprecated use {@link JsonSchemaTraversalUtilsKt#getChildAsText(JsonSchemaObject, String...)} with the corresponding parameter
    */
   @Deprecated
   public abstract @Nullable String getLanguageInjectionPostfix();

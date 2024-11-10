@@ -490,7 +490,7 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
         }
 
         testClass<AbstractGotoTestOrCodeActionTest> {
-            model("navigation/gotoTestOrCode", pattern = Patterns.forRegex("^(.+)\\.main\\..+\$"))
+            model("navigation/gotoTestOrCode", pattern = Patterns.forRegex("^(.+)\\.main\\..+$"))
         }
 
         testClass<AbstractKotlinGotoImplementationMultiModuleTest> {
@@ -565,7 +565,12 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
 
     testGroup("idea/tests", category = INTENTIONS) {
         testClass<AbstractK1IntentionTest> {
-            model("intentions", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.(kt|kts)$"))
+            model(
+                "intentions", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.(kt|kts)$"),
+                excludedDirectories = listOf(
+                    "convertToMultiDollarString", // K2-only
+                )
+            )
         }
 
         testClass<AbstractK1IntentionTest2> {
@@ -583,8 +588,12 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
         testClass<AbstractLocalInspectionTest> {
             model(
                 "inspectionsLocal", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.(kt|kts)$"),
-                // In FE1.0, this is a quickfix rather than a local inspection
-                excludedDirectories = listOf("unusedVariable")
+                excludedDirectories = listOf(
+                    "unusedVariable", // In FE1.0, this is a quickfix rather than a local inspection
+                    "canSimplifyDollarLiteral", // K2-only
+                    "canConvertToMultiDollarString", // K2-only
+                    "branched/introduceWhenSubject/whenGuards", // K2-only
+                )
             )
         }
 
@@ -1063,10 +1072,6 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
 
         testClass<AbstractKotlinCallChainHintsProviderTest> {
             model("codeInsight/hints/chainCall", pattern = inlayHintsFileRegexp)
-        }
-
-        testClass<AbstractKotlinCodeVisionProviderTest> {
-            model("codeInsight/codeVision")
         }
 
         testClass<AbstractKotlinNavBarTest> {

@@ -62,6 +62,7 @@ public final class InlineDebugRenderer extends InlineDebugRendererBase {
   private SimpleColoredText myPresentation;
 
   public InlineDebugRenderer(XValueNodeImpl valueNode, @NotNull VirtualFile file, int line, @NotNull XDebugSession session) {
+    // We cannot pass any XSourcePosition object here, check EA-841896
     myPosition = XSourcePositionImpl.create(file, line);
     mySession = session;
     myCustomNode = valueNode instanceof InlineWatchNodeImpl;
@@ -88,7 +89,7 @@ public final class InlineDebugRenderer extends InlineDebugRendererBase {
     return LinePainter.isFullLineHighlighter(mySession, myPosition.getFile(), myPosition.getLine(), false);
   }
 
-
+  @Override
   public void onClick(Inlay inlay, @NotNull EditorMouseEvent event) {
     int x = event.getMouseEvent().getX();
     boolean isRemoveIconClick = myCustomNode && x >= myRemoveXCoordinate;

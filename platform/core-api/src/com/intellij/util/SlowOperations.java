@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util;
 
 import com.intellij.diagnostic.LoadingState;
@@ -14,7 +14,6 @@ import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.containers.FList;
 import com.intellij.util.ui.EDT;
 import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,7 +29,9 @@ import java.util.Set;
  * @see #assertSlowOperationsAreAllowed()
  */
 public final class SlowOperations {
-  private static final Logger LOG = Logger.getInstance(SlowOperations.class);
+  private static final class Holder {
+    private static final Logger LOG = Logger.getInstance(SlowOperations.class);
+  }
 
   private static final String ERROR_EDT = "Slow operations are prohibited on EDT. See SlowOperations.assertSlowOperationsAreAllowed javadoc.";
   private static final String ERROR_RA = "Non-cancelable slow operations are prohibited inside read action. See SlowOperations.assertNonCancelableSlowOperationsAreAllowed javadoc.";
@@ -109,7 +110,7 @@ public final class SlowOperations {
     if (isInSection(FORCE_THROW) && !Cancellation.isInNonCancelableSection()) {
       throw new SlowOperationCanceledException();
     }
-    LOG.error(error);
+    Holder.LOG.error(error);
   }
 
   /**
@@ -123,7 +124,7 @@ public final class SlowOperations {
                    EDT.isCurrentThreadEdt() ? (isSlowOperationAllowed() ? null : ERROR_EDT) :
                    (ApplicationManager.getApplication().isReadAccessAllowed() ? ERROR_RA : null);
     if (error == null || isAlreadyReported()) return;
-    LOG.error(error);
+    Holder.LOG.error(error);
   }
 
   private static boolean isSlowOperationAllowed() {
@@ -217,7 +218,7 @@ public final class SlowOperations {
 
   /** @noinspection unused */
   @ApiStatus.Internal
-  public static @NotNull AccessToken knownIssue(@NotNull @NonNls String ytIssueId) {
+  public static @NotNull AccessToken knownIssue(@NotNull String ytIssueId) {
     return startSection(KNOWN_ISSUE);
   }
 
@@ -245,7 +246,7 @@ public final class SlowOperations {
    */
   @ApiStatus.ScheduledForRemoval
   @Deprecated
-  public static @NotNull AccessToken allowSlowOperations(@NotNull @NonNls String activityName) {
+  public static @NotNull AccessToken allowSlowOperations(@NotNull String activityName) {
     return startSection(activityName);
   }
 
@@ -264,7 +265,7 @@ public final class SlowOperations {
    * @see Registry
    */
   @ApiStatus.Internal
-  public static @NotNull AccessToken startSection(@NotNull @NonNls String sectionName) {
+  public static @NotNull AccessToken startSection(@NotNull String sectionName) {
     if (!EDT.isCurrentThreadEdt()) {
       return AccessToken.EMPTY_ACCESS_TOKEN;
     }

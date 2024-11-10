@@ -582,6 +582,7 @@ class IdeEventQueue private constructor() : EventQueue() {
     MouseEvent.MOUSE_PRESSED == e.id ||
     MouseEvent.MOUSE_RELEASED == e.id ||
     MouseEvent.MOUSE_CLICKED == e.id ||
+    MouseEvent.MOUSE_DRAGGED == e.id ||
     e is FocusEvent ||
     e is WindowEvent && e.id != WindowEvent.WINDOW_CLOSED
 
@@ -1039,12 +1040,15 @@ internal fun performActivity(e: AWTEvent, needWIL: Boolean, runnable: () -> Unit
     val runnableWithWIL =
       if (needWIL) {
         {
-          ThreadingAssertions.setImplicitLockOnEDT(true)
-          try {
-            WriteIntentReadAction.run(runnable)
-          } finally {
-            ThreadingAssertions.setImplicitLockOnEDT(false)
-          }
+            WriteIntentReadAction.run {
+              ThreadingAssertions.setImplicitLockOnEDT(true)
+              try {
+                runnable()
+              }
+              finally {
+                ThreadingAssertions.setImplicitLockOnEDT(false)
+              }
+            }
         }
       }
       else {

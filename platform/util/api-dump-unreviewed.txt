@@ -101,6 +101,7 @@ a:com.intellij.execution.process.BaseProcessHandler
 - p:doDestroyProcess():V
 - getCharset():java.nio.charset.Charset
 - getCommandLine():java.lang.String
+- getCommandLineForLog():java.lang.String
 - f:getProcess():java.lang.Process
 - getProcessInput():java.io.OutputStream
 - p:onOSProcessTerminated(I):V
@@ -4757,7 +4758,7 @@ f:com.intellij.util.io.IOUtil
 - s:toHexString(B[]):java.lang.String
 - s:toHexString(B[],I):java.lang.String
 - s:toString(java.nio.ByteBuffer):java.lang.String
-- s:wrapSafely(java.lang.AutoCloseable,com.intellij.openapi.util.ThrowableNotNullFunction):java.lang.AutoCloseable
+- s:wrapSafely(java.lang.AutoCloseable,com.intellij.openapi.util.ThrowableNotNullFunction):java.lang.Object
 - s:writeCharSequence(java.lang.CharSequence,java.io.DataOutput):V
 - s:writeString(java.lang.String,java.io.DataOutput):V
 - s:writeStringList(java.io.DataOutput,java.util.Collection):V
@@ -5321,6 +5322,7 @@ c:com.intellij.util.io.zip.JBZipFile
 - <init>(java.io.File,Z):V
 - <init>(java.lang.String):V
 - <init>(java.lang.String,java.lang.String):V
+- <init>(java.nio.channels.SeekableByteChannel,java.nio.charset.Charset,Z,com.intellij.util.ThreeState):V
 - close():V
 - eraseEntry(com.intellij.util.io.zip.JBZipEntry):V
 - gc():V

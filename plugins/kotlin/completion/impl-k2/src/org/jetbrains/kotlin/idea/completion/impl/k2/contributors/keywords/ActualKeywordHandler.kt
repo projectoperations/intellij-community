@@ -23,7 +23,8 @@ import org.jetbrains.kotlin.analysis.api.symbols.pointers.KaSymbolPointer
 import org.jetbrains.kotlin.idea.KtIconProvider.getBaseIcon
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferencesInRange
 import org.jetbrains.kotlin.idea.base.util.module
-import org.jetbrains.kotlin.idea.completion.impl.k2.context.FirBasicCompletionContext
+import org.jetbrains.kotlin.idea.completion.KotlinFirCompletionParameters
+import org.jetbrains.kotlin.idea.completion.impl.k2.ImportStrategyDetector
 import org.jetbrains.kotlin.idea.completion.implCommon.ActualCompletionLookupElementDecorator
 import org.jetbrains.kotlin.idea.completion.keywords.CompletionKeywordHandler
 import org.jetbrains.kotlin.idea.completion.lookups.factories.KotlinFirLookupElementFactory
@@ -41,7 +42,8 @@ import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
 
 @OptIn(KaExperimentalApi::class)
 internal class ActualKeywordHandler(
-    private val basicContext: FirBasicCompletionContext
+    private val importStrategyDetector: ImportStrategyDetector,
+    private val declaration: KtNamedDeclaration? = null,
 ) : CompletionKeywordHandler<KaSession>(KtTokens.ACTUAL_KEYWORD) {
 
     context(KaSession)
@@ -50,11 +52,17 @@ internal class ActualKeywordHandler(
         expression: KtExpression?,
         lookup: LookupElement,
         project: Project
-    ): Collection<LookupElement> = createActualLookups(parameters, project) + lookup
+    ): Collection<LookupElement> {
+        val parameters = KotlinFirCompletionParameters.create(parameters)
+            ?: return listOf(lookup)
+
+        return createActualLookups(parameters, project) +
+                lookup
+    }
 
     context(KaSession)
     fun createActualLookups(
-        parameters: CompletionParameters,
+        parameters: KotlinFirCompletionParameters,
         project: Project
     ): Collection<LookupElement> {
         val position = parameters.position
@@ -104,7 +112,7 @@ internal class ActualKeywordHandler(
 
         val baseLookupElement = KotlinFirLookupElementFactory.createLookupElement(
             symbol = declarationSymbol,
-            importStrategyDetector = basicContext.importStrategyDetector,
+            importStrategyDetector = importStrategyDetector,
         )
 
         val pointer = declarationSymbol.createPointer()
@@ -121,7 +129,8 @@ internal class ActualKeywordHandler(
             },
             shortenReferences = { element ->
                 shortenReferencesInRange(element.containingKtFile, element.textRange)
-            }
+            },
+            declaration = declaration,
         )
     }
 

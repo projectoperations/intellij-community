@@ -34,6 +34,7 @@ import java.nio.file.attribute.PosixFilePermission
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.zip.Deflater
+import kotlin.io.path.relativeTo
 
 internal const val PROPERTIES_FILE_NAME: String = "idea.properties"
 
@@ -79,7 +80,7 @@ internal class BuildTasksImpl(private val context: BuildContextImpl) : BuildTask
     BundledMavenDownloader.downloadMaven3Libs(context.paths.communityHomeDirRoot)
     BundledMavenDownloader.downloadMavenDistribution(context.paths.communityHomeDirRoot)
     BundledMavenDownloader.downloadMavenTelemetryDependencies(context.paths.communityHomeDirRoot)
-    buildDistribution(state = compileAllModulesAndCreateDistributionState(context), context = context, isUpdateFromSources = true)
+    buildDistribution(state = createDistributionState(context), context = context, isUpdateFromSources = true)
     val arch = if (SystemInfoRt.isMac && CpuArch.isIntel64() && CpuArch.isEmulated()) {
       JvmArchitecture.aarch64
     }
@@ -237,7 +238,7 @@ private suspend fun buildOsSpecificDistributions(context: BuildContext): List<Di
         for (file in Files.newDirectoryStream(context.paths.distAllDir).use { stream ->
           stream.filter { !it.endsWith("help") && !it.endsWith("license") && !it.endsWith("lib") }
         }) {
-          launch {
+          launch(CoroutineName("recursively signing macOS binaries in ${file.relativeTo(context.paths.distAllDir)}")) {
             // todo exclude plugins - layoutAdditionalResources should perform codesign -
             //  that's why we process files and zip in plugins (but not JARs)
             // and also kotlin compiler includes JNA
@@ -274,7 +275,7 @@ private suspend fun buildOsSpecificDistributions(context: BuildContext): List<Di
           return@mapNotNull null
         }
 
-        async {
+        async(CoroutineName("$stepId build step")) {
           spanBuilder(stepId).use {
             val osAndArchSpecificDistDirectory = getOsAndArchSpecificDistDirectory(osFamily = os, arch = arch, context = context)
             builder.buildArtifacts(osAndArchSpecificDistPath = osAndArchSpecificDistDirectory, arch = arch)
@@ -335,10 +336,7 @@ private suspend fun buildSourcesArchive(contentReport: ContentReport, context: B
   )
 }
 
-private suspend fun compileAllModulesAndCreateDistributionState(context: BuildContext): DistributionBuilderState {
-  // compile all
-  context.compileModules(null)
-
+private suspend fun createDistributionState(context: BuildContext): DistributionBuilderState {
   val productLayout = context.productProperties.productLayout
   val pluginsToPublish = getPluginLayoutsByJpsModuleNames(modules = productLayout.pluginModulesToPublish, productLayout = productLayout)
   filterPluginsToPublish(plugins = pluginsToPublish, context = context)
@@ -424,7 +422,10 @@ suspend fun buildDistributions(context: BuildContext): Unit = block("build distr
   copyDependenciesFile(context)
 
   logFreeDiskSpace("before compilation", context)
-  val distributionState = compileAllModulesAndCreateDistributionState(context)
+  // compile all
+  context.compileModules(null)
+
+  val distributionState = createDistributionState(context)
   logFreeDiskSpace("after compilation", context)
 
   coroutineScope {
@@ -458,7 +459,7 @@ suspend fun buildDistributions(context: BuildContext): Unit = block("build distr
     layoutShared(context)
 
     val distDirs = buildOsSpecificDistributions(context)
-    launch(Dispatchers.IO) {
+    launch(Dispatchers.IO + CoroutineName("generate software bill of materials")) {
       context.executeStep(spanBuilder("generate software bill of materials"), SoftwareBillOfMaterials.STEP_ID) {
         SoftwareBillOfMaterialsImpl(context = context, distributions = distDirs, distributionFiles = contentReport.bundled().toList()).generate()
       }
@@ -1047,14 +1048,14 @@ private fun crossPlatformZip(
 // This is later used by Qodana and other tools.
 // Keymaps are extracted as an XML file and also used in authoring help.
 internal suspend fun buildAdditionalAuthoringArtifacts(productRunner: IntellijProductRunner, context: BuildContext) {
-  context.executeStep(spanBuilder("build authoring asserts"), BuildOptions.DOC_AUTHORING_ASSETS_STEP) {
+  context.executeStep(spanBuilder("build authoring assets"), BuildOptions.DOC_AUTHORING_ASSETS_STEP) {
     val commands = listOf(
       Pair("inspectopedia-generator", "inspections-${context.applicationInfo.productCode.lowercase()}"),
       Pair("keymap", "keymap-${context.applicationInfo.productCode.lowercase()}")
     )
     val temporaryBuildDirectory = context.paths.tempDir
     for (command in commands) {
-      launch {
+      launch(CoroutineName("build ${command.first}")) {
         val targetPath = temporaryBuildDirectory.resolve(command.first).resolve(command.second)
         productRunner.runProduct(args = listOf(command.first, targetPath.toString()), timeout = DEFAULT_TIMEOUT)
 

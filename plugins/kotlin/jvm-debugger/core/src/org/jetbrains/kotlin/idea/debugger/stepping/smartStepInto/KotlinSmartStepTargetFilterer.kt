@@ -2,7 +2,9 @@
 package org.jetbrains.kotlin.idea.debugger.stepping.smartStepInto
 
 import com.intellij.debugger.engine.DebugProcessImpl
+import com.intellij.debugger.engine.JVMNameUtil
 import com.intellij.debugger.impl.DebuggerUtilsEx
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.runReadAction
 import com.intellij.psi.PsiElement
@@ -19,6 +21,7 @@ import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.asJava.LightClassUtil
+import org.jetbrains.kotlin.fileClasses.internalNameWithoutInnerClasses
 import org.jetbrains.kotlin.idea.debugger.base.util.KotlinDebuggerConstants
 import org.jetbrains.kotlin.idea.debugger.base.util.fqnToInternalName
 import org.jetbrains.kotlin.idea.debugger.base.util.internalNameToFqn
@@ -26,6 +29,7 @@ import org.jetbrains.kotlin.idea.debugger.core.DebuggerUtils.trimIfMangledInByte
 import org.jetbrains.kotlin.idea.debugger.core.getJvmInternalClassName
 import org.jetbrains.kotlin.idea.debugger.core.getJvmInternalName
 import org.jetbrains.kotlin.idea.debugger.core.isInlineClass
+import org.jetbrains.kotlin.idea.debugger.core.stepping.filter.isSyntheticDefaultMethodPossiblyConvertedToStatic
 import org.jetbrains.kotlin.load.java.JvmAbi
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.resolve.jvm.JvmClassName
@@ -64,22 +68,26 @@ class KotlinSmartStepTargetFilterer(
         targetWasVisited[matchedSteppingTargetIndex] = true
     }
 
-    suspend fun visitOrdinaryFunction(owner: String, name: String, signature: String) {
+    suspend fun visitOrdinaryFunction(owner: String, name: String, signature: String, isStatic: Boolean) {
         val currentCount = functionCounter.increment("$owner.$name$signature") - 1
         for ((i, target) in targets.withIndex()) {
             if (targetWasVisited[i]) continue
-            if (target.shouldBeVisited(owner, name, signature, currentCount)) {
+            if (target.shouldBeVisited(owner, name, signature, isStatic, currentCount)) {
                 targetWasVisited[i] = true
                 break
             }
         }
     }
 
-    private suspend fun KotlinMethodSmartStepTarget.shouldBeVisited(owner: String, name: String, signature: String, currentCount: Int): Boolean {
-        val (updatedOwner, updatedName, updatedSignature) = BytecodeSignature(owner, name, signature)
+    private suspend fun KotlinMethodSmartStepTarget.shouldBeVisited(
+        owner: String, name: String, signature: String,
+        isStatic: Boolean, currentCount: Int
+    ): Boolean {
+        val (updatedOwner, updatedName, updatedSignature) = BytecodeSignature(owner, name, signature, isStatic)
             .handleMangling(methodInfo)
             .handleValueClassMethods(methodInfo)
             .handleDefaultArgs()
+            .handleDefaultConstructorMarker()
             .handleDefaultInterfaces()
             .handleAccessMethods()
             .handleInvokeSuspend(methodInfo)
@@ -87,9 +95,8 @@ class KotlinSmartStepTargetFilterer(
     }
 
     private suspend fun KotlinMethodSmartStepTarget.matches(owner: String, name: String, signature: String, currentCount: Int): Boolean {
-        if (ordinal != currentCount) return false
-        val nameMatches = methodNameMatches(methodInfo, name)
-        if (!nameMatches) return false
+        val matchingByNameAndOrdinalTargets = targets.filter { it.ordinal == currentCount && methodNameMatches(it.methodInfo, name) }
+        if (this !in matchingByNameAndOrdinalTargets) return false
         // Declaration may be empty only for invoke functions
         // In this case, there is only one possible signature, so it should match
         val declaration = getDeclaration() ?: return methodInfo.isInvoke
@@ -118,24 +125,34 @@ class KotlinSmartStepTargetFilterer(
                 return true
             }
         }
-        return matchesBySignature(declaration, owner, signature)
+        val hasSimilarTargets = matchingByNameAndOrdinalTargets.size > 1
+        return matchesBySignature(declaration, owner, signature, hasSimilarTargets)
     }
 
     context(KaSession)
     private fun primaryConstructorMatches(declaration: KtClass, owner: String, name: String, signature: String): Boolean {
-        if (name != "<init>" || signature != "()V") return false
+        if (name != JVMNameUtil.CONSTRUCTOR_NAME || signature != "()V") return false
         val symbol = declaration.symbol as? KaClassSymbol ?: return false
         val internalClassName = symbol.getJvmInternalName()
         return owner == internalClassName
     }
 
-    private suspend fun matchesBySignature(declaration: KtDeclaration, owner: String, signature: String): Boolean =
+    private suspend fun matchesBySignature(
+        declaration: KtDeclaration,
+        owner: String,
+        signature: String,
+        hasSimilarTargets: Boolean
+    ): Boolean =
         readAction {
             analyze(declaration) {
                 val symbol = declaration.symbol as? KaCallableSymbol ?: return@analyze false
-                val declarationSignature = symbol.getJvmSignature()
                 val declarationInternalName = symbol.getJvmInternalClassName()
-                signature == declarationSignature && owner.isSubClassOf(declarationInternalName)
+                if (!owner.isSubClassOf(declarationInternalName)) return@analyze false
+                // Relaxing the check when there are no alternative candidates for the given target.
+                // This reduces the number of error reports.
+                if (!ApplicationManager.getApplication().isUnitTestMode && !hasSimilarTargets) return@analyze true
+                val declarationSignature = symbol.getJvmSignature()
+                signature == declarationSignature
             }
         }
 
@@ -145,7 +162,7 @@ class KotlinSmartStepTargetFilterer(
         }
 }
 
-private data class BytecodeSignature(val owner: String, val name: String, val signature: String)
+private data class BytecodeSignature(val owner: String, val name: String, val signature: String, val isStatic: Boolean)
 
 private fun BytecodeSignature.handleMangling(methodInfo: CallableMemberInfo): BytecodeSignature {
     if (!methodInfo.isNameMangledInBytecode) return this
@@ -165,15 +182,15 @@ private fun BytecodeSignature.handleValueClassMethods(methodInfo: CallableMember
 /**
  * Find the number of parameters in the source method.
  * <p>
- * If there are k params in the source method then in the modified method there are
- * z = f(k) = k + 1 + ceil(k / 32) parameters as several int flags and one Object are added as parameters.
+ * If there are k params in the source method, then in the modified method there are
+ * z = f(k) = k + 1 + ceil(k / 32) parameters as several int flags, and one Object param are added as parameters.
  * This is the inverse function of f.
  *
  * @param z the number of parameters in the modified method
  * @return the number of parameters in the source method
  */
 private fun sourceParametersCount(z: Int): Int {
-    return z - 1 - (z - 1 + 32) / 33;
+    return z - 1 - (z - 1 + 32) / 33
 }
 
 private fun BytecodeSignature.handleDefaultArgs(): BytecodeSignature {
@@ -181,10 +198,25 @@ private fun BytecodeSignature.handleDefaultArgs(): BytecodeSignature {
     val type = Type.getType(signature)
     val parametersCount = type.argumentCount
     val sourceParametersCount = sourceParametersCount(parametersCount)
-    return copy(
+    val withTailParamsRemoved = copy(
         name = name.substringBefore(JvmAbi.DEFAULT_PARAMS_IMPL_SUFFIX),
         signature = buildSignature(signature, parametersCount - sourceParametersCount, fromStart = false)
     )
+    val typeSignature = withTailParamsRemoved.owner.internalNameToReferenceTypeName()
+    if (isSyntheticDefaultMethodPossiblyConvertedToStatic(isStatic, withTailParamsRemoved.signature, typeSignature)) {
+        return withTailParamsRemoved.copy(signature = buildSignature(withTailParamsRemoved.signature, 1, fromStart = true))
+    }
+    return withTailParamsRemoved
+}
+
+private fun BytecodeSignature.handleDefaultConstructorMarker(): BytecodeSignature {
+    if (name != JVMNameUtil.CONSTRUCTOR_NAME) return this
+    val type = Type.getType(signature)
+    val defaultMarkerDescriptor = KotlinDebuggerConstants.DEFAULT_CONSTRUCTOR_MARKER_FQ_NAME
+        .internalNameWithoutInnerClasses
+        .internalNameToReferenceTypeName()
+    if (type.argumentTypes.lastOrNull()?.descriptor != defaultMarkerDescriptor) return this
+    return copy(signature = buildSignature(signature, dropCount = 1, fromStart = false))
 }
 
 private fun BytecodeSignature.handleDefaultInterfaces(): BytecodeSignature {

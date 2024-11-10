@@ -21,6 +21,7 @@ import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.idea.base.facet.isHMPPEnabled
 import org.jetbrains.kotlin.idea.base.projectStructure.*
+import org.jetbrains.kotlin.idea.base.util.K1ModeProjectStructureApi
 import org.jetbrains.kotlin.idea.searching.kmp.findAllActualForExpect
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
@@ -147,8 +148,8 @@ fun KaModule.nameForTooltip(): String {
         is KaSourceModule -> takeIf { openapiModule.isHMPPEnabled }?.openapiModule?.name?.let { return it }
 
         /* For libraries, we're trying to show artifact variant name */
-        is KaLibrarySourceModule -> binaryLibrary.openapiLibrary.extractVariantName(binaryLibrary)?.let { return it }
-        is KaLibraryModule -> openapiLibrary.extractVariantName(this)?.let { return it }
+        is KaLibrarySourceModule -> binaryLibrary.openapiLibrary?.extractVariantName(binaryLibrary)?.let { return it }
+        is KaLibraryModule -> openapiLibrary?.extractVariantName(this)?.let { return it }
     }
 
     (this as? KaSourceModule)?.stableModuleName?.let { Name.guessByFirstCharacter(it) }?.asStringStripSpecialMarkers()?.let { return it }
@@ -163,6 +164,7 @@ fun KaModule.nameForTooltip(): String {
     [prefix:] <groupId>:<artifactId>:<variant>:<version>
     [prefix:] <groupId>:<artifactId>-<variant>:<version>
  */
+@OptIn(K1ModeProjectStructureApi::class)
 private fun Library.extractVariantName(binariesModuleInfo: KaLibraryModule?): String? {
     (binariesModuleInfo as KtLibraryModuleByModuleInfo?)
         ?.libraryInfo

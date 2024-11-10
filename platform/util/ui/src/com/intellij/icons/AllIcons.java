@@ -21,6 +21,7 @@ public class AllIcons {
   }
 
   public static final class Actions {
+    /** 16x16 */ public static final @NotNull Icon AddDirectory = load("expui/actions/addDirectory.svg", 1001061326, 2);
     /** 16x16 */ public static final @NotNull Icon AddFile = load("expui/actions/addFile.svg", "actions/addFile.svg", -401992031, 2);
     /** 16x16 */ public static final @NotNull Icon AddList = load("expui/bookmarks/addBookmarksList.svg", "actions/addList.svg", 687312006, 2);
     /** 16x16 */ public static final @NotNull Icon AddMulticaret = load("expui/general/add.svg", "actions/AddMulticaret.svg", 14246848, 2);
@@ -658,6 +659,7 @@ public class AllIcons {
     /** 13x12 */ public static final @NotNull Icon SuggestedRefactoringBulbDisabled = load("expui/gutter/suggestedRefactoringDisabled.svg", "gutter/suggestedRefactoringBulbDisabled.svg", 1536207532, 2);
     /** 9x9 */ public static final @NotNull Icon Unfold = load("expui/gutter/unfold.svg", 1115053017, 2);
     /** 8x8 */ public static final @NotNull Icon Unique = load("gutter/unique.svg", -1736716054, 2);
+    /** 12x12 */ public static final @NotNull Icon Web = load("expui/gutter/web.svg", "gutter/web.svg", 2053425302, 0);
     /** 12x12 */ public static final @NotNull Icon WriteAccess = load("expui/gutter/writeAccess.svg", "gutter/writeAccess.svg", 167078343, 2);
   }
 

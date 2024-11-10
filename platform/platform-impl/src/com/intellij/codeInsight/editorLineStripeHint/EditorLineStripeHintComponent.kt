@@ -10,15 +10,8 @@ import com.intellij.openapi.editor.event.VisibleAreaEvent
 import com.intellij.openapi.editor.event.VisibleAreaListener
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.observable.util.whenDisposed
-import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
-import java.awt.Color
-import java.awt.Component
-import java.awt.Dimension
-import java.awt.GradientPaint
-import java.awt.Graphics
-import java.awt.Graphics2D
-import java.awt.Rectangle
+import java.awt.*
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,7 +22,8 @@ import javax.swing.JPanel
 class EditorLineStripeHintComponent(
   val editor: Editor,
   panelRenderer: () -> List<List<EditorLineStripeInlayRenderer>>,
-  val stripeColor: JBColor,
+  val stripeColor: Color,
+  lifetime: Int = 4,
 ) : JBPanel<JBPanel<*>>(), Disposable {
   @Suppress("UseJBColor")
   val gradientStartColor: Color = run {
@@ -38,7 +32,7 @@ class EditorLineStripeHintComponent(
   }
 
   private val isInstalled = AtomicBoolean(false)
-  private val lifetime: AtomicInteger = AtomicInteger(4)
+  private val lifetime: AtomicInteger = AtomicInteger(lifetime)
 
   private val batches: List<List<Component>>
 
@@ -142,6 +136,7 @@ class EditorLineStripeHintComponent(
 
     init {
       reposition()
+      isOpaque = false
     }
 
     fun reposition() {

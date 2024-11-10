@@ -8,15 +8,12 @@ import com.jetbrains.rhizomedb.Schema.Companion.NothingMask
 import com.jetbrains.rhizomedb.Schema.Companion.RefMask
 import com.jetbrains.rhizomedb.Schema.Companion.RequiredMask
 import com.jetbrains.rhizomedb.Schema.Companion.UniqueMask
-import com.jetbrains.rhizomedb.impl.LegacySchema
 import com.jetbrains.rhizomedb.impl.generateSeed
-import com.jetbrains.rhizomedb.impl.initAttributes
 import fleet.kernel.rebase.deserialize
 import fleet.kernel.rebase.encodeDbValue
 import fleet.tracing.span
 import fleet.util.UID
 import fleet.util.logging.logger
-import fleet.util.serialization.ISerialization
 import fleet.util.serialization.withSerializationCallback
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
@@ -110,7 +107,6 @@ data class DurableSnapshot(val entities: List<DurableEntity>) {
 
 fun DbContext<Q>.buildDurableSnapshot(
   datoms: Sequence<Datom>,
-  json: ISerialization,
   serializationRestrictions: Set<KClass<*>>,
 ): DurableSnapshot {
   val uidAttribute = uidAttribute()
@@ -132,12 +128,12 @@ fun DbContext<Q>.buildDurableSnapshot(
         val attr = DurableSnapshot.Attr(attributeIdent(a)!!, a.schema.value)
         when (a.schema.cardinality) {
           Cardinality.One -> {
-            map[attr] = DurableSnapshot.OneOrMany.One(DurableSnapshot.VersionedValue(encodeDbValue(uidAttribute, json, a, v), t))
+            map[attr] = DurableSnapshot.OneOrMany.One(DurableSnapshot.VersionedValue(encodeDbValue(uidAttribute, a, v), t))
           }
           Cardinality.Many -> {
             map.compute(attr) { _, existingValue ->
               existingValue as DurableSnapshot.OneOrMany.Many?
-              val value = encodeDbValue(uidAttribute, json, a, v)
+              val value = encodeDbValue(uidAttribute, a, v)
               if (existingValue != null) {
                 DurableSnapshot.OneOrMany.Many(existingValue.values + DurableSnapshot.VersionedValue(value, t))
               }
@@ -154,7 +150,7 @@ fun DbContext<Q>.buildDurableSnapshot(
   return DurableSnapshot(entities = entities.map { DurableSnapshot.DurableEntity(it.key, it.value) })
 }
 
-internal fun DbContext<Mut>.applySnapshot(snapshot: DurableSnapshot, json: ISerialization, uidToEid: (UID) -> EID) {
+internal fun DbContext<Mut>.applySnapshot(snapshot: DurableSnapshot, uidToEid: (UID) -> EID) {
   data class MyEntity(
     val entityTypeEid: EID,
     val id: UID,
@@ -163,12 +159,12 @@ internal fun DbContext<Mut>.applySnapshot(snapshot: DurableSnapshot, json: ISeri
 
   span("applySnapshot", { set("entitiesNum", snapshot.entities.size.toString()) }) {
     val typeAttr = DurableSnapshot.Attr(Entity.Type.ident, Entity.Type.attr.schema.value)
-    val legacyTypeAttr = DurableSnapshot.Attr(LegacySchema.TypeIdent, Entity.Type.attr.schema.value)
+    val legacyTypeAttr = DurableSnapshot.Attr("TYPE", Entity.Type.attr.schema.value)
     val entities: List<MyEntity> = snapshot.entities.map { entity ->
       val attrs = entity.attrs.flatMap { (attr, oneOrMany) ->
         val (ident, schema) = attr
         val attribute = when {
-          ident == LegacySchema.TypeIdent -> Entity.Type.attr
+          ident == "TYPE" -> Entity.Type.attr
           else -> {
             attributeByIdent(ident) ?: run {
               val createAttribute = createUnknownAttribute(ident, Schema(schema), 0L)
@@ -198,8 +194,6 @@ internal fun DbContext<Mut>.applySnapshot(snapshot: DurableSnapshot, json: ISeri
         createEntityType.eid
       }
 
-      initAttributes(entityTypeEid)
-
       MyEntity(
         entityTypeEid = entityTypeEid,
         id = entity.uid,
@@ -220,7 +214,7 @@ internal fun DbContext<Mut>.applySnapshot(snapshot: DurableSnapshot, json: ISeri
               requireNotNull(entityTypeByIdent(value.ident)) { "entity type should have already been registered" }
             is DurableDbValue.Scalar ->
               kotlin.runCatching {
-                deserialize(attribute, value.json, json)
+                deserialize(attribute, value.json)
               }.getOrElse { x ->
                 DeserializationProblem.Exception(throwable = x,
                                                  datom = Datom(eid, attribute, value.json, versionedValue.tx))

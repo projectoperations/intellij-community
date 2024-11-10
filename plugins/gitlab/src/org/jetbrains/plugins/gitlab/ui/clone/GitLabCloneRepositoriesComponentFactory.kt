@@ -52,7 +52,7 @@ internal object GitLabCloneRepositoriesComponentFactory {
     project: Project,
     cs: CoroutineScope,
     repositoriesVm: GitLabCloneRepositoriesViewModel,
-    cloneVm: GitLabCloneViewModel
+    cloneVm: GitLabCloneViewModel,
   ): DialogPanel {
     val searchField = createSearchField(repositoriesVm)
     val directoryField = createDirectoryField(project, cs, repositoriesVm)
@@ -65,7 +65,7 @@ internal object GitLabCloneRepositoriesComponentFactory {
       VcsCloneDialogUiSpec.Components.avatarSize,
       AccountsPopupConfig(cloneVm)
     )
-    val repositoryList = createRepositoryList(cs, repositoriesVm, accountsModel, repositoriesModel)
+    val repositoryList = createRepositoryList(cs, cloneVm, repositoriesVm, accountsModel, repositoriesModel)
     CollaborationToolsUIUtil.attachSearch(repositoryList, searchField) { cloneItem ->
       when (cloneItem) {
         is GitLabCloneListItem.Error -> ""
@@ -103,17 +103,18 @@ internal object GitLabCloneRepositoriesComponentFactory {
 
   private fun createRepositoryList(
     cs: CoroutineScope,
+    cloneVm: GitLabCloneViewModel,
     repositoriesVm: GitLabCloneRepositoriesViewModel,
     accountsModel: ListModel<GitLabAccount>,
-    repositoriesModel: ListModel<GitLabCloneListItem>
+    repositoriesModel: ListModel<GitLabCloneListItem>,
   ): JBList<GitLabCloneListItem> {
     return JBList(repositoriesModel).apply {
-      cellRenderer = createRepositoryRenderer(accountsModel, repositoriesModel)
+      cellRenderer = createRepositoryRenderer(cloneVm, repositoriesVm, accountsModel, repositoriesModel)
       isFocusable = false
       selectionModel.addListSelectionListener {
         repositoriesVm.selectItem(selectedValue)
       }
-      bindBusyIn(cs, repositoriesVm.isLoading)
+      bindBusyIn(cs, repositoriesVm.listVm.isLoading)
 
       val mouseAdapter = LinkActionMouseAdapter(this)
       addMouseListener(mouseAdapter)
@@ -133,8 +134,8 @@ internal object GitLabCloneRepositoriesComponentFactory {
   private fun createAccountsModel(cs: CoroutineScope, repositoriesVm: GitLabCloneRepositoriesViewModel): ListModel<GitLabAccount> {
     val accountsModel = CollectionListModel<GitLabAccount>()
     cs.launch {
-      repositoriesVm.accountsUpdatedRequest.collectLatest { accounts ->
-        accountsModel.replaceAll(accounts.toList())
+      repositoriesVm.listVm.allAccounts.collectLatest { accounts ->
+        accountsModel.replaceAll(accounts)
       }
     }
 
@@ -143,11 +144,25 @@ internal object GitLabCloneRepositoriesComponentFactory {
 
   private fun createRepositoriesModel(
     cs: CoroutineScope,
-    repositoriesVm: GitLabCloneRepositoriesViewModel
+    repositoriesVm: GitLabCloneRepositoriesViewModel,
   ): ListModel<GitLabCloneListItem> {
-    val repositoriesModel = CollectionListModel<GitLabCloneListItem>()
+    // Hack: selection is reset on removal, so we prevent removal events from being fired.
+    // Instead, we just rely on `contentsChanged` events, which better reflects the intention of replacing all anyway .
+    val repositoriesModel = object : CollectionListModel<GitLabCloneListItem>() {
+      override fun fireIntervalAdded(source: Any?, index0: Int, index1: Int) {
+      }
+
+      override fun fireIntervalRemoved(source: Any?, index0: Int, index1: Int) {
+      }
+
+      override fun replaceAll(elements: List<GitLabCloneListItem?>) {
+        super.replaceAll(elements)
+        super.fireContentsChanged(this, 0, elements.size)
+      }
+    }
+
     cs.launch {
-      repositoriesVm.items.collectLatest { items ->
+      repositoriesVm.listVm.allItems.collectLatest { items ->
         repositoriesModel.replaceAll(items)
       }
     }
@@ -156,11 +171,13 @@ internal object GitLabCloneRepositoriesComponentFactory {
   }
 
   private fun createRepositoryRenderer(
+    cloneVm: GitLabCloneViewModel,
+    repositoriesVm: GitLabCloneRepositoriesViewModel,
     accountsModel: ListModel<GitLabAccount>,
-    repositoriesModel: ListModel<GitLabCloneListItem>
+    repositoriesModel: ListModel<GitLabCloneListItem>,
   ): ListCellRenderer<GitLabCloneListItem> {
     return GroupedRenderer.create(
-      baseRenderer = GitLabCloneListRenderer(),
+      baseRenderer = GitLabCloneListRenderer(cloneVm, repositoriesVm.listVm),
       hasSeparatorAbove = { value, index ->
         when (index) {
           0 -> accountsModel.size > 1
@@ -189,7 +206,7 @@ internal object GitLabCloneRepositoriesComponentFactory {
   private fun createDirectoryField(
     project: Project,
     cs: CoroutineScope,
-    repositoriesVm: GitLabCloneRepositoriesViewModel
+    repositoriesVm: GitLabCloneRepositoriesViewModel,
   ): TextFieldWithBrowseButton {
     val directoryField = TextFieldWithBrowseButton().apply {
       addBrowseFolderListener(project, FileChooserDescriptorFactory.createSingleFolderDescriptor()

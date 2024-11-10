@@ -6,6 +6,7 @@ import com.intellij.openapi.util.JDOMUtil
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -252,7 +253,6 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
     "intellij.platform.externalSystem.rt",
     "intellij.platform.objectSerializer.annotations"
   ), productLayout = productLayout, layout = layout)
-  addModule("cds/classesLogAgent.jar", sequenceOf("intellij.platform.cdsAgent"), productLayout = productLayout, layout = layout)
   val explicit = mutableListOf<ModuleItem>()
   for (moduleName in productLayout.productImplementationModules) {
     if (productLayout.excludedModuleNames.contains(moduleName)) {
@@ -455,9 +455,9 @@ private suspend fun computeImplicitRequiredModules(
   if (validateImplicitPlatformModule) {
     withContext(Dispatchers.IO) {
       for ((name, chain) in result) {
-        launch {
+        launch(CoroutineName("validating the implicit platform module $name")) {
           val file = context.findFileInModuleSources(name, "META-INF/plugin.xml")
-          require(file == null) {
+          check(file == null) {
             "Module $name contains $file, so it is a plugin, but plugin must be not included in a platform (chain: $chain)"
           }
         }

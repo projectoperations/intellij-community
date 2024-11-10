@@ -386,11 +386,14 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   private fun <T, E : Throwable?> runWriteAction(clazz: Class<*>, block: ThrowableComputable<T, E>): T {
     val ts = getThreadState()
     val state = startWrite(ts, clazz)
+    val prevImplicitLock = ThreadingAssertions.isImplicitLockOnEDT()
     return try {
+      ThreadingAssertions.setImplicitLockOnEDT(false)
       block.compute()
     }
     finally {
       endWrite(ts, clazz, state)
+      ThreadingAssertions.setImplicitLockOnEDT(prevImplicitLock)
     }
   }
 
@@ -402,7 +405,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     // Check that write action is not disabled
     // NB: It is before all cancellations will be run via fireBeforeWriteActionStart
     // It is change for old behavior, when ProgressUtilService checked this AFTER all cancellations.
-    if (myNoWriteActionCounter.get() > 0) {
+    if (!useBackgroundWriteAction && myNoWriteActionCounter.get() > 0) {
       throwCannotWriteException()
     }
 

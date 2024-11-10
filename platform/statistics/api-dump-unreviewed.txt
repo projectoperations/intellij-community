@@ -100,6 +100,7 @@ f:com.intellij.internal.statistic.eventLog.EventLogRecorderConfiguration
 - bs:anonymize$default(com.intellij.internal.statistic.eventLog.EventLogRecorderConfiguration,java.lang.String,Z,I,java.lang.Object):java.lang.String
 - f:anonymizeSkipCache(java.lang.String,Z):java.lang.String
 - bs:anonymizeSkipCache$default(com.intellij.internal.statistic.eventLog.EventLogRecorderConfiguration,java.lang.String,Z,I,java.lang.Object):java.lang.String
+- f:getAlternativeRecorderId():java.lang.String
 - f:getBucket():I
 - f:getDeviceId():java.lang.String
 - f:getMachineId():com.intellij.internal.statistic.eventLog.MachineId
@@ -165,6 +166,7 @@ a:com.intellij.internal.statistic.eventLog.StatisticsEventLoggerProvider
 - b:<init>(java.lang.String,I,J,I,Z,Z,I,kotlin.jvm.internal.DefaultConstructorMarker):V
 - createEventsMergeStrategy():com.intellij.internal.statistic.eventLog.StatisticsEventMergeStrategy
 - f:getActiveLogFile():com.intellij.internal.statistic.eventLog.EventLogFile
+- getCoroutineScope():kotlinx.coroutines.CoroutineScope
 - sf:getEP_NAME():com.intellij.openapi.extensions.ExtensionPointName
 - f:getLogFilesProvider():com.intellij.internal.statistic.eventLog.EventLogFilesProvider
 - getLogger():com.intellij.internal.statistic.eventLog.StatisticsEventLogger

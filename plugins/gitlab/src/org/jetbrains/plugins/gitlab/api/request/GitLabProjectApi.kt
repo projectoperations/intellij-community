@@ -64,6 +64,16 @@ suspend fun GitLabApi.Rest.getProjectUsers(uri: URI): HttpResponse<out List<GitL
   }
 }
 
+@SinceGitLab("13.0")
+internal fun GitLabApi.GraphQL.getCloneableProjects(): Flow<List<GitLabProjectForCloneDTO>> =
+  ApiPageUtil.createGQLPagesFlow { page ->
+    val parameters = page.asParameters()
+    val request = gitLabQuery(GitLabGQLQuery.GET_MEMBER_PROJECTS_FOR_CLONE, parameters)
+    withErrorStats(GitLabGQLQuery.GET_MEMBER_PROJECTS_FOR_CLONE) {
+      loadResponse<GitLabProjectsForCloneDTO>(request, "projects").body()
+    }
+  }.map { it.nodes }
+
 @SinceGitLab("10.3")
 suspend fun GitLabApi.Rest.getProjectNamespace(namespaceId: String): HttpResponse<out GitLabNamespaceRestDTO> {
   val uri = server.restApiUri.resolveRelative("namespaces").resolveRelative(namespaceId)
@@ -78,7 +88,7 @@ suspend fun GitLabApi.GraphQL.createMergeRequest(
   project: GitLabProjectCoordinates,
   sourceBranch: String,
   targetBranch: String,
-  title: String
+  title: String,
 ): HttpResponse<out GitLabGraphQLMutationResultDTO<GitLabMergeRequestDTO>?> {
   val parameters = mapOf(
     "projectId" to project.projectPath.fullPath(),
@@ -102,5 +112,5 @@ private class WorkItemConnection(pageInfo: GraphQLCursorPageInfoDTO, nodes: List
 private class GitLabCreateMergeRequestResult(
   mergeRequest: GitLabMergeRequestDTO,
   errors: List<String>?,
-  override val value: GitLabMergeRequestDTO = mergeRequest
+  override val value: GitLabMergeRequestDTO = mergeRequest,
 ) : GitLabGraphQLMutationResultDTO<GitLabMergeRequestDTO>(errors)

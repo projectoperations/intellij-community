@@ -5970,6 +5970,116 @@ public class PyTypingTest extends PyTestCase {
     });
   }
 
+  // PY-36205
+  public void testIterateEnum() {
+    doTest("Foo",
+           """
+             from enum import Enum
+             class Foo(str, Enum):
+                 ONE = 1
+             for expr in Foo:
+                 pass
+             """);
+  }
+
+  // PY-76149
+  public void testDataclassTransformConstructorSignatureWithFieldsAnnotatedWithDescriptor() {
+    doTestExpressionUnderCaret("(id: int, name: str) -> MyClass", """
+      from typing import dataclass_transform
+      
+      @dataclass_transform()
+      def deco(cls):
+          ...
+      
+      class MyIdDescriptor:
+          def __set__(self, obj: object, value: int) -> None:
+              ...
+      
+      class MyNameDescriptor:
+          def __set__(self, obj: object, value: str) -> None:
+              ...
+      
+      @deco
+      class MyClass:
+           id: MyIdDescriptor
+           name: MyNameDescriptor
+      
+      MyCl<caret>ass()
+      """);
+  }
+
+  // PY-76149
+  public void testDataclassTransformConstructorSignatureWithFieldsAnnotatedWithGenericDescriptor() {
+    doTestExpressionUnderCaret("(id: int, name: str) -> MyClass", """
+      from typing import dataclass_transform, TypeVar, Generic
+      
+      T = TypeVar("T")
+      
+      @dataclass_transform()
+      def deco(cls):
+          ...
+      
+      class MyDescriptor(Generic[T]):
+          def __set__(self, obj: object, value: T) -> None:
+              ...
+      
+      @deco
+      class MyClass:
+           id: MyDescriptor[int]
+           name: MyDescriptor[str]
+      
+      MyCl<caret>ass()
+      """);
+  }
+
+  // PY-76149
+  public void testDataclassTransformConstructorSignatureWithFieldsAnnotatedWitExplicitAny() {
+    doTestExpressionUnderCaret("(id: int, name: str, payload: Any, payload_length: int) -> MyClass", """
+      from typing import dataclass_transform, TypeVar, Generic, Any
+      
+      T = TypeVar("T")
+      
+      @dataclass_transform()
+      def deco(cls):
+          ...
+      
+      class MyDescriptor(Generic[T]):
+          def __set__(self, obj: object, value: T) -> None:
+              ...
+      
+      class Anything:
+          def __set__(self, obj: object, value: Any) -> None:
+              ...
+      
+      @deco
+      class MyClass:
+          id: MyDescriptor[int]
+          name: MyDescriptor[str]
+          payload: Anything
+          payload_length: MyDescriptor[int]
+      
+      My<caret>Class()
+      """);
+  }
+
+  public void testTypeAliasToAny() {
+    doTest("int | Any", """
+      from typing import Any, TypeAlias
+      
+      Plug: TypeAlias = Any
+      expr: int | Plug
+      """);
+  }
+
+  public void testNewStyleTypeAliasToAny() {
+    doTest("int | Any", """
+      from typing import Any
+      
+      type Plug = Any
+      expr: int | Plug
+      """);
+  }
+
   private void doTestNoInjectedText(@NotNull String text) {
     myFixture.configureByText(PythonFileType.INSTANCE, text);
     final InjectedLanguageManager languageManager = InjectedLanguageManager.getInstance(myFixture.getProject());

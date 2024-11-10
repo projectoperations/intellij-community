@@ -5,8 +5,10 @@ package org.jetbrains.intellij.build.impl
 
 import com.intellij.util.PathUtilRt
 import com.intellij.util.lang.ZipFile
+import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.plus
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -103,6 +105,14 @@ class NativeFilesMatcher(paths: List<String>, private val targetOs: Iterable<OsF
   ) {
     override fun toString(): String = "$pathWithPrefix, path=$path, os=$osFamily, arch=$arch"
   }
+
+  companion object {
+    fun isCompatibleWithTargetPlatform(name: String, os: PersistentList<OsFamily>, arch: JvmArchitecture?): Boolean {
+      val fileOs = OsFamilyDetector.detectOsFamily(name)?.first ?: error("Cannot determine native file OS Family")
+      val fileArch = determineArch(fileOs, name) ?: error("Cannot determine native file architecture")
+      return os.contains(fileOs) && (arch == null || fileArch.compatibleWithTarget(arch))
+    }
+  }
 }
 
 private val posixExecutableFileAttribute = PosixFilePermissions.asFileAttribute(
@@ -121,7 +131,7 @@ internal fun CoroutineScope.packNativePresignedFiles(
 ) {
   for ((source, paths) in nativeFiles) {
     val sourceFile = source.file
-    launch(Dispatchers.IO) {
+    launch(Dispatchers.IO + CoroutineName("pack native presigned file $sourceFile")) {
       unpackNativeLibraries(
         sourceFile = sourceFile,
         paths = paths,
@@ -206,12 +216,12 @@ private suspend fun unpackNativeLibraries(
   if (signTool.signNativeFileMode == SignNativeFileMode.PREPARE) {
     val versionOption = mapOf(SignTool.LIB_VERSION_OPTION_NAME to libVersion)
     coroutineScope {
-      launch {
+      launch(CoroutineName("signing macOS binaries")) {
         unsignedFiles.get(OsFamily.MACOS)?.let {
           signMacBinaries(files = it, context = context, additionalOptions = versionOption, checkPermissions = false)
         }
       }
-      launch {
+      launch(CoroutineName("signing Windows binaries")) {
         unsignedFiles.get(OsFamily.WINDOWS)?.let {
           @Suppress("SpellCheckingInspection")
           context.signFiles(

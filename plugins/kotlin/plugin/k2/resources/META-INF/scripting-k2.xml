@@ -1,8 +1,13 @@
 <idea-plugin>
+  <applicationListeners>
+    <listener class="org.jetbrains.kotlin.idea.core.script.k2.KotlinScriptDefinitionStatusBarWidgetListener"
+              topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
+  </applicationListeners>
+
   <extensionPoints>
     <extensionPoint
-            qualifiedName="org.jetbrains.kotlin.scriptReloadActionAvailability"
-            interface="org.jetbrains.kotlin.idea.core.script.k2.KotlinScriptReloadActionAvailability"
+            qualifiedName="org.jetbrains.kotlin.kotlinScriptLazyResolveProhibitionCondition"
+            interface="org.jetbrains.kotlin.idea.core.script.k2.KotlinScriptLazyResolveProhibitionCondition"
             area="IDEA_PROJECT"
             dynamic="true"/>
 
@@ -13,8 +18,8 @@
             dynamic="true"/>
 
     <extensionPoint
-            qualifiedName="org.jetbrains.kotlin.scriptDependenciesSource"
-            interface="org.jetbrains.kotlin.idea.core.script.k2.ScriptDependenciesSource"
+            qualifiedName="org.jetbrains.kotlin.scriptConfigurationsSource"
+            interface="org.jetbrains.kotlin.idea.core.script.k2.ScriptConfigurationsSource"
             area="IDEA_PROJECT"
             dynamic="true"/>
 
@@ -63,6 +68,10 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
+    <statusBarWidgetFactory id="kotlin.script.definition"
+                            implementation="org.jetbrains.kotlin.idea.core.script.k2.KotlinScriptDefinitionStatusBarWidgetFactory"
+                            order="first"/>
+
     <projectConfigurable groupId="language"
                          bundle="messages.KotlinBundle"
                          key="kotlin.scripting.configurable"
@@ -124,7 +133,8 @@
             implementation="org.jetbrains.kotlin.idea.base.scripting.ScriptingModuleInfoProviderExtension"/>
 
     <scriptDefinitionsSource implementation="org.jetbrains.kotlin.idea.script.k2.MainKtsScriptDefinitionSource"/>
-    <scriptDependenciesSource implementation="org.jetbrains.kotlin.idea.script.k2.CustomScriptDependenciesSource"/>
+    <scriptConfigurationsSource implementation="org.jetbrains.kotlin.idea.core.script.k2.LazyScriptConfigurationsSource"/>
+    <scriptConfigurationsSource implementation="org.jetbrains.kotlin.idea.script.k2.MainKtsScriptConfigurationsSource"/>
 
     <scriptDefinitionsSource implementation="org.jetbrains.kotlin.idea.core.script.BundledScriptDefinitionSource"/>
 

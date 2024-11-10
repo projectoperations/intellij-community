@@ -19,9 +19,9 @@ import org.jetbrains.kotlin.util.OperatorNameConventions
 
 
 internal open class CallableImportCandidatesProvider(
-    override val positionContext: KotlinNameReferencePositionContext,
-    indexProvider: KtSymbolFromIndexProvider,
-) : ImportCandidatesProvider(indexProvider) {
+    positionContext: KotlinNameReferencePositionContext,
+) : ImportCandidatesProvider(positionContext) {
+
     protected open fun acceptsKotlinCallable(kotlinCallable: KtCallableDeclaration): Boolean =
         !kotlinCallable.isImported() && kotlinCallable.canBeImported()
 
@@ -29,8 +29,10 @@ internal open class CallableImportCandidatesProvider(
         !javaCallable.isImported() && javaCallable.canBeImported()
 
     context(KaSession)
-    override fun collectCandidates(): List<KaCallableSymbol> {
-        val unresolvedName = positionContext.getName()
+    override fun collectCandidates(
+        indexProvider: KtSymbolFromIndexProvider,
+    ): List<KaCallableSymbol> {
+        val unresolvedName = positionContext.name
         val explicitReceiver = positionContext.explicitReceiver
         val fileSymbol = getFileSymbol()
 
@@ -40,7 +42,8 @@ internal open class CallableImportCandidatesProvider(
                     // filter out extensions here, because they are added later with the use of information about receiver types
                     acceptsKotlinCallable(declaration) && !declaration.isExtensionDeclaration()
                 })
-                addAll(indexProvider.getJavaCallableSymbolsByName(unresolvedName, ::acceptsJavaCallable))
+                addAll(indexProvider.getJavaMethodsByName(unresolvedName) { acceptsJavaCallable(it) })
+                addAll(indexProvider.getJavaFieldsByName(unresolvedName) { acceptsJavaCallable(it) })
             }
 
             when (val context = positionContext) {
@@ -59,9 +62,9 @@ internal open class CallableImportCandidatesProvider(
 
 
 internal class InfixCallableImportCandidatesProvider(
-    override val positionContext: KotlinInfixCallPositionContext,
-    indexProvider: KtSymbolFromIndexProvider,
-) : CallableImportCandidatesProvider(positionContext, indexProvider) {
+    positionContext: KotlinInfixCallPositionContext,
+) : CallableImportCandidatesProvider(positionContext) {
+
     override fun acceptsKotlinCallable(kotlinCallable: KtCallableDeclaration): Boolean =
         kotlinCallable.hasModifier(KtTokens.INFIX_KEYWORD) && super.acceptsKotlinCallable(kotlinCallable)
 
@@ -71,11 +74,13 @@ internal class InfixCallableImportCandidatesProvider(
 
 internal class DelegateMethodImportCandidatesProvider(
     private val unresolvedDelegateFunction: UnresolvedDelegateFunction,
-    override val positionContext: KotlinNameReferencePositionContext,
-    indexProvider: KtSymbolFromIndexProvider
-) : CallableImportCandidatesProvider(positionContext, indexProvider) {
+    positionContext: KotlinNameReferencePositionContext,
+) : CallableImportCandidatesProvider(positionContext) {
 
-    context(KaSession) override fun collectCandidates(): List<KaCallableSymbol> {
+    context(KaSession)
+    override fun collectCandidates(
+        indexProvider: KtSymbolFromIndexProvider,
+    ): List<KaCallableSymbol> {
         val functionName = OperatorNameConventions.GET_VALUE.takeIf {
             unresolvedDelegateFunction.expectedFunctionSignature.startsWith(OperatorNameConventions.GET_VALUE.asString() + "(")
         } ?: OperatorNameConventions.SET_VALUE.takeIf {
@@ -83,6 +88,10 @@ internal class DelegateMethodImportCandidatesProvider(
         } ?: return emptyList()
 
         val expressionType = positionContext.position.parentOfType<KtPropertyDelegate>()?.expression?.expressionType ?: return emptyList()
-        return indexProvider.getExtensionCallableSymbolsByName(functionName, listOf(expressionType), ::acceptsKotlinCallable).toList()
+        return indexProvider.getExtensionCallableSymbolsByName(
+            name = functionName,
+            receiverTypes = listOf(expressionType),
+        ) { acceptsKotlinCallable(it) }
+            .toList()
     }
 }

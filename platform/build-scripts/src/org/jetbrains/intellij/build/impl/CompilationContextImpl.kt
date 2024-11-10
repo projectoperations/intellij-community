@@ -13,17 +13,15 @@ import com.jetbrains.JBR
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.Obsolete
-import org.jetbrains.intellij.build.BuildMessages
-import org.jetbrains.intellij.build.BuildOptions
-import org.jetbrains.intellij.build.BuildPaths
+import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
-import org.jetbrains.intellij.build.CompilationContext
 import org.jetbrains.intellij.build.dependencies.DependenciesProperties
 import org.jetbrains.intellij.build.dependencies.JdkDownloader
 import org.jetbrains.intellij.build.impl.JdkUtils.defineJdk
@@ -53,6 +51,7 @@ import org.jetbrains.jps.model.serialization.JpsPathMapper
 import org.jetbrains.jps.model.serialization.JpsProjectLoader.loadProject
 import org.jetbrains.jps.util.JpsPathUtil
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
@@ -275,7 +274,7 @@ class CompilationContextImpl private constructor(
         dataStorageRoot = paths.buildOutputDir.resolve("jps-build-data"),
         classesOutputDirectory = classesOutputDirectory,
         buildLogFile = logDir.resolve("compilation.log"),
-        categoriesWithDebugLevelNullable = System.getProperty("intellij.build.debug.logging.categories", "")
+        categoriesWithDebugLevel = System.getProperty("intellij.build.debug.logging.categories", "") ?: "",
       )
     }
     for (artifact in JpsArtifactService.getInstance().getArtifacts(project)) {
@@ -362,6 +361,16 @@ class CompilationContextImpl private constructor(
     return org.jetbrains.intellij.build.impl.findFileInModuleSources(module, relativePath)
   }
 
+  override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String): ByteArray? {
+    val file = getModuleOutputDir(module).resolve(relativePath)
+    try {
+      return Files.readAllBytes(file)
+    }
+    catch (_: NoSuchFileException) {
+      return null
+    }
+  }
+
   override fun notifyArtifactBuilt(artifactPath: Path) {
     if (options.buildStepsToSkip.contains(BuildOptions.TEAMCITY_ARTIFACTS_PUBLICATION_STEP)) {
       return
@@ -411,7 +420,7 @@ private suspend fun loadProject(projectHome: Path, kotlinBinaries: KotlinBinarie
   spanBuilder("load project").use(Dispatchers.IO) { span ->
     pathVariablesConfiguration.addPathVariable("MAVEN_REPOSITORY", Path.of(System.getProperty("user.home"), ".m2/repository").invariantSeparatorsPathString)
     val pathVariables = JpsModelSerializationDataService.computeAllPathVariables(model.global)
-    loadProject(model.project, pathVariables, JpsPathMapper.IDENTITY, projectHome, null, { it: Runnable -> launch { it.run() } }, false)
+    loadProject(model.project, pathVariables, JpsPathMapper.IDENTITY, projectHome, null, { it: Runnable -> launch(CoroutineName("loading project")) { it.run() } }, false)
     span.setAllAttributes(
       Attributes.of(
         AttributeKey.stringKey("project"), projectHome.toString(),

@@ -682,6 +682,35 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../testData/basic/common/enums")
+        public static class Enums extends AbstractK1JvmBasicCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("EnumEntryCompletion.kt")
+            public void testEnumEntryCompletion() throws Exception {
+                runTest("../testData/basic/common/enums/EnumEntryCompletion.kt");
+            }
+
+            @TestMetadata("EnumEntryCompletionRendering.kt")
+            public void testEnumEntryCompletionRendering() throws Exception {
+                runTest("../testData/basic/common/enums/EnumEntryCompletionRendering.kt");
+            }
+
+            @TestMetadata("EnumEntryEmptyCompletion.kt")
+            public void testEnumEntryEmptyCompletion() throws Exception {
+                runTest("../testData/basic/common/enums/EnumEntryEmptyCompletion.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/basic/common/extensionDeclarations")
         public static class ExtensionDeclarations extends AbstractK1JvmBasicCompletionTest {
             @java.lang.Override
@@ -1813,6 +1842,21 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("ObjectMethodCompletion.kt")
+            public void testObjectMethodCompletion() throws Exception {
+                runTest("../testData/basic/common/objects/ObjectMethodCompletion.kt");
+            }
+
+            @TestMetadata("ObjectMethodCompletionRendering.kt")
+            public void testObjectMethodCompletionRendering() throws Exception {
+                runTest("../testData/basic/common/objects/ObjectMethodCompletionRendering.kt");
+            }
+
+            @TestMetadata("ObjectMethodEmptyCompletion.kt")
+            public void testObjectMethodEmptyCompletion() throws Exception {
+                runTest("../testData/basic/common/objects/ObjectMethodEmptyCompletion.kt");
+            }
+
             @TestMetadata("PropertyFromCompanionObjectFromTypeAliasToNestedInObjectClass.kt")
             public void testPropertyFromCompanionObjectFromTypeAliasToNestedInObjectClass() throws Exception {
                 runTest("../testData/basic/common/objects/PropertyFromCompanionObjectFromTypeAliasToNestedInObjectClass.kt");
@@ -2149,9 +2193,19 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("KTIJ-26747.kt")
+            public void testKTIJ_26747() throws Exception {
+                runTest("../testData/basic/common/primaryConstructor/KTIJ-26747.kt");
+            }
+
             @TestMetadata("parameterDefaultValue.kt")
             public void testParameterDefaultValue() throws Exception {
                 runTest("../testData/basic/common/primaryConstructor/parameterDefaultValue.kt");
+            }
+
+            @TestMetadata("parameterDefaultValueNotContainsUnitializedParams.kt")
+            public void testParameterDefaultValueNotContainsUnitializedParams() throws Exception {
+                runTest("../testData/basic/common/primaryConstructor/parameterDefaultValueNotContainsUnitializedParams.kt");
             }
 
             @TestMetadata("previousParameter.kt")
@@ -2603,6 +2657,11 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
             @TestMetadata("CompanionObjectMembers.kt")
             public void testCompanionObjectMembers() throws Exception {
                 runTest("../testData/basic/common/staticMembers/CompanionObjectMembers.kt");
+            }
+
+            @TestMetadata("EnumRendering.kt")
+            public void testEnumRendering() throws Exception {
+                runTest("../testData/basic/common/staticMembers/EnumRendering.kt");
             }
 
             @TestMetadata("EnumWithoutCompanionObject.kt")
@@ -3330,6 +3389,11 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
                 runTest("../testData/basic/common/KTIJ20039.kt");
             }
 
+            @TestMetadata("KTIJ-26747.kt")
+            public void testKTIJ_26747() throws Exception {
+                runTest("../testData/basic/common/KTIJ-26747.kt");
+            }
+
             @TestMetadata("KeywordsAreLowInParameterTypeCompletion1.kt")
             public void testKeywordsAreLowInParameterTypeCompletion1() throws Exception {
                 runTest("../testData/basic/common/KeywordsAreLowInParameterTypeCompletion1.kt");
@@ -3363,6 +3427,11 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
             @TestMetadata("LocalMultideclarationValues.kt")
             public void testLocalMultideclarationValues() throws Exception {
                 runTest("../testData/basic/common/LocalMultideclarationValues.kt");
+            }
+
+            @TestMetadata("MapEntry.kt")
+            public void testMapEntry() throws Exception {
+                runTest("../testData/basic/common/MapEntry.kt");
             }
 
             @TestMetadata("NamedObject.kt")
@@ -4089,6 +4158,11 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
             @TestMetadata("JavaStaticFieldsFromImports.kt")
             public void testJavaStaticFieldsFromImports() throws Exception {
                 runTest("../testData/basic/java/staticMembers/JavaStaticFieldsFromImports.kt");
+            }
+
+            @TestMetadata("JavaStaticMethodRendering.kt")
+            public void testJavaStaticMethodRendering() throws Exception {
+                runTest("../testData/basic/java/staticMembers/JavaStaticMethodRendering.kt");
             }
 
             @TestMetadata("JavaStaticMethods.kt")

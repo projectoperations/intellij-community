@@ -607,6 +607,10 @@ object CommunityLibraryLicenses {
       .apache("https://github.com/JetBrains/jewel/blob/master/LICENSE")
       .suppliedByOrganizations(Suppliers.JETBRAINS),
 
+    LibraryLicense("JetBrains Jewel IDE LaF Bridge", url = "https://github.com/JetBrains/jewel", libraryName = "jetbrains.jewel.ide.laf.bridge.243")
+      .apache("https://github.com/JetBrains/jewel/blob/master/LICENSE")
+      .suppliedByOrganizations(Suppliers.JETBRAINS),
+
     LibraryLicense("JetBrains Jewel Markdown IDE LaF Bridge Styling", libraryName = "jetbrains-jewel-markdown-laf-bridge-styling", url = "https://github.com/JetBrains/jewel")
       .apache("https://github.com/JetBrains/jewel/blob/master/LICENSE")
       .suppliedByOrganizations(Suppliers.JETBRAINS),
@@ -832,12 +836,24 @@ object CommunityLibraryLicenses {
     LibraryLicense("kXML2", libraryName = "kxml2", url = "https://github.com/kobjects/kxml2/")
       .simplifiedBsd("https://github.com/kobjects/kxml2/blob/master/license.txt"),
 
-    LibraryLicense("Language Tool", libraryName = "org.languagetool:languagetool-core", url = "https://github.com/languagetool-org/languagetool")
-      .lgpl21("https://github.com/languagetool-org/languagetool/blob/master/COPYING.txt")
+    LibraryLicense("Language Tool (JetBrains's fork)", libraryName = "org.jetbrains.intellij.deps.languagetool:languagetool-core", url = "https://github.com/JetBrains/languagetool")
+      .lgpl21("https://github.com/JetBrains/languagetool/blob/master/COPYING.txt")
+      .forkedFrom(
+        groupId = "org.languagetool",
+        artifactId = "languagetool-core",
+        revision = "5c6be17808cee3edc84ce53df97236521f8a8f7e",
+        sourceCodeUrl = "https://github.com/languagetool-org/languagetool"
+      )
       .suppliedByPersons("Daniel Naber", "Marcin Miłkowski"),
 
-    LibraryLicense("Language Tool (English)", libraryName = "org.languagetool:language-en", url = "https://github.com/languagetool-org/languagetool")
-      .lgpl21("https://github.com/languagetool-org/languagetool/blob/master/COPYING.txt")
+    LibraryLicense("Language Tool (JetBrains's fork, English)", libraryName = "org.jetbrains.intellij.deps.languagetool:language-en", url = "https://github.com/JetBrains/languagetool")
+      .lgpl21("https://github.com/JetBrains/languagetool/blob/master/COPYING.txt")
+      .forkedFrom(
+        groupId = "org.languagetool",
+        artifactId = "language-en",
+        revision = "5c6be17808cee3edc84ce53df97236521f8a8f7e",
+        sourceCodeUrl = "https://github.com/languagetool-org/languagetool"
+      )
       .suppliedByPersons("Daniel Naber", "Marcin Miłkowski"),
 
     LibraryLicense("Log4j", libraryName = "Log4J", url = "https://www.slf4j.org/legacy.html#log4j-over-slf4j")
@@ -1074,8 +1090,12 @@ object CommunityLibraryLicenses {
     LibraryLicense("Skiko", libraryName = "jetbrains.skiko.awt.compose", url = "https://github.com/JetBrains/skiko/")
       .apache("https://github.com/JetBrains/skiko/blob/master/LICENSE"),
 
-    LibraryLicense("Skiko Runtime", libraryName = "jetbrains.skiko.awt.runtime.all", url = "https://github.com/JetBrains/skiko/")
-      .apache("https://github.com/JetBrains/skiko/blob/master/LICENSE"),
+    LibraryLicense(
+      name = "Skiko Runtime",
+      libraryName = "jetbrains.skiko.awt.runtime.all",
+      additionalLibraryNames = listOf("jetbrains.skiko.awt.runtime.all.0.8.9"),
+      url = "https://github.com/JetBrains/skiko/"
+    ).apache("https://github.com/JetBrains/skiko/blob/master/LICENSE"),
 
     LibraryLicense(libraryName = "slf4j-api", url = "https://slf4j.org/")
       .mit("https://www.slf4j.org/license.html")

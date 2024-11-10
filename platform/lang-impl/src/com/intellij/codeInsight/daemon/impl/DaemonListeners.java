@@ -84,6 +84,7 @@ import com.intellij.util.ui.EdtInvocationManager;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
@@ -99,6 +100,7 @@ public final class DaemonListeners implements Disposable {
   private static final Logger LOG = Logger.getInstance(DaemonListeners.class);
   private final Project myProject;
   private final DaemonCodeAnalyzerImpl myDaemonCodeAnalyzer;
+  private final PsiChangeHandler myPsiChangeHandler;
   private boolean myEscPressed;
   volatile boolean cutOperationJustHappened;
   private List<Editor> myActiveEditors = Collections.emptyList();
@@ -108,6 +110,7 @@ public final class DaemonListeners implements Disposable {
     myDaemonCodeAnalyzer = daemonCodeAnalyzer;
 
     if (project.isDefault()) {
+      myPsiChangeHandler = null;
       return;
     }
 
@@ -236,7 +239,8 @@ public final class DaemonListeners implements Disposable {
       }
     }, this);
 
-    PsiManager.getInstance(myProject).addPsiTreeChangeListener(new PsiChangeHandler(myProject, connection, daemonCodeAnalyzer, this), this);
+    myPsiChangeHandler = new PsiChangeHandler(myProject, connection, daemonCodeAnalyzer, this);
+    PsiManager.getInstance(myProject).addPsiTreeChangeListener(myPsiChangeHandler, this);
 
     connection.subscribe(ModuleRootListener.TOPIC, new ModuleRootListener() {
       @Override
@@ -261,15 +265,12 @@ public final class DaemonListeners implements Disposable {
     });
 
     connection.subscribe(PowerSaveMode.TOPIC, () -> {
-      stopDaemonAndRestartAllFiles("Power save mode changed to " + PowerSaveMode.isEnabled());
       if (PowerSaveMode.isEnabled()) {
         clearHighlightingRelatedHighlightersInAllEditors();
         reInitTrafficLightRendererForAllEditors();
         repaintTrafficLightIconForAllEditors();
       }
-      else {
-        daemonCodeAnalyzer.restart();
-      }
+      stopDaemonAndRestartAllFiles("Power save mode changed to " + PowerSaveMode.isEnabled());
     });
     connection.subscribe(EditorColorsManager.TOPIC, __ -> stopDaemonAndRestartAllFiles("Editor color scheme changed"));
     connection.subscribe(CommandListener.TOPIC, new MyCommandListener());
@@ -697,7 +698,7 @@ public final class DaemonListeners implements Disposable {
   }
 
   private void stopDaemonAndRestartAllFiles(@NotNull String reason) {
-    myDaemonCodeAnalyzer.stopProcessAndRestartAllFiles(reason);
+    myDaemonCodeAnalyzer.restart(reason);
   }
 
   private void removeHighlightersOnPluginUnload(@NotNull PluginDescriptor pluginDescriptor) {
@@ -773,5 +774,13 @@ public final class DaemonListeners implements Disposable {
 
   boolean isEscapeJustPressed() {
     return myEscPressed;
+  }
+  @TestOnly
+  void waitForUpdateFileStatusQueue() {
+    myPsiChangeHandler.waitForUpdateFileStatusQueue();
+  }
+  void flushUpdateFileStatusQueue() {
+    ApplicationManager.getApplication().assertIsNonDispatchThread();
+    myPsiChangeHandler.flushUpdateFileStatusQueue();
   }
 }

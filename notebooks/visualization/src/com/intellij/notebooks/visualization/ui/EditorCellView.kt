@@ -3,8 +3,9 @@ package com.intellij.notebooks.visualization.ui
 import com.intellij.ide.DataManager
 import com.intellij.ide.actions.DistractionFreeModeController
 import com.intellij.ide.ui.UISettings
-import com.intellij.notebooks.ui.visualization.*
 import com.intellij.notebooks.ui.visualization.NotebookEditorAppearanceUtils.isDiffKind
+import com.intellij.notebooks.ui.visualization.NotebookUtil.notebookAppearance
+import com.intellij.notebooks.ui.visualization.markerRenderers.NotebookCodeCellBackgroundLineMarkerRenderer
 import com.intellij.notebooks.visualization.*
 import com.intellij.notebooks.visualization.NotebookCellInlayController.InputFactory
 import com.intellij.notebooks.visualization.context.NotebookDataContext
@@ -63,7 +64,7 @@ class EditorCellView(
 
   val input: EditorCellInput = createEditorCellInput()
 
-  var outputs: EditorCellOutputs? = null
+  var outputs: EditorCellOutputsView? = null
     private set
 
   var selected = false
@@ -189,7 +190,7 @@ class EditorCellView(
   private fun updateOutputs() = runInEdt {
     if (hasOutputs()) {
       if (outputs == null) {
-        outputs = EditorCellOutputs(editor, cell).also {
+        outputs = EditorCellOutputsView(editor, cell).also {
           add(it)
         }
         updateCellHighlight()
@@ -310,12 +311,6 @@ class EditorCellView(
       addCellHighlighter {
         editor.markupModel.addRangeHighlighterAndChangeAttributes(null, startOffset, endOffset, HighlighterLayer.FIRST - 100, HighlighterTargetArea.LINES_IN_RANGE, false) { o: RangeHighlighterEx ->
           o.lineMarkerRenderer = NotebookCodeCellBackgroundLineMarkerRenderer(o)
-        }
-      }
-    } else if (editor.editorKind != EditorKind.DIFF) {
-      addCellHighlighter {
-        editor.markupModel.addRangeHighlighterAndChangeAttributes(null, startOffset, endOffset, HighlighterLayer.FIRST - 100, HighlighterTargetArea.LINES_IN_RANGE, false) { o: RangeHighlighterEx ->
-          o.lineMarkerRenderer = NotebookTextCellBackgroundLineMarkerRenderer(o)
         }
       }
     }

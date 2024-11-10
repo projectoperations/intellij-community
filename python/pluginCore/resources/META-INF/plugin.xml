@@ -1,4 +1,4 @@
-<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude" url="https://confluence.jetbrains.com/display/PYH/"
+<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude" url="https://www.jetbrains.com/pycharm/"
              package="com.jetbrains.python">
   <!--Python community support for Pycharm, DS and IC.-->
   <!--Include core Python functionality-->
@@ -91,7 +91,7 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
                      implementationClass="com.jetbrains.python.requirements.UnsatisfiedRequirementInspection"/>
 
     <pluginSuggestionProvider order="first" implementation="com.jetbrains.python.suggestions.PycharmProSuggestionProvider"/>
-    <postStartupActivity implementation="com.jetbrains.python.sdk.poetry.PyProjectTomlPostStartupActivity"/>
+    <postStartupActivity implementation="com.jetbrains.python.sdk.poetry.PoetryPyProjectTomlPostStartupActivity"/>
   </extensions>
 
 
@@ -460,6 +460,11 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <registryKey defaultValue="true" description="Use a single port for communication between PyCharm and the debugger"
                  restartRequired="false" key="python.debug.use.single.port"/>
 
+    <registryKey defaultValue="500" description="Timeout between attempts to connect to remote debugger server"
+                 restartRequired="false" key="python.debugger.remote.connect.retry.timeout.ms"/>
+    <registryKey defaultValue="20" description="Max attempts to connect to remote debugger server"
+                 restartRequired="false" key="python.debugger.remote.connect.max.attempts"/>
+
     <!-- typing -->
     <multiHostInjector implementation="com.jetbrains.python.codeInsight.typing.PyTypingAnnotationInjector"/>
 
@@ -543,7 +548,7 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
                                  implementationClass="com.jetbrains.python.refactoring.suggested.PySuggestedRefactoringSupport"/>
 
     <!-- Poetry -->
-    <editorFactoryListener implementation="com.jetbrains.python.sdk.poetry.PyProjectTomlWatcher"/>
+    <editorFactoryListener implementation="com.jetbrains.python.sdk.poetry.PoetryPyProjectTomlWatcher"/>
 
     <!-- Targets API -->
     <registryKey key="enable.conda.on.targets" defaultValue="false" description="Enables Conda configuration on targets."/>
@@ -633,6 +638,16 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
       key="quickfix.ranking.ml"
       defaultValue="[IN_EXPERIMENT*|ENABLED|DISABLED]"
       description="Enable ML ranking in quick fix for missing imports"/>
+
+    <registryKey key="disable.python.cache.update"
+                 defaultValue="false"
+                 restartRequired="false"
+                 description="Disables automatic updating of PyPI package cache and ranking on project startup."/>
+
+    <feedback.idleFeedbackSurvey implementation="com.jetbrains.python.statistics.feedback.PythonJobSurvey"/>
+    <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.statistics.feedback.PythonJobStatisticsCollector"/>
+    <backgroundPostStartupActivity implementation="com.jetbrains.python.statistics.feedback.PythonFirstLaunchChecker"/>
+    <statistics.validation.customValidationRule implementation="com.jetbrains.python.statistics.feedback.TrueValidationRule"/>
   </extensions>
 
   <extensionPoints>
@@ -841,6 +856,7 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
 
     <pySdkProvider implementation="com.jetbrains.python.sdk.poetry.PoetrySdkProvider"/>
     <packageManagerProvider implementation="com.jetbrains.python.sdk.poetry.PyPoetryPackageManagerProvider"/>
+    <pythonPackageManagerProvider implementation="com.jetbrains.python.sdk.poetry.PoetryPackageManagerProvider"/>
 
 
     <pythonPackageManagerProvider implementation="com.jetbrains.python.packaging.pip.PipPackageManagerProvider" order="last"/>
@@ -1008,4 +1024,5 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <numericContainerPopupCustomizer implementation="com.jetbrains.python.debugger.pydev.tables.PyNumericContainerPopupCustomizerDefault"/>
     <pyDebugAsyncioCustomizer implementation="com.jetbrains.python.debugger.PyDebugAsyncioCustomizerDefault"/>
   </extensions>
+
 </idea-plugin>

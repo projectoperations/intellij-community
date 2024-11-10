@@ -2,7 +2,6 @@
 package com.intellij.xdebugger.impl.hotswap
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.DataContext
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus
 
@@ -32,7 +31,7 @@ interface HotSwapProvider<T> {
    * This function must call [com.intellij.xdebugger.impl.hotswap.HotSwapSession.startHotSwapListening]
    * to get a callback and use it to report the hot swap status.
    */
-  fun performHotSwap(context: DataContext, session: HotSwapSession<T>)
+  fun performHotSwap(session: HotSwapSession<T>)
 }
 
 /**
@@ -48,10 +47,16 @@ interface HotSwapResultListener {
   fun onSuccessfulReload()
 
   /**
-   * Hot swap completed, a notification or error message is shown by a [HotSwapProvider].
+   * Hot swap completed with no result, a notification or error message is shown by a [HotSwapProvider].
    * Previous modifications are considered obsolete.
    */
   fun onFinish()
+
+  /**
+   * Hot swap failed (compilation error or hot swap is not possible), an error message is shown by a [HotSwapProvider].
+   * Previous modifications are considered active.
+   */
+  fun onFailure()
 
   /**
    * Hot swap was canceled, previous modifications are still actual.

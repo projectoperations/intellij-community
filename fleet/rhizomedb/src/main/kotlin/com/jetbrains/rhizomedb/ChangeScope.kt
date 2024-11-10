@@ -3,6 +3,7 @@ package com.jetbrains.rhizomedb
 
 import com.jetbrains.rhizomedb.impl.entity
 import com.jetbrains.rhizomedb.impl.generateSeed
+import fleet.util.openmap.Key
 import fleet.util.openmap.MutableOpenMap
 import kotlin.reflect.KClass
 
@@ -250,16 +251,9 @@ interface ChangeScope {
         builder.build(it)
       }
     }
-
-  /**
-   * Support for legacy entity definitions
-   * */
-  fun <T : LegacyEntity> new(
-    c: KClass<T>,
-    part: Part = defaultPart,
-    constructor: T.() -> Unit = {},
-  ): T =
-    withDefaultPart(part) {
-      context.new(c, constructor)
-    }
 }
+
+/**
+ * Key for data associated with a particular change
+ */
+interface ChangeScopeKey<V : Any> : Key<V, ChangeScope>

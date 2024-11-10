@@ -169,29 +169,20 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
       }
     }, this);
 
-    if (ApplicationManager.getApplication().isUnitTestMode()) {
-      busConnection.subscribe(ProjectCloseListener.TOPIC, new ProjectCloseListener() {
-        @Override
-        public void projectClosing(@NotNull Project project) {
-          if (project == ChangeListManagerImpl.this.project) {
+    Disposer.register(this, myUpdateDisposable); // register defensively, in case "projectClosing" won't be called
+    busConnection.subscribe(ProjectCloseListener.TOPIC, new ProjectCloseListener() {
+      @Override
+      public void projectClosing(@NotNull Project project) {
+        if (project == ChangeListManagerImpl.this.project) {
+          if (ApplicationManager.getApplication().isUnitTestMode()) {
             //noinspection TestOnlyProblems
             waitEverythingDoneInTestMode();
-            Disposer.dispose(myUpdateDisposable);
           }
+          // Can't use Project disposable - it will be called after pending tasks are finished
+          Disposer.dispose(myUpdateDisposable);
         }
-      });
-    }
-    else {
-      busConnection.subscribe(ProjectCloseListener.TOPIC, new ProjectCloseListener() {
-        @Override
-        public void projectClosing(@NotNull Project project) {
-          if (project == ChangeListManagerImpl.this.project) {
-            // Can't use Project disposable - it will be called after pending tasks are finished
-            Disposer.dispose(myUpdateDisposable);
-          }
-        }
-      });
-    }
+      }
+    });
   }
 
   @Override
@@ -1073,7 +1064,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
   }
 
   @Override
-  public void moveChangesTo(@NotNull LocalChangeList list, @NotNull List<@NotNull Change> changes) {
+  public void moveChangesTo(@NotNull LocalChangeList list, @NotNull List<? extends @NotNull Change> changes) {
     ApplicationManager.getApplication().runReadAction(() -> {
       synchronized (myDataLock) {
         myModifier.moveChangesTo(list.getName(), changes);

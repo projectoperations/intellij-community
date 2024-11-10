@@ -26,6 +26,7 @@ import com.intellij.openapi.module.ModuleUtil
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
 import com.intellij.openapi.roots.ModuleRootManager
@@ -61,6 +62,7 @@ import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -170,13 +172,22 @@ fun filterAssociatedSdks(module: Module, existingSdks: List<Sdk>): List<Sdk> {
 fun detectAssociatedEnvironments(module: Module, existingSdks: List<Sdk>, context: UserDataHolder): List<PyDetectedSdk> =
   detectVirtualEnvs(module, existingSdks, context).filter { it.isAssociatedWithModule(module) }
 
+@Deprecated("Please use version with sdkAdditionalData parameter")
 fun createSdkByGenerateTask(
   generateSdkHomePath: Task.WithResult<String, ExecutionException>,
   existingSdks: List<Sdk>,
   baseSdk: Sdk?,
   associatedProjectPath: String?,
   suggestedSdkName: String?,
-  sdkAdditionalData: PythonSdkAdditionalData? = null
+): Sdk = createSdkByGenerateTask(generateSdkHomePath, existingSdks, baseSdk, associatedProjectPath, suggestedSdkName, null)
+
+fun createSdkByGenerateTask(
+  generateSdkHomePath: Task.WithResult<String, ExecutionException>,
+  existingSdks: List<Sdk>,
+  baseSdk: Sdk?,
+  associatedProjectPath: String?,
+  suggestedSdkName: String?,
+  sdkAdditionalData: PythonSdkAdditionalData? = null,
 ): Sdk {
   val homeFile = try {
     val homePath = ProgressManager.getInstance().run(generateSdkHomePath)
@@ -205,6 +216,36 @@ fun createSdkByGenerateTask(
     PythonSdkType.getInstance(),
     sdkAdditionalData,
     sdkName)
+}
+
+@Internal
+suspend fun createSdk(
+  sdkHomePath: Path,
+  existingSdks: List<Sdk>,
+  associatedProjectPath: String?,
+  suggestedSdkName: String?,
+  sdkAdditionalData: PythonSdkAdditionalData? = null,
+): Result<Sdk> {
+  val homeFile = withContext(Dispatchers.IO) { StandardFileSystems.local().refreshAndFindFileByPath(sdkHomePath.pathString) }
+                 ?: return Result.failure(ExecutionException(
+                   PyBundle.message("python.sdk.directory.not.found", sdkHomePath.pathString)
+                 ))
+
+  val sdkName = suggestedSdkName ?: withContext(Dispatchers.IO) {
+    suggestAssociatedSdkName(homeFile.path, associatedProjectPath)
+  }
+
+  val sdk = SdkConfigurationUtil.setupSdk(
+    existingSdks.toTypedArray(),
+    homeFile,
+    PythonSdkType.getInstance(),
+    false,
+    sdkAdditionalData,
+    sdkName)
+
+  return sdk?.let { Result.success(it) } ?: Result.failure(ExecutionException(
+    PyBundle.message("python.sdk.failed.to.create.interpreter.title")
+  ))
 }
 
 fun showSdkExecutionException(sdk: Sdk?, e: ExecutionException, @NlsContexts.DialogTitle title: String) {
@@ -571,3 +612,14 @@ val Sdk.sdkSeemsValid: Boolean
     if (pythonSdkAdditionalData is PyRemoteSdkAdditionalData) return true
     return pythonSdkAdditionalData.flavorAndData.sdkSeemsValid(this, targetEnvConfiguration)
   }
+
+@Internal
+/**
+ * Saves SDK to the project table if there is no sdk with same name
+ */
+suspend fun Sdk.persist(): Unit = writeAction {
+  if (ProjectJdkTable.getInstance().findJdk(name) == null) { // Saving 2 SDKs with same name is an error
+    getOrCreateAdditionalData() // additional data is always required
+    ProjectJdkTable.getInstance().addJdk(this)
+  }
+}

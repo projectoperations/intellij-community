@@ -109,7 +109,6 @@ public class GradleExecutionHelper {
     @NotNull LongRunningOperation operation,
     @NotNull CancellationToken cancellationToken,
     @NotNull ExternalSystemTaskId id,
-    @NotNull List<String> tasksAndArguments,
     @NotNull GradleExecutionSettings settings,
     @NotNull ExternalSystemTaskNotificationListener listener
   ) {
@@ -123,11 +122,11 @@ public class GradleExecutionHelper {
 
     setupLogging(settings, buildEnvironment);
 
-    setupArguments(operation, tasksAndArguments, settings);
+    setupArguments(operation, settings);
 
     setupEnvironment(operation, settings);
 
-    setupJavaHome(operation, settings);
+    setupJavaHome(operation, settings, id);
 
     setupProgressListeners(operation, settings, id, listener, buildEnvironment);
 
@@ -224,9 +223,12 @@ public class GradleExecutionHelper {
 
   private static void setupJavaHome(
     @NotNull LongRunningOperation operation,
-    @NotNull GradleExecutionSettings settings
+    @NotNull GradleExecutionSettings settings,
+    @NotNull ExternalSystemTaskId id
   ) {
-    final String javaHome = settings.getJavaHome();
+    var javaHome = GradleDaemonJvmHelper.isExecutingUpdateDaemonJvmTask(settings)
+                   ? GradleDaemonJvmHelper.getGradleJvmForUpdateDaemonJvmTask(id)
+                   : settings.getJavaHome();
     if (javaHome != null && new File(javaHome).isDirectory()) {
       LOG.debug("Java home to set for Gradle operation: " + javaHome);
       operation.setJavaHome(new File(javaHome));
@@ -235,14 +237,9 @@ public class GradleExecutionHelper {
 
   private static void setupArguments(
     @NotNull LongRunningOperation operation,
-    @NotNull List<String> tasksAndArguments,
     @NotNull GradleExecutionSettings settings
   ) {
-    var commandLine = GradleCommandLineUtil.parseCommandLine(
-      tasksAndArguments,
-      settings.getArguments()
-    );
-    commandLine = fixUpGradleCommandLine(commandLine);
+    var commandLine = fixUpGradleCommandLine(settings.getCommandLine());
 
     LOG.info("Passing command-line to Gradle Tooling API: " +
              StringUtil.join(obfuscatePasswordParameters(commandLine.getTokens()), " "));
@@ -499,10 +496,7 @@ public class GradleExecutionHelper {
           modelBuilder.withCancellationToken(cancellationToken);
         }
         if (settings != null) {
-          final String javaHome = settings.getJavaHome();
-          if (javaHome != null && new File(javaHome).isDirectory()) {
-            modelBuilder.setJavaHome(new File(javaHome));
-          }
+          setupJavaHome(modelBuilder, settings, taskId);
         }
         // do not use connection.getModel methods since it doesn't allow to handle progress events
         // and we can miss gradle tooling client side events like distribution download.

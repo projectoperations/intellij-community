@@ -358,6 +358,46 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
+  // PY-36889
+  public void testInstanceAndClassAttributeAssignment() {
+    doTestByText("""
+                   from typing import ClassVar
+                   
+                   class ClassAnnotations:
+                       attr: int
+                       class_attr: ClassVar[int]
+                   
+                   ClassAnnotations().attr = <warning descr="Expected type 'int', got 'str' instead">"foo"</warning>
+                   ClassAnnotations.class_attr = <warning descr="Expected type 'int', got 'str' instead">"foo"</warning>
+                   
+                   class ClassAnnotationInstanceAssignment:
+                       attr: int
+                       def __init__(self, x):
+                           self.attr = x
+                   
+                   ClassAnnotationInstanceAssignment(42).attr = <warning descr="Expected type 'int', got 'str' instead">"foo"</warning>
+                   
+                   class InstanceAnnotationAndAssignment:
+                       def __init__(self):
+                           self.attr: int = 42
+                   
+                   InstanceAnnotationAndAssignment().attr = <warning descr="Expected type 'int', got 'str' instead">"foo"</warning>
+                   """);
+  }
+
+  // PY-36889
+  public void testDataclassInstanceAssignment() {
+    doTestByText("""
+                   from dataclasses import dataclass
+                   
+                   @dataclass
+                   class C:
+                       attr: int
+                   
+                   C().attr = <warning descr="Expected type 'int', got 'str' instead">"foo"</warning>
+                   """);
+  }
+
   // PY-24832
   public void testNoTypeMismatchInAssignmentWithoutTypeAnnotation() {
     doTest();
@@ -392,6 +432,46 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                    foo4(b)
                    """);
   }
+
+  // PY-46385
+  public void testAliasingEnumClassNameInLiteralType() {
+    doTestByText("""
+             from enum import Enum
+             from typing import Literal
+     
+             class Colors(Enum):
+                 RED = 1
+                 GREEN = 1
+                 BLUE = 3
+     
+             AliasColors = Colors
+     
+             x: AliasColors = Colors.RED
+             y: Literal[Colors.RED] = <warning descr="Expected type 'Literal[Colors.RED]', got 'Literal[Colors.GREEN]' instead">Colors.GREEN</warning>
+             z: Literal[AliasColors.RED] = Colors.RED""");
+  }
+
+  // PY-46385
+  public void testAliasingEnumMemberNameInLiteralType() {
+    doTestByText("""
+                   from enum import Enum
+                   from typing import Literal
+                   
+                   class Colors(Enum):
+                       RED = 1
+                       GREEN = 2
+                       BLUE = 3
+                   
+                   SpecialColors = Literal[Colors.RED]
+                   
+                   def special_painter(color: SpecialColors):
+                       assert color == Colors.RED
+                   
+                   special_painter(<warning descr="Expected type 'Literal[Colors.RED]', got 'Literal[Colors.GREEN]' instead">Colors.GREEN</warning>)
+                   
+                   costs: dict[SpecialColors, int] = <warning descr="Expected type 'dict[Literal[Colors.RED], int]', got 'dict[Literal[Colors.GREEN], Literal[7]]' instead">{Colors.GREEN: 7}</warning>""");
+  }
+
 
   // PY-42418
   public void testParametrizedBuiltinCollectionsAndTheirTypingAliasesAreEquivalent() {
@@ -2167,6 +2247,116 @@ def foo(param: str | int) -> TypeGuard[str]:
                    router = Router()
                    router.route(-2)
                    router.route(<warning descr="Expected type 'int', got 'str' instead">""</warning>)
+                   """);
+  }
+
+  // PY-76399
+  public void testAssignedValueMatchesWithDunderSetSimpleCase() {
+    doTestByText("""                   
+                   class MyDescriptor:
+                   
+                       def __set__(self, obj, value: str) -> None:
+                           ...
+                   
+                   class Test:
+                       member: MyDescriptor
+                   
+                   t = Test()
+                   t.member = "str"
+                   t.member = <warning descr="Expected type 'int' (from '__set__'), got 'str' instead">123</warning>
+                   t.member = <warning descr="Expected type 'Type[list]' (from '__set__'), got 'str' instead">list</warning>
+                   """);
+  }
+
+  // PY-76399
+  public void testAssignedValueMatchesWithGenericDunderSetSimpleCase() {
+    doTestByText("""                   
+                   class MyDescriptor[T]:
+                   
+                       def __set__(self, obj, value: T) -> None:
+                           ...
+                   
+                   class Test:
+                       member: MyDescriptor[str]
+                   
+                   t = Test()
+                   t.member = "str"
+                   t.member = <warning descr="Expected type 'int' (from '__set__'), got 'str' instead">123</warning>
+                   t.member = <warning descr="Expected type 'Type[list]' (from '__set__'), got 'str' instead">list</warning>
+                   """);
+  }
+
+  // PY-76399
+  public void testAssignedValueMatchesWithDunderSetWithOverloads() {
+    doTestByText("""
+                   from typing import overload
+                   
+                   class MyDescriptor:
+                   
+                       @overload
+                       def __set__(self, obj: "Test", value: str) -> None:
+                           ...
+                       @overload
+                       def __set__(self, obj: "Prod", value: "LocalizedString") -> None:
+                           ...
+                       def __set__(self, obj, value) -> None:
+                           ...
+                   
+                   class Test:
+                       member: MyDescriptor
+                   
+                   class Prod:
+                       member: MyDescriptor
+                   
+                   class LocalizedString:
+                       def __init__(self, value: str):
+                           ...
+                   
+                   t = Test()
+                   t.member = "abc"
+                   t.member = <warning descr="Expected type 'int' (from '__set__'), got 'str' instead">42</warning>
+                   p = Prod()
+                   p.member = <warning descr="Expected type 'str' (from '__set__'), got 'LocalizedString' instead">"abc"</warning>
+                   p.member = <warning descr="Expected type 'int' (from '__set__'), got 'LocalizedString' instead">42</warning>
+                   """);
+  }
+
+  // PY-76399
+  public void testAssignedValueMatchesWithDunderSetWithLiteralValue() {
+    doTestByText("""
+                   from typing import Literal
+                   
+                   
+                   class MyDescriptor:
+                       def __set__(self, obj, value: Literal[42]) -> None:
+                           ...
+                   
+                   class Test:
+                       member: MyDescriptor
+                   
+                   t = Test()
+                   t.member = 42
+                   t.member = <warning descr="Expected type 'Literal[43]' (from '__set__'), got 'Literal[42]' instead">43</warning>
+                   t.member = <warning descr="Expected type 'Literal[\\"42\\"]' (from '__set__'), got 'Literal[42]' instead">"42"</warning>
+                   """);
+  }
+
+  // PY-76399
+  public void testAssignedValueMatchesWithDunderSetOfAttributeUsedInConstructor() {
+    doTestByText("""
+                   class MyDescriptor:
+                       def __set__(self, obj: object, value: str): ...
+                   
+                   
+                   class Test:
+                       member: MyDescriptor
+                   
+                       def __init__(self, member):
+                           self.member = member
+                   
+                   
+                   x = Test("foo")
+                   x.member = <warning descr="Expected type 'int' (from '__set__'), got 'str' instead">42</warning>
                    """);
   }
 

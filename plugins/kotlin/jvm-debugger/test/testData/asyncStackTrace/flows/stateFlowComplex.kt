@@ -20,7 +20,6 @@ fun main(): Unit = runBlocking {
             .filter { it % 2 == 0 }
             .scan(0) { accumulator, value -> accumulator + value }
             .buffer(2)
-            .debounce(10.milliseconds)
             .collect {
                 //Breakpoint!
                 println(it)
@@ -28,26 +27,27 @@ fun main(): Unit = runBlocking {
     }
 
     launch {
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceAssign 1 !!!~~~`(stateFlow, 0)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceEmit 1 !!!~~~`(stateFlow, 1)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceCas 1 !!!~~~`(stateFlow, 1, 2)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceAssign 2 !!!~~~`(stateFlow, 3)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceEmit 2 !!!~~~`(stateFlow, 4)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceAssign 3 !!!~~~`(stateFlow, 5)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceEmit 3 !!!~~~`(stateFlow, 6)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceCas 3 !!!~~~`(stateFlow, 6, 7)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceAssign 4 !!!~~~`(stateFlow, 8)
-        delay(20)
+        delay(100)
         `~~~!!! recognizableFrameWithEmitInAsyncStackTraceEmit 4 !!!~~~`(stateFlow, 9)
-        delay(20)
+        delay(100)
         job.cancel()
     }
 }

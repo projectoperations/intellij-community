@@ -139,8 +139,9 @@ class ClassLoaderConfigurator(
           )
         }
         else {
+          val mimicJarUrlConnection = module.vendor == PluginManagerCore.VENDOR_JETBRAINS && module.moduleName == "intellij.rider.test.cases"
           module.pluginClassLoader = PluginClassLoader(
-            classPath = ClassPath(customJarFiles, DEFAULT_CLASSLOADER_CONFIGURATION, resourceFileFactory, false),
+            classPath = ClassPath(customJarFiles, DEFAULT_CLASSLOADER_CONFIGURATION, resourceFileFactory, mimicJarUrlConnection),
             parents = dependencies,
             pluginDescriptor = module,
             coreLoader = coreLoader,
@@ -285,7 +286,7 @@ class ClassLoaderConfigurator(
       val resolveScopeManager = createPluginDependencyAndContentBasedScope(descriptor = corePlugin, pluginSet = pluginSet)
       if (resolveScopeManager != null) {
         coreUrlClassLoader.resolveScopeManager = BiFunction { name, force ->
-          resolveScopeManager.isDefinitelyAlienClass(name, "", force)
+          resolveScopeManager.isDefinitelyAlienClass(name = name, packagePrefix = "", force = force)
         }
       }
     }

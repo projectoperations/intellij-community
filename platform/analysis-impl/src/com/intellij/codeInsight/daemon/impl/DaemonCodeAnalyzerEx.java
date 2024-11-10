@@ -30,6 +30,9 @@ public abstract class DaemonCodeAnalyzerEx extends DaemonCodeAnalyzer {
     return (DaemonCodeAnalyzerEx)getInstance(project);
   }
 
+  @ApiStatus.Internal
+  public abstract void restart(@NotNull Object reason);
+
   public static boolean processHighlights(@NotNull Document document,
                                           @NotNull Project project,
                                           @Nullable("null means all") HighlightSeverity minSeverity,
@@ -122,4 +125,5 @@ public abstract class DaemonCodeAnalyzerEx extends DaemonCodeAnalyzer {
 
   abstract protected void progressIsAdvanced(@NotNull HighlightingSession session, Editor editor, double progress);
   static final int ANY_GROUP = -409423948;
+  static final int FILE_LEVEL_FAKE_LAYER = -4094; // the layer the (fake) RangeHighlighter is created for file-level HighlightInfo in
 }

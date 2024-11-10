@@ -16,13 +16,15 @@ import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.util.TimeoutUtil;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.sun.jna.Memory;
 import com.sun.jna.Structure;
 import com.sun.jna.platform.win32.COM.COMException;
 import com.sun.jna.platform.win32.COM.Wbemcli;
 import com.sun.jna.platform.win32.COM.WbemcliUtil;
 import com.sun.jna.platform.win32.*;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,7 +42,7 @@ import java.util.stream.Stream;
  * <a href="https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/configure-extension-file-exclusions-microsoft-defender-antivirus">Defender Settings</a>,
  * <a href="https://learn.microsoft.com/en-us/powershell/module/defender/">Defender PowerShell Module</a>.
  */
-@SuppressWarnings({"MethodMayBeStatic", "DuplicatedCode"})
+@SuppressWarnings("MethodMayBeStatic")
 public class WindowsDefenderChecker {
   private static final Logger LOG = Logger.getInstance(WindowsDefenderChecker.class);
 
@@ -53,28 +55,56 @@ public class WindowsDefenderChecker {
    * Use the extension to propose technology-specific paths (e.g., {@code $GRADLE_USER_HOME}) to be added to the Defender's exclusion list.
    */
   public interface Extension {
-    @NotNull Collection<Path> getPaths(@NotNull Project project);
+    @NotNull Collection<Path> getPaths(@Nullable Project project, @Nullable Path projectPath);
   }
 
   public static WindowsDefenderChecker getInstance() {
     return ApplicationManager.getApplication().getService(WindowsDefenderChecker.class);
   }
 
+  private final Map<Path, @Nullable Boolean> myProjectPaths = Collections.synchronizedMap(new HashMap<>());
+
   public final boolean isStatusCheckIgnored(@Nullable Project project) {
-    return !Registry.is("ide.check.windows.defender.rules") ||
-           PropertiesComponent.getInstance().isTrueValue(IGNORE_STATUS_CHECK) ||
-           (project != null && PropertiesComponent.getInstance(project).isTrueValue(IGNORE_STATUS_CHECK));
+    return
+      !Registry.is("ide.check.windows.defender.rules") ||
+      PropertiesComponent.getInstance().isTrueValue(IGNORE_STATUS_CHECK) ||
+      (project != null && PropertiesComponent.getInstance(project).isTrueValue(IGNORE_STATUS_CHECK));
   }
 
   public final void ignoreStatusCheck(@Nullable Project project, boolean ignore) {
+    logCaller("ignore=" + ignore + " scope=" + (project == null ? "global" : project));
     var component = project == null ? PropertiesComponent.getInstance() : PropertiesComponent.getInstance(project);
     if (ignore) {
-      logCaller("scope=" + (project == null ? "global" : project));
       component.setValue(IGNORE_STATUS_CHECK, true);
     }
     else {
       component.unsetValue(IGNORE_STATUS_CHECK);
     }
+  }
+
+  @ApiStatus.Internal
+  public final void markProjectPath(@NotNull Path projectPath) {
+    myProjectPaths.put(projectPath, null);
+  }
+
+  @ApiStatus.Internal
+  @RequiresBackgroundThread
+  final boolean isAlreadyProcessed(@NotNull Project project) {
+    var projectPath = getProjectPath(project);
+    if (projectPath != null && myProjectPaths.containsKey(projectPath)) {
+      while (!project.isDisposed() && myProjectPaths.get(projectPath) == null) TimeoutUtil.sleep(100);
+      if (myProjectPaths.remove(projectPath) == Boolean.TRUE) {
+        PropertiesComponent.getInstance(project).setValue(IGNORE_STATUS_CHECK, true);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  private static @Nullable Path getProjectPath(Project project) {
+    var projectDir = ProjectUtil.guessProjectDir(project);
+    return projectDir != null && projectDir.isInLocalFileSystem() ? projectDir.toNioPath() : null;
   }
 
   /**
@@ -133,24 +163,61 @@ public class WindowsDefenderChecker {
   private enum AntivirusProduct {DisplayName, ProductState}
   private enum MpComputerStatus {RealTimeProtectionEnabled}
 
-  public final @NotNull List<Path> getPathsToExclude(@NotNull Project project) {
-    var paths = new TreeSet<Path>();
-
-    var projectDir = ProjectUtil.guessProjectDir(project);
-    if (projectDir != null && projectDir.getFileSystem() instanceof LocalFileSystem) {
-      paths.add(projectDir.toNioPath());
+  public final boolean isUntrustworthyLocation(@NotNull Path path) {
+    var tempVar = System.getenv("TEMP");
+    if (tempVar != null && path.startsWith(Path.of(tempVar))) {
+      return true;
     }
 
-    paths.add(PathManager.getSystemDir());
+    var downloadDir = (Path)null;
+    if (JnaLoader.isLoaded()) {
+      try {
+        downloadDir = Path.of(Shell32Util.getKnownFolderPath(KnownFolders.FOLDERID_Downloads));
+      }
+      catch (Exception e) {
+        LOG.warn("download dir detection failed", e);
+      }
+    }
+    if (downloadDir == null) {
+      downloadDir = Path.of(System.getProperty("user.home"), "Downloads");
+    }
+    if (path.startsWith(downloadDir)) {
+      return true;
+    }
 
-    EP_NAME.forEachExtensionSafe(ext -> {
-      paths.addAll(ext.getPaths(project));
-    });
+    return false;
+  }
 
+  public final @NotNull List<Path> getPathsToExclude(@NotNull Project project) {
+    var paths = doGetPathsToExclude(project, null);
+    var projectPath = getProjectPath(project);
+    if (projectPath != null) {
+      paths.add(projectPath);
+    }
     return new ArrayList<>(paths);
   }
 
+  public final @NotNull List<Path> getPathsToExclude(@Nullable Project project, @NotNull Path projectPath) {
+    var paths = doGetPathsToExclude(project, projectPath);
+    paths.add(projectPath);
+    return new ArrayList<>(paths);
+  }
+
+  private Set<Path> doGetPathsToExclude(@Nullable Project project, @Nullable Path projectPath) {
+    var paths = new TreeSet<Path>();
+    paths.add(PathManager.getSystemDir());
+    if (projectPath != null) {
+      paths.add(projectPath);
+    }
+    EP_NAME.forEachExtensionSafe(ext -> {
+      paths.addAll(ext.getPaths(project, projectPath));
+    });
+    return paths;
+  }
+
   public final @NotNull List<Path> filterDevDrivePaths(@NotNull List<Path> paths) {
+    if (paths.isEmpty()) return paths;
+
     if (!JnaLoader.isLoaded()) {
       LOG.debug("filterDevDrivePaths: JNA is not loaded");
       return paths;
@@ -175,6 +242,7 @@ public class WindowsDefenderChecker {
   private static final int PERSISTENT_VOLUME_STATE_DEV_VOLUME = 0x00002000;
   private static final int PERSISTENT_VOLUME_STATE_TRUSTED_VOLUME = 0x00004000;
 
+  @ApiStatus.Internal
   @SuppressWarnings({"unused", "FieldMayBeFinal"})
   @Structure.FieldOrder({"VolumeFlags", "FlagMask", "Version", "Reserved"})
   public static final class FILE_FS_PERSISTENT_VOLUME_INFORMATION extends Structure implements AutoCloseable {
@@ -223,8 +291,17 @@ public class WindowsDefenderChecker {
   }
 
   public final boolean excludeProjectPaths(@NotNull Project project, @NotNull List<Path> paths) {
-    logCaller("paths=" + paths);
+    return doExcludeProjectPaths(project, null, paths);
+  }
 
+  public final boolean excludeProjectPaths(@Nullable Project project, @NotNull Path projectPath, @NotNull List<Path> paths) {
+    return doExcludeProjectPaths(project, projectPath, paths);
+  }
+
+  private boolean doExcludeProjectPaths(@Nullable Project project, @Nullable Path projectPath, List<Path> paths) {
+    logCaller("paths=" + paths + " project=" + (project != null ? project : projectPath));
+
+    var result = Boolean.FALSE;
     try {
       var script = PathManager.findBinFile(HELPER_SCRIPT_NAME);
       if (script == null) {
@@ -275,13 +352,21 @@ public class WindowsDefenderChecker {
       }
       else {
         LOG.info("OK; script output:\n" + output.getStdout().trim());
-        PropertiesComponent.getInstance(project).setValue(IGNORE_STATUS_CHECK, true);
+        if (project != null) {
+          PropertiesComponent.getInstance(project).setValue(IGNORE_STATUS_CHECK, true);
+        }
+        result = Boolean.TRUE;
         return true;
       }
     }
     catch (Exception e) {
       LOG.warn(e);
       return false;
+    }
+    finally {
+      if (project == null) {
+        myProjectPaths.put(projectPath, result);
+      }
     }
   }
 

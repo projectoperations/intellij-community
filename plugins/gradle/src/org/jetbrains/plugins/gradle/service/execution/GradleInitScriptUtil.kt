@@ -11,6 +11,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.io.toCanonicalPath
+import com.intellij.platform.externalSystem.rt.ExternalSystemRtClass
 import com.intellij.util.containers.ContainerUtil
 import org.gradle.util.GradleVersion
 import org.jetbrains.annotations.ApiStatus
@@ -142,7 +143,24 @@ fun loadCommonDebuggerUtilsScript():String {
 }
 
 fun loadJvmDebugInitScript(): String {
-  return loadInitScript("/org/jetbrains/plugins/gradle/tooling/internal/init/JvmDebugInit.gradle")
+  return joinInitScripts(
+    loadToolingExtensionProvidingInitScript(
+      ExternalSystemRtClass::class.java
+    ),
+    loadCommonTasksUtilsScript(),
+    loadCommonDebuggerUtilsScript(),
+    loadInitScript("/org/jetbrains/plugins/gradle/tooling/internal/init/JvmDebugInit.gradle")
+  )
+}
+
+fun loadJvmOptionsInitScript(
+  tasks: List<String>,
+  jvmArgs: List<String>,
+): String {
+  return loadInitScript("/org/jetbrains/plugins/gradle/tooling/internal/init/JvmOptionsInit.gradle", mapOf(
+    "TASKS" to tasks.toGroovyListLiteral { toGroovyStringLiteral() },
+    "JVM_ARGS" to jvmArgs.toGroovyListLiteral { toGroovyStringLiteral() }
+  ))
 }
 
 private val JUNIT_3_COMPARISON_FAILURE = listOf("junit.framework.ComparisonFailure")
@@ -188,7 +206,10 @@ fun loadApplicationInitScript(
   useClasspathFile: Boolean
 ): String {
   return joinInitScripts(
-    loadToolingExtensionProvidingInitScript(),
+    loadToolingExtensionProvidingInitScript(
+      GradleToolingExtensionImplClass::class.java,
+      GradleToolingExtensionClass::class.java
+    ),
     loadInitScript(
       "/org/jetbrains/plugins/gradle/tooling/internal/init/ApplicationTaskInitScript.gradle",
       mapOf(
@@ -219,7 +240,13 @@ private fun loadEnhanceGradleDaemonClasspathInit(classesNames: List<List<String>
   ))
 }
 
-private fun joinInitScripts(vararg initScripts: String): String {
+@ApiStatus.Experimental
+fun joinInitScripts(vararg initScripts: String): String {
+  return joinInitScripts(initScripts.asList())
+}
+
+@ApiStatus.Experimental
+fun joinInitScripts(initScripts: List<String>): String {
   return initScripts.joinToString(System.lineSeparator())
 }
 
@@ -227,8 +254,18 @@ private fun loadInitScript(resourcePath: String, parameters: Map<String, String>
   return loadInitScript(Init::class.java, resourcePath, parameters)
 }
 
-private fun loadInitScript(aClass: Class<*>, resourcePath: String, parameters: Map<String, String>): String {
-  var script = loadInitScript(aClass, resourcePath)
+@ApiStatus.Experimental
+fun loadInitScript(aClass: Class<*>, resourcePath: String, parameters: Map<String, String> = emptyMap()): String {
+  val resource = aClass.getResource(resourcePath)
+  if (resource == null) {
+    throw IllegalArgumentException("Cannot find init file $resourcePath")
+  }
+  var script = try {
+    resource.readText()
+  }
+  catch (e: IOException) {
+    throw IllegalStateException("Cannot read init file $resourcePath", e)
+  }
   for ((key, value) in parameters) {
     val replacement = Matcher.quoteReplacement(value)
     script = script.replaceFirst(key.toRegex(), replacement)
@@ -236,27 +273,15 @@ private fun loadInitScript(aClass: Class<*>, resourcePath: String, parameters: M
   return script
 }
 
-private fun loadInitScript(aClass: Class<*>, resourcePath: String): String {
-  val resource = aClass.getResource(resourcePath)
-  if (resource == null) {
-    throw IllegalArgumentException("Cannot find init file $resourcePath")
-  }
-  try {
-    return resource.readText()
-  }
-  catch (e: IOException) {
-    throw IllegalStateException("Cannot read init file $resourcePath", e)
-  }
-}
-
 fun createInitScript(prefix: String, content: String): Path {
+  val sanitizedPrefix = FileUtil.sanitizeFileName(prefix)
   val contentBytes = content.encodeToByteArray()
   val tempDirectory = Path.of(FileUtil.getTempDirectory())
   tempDirectory.createDirectories()
   var suffix = 0
   while (true) {
     suffix++
-    val candidateName = prefix + suffix + "." + GradleConstants.EXTENSION
+    val candidateName = sanitizedPrefix + suffix + "." + GradleConstants.EXTENSION
     val candidate = tempDirectory.resolve(candidateName)
     try {
       candidate.createFile()
@@ -273,15 +298,15 @@ fun createInitScript(prefix: String, content: String): Path {
   }
 }
 
-fun loadToolingExtensionProvidingInitScript(
-  toolingExtensionClasses: Set<Class<*>> = setOf(GradleToolingExtensionImplClass::class.java, GradleToolingExtensionClass::class.java),
-): String {
+fun loadToolingExtensionProvidingInitScript(vararg toolingExtensionClasses: Class<*>): String {
+  return loadToolingExtensionProvidingInitScript(toolingExtensionClasses.toSet())
+}
+
+fun loadToolingExtensionProvidingInitScript(toolingExtensionClasses: Set<Class<*>>): String {
   val tapiClasspath = getToolingExtensionsJarPaths(toolingExtensionClasses)
-    .toGroovyListLiteral { "mapPath(" + toGroovyStringLiteral() + ")" }
-  return loadInitScript(
-    "/org/jetbrains/plugins/gradle/tooling/internal/init/ClassPathExtensionInitScript.gradle",
-    mapOf("EXTENSIONS_JARS_PATH" to tapiClasspath)
-  )
+  return loadInitScript("/org/jetbrains/plugins/gradle/tooling/internal/init/ClassPathExtensionInitScript.gradle", mapOf(
+    "EXTENSIONS_JARS_PATH" to tapiClasspath.toGroovyListLiteral { "mapPath(" + toGroovyStringLiteral() + ")" }
+  ))
 }
 
 private fun isContentEquals(path: Path, content: ByteArray): Boolean {

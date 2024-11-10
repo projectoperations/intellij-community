@@ -46,6 +46,7 @@ import com.intellij.testFramework.SkipSlowTestLocally;
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.TestTimeOut;
+import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
@@ -79,7 +80,6 @@ public class DaemonAnnotatorsRespondToChangesTest extends DaemonAnalyzerTestCase
     myDaemonCodeAnalyzer = (DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(getProject());
     UndoManager.getInstance(myProject);
     myDaemonCodeAnalyzer.setUpdateByTimerEnabled(true);
-    DaemonProgressIndicator.setDebug(true);
     PlatformTestUtil.assumeEnoughParallelism();
   }
 
@@ -103,6 +103,11 @@ public class DaemonAnnotatorsRespondToChangesTest extends DaemonAnalyzerTestCase
       myDaemonCodeAnalyzer = null;
       super.tearDown();
     }
+  }
+
+  @Override
+  protected void runTestRunnable(@NotNull ThrowableRunnable<Throwable> testRunnable) throws Throwable {
+    DaemonProgressIndicator.runInDebugMode(() -> super.runTestRunnable(testRunnable));
   }
 
   @Override
@@ -194,7 +199,7 @@ public class DaemonAnnotatorsRespondToChangesTest extends DaemonAnalyzerTestCase
       assertEquals("XXX", assertOneElement(doHighlighting(HighlightSeverity.WARNING)).getDescription());
 
       for (int i = 0; i < 100; i++) {
-        myDaemonCodeAnalyzer.restart();
+        myDaemonCodeAnalyzer.restart(getTestName(false)+ " "+i);
         List<HighlightInfo> infos = doHighlighting(HighlightSeverity.WARNING);
         assertEquals("XXX", assertOneElement(infos).getDescription());
       }
@@ -614,7 +619,7 @@ public class DaemonAnnotatorsRespondToChangesTest extends DaemonAnalyzerTestCase
       HighlightInfo info = assertOneElement(infos);
       assertEquals("warning", info.getDescription());
       MiddleOfTextAnnotator.doAnnotate = false;
-      myDaemonCodeAnalyzer.restart();
+      myDaemonCodeAnalyzer.restart(getTestName(false));
       assertEmpty(doHighlighting());
     });
   }
@@ -644,11 +649,11 @@ public class DaemonAnnotatorsRespondToChangesTest extends DaemonAnalyzerTestCase
     editor.getScrollPane().getViewport().setExtentSize(new Dimension(100, editor.getPreferredHeight() - (int)caretVisualPoint.getY()));
     ProperTextRange visibleRange = editor.calculateVisibleRange();
     assertTrue(visibleRange.toString(), visibleRange.getStartOffset() > 0);
-    myDaemonCodeAnalyzer.restart();
+    myDaemonCodeAnalyzer.restart(getTestName(false));
     expectedVisibleRange = visibleRange;
     useAnnotatorsIn(PlainTextLanguage.INSTANCE, new MyRecordingAnnotator[]{new CheckVisibleRangeAnnotator()}, ()-> assertEmpty(doHighlighting()));
     DaemonRespondToChangesTest.makeWholeEditorWindowVisible(editor);
-    myDaemonCodeAnalyzer.restart();
+    myDaemonCodeAnalyzer.restart(getTestName(false));
     expectedVisibleRange = new TextRange(0, editor.getDocument().getTextLength());
     useAnnotatorsIn(PlainTextLanguage.INSTANCE, new MyRecordingAnnotator[]{new CheckVisibleRangeAnnotator()}, ()-> assertEmpty(doHighlighting()));
   }
@@ -826,7 +831,7 @@ public class DaemonAnnotatorsRespondToChangesTest extends DaemonAnalyzerTestCase
     MarkupModelEx model = (MarkupModelEx)DocumentMarkupModel.forDocument(getEditor().getDocument(), getProject(), true);
 
     // both annos should produce their results
-    myDaemonCodeAnalyzer.restart();
+    myDaemonCodeAnalyzer.restart(getTestName(false));
     DaemonRespondToChangesTest.makeWholeEditorWindowVisible((EditorImpl)myEditor); // get "visible area first" optimization out of the way
     useAnnotatorsIn(annotatorsByLanguage, () -> {
       long deadline = System.currentTimeMillis() + 20_000;

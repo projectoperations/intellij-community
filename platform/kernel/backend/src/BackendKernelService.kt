@@ -28,7 +28,6 @@ private class RemoteKernelScopeHolder {
       kernelCoroutineContext.transactor,
       kernelScope.childScope("RemoteKernelScope", kernelCoroutineContext),
       CommonInstructionSet.decoder(),
-      KernelRpcSerialization,
     )
   }
 }
@@ -49,12 +48,13 @@ internal class BackendKernelService(coroutineScope: CoroutineScope) : KernelServ
 
   init {
     coroutineScope.launch {
-      withKernel(middleware = LeaderTransactorMiddleware(KernelRpcSerialization, CommonInstructionSet.encoder())) {
+      withKernel(middleware = LeaderTransactorMiddleware(CommonInstructionSet.encoder())) {
         change {
           initWorkspaceClock()
         }
         handleEntityTypes(transactor(), this)
-        kernelCoroutineScope.complete(this)
+        // Create a supervisor child scope to avoid kernel coroutine getting canceled by exceptions coming under `withKernel`
+        kernelCoroutineScope.complete(this.childScope(name = "KernelCoroutineScope", supervisor = true))
         updateDbInTheEventDispatchThread()
       }
     }

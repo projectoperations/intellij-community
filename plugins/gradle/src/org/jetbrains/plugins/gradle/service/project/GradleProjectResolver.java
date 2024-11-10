@@ -7,8 +7,6 @@ import com.intellij.gradle.toolingExtension.impl.model.sourceSetDependencyModel.
 import com.intellij.gradle.toolingExtension.impl.model.sourceSetModel.DefaultGradleSourceSetModel;
 import com.intellij.gradle.toolingExtension.impl.model.taskModel.DefaultGradleTaskModel;
 import com.intellij.gradle.toolingExtension.impl.modelAction.GradleModelFetchAction;
-import com.intellij.gradle.toolingExtension.impl.telemetry.GradleOpenTelemetry;
-import com.intellij.gradle.toolingExtension.impl.telemetry.TelemetryHolder;
 import com.intellij.gradle.toolingExtension.impl.util.GradleTreeTraverserUtil;
 import com.intellij.gradle.toolingExtension.util.GradleVersionUtil;
 import com.intellij.openapi.diagnostic.Logger;
@@ -33,7 +31,6 @@ import com.intellij.openapi.util.io.CanonicalPathPrefixTreeFactory;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.NioPathUtil;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.platform.diagnostic.telemetry.rt.context.TelemetryContext;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.Function;
 import com.intellij.util.ObjectUtils;
@@ -43,14 +40,13 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
-import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
-import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import org.gradle.api.ProjectConfigurationException;
 import org.gradle.tooling.BuildActionFailureException;
 import org.gradle.tooling.CancellationTokenSource;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
+import org.gradle.tooling.model.ProjectModel;
 import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.tooling.model.idea.IdeaModule;
 import org.gradle.tooling.model.idea.IdeaProject;
@@ -58,6 +54,7 @@ import org.gradle.util.GradleVersion;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 import org.jetbrains.plugins.gradle.issue.DeprecatedGradleVersionIssue;
 import org.jetbrains.plugins.gradle.jvmcompat.GradleJvmSupportMatrix;
 import org.jetbrains.plugins.gradle.model.*;
@@ -73,16 +70,12 @@ import org.jetbrains.plugins.gradle.service.modelAction.GradleIdeaModelHolder;
 import org.jetbrains.plugins.gradle.service.modelAction.GradleModelFetchActionRunner;
 import org.jetbrains.plugins.gradle.service.syncAction.GradleModelFetchActionResultHandler;
 import org.jetbrains.plugins.gradle.service.syncAction.GradleProjectResolverResultHandler;
-import org.jetbrains.plugins.gradle.settings.DistributionType;
 import org.jetbrains.plugins.gradle.settings.GradleBuildParticipant;
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 import org.jetbrains.plugins.gradle.util.GradleModuleDataKt;
-import org.jetbrains.plugins.gradle.util.telemetry.GradleDaemonOpenTelemetryUtil;
-import org.jetbrains.plugins.gradle.util.telemetry.GradleOpenTelemetryTraceService;
 
 import java.io.File;
-import java.net.URI;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -273,7 +266,7 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
 
     GradleExecutionSettings executionSettings = resolverContext.getSettings();
     if (executionSettings == null) {
-      executionSettings = new GradleExecutionSettings(null, null, DistributionType.BUNDLED, false);
+      executionSettings = new GradleExecutionSettings();
     }
 
     configureExecutionArgumentsAndVmOptions(executionSettings, resolverContext);
@@ -333,10 +326,6 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
     Span gradleCallSpan = ExternalSystemTelemetryUtil.getTracer(GradleConstants.SYSTEM_ID)
       .spanBuilder("GradleCall")
       .startSpan();
-    if (GradleDaemonOpenTelemetryUtil.isDaemonTracingEnabled(executionSettings)) {
-      TelemetryContext gradleDaemonObservabilityContext = getActionTelemetryContext(gradleCallSpan, executionSettings);
-      buildAction.setTracingContext(gradleDaemonObservabilityContext);
-    }
     try (Scope ignore = gradleCallSpan.makeCurrent()) {
       var modelFetchActionResultHandler = new GradleModelFetchActionResultHandler(resolverContext);
       GradleModelFetchActionRunner.runAndTraceBuildAction(resolverContext, executionSettings, buildAction, modelFetchActionResultHandler);
@@ -360,7 +349,6 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
       ExternalSystemSyncActionsCollector.logPhaseFinished(
         null, activityId, Phase.GRADLE_CALL, gradleCallTimeInMs, gradleCallErrorsCount);
       gradleCallSpan.end();
-      exportTelemetry(executionSettings, models.getTelemetry());
     }
 
     ProgressManager.checkCanceled();
@@ -823,11 +811,12 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
     @NotNull ProjectResolverContext resolverContext,
     @NotNull Map<String, Pair<DataNode<ModuleData>, IdeaModule>> moduleMap
   ) {
+    var modules = ContainerUtil.map2Map(moduleMap.values(), it -> new Pair<>(it.getSecond(), it.getFirst()));
     if (resolverContext.isResolveModulePerSourceSet()) {
-      mergeSourceSetContentRootsInModulePerSourceSetMode(resolverContext, moduleMap);
+      mergeSourceSetContentRootsInModulePerSourceSetMode(resolverContext, modules);
     }
     else {
-      mergeSourceSetContentRootsInModulePerProjectMode(resolverContext, moduleMap);
+      mergeSourceSetContentRootsInModulePerProjectMode(resolverContext, modules);
     }
   }
 
@@ -838,25 +827,27 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
    * For example, it creates content roots src/main for the source set directories src/main/java and src/main/resources.
    * Same for src/test/java and src/test/resources, it creates src/test content root.
    */
-  private static void mergeSourceSetContentRootsInModulePerSourceSetMode(
+  @VisibleForTesting
+  @ApiStatus.Internal
+  static void mergeSourceSetContentRootsInModulePerSourceSetMode(
     @NotNull ProjectResolverContext resolverContext,
-    @NotNull Map<String, Pair<DataNode<ModuleData>, IdeaModule>> moduleMap
+    @NotNull Map<? extends ProjectModel, DataNode<ModuleData>> moduleMap
   ) {
     var contentRootIndex = new GradleContentRootIndex();
 
-    for (var moduleEntry : moduleMap.values()) {
-      var moduleNode = moduleEntry.first;
+    for (var moduleEntry : moduleMap.entrySet()) {
+      var moduleNode = moduleEntry.getValue();
 
       for (var sourceSetNode : findAll(moduleNode, GradleSourceSetData.KEY)) {
         contentRootIndex.addSourceRoots(sourceSetNode);
       }
     }
 
-    for (var moduleEntry : moduleMap.values()) {
-      var moduleNode = moduleEntry.first;
-      var ideaModule = moduleEntry.second;
+    for (var moduleEntry : moduleMap.entrySet()) {
+      var projectModel = moduleEntry.getKey();
+      var moduleNode = moduleEntry.getValue();
 
-      var externalProject = resolverContext.getExtraProject(ideaModule, ExternalProject.class);
+      var externalProject = resolverContext.getProjectModel(projectModel, ExternalProject.class);
       if (externalProject == null) continue;
 
       for (var sourceSetNode : findAll(moduleNode, GradleSourceSetData.KEY)) {
@@ -889,13 +880,13 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
 
   private static void mergeSourceSetContentRootsInModulePerProjectMode(
     @NotNull ProjectResolverContext resolverContext,
-    @NotNull Map<String, Pair<DataNode<ModuleData>, IdeaModule>> moduleMap
+    @NotNull Map<? extends ProjectModel, DataNode<ModuleData>> moduleMap
   ) {
-    for (var moduleEntry : moduleMap.values()) {
-      var moduleNode = moduleEntry.first;
-      var ideaModule = moduleEntry.second;
+    for (var moduleEntry : moduleMap.entrySet()) {
+      var projectModel = moduleEntry.getKey();
+      var moduleNode = moduleEntry.getValue();
 
-      var externalProject = resolverContext.getExtraProject(ideaModule, ExternalProject.class);
+      var externalProject = resolverContext.getProjectModel(projectModel, ExternalProject.class);
       if (externalProject == null) continue;
 
       var projectRootPath = NioPathUtil.toCanonicalPath(externalProject.getProjectDir().toPath());
@@ -1039,22 +1030,5 @@ public class GradleProjectResolver implements ExternalSystemProjectResolver<Grad
     };
     chainWrapper.setNext(firstResolver);
     return chainWrapper;
-  }
-
-  private static @NotNull TelemetryContext getActionTelemetryContext(@NotNull Span span, @NotNull GradleExecutionSettings settings) {
-    TelemetryContext context = TelemetryContext.from(Context.current().with(span), W3CTraceContextPropagator.getInstance());
-    context.put(GradleOpenTelemetry.REQUESTED_FORMAT_KEY, GradleDaemonOpenTelemetryUtil.getTelemetryFormat(settings).name());
-    return context;
-  }
-
-  private static void exportTelemetry(
-    @NotNull GradleExecutionSettings settings,
-    @NotNull List<TelemetryHolder> holders
-  ) {
-    Path targetFolder = GradleDaemonOpenTelemetryUtil.getTargetFolder(settings);
-    URI targetEndpoint = GradleDaemonOpenTelemetryUtil.getTargetEndpoint(settings);
-    for (TelemetryHolder holder : holders) {
-      GradleOpenTelemetryTraceService.exportOpenTelemetry(holder, targetFolder, targetEndpoint);
-    }
   }
 }

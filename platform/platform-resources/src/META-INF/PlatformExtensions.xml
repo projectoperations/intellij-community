@@ -182,7 +182,7 @@
                  restartRequired="false"
                  description="Set initial Linux tty size to 100x100 for WSL processes not attached to Windows PTY (workaround for https://github.com/microsoft/WSL/issues/10701)"
                  defaultValue="true"/>
-    <experimentalFeature id="ide.redesigned.inspector" percentOfUsers="50">
+    <experimentalFeature id="ide.redesigned.inspector" percentOfUsers="0">
       <description>
         Enable new inspection widget experiment
       </description>
@@ -309,8 +309,6 @@
                         serviceImplementation="com.intellij.ui.content.ContentFactoryImpl"/>
     <applicationService serviceInterface="com.intellij.ui.TreeUIHelper"
                         serviceImplementation="com.intellij.ui.TreeUIHelperImpl"/>
-    <applicationService serviceInterface="com.intellij.ui.treeStructure.TreeDomainModelFactory"
-                        serviceImplementation="com.intellij.ui.tree.TreeDomainModelFactoryImpl"/>
     <applicationService serviceInterface="com.intellij.ui.treeStructure.TreeViewModelFactory"
                         serviceImplementation="com.intellij.ui.tree.TreeViewModelFactoryImpl"/>
     <applicationService serviceInterface="com.intellij.ui.treeStructure.TreeSwingModelFactory"
@@ -627,6 +625,7 @@
                  description="Add icon 'open In right splitter' to recent files menu"/>
     <welcomeFrameProvider implementation="com.intellij.openapi.wm.impl.welcomeScreen.FlatWelcomeFrameProvider"/>
     <welcomeTabFactory id="ProjectsWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.ProjectsTabFactory"/>
+    <registryKey defaultValue="3" description="Number of primary buttons on welcome screen (other go to 'more actions')" key="welcome.screen.primaryButtonsCount" restartRequired="true"/>
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.openapi.wm.impl.welcomeScreen.statistics.WelcomeScreenCounterUsageCollector"/>
     <welcomeTabFactory id="CustomizeWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.CustomizeTabFactory"
@@ -1128,7 +1127,7 @@
     <editorNotificationProvider implementation="com.intellij.ide.CommandLineWaitingManager$MyNotification"/>
     <editorNotificationProvider implementation="com.intellij.ide.trustedProjects.impl.UntrustedProjectNotificationProvider"/>
 
-    <uiDataRule implementation="com.intellij.ide.impl.dataRules.BasicUiDataRule"/>
+    <uiDataRule implementation="com.intellij.ide.impl.dataRules.BasicUiDataRule" id="BasicUiDataRule"/>
     <getDataRule key="NavigatableArray" implementationClass="com.intellij.ide.impl.dataRules.NavigatableArrayRule"/>
     <getDataRule key="context.ProjectFileDirectory" implementationClass="com.intellij.ide.impl.dataRules.ProjectFileDirectoryRule"/>
 
@@ -1400,9 +1399,6 @@
         <component>FUSProjectUsageTrigger</component>
       </components>
     </obsoleteStorage>
-
-    <backgroundPostStartupActivity implementation="com.intellij.diagnostic.MemorySizeConfigurator"/>
-    <applicationService serviceImplementation="com.intellij.diagnostic.MemorySizeConfiguratorService"/>
 
     <registryKey key="show.last.visited.timestamps" defaultValue="true"
                  description="Shows recent files or code locations last visited timestamps"/>
@@ -1789,11 +1785,6 @@
     <registryKey key="highlighting.passes.cache.experiment.group"
                  defaultValue="false"
                  description="Turn on the highlighting passes preload experiment"/>
-
-    <editorFloatingToolbarProvider
-      id="CloseSearchEverywherePreviewToolbar"
-      order="after DefaultFloatingToolbarProvider"
-      implementation="com.intellij.ide.actions.searcheverywhere.CloseSearchEverywherePreviewToolbar"/>
 
     <actionConfigurationCustomizer implementation="com.intellij.openapi.project.impl.SeparateProcessActionsCustomizer"/>
 
